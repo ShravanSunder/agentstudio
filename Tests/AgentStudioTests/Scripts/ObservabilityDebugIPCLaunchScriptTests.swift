@@ -5,7 +5,7 @@ import Testing
 @Suite("Observability debug IPC launch script verifier")
 struct ObservabilityDebugIPCLaunchScriptTests {
     @Test("debug observability verifier requires requested IPC terminal smoke telemetry")
-    func debugObservabilityVerifierRequiresRequestedIPCTerminalSmokeTelemetry() throws {
+    func debugObservabilityVerifierRequiresRequestedIPCTerminalSmokeTelemetry() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -24,7 +24,7 @@ struct ObservabilityDebugIPCLaunchScriptTests {
             bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -63,7 +63,7 @@ struct ObservabilityDebugIPCLaunchScriptTests {
     }
 
     @Test("debug observability verifier accepts completed IPC terminal smoke telemetry")
-    func debugObservabilityVerifierAcceptsCompletedIPCTerminalSmokeTelemetry() throws {
+    func debugObservabilityVerifierAcceptsCompletedIPCTerminalSmokeTelemetry() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -83,7 +83,7 @@ struct ObservabilityDebugIPCLaunchScriptTests {
         )
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -131,7 +131,7 @@ struct ObservabilityDebugIPCLaunchScriptTests {
     }
 
     @Test("debug observability verifier rejects IPC smoke with extra created panes")
-    func debugObservabilityVerifierRejectsIPCSmokeWithExtraCreatedPanes() throws {
+    func debugObservabilityVerifierRejectsIPCSmokeWithExtraCreatedPanes() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -150,7 +150,7 @@ struct ObservabilityDebugIPCLaunchScriptTests {
             bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -192,7 +192,7 @@ struct ObservabilityDebugIPCLaunchScriptTests {
     }
 
     @Test("debug observability verifier rejects IPC smoke without render proof")
-    func debugObservabilityVerifierRejectsIPCSmokeWithoutRenderProof() throws {
+    func debugObservabilityVerifierRejectsIPCSmokeWithoutRenderProof() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -211,7 +211,7 @@ struct ObservabilityDebugIPCLaunchScriptTests {
             bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [

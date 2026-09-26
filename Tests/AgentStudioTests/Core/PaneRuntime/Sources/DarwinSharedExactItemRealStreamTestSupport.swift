@@ -17,7 +17,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     let unrelatedSiblingPath: URL
     let nativeStreamRecorder: NativeSharedExactItemStreamRecorder
     let readRecorder = GitPhysicalReadRecorder()
-    let provider: AgentStudioGitWorkingTreeStatusProvider
 
     private let fixtureRoot: URL
     private let streamClient: DarwinFSEventStreamClient
@@ -76,12 +75,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             sharedExactItemStreamFactory: nativeStreamRecorder.makeStream
         )
         gitClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
-        provider = Self.makeProvider(
-            continuityWitness: streamClient,
-            readRecorder: readRecorder,
-            exactItemParent: exactItemParent,
-            gitClient: gitClient
-        )
 
         let (forwardedIngress, forwardedIngressContinuation) = AsyncStream.makeStream(
             of: FSEventIngressItem.self,
@@ -120,105 +113,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         }
     }
 
-    func establishAuthority(
-        worktreeId: UUID,
-        repositoryPath: URL
-    ) async -> GitCleanContinuityAuthority? {
-        let worktreeLabel =
-            if worktreeId == firstWorktreeId {
-                "first"
-            } else if worktreeId == secondWorktreeId {
-                "second"
-            } else {
-                "unknown"
-            }
-        let result = await provider.exactCleanStatusFactsResult(
-            for: worktreeId,
-            rootPath: repositoryPath
-        )
-        switch result {
-        case .available(let facts):
-            guard let authority = facts.exactCleanAuthority else {
-                print(
-                    "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                        + "outcome=available_without_authority"
-                )
-                return nil
-            }
-            print(
-                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                    + "outcome=authoritative"
-            )
-            return authority
-        case .requiresExact(let reason):
-            print(
-                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                    + "outcome=requires_exact reason=\(reason.rawValue)"
-            )
-            return nil
-        case .unavailable(let unavailable):
-            print(
-                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                    + "outcome=unavailable reason=\(unavailable.reason.rawValue)"
-            )
-            return nil
-        }
-    }
-
-    func establishAuthorityAfterOverlappingMutation(
-        worktreeId: UUID,
-        repositoryPath: URL
-    ) async throws -> GitCleanContinuityAuthority {
-        while true {
-            switch await provider.exactCleanStatusFactsResult(
-                for: worktreeId,
-                rootPath: repositoryPath
-            ) {
-            case .available(let facts):
-                let authority = try #require(
-                    facts.exactCleanAuthority,
-                    "exact status returned without a clean authority"
-                )
-                switch await provider.renewExactCleanAuthority(authority) {
-                case .renewed:
-                    return authority
-                case .requiresExact(.mutationObserved):
-                    break
-                case .requiresExact(let reason):
-                    throw SharedExactItemFixtureSetupError(
-                        reason: "exact authority renewal rejected setup for \(reason.rawValue)"
-                    )
-                }
-            case .requiresExact(.mutationObserved):
-                break
-            case .requiresExact(let reason):
-                throw SharedExactItemFixtureSetupError(
-                    reason: "exact status rejected setup for \(reason.rawValue)"
-                )
-            case .unavailable(let unavailable):
-                throw SharedExactItemFixtureSetupError(
-                    reason: "exact status unavailable for \(unavailable.reason.rawValue)"
-                )
-            }
-            // A callback overlapping authority setup or its first renewal is
-            // valid fail-closed behavior. Drive one irrelevant shared callback
-            // before the next attempt, with the observer armed before writing.
-            let callbackPath = URL(fileURLWithPath: externalParentPath)
-                .appending(path: "authority-retry-\(UUIDv7.generate().uuidString)")
-            let canonicalPath = DarwinFSEventPathCanonicalizer.canonicalURL(callbackPath).path
-            let callback = nativeStreamRecorder.armCallbackEvent(at: canonicalPath)
-            try "retry stimulus\n".write(to: callbackPath, atomically: false, encoding: .utf8)
-            _ = try #require(
-                await nativeStreamRecorder.awaitCallbackEvent(callback),
-                "retry stimulus callback never arrived"
-            )
-            try #require(
-                await awaitActivityBarrier(),
-                "activity barrier failed after the retry stimulus"
-            )
-        }
-    }
-
     func collectFullGitRefreshBatches(
         expectedWorktreeIds: Set<UUID>
     ) -> Task<[UUID: FSEventBatch], Never> {
@@ -237,6 +131,29 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
                 }
             }
             return batchByWorktreeId
+        }
+    }
+
+    func armLocalSentinelCallback(
+        at sentinelPath: URL,
+        for worktreeId: UUID
+    ) -> Task<FSEventBatch?, Never> {
+        let expectedPath = DarwinFSEventPathCanonicalizer.canonicalURL(sentinelPath).path
+        let forwardedIngress = forwardedIngress
+        return Task {
+            for await ingressItem in forwardedIngress {
+                guard case .batch(let batch) = ingressItem,
+                    batch.worktreeId == worktreeId,
+                    batch.paths.contains(where: {
+                        DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0)
+                            == expectedPath
+                    })
+                else {
+                    continue
+                }
+                return batch
+            }
+            return nil
         }
     }
 
@@ -438,11 +355,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         }
     }
 
-    func requiresExact(_ result: GitExactCleanRenewalResult) -> Bool {
-        guard case .requiresExact = result else { return false }
-        return true
-    }
-
     func remove() {
         streamClient.shutdown()
         ingressTask?.cancel()
@@ -466,63 +378,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         try await git.run(["add", "README.md"])
         try await git.run(["commit", "-m", "initial"])
         try await git.run(["config", "core.excludesFile", excludesFilePath.path])
-    }
-
-    private static func makeProvider(
-        continuityWitness: DarwinFSEventStreamClient,
-        readRecorder: GitPhysicalReadRecorder,
-        exactItemParent: SharedExactItemParent,
-        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient
-    ) -> AgentStudioGitWorkingTreeStatusProvider {
-        AgentStudioGitWorkingTreeStatusProvider(
-            physicalGate: AgentStudioGitStatusPhysicalGate(),
-            continuityWitness: continuityWitness,
-            statusObservationPlanReader: { repositoryPath in
-                try await filteredObservationPlan(
-                    repositoryPath: repositoryPath,
-                    exactItemParent: exactItemParent,
-                    gitClient: gitClient,
-                    readRecorder: readRecorder
-                )
-            },
-            verifiedStatusFactsReader: { repositoryPath, options, observationPlan in
-                readRecorder.recordVerifiedFactsRead()
-                let resolvedPlan = try await gitClient.statusObservationPlan(for: repositoryPath)
-                let resolvedRead = try await gitClient.statusFacts(
-                    for: repositoryPath,
-                    options: options,
-                    observationPlan: resolvedPlan
-                )
-                return AgentStudioGit.GitStatusFactsRead(
-                    facts: resolvedRead.facts,
-                    exactCleanBaseline: resolvedRead.exactCleanBaseline.flatMap { _ in
-                        observationPlan.map {
-                            AgentStudioGit.GitExactCleanBaseline(
-                                observationIdentity: $0.identity
-                            )
-                        }
-                    }
-                )
-            },
-            statusFactsReader: { repositoryPath, options in
-                readRecorder.recordOrdinaryFactsRead()
-                return try await gitClient.statusFacts(
-                    for: repositoryPath,
-                    options: options
-                ).facts
-            },
-            lineDetailReader: { repositoryPath in
-                readRecorder.recordLineDetailRead()
-                return try await gitClient.exactLineCountDetail(for: repositoryPath)
-            },
-            statusReader: { repositoryPath, options in
-                readRecorder.recordCompleteStatusRead()
-                return try await gitClient.completeStatus(
-                    for: repositoryPath,
-                    options: options
-                )
-            }
-        )
     }
 
     private func installIntendedObservationBindings() async throws {

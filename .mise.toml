@@ -105,6 +105,9 @@ description = "Format Swift sources with swift-format"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "mise run format"
+trap swift_build_slot_release EXIT
 swift-format format --in-place --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests
 echo "Formatted all Swift sources"
 """
@@ -295,6 +298,8 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "mise run build"
+trap swift_build_slot_release EXIT
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
@@ -314,6 +319,8 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "mise run build-release"
+trap swift_build_slot_release EXIT
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
@@ -354,6 +361,8 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire test "mise run test:architecture"
+trap swift_build_slot_release EXIT
 swift test --package-path Tools/AgentStudioArchitectureLint \
   --build-path "${PROJECT_ROOT}/${SWIFT_BUILD_DIR}/architecture-lint"
 """
@@ -400,6 +409,8 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire test "mise run test:swift:coverage"
+trap swift_build_slot_release EXIT
 BUILD_PATH="$SWIFT_BUILD_DIR"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test-coverage] BUILD_PATH=$BUILD_PATH"
@@ -411,7 +422,8 @@ source scripts/swift-test-helpers.sh
 
 prebuild_swift_tests
 
-run_non_serialized_swift_tests "non-serialized suites (coverage)"
+run_fast_non_webkit_swift_tests
+run_large_non_webkit_swift_tests
 run_webkit_suites
 
 echo "--- E2E serialized tests (serial, coverage) ---"
@@ -419,7 +431,9 @@ if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
   run_swift_with_timeout \
     "E2ESerializedTests (coverage)" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build \
+      --filter "$(swift_test_lane_filter_pattern e2e)" \
+      --skip "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH"
 else
   echo "[test-coverage] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
 fi
@@ -448,10 +462,15 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire test "mise run test:swift:e2e"
+trap swift_build_slot_release EXIT
+source "${PROJECT_ROOT}/scripts/swift-test-helpers.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build \
+  --filter "$(swift_test_lane_filter_pattern e2e)" \
+  --skip "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks."test:swift:zmx-e2e"]
@@ -462,10 +481,14 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire test "mise run test:swift:zmx-e2e"
+trap swift_build_slot_release EXIT
+source "${PROJECT_ROOT}/scripts/swift-test-helpers.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build \
+  --filter "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks."test:swift:benchmark"]
@@ -476,11 +499,14 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire test "mise run test:swift:benchmark"
+trap swift_build_slot_release EXIT
+source "${PROJECT_ROOT}/scripts/swift-test-helpers.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 export _XCB_BYPASS=1
 xcb_pipe=$(_xcb_pipe_cmd)
-swift test --build-path "$BUILD_PATH" --filter "GlobalPreferencesBootstrapBenchmarkTests|RepoExplorerNativeTablePilotBenchmarkTests" 2>&1 | $xcb_pipe
+swift test --build-path "$BUILD_PATH" --filter "$(swift_test_lane_filter_pattern benchmark)" 2>&1 | $xcb_pipe
 """
 
 [tasks.clean-artifacts]
@@ -512,14 +538,51 @@ description = "Reap stale .slot-claim leaks from agent build dirs (safe while ot
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-shopt -s nullglob
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 reaped=0
-for dir in .build-agent-1 .build-agent-2; do
-  [ -d "$dir/.slot-claim" ] || continue
-  if ! lsof +D "$dir" >/dev/null 2>&1; then
-    rm -rf "$dir/.slot-claim"
-    echo "[clean-agent-builds] reaped stale claim: $dir/.slot-claim"
+for slot_name in build test; do
+  build_directory="$(swift_build_slot_resolve_directory "$slot_name")"
+  claim_directory="$build_directory/.slot-claim"
+  [ -d "$claim_directory" ] || continue
+
+  if [ -r "$claim_directory/holder" ] && \
+    IFS=$'\t' read -r holder_process_id holder_start_time holder_task < "$claim_directory/holder" && \
+    [ -n "$holder_process_id" ] && [ -n "$holder_start_time" ]; then
+    if swift_build_slot_holder_is_same_process "$holder_process_id" "$holder_start_time"; then
+      echo "[clean-agent-builds] preserved live slot=$slot_name task=$holder_task pid=$holder_process_id start=$holder_start_time"
+      continue
+    fi
+    if swift_build_slot_release_dead_claim "$slot_name" "$claim_directory" "$holder_process_id" "$holder_start_time"; then
+      reaped=$((reaped + 1))
+    else
+      echo "[clean-agent-builds] preserved stale claim while PID or build files remain slot=$slot_name task=$holder_task pid=$holder_process_id start=$holder_start_time"
+    fi
+    continue
+  fi
+
+  # Missing or empty holder metadata is the legacy-claim path. Confirm that
+  # nothing still has an open file under the build directory before removing
+  # the empty claim.
+  if ! command -v lsof >/dev/null 2>&1; then
+    echo "[clean-agent-builds] cannot verify legacy claim without lsof: $claim_directory" >&2
+    continue
+  fi
+  if lsof +D "$build_directory" >/dev/null 2>&1; then
+    legacy_holder="$(swift_build_slot_legacy_holder_description "$build_directory" || true)"
+    echo "[clean-agent-builds] preserved active legacy claim slot=$slot_name ${legacy_holder:-holder details unavailable}"
+    continue
+  fi
+  # An interrupted acquisition may have created an empty holder file before
+  # writing its PID and start time. With no open files, discard that incomplete
+  # metadata so the legacy claim directory can be removed.
+  if [ -f "$claim_directory/holder" ]; then
+    /bin/rm -f "$claim_directory/holder"
+  fi
+  if rmdir "$claim_directory" 2>/dev/null; then
+    echo "[clean-agent-builds] reaped idle empty legacy claim: $claim_directory"
     reaped=$((reaped + 1))
+  else
+    echo "[clean-agent-builds] preserved non-empty legacy claim: $claim_directory"
   fi
 done
 echo "[clean-agent-builds] reaped $reaped stale claim(s)"
