@@ -245,16 +245,7 @@ describe("full-page topology scroll reveal", () => {
         .querySelector('[data-topology-chapter-node="chapter-1"]')
         ?.getAttribute(topologyChapterStateAttribute),
     ).toBe("passed");
-    expect(
-      fixture.artwork
-        .querySelector('[data-route-anchor="chapter-2"]')
-        ?.hasAttribute("data-topology-current-branch"),
-    ).toBe(true);
-    expect(
-      fixture.artwork
-        .querySelector('[data-route-anchor="chapter-1"]')
-        ?.hasAttribute("data-topology-current-branch"),
-    ).toBe(false);
+    expect(fixture.artwork.querySelectorAll("[data-topology-current-branch]")).toHaveLength(0);
     expect(
       [...document.querySelectorAll(`[${railCurrentAttribute}]`)].map((element) =>
         element.getAttribute("data-rail-surface-target"),

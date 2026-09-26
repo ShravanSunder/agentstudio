@@ -128,7 +128,7 @@ export const verifyChapterScrollGeometry = defineBrowserCommand(
     const observations: ChapterScrollGeometrySample[] = [];
     try {
       await applicationPage.setViewportSize({ width: request.width, height: request.height });
-      await applicationPage.goto(request.pageUrl, { waitUntil: "networkidle" });
+      await applicationPage.goto(request.pageUrl, { waitUntil: "domcontentloaded" });
       await applicationPage.evaluate(async () => {
         await document.fonts.ready;
       });

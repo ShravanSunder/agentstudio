@@ -32,29 +32,35 @@ export interface WorktreeLane {
 export interface LanePlan {
   readonly lanes: readonly WorktreeLane[];
   readonly reserved: ReadonlyMap<number, Omit<TopologyRowDot, "row" | "y">>;
+  readonly terminalMerge: boolean;
 }
 
 /**
  * Worktree lanes open as a one-column staircase (lane k forks from lane k-1 on
  * consecutive rows) starting at `openRow`, in the gutter beside the hero copy,
- * and close the same way in reverse after the last target, so every fork and
- * merge moves one column.
+ * and close in reverse into the final row. A lane count that cannot leave one
+ * free row after the last attach returns undefined; composition retries with
+ * fewer columns rather than routing a branch across already-merged lanes.
  */
 export function planWorktreeLanes(props: {
   readonly laneXs: readonly number[];
   readonly mainlineX: number;
   readonly rowYs: readonly number[];
   readonly openRow: number;
-  readonly closeBelowY: number;
-  readonly lastUsableRow: number;
+  readonly endRow: number;
+  readonly lastAttachRow: number;
 }): LanePlan | undefined {
   const laneCount = props.laneXs.length;
   if (laneCount === 0) {
-    return { lanes: [], reserved: new Map() };
+    return { lanes: [], reserved: new Map(), terminalMerge: false };
   }
   const openRow = props.openRow;
-  const closeRow = props.rowYs.findIndex((rowY) => rowY >= props.closeBelowY);
-  if (openRow < 0 || closeRow < 0 || closeRow + laneCount - 1 > props.lastUsableRow) {
+  const finalMergeStart = props.endRow - laneCount + 1;
+  if (
+    openRow < 0 ||
+    finalMergeStart <= props.lastAttachRow + 1 ||
+    props.endRow >= props.rowYs.length
+  ) {
     return undefined;
   }
   const lanes: WorktreeLane[] = [];
@@ -62,7 +68,7 @@ export function planWorktreeLanes(props: {
   for (let laneIndex = 0; laneIndex < laneCount; laneIndex += 1) {
     const column = laneIndex + 1;
     const forkRow = openRow + laneIndex;
-    const mergeRow = closeRow + (laneCount - 1 - laneIndex);
+    const mergeRow = finalMergeStart + (laneCount - 1 - laneIndex);
     if (mergeRow - forkRow < 2) {
       return undefined;
     }
@@ -95,7 +101,7 @@ export function planWorktreeLanes(props: {
       incomingAccent: lane.accent,
     });
   }
-  return { lanes, reserved };
+  return { lanes, reserved, terminalMerge: true };
 }
 
 /** Wide hero lanes fork from the middle of the copy, then reach the frame. */
@@ -123,7 +129,9 @@ export function heroLaneOpenRow(props: {
   const bandTop = heroTarget.top + Math.min(topologyAttachBandInset, heroTarget.height / 2);
   const bandStartRow = rowYs.findIndex((rowY) => rowY >= bandTop);
   const latestTravelOpenRow = bandStartRow - laneCount - topologyHeroLaneMaximumTravel;
-  return Math.max(heroRow + 1, middleRow, latestTravelOpenRow);
+  // The visible outer lane opens after the inner lanes. Keep that outer fork
+  // near the copy's middle without shortening its run into the hero branch.
+  return Math.max(heroRow + 1, middleRow - (laneCount - 1), latestTravelOpenRow);
 }
 
 export function worktreePath(lane: WorktreeLane, rowYs: readonly number[]): string {

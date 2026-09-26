@@ -23,11 +23,8 @@ describe("topology node vocabulary on the home page", () => {
   it("draws each node kind with its own glyph, color, and size", async () => {
     // Act
     const result = await commands.verifyTopologyNodeVocabulary(inject("siteHeaderBrowserTestUrl"));
-    for (const transition of result.glowTransitions) {
-      expect(transition.property).toContain("filter");
-      expect(transition.duration).toContain("0.4s");
-    }
-
+    expect(result.routeFilters.length).toBeGreaterThan(0);
+    expect(result.routeFilters).toEqual(result.routeFilters.map(() => "none"));
     // Assert: before the reveal, every glyph is a faint thin outline at its own size.
     const unrevealed = result.beforeReveal.filter((glyph) => !glyph.revealed);
     expect(unrevealed.length).toBeGreaterThan(0);

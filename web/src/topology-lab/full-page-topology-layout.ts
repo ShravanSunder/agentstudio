@@ -5,8 +5,6 @@
 // Relative imports keep this module loadable by Vitest, which has no "@/" alias.
 import {
   railAnchorAttribute,
-  railEndMarkAttribute,
-  railEndSectionAttribute,
   railMediaTargetAttribute,
   railStepPillTargetAttribute,
   railSurfaceTargetAttribute,
@@ -16,7 +14,6 @@ import {
   composeFullPageTopology,
   type TopologyAnchorMeasurement,
   type TopologyComposition,
-  type TopologyEndMeasurement,
   type TopologyRect,
   type TopologyRoute,
   type TopologyRowDot,
@@ -135,27 +132,6 @@ function firstLineBox(element: Element): DOMRect | undefined {
   return [...range.getClientRects()].find((box) => box.width > 0 && box.height > 0);
 }
 
-/** The final call to action section and midpoint mark for the rail end. */
-function measureEnd(artwork: SVGSVGElement): TopologyEndMeasurement | undefined {
-  const ownerDocument = artwork.ownerDocument;
-  const section = ownerDocument.querySelector(`[${railEndSectionAttribute}]`);
-  if (section === null || section.getClientRects().length === 0) {
-    return undefined;
-  }
-  const origin = artwork.getBoundingClientRect();
-  const measure = (element: Element): TopologyRect => {
-    const bounds = element.getBoundingClientRect();
-    return {
-      left: bounds.left - origin.left,
-      top: bounds.top - origin.top,
-      width: bounds.width,
-      height: bounds.height,
-    };
-  };
-  const mark = section.querySelector(`[${railEndMarkAttribute}]`);
-  return { section: measure(section), mark: mark === null ? undefined : measure(mark) };
-}
-
 function progressForY(composition: TopologyComposition, y: number): number {
   const startY = composition.rowYs[0] ?? 0;
   const endY = composition.rowYs.at(-1) ?? startY;
@@ -235,7 +211,7 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
 }
 
 function rowDotSignature(dot: TopologyRowDot): string {
-  return `${dot.kind}:${dot.accent}:${dot.incomingAccent ?? ""}:${dot.ownerId}:${dot.anchorId ?? ""}`;
+  return `${dot.kind}:${dot.accent}:${dot.incomingAccent ?? ""}:${dot.ownerId}:${dot.anchorId ?? ""}:${dot.terminal === true}`;
 }
 
 function createCircle(
@@ -256,10 +232,13 @@ function createCircle(
  */
 function createRowNode(ownerDocument: Document, dot: TopologyRowDot): SVGGElement {
   const group = createSvgElement(ownerDocument, "g");
-  const terminal = dot.kind === "chapter" || dot.kind === "end";
+  const terminal = dot.kind === "chapter" || dot.kind === "end" || dot.terminal === true;
   group.setAttribute("class", `${terminal ? "node-terminal-group " : ""}accent-${dot.accent}`);
   group.setAttribute("data-node", "");
   group.setAttribute("data-node-kind", dot.kind);
+  if (dot.kind === "end" || dot.terminal === true) {
+    group.setAttribute("data-topology-terminal", "");
+  }
   if (dot.anchorId !== undefined) {
     group.setAttribute(topologyChapterNodeAttribute, dot.anchorId);
   }
@@ -278,10 +257,10 @@ function createRowNode(ownerDocument: Document, dot: TopologyRowDot): SVGGElemen
     group.append(createCircle(ownerDocument, "node-commit", topologyNodeRadii.commit));
   }
   if (terminal) {
-    group.append(
-      createCircle(ownerDocument, "node-terminal-halo", topologyNodeRadii.terminal),
-      createCircle(ownerDocument, "node-terminal", topologyNodeRadii.terminal),
-    );
+    group.append(createCircle(ownerDocument, "node-terminal-halo", topologyNodeRadii.terminal));
+    if (dot.kind !== "merge") {
+      group.append(createCircle(ownerDocument, "node-terminal", topologyNodeRadii.terminal));
+    }
   }
   return group;
 }
@@ -305,12 +284,10 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   if (ownerWindow === null || mainline === null || routeLayer === null || nodeLayer === null) {
     return hideTopology(artwork, "incomplete-artwork");
   }
-  const end = measureEnd(artwork);
   const composition = composeFullPageTopology({
     viewportWidth: ownerWindow.innerWidth,
     height: artwork.clientHeight,
     anchors: measureAnchors(artwork),
-    ...(end === undefined ? {} : { end }),
   });
   if (composition === undefined) {
     routeLayer.replaceChildren();

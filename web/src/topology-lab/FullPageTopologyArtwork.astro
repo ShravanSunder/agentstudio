@@ -117,12 +117,6 @@
     stroke-dashoffset: 0;
   }
 
-  :global([data-node]),
-  :global([data-topology-route-group]) {
-    filter: drop-shadow(0 0 6px rgb(137 180 250 / 0%));
-    transition: filter 400ms ease;
-  }
-
   [data-topology-current-node]:not(.node-terminal-group),
   :global([data-topology-current-node]:not(.node-terminal-group)) {
     animation: topology-current-node-pulse 2.6s ease-in-out infinite;
@@ -247,7 +241,8 @@
     stroke: var(--color-primary);
   }
 
-  :global([data-chapter-state="current"] .node-terminal-halo) {
+  :global([data-chapter-state="current"] .node-terminal-halo),
+  :global([data-topology-terminal][data-topology-node-revealed] .node-terminal-halo) {
     display: inline;
     fill: none;
     stroke: var(--color-primary);
@@ -257,11 +252,6 @@
     transform-box: fill-box;
     transform-origin: center;
     animation: topology-terminal-node-halo-once 1.8s ease-out 1 both;
-  }
-
-  :global([data-topology-current-node]),
-  :global([data-topology-current-branch]) {
-    filter: drop-shadow(0 0 6px rgb(137 180 250 / 35%));
   }
 
   /* The retired terminal halo (scale 1 → 2.35 while fading), played once, then
@@ -303,10 +293,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    :global([data-node]),
-    :global([data-topology-route-group]) {
-      transition: none;
-    }
     :global([data-topology-current-node]) {
       animation: none;
     }
@@ -318,7 +304,8 @@
       transition: none;
     }
 
-    :global([data-chapter-state="current"] .node-terminal-halo) {
+    :global([data-chapter-state="current"] .node-terminal-halo),
+    :global([data-topology-terminal][data-topology-node-revealed] .node-terminal-halo) {
       animation: none;
     }
   }

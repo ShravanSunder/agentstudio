@@ -7,8 +7,8 @@
 // - A cramped gutter (no room for a lane column) draws only the mainline.
 // - A branch into a target forks one row above the attach edge from the column
 //   next to that target and steps one column in; it never runs beside copy.
-// - Worktree lanes open below the first anchor's copy and close after the last
-//   target, so they never run beside text.
+// - Worktree lanes open below the first anchor's copy and staircase into the
+//   final glass's center when rows permit.
 //
 // Relative imports keep this module loadable by Vitest, which has no "@/" alias.
 import {
@@ -22,7 +22,7 @@ import {
   planAttachRoutes,
   topologyStackedDropCornerInset,
 } from "./topology-attach-geometry";
-import { topologyEndY, topologyRectBottom, topologyRectCenterY } from "./topology-end-geometry";
+import { topologyEndY, topologyRectCenterY } from "./topology-end-geometry";
 import {
   heroLaneOpenRow,
   mainlineOwnerId,
@@ -77,18 +77,6 @@ export interface TopologyPageMeasurement {
   readonly viewportWidth: number;
   readonly height: number;
   readonly anchors: readonly TopologyAnchorMeasurement[];
-  /**
-   * Where the rail ends (the final call to action). Without it, the topology
-   * runs to one row above the page end.
-   */
-  readonly end?: TopologyEndMeasurement;
-}
-
-export interface TopologyEndMeasurement {
-  /** `data-rail-end-section`: CTA section used when either midpoint input is unavailable. */
-  readonly section: TopologyRect;
-  /** `data-rail-end-mark`: the CTA icon. */
-  readonly mark: TopologyRect | undefined;
 }
 
 /**
@@ -134,6 +122,8 @@ export interface TopologyRowDot {
    * that receives the merge, which the dot sits on.
    */
   readonly incomingAccent?: TopologyAccent;
+  /** A terminal merge also carries the final halo and one reveal pulse. */
+  readonly terminal?: boolean;
 }
 
 export interface TopologyComposition {
@@ -182,9 +172,6 @@ export function composeFullPageTopology(
   });
   const finalRow = rowYs.length - 1;
   const firstAnchor = page.anchors[0];
-  const targetBottoms = page.anchors.flatMap((anchor) =>
-    anchor.surface === undefined ? [] : [topologyRectBottom(anchor.surface)],
-  );
 
   // Fewer lanes when the page has too few rows to open and close them all.
   // Each retry lays the columns out again, so the mainline moves right and
@@ -206,8 +193,8 @@ export function composeFullPageTopology(
         heroTarget: firstAnchor?.surface,
         laneCount: columns.laneXs.length,
       }),
-      closeBelowY: Math.max(...targetBottoms, 0),
-      lastUsableRow: finalRow - 1,
+      endRow: finalRow,
+      lastAttachRow: anchorRows.at(-1) ?? 0,
     });
     if (lanePlan !== undefined || columns.laneXs.length === 0) {
       break;
@@ -247,6 +234,12 @@ export function composeFullPageTopology(
       kind: "end",
       anchorId: undefined,
     });
+  }
+  if (lanePlan?.terminalMerge === true) {
+    const finalMerge = lanePlan.reserved.get(finalRow);
+    if (finalMerge !== undefined) {
+      reserved.set(finalRow, { ...finalMerge, terminal: true });
+    }
   }
 
   const attachRoutes = planAttachRoutes({

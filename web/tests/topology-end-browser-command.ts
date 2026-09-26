@@ -1,94 +1,65 @@
 import { defineBrowserCommand } from "@vitest/browser-playwright";
 
-interface PageRect {
-  readonly left: number;
-  readonly top: number;
-  readonly right: number;
-  readonly bottom: number;
-}
-
-/** Where the rail ends on the served home page at one viewport width, in page coordinates. */
+/** The served rail's final node and rendered path extent in page coordinates. */
 export interface TopologyEndObservation {
   readonly width: number;
   readonly endNodeY: number;
-  readonly lastGlassBottom: number;
-  readonly ctaIconTop: number;
-  readonly hasEndMark: boolean;
-  /** The lowest point of any rail path or node. */
+  readonly lastGlassCenterY: number;
   readonly lowestRailY: number;
-  /** Rail path samples and nodes that fall inside a call-to-action or footer element's box. */
-  readonly pointsOverEndContent: number;
+  readonly endKind: string;
+  readonly laneCount: number;
+  readonly mergeRing: boolean;
+  readonly mergeCore: boolean;
+  readonly terminalHalo: boolean;
+  readonly haloAnimationCount: string;
+  readonly ctaEndMarkers: number;
 }
 
 function observeEnd(width: number): TopologyEndObservation {
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
-  const section = document.querySelector("[data-rail-end-section]");
   const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
-  const endMark = section?.querySelector("[data-rail-end-mark]");
-  const ctaIcon = endMark ?? section?.querySelector("img");
-  const endNode = document.querySelector('[data-node-kind="end"] circle');
+  const endNode = artwork?.querySelector<SVGGElement>("[data-topology-terminal]");
+  const endCircle = endNode?.querySelector<SVGCircleElement>("circle");
   if (
     artwork === null ||
-    section === null ||
     lastGlass === null ||
-    ctaIcon === null ||
-    ctaIcon === undefined ||
-    endNode === null
+    endNode === null ||
+    endNode === undefined ||
+    endCircle === null ||
+    endCircle === undefined
   ) {
-    throw new Error("The home page is missing its rail end hooks");
+    throw new Error("The home page is missing its final glass or terminal rail node");
   }
   const origin = artwork.getBoundingClientRect();
-  const scrollPosition = { x: window.scrollX, y: window.scrollY };
-  const toPage = (bounds: DOMRect): PageRect => ({
-    left: bounds.left + scrollPosition.x,
-    top: bounds.top + scrollPosition.y,
-    right: bounds.right + scrollPosition.x,
-    bottom: bounds.bottom + scrollPosition.y,
-  });
   const artworkTop = origin.top + window.scrollY;
-  const artworkLeft = origin.left + window.scrollX;
-  const points: { readonly x: number; readonly y: number }[] = [];
+  const points: number[] = [];
   for (const path of artwork.querySelectorAll<SVGPathElement>("path[d]")) {
-    const total = path.getTotalLength();
+    const totalLength = path.getTotalLength();
     for (let step = 0; step <= 200; step += 1) {
-      const point = path.getPointAtLength((total * step) / 200);
-      points.push({ x: artworkLeft + point.x, y: artworkTop + point.y });
+      points.push(artworkTop + path.getPointAtLength((totalLength * step) / 200).y);
     }
   }
   for (const circle of artwork.querySelectorAll<SVGCircleElement>("circle")) {
-    points.push({
-      x: artworkLeft + circle.cx.baseVal.value,
-      y: artworkTop + circle.cy.baseVal.value,
-    });
+    points.push(artworkTop + circle.cy.baseVal.value);
   }
-  const endContent = [
-    ...section.querySelectorAll(":scope > *"),
-    ...document.querySelectorAll("footer, footer *"),
-  ]
-    .filter((element) => element.getClientRects().length > 0)
-    .map((element) => toPage(element.getBoundingClientRect()));
-  const lastGlassBox = toPage(lastGlass.getBoundingClientRect());
-  const ctaIconBox = toPage(ctaIcon.getBoundingClientRect());
+  const glassBox = lastGlass.getBoundingClientRect();
+  const halo = endNode.querySelector<SVGCircleElement>(".node-terminal-halo");
   return {
     width,
-    endNodeY: artworkTop + Number(endNode.getAttribute("cy")),
-    lastGlassBottom: lastGlassBox.bottom,
-    ctaIconTop: ctaIconBox.top,
-    hasEndMark: endMark !== null && endMark !== undefined,
-    lowestRailY: Math.max(...points.map((point) => point.y)),
-    pointsOverEndContent: points.filter((point) =>
-      endContent.some(
-        (box) =>
-          point.x >= box.left &&
-          point.x <= box.right &&
-          point.y >= box.top &&
-          point.y <= box.bottom,
-      ),
-    ).length,
+    endNodeY: artworkTop + Number(endCircle.getAttribute("cy")),
+    lastGlassCenterY: (glassBox.top + glassBox.bottom) / 2 + window.scrollY,
+    lowestRailY: Math.max(...points),
+    endKind: endNode.dataset["nodeKind"] ?? "",
+    laneCount: Number(artwork.dataset["laneCount"]),
+    mergeRing: endNode.querySelector(".node-merge-ring") !== null,
+    mergeCore: endNode.querySelector(".node-merge-core") !== null,
+    terminalHalo: halo !== null,
+    haloAnimationCount: halo === null ? "" : getComputedStyle(halo).animationIterationCount,
+    ctaEndMarkers: document.querySelectorAll("[data-rail-end-section], [data-rail-end-mark]")
+      .length,
   };
 }
 
-/** Loads the served home page at each width and reads where the rail ends. */
 export const verifyTopologyEnd = defineBrowserCommand(
   async (
     { context },
@@ -98,16 +69,83 @@ export const verifyTopologyEnd = defineBrowserCommand(
     const applicationPage = await context.newPage();
     const observations: TopologyEndObservation[] = [];
     try {
-      /* eslint-disable no-await-in-loop -- one page owns the viewport; each width must settle before the next. */
       for (const width of widths) {
-        await applicationPage.setViewportSize({ width, height: 900 });
-        await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
-        await applicationPage.waitForSelector('[data-full-page-topology] [data-node-kind="end"]', {
-          state: "attached",
+        await applicationPage.setViewportSize({
+          width,
+          height: width === 390 ? 844 : width === 1280 ? 800 : 1080,
+        });
+        await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+        await applicationPage.waitForSelector(
+          "[data-full-page-topology] [data-topology-terminal]",
+          { state: "attached" },
+        );
+        await applicationPage.evaluate(() => {
+          const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+          const circle = artwork?.querySelector<SVGCircleElement>(
+            "[data-topology-terminal] circle",
+          );
+          if (artwork === null || circle === null || circle === undefined)
+            throw new Error("Terminal node is missing before scroll");
+          window.scrollTo({
+            top:
+              window.scrollY +
+              artwork.getBoundingClientRect().top +
+              circle.cy.baseVal.value -
+              window.innerHeight * 0.55,
+            behavior: "instant",
+          });
+        });
+        await applicationPage.waitForSelector(
+          "[data-topology-terminal][data-topology-node-revealed]",
+          { state: "attached" },
+        );
+        await applicationPage.evaluate(async () => {
+          const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+          const glass = document.querySelector<HTMLElement>(
+            '[data-rail-surface-target="come-back"]',
+          );
+          const liftGroup = glass?.closest<HTMLElement>("[data-scroll-material-lift-target]");
+          if (artwork === null || glass === null || liftGroup === null || liftGroup === undefined)
+            throw new Error("Rail end lift target is missing");
+          const hasLift = (): boolean =>
+            Number.parseFloat(
+              getComputedStyle(liftGroup).getPropertyValue("--scroll-material-lift"),
+            ) < 0;
+          const aligned = (): boolean => {
+            const circle = artwork.querySelector<SVGCircleElement>(
+              "[data-topology-terminal] circle",
+            );
+            if (circle === null) return false;
+            const box = glass.getBoundingClientRect();
+            return (
+              Math.abs(
+                artwork.getBoundingClientRect().top +
+                  circle.cy.baseVal.value -
+                  (box.top + box.bottom) / 2,
+              ) <= 1
+            );
+          };
+          const until = async (condition: () => boolean): Promise<void> => {
+            if (condition()) return;
+            await new Promise<void>((resolve) => {
+              const observer = new MutationObserver(() => {
+                if (!condition()) return;
+                observer.disconnect();
+                resolve();
+              });
+              observer.observe(liftGroup, { attributes: true, attributeFilter: ["style"] });
+              observer.observe(artwork, {
+                attributes: true,
+                attributeFilter: ["cy"],
+                subtree: true,
+              });
+            });
+          };
+          await until(hasLift);
+          await until(aligned);
         });
         observations.push(await applicationPage.evaluate(observeEnd, width));
       }
-      /* eslint-enable no-await-in-loop */
       return observations;
     } finally {
       await applicationPage.close();

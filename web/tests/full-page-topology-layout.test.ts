@@ -21,6 +21,7 @@ import {
   topologyRowUnit,
 } from "../src/topology-lab/full-page-topology-model";
 import { localForkPath, localMergePath } from "../src/topology-lab/full-page-topology-paths";
+import { planWorktreeLanes } from "../src/topology-lab/topology-lane-planning";
 
 function rect(left: number, top: number, width: number, height: number): TopologyRect {
   return { left, top, width, height };
@@ -85,14 +86,10 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
     );
   }
   const lastAnchor = anchors.at(-1);
-  // The final call to action's centered logo.
-  const ctaSection = rect(0, (lastAnchor?.rect.top ?? 0) + 760, viewportWidth, 700);
-  const ctaIcon = rect((viewportWidth - 88) / 2, ctaSection.top + 100, 88, 88);
   const page = {
     viewportWidth,
-    height: ctaSection.top + ctaSection.height + 200,
+    height: (lastAnchor?.rect.top ?? 0) + 1660,
     anchors,
-    end: { section: ctaSection, mark: ctaIcon },
   };
   const textRects = anchors.flatMap((anchor) =>
     stacked || anchor.id === "hero"
@@ -289,7 +286,7 @@ describe("gutter columns", () => {
     const laneCounts = viewportWidths.map((width) => composed(homePageAt(width)).laneXs.length);
 
     // Assert
-    expect(laneCounts).toEqual([0, 0, 0, 1, 1, 1]);
+    expect(laneCounts).toEqual([0, 0, 0, 2, 2, 2]);
     expect(Math.max(...laneCounts)).toBeLessThanOrEqual(topologyMaximumLaneCount);
   });
 
@@ -324,7 +321,9 @@ describe("gutter columns", () => {
       const forkRow = composition.rowYs.indexOf(outermost?.startY ?? Number.NaN);
       const portRow = composition.rowYs.indexOf(heroPort?.startY ?? Number.NaN);
       expect(forkRow).toBeGreaterThanOrEqual(0);
-      expect(portRow - forkRow).toBeGreaterThanOrEqual(topologyHeroLaneMinimumTravel);
+      expect(portRow - forkRow, String(width)).toBeGreaterThanOrEqual(
+        topologyHeroLaneMinimumTravel,
+      );
       expect(portRow - forkRow).toBeLessThanOrEqual(topologyHeroLaneMaximumTravel);
       expect(heroPort?.parentColumn).toBe(outermost?.column);
     }
@@ -546,28 +545,23 @@ describe("composed topology", () => {
     }
   });
 
-  it("ends halfway between the last glass and CTA icon, with no geometry below it", () => {
+  it("ends at the last chapter glass center, with one terminal merge when lanes fit", () => {
     for (const width of [390, 1280, 1920]) {
-      // Arrange
       const fixture = homePageAt(width);
-      const end = fixture.page.end;
-      if (end?.mark === undefined) {
-        throw new Error("Fixture has no CTA icon");
-      }
-      const lastGlassBottom = Math.max(
-        ...fixture.page.anchors.flatMap((anchor) =>
-          anchor.surface === undefined ? [] : [anchor.surface.top + anchor.surface.height],
-        ),
-      );
-
-      // Act
+      const lastGlass = fixture.page.anchors.at(-1)?.surface;
+      if (lastGlass === undefined) throw new Error("Last chapter glass is missing");
       const composition = composed(fixture);
-
-      // Assert: the end node bisects the gap between the last glass and CTA icon.
       const endDot = composition.rows.at(-1);
-      expect(endDot?.kind).toBe("end");
-      const expectedEndY = (lastGlassBottom + end.mark.top) / 2;
-      expect(Math.abs((endDot?.y ?? Number.NaN) - expectedEndY)).toBeLessThanOrEqual(1);
+      expect(endDot?.y).toBeCloseTo(lastGlass.top + lastGlass.height / 2, 1);
+      if (composition.laneXs.length > 0) {
+        expect(endDot?.kind).toBe("merge");
+        expect(endDot?.terminal).toBe(true);
+        expect(composition.routes.filter((route) => route.kind === "worktree").at(0)?.endY).toBe(
+          endDot?.y,
+        );
+      } else {
+        expect(endDot?.kind).toBe("end");
+      }
       const lowestPoint = Math.max(
         ...composition.rows.map((dot) => dot.y),
         ...composition.routes.flatMap((route) =>
@@ -579,33 +573,45 @@ describe("composed topology", () => {
     }
   });
 
-  it("uses the existing CTA and page fallbacks when midpoint measurements are unavailable", () => {
-    // Arrange
+  it("falls back to one row above page end when no glass is measured", () => {
     const fixture = homePageAt(1280);
-    const end = fixture.page.end;
-    if (end === undefined) {
-      throw new Error("Fixture has no CTA section");
-    }
-
-    // Act
-    const sectionFallback = composeFullPageTopology({
-      ...fixture.page,
-      end: { section: end.section, mark: undefined },
-    });
-    const noGlassFallback = composeFullPageTopology({
+    const composition = composeFullPageTopology({
       ...fixture.page,
       anchors: fixture.page.anchors.map((anchor) => ({ ...anchor, surface: undefined })),
     });
-    const pageFallback = composeFullPageTopology({
-      viewportWidth: fixture.page.viewportWidth,
-      height: fixture.page.height,
-      anchors: fixture.page.anchors,
-    });
+    expect(composition?.rows.at(-1)?.y).toBe(fixture.page.height - topologyRowUnit);
+  });
 
-    // Assert
-    expect(sectionFallback?.rows.at(-1)?.y).toBe(end.section.top - topologyRowUnit);
-    expect(noGlassFallback?.rows.at(-1)?.y).toBe(end.section.top - topologyRowUnit);
-    expect(pageFallback?.rows.at(-1)?.y).toBe(fixture.page.height - topologyRowUnit);
+  it("staircases one to four lanes into the last row, one merge per row", () => {
+    const rowYs = Array.from({ length: 30 }, (_, row) => row * topologyRowUnit);
+    for (const laneCount of [1, 2, 3, 4]) {
+      const plan = planWorktreeLanes({
+        laneXs: Array.from({ length: laneCount }, (_, index) => (index + 1) * 80),
+        mainlineX: 0,
+        rowYs,
+        openRow: 1,
+        endRow: 29,
+        lastAttachRow: 20,
+      });
+      expect(plan?.terminalMerge).toBe(true);
+      expect(plan?.lanes.map((lane) => lane.mergeRow)).toEqual(
+        Array.from({ length: laneCount }, (_, index) => 29 - index),
+      );
+      expect(new Set(plan?.lanes.map((lane) => lane.mergeRow)).size).toBe(laneCount);
+    }
+  });
+
+  it("reduces the lane count when a terminal staircase has no room", () => {
+    const rowYs = Array.from({ length: 11 }, (_, row) => row * topologyRowUnit);
+    const plan = planWorktreeLanes({
+      laneXs: [80, 160],
+      mainlineX: 0,
+      rowYs,
+      openRow: 1,
+      endRow: 10,
+      lastAttachRow: 8,
+    });
+    expect(plan).toBeUndefined();
   });
 
   it("draws nothing without chapter anchors", () => {

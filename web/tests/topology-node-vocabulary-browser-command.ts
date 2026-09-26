@@ -44,7 +44,7 @@ export interface TopologyNodeVocabularyResult {
   readonly beforeReveal: readonly TopologyGlyphObservation[];
   readonly afterReveal: readonly TopologyGlyphObservation[];
   readonly ports: readonly TopologyPortObservation[];
-  readonly glowTransitions: readonly { readonly property: string; readonly duration: string }[];
+  readonly routeFilters: readonly string[];
 }
 
 function readPorts(): TopologyPortObservation[] {
@@ -154,17 +154,11 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
         },
       );
       const beforeReveal = await applicationPage.evaluate(readGlyphs);
-      const glowTransitions = await applicationPage.evaluate(() => {
-        const branch = document.querySelector(
-          '[data-route-kind="attach"][data-route-anchor="many-agents"]',
-        );
-        const node = document.querySelector('[data-topology-chapter-node="many-agents"]');
-        if (branch === null || node === null) throw new Error("Chapter glow targets are missing");
-        return [branch, node].map((element) => {
-          const style = getComputedStyle(element);
-          return { property: style.transitionProperty, duration: style.transitionDuration };
-        });
-      });
+      const routeFilters = await applicationPage.evaluate(() =>
+        [...document.querySelectorAll<SVGGElement>("[data-topology-route-group]")].map(
+          (route) => getComputedStyle(route).filter,
+        ),
+      );
       await applicationPage.evaluate(() => {
         window.scrollTo(0, document.documentElement.scrollHeight);
       });
@@ -185,7 +179,7 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
         };
       });
       const ports = await applicationPage.evaluate(readPorts);
-      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports, glowTransitions };
+      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports, routeFilters };
     } finally {
       await applicationPage.close();
     }

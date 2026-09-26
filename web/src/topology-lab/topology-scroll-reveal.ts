@@ -67,7 +67,6 @@ export function initializeTopologyScrollReveal(
   let pendingAnimationFrame: number | undefined;
   let currentNodes = new Set<SVGGraphicsElement>();
   let litTarget: HTMLElement | undefined;
-  let currentBranch: SVGGElement | undefined;
   /** The lowest fog edge reached so far, in artwork coordinates; it never retreats. */
   let furthestRevealY: number | undefined;
 
@@ -175,18 +174,6 @@ export function initializeTopologyScrollReveal(
     const currentNode = currentIndex === undefined ? undefined : chapterNodes[currentIndex];
     const anchorId = currentNode?.getAttribute(topologyChapterNodeAttribute) ?? undefined;
     const hasBranch = currentNode?.hasAttribute(topologyChapterTargetEdgeAttribute) ?? false;
-    const nextBranch =
-      anchorId === undefined || !hasBranch
-        ? undefined
-        : routeGroups.find(
-            (group) =>
-              group.dataset["routeKind"] === "attach" && group.dataset["routeAnchor"] === anchorId,
-          );
-    if (currentBranch !== nextBranch) {
-      currentBranch?.removeAttribute("data-topology-current-branch");
-      nextBranch?.setAttribute("data-topology-current-branch", "");
-      currentBranch = nextBranch;
-    }
     lightTarget(
       anchorId === undefined || !hasBranch
         ? undefined
@@ -308,7 +295,6 @@ export function initializeTopologyScrollReveal(
     artworkResizeObserver.disconnect();
     liftObserver.disconnect();
     updateCurrentNodes(0, false);
-    currentBranch?.removeAttribute("data-topology-current-branch");
     lightTarget(undefined);
     if (pendingAnimationFrame !== undefined) {
       window.cancelAnimationFrame(pendingAnimationFrame);
