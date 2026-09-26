@@ -107,7 +107,8 @@ struct SwiftLaneRunnerReportTests {
         defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
         let output = try await runBash(
             "LOG_PREFIX=timing; export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' "
-                + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3; "
+                + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3 "
+                + "LANE_TIMING_CONCURRENCY=4; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
                 + "run_swift_with_timeout 'fixture' 60 /bin/bash -c 'exit 7' || status=$?; "
                 + "echo STATUS=${status:-0}"
@@ -126,6 +127,7 @@ struct SwiftLaneRunnerReportTests {
         #expect(record["filter"] as? String == "FixtureSuite")
         #expect(record["batch_id"] as? Int == 2)
         #expect(record["slot"] as? Int == 3)
+        #expect(record["slot_cap"] as? Int == 4)
         #expect(record["timed_out"] as? Bool == false)
         #expect(record["event_stream_file"] is String)
     }
@@ -158,9 +160,9 @@ struct SwiftLaneRunnerReportTests {
         defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
         try FileManager.default.createDirectory(atPath: evidenceDirectory, withIntermediateDirectories: true)
         let eventFile = evidenceDirectory + "/fixture.events.jsonl"
-        try "{\"kind\":\"event\",\"payload\":{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}}\n"
+        try "{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}\n"
             .appending(
-                "{\"kind\":\"event\",\"payload\":{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}}\n"
+                "{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}\n"
             )
             .write(toFile: eventFile, atomically: true, encoding: .utf8)
         let fixture: [String: Any] = [
@@ -171,21 +173,55 @@ struct SwiftLaneRunnerReportTests {
         ]
         let fixtureData = try JSONSerialization.data(withJSONObject: fixture)
         try fixtureData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-fixture.timing.json"))
+        let wrappedEventFile = evidenceDirectory + "/wrapped.events.jsonl"
+        try "{\"kind\":\"event\",\"payload\":{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}}\n"
+            .appending(
+                "{\"kind\":\"event\",\"payload\":{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}}\n"
+            )
+            .write(toFile: wrappedEventFile, atomically: true, encoding: .utf8)
+        var wrappedFixture = fixture
+        wrappedFixture["lane"] = "fixture-wrapped"
+        wrappedFixture["event_stream_file"] = wrappedEventFile
+        let wrappedData = try JSONSerialization.data(withJSONObject: wrappedFixture)
+        try wrappedData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-wrapped.timing.json"))
         for (index, duration) in [100, 400, 100, 400, 100, 100].enumerated() {
             let dispatch = [1000, 1000, 1000, 1100, 1400, 1500][index]
             let item: [String: Any] = [
                 "lane": "isolated", "label": "isolated process-global non-WebKit suite: \(index)",
                 "filter": "Suite\(index)", "batch_id": index + 1,
-                "slot": index % 3 + 1, "dispatch_ms": dispatch,
+                "slot": index % 3 + 1, "slot_cap": 3, "dispatch_ms": dispatch,
                 "wrapper_complete_ms": dispatch + duration,
             ]
             let data = try JSONSerialization.data(withJSONObject: item)
             try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-\(index).timing.json"))
         }
+        for slot in 1...4 {
+            let item: [String: Any] = [
+                "lane": "four-slot", "label": "isolated process-global non-WebKit suite: \(slot)",
+                "filter": "FourSlotSuite\(slot)", "batch_id": slot,
+                "slot": slot, "slot_cap": 4, "dispatch_ms": 2000,
+                "wrapper_complete_ms": 2100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-four-\(slot).timing.json"))
+        }
+        for slot in 1...3 {
+            let item: [String: Any] = [
+                "lane": "partial-four-slot", "label": "isolated process-global non-WebKit suite: \(slot)",
+                "filter": "PartialFourSlotSuite\(slot)", "batch_id": slot,
+                "slot": slot, "slot_cap": 4, "dispatch_ms": 3000,
+                "wrapper_complete_ms": 3100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-partial-\(slot).timing.json"))
+        }
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
         let summary = try String(contentsOfFile: evidenceDirectory + "/timing-summary.md", encoding: .utf8)
         #expect(summary.contains("| fixture | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
+        #expect(summary.contains("| fixture-wrapped | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
         #expect(summary.contains("| isolated | 6 | 3 | 0.600 | 0.600 |"))
+        #expect(summary.contains("| four-slot | 4 | 4 | 0.100 | 0.000 |"))
+        #expect(summary.contains("| partial-four-slot | 3 | 4 | 0.100 | 0.100 |"))
         #expect(summary.contains("unknown"))
         let emptyDirectory = evidenceDirectory + "/empty"
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(emptyDirectory)' /bin/bash scripts/summarize-ci-timing.sh")

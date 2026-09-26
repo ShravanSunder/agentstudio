@@ -99,22 +99,26 @@ TIMING_EVIDENCE_DIR="$evidence_dir" /usr/bin/perl -MJSON::PP -MTime::Local -MFil
     print "| unknown | unknown |\n" unless @ranked;
   }
   print "\n## Isolated scheduler\n\n";
-  print "Measured dispatch-to-wrapper spans. Idle includes startup and tail gaps across all assigned slots.\n\n";
+  print "Measured dispatch-to-wrapper spans. Idle includes startup and tail gaps across the recorded slot cap. Sidecars without a cap are omitted.\n\n";
   print "| Lane | Dispatches | Slots | Phase wall | Slot idle |\n| --- | ---: | ---: | ---: | ---: |\n";
   my %scheduler;
   for my $item (@records) {
-    next unless defined($item->{filter}) && defined($item->{batch_id}) && defined($item->{slot});
+    next unless defined($item->{filter}) && defined($item->{batch_id}) &&
+      numeric($item->{slot}) && numeric($item->{slot_cap}) && $item->{slot_cap} >= 1;
     push @{$scheduler{$item->{lane}//"unknown"}}, $item;
   }
   for my $lane (sort keys %scheduler) {
     my @items = @{$scheduler{$lane}};
-    my ($first,$last,$eligible,$slots,$busy) = (undef,undef,undef,0,0);
+    my ($first,$last,$eligible,$slots,$busy) = (undef,undef,undef,undef,0);
     my $known = 1;
     for my $item (@items) {
       my $duration = span($item->{dispatch_ms},$item->{wrapper_complete_ms});
-      unless (defined($duration) && numeric($item->{slot}) && $item->{slot} >= 1) { $known=0; next }
+      unless (defined($duration) && $item->{slot} >= 1 && $item->{slot} <= $item->{slot_cap}) {
+        $known=0; next;
+      }
       $busy += $duration;
-      $slots = $item->{slot} if $item->{slot} > $slots;
+      $known=0 if defined($slots) && $slots != $item->{slot_cap};
+      $slots = $item->{slot_cap};
       $first = $item->{dispatch_ms} if !defined($first) || $item->{dispatch_ms} < $first;
       $last = $item->{wrapper_complete_ms} if !defined($last) || $item->{wrapper_complete_ms} > $last;
       $eligible = $item->{eligible_ms} if numeric($item->{eligible_ms}) &&
@@ -123,7 +127,8 @@ TIMING_EVIDENCE_DIR="$evidence_dir" /usr/bin/perl -MJSON::PP -MTime::Local -MFil
     $first = $eligible if defined($eligible) && (!defined($first) || $eligible < $first);
     my $wall = $known ? span($first,$last) : undef;
     my $idle = defined($wall) ? $slots * $wall - $busy : undef;
-    print "| $lane | ",scalar(@items)," | $slots | ",seconds($wall)," | ",seconds($idle)," |\n";
+    $idle = undef if defined($idle) && $idle < 0;
+    print "| $lane | ",scalar(@items)," | ",($slots//"unknown")," | ",seconds($wall)," | ",seconds($idle)," |\n";
   }
   print "| unknown | unknown | unknown | unknown | unknown |\n" unless %scheduler;
   my @prebuild=grep { ($_->{label}//"") eq "prebuild test bundles" } @records;

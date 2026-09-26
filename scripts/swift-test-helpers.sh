@@ -1486,7 +1486,8 @@ dispatch_isolated_suites() {
         read -r child_pid <"$fifo_path.pid$slot"
         rm -f "$fifo_path.pid$slot"
         export LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
-        export LANE_TIMING_SLOT="$slot" LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
+        export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
+        export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
         local child_status=0
         run_selected_isolated_suite "$lane_kind" "$suite_filter" || child_status=$?
         printf '%s %s %s\n' "$slot" "$child_pid" "$child_status" >&7
@@ -1759,6 +1760,7 @@ write_lane_timing_sidecar() {
     LANE_TIMING_DISPATCH="$dispatch_ms" LANE_TIMING_START="$child_start_ms" \
     LANE_TIMING_EXIT="$child_exit_ms" LANE_TIMING_STATUS="$child_status" \
     LANE_TIMING_COMPLETE="$wrapper_complete_ms" LANE_TIMING_TIMEOUT="$timed_out" \
+    LANE_TIMING_CAP="${LANE_TIMING_CONCURRENCY:-}" \
     LANE_TIMING_EVENT_FILE="$event_stream_path" \
     /usr/bin/perl -MJSON::PP -e '
       sub nullable_number { defined $_[0] && $_[0] =~ /^[0-9]+$/ ? 0 + $_[0] : undef }
@@ -1768,6 +1770,7 @@ write_lane_timing_sidecar() {
         filter => nullable_text($ENV{LANE_TIMING_FILTER}),
         batch_id => nullable_number($ENV{LANE_TIMING_BATCH}),
         slot => nullable_number($ENV{LANE_TIMING_SLOT}),
+        slot_cap => nullable_number($ENV{LANE_TIMING_CAP}),
         eligible_ms => nullable_number($ENV{LANE_TIMING_ELIGIBLE_MS}),
         dispatch_ms => nullable_number($ENV{LANE_TIMING_DISPATCH}),
         command_start_ms => nullable_number($ENV{LANE_TIMING_START}),
@@ -1865,8 +1868,18 @@ run_swift_with_timeout() {
         "$now_epoch"
     )"; then
       echo "[$LOG_PREFIX] lane-report watchdog state generation failed" >&2
+      preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
+      terminate_lane_child_tree KILL "$command_pid"
+      kill_lane_processes_by_run_token "$event_stream_file"
+      wait "$command_pid" 2>/dev/null || true
+      swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+      discard_empty_held_step_log "$held_step_log"
+      rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
+      local retained_event_stream=""
+      [ -f "$evidence_stem.events.jsonl" ] && retained_event_stream="$evidence_stem.events.jsonl"
       write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
-        "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" ""
+        "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" \
+        "$retained_event_stream"
       return 1
     fi
     read -r last_output_size last_progress_epoch <<<"$watchdog_state"
