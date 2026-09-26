@@ -81,6 +81,11 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             surfaceManager: manager, runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: ipcLifecycle,
             bridgePaneAttendance: BridgePaneAttendanceAtom())
+        let (activityClock, activityAtom) = await makeActivityClock()
+        coordinator.paneActivityClock = activityClock
+        activityClock.submit(activityOccurrence(for: child.id))
+        #expect(try await activityClock.settled() == .quiescent)
+        #expect(activityAtom.value(for: child.id) != nil)
         if rejectWrite {
             try await fixture.coreRepository.databaseWriter.write { database in
                 try database.execute(
@@ -96,6 +101,7 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             #expect(store.paneAtom.pane(parent.id)?.drawer?.paneIds == [child.id])
             #expect(manager.retiredActivePaneIDs.isEmpty)
             #expect(finalRevokedPaneIDs.isEmpty)
+            #expect(activityAtom.value(for: child.id) != nil)
         } else {
             try await coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
             #expect(store.paneAtom.pane(child.id) == nil)
@@ -107,8 +113,11 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
                 ])
             #expect(manager.retiredActivePaneIDs == [child.id])
             #expect(finalRevokedPaneIDs == [[child.id]])
+            #expect(try await activityClock.settled() == .quiescent)
+            #expect(activityAtom.value(for: child.id) == nil)
         }
         await coordinator.shutdown()
+        await activityClock.shutdown()
     }
 
     @Test("discard preserves another pane owning the same session")
@@ -189,6 +198,11 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: ipcLifecycle,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
+        let (activityClock, activityAtom) = await makeActivityClock()
+        coordinator.paneActivityClock = activityClock
+        activityClock.submit(activityOccurrence(for: pane.id))
+        #expect(try await activityClock.settled() == .quiescent)
+        #expect(activityAtom.value(for: pane.id) != nil)
         if rejectWrite {
             try await fixture.coreRepository.databaseWriter.write { database in
                 try database.execute(
@@ -203,6 +217,7 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             #expect(store.paneAtom.pane(pane.id) != nil)
             #expect(try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.count == 1)
             #expect(finalRevokedPaneIDs.isEmpty)
+            #expect(activityAtom.value(for: pane.id) != nil)
         } else {
             try await coordinator.execute(.purgeOrphanedPane(paneId: pane.id))
             #expect(store.paneAtom.pane(pane.id) == nil)
@@ -211,8 +226,11 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             #expect(try fixture.coreRepository.pendingTerminalSessionIDs().contains(sessionID))
             #expect(finalRevokedPaneIDs == [[pane.id]])
             #expect(manager.retiredActivePaneIDs == [pane.id])
+            #expect(try await activityClock.settled() == .quiescent)
+            #expect(activityAtom.value(for: pane.id) == nil)
         }
         await coordinator.shutdown()
+        await activityClock.shutdown()
     }
 
     @Test("a rejected journal write leaves the app's pane and tab open")
@@ -286,6 +304,19 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             windowLifecycleStore: WindowLifecycleAtom(), ipcLifecycle: ipcLifecycle,
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
+        let activityAtom = PaneActivityTimeAtom()
+        let activityDelayClock = TestPushClock()
+        let activityInstant = ContinuousClock.now
+        let activityClock = PaneActivityClock(
+            publishInterval: .seconds(30),
+            clock: activityDelayClock,
+            monotonicNow: { activityInstant },
+            sink: { batch in activityAtom.apply(batch) }
+        )
+        coordinator.paneActivityClock = activityClock
+        await activityClock.start()
+        activityClock.submit(activityOccurrence(for: pane.id, at: activityInstant))
+        #expect(try await activityClock.settled() == .quiescent)
 
         try await coordinator.execute(.closeTab(tabId: tab.id))
         #expect(lifecycleEvents.map(\.kind) == ["invalidate"])
@@ -300,11 +331,14 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
         #expect(manager.retainedUndoPaneIDs == [pane.id])
 
         try await coordinator.undoCloseTab()
+        #expect(activityAtom.value(for: pane.id) != nil)
         #expect(store.paneAtom.pane(pane.id)?.terminalState?.zmxSessionID == pane.terminalState?.zmxSessionID)
         #expect(try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceID).panes.map(\.id) == [pane.id])
         #expect(try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).isEmpty)
 
         try await coordinator.execute(.closeTab(tabId: tab.id))
+        activityClock.submit(activityOccurrence(for: pane.id, at: activityInstant.advanced(by: .seconds(1))))
+        await activityDelayClock.waitForPendingSleepCount(exactly: 1)
         #expect(lifecycleEvents.map(\.kind) == ["invalidate", "invalidate"])
         let secondClose = try #require(
             try await datastore.fetchAvailableUndoCloses(workspaceID: workspaceID).first)
@@ -316,9 +350,31 @@ struct WorkspaceSurfaceCoordinatorDurableUndoTests {
             )
         )
         coordinator.consumeUndoRetirements(retirements)
+        #expect(try await activityClock.settled() == .quiescent)
+        #expect(activityAtom.value(for: pane.id) == nil)
         #expect(lifecycleEvents.map(\.kind) == ["invalidate", "invalidate", "final"])
         #expect(lifecycleEvents.last?.paneIDs == [pane.id])
         #expect(manager.releasedUndoPaneIDs == [pane.id])
         await coordinator.shutdown()
+        await activityClock.shutdown()
+    }
+
+    private func makeActivityClock() async -> (PaneActivityClock, PaneActivityTimeAtom) {
+        let activityAtom = PaneActivityTimeAtom()
+        let activityClock = PaneActivityClock(publishInterval: .zero) { batch in activityAtom.apply(batch) }
+        await activityClock.start()
+        return (activityClock, activityAtom)
+    }
+
+    private func activityOccurrence(
+        for paneId: UUID,
+        at orderingInstant: ContinuousClock.Instant = ContinuousClock.now
+    ) -> PaneActivityOccurrence {
+        PaneActivityOccurrence(
+            paneId: paneId,
+            source: .hook,
+            orderingInstant: orderingInstant,
+            wallTime: Date(timeIntervalSince1970: 1000)
+        )
     }
 }

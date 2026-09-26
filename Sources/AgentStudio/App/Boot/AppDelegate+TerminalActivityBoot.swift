@@ -8,6 +8,7 @@ extension AppDelegate {
             self?.atomStore.core.paneActivityTime.apply(batch)
         }
         self.paneActivityClock = paneActivityClock
+        workspaceSurfaceCoordinator?.paneActivityClock = paneActivityClock
         Task { await paneActivityClock.start() }
         terminalActivityRouter = TerminalActivityRouter(
             bus: bus,
