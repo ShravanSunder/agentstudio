@@ -13,9 +13,8 @@ struct RepositoryDiscoveryLifecyclePersistenceTests {
     @Test("package discovery reaches visible checkout capture and SQLite, then restores retained identity")
     func realDiscoveryPublishesAndPersistsCheckout() async throws {
         try await withAsyncTestCoreAtoms { atoms in
-            // Read-only Git fixture: every normal local/CI invocation runs from an actual checkout.
-            // This exercises main clones on CI and linked worktrees in local worktrees without creating Git metadata.
-            let checkoutRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+            let checkoutRoot = try await FilesystemTestGitRepo.create(named: "repository-discovery-lifecycle")
+            defer { FilesystemTestGitRepo.destroy(checkoutRoot) }
             let databaseRoot = FileManager.default.temporaryDirectory.appending(
                 path: "discovery-persistence-\(UUIDv7.generate())")
             try FileManager.default.createDirectory(at: databaseRoot, withIntermediateDirectories: true)

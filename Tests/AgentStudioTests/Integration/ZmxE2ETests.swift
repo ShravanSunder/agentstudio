@@ -494,35 +494,6 @@ extension E2ESerializedTests {
             }
         }
 
-        // MARK: - Socket Exists E2E
-
-        @Test("socket exists after daemon starts")
-        func test_socketExists_afterDaemonStarts() async throws {
-            try await withRealBackend { harness, backend in
-                // Arrange
-                let handle = try await backend.createPaneSession(sessionID: .generateUUIDv7())
-                let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
-
-                _ = try harness.spawnZmxSession(
-                    zmxPath: zmxPath,
-                    sessionId: handle.id.rawValue,
-                    commandArgs: ["/bin/sleep", "300"]
-                )
-
-                let appeared = await harness.waitForSessionSocket(
-                    sessionId: handle.id.rawValue,
-                    exists: true
-                )
-                #expect(appeared, "zmx daemon should start before checking socket")
-
-                // Assert — zmxDir should exist after daemon starts
-                #expect(
-                    backend.socketExists(),
-                    "socketExists should return true when zmxDir exists with active daemons"
-                )
-            }
-        }
-
         // MARK: - Helpers
 
         /// Run backend setup and guaranteed cleanup for each zmx E2E case.

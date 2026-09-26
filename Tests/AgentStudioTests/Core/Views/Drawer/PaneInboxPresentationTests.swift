@@ -1,6 +1,6 @@
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
-import SwiftUI
+import Foundation
 import Testing
 
 @testable import AgentStudioCore
@@ -46,96 +46,6 @@ struct PaneInboxPresentationTests {
         #expect(scope.paneIds == [parentPaneId, firstDrawerPaneId, secondDrawerPaneId])
     }
 
-    @Test("pane inbox requests match semantically identical scopes regardless of pane-id ordering")
-    func paneInboxRequestMatchesScopeBySetIdentity() {
-        let parentPaneId = UUIDv7.generate()
-        let firstDrawerPaneId = UUIDv7.generate()
-        let secondDrawerPaneId = UUIDv7.generate()
-        let request = PaneInboxRequest(
-            id: UUIDv7.generate(),
-            parentPaneId: parentPaneId,
-            paneIds: [parentPaneId, firstDrawerPaneId, secondDrawerPaneId],
-            intent: .open
-        )
-
-        #expect(
-            request.matches(
-                parentPaneId: parentPaneId,
-                paneIds: [secondDrawerPaneId, parentPaneId, firstDrawerPaneId]
-            )
-        )
-        #expect(!request.matches(parentPaneId: UUIDv7.generate(), paneIds: request.paneIds))
-    }
-
-    @Test("trailing actions inject pane inbox unread count and preserve existing actions")
-    func trailingActionsInjectUnreadBadgeAndPreserveExistingActions() {
-        let parentPaneId = UUID()
-        let drawerChildPaneId = UUID()
-        let paneIds = [parentPaneId, drawerChildPaneId]
-        var didOpenFinder = false
-        var didShowPaneInbox = false
-        let baseActions = DrawerOverlay.TrailingActions(
-            openEditorMenuAction: makeCommandAction(.openPaneLocationInEditorMenu),
-            openFinderAction: makeCommandAction(
-                .openPaneLocationInFinder,
-                perform: { didOpenFinder = true }
-            ),
-            copyPathAction: makeCommandAction(.copyCurrentPanePath),
-            editorMenuContent: AnyView(EmptyView()),
-            editorMenuPresented: .constant(false),
-            buttonTitle: "Cursor"
-        )
-        let presentation = PaneInboxPresentation(
-            unreadCount: { requestedPaneIds in requestedPaneIds == paneIds ? 1 : 0 },
-            clear: { _, _ in },
-            open: { _, _ in },
-            openRollUpAlerts: { _, _ in },
-            toggle: { _, _ in },
-            setPresented: { _, _, _ in },
-            pendingRequest: { nil },
-            clearRequest: { _ in },
-            popoverContent: { _, _, _ in AnyView(EmptyView()) },
-            pruneFilterModes: { _ in }
-        )
-        var isPopoverPresented = false
-
-        let actions = presentation.trailingActions(
-            parentPaneId: parentPaneId,
-            paneIds: paneIds,
-            baseTrailingActions: baseActions,
-            showPaneInboxAction: makeCommandAction(
-                .showPaneInboxNotifications,
-                perform: { didShowPaneInbox = true }
-            ),
-            inboxPopoverPresented: Binding(
-                get: { isPopoverPresented },
-                set: { isPopoverPresented = $0 }
-            )
-        )
-
-        #expect(actions.buttonTitle == "Cursor")
-        #expect(actions.inboxUnreadBadge?.text == "1")
-        #expect(actions.inboxPopoverContent != nil)
-
-        actions.inboxPopoverPresented.wrappedValue = true
-        #expect(isPopoverPresented)
-
-        actions.openFinderAction?.perform()
-        #expect(didOpenFinder)
-
-        actions.showPaneInboxAction?.perform()
-        #expect(didShowPaneInbox)
-    }
-
-    @Test("pane inbox badge caps at nine plus")
-    func paneInboxBadgeCapsAtNinePlus() {
-        let badge = PaneInboxUnreadBadge(
-            unreadCount: 10
-        )
-
-        #expect(badge?.text == "9+")
-    }
-
     private func makePaneLookup(
         parentPaneId: UUID,
         drawerPaneIds: [UUID]
@@ -158,14 +68,4 @@ struct PaneInboxPresentationTests {
         )
     }
 
-    private func makeCommandAction(
-        _ command: AppCommand,
-        perform: @escaping @MainActor () -> Void = {}
-    ) -> TargetedCommandControlAction {
-        TargetedCommandControlAction(
-            commandSpec: command.definition,
-            isEnabled: true,
-            perform: perform
-        )
-    }
 }

@@ -10,21 +10,25 @@ import Testing
 final class CommandBarStateTests {
 
     private var state: CommandBarState!
+    private let defaultsSuiteName: String
+    private let defaults: UserDefaults
 
     private static let recentsKey = "CommandBarRecentItemIds"
     private static let recentCommandsKey = "CommandBarRecentCommands"
 
     init() {
-        // Isolate UserDefaults — clear recents key before each test
-        UserDefaults.standard.removeObject(forKey: Self.recentsKey)
-        UserDefaults.standard.removeObject(forKey: Self.recentCommandsKey)
-        state = CommandBarState()
+        let defaultsSuiteName = "agentstudio.tests.commandbar.\(UUIDv7.generate().uuidString)"
+        guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
+            preconditionFailure("Could not create the Command Bar test defaults suite")
+        }
+
+        self.defaultsSuiteName = defaultsSuiteName
+        self.defaults = defaults
+        state = CommandBarState(defaults: defaults)
     }
 
     deinit {
-        // Clean up UserDefaults after each test
-        UserDefaults.standard.removeObject(forKey: Self.recentsKey)
-        UserDefaults.standard.removeObject(forKey: Self.recentCommandsKey)
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
         state = nil
     }
 
@@ -670,7 +674,7 @@ final class CommandBarStateTests {
 
     @Test
     func test_loadRecents_filtersMalformedCommandValuesAndRoundTripsTypedCommands() {
-        UserDefaults.standard.set(
+        defaults.set(
             [
                 AppCommand.closePane.rawValue,
                 "not-an-app-command",
@@ -943,9 +947,22 @@ final class CommandBarStateTests {
     // MARK: - Persistence — loadRecents
 
     @Test
-    func test_loadRecents_emptyDefaults_setsEmptyArray() {
-        // Arrange — UserDefaults is already cleared in setUp
+    func test_privateSuiteRecentsLeaveStandardDefaultsUnchanged() {
+        let standardDefaults = UserDefaults.standard
+        let originalRecentItemIds = standardDefaults.stringArray(forKey: Self.recentsKey)
+        let originalRecentCommands = standardDefaults.stringArray(forKey: Self.recentCommandsKey)
 
+        state.recordRecent(itemId: "private-suite-item")
+        state.recordRecentCommand(.closeTab)
+
+        #expect(defaults.stringArray(forKey: Self.recentsKey) == ["private-suite-item"])
+        #expect(defaults.stringArray(forKey: Self.recentCommandsKey) == [AppCommand.closeTab.rawValue])
+        #expect(standardDefaults.stringArray(forKey: Self.recentsKey) == originalRecentItemIds)
+        #expect(standardDefaults.stringArray(forKey: Self.recentCommandsKey) == originalRecentCommands)
+    }
+
+    @Test
+    func test_loadRecents_emptyDefaults_setsEmptyArray() {
         // Act
         state.loadRecents()
 
@@ -957,7 +974,7 @@ final class CommandBarStateTests {
     func test_loadRecents_populatedDefaults_restoresArray() {
         // Arrange
         let expected = ["item-1", "item-2", "item-3"]
-        UserDefaults.standard.set(expected, forKey: Self.recentsKey)
+        defaults.set(expected, forKey: Self.recentsKey)
 
         // Act
         state.loadRecents()
@@ -973,7 +990,7 @@ final class CommandBarStateTests {
         state.recordRecent(itemId: "beta")
 
         // Act — create new state and load from UserDefaults
-        let freshState = CommandBarState()
+        let freshState = CommandBarState(defaults: defaults)
         freshState.loadRecents()
 
         // Assert

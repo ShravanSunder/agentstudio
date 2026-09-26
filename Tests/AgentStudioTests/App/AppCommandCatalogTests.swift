@@ -125,6 +125,7 @@ final class AppCommandCatalogTests {
         )
         #expect(def.label == "Worktree Viewer")
         #expect(def.icon == canonicalViewerSymbol.map(CommandIcon.system))
+        #expect(def.helpText == "Show or hide the Worktree Viewer in Pane Zoom")
         #expect(def.commandBarGroupName == "Worktree Viewer")
     }
 

@@ -13,7 +13,11 @@ private let stateLogger = Logger(subsystem: "com.agentstudio", category: "Comman
 /// Always accessed on the main thread (SwiftUI views + AppKit panel controller).
 @Observable
 package final class CommandBarState {
-    package init() {}
+    private let defaults: UserDefaults
+
+    package init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     enum OpenMode: Equatable {
         case prefix(String)
@@ -364,8 +368,8 @@ package final class CommandBarState {
     }
 
     func loadRecents() {
-        recentItemIds = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
-        let storedCommandValues = UserDefaults.standard.stringArray(forKey: Self.recentCommandsKey) ?? []
+        recentItemIds = defaults.stringArray(forKey: Self.recentsKey) ?? []
+        let storedCommandValues = defaults.stringArray(forKey: Self.recentCommandsKey) ?? []
         var seenCommands: Set<AppCommand> = []
         recentCommands =
             storedCommandValues
@@ -376,10 +380,10 @@ package final class CommandBarState {
     }
 
     private func persistRecents() {
-        UserDefaults.standard.set(recentItemIds, forKey: Self.recentsKey)
+        defaults.set(recentItemIds, forKey: Self.recentsKey)
     }
 
     private func persistRecentCommands() {
-        UserDefaults.standard.set(recentCommands.map(\.rawValue), forKey: Self.recentCommandsKey)
+        defaults.set(recentCommands.map(\.rawValue), forKey: Self.recentCommandsKey)
     }
 }

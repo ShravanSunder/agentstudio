@@ -44,6 +44,7 @@ private final class CommandBarInteractionTestRecorder: @unchecked Sendable {
 struct CommandBarPanelControllerTests {
 
     private let window: NSWindow
+    private let recentsDefaultsFixture = CommandBarRecentsDefaultsFixture()
 
     init() {
         installTestCoreAtomsIfNeeded()
@@ -63,9 +64,7 @@ struct CommandBarPanelControllerTests {
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         animatePanelDismissal: Bool = true
     ) -> CommandBarPanelController {
-        UserDefaults.standard.removeObject(forKey: "CommandBarRecentItemIds")
-        UserDefaults.standard.removeObject(forKey: "CommandBarRecentCommands")
-        return CommandBarPanelController(
+        CommandBarPanelController(
             store: store,
             octiconLoader: makeCommandBarTestOcticonLoader(),
             repoCache: RepoCacheAtom(),
@@ -73,7 +72,8 @@ struct CommandBarPanelControllerTests {
             quickOpenDirectoryHandler: { _, _ in },
             commandBarSurface: commandBarSurface,
             interactionProbe: interactionProbe,
-            animatePanelDismissal: animatePanelDismissal
+            animatePanelDismissal: animatePanelDismissal,
+            recentsDefaults: recentsDefaultsFixture.makeDefaults()
         )
     }
 

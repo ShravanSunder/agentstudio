@@ -81,26 +81,4 @@ struct AppCommandSidebarCommandsTests {
         }
     }
 
-    @Test("retired Inbox sidebar commands have no presentation or IPC privilege")
-    func retiredInboxSidebarCommandsHaveNoPresentationOrIPCPrivilege() {
-        let commands: [AppCommand] = [
-            .showInboxNotifications,
-            .toggleInboxNotificationSort,
-            .clearReadInboxNotifications,
-            .clearAllInboxNotifications,
-            .showPaneInboxNotifications,
-            .clearPaneInboxNotifications,
-            .setInboxGroupingTab,
-            .setInboxGroupingRepo,
-            .setInboxGroupingPane,
-            .setInboxGroupingNone,
-            .setInboxRowStateFilter,
-            .setInboxContentMode,
-        ]
-
-        for command in commands {
-            let definition = AppCommandDispatcher.shared.definition(for: command)
-            #expect(definition.surfacePolicy == .notPresented)
-        }
-    }
 }

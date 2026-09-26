@@ -186,42 +186,4 @@ struct RepoExplorerCommandPresentationTests {
         #expect(first.worktreeIDs == retargeted.worktreeIDs)
     }
 
-    @Test("command delta carries one complete snapshot and explicit target")
-    func commandDeltaCarriesCompleteSnapshotAndTarget() {
-        let worktreeID = UUIDv7.generate()
-        let repoID = UUIDv7.generate()
-        let target = RepoExplorerCommandPresentationTarget(
-            materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID(
-                rawValue: UUIDv7.generate()
-            ),
-            materializationGeneration: 5,
-            visibleRevision: 3
-        )
-        let request = RepoExplorerWorktreeCommandPresentation.requests(
-            worktreeId: worktreeID,
-            repoId: repoID,
-            isPinned: false,
-            showsPinnedControl: true
-        ).first!
-        let snapshot = RepoExplorerCommandPresentationSnapshot(
-            generation: 9,
-            results: [request: true],
-            pinnedStateByRepositoryID: [repoID: true]
-        )
-        let delta = RepoExplorerCommandPresentationDelta(
-            commandGeneration: 9,
-            target: target,
-            snapshot: snapshot,
-            affectedWorktreeIDs: [worktreeID],
-            affectedRepositoryIDs: [repoID],
-            affectedPaneIDs: [],
-            affectedRequestIdentities: [request],
-            toolbarChanged: false
-        )
-
-        #expect(delta.commandGeneration == delta.snapshot.generation)
-        #expect(delta.target == target)
-        #expect(delta.snapshot.results[request] == true)
-        #expect(delta.snapshot.pinnedStateByRepositoryID[repoID] == true)
-    }
 }

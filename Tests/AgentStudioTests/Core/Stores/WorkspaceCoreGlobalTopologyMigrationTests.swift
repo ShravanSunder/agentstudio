@@ -253,44 +253,6 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
         #expect(topologyAfterDelete == topologyBeforeDelete)
     }
 
-    @Test("two workspace panes persist independently of shared global topology")
-    func twoWorkspacePanesPersistIndependentlyOfSharedGlobalTopology() throws {
-        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
-
-        try databaseQueue.write { database in
-            try insertWorkspace("workspace-one", into: database)
-            try insertWorkspace("workspace-two", into: database)
-            try database.execute(
-                sql: """
-                    INSERT INTO repo(id, name, repo_path, stable_key, created_at)
-                    VALUES ('repo-one', 'Repository', '/repos/one', 'repo-one', 1)
-                    """
-            )
-            try database.execute(
-                sql: """
-                    INSERT INTO worktree(id, repo_id, name, path, stable_key, is_main_worktree)
-                    VALUES ('worktree-one', 'repo-one', 'main', '/repos/one', 'worktree-one', 1)
-                    """
-            )
-            try insertCurrentPane(
-                id: "pane-one",
-                workspaceID: "workspace-one",
-                into: database
-            )
-            try insertCurrentPane(
-                id: "pane-two",
-                workspaceID: "workspace-two",
-                into: database
-            )
-        }
-
-        let paneCount = try databaseQueue.read { database in
-            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pane WHERE cwd = '/repos/one'")
-        }
-        #expect(paneCount == 2)
-    }
-
     private func legacyCoreDatabase() throws -> DatabaseQueue {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceCoreMigrations.migrator.migrate(

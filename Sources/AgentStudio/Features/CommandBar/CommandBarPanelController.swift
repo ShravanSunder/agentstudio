@@ -52,7 +52,7 @@ package final class CommandBarPanelController {
 
     // MARK: - State
 
-    package let state = CommandBarState()
+    package let state: CommandBarState
 
     // MARK: - Dependencies
 
@@ -109,8 +109,10 @@ package final class CommandBarPanelController {
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         animatePanelDismissal: Bool = true,
+        recentsDefaults: UserDefaults = .standard,
         worktreeForkEligibility: (any WorktreeForkEligibilityChecking)? = nil
     ) {
+        self.state = CommandBarState(defaults: recentsDefaults)
         self.store = store
         self.octiconLoader = octiconLoader
         self.repoCache = repoCache

@@ -4,7 +4,7 @@ import Testing
 @Suite("Observability TCC probe report script")
 struct ObservabilityTCCProbeReportScriptTests {
     @Test("report script summarizes marker scoped TCC identity and access rows")
-    func reportScriptSummarizesMarkerScopedTCCRows() throws {
+    func reportScriptSummarizesMarkerScopedTCCRows() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -17,7 +17,7 @@ struct ObservabilityTCCProbeReportScriptTests {
         """.write(to: stateFile, atomically: true, encoding: .utf8)
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/report-tcc-upgrade-probe-observability.sh",
             arguments: ["--state-file", stateFile.path],
             environment: [
@@ -55,7 +55,7 @@ struct ObservabilityTCCProbeReportScriptTests {
     }
 
     @Test("report script can require identity discontinuity")
-    func reportScriptCanRequireIdentityDiscontinuity() throws {
+    func reportScriptCanRequireIdentityDiscontinuity() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -66,7 +66,7 @@ struct ObservabilityTCCProbeReportScriptTests {
         AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=tcc-upgrade-probe
         """.write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/report-tcc-upgrade-probe-observability.sh",
             arguments: ["--state-file", stateFile.path, "--require-identity-discontinuity"],
             environment: [

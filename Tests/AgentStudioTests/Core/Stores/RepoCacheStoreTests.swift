@@ -201,7 +201,6 @@ struct RepoCacheStoreTests {
         await store.restoreAsync(for: workspaceId)
 
         atom.setRepoEnrichment(.awaitingOrigin(repoId: UUID()))
-        await Task.yield()
 
         #expect(clock.pendingSleepCount == 0)
         #expect(try fixture.repository.hasCacheState() == false)

@@ -3,6 +3,9 @@ set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repository_root"
+source "${repository_root}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "mise run lint"
+trap swift_build_slot_release EXIT
 
 # Wall-clock milliseconds, for the per-stage timing lines. Timings are
 # reported, never compared with a threshold: they cannot change the exit code.
@@ -21,7 +24,6 @@ report_stage_time() {
 # tool: roots to parse, plus `--only <file>` for a scoped run.
 run_architecture_lint() {
   echo "--- AgentStudio architecture lint ---"
-  source "${repository_root}/scripts/swift-build-slot.sh"
   local build_path="${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint"
   local stage_started_ms
   stage_started_ms="$(now_ms)"
