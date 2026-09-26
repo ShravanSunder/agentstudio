@@ -217,10 +217,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             )
         }
 
-        let observedWorktreeIds = await firstCompletedValue(
-            from: batchTask,
-            timeout: .seconds(5)
-        )
+        let observedWorktreeIds = await batchTask.value
         return observedWorktreeIds == Set(sentinelPathByWorktreeId.keys)
     }
 
@@ -263,7 +260,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             await nativeStreamRecorder.waitForCallback(at: expectedPath)
             return true
         }
-        return await firstCompletedValue(from: callbackTask, timeout: .seconds(5)) == true
+        return await callbackTask.value
     }
 
     func waitForNativeCallbackUnderExternalParent() async -> Bool {
@@ -271,7 +268,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             await nativeStreamRecorder.waitForCallback(under: externalParentPath)
             return true
         }
-        return await firstCompletedValue(from: callbackTask, timeout: .seconds(5)) == true
+        return await callbackTask.value
     }
 
     func waitForNativeRootChangedCallback() async -> Bool {
@@ -279,7 +276,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             await nativeStreamRecorder.waitForRootChangedCallback()
             return true
         }
-        return await firstCompletedValue(from: callbackTask, timeout: .seconds(5)) == true
+        return await callbackTask.value
     }
 
     func perform(_ mutation: SharedExactItemReplacementMutation) throws {
@@ -336,23 +333,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             )
         }
         try await installIntendedObservationBindings()
-    }
-
-    func firstCompletedValue<TValue: Sendable>(
-        from task: Task<TValue, Never>,
-        timeout: Duration
-    ) async -> TValue? {
-        await withTaskGroup(of: TValue?.self) { group in
-            group.addTask { await task.value }
-            group.addTask {
-                try? await AsyncDelay.taskSleep.wait(timeout)
-                return nil
-            }
-            guard let firstValue = await group.next() else { return nil }
-            group.cancelAll()
-            task.cancel()
-            return firstValue
-        }
     }
 
     func remove() {
