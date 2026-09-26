@@ -22,8 +22,13 @@ jobs:
   code-quality:
     name: Code quality
     runs-on: ubuntu-24.04
+    container: swift@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
+    defaults:
+      run:
+        shell: bash
     env:
       SWIFT_BUILD_DIR: .build-ci
+      CI_CONTAINER_TOOLS: "1"
 
     steps:
       # First step of every job, before checkout: a re-run attempt fails here unless
@@ -49,6 +54,10 @@ jobs:
             echo "::error::Re-run attempt $RUN_ATTEMPT of a $EVENT_NAME run is refused: only a pull request carrying the '$override_label' label may be re-run. Diagnose the red run and start a new one instead."
             exit 1
           fi
+          if [ "${CI_CONTAINER_TOOLS:-}" = "1" ] && ! command -v gh >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gh
+          fi
           if ! labels="$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --jq '.[].name' 2>&1)"; then
             echo "::error::Re-run attempt $RUN_ATTEMPT refused: the labels of PR #$PULL_REQUEST_NUMBER could not be read, and the gate fails closed. $labels"
             exit 1
@@ -67,10 +76,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Select Swift
-        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9
-        with:
-          swift-version: "6.3.3"
+      - name: Install Linux CI prerequisites
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends gh jq perl curl lsof
+          perl -MJSON::PP -MTime::HiRes -e 1
+
+      - name: Trust checkout for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Setup mise
         uses: jdx/mise-action@v3
@@ -83,9 +97,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build-ci/architecture-lint
-          key: architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
+          key: architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-image-8de8ea332a61-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
           restore-keys: |
-            architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-
+            architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-image-8de8ea332a61-
 
       - name: AgentStudio architecture lint tool tests
         run: mise run test:architecture

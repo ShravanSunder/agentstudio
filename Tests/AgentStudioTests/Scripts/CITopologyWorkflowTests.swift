@@ -48,8 +48,12 @@ struct CITopologyWorkflowTests {
         )
 
         #expect(qualityJob.contains("runs-on: ubuntu-24.04"))
-        #expect(qualityJob.contains("swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9"))
-        #expect(qualityJob.contains("swift-version: \"6.3.3\""))
+        let containerDigest = "8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5"
+        #expect(qualityJob.contains("container: swift@sha256:\(containerDigest)"))
+        #expect(!qualityJob.contains("swift-actions/setup-swift"))
+        #expect(qualityJob.contains("name: Install Linux CI prerequisites"))
+        #expect(qualityJob.contains("name: Trust checkout for Git"))
+        #expect(qualityJob.contains("shell: bash"))
         #expect(marketingJob.contains("runs-on: ubuntu-24.04"))
         #expect(bridgeWebJob.contains("runs-on: macos-26"))
         #expect(bridgeWebJob.contains("      - parallel:\n          - name: Install BridgeWeb dependencies"))
@@ -71,6 +75,9 @@ struct CITopologyWorkflowTests {
         #expect(qualityJob.contains("bash scripts/install-ci-lint-tools.sh"))
         #expect(lintInstaller.contains("--branch 603.0.0"))
         #expect(lintInstaller.contains("mise install swiftlint@0.65.1"))
+        #expect(lintInstaller.contains("swiftlint_linux_${swiftlint_arch}.zip"))
+        #expect(lintInstaller.contains("sha256sum --check"))
+        #expect(lintInstaller.contains("find /usr/lib -name libsourcekitdInProc.so"))
         #expect(lintInstaller.contains("swiftlint\" rules --enabled --config .swiftlint.yml"))
     }
 }
