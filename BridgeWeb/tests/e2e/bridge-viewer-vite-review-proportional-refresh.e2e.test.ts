@@ -30,132 +30,124 @@ interface ReviewRefreshCandidateReadyObservation {
 }
 
 describe('Bridge Viewer proportional Review refresh E2E', () => {
-	test(
-		'keeps an unchanged selected item mounted without unrelated content opens after one changed worktree file',
-		async () => {
-			const fixture = await createBridgeViewerViteProductFixture();
-			let server: Awaited<ReturnType<typeof startBridgeViewerOwnedViteProductServer>> | null = null;
-			const browser = await launchBridgeViewerE2EChromium();
-			let page: Page | null = null;
-			let primaryFailure: { readonly error: unknown } | null = null;
-			try {
-				server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-				page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
-				const reviewContentRequests = observeReviewContentRequests(page);
-				await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-					timeout: proportionalRefreshTimeoutMilliseconds,
-					waitUntil: 'domcontentloaded',
-				});
-				const affectedFile = fixture.oracle.reviewFiles[0];
-				const unchangedFile = fixture.oracle.reviewFiles[1];
-				if (affectedFile === undefined || unchangedFile === undefined) {
-					throw new Error('Proportional Review refresh fixture requires two changed files.');
-				}
-				const initialComparison = await waitForSettledReviewComparison({
-					expectedTargetLabel: 'HEAD',
-					expectedTargetOID: fixture.oracle.baseRef,
-					page,
-					timeoutMilliseconds: proportionalRefreshTimeoutMilliseconds,
-				});
-				await selectReviewFile({ page, path: unchangedFile.path });
-				await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
-				const unchangedPaintedContainer = await waitForPaintedReviewItemContainer({
-					itemId: unchangedFile.itemId,
-					page,
-				});
-				const contentRequestCountBeforeRefresh = reviewContentRequests.length;
-
-				const reviewMutation = await fixture.mutateReviewFile();
-				let refreshedIdentity: Awaited<ReturnType<typeof waitForReviewRevision>>;
-				try {
-					refreshedIdentity = await waitForReviewRevision({
-						page,
-						predecessor: initialComparison,
-					});
-				} catch (error: unknown) {
-					throw new Error(
-						`Review worktree mutation did not advance the installed revision: ${JSON.stringify({
-							lifecycle: await reviewRefreshLifecycleSamples(page),
-							server: server.diagnostics(),
-						})}`,
-						{ cause: error },
-					);
-				}
-				const refreshedComparison = await waitForSettledReviewComparison({
-					expectedTargetLabel: 'HEAD',
-					expectedTargetOID: fixture.oracle.baseRef,
-					page,
-					timeoutMilliseconds: proportionalRefreshTimeoutMilliseconds,
-				});
-				await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
-				const candidateReady = await waitForReviewRefreshCandidateReady({
-					affectedStableFileCount: retiredAndSuccessorAffectedFileIdentityCount,
-					page,
-					reviewGeneration: initialComparison.reviewGeneration,
-				});
-				const unchangedContainerRetained = await reviewItemContainerMatchesHandle({
-					handle: unchangedPaintedContainer,
-					itemId: unchangedFile.itemId,
-					page,
-				});
-				const refreshContentRequests = reviewContentRequests.slice(
-					contentRequestCountBeforeRefresh,
-				);
-
-				expect(reviewMutation.path).toBe(affectedFile.path);
-				expect(refreshedComparison.packageId).toBe(initialComparison.packageId);
-				expect(refreshedComparison.reviewGeneration).toBe(initialComparison.reviewGeneration);
-				expect(refreshedComparison.revision).toBe(refreshedIdentity.revision);
-				expect(candidateReady).toEqual({
-					affectedStableFileCount: retiredAndSuccessorAffectedFileIdentityCount,
-					presentationClass: 'ordinary',
-					reviewGeneration: initialComparison.reviewGeneration,
-				});
-				expect(unchangedContainerRetained).toBe(true);
-				expect(
-					refreshContentRequests.every(
-						(request): boolean =>
-							request.itemId !== null &&
-							request.itemId !== unchangedFile.itemId &&
-							request.responseStatus === 200,
-					),
-				).toBe(true);
-				expect(
-					refreshContentRequests.some(
-						(request): boolean => request.itemId === unchangedFile.itemId,
-					),
-				).toBe(false);
-			} catch (error: unknown) {
-				primaryFailure = { error };
-			} finally {
-				await runAllOwnedCleanupOperations({
-					operations: [
-						{
-							name: 'proportional Review refresh page',
-							run: async (): Promise<void> => {
-								await page?.close();
-							},
-						},
-						{
-							name: 'proportional Review refresh browser',
-							run: async (): Promise<void> => {
-								await browser.close();
-							},
-						},
-						{
-							name: 'proportional Review refresh server',
-							run: async (): Promise<void> => {
-								await server?.stop();
-							},
-						},
-						{ name: 'proportional Review refresh fixture', run: fixture.dispose },
-					],
-					...(primaryFailure === null ? {} : { primaryError: primaryFailure.error }),
-				});
+	test('keeps an unchanged selected item mounted without unrelated content opens after one changed worktree file', async () => {
+		const fixture = await createBridgeViewerViteProductFixture();
+		let server: Awaited<ReturnType<typeof startBridgeViewerOwnedViteProductServer>> | null = null;
+		const browser = await launchBridgeViewerE2EChromium();
+		let page: Page | null = null;
+		let primaryFailure: { readonly error: unknown } | null = null;
+		try {
+			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
+			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			const reviewContentRequests = observeReviewContentRequests(page);
+			await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
+				timeout: proportionalRefreshTimeoutMilliseconds,
+				waitUntil: 'domcontentloaded',
+			});
+			const affectedFile = fixture.oracle.reviewFiles[0];
+			const unchangedFile = fixture.oracle.reviewFiles[1];
+			if (affectedFile === undefined || unchangedFile === undefined) {
+				throw new Error('Proportional Review refresh fixture requires two changed files.');
 			}
-		},
-		proportionalRefreshTimeoutMilliseconds,
-	);
+			const initialComparison = await waitForSettledReviewComparison({
+				expectedTargetLabel: 'HEAD',
+				expectedTargetOID: fixture.oracle.baseRef,
+				page,
+				timeoutMilliseconds: proportionalRefreshTimeoutMilliseconds,
+			});
+			await selectReviewFile({ page, path: unchangedFile.path });
+			await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
+			const unchangedPaintedContainer = await waitForPaintedReviewItemContainer({
+				itemId: unchangedFile.itemId,
+				page,
+			});
+			const contentRequestCountBeforeRefresh = reviewContentRequests.length;
+
+			const reviewMutation = await fixture.mutateReviewFile();
+			let refreshedIdentity: Awaited<ReturnType<typeof waitForReviewRevision>>;
+			try {
+				refreshedIdentity = await waitForReviewRevision({
+					page,
+					predecessor: initialComparison,
+				});
+			} catch (error: unknown) {
+				throw new Error(
+					`Review worktree mutation did not advance the installed revision: ${JSON.stringify({
+						lifecycle: await reviewRefreshLifecycleSamples(page),
+						server: server.diagnostics(),
+					})}`,
+					{ cause: error },
+				);
+			}
+			const refreshedComparison = await waitForSettledReviewComparison({
+				expectedTargetLabel: 'HEAD',
+				expectedTargetOID: fixture.oracle.baseRef,
+				page,
+				timeoutMilliseconds: proportionalRefreshTimeoutMilliseconds,
+			});
+			await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
+			const candidateReady = await waitForReviewRefreshCandidateReady({
+				affectedStableFileCount: retiredAndSuccessorAffectedFileIdentityCount,
+				page,
+				reviewGeneration: initialComparison.reviewGeneration,
+			});
+			const unchangedContainerRetained = await reviewItemContainerMatchesHandle({
+				handle: unchangedPaintedContainer,
+				itemId: unchangedFile.itemId,
+				page,
+			});
+			const refreshContentRequests = reviewContentRequests.slice(contentRequestCountBeforeRefresh);
+
+			expect(reviewMutation.path).toBe(affectedFile.path);
+			expect(refreshedComparison.packageId).toBe(initialComparison.packageId);
+			expect(refreshedComparison.reviewGeneration).toBe(initialComparison.reviewGeneration);
+			expect(refreshedComparison.revision).toBe(refreshedIdentity.revision);
+			expect(candidateReady).toEqual({
+				affectedStableFileCount: retiredAndSuccessorAffectedFileIdentityCount,
+				presentationClass: 'ordinary',
+				reviewGeneration: initialComparison.reviewGeneration,
+			});
+			expect(unchangedContainerRetained).toBe(true);
+			expect(
+				refreshContentRequests.every(
+					(request): boolean =>
+						request.itemId !== null &&
+						request.itemId !== unchangedFile.itemId &&
+						request.responseStatus === 200,
+				),
+			).toBe(true);
+			expect(
+				refreshContentRequests.some((request): boolean => request.itemId === unchangedFile.itemId),
+			).toBe(false);
+		} catch (error: unknown) {
+			primaryFailure = { error };
+		} finally {
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'proportional Review refresh page',
+						run: async (): Promise<void> => {
+							await page?.close();
+						},
+					},
+					{
+						name: 'proportional Review refresh browser',
+						run: async (): Promise<void> => {
+							await browser.close();
+						},
+					},
+					{
+						name: 'proportional Review refresh server',
+						run: async (): Promise<void> => {
+							await server?.stop();
+						},
+					},
+					{ name: 'proportional Review refresh fixture', run: fixture.dispose },
+				],
+				...(primaryFailure === null ? {} : { primaryError: primaryFailure.error }),
+			});
+		}
+	});
 });
 
 function observeReviewContentRequests(page: Page): ReviewContentRequestObservation[] {

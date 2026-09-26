@@ -33,6 +33,7 @@ import type {
 	BridgeViewerOwnedViteProductServer,
 	BridgeViewerViteProductFixtureOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
+import { waitForProductCallSettlement } from './bridge-viewer-vite-product-operation-response.ts';
 import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
@@ -734,13 +735,12 @@ export async function waitForCommittedAnnotationCommand(
 	operationKind: 'draft.edit.release' | 'draft.save' | 'root.create' | 'source.refresh',
 	surface: 'file' | 'review',
 ): Promise<{ readonly requestSequence: number; readonly sessionId: string | null }> {
-	const response = await page.waitForResponse((candidate): boolean =>
+	const settled = await waitForProductCallSettlement(page, (candidate): boolean =>
 		isAnnotationCommandResponse(candidate, operationKind, surface),
 	);
-	const body: unknown = await response.json();
+	const body: unknown = settled.result;
 	if (
 		!isUnknownRecord(body) ||
-		typeof body['requestSequence'] !== 'number' ||
 		body['kind'] !== 'call.completed' ||
 		!isUnknownRecord(body['call']) ||
 		body['call']['method'] !== `${surface}.annotations.command` ||
@@ -756,7 +756,7 @@ export async function waitForCommittedAnnotationCommand(
 	}
 	const outcome = body['call']['result']['outcome'];
 	return {
-		requestSequence: body['requestSequence'],
+		requestSequence: settled.requestSequence,
 		sessionId: typeof outcome['sessionId'] === 'string' ? outcome['sessionId'] : null,
 	};
 }

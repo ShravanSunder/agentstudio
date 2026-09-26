@@ -17,6 +17,7 @@ import {
 	startBridgeViewerOwnedViteProductServer,
 	type BridgeViewerOwnedViteProductServer,
 } from './bridge-viewer-vite-product-fixture.ts';
+import { waitForProductCallSettlement } from './bridge-viewer-vite-product-operation-response.ts';
 import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
@@ -225,9 +226,10 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				undefined,
 				{ timeout: annotationComposedConvergenceTimeoutMilliseconds },
 			);
-			const appliedReceiptResponse = page.waitForResponse(isReviewPublicationAppliedResponse, {
-				timeout: annotationRestartJourneyTimeoutMilliseconds,
-			});
+			const appliedReceiptResponse = waitForProductCallSettlement(
+				page,
+				isReviewPublicationAppliedResponse,
+			);
 			const applyNowButton = page.getByRole('button', { name: 'Apply now' });
 			await expect
 				.poll(async (): Promise<boolean> => applyNowButton.isEnabled(), {
@@ -235,7 +237,7 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 				})
 				.toBe(true);
 			await applyNowButton.press('Enter');
-			await requireCompletedReviewPublicationAppliedResponse(await appliedReceiptResponse);
+			requireCompletedReviewPublicationAppliedResponse((await appliedReceiptResponse).result);
 			const appliedComparison = await waitForInstalledReviewPackage({
 				expectedTargetLabel: 'HEAD',
 				page,
@@ -509,11 +511,9 @@ function isReviewPublicationAppliedResponse(response: Response): boolean {
 	);
 }
 
-async function requireCompletedReviewPublicationAppliedResponse(response: Response): Promise<void> {
-	const body: unknown = await response.json();
+function requireCompletedReviewPublicationAppliedResponse(body: unknown): void {
 	const call = typeof body === 'object' && body !== null ? Reflect.get(body, 'call') : null;
 	if (
-		!response.ok() ||
 		typeof body !== 'object' ||
 		body === null ||
 		Reflect.get(body, 'kind') !== 'call.completed' ||

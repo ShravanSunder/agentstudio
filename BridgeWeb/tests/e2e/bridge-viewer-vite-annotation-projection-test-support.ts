@@ -1,6 +1,8 @@
 import { type Page, type Response } from 'playwright';
 import { expect } from 'vitest';
 
+import { waitForProductCallSettlement } from './bridge-viewer-vite-product-operation-response.ts';
+
 const annotationProjectionResponseTimeoutMilliseconds = 30_000;
 
 export async function annotationProjectionUiDiagnostic(
@@ -116,6 +118,58 @@ export async function waitForDemandedAnnotationProjectionContent(props: {
 		resolveMatch = resolve;
 		rejectMatch = reject;
 	});
+	const failObservation = (error: Error): void => {
+		if (settled) return;
+		settled = true;
+		rejectMatch?.(error);
+	};
+	const observationController = new AbortController();
+	const querySettlement = waitForProductCallSettlement(
+		props.page,
+		async (response): Promise<boolean> => {
+			const request = response.request();
+			if (new URL(request.url()).pathname !== '/__bridge-product/command') return false;
+			const requestBody: unknown = request.postDataJSON();
+			if (!isUnknownRecord(requestBody) || requestBody['kind'] !== 'product.call') return false;
+			const call = requestBody['call'];
+			if (!isUnknownRecord(call) || !isUnknownRecord(call['request'])) return false;
+			if (
+				call['method'] !== 'file.annotations.projection.query' &&
+				call['method'] !== 'review.annotations.projection.query'
+			)
+				return false;
+			const queryRequest = call['request'];
+			const [afterRequestSequence, sessionId] = await Promise.all([
+				props.afterRequestSequence,
+				props.sessionId,
+			]);
+			return (
+				typeof requestBody['requestSequence'] === 'number' &&
+				requestBody['requestSequence'] > afterRequestSequence &&
+				Array.isArray(queryRequest['sessionIds']) &&
+				queryRequest['sessionIds'].includes(sessionId)
+			);
+		},
+		observationController.signal,
+	);
+	void querySettlement.then(
+		(settled): void => {
+			const result = settled.result;
+			const call = isUnknownRecord(result) ? result['call'] : null;
+			const callResult = isUnknownRecord(call) ? call['result'] : null;
+			const descriptor = isUnknownRecord(callResult) ? callResult['descriptor'] : null;
+			const descriptorId = isUnknownRecord(descriptor) ? descriptor['descriptorId'] : null;
+			if (typeof descriptorId !== 'string') {
+				failObservation(new Error('Demanded annotation projection result has no descriptor.'));
+				return;
+			}
+			matchingDescriptorIds.add(descriptorId);
+			settleIfMatched(descriptorId);
+		},
+		(error: unknown): void => {
+			failObservation(error instanceof Error ? error : new Error('Projection query failed.'));
+		},
+	);
 	const settleIfMatched = (descriptorId: string): void => {
 		if (settled || !matchingDescriptorIds.has(descriptorId)) return;
 		if (!completedDescriptorIds.has(descriptorId)) return;
@@ -134,38 +188,6 @@ export async function waitForDemandedAnnotationProjectionContent(props: {
 			settleIfMatched(descriptorId);
 			return;
 		}
-		if (path !== '/__bridge-product/command' || !response.ok()) return;
-		if (!isUnknownRecord(requestBody) || !isUnknownRecord(requestBody['call'])) return;
-		const call = requestBody['call'];
-		if (
-			call['method'] !== 'file.annotations.projection.query' &&
-			call['method'] !== 'review.annotations.projection.query'
-		) {
-			return;
-		}
-		if (!isUnknownRecord(call['request'])) return;
-		const queryRequest = call['request'];
-		const [afterRequestSequence, sessionId, responseBody] = await Promise.all([
-			props.afterRequestSequence,
-			props.sessionId,
-			response.json() as Promise<unknown>,
-		]);
-		if (
-			!Array.isArray(queryRequest['sessionIds']) ||
-			!queryRequest['sessionIds'].includes(sessionId) ||
-			!isUnknownRecord(responseBody) ||
-			typeof responseBody['requestSequence'] !== 'number' ||
-			responseBody['requestSequence'] <= afterRequestSequence ||
-			!isUnknownRecord(responseBody['call']) ||
-			!isUnknownRecord(responseBody['call']['result']) ||
-			!isUnknownRecord(responseBody['call']['result']['descriptor'])
-		) {
-			return;
-		}
-		const descriptorId = responseBody['call']['result']['descriptor']['descriptorId'];
-		if (typeof descriptorId !== 'string') return;
-		matchingDescriptorIds.add(descriptorId);
-		settleIfMatched(descriptorId);
 	};
 	const responseListener = (response: Response): void => {
 		void inspectResponse(response).catch((error: unknown): void => {
@@ -187,6 +209,7 @@ export async function waitForDemandedAnnotationProjectionContent(props: {
 			.toBe(true);
 		await completion;
 	} finally {
+		observationController.abort();
 		props.page.off('response', responseListener);
 	}
 }

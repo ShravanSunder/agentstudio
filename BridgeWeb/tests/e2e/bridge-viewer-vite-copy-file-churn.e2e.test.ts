@@ -73,4 +73,4 @@ test('copies a current saved File annotation while the next real file refresh is
 			...(primaryFailure === null ? {} : { primaryError: primaryFailure }),
 		});
 	}
-}, 600_000);
+});

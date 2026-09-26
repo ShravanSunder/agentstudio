@@ -94,7 +94,7 @@ private func queryHTTPFileAnnotationProjection(
             ],
         ]
     ]) { _, newValue in newValue }
-    let response = try await executeHTTPAnnotationProjectionControl(
+    let response = try await executeHTTPControl(
         client: client,
         connection: connection,
         object: queryObject
@@ -239,42 +239,6 @@ private func acknowledgeHTTPContentFrame(
             context: "annotation projection frame acknowledgement sequence \(contentSequence)"
         )
     }
-}
-
-private func executeHTTPAnnotationProjectionControl(
-    client: some TestClientProtocol,
-    connection: HTTPProductConnection,
-    object: [String: Any]
-) async throws -> BridgeProductControlResponse {
-    let capabilityHeader = try #require(
-        HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
-    )
-    let response = try await client.execute(
-        uri: "/__bridge-product/command",
-        method: .post,
-        headers: [
-            .contentType: "application/json",
-            capabilityHeader: connection.capability,
-        ],
-        body: ByteBuffer(
-            data: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        )
-    )
-    guard response.status == .ok,
-        response.headers[.contentType] == "application/json"
-    else {
-        throw unexpectedHTTPAnnotationResponse(
-            response,
-            context: String(
-                data: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
-                encoding: .utf8
-            ) ?? "<invalid UTF-8 request>"
-        )
-    }
-    return try BridgeProductStrictJSON.decode(
-        BridgeProductControlResponse.self,
-        from: Data(response.body.readableBytesView)
-    )
 }
 
 private func httpAnnotationProjectionControlIdentity(

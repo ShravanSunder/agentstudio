@@ -17,6 +17,13 @@ import {
 import type { BridgeProductMetadataApplicationEvent } from '../../src/core/comm-worker/bridge-product-metadata-application-protocol.js';
 import { bridgeProductFileMetadataApplicationProtocol } from '../../src/core/comm-worker/bridge-product-metadata-application-registry.js';
 import {
+	bridgeProductAdmissionResponseSchema,
+	bridgeProductOperationResultAcknowledgedResponseSchema,
+	bridgeProductOperationResultAcknowledgementSchema,
+	bridgeProductOperationResultRequestSchema,
+	bridgeProductOperationResultResponseSchema,
+} from '../../src/core/comm-worker/bridge-product-operation-wire-contracts.js';
+import {
 	bridgeProductControlRequestSchema,
 	bridgeProductControlResponseSchema,
 	bridgeProductMetadataStreamRequestSchema,
@@ -476,24 +483,81 @@ export class BridgeVerifierProductFileSession {
 			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 			workerInstanceId: this.#workerInstanceId,
 		});
+		if (request.kind === 'subscription.cancel') {
+			const response = bridgeProductControlResponseSchema.parse(await this.#postCommand(request));
+			if (response.kind === 'request.error') {
+				throw new Error(`Bridge product cancellation failed with ${response.code}.`);
+			}
+			return response;
+		}
+		const admission = bridgeProductAdmissionResponseSchema.parse(await this.#postCommand(request));
+		if (admission.kind === 'request.error') {
+			throw new Error(`Bridge product control admission failed with ${admission.code}.`);
+		}
+		const resultRequest = bridgeProductOperationResultRequestSchema.parse({
+			kind: 'operation.result',
+			operationId: admission.operationId,
+			paneSessionId: this.#paneSessionId,
+			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+			workerInstanceId: this.#workerInstanceId,
+		});
+		const result = bridgeProductOperationResultResponseSchema.parse(
+			await this.#postCommand(resultRequest),
+		);
+		try {
+			if (result.operationId !== admission.operationId || result.outcome !== 'succeeded') {
+				throw new Error(`Bridge product operation settled as ${result.outcome}.`);
+			}
+			const completed = bridgeProductControlResponseSchema.parse(result.result);
+			if (
+				completed.paneSessionId !== request.paneSessionId ||
+				completed.requestId !== request.requestId ||
+				completed.requestSequence !== request.requestSequence ||
+				completed.workerInstanceId !== request.workerInstanceId
+			) {
+				throw new Error('Bridge product operation result did not match its admission.');
+			}
+			return completed;
+		} finally {
+			await this.#acknowledgeOperationResult(admission.operationId);
+		}
+	}
+
+	async #acknowledgeOperationResult(operationId: string): Promise<void> {
+		this.#controlSequence += 1;
+		const acknowledgement = bridgeProductOperationResultAcknowledgementSchema.parse({
+			kind: 'operation.resultAcknowledgement',
+			operationId: operationId,
+			paneSessionId: this.#paneSessionId,
+			requestId: `verifier-file-ack-${this.#controlSequence}`,
+			requestSequence: this.#controlSequence,
+			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+			workerInstanceId: this.#workerInstanceId,
+		});
+		const acknowledged = bridgeProductOperationResultAcknowledgedResponseSchema.parse(
+			await this.#postCommand(acknowledgement),
+		);
+		if (
+			acknowledged.operationId !== operationId ||
+			acknowledged.requestSequence !== acknowledgement.requestSequence
+		) {
+			throw new Error('Bridge product result acknowledgement did not match its operation.');
+		}
+	}
+
+	async #postCommand(body: object): Promise<unknown> {
 		const response = await fetch(this.#endpoint('/__bridge-product/command'), {
-			body: JSON.stringify(request),
+			body: JSON.stringify(body),
 			headers: this.#headers(),
 			method: 'POST',
 		});
 		const responseText = await response.text();
 		if (response.status !== 200) {
 			throw new Error(
-				`Bridge product control failed with status ${response.status}: ${responseText}`,
+				`Bridge product command failed with status ${response.status}: ${responseText}`,
 			);
 		}
-		const parsedResponse = bridgeProductControlResponseSchema.parse(
-			JSON.parse(responseText) as unknown,
-		);
-		if (parsedResponse.kind === 'request.error') {
-			throw new Error(`Bridge product control failed with ${parsedResponse.code}.`);
-		}
-		return parsedResponse;
+		return JSON.parse(responseText) as unknown;
 	}
 
 	async #openMetadataStream(): Promise<BridgeVerifierMetadataStream> {

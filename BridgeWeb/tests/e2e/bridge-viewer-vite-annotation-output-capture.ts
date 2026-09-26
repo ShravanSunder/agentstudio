@@ -9,6 +9,7 @@ import {
 	normalizedAnnotationEntries,
 	type AnnotationPreviewEntryCapture,
 } from './bridge-viewer-vite-annotation-preview-capture.ts';
+import { waitForProductCallSettlement } from './bridge-viewer-vite-product-operation-response.ts';
 
 export interface AnnotationOutputCopyHooks {
 	readonly beforeCopy?: () => Promise<void>;
@@ -56,7 +57,6 @@ export async function verifyAnnotationOutputCaptures(
 	const copyResponseObservation = waitForOutputCommandResponse(
 		props.page,
 		'clipboardMarkdown',
-		props.timeoutMilliseconds,
 	).then(
 		(response) => ({ kind: 'response' as const, response }),
 		(error: unknown) => ({ error, kind: 'failed' as const }),
@@ -116,11 +116,7 @@ export async function verifyAnnotationOutputCaptures(
 	expect(normalizedAnnotationEntries(exportedPreview)).toEqual(
 		normalizedAnnotationEntries(copiedPreview),
 	);
-	const exportResponsePromise = waitForOutputCommandResponse(
-		props.page,
-		'jsonFile',
-		props.timeoutMilliseconds,
-	);
+	const exportResponsePromise = waitForOutputCommandResponse(props.page, 'jsonFile');
 	await exportButton.click();
 	const exportResponse = await exportResponsePromise;
 	const exportResponseBody = await exportResponse.text();
@@ -256,11 +252,7 @@ async function executeAndReadOutputCapture(props: {
 	readonly timeoutMilliseconds: number;
 }): Promise<string> {
 	const namesBefore = await outputCaptureNames(props.outputDirectory, props.extension);
-	const responsePromise = waitForOutputCommandResponse(
-		props.page,
-		props.outputKind,
-		props.timeoutMilliseconds,
-	);
+	const responsePromise = waitForOutputCommandResponse(props.page, props.outputKind);
 	await props.page
 		.getByRole('button', {
 			name: props.outputKind === 'clipboardMarkdown' ? 'Copy Markdown' : 'Export JSON',
@@ -396,11 +388,7 @@ async function setThreadResolution(props: {
 	readonly timeoutMilliseconds: number;
 }): Promise<void> {
 	const thread = props.page.locator(`[data-annotation-thread-id="${props.threadId}"]`);
-	const responsePromise = waitForThreadResolutionResponse(
-		props.page,
-		props.resolution,
-		props.timeoutMilliseconds,
-	);
+	const responsePromise = waitForThreadResolutionResponse(props.page, props.resolution);
 	await thread
 		.getByRole('button', {
 			name:
@@ -560,53 +548,45 @@ async function waitForEnabledOutputButton(
 async function waitForOutputCommandResponse(
 	page: Page,
 	outputKind: 'clipboardMarkdown' | 'jsonFile',
-	timeoutMilliseconds: number,
 ): Promise<Response> {
-	return await page.waitForResponse(
-		(response): boolean => {
-			const request = response.request();
-			if (
-				request.method() !== 'POST' ||
-				new URL(request.url()).pathname !== '/__bridge-product/command'
-			) {
-				return false;
-			}
-			const body: unknown = request.postDataJSON();
-			if (!isRecord(body) || !isRecord(body['call'])) return false;
-			const call = body['call'];
-			if (!isRecord(call['request']) || !isRecord(call['request']['operation'])) return false;
-			const operation = call['request']['operation'];
-			return operation['kind'] === 'output.scope.commit' && operation['outputKind'] === outputKind;
-		},
-		{ timeout: timeoutMilliseconds },
-	);
+	const settled = await waitForProductCallSettlement(page, (response): boolean => {
+		const request = response.request();
+		if (
+			request.method() !== 'POST' ||
+			new URL(request.url()).pathname !== '/__bridge-product/command'
+		) {
+			return false;
+		}
+		const body: unknown = request.postDataJSON();
+		if (!isRecord(body) || !isRecord(body['call'])) return false;
+		const call = body['call'];
+		if (!isRecord(call['request']) || !isRecord(call['request']['operation'])) return false;
+		const operation = call['request']['operation'];
+		return operation['kind'] === 'output.scope.commit' && operation['outputKind'] === outputKind;
+	});
+	return settled.response;
 }
 
 async function waitForThreadResolutionResponse(
 	page: Page,
 	resolution: 'open' | 'resolved',
-	timeoutMilliseconds: number,
 ): Promise<Response> {
-	return await page.waitForResponse(
-		(response): boolean => {
-			const request = response.request();
-			if (
-				request.method() !== 'POST' ||
-				new URL(request.url()).pathname !== '/__bridge-product/command'
-			) {
-				return false;
-			}
-			const body: unknown = request.postDataJSON();
-			if (!isRecord(body) || !isRecord(body['call'])) return false;
-			const call = body['call'];
-			if (!isRecord(call['request']) || !isRecord(call['request']['operation'])) return false;
-			const operation = call['request']['operation'];
-			return (
-				operation['kind'] === 'thread.resolution.set' && operation['resolution'] === resolution
-			);
-		},
-		{ timeout: timeoutMilliseconds },
-	);
+	const settled = await waitForProductCallSettlement(page, (response): boolean => {
+		const request = response.request();
+		if (
+			request.method() !== 'POST' ||
+			new URL(request.url()).pathname !== '/__bridge-product/command'
+		) {
+			return false;
+		}
+		const body: unknown = request.postDataJSON();
+		if (!isRecord(body) || !isRecord(body['call'])) return false;
+		const call = body['call'];
+		if (!isRecord(call['request']) || !isRecord(call['request']['operation'])) return false;
+		const operation = call['request']['operation'];
+		return operation['kind'] === 'thread.resolution.set' && operation['resolution'] === resolution;
+	});
+	return settled.response;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

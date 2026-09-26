@@ -319,6 +319,12 @@ struct HTTPMetadataStreamHandle {
 enum HTTPAnnotationIntegrationError: Error {
     case annotationCommandFailed
     case invalidJSONObject
+    case invalidDirectControl
+    case invalidOperationAdmission
+    case invalidOperationResult
+    case invalidCompletedControl
+    case controlRouteFailed
+    case operationResultRouteFailed
     case metadataStreamEnded
     case unexpectedAnnotationCommandResponse(String)
     case unexpectedControlResponse
@@ -523,7 +529,7 @@ func executeHTTPAnnotationCommand(
     return outcome
 }
 
-private func executeHTTPControl(
+func executeHTTPControl(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
     object: [String: Any]
@@ -531,17 +537,22 @@ private func executeHTTPControl(
     let capabilityHeader = try #require(
         HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
     )
-    let response = try await client.execute(
-        uri: "/__bridge-product/command",
-        method: .post,
-        headers: [
-            .contentType: "application/json",
-            capabilityHeader: connection.capability,
-        ],
-        body: ByteBuffer(
-            data: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    let response: TestResponse
+    do {
+        response = try await client.execute(
+            uri: "/__bridge-product/command",
+            method: .post,
+            headers: [
+                .contentType: "application/json",
+                capabilityHeader: connection.capability,
+            ],
+            body: ByteBuffer(
+                data: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            )
         )
-    )
+    } catch {
+        throw HTTPAnnotationIntegrationError.controlRouteFailed
+    }
     guard response.status == .ok,
         response.headers[.contentType] == "application/json"
     else {
@@ -553,10 +564,76 @@ private func executeHTTPControl(
             ) ?? "<invalid UTF-8 request>"
         )
     }
-    return try BridgeProductStrictJSON.decode(
-        BridgeProductControlResponse.self,
-        from: Data(response.body.readableBytesView)
-    )
+    if object["kind"] as? String == "subscription.cancel" {
+        do {
+            return try BridgeProductStrictJSON.decode(
+                BridgeProductControlResponse.self,
+                from: Data(response.body.readableBytesView)
+            )
+        } catch {
+            throw HTTPAnnotationIntegrationError.invalidDirectControl
+        }
+    }
+    let admission: BridgeProductOperationAdmittedResponse
+    do {
+        admission = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: Data(response.body.readableBytesView)
+        )
+    } catch {
+        throw HTTPAnnotationIntegrationError.invalidOperationAdmission
+    }
+    let resultReply: TestResponse
+    do {
+        resultReply = try await client.execute(
+            uri: "/__bridge-product/command",
+            method: .post,
+            headers: [
+                .contentType: "application/json",
+                capabilityHeader: connection.capability,
+            ],
+            body: ByteBuffer(
+                data: try JSONSerialization.data(
+                    withJSONObject: [
+                        "kind": "operation.result",
+                        "operationId": admission.operationId,
+                        "paneSessionId": connection.bootstrap.paneSessionId,
+                        "wireVersion": BridgeProductWireContract.version,
+                        "workerInstanceId": connection.bootstrap.workerInstanceId,
+                    ],
+                    options: [.sortedKeys]
+                )
+            )
+        )
+    } catch {
+        throw HTTPAnnotationIntegrationError.operationResultRouteFailed
+    }
+    guard resultReply.status == .ok else {
+        throw unexpectedHTTPAnnotationResponse(resultReply, context: "operation.result")
+    }
+    let result: BridgeProductOperationResultResponse
+    do {
+        result = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationResultResponse.self,
+            from: Data(resultReply.body.readableBytesView)
+        )
+    } catch {
+        throw HTTPAnnotationIntegrationError.invalidOperationResult
+    }
+    guard result.operationId == admission.operationId,
+        result.outcome == .succeeded,
+        let resultValue = result.result
+    else {
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+    }
+    do {
+        return try BridgeProductStrictJSON.decode(
+            BridgeProductControlResponse.self,
+            from: JSONEncoder().encode(resultValue)
+        )
+    } catch {
+        throw HTTPAnnotationIntegrationError.invalidCompletedControl
+    }
 }
 
 private func httpControlIdentity(
