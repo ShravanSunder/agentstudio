@@ -103,10 +103,15 @@ extension CommandBarPanelController {
     }
 
     private func refreshCreationLevel(for repository: Repo) {
-        guard let level = state.currentLevel else { return }
+        for level in state.navigationStack {
+            refreshCreationLevel(level, for: repository)
+        }
+    }
+
+    private func refreshCreationLevel(_ level: CommandBarLevel, for repository: Repo) {
         switch level.creationQuery {
         case .defaultStartPoint(let queriedRepository) where queriedRepository.id == repository.id:
-            state.replaceCurrentLevel(
+            state.replaceLevel(
                 CommandBarDataSource.worktreeCreationMenuLevel(
                     repository: repository,
                     defaultStartPoint: state.defaultStartPointByRepositoryId[repository.id],
@@ -115,7 +120,7 @@ extension CommandBarPanelController {
         case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
             let eligibility = state.forkEligibilityBySourceWorktreeId
             let focusedWorktreeId = focusedWorktreeId(in: repository)
-            state.replaceCurrentLevel(
+            state.replaceLevel(
                 CommandBarDataSource.worktreeCreationForkPickerLevel(
                     repository: repository,
                     eligibilityByWorktreeId: eligibility,
@@ -127,11 +132,11 @@ extension CommandBarPanelController {
                 repo: repository,
                 store: store
             )
-            state.replaceCurrentLevel(
+            state.replaceLevel(
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
-                    canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
+                    canOpenInCurrentTab: resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab,
                     dispatcher: dispatcher,
                     repository: repository,
                     forkEligibility: state.forkEligibilityBySourceWorktreeId[worktree.id]

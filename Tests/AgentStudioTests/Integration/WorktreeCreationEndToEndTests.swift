@@ -60,6 +60,9 @@ struct WorktreeCreationEndToEndTests {
                 #expect(
                     system.store.repositoryTopologyAtom.repo(containing: result.created.id)?.id == result.sourceRepoId)
                 #expect(try await git(fixture.destination, "rev-parse", "--abbrev-ref", "HEAD") == "feat/through-link")
+                #expect(
+                    try await git(fixture.destination, "rev-parse", "HEAD")
+                        == git(fixture.repositoryPath, "rev-parse", "refs/heads/main"))
             } catch {
                 await system.shutdown()
                 throw error

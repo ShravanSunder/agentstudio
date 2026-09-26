@@ -2,11 +2,14 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension WatchedFolderScanScheduler {
-    static func production() -> WatchedFolderScanScheduler {
+    static func production(
+        deadlineScheduler: any RepoDiscoveryDeadlineScheduler = DispatchRepoDiscoveryDeadlineScheduler()
+    ) -> WatchedFolderScanScheduler {
         let validationExecutor: RepoScannerValidationExecutor
         do {
             validationExecutor = try RepoScannerValidationExecutor(
-                validationClient: RepoScannerGitDiscoveryClient()
+                validationClient: RepoScannerGitDiscoveryClient(),
+                deadlineScheduler: deadlineScheduler
             )
         } catch {
             preconditionFailure("Invalid production repo validation policy: \(error)")

@@ -314,9 +314,9 @@ package final class CommandBarState {
         defaultStartPointQueryFailures.insert(repositoryId)
     }
 
-    func replaceCurrentLevel(_ level: CommandBarLevel) {
-        guard !navigationStack.isEmpty, currentLevel?.id == level.id else { return }
-        navigationStack[navigationStack.count - 1] = level
+    func replaceLevel(_ level: CommandBarLevel) {
+        guard let index = navigationStack.lastIndex(where: { $0.id == level.id }) else { return }
+        navigationStack[index] = level
     }
 
     /// Push a nested level onto the navigation stack.
