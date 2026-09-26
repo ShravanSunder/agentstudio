@@ -3,6 +3,8 @@ import Foundation
 /// Receiver link authority. App composition supplies `contributor` from the
 /// authenticated caller binding; request parameters never nominate an author.
 /// Implementations run admission and durable effects off MainActor.
+/// Throw `BridgeLinkPortFailure.unavailable` before dispatch or
+/// `.outcomeUnknown` when a dispatched commit cannot be confirmed.
 package protocol PaneLinkMembershipPort: Sendable {
     func addMember(
         receiver: PaneId, worktree: WorktreeId, contributor: BridgeLinkContributor
