@@ -261,17 +261,19 @@ extension CommandBarDataSource {
         var items: [CommandBarItem] = []
         let canOpenInCurrentTab = store.tabLayoutAtom.activeTabId != nil
 
-        items.append(
-            CommandBarItem(
-                id: "repo-newWorktree-\(repo.id.uuidString)",
-                title: AppCommand.newWorktree.definition.label,
-                icon: AppCommand.newWorktree.definition.icon,
-                group: "Worktrees",
-                groupPriority: 2,
-                hasChildren: true,
-                action: .navigate(worktreeCreationMenuLevel(repository: repo)),
-                command: .newWorktree
-            ))
+        if available != nil {
+            items.append(
+                CommandBarItem(
+                    id: "repo-newWorktree-\(repo.id.uuidString)",
+                    title: AppCommand.newWorktree.definition.label,
+                    icon: AppCommand.newWorktree.definition.icon,
+                    group: "Worktrees",
+                    groupPriority: 2,
+                    hasChildren: true,
+                    action: .navigate(worktreeCreationMenuLevel(repository: repo)),
+                    command: .newWorktree
+                ))
+        }
 
         if let defaultWorktree {
             items.append(
