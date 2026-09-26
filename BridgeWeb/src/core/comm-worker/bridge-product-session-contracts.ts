@@ -563,6 +563,7 @@ const bridgeProductCapabilityBytesSchema = z
 
 export const bridgeProductBootstrapPolicySchema = z
 	.object({
+		admissionRetryCount: bridgeProductNonnegativeSequenceSchema,
 		maximumContentBytes: z
 			.number()
 			.int()
@@ -589,6 +590,7 @@ export const bridgeProductBootstrapPolicySchema = z
 			.positive()
 			.max(BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES),
 		terminalFrameReserve: z.literal(BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE),
+		workerSettlementDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,
 	})
 	.strict();
 

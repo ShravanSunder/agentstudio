@@ -6,8 +6,11 @@ import {
 	type BridgeProductCallRequest,
 	type BridgeProductCallResult,
 } from './bridge-product-call-contracts.js';
-import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
-import { bridgeProductControlPolicy } from './bridge-product-control-policy.js';
+import {
+	BridgeProductRequestTransportError,
+	postBridgeProductAdmissionBody,
+	postBridgeProductCommandBody,
+} from './bridge-product-command-post.js';
 import { BridgeProductControlRequestError } from './bridge-product-control-request-error.js';
 import {
 	defaultBridgeProductDeadlineClock,
@@ -121,8 +124,6 @@ export class BridgeProductSessionSuspectError extends Error {
 		this.name = 'BridgeProductSessionSuspectError';
 	}
 }
-
-class BridgeProductRequestTransportError extends Error {}
 
 class BridgeProductRequestDeadlineError extends Error {}
 
@@ -367,6 +368,7 @@ export class BridgeProductControlMux {
 					workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 				});
 				const response = await postBridgeProductControlRequestWithExactRetry({
+					policy: this.#authority.bootstrap.policy,
 					capabilityHeader: this.#authority.capabilityHeader,
 					deadlineClock: this.deadlineClock,
 					executeProductRequest: this.#executeProductRequest,
@@ -439,6 +441,7 @@ export class BridgeProductControlMux {
 							workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 						});
 						const acknowledged = await postBridgeProductResultAcknowledgement({
+							policy: this.#authority.bootstrap.policy,
 							acknowledgement,
 							capabilityHeader: this.#authority.capabilityHeader,
 							deadlineClock: this.deadlineClock,
@@ -500,6 +503,7 @@ export class BridgeProductControlMux {
 							workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 						});
 						await postBridgeProductExactAdmissionWithRetry({
+							policy: this.#authority.bootstrap.policy,
 							deadlineClock: this.deadlineClock,
 							run: async (signal): Promise<void> => {
 								await postBridgeProductCommandBody({
@@ -528,6 +532,7 @@ export class BridgeProductControlMux {
 				workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 			});
 			const response = await postBridgeProductEscapeControlRequest({
+				policy: this.#authority.bootstrap.policy,
 				capabilityHeader: this.#authority.capabilityHeader,
 				deadlineClock: this.deadlineClock,
 				executeProductRequest: this.#executeProductRequest,
@@ -572,6 +577,7 @@ export class BridgeProductControlMux {
 }
 
 async function postBridgeProductControlRequestWithExactRetry(props: {
+	readonly policy: BridgeProductSessionBootstrap['policy'];
 	readonly capabilityHeader: string;
 	readonly deadlineClock: BridgeProductDeadlineClock;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
@@ -579,6 +585,7 @@ async function postBridgeProductControlRequestWithExactRetry(props: {
 	readonly signal?: AbortSignal;
 }): Promise<ReturnType<typeof bridgeProductAdmissionResponseSchema.parse>> {
 	return await postBridgeProductExactAdmissionWithRetry({
+		policy: props.policy,
 		deadlineClock: props.deadlineClock,
 		run: (signal): Promise<ReturnType<typeof bridgeProductAdmissionResponseSchema.parse>> =>
 			postBridgeProductControlRequest({
@@ -592,15 +599,16 @@ async function postBridgeProductControlRequestWithExactRetry(props: {
 }
 
 async function postBridgeProductExactAdmissionWithRetry<TResult>(props: {
+	readonly policy: BridgeProductSessionBootstrap['policy'];
 	readonly deadlineClock: BridgeProductDeadlineClock;
 	readonly run: (signal: AbortSignal) => Promise<TResult>;
 	readonly signal?: AbortSignal;
 }): Promise<TResult> {
-	for (let attempt = 0; attempt <= bridgeProductControlPolicy.admissionRetryCount; attempt += 1) {
+	for (let attempt = 0; attempt <= props.policy.admissionRetryCount; attempt += 1) {
 		try {
 			return await withBridgeProductDeadline({
 				clock: props.deadlineClock,
-				delayMilliseconds: bridgeProductControlPolicy.workerSettlementDeadlineMilliseconds,
+				delayMilliseconds: props.policy.workerSettlementDeadlineMilliseconds,
 				run: props.run,
 				...(props.signal === undefined ? {} : { signal: props.signal }),
 			});
@@ -672,6 +680,7 @@ export class BridgeProductSessionAuthorityStore {
 			workerInstanceId: input.bootstrap.workerInstanceId,
 		});
 		const open = postBridgeProductControlRequestWithExactRetry({
+			policy: input.bootstrap.policy,
 			capabilityHeader,
 			deadlineClock: this.#deadlineClock,
 			executeProductRequest: this.#executeProductRequest,
@@ -707,6 +716,7 @@ export class BridgeProductSessionAuthorityStore {
 				workerInstanceId: input.bootstrap.workerInstanceId,
 			});
 			await postBridgeProductResultAcknowledgement({
+				policy: input.bootstrap.policy,
 				acknowledgement,
 				capabilityHeader,
 				deadlineClock: this.#deadlineClock,
@@ -736,16 +746,27 @@ async function postBridgeProductControlRequest(props: {
 	readonly request: ReturnType<typeof bridgeProductControlRequestSchema.parse>;
 	readonly signal?: AbortSignal;
 }): Promise<ReturnType<typeof bridgeProductAdmissionResponseSchema.parse>> {
-	const responseBytes = await postBridgeProductCommandBody({
+	const response = await postBridgeProductAdmissionBody({
 		body: props.request,
 		capabilityHeader: props.capabilityHeader,
 		executeProductRequest: props.executeProductRequest,
 		...(props.signal === undefined ? {} : { signal: props.signal }),
 	});
-	return bridgeProductAdmissionResponseSchema.parse(parseBridgeProductStrictJSON(responseBytes));
+	try {
+		const admitted = bridgeProductAdmissionResponseSchema.parse(
+			parseBridgeProductStrictJSON(response.bytes),
+		);
+		if (response.status >= 400 && admitted.kind !== 'request.error') {
+			throw new Error('A client refusal must carry request.error.');
+		}
+		return admitted;
+	} catch {
+		throw new BridgeProductRequestTransportError('Bridge product admission reply was unparseable.');
+	}
 }
 
 async function postBridgeProductEscapeControlRequest(props: {
+	readonly policy: BridgeProductSessionBootstrap['policy'];
 	readonly capabilityHeader: string;
 	readonly deadlineClock: BridgeProductDeadlineClock;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
@@ -753,6 +774,7 @@ async function postBridgeProductEscapeControlRequest(props: {
 	readonly signal?: AbortSignal;
 }): Promise<ReturnType<typeof bridgeProductControlResponseSchema.parse>> {
 	return await postBridgeProductExactAdmissionWithRetry({
+		policy: props.policy,
 		deadlineClock: props.deadlineClock,
 		run: async (signal): Promise<ReturnType<typeof bridgeProductControlResponseSchema.parse>> => {
 			const responseBytes = await postBridgeProductCommandBody({
@@ -808,7 +830,7 @@ async function postBridgeProductOperationObservation(props: {
 	});
 	const responseBytes = await withBridgeProductDeadline({
 		clock: props.deadlineClock,
-		delayMilliseconds: bridgeProductControlPolicy.workerSettlementDeadlineMilliseconds,
+		delayMilliseconds: props.bootstrap.policy.workerSettlementDeadlineMilliseconds,
 		run: (signal): Promise<Uint8Array> =>
 			postBridgeProductCommandBody({
 				body: request,
@@ -862,7 +884,7 @@ async function postBridgeProductOperationResult(props: {
 				? await readResponse(props.signal ?? new AbortController().signal)
 				: await withBridgeProductDeadline({
 						clock: props.deadlineClock,
-						delayMilliseconds: bridgeProductControlPolicy.workerSettlementDeadlineMilliseconds,
+						delayMilliseconds: props.bootstrap.policy.workerSettlementDeadlineMilliseconds,
 						run: readResponse,
 						...(props.signal === undefined ? {} : { signal: props.signal }),
 					});
@@ -882,6 +904,7 @@ async function postBridgeProductOperationResult(props: {
 }
 
 async function postBridgeProductResultAcknowledgement(props: {
+	readonly policy: BridgeProductSessionBootstrap['policy'];
 	readonly acknowledgement: ReturnType<
 		typeof bridgeProductOperationResultAcknowledgementSchema.parse
 	>;
@@ -890,6 +913,7 @@ async function postBridgeProductResultAcknowledgement(props: {
 	readonly executeProductRequest: BridgeProductRequestExecutor;
 }): Promise<ReturnType<typeof bridgeProductOperationResultAcknowledgedResponseSchema.parse>> {
 	return await postBridgeProductExactAdmissionWithRetry({
+		policy: props.policy,
 		deadlineClock: props.deadlineClock,
 		run: async (
 			signal,
@@ -915,39 +939,6 @@ async function postBridgeProductResultAcknowledgement(props: {
 	});
 }
 
-async function postBridgeProductCommandBody(props: {
-	readonly body: object;
-	readonly capabilityHeader: string;
-	readonly executeProductRequest: BridgeProductRequestExecutor;
-	readonly signal?: AbortSignal;
-}): Promise<Uint8Array> {
-	const body = new TextEncoder().encode(JSON.stringify(props.body));
-	if (body.byteLength > BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES) {
-		throw new Error('Bridge product control request exceeds the encoded body limit.');
-	}
-	let response: Response;
-	try {
-		response = await props.executeProductRequest('command', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'X-AgentStudio-Bridge-Product-Capability': props.capabilityHeader,
-			},
-			body,
-			signal: props.signal ?? null,
-		});
-	} catch {
-		props.signal?.throwIfAborted();
-		throw new BridgeProductRequestTransportError('Bridge product command transport failed.');
-	}
-	if (!response.ok) {
-		throw new Error(`Bridge product control request failed with status ${response.status}.`);
-	}
-	if (response.status === 204) return new Uint8Array();
-	const responseBytes = await readBridgeProductControlResponseBytes(response);
-	return responseBytes;
-}
-
 function assertBridgeProductResponseCorrelation(props: {
 	readonly request: ReturnType<typeof bridgeProductControlRequestSchema.parse>;
 	readonly response:
@@ -963,32 +954,4 @@ function assertBridgeProductResponseCorrelation(props: {
 	) {
 		throw new Error('Bridge product response does not match its issued request.');
 	}
-}
-
-async function readBridgeProductControlResponseBytes(response: Response): Promise<Uint8Array> {
-	if (response.body === null) {
-		throw new Error('Bridge product control response did not expose a body stream.');
-	}
-	const reader = response.body.getReader();
-	const responseBytes = new Uint8Array(BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES);
-	let responseByteLength = 0;
-	try {
-		while (true) {
-			// oxlint-disable-next-line eslint/no-await-in-loop -- Response chunks must be consumed in order.
-			const chunk = await reader.read();
-			if (chunk.done) {
-				break;
-			}
-			if (chunk.value.byteLength > BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES - responseByteLength) {
-				// oxlint-disable-next-line eslint/no-await-in-loop -- Cancel must settle before releasing the reader lock.
-				await reader.cancel().catch((): void => {});
-				throw new Error('Bridge product control response exceeds the encoded body limit.');
-			}
-			responseBytes.set(chunk.value, responseByteLength);
-			responseByteLength += chunk.value.byteLength;
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	return responseBytes.slice(0, responseByteLength);
 }

@@ -6,6 +6,16 @@ import Testing
 
 @Suite(.serialized)
 final class AppPoliciesBridgeTests {
+    @Test("Bridge bootstrap carries the admission replay and worker settlement policies")
+    func bridgeBootstrapCarriesOperationPolicies() {
+        let bootstrapPolicy = BridgeProductBootstrapPolicy.productContract
+        #expect(bootstrapPolicy.admissionRetryCount == AppPolicies.Bridge.productAdmissionRetryCount)
+        #expect(
+            bootstrapPolicy.workerSettlementDeadlineMilliseconds
+                == Int(AppPolicies.Bridge.productWorkerSettlementDeadline.components.seconds * 1000)
+        )
+    }
+
     @Test("Bridge lifecycle diagnostics use a bounded observability-only window")
     func bridgeLifecycleDiagnosticsUseBoundedPolicy() {
         #expect(AppPolicies.Bridge.operationLifecycleTerminalWindow == .seconds(30))

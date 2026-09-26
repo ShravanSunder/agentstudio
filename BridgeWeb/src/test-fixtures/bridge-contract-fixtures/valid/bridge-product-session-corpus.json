@@ -363,6 +363,8 @@
       "maximumRequestBodyBytes": 262144,
       "maximumMetadataFrameBytes": 131072,
       "maximumQueuedStreamBytes": 4194304,
+      "admissionRetryCount": 2,
+      "workerSettlementDeadlineMilliseconds": 5000,
       "maximumQueuedStreamFrames": 64,
       "terminalFrameReserve": 1
     }

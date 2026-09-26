@@ -39,6 +39,8 @@ const bootstrap: BridgeProductSessionBootstrap = {
 		maximumContentBytes: 2 * 1024 * 1024,
 		maximumMetadataFrameBytes: 128 * 1024,
 		maximumQueuedStreamBytes: 4 * 1024 * 1024,
+		admissionRetryCount: 2,
+		workerSettlementDeadlineMilliseconds: 5_000,
 		maximumQueuedStreamFrames: 64,
 		maximumRequestBodyBytes: 256 * 1024,
 		terminalFrameReserve: 1,
@@ -254,6 +256,76 @@ describe('Bridge product v2 control admission', () => {
 		} satisfies Partial<BridgeProductSessionSuspectError>);
 		expect(exactBodies).toHaveLength(3);
 		expect(new Set(exactBodies).size).toBe(1);
+	});
+
+	test.each([
+		{ label: 'HTTP 502', status: 502 },
+		{ label: 'unparseable HTTP 200', status: 200 },
+	])(
+		'ambiguous $label admission replies replay exact bytes before suspect settlement',
+		async ({ status }) => {
+			const admissionBodies: string[] = [];
+			const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
+				if (!(requestInit.body instanceof Uint8Array)) {
+					throw new Error('Bridge product command did not send encoded bytes.');
+				}
+				const body = new TextDecoder().decode(requestInit.body);
+				const command = commandSchema.parse(JSON.parse(body));
+				if (command.kind !== 'workerSession.open') {
+					throw new Error('An unaccepted worker session cannot issue a result request.');
+				}
+				admissionBodies.push(body);
+				return new Response('not a typed admission', { status });
+			};
+			const authority = new BridgeProductSessionAuthorityStore(
+				executeProductRequest,
+				noDeadlineClock,
+			).install({
+				bootstrap,
+				productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+			});
+			await expect(authority.open).rejects.toMatchObject({
+				name: 'BridgeProductSessionSuspectError',
+				phase: 'admission',
+			});
+			expect(admissionBodies).toHaveLength(bootstrap.policy.admissionRetryCount + 1);
+			expect(new Set(admissionBodies).size).toBe(1);
+		},
+	);
+
+	test('a typed HTTP 409 admission refusal is final and is not replayed', async () => {
+		let admissionCount = 0;
+		const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
+			if (!(requestInit.body instanceof Uint8Array)) {
+				throw new Error('Bridge product command did not send encoded bytes.');
+			}
+			const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
+			if (command.kind !== 'workerSession.open') {
+				throw new Error('A refused worker session cannot issue a result request.');
+			}
+			admissionCount += 1;
+			return new Response(
+				JSON.stringify({
+					...commandCorrelation(command),
+					code: 'unauthorized',
+					kind: 'request.error',
+					nextExpectedRequestSequence: null,
+					retryAfterMilliseconds: null,
+					retryable: false,
+					safeMessage: null,
+				}),
+				{ headers: { 'Content-Type': 'application/json' }, status: 409 },
+			);
+		};
+		const authority = new BridgeProductSessionAuthorityStore(
+			executeProductRequest,
+			noDeadlineClock,
+		).install({
+			bootstrap,
+			productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		});
+		await expect(authority.open).rejects.toThrow(/was refused/iu);
+		expect(admissionCount).toBe(1);
 	});
 
 	test('a lost result reply settles as a typed session-suspect declaration', async () => {

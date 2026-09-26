@@ -1,45 +1,58 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case admissionRetryCount
         case maximumContentBytes
         case maximumRequestBodyBytes
         case maximumMetadataFrameBytes
         case maximumQueuedStreamBytes
         case maximumQueuedStreamFrames
         case terminalFrameReserve
+        case workerSettlementDeadlineMilliseconds
     }
 
+    let admissionRetryCount: Int
     let maximumContentBytes: Int
     let maximumRequestBodyBytes: Int
     let maximumMetadataFrameBytes: Int
     let maximumQueuedStreamBytes: Int
     let maximumQueuedStreamFrames: Int
     let terminalFrameReserve: Int
+    let workerSettlementDeadlineMilliseconds: Int
 
     static let productContract = Self(
+        admissionRetryCount: AppPolicies.Bridge.productAdmissionRetryCount,
         maximumContentBytes: BridgeProductWireContract.maximumContentStreamBytes,
         maximumRequestBodyBytes: BridgeProductWireContract.maximumRequestBodyBytes,
         maximumMetadataFrameBytes: BridgeProductWireContract.maximumMetadataFrameBytes,
         maximumQueuedStreamBytes: BridgeProductWireContract.maximumQueuedStreamBytes,
         maximumQueuedStreamFrames: BridgeProductWireContract.maximumQueuedStreamFrames,
-        terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve
+        terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve,
+        workerSettlementDeadlineMilliseconds: Int(
+            AppPolicies.Bridge.productWorkerSettlementDeadline.components.seconds * 1000
+        )
     )
 
     init(
+        admissionRetryCount: Int,
         maximumContentBytes: Int,
         maximumRequestBodyBytes: Int,
         maximumMetadataFrameBytes: Int,
         maximumQueuedStreamBytes: Int,
         maximumQueuedStreamFrames: Int,
-        terminalFrameReserve: Int
+        terminalFrameReserve: Int,
+        workerSettlementDeadlineMilliseconds: Int
     ) {
+        self.admissionRetryCount = admissionRetryCount
         self.maximumContentBytes = maximumContentBytes
         self.maximumRequestBodyBytes = maximumRequestBodyBytes
         self.maximumMetadataFrameBytes = maximumMetadataFrameBytes
         self.maximumQueuedStreamBytes = maximumQueuedStreamBytes
         self.maximumQueuedStreamFrames = maximumQueuedStreamFrames
         self.terminalFrameReserve = terminalFrameReserve
+        self.workerSettlementDeadlineMilliseconds = workerSettlementDeadlineMilliseconds
     }
 
     init(from decoder: Decoder) throws {
@@ -49,12 +62,28 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
             contract: "Bridge product bootstrap policy"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.admissionRetryCount = try container.decode(Int.self, forKey: .admissionRetryCount)
         self.maximumContentBytes = try container.decode(Int.self, forKey: .maximumContentBytes)
         self.maximumRequestBodyBytes = try container.decode(Int.self, forKey: .maximumRequestBodyBytes)
         self.maximumMetadataFrameBytes = try container.decode(Int.self, forKey: .maximumMetadataFrameBytes)
         self.maximumQueuedStreamBytes = try container.decode(Int.self, forKey: .maximumQueuedStreamBytes)
         self.maximumQueuedStreamFrames = try container.decode(Int.self, forKey: .maximumQueuedStreamFrames)
         self.terminalFrameReserve = try container.decode(Int.self, forKey: .terminalFrameReserve)
+        self.workerSettlementDeadlineMilliseconds = try container.decode(
+            Int.self,
+            forKey: .workerSettlementDeadlineMilliseconds
+        )
+
+        try BridgeProductContractDecoding.validateNonnegative(
+            admissionRetryCount,
+            name: "admissionRetryCount",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validatePositive(
+            workerSettlementDeadlineMilliseconds,
+            name: "workerSettlementDeadlineMilliseconds",
+            codingPath: decoder.codingPath
+        )
 
         try validate(
             maximumContentBytes,
