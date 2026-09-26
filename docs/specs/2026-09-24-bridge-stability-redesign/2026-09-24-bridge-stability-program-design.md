@@ -202,6 +202,12 @@ flowchart TB
 - **A new handle replaces everything, range by range.** A new handle resets every domain and per-key revision. The old handle's rows stay as a **stale presentation bank**. They are readable and marked stale, but they're never authority for revisions or descriptors. Each successfully certified range of the new handle replaces its stale rows. A failed range keeps them stale. Stale rows of domains that no longer exist are dropped with the new membership batch. No zombie row survives as current.
 - **Multi-root obligations this design keeps** (from #367's `docs/specs/2026-09-12-bridge-navigation/`, as stated by its orchestrator on 2026-09-25):
   - The receiver's persisted navigation record and its ownership are unchanged. Review stays one worktree; a Files transition never rewrites Review state.
+  - **Pane links are membership (owner, 2026-09-26; Panes and workspace-control agree).** A pane's worktree and repo links ARE its receiver's multi-root membership: one source of truth, with no second list.
+    - Each member records **provenance**: `addedBy` (an agent SessionRef or the person) and `addedAt`. That's a persisted receiver-record change, made in PR2 while #367 is re-carried.
+    - The receiver also keeps a separate **PR-reference list** for pull requests that have no local known worktree. They're never members (R16 refuses unknown worktrees), but they are included in R19's summary and popover with the same vocabulary.
+    - The Panes row PR chip is a second visible consumer of R19's facts, and they stay current while either is visible.
+    - The current-CWD member stays protected from removal.
+    - A drawer terminal maps to its owner pane's receiver.
   - **Activation and draft barrier.** A source switch settles drafts first, and a refused flush keeps the old document.
     - **Navigation sequencing stays in `BridgeNavigationCommandHandler`**, at receiver level. It spans old-session preparation and new-session activation. Every *transport* operation stays bound to one pane session: when a session is replaced mid-activation, that session's operations settle `cancelled` and the handler re-issues in the new session. No E4 is carried across a session fence.
     - The receiver **navigation generation is captured before discovery** and checked before every effect and every receipt. Today admission is acquired after awaits (`BridgePaneController+FileActivation.swift:43-58`), and the generation is checked only after arrival (`BridgeNavigationCommandHandler+Activation.swift:58-60`), which is too late.
