@@ -400,12 +400,17 @@ struct SwiftLaneRunnerReportTests {
             ))
         // Fast skips are generated from exact lane ownership, with the
         // aggregate isolated suites anchored by their own suite-type filters.
-        #expect(helperScript.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
+        #expect(helperScript.contains("--skip \"$fast_lane_skip_pattern\""))
+        let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
+        #expect(fastRunner.contains("if ! fast_lane_skip_pattern=\"$(fast_non_webkit_skip_pattern)\"; then"))
         let skipBuilder = try shellFunction(named: "fast_non_webkit_skip_pattern", in: helperScript)
         #expect(skipBuilder.contains("$(swift_test_lane_fast_concurrent_skip_pattern)"))
         #expect(
             skipBuilder.contains(
-                "swift_test_isolated_suite_skip_pattern \"$(aggregate_serial_non_webkit_filter_pattern)\""
+                "if ! aggregate_serial_filters=\"$(aggregate_serial_non_webkit_filter_pattern)\"; then"))
+        #expect(
+            skipBuilder.contains(
+                "swift_test_isolated_suite_skip_pattern \"$aggregate_serial_filters\""
             ))
         #expect(!skipBuilder.contains("large_non_webkit_filter_pattern"))
     }
