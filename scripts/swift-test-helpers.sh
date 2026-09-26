@@ -310,6 +310,7 @@ discard_empty_held_step_log() {
 # deleted. Files whose stem does not have this label's exact shape belong to
 # another label (`lane-foo-bar-…` is not `lane-foo`'s) and are left alone.
 prune_lane_event_streams() {
+  [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ] && return 0
   local label_slug="$1"
   local stem_inventory
   local kept_stems
@@ -350,6 +351,7 @@ lane_evidence_stem_inventory() {
     stem_counts=1
     case "$evidence_name" in
       *.events.jsonl) evidence_stem="${evidence_name%.events.jsonl}" ;;
+      *.timing.json) evidence_stem="${evidence_name%.timing.json}" ;;
       *.held-steps.log)
         evidence_stem="${evidence_name%.held-steps.log}"
         [ -s "$evidence_path" ] || stem_counts=0
@@ -1323,9 +1325,14 @@ run_fast_serial_process_swift_tests() {
     [ -n "$fast_process_global_suite_filter" ] || continue
     fast_process_global_suite_filters+=("$fast_process_global_suite_filter")
   done <<<"$fast_process_global_suite_output"
+  local timing_eligible_ms timing_batch=0
+  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
 
   for fast_process_global_suite_filter in "${fast_process_global_suite_filters[@]}"; do
-    run_swift_with_timeout \
+    timing_batch=$((timing_batch + 1))
+    LANE_TIMING_FILTER="$fast_process_global_suite_filter" \
+      LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
+      LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" run_swift_with_timeout \
       "isolated fast process-global suite: $fast_process_global_suite_filter" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
@@ -1337,6 +1344,22 @@ run_fast_serial_process_swift_tests() {
 }
 
 prebuild_swift_tests() {
+  if [ -n "${SWIFT_BUILD_STATS_DIR:-}" ]; then
+    case "$SWIFT_BUILD_STATS_DIR" in
+      /*)
+        if mkdir -p "$SWIFT_BUILD_STATS_DIR" 2>/dev/null; then
+          # shellcheck disable=SC2086
+          run_swift_with_timeout \
+            "prebuild test bundles" \
+            "$PREBUILD_TIMEOUT_SECONDS" \
+            swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" \
+            -Xswiftc -stats-output-dir -Xswiftc "$SWIFT_BUILD_STATS_DIR"
+          return $?
+        fi
+        ;;
+    esac
+    echo "[$LOG_PREFIX] warning: compiler statistics disabled (directory must be writable and absolute)" >&2
+  fi
   # shellcheck disable=SC2086
   run_swift_with_timeout \
     "prebuild test bundles" \
@@ -1363,10 +1386,17 @@ run_aggregate_serial_non_webkit_swift_tests() {
     printf '[test] failed to generate aggregate serial non-WebKit suite list\n' >&2
     return 1
   fi
+  local timing_eligible_ms timing_batch=0 timing_slot=0
+  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
 
   while IFS= read -r aggregate_serial_suite_filter; do
     [ -n "$aggregate_serial_suite_filter" ] || continue
+    if [ "$timing_slot" -eq 0 ]; then timing_batch=$((timing_batch + 1)); fi
+    timing_slot=$((timing_slot + 1))
     (
+      export LANE_TIMING_FILTER="$aggregate_serial_suite_filter"
+      export LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT="$timing_slot"
+      export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
       run_swift_with_timeout \
         "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter" \
         "$TIMEOUT_SECONDS" \
@@ -1383,6 +1413,7 @@ run_aggregate_serial_non_webkit_swift_tests() {
       # suites behind one crashed process.
       wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
       process_global_batch_pids=()
+      timing_slot=0
     fi
   done <<<"$aggregate_serial_suite_filters"
 
@@ -1418,9 +1449,15 @@ run_large_process_global_swift_tests() {
     [ -n "$large_process_global_suite_filter" ] || continue
     large_process_global_suite_filters+=("$large_process_global_suite_filter")
   done <<<"$large_process_global_suite_output"
+  local timing_eligible_ms timing_batch=0
+  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
 
   for large_process_global_suite_filter in "${large_process_global_suite_filters[@]}"; do
-    run_swift_with_timeout \
+    timing_batch=$((timing_batch + 1))
+    LANE_TIMING_FILTER="$large_process_global_suite_filter" \
+      LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
+      LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" \
+      run_swift_with_timeout \
       "isolated large process-global suite: $large_process_global_suite_filter" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
@@ -1643,10 +1680,14 @@ run_webkit_suites() {
     echo "[test] failed to generate WebKit suite list" >&2
     return 1
   fi
+  local timing_eligible_ms timing_batch=0
+  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
 
   while IFS= read -r filter; do
     [ -n "$filter" ] || continue
-    run_webkit_suite "$filter" || return $?
+    timing_batch=$((timing_batch + 1))
+    LANE_TIMING_FILTER="$filter" LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
+      LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" run_webkit_suite "$filter" || return $?
   done <<<"$webkit_filters"
 }
 
@@ -1675,7 +1716,50 @@ swift_test_watchdog_timeout_status() {
   return 0
 }
 
+# Epoch milliseconds share a clock domain across the wrapper and its child.
+lane_timing_now_ms() {
+  /usr/bin/perl -MTime::HiRes=time -e 'printf "%d\n", time()*1000'
+}
+
+write_lane_timing_sidecar() {
+  local sidecar_path="$1" label="$2" child_timing_file="$3" dispatch_ms="$4"
+  local wrapper_complete_ms="$5" timed_out="$6" event_stream_path="$7"
+  local child_start_ms="" child_exit_ms="" child_status=""
+  if [ -r "$child_timing_file" ]; then
+    IFS=' ' read -r child_start_ms child_exit_ms child_status <"$child_timing_file" || true
+  fi
+  LANE_TIMING_LANE="${LOG_PREFIX:-unknown}" LANE_TIMING_LABEL="$label" \
+    LANE_TIMING_DISPATCH="$dispatch_ms" LANE_TIMING_START="$child_start_ms" \
+    LANE_TIMING_EXIT="$child_exit_ms" LANE_TIMING_STATUS="$child_status" \
+    LANE_TIMING_COMPLETE="$wrapper_complete_ms" LANE_TIMING_TIMEOUT="$timed_out" \
+    LANE_TIMING_EVENT_FILE="$event_stream_path" \
+    /usr/bin/perl -MJSON::PP -e '
+      sub nullable_number { defined $_[0] && $_[0] =~ /^[0-9]+$/ ? 0 + $_[0] : undef }
+      sub nullable_text { defined $_[0] && length $_[0] ? $_[0] : undef }
+      my $record = {
+        schema_version => 1, lane => $ENV{LANE_TIMING_LANE}, label => $ENV{LANE_TIMING_LABEL},
+        filter => nullable_text($ENV{LANE_TIMING_FILTER}),
+        batch_id => nullable_number($ENV{LANE_TIMING_BATCH}),
+        slot => nullable_number($ENV{LANE_TIMING_SLOT}),
+        eligible_ms => nullable_number($ENV{LANE_TIMING_ELIGIBLE_MS}),
+        dispatch_ms => nullable_number($ENV{LANE_TIMING_DISPATCH}),
+        command_start_ms => nullable_number($ENV{LANE_TIMING_START}),
+        command_exit_ms => nullable_number($ENV{LANE_TIMING_EXIT}),
+        command_status => nullable_number($ENV{LANE_TIMING_STATUS}),
+        wrapper_complete_ms => nullable_number($ENV{LANE_TIMING_COMPLETE}),
+        timed_out => $ENV{LANE_TIMING_TIMEOUT} eq "1" ? JSON::PP::true : JSON::PP::false,
+        event_stream_file => nullable_text($ENV{LANE_TIMING_EVENT_FILE}),
+      };
+      print JSON::PP->new->canonical->encode($record), "\n";
+    ' >"$sidecar_path" 2>/dev/null || \
+    echo "[${LOG_PREFIX:-test}] warning: timing sidecar unavailable: $sidecar_path" >&2
+  rm -f "$child_timing_file" || true
+  return 0
+}
+
 run_swift_with_timeout() {
+  local timing_dispatch_ms
+  timing_dispatch_ms="$(lane_timing_now_ms 2>/dev/null || true)"
   local label="$1"
   shift
   local timeout_seconds="$1"
@@ -1700,6 +1784,8 @@ run_swift_with_timeout() {
   local event_stream_file=""
   local evidence_stem
   evidence_stem="$(lane_evidence_stem "$label")"
+  mkdir -p "$LANE_EVENT_STREAM_DIR" 2>/dev/null || true
+  local child_timing_file="$evidence_stem.child-timing"
   # The test process appends to this log through AGENTSTUDIO_HELD_STEP_LOG; it is
   # handed over as an absolute path because the test process's working directory
   # is not this script's to promise.
@@ -1724,7 +1810,16 @@ run_swift_with_timeout() {
     if [ -n "$held_step_log" ]; then
       export AGENTSTUDIO_HELD_STEP_LOG="$held_step_log"
     fi
+    local command_start_ms pipeline_result command_exit_ms
+    local -a pipeline_status
+    command_start_ms="$(lane_timing_now_ms 2>/dev/null || true)"
+    set +e
     "$@" 2>&1 | tee "$output_file" | $xcb_pipe
+    pipeline_result=$? pipeline_status=("${PIPESTATUS[@]}")
+    command_exit_ms="$(lane_timing_now_ms 2>/dev/null || true)"
+    printf '%s %s %s\n' "$command_start_ms" "$command_exit_ms" "${pipeline_status[0]}" \
+      >"$child_timing_file" 2>/dev/null || true
+    exit "$pipeline_result"
   ) &
   local command_pid=$!
 
@@ -1743,6 +1838,8 @@ run_swift_with_timeout() {
         "$now_epoch"
     )"; then
       echo "[$LOG_PREFIX] lane-report watchdog state generation failed" >&2
+      write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
+        "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" ""
       return 1
     fi
     read -r last_output_size last_progress_epoch <<<"$watchdog_state"
@@ -1804,6 +1901,11 @@ run_swift_with_timeout() {
     fi
     discard_empty_held_step_log "$held_step_log"
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
+    local retained_event_stream=""
+    [ -f "$evidence_stem.events.jsonl" ] && retained_event_stream="$evidence_stem.events.jsonl"
+    write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
+      "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" \
+      "$retained_event_stream"
     return 124
   fi
 
@@ -1839,6 +1941,13 @@ run_swift_with_timeout() {
     rm -f "$held_step_log"
   fi
   rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
+  local retained_event_stream=""
+  if [ "$should_preserve_event_stream" -eq 1 ] || [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ]; then
+    [ -f "$evidence_stem.events.jsonl" ] && retained_event_stream="$evidence_stem.events.jsonl"
+  fi
+  write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
+    "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" \
+    "$retained_event_stream"
   return "$command_status"
 }
 
