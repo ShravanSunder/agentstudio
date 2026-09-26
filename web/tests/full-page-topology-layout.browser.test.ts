@@ -126,10 +126,19 @@ describe("full-page topology layout", () => {
       const start = core.getPointAtLength(0);
       const end = pathEnd(fixture.artwork, core);
       const glassBounds = glass.getBoundingClientRect();
-      expect(Math.abs(end.x - glassBounds.left)).toBeLessThanOrEqual(1);
-      expect(end.y).toBeGreaterThan(glassBounds.top);
-      expect(end.y).toBeLessThan(glassBounds.bottom);
-      expect(end.x - (fixture.artwork.getBoundingClientRect().left + start.x)).toBeCloseTo(unit, 0);
+      if (anchorId === "hero") {
+        expect(Math.abs(end.y - glassBounds.top)).toBeLessThanOrEqual(1);
+        expect(end.x - glassBounds.left).toBeGreaterThanOrEqual(16 + 8);
+      } else {
+        expect(Math.abs(end.x - glassBounds.left)).toBeLessThanOrEqual(1);
+        expect(end.y).toBeGreaterThan(glassBounds.top);
+        expect(end.y).toBeLessThan(glassBounds.bottom);
+      }
+      const heroTopInset = anchorId === "hero" ? 24 : 0;
+      expect(end.x - (fixture.artwork.getBoundingClientRect().left + start.x)).toBeCloseTo(
+        unit + heroTopInset,
+        0,
+      );
       // The primary-blue branch ends directly on the glass edge, with no port node.
       expect(group.classList.contains("accent-port")).toBe(true);
       expect(group.querySelector("[data-topology-port-node]")).toBeNull();

@@ -171,9 +171,11 @@ export function composeFullPageTopology(
   );
   const { rowYs, anchorRows } = measureTopologyRows({
     anchorYs: page.anchors.map((anchor) => anchor.lineY ?? topologyRectCenterY(anchor.rect)),
-    forcedYs: page.anchors.flatMap((anchor) =>
-      anchor.stepPill === undefined ? [] : [topologyRectCenterY(anchor.stepPill)],
-    ),
+    forcedYs: stacked
+      ? []
+      : page.anchors.flatMap((anchor) =>
+          anchor.stepPill === undefined ? [] : [topologyRectCenterY(anchor.stepPill)],
+        ),
     endY: topologyEndY(page),
   });
   const finalRow = rowYs.length - 1;

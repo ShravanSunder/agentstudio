@@ -11,16 +11,18 @@ const { chapterId, steps } = Astro.props;
 ---
 
 <div
-  class="chapter-step-pill floating-glass-material relative mb-4 ml-[calc(clamp(28px,3vw,48px)+5px)] inline-flex h-10 max-w-[calc(100%-40px)] items-center rounded-full border p-1"
+  class="chapter-step-pill floating-glass-material relative inline-flex h-10 max-w-full items-center rounded-full border p-1"
   {...{ [railStepPillTargetAttribute]: chapterId }}
 >
   <div class="chapter-step-list relative flex min-w-0 items-center" data-chapter-step-list>
+    <span class="chapter-step-progress-track" aria-hidden="true"></span>
+    <span class="chapter-step-progress-fill" aria-hidden="true"></span>
     <span class="chapter-step-highlight" aria-hidden="true"></span>
     {
       steps.map((step, stepIndex) => (
         <button
           type="button"
-          class="chapter-step relative z-[1] inline-flex h-[30px] min-w-[30px] cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-left text-[14px] leading-none whitespace-nowrap text-ink-faint hover:text-ink-secondary disabled:cursor-default"
+          class="chapter-step relative z-[3] inline-flex h-[30px] min-w-[30px] cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-left text-[14px] leading-none whitespace-nowrap text-ink-faint hover:text-ink-secondary disabled:cursor-default"
           data-chapter-step={step.id}
           data-step-state={stepIndex === 0 ? "current" : "upcoming"}
           aria-label={step.label}
@@ -36,6 +38,25 @@ const { chapterId, steps } = Astro.props;
 </div>
 
 <style>
+  .chapter-step-progress-track,
+  .chapter-step-progress-fill {
+    position: absolute;
+    top: calc(50% - 0.5px);
+    left: var(--chapter-step-track-left, 0px);
+    height: 1px;
+    pointer-events: none;
+  }
+  .chapter-step-progress-track {
+    z-index: 1;
+    width: var(--chapter-step-track-width, 0px);
+    background: rgb(255 255 255 / 12%);
+  }
+  .chapter-step-progress-fill {
+    z-index: 2;
+    width: var(--chapter-step-progress-width, 0px);
+    background: var(--color-primary);
+    transition: width 300ms ease-out;
+  }
   .chapter-step-highlight {
     position: absolute;
     z-index: 0;
@@ -56,16 +77,21 @@ const { chapterId, steps } = Astro.props;
     height: 9px;
     border: 1.5px solid rgb(155 161 173 / 70%);
     border-radius: 999px;
+    background: #282c34;
+  }
+  .chapter-step[data-step-state="passed"] .chapter-step__dot {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
   }
   .chapter-step[data-step-state="current"] { color: var(--color-ink); }
   .chapter-step[data-step-state="current"] .chapter-step__dot {
     border: 2px solid var(--color-primary);
-    box-shadow: 0 0 0 2px rgb(137 180 250 / 42%);
+    box-shadow: 0 0 0 2px rgb(137 180 250 / 42%), 0 0 6px rgb(137 180 250 / 35%);
   }
   @media (width < 38.75rem) {
     .chapter-step:not([data-step-state="current"]) .chapter-step__label { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .chapter-step-highlight { transition: none; }
+    .chapter-step-highlight, .chapter-step-progress-fill { transition: none; }
   }
 </style>

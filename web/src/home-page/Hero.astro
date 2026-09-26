@@ -131,9 +131,11 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
       }
     </div>
   </ScrollMaterialSurface>
-  <p class="mx-auto mt-8 mb-0 max-w-[40rem] text-center text-marketing-body text-ink-muted" {...{ [heroIntroDescriptionAttribute]: "" }}>
-    {marketingCopy.hero.description}
-  </p>
+  <div class="chapter-caption mt-3" data-hero-caption>
+    <p class="m-0" {...{ [heroIntroDescriptionAttribute]: "" }}>
+      {marketingCopy.hero.description}
+    </p>
+  </div>
 </section>
 
 <style>

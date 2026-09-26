@@ -80,7 +80,8 @@ function renderStaticContract(contract: ChapterStepsDomContract): void {
     selector.removeAttribute("aria-controls");
     selector.removeAttribute("aria-selected");
     selector.dataset["stepState"] = stepStateFor(stepIndex, 0);
-    panel.hidden = stepIndex !== 0;
+    panel.removeAttribute("hidden");
+    panel.setAttribute("aria-hidden", String(stepIndex !== 0));
     panel.removeAttribute("role");
     panel.removeAttribute("aria-labelledby");
     panel.removeAttribute("tabindex");
@@ -102,7 +103,8 @@ function renderSelectedStep(contract: ChapterStepsDomContract, selectedIndex: nu
     selector.setAttribute("aria-selected", String(isSelected));
     selector.dataset["stepState"] = stepStateFor(stepIndex, selectedIndex);
     panel.id = `${idPrefix}-panel-${stepId}`;
-    panel.hidden = !isSelected;
+    panel.removeAttribute("hidden");
+    panel.setAttribute("aria-hidden", String(!isSelected));
     panel.tabIndex = 0;
     panel.setAttribute("role", "tabpanel");
     panel.setAttribute("aria-labelledby", selector.id);
@@ -112,6 +114,33 @@ function renderSelectedStep(contract: ChapterStepsDomContract, selectedIndex: nu
   if (selected !== undefined && contract.list.querySelector(".chapter-step-highlight") !== null) {
     contract.list.style.setProperty("--chapter-step-highlight-x", `${selected.offsetLeft}px`);
     contract.list.style.setProperty("--chapter-step-highlight-width", `${selected.offsetWidth}px`);
+  }
+  const firstDot = contract.steps[0]?.selector.querySelector<HTMLElement>(".chapter-step__dot");
+  const lastDot = contract.steps.at(-1)?.selector.querySelector<HTMLElement>(".chapter-step__dot");
+  const currentDot = selected?.querySelector<HTMLElement>(".chapter-step__dot");
+  if (
+    firstDot !== undefined &&
+    firstDot !== null &&
+    lastDot !== undefined &&
+    lastDot !== null &&
+    currentDot !== undefined &&
+    currentDot !== null
+  ) {
+    const listLeft = contract.list.getBoundingClientRect().left;
+    const center = (dot: HTMLElement): number => {
+      const bounds = dot.getBoundingClientRect();
+      return (bounds.left + bounds.right) / 2 - listLeft;
+    };
+    const firstCenter = center(firstDot);
+    contract.list.style.setProperty("--chapter-step-track-left", `${firstCenter}px`);
+    contract.list.style.setProperty(
+      "--chapter-step-track-width",
+      `${center(lastDot) - firstCenter}px`,
+    );
+    contract.list.style.setProperty(
+      "--chapter-step-progress-width",
+      `${center(currentDot) - firstCenter}px`,
+    );
   }
 }
 

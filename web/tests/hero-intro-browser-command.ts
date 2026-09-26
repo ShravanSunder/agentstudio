@@ -16,6 +16,10 @@ export interface HeroLayoutObservation {
   readonly appBottom: number;
   readonly descriptionTop: number;
   readonly descriptionWidth: number;
+  readonly captionTop: number;
+  readonly captionLeft: number;
+  readonly captionRight: number;
+  readonly captionRadius: string;
   readonly installCenterOffset: number;
   readonly paintedStackTop: number;
   readonly cursorCount: number;
@@ -59,11 +63,17 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
               const description = document.querySelector<HTMLElement>(
                 "[data-hero-intro-description]",
               );
+              const caption = document.querySelector<HTMLElement>("[data-hero-caption]");
               const frontPlane = document.querySelector<HTMLElement>("[data-hero-icon-front]");
               const rearPlanes = [
                 ...document.querySelectorAll<HTMLElement>("[data-hero-icon-rear]"),
               ];
-              if (description === null || frontPlane === null || rearPlanes.length !== 2) {
+              if (
+                description === null ||
+                caption === null ||
+                frontPlane === null ||
+                rearPlanes.length !== 2
+              ) {
                 throw new Error("Hero stack or description is missing");
               }
               const padding = parseFloat(getComputedStyle(windowNode).borderTopWidth);
@@ -95,6 +105,10 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 appBottom: appRect.bottom,
                 descriptionTop: description.getBoundingClientRect().top,
                 descriptionWidth: description.getBoundingClientRect().width,
+                captionTop: caption.getBoundingClientRect().top,
+                captionLeft: caption.getBoundingClientRect().left,
+                captionRight: caption.getBoundingClientRect().right,
+                captionRadius: getComputedStyle(caption).borderRadius,
                 installCenterOffset: Math.abs(
                   (install.getBoundingClientRect().left + install.getBoundingClientRect().right) /
                     2 -

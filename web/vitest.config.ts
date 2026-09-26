@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-command.ts";
 import {
   verifyChapterStepRow,
+  verifySingleStepChapter,
   verifyChapterTitleAnchors,
 } from "./tests/chapter-surface-browser-command.ts";
 import {
@@ -43,6 +44,7 @@ export default defineConfig({
               verifyHeroIntroPlayback,
               verifyHeroIntroShift,
               verifyChapterStepRow,
+              verifySingleStepChapter,
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,
               verifySiteHeaderScrollStability,

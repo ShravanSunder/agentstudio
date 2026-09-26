@@ -49,7 +49,7 @@ function createChapterStepsFixture(): HTMLElement {
       ${stepIds
         .map(
           (stepId, index) =>
-            `<div data-chapter-step-panel="${stepId}" ${index === 0 ? "" : "hidden"}>${stepId} copy</div>`,
+            `<div data-chapter-step-panel="${stepId}" aria-hidden="${index !== 0}">${stepId} copy</div>`,
         )
         .join("")}
       <div data-scene-root="chapter-context-with-task"></div>
@@ -141,8 +141,16 @@ describe("chapter step tabs", () => {
     requiredButton(root, '[data-chapter-step="git-context"]').click();
 
     expect(selectedStepId(root)).toBe("git-context");
-    expect(requiredHtmlElement(root, '[data-chapter-step-panel="git-context"]').hidden).toBe(false);
-    expect(requiredHtmlElement(root, '[data-chapter-step-panel="task-drawers"]').hidden).toBe(true);
+    expect(
+      requiredHtmlElement(root, '[data-chapter-step-panel="git-context"]').getAttribute(
+        "aria-hidden",
+      ),
+    ).toBe("false");
+    expect(
+      requiredHtmlElement(root, '[data-chapter-step-panel="task-drawers"]').getAttribute(
+        "aria-hidden",
+      ),
+    ).toBe("true");
     expect(
       requiredHtmlElement(root, '[data-chapter-step="task-drawers"]').dataset["stepState"],
     ).toBe("passed");

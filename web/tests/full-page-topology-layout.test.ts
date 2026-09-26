@@ -110,8 +110,34 @@ function composed(fixture: TopologyPageFixture): TopologyComposition {
 }
 
 describe("step pill attachment", () => {
+  it("keeps the title chapter dot when the desktop pill follows its title", () => {
+    const fixture = homePageAt(1600);
+    const firstChapter = fixture.page.anchors[1];
+    if (firstChapter === undefined) throw new Error("First chapter is missing");
+    const pill = rect(
+      firstChapter.rect.left,
+      firstChapter.rect.top + firstChapter.rect.height + 14,
+      300,
+      40,
+    );
+    const anchors = fixture.page.anchors.map((anchor, index) =>
+      index === 1 ? { ...anchor, stepPill: pill } : anchor,
+    );
+    const composition = composeFullPageTopology({ ...fixture.page, anchors });
+    expect(composition?.rows.find((row) => row.anchorId === firstChapter.id)?.kind).toBe("chapter");
+    expect(
+      composition?.routes.find((route) => route.anchorId === firstChapter.id)?.targetPoint,
+    ).toEqual({ x: pill.left, y: pill.top + 20 });
+  });
+  it("enters the hero app-frame top edge even on desktop", () => {
+    const fixture = homePageAt(1600);
+    const hero = fixture.page.anchors[0];
+    const route = composed(fixture).routes.find((candidate) => candidate.anchorId === "hero");
+    expect(route?.targetEdge).toBe("top");
+    expect(route?.targetPoint?.y).toBe(hero?.surface?.top);
+  });
   for (const width of [390, 820, 1280, 1600]) {
-    it(`forces a row through the pill center and ends its branch there at ${width}px`, () => {
+    it(`uses the pill on desktop and glass top on stacked layouts at ${width}px`, () => {
       const fixture = homePageAt(width);
       const firstChapter = fixture.page.anchors[1];
       if (firstChapter?.surface === undefined) throw new Error("First chapter glass is missing");
@@ -127,8 +153,14 @@ describe("step pill attachment", () => {
       const composition = composeFullPageTopology({ ...fixture.page, anchors });
       if (composition === undefined) throw new Error("Pill topology did not compose");
       const route = composition.routes.find((candidate) => candidate.anchorId === firstChapter.id);
-      expect(route?.targetPoint).toEqual({ x: pill.left, y: pill.top + pill.height / 2 });
-      expect(composition.rowYs).toContain(pill.top + pill.height / 2);
+      if (width >= 1024) {
+        expect(route?.targetPoint).toEqual({ x: pill.left, y: pill.top + pill.height / 2 });
+        expect(composition.rowYs).toContain(pill.top + pill.height / 2);
+      } else {
+        expect(route?.targetEdge).toBe("top");
+        expect(route?.targetPoint?.y).toBe(firstChapter.surface.top);
+        expect(composition.rowYs).not.toContain(pill.top + pill.height / 2);
+      }
       expect(composition.mainlineX).toBe(composed(fixture).mainlineX);
     });
   }
@@ -392,8 +424,12 @@ describe("composed topology", () => {
           expect(route.column).toBe(route.parentColumn + 1);
           for (const command of pathCommands(route.pathData).slice(1)) {
             const end = command.points.at(-1) ?? command.from;
+            const heroTopInset =
+              route.anchorId === "hero" && width >= topologyStackedLayoutBreakpointWidth
+                ? topologyStackedDropCornerInset
+                : 0;
             expect(Math.abs(end.x - command.from.x)).toBeLessThanOrEqual(
-              composition.columnUnit + 0.01,
+              composition.columnUnit + heroTopInset + 0.01,
             );
           }
         }
@@ -412,7 +448,11 @@ describe("composed topology", () => {
             throw new Error("Attach branch is empty");
           }
           expect(attach.accent).toBe("port");
-          expect(end.x - start.x).toBeCloseTo(composition.columnUnit, 6);
+          const heroTopInset =
+            attach.anchorId === "hero" && width >= topologyStackedLayoutBreakpointWidth
+              ? topologyStackedDropCornerInset
+              : 0;
+          expect(end.x - start.x).toBeCloseTo(composition.columnUnit + heroTopInset, 6);
           expect(end.y - start.y).toBeGreaterThan(0);
           expect(end.y - start.y).toBeLessThanOrEqual(topologyRowUnit * 1.25);
           // Wide ports turn with the retired merge bend onto the target row and
@@ -435,7 +475,9 @@ describe("composed topology", () => {
           const anchor = fixture.page.anchors.find((candidate) => candidate.id === attach.anchorId);
           if (attach.targetEdge === "top") {
             // Stacked ports enter the glass's top edge straight down, clear of its corner.
-            expect(width).toBeLessThan(topologyStackedLayoutBreakpointWidth);
+            expect(width < topologyStackedLayoutBreakpointWidth || attach.anchorId === "hero").toBe(
+              true,
+            );
             const lastRun = pathCommands(attach.pathData).at(-1);
             expect(lastRun?.command).toBe("L");
             expect(lastRun?.from.x).toBe(end.x);

@@ -66,11 +66,20 @@ describe("hero intro", () => {
       );
       expect(observation.canvasColor, observation.viewport).toBe("rgb(25, 27, 31)");
       expect(observation.installCenterOffset, observation.viewport).toBeLessThanOrEqual(1);
-      expect(observation.descriptionTop - observation.appBottom, observation.viewport).toBeCloseTo(
-        32,
+      expect(observation.captionTop - observation.appBottom, observation.viewport).toBeCloseTo(
+        12,
         0,
       );
-      expect(observation.descriptionWidth, observation.viewport).toBeLessThanOrEqual(640);
+      expect(
+        Math.abs(observation.captionLeft - observation.appLeft),
+        observation.viewport,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.captionRight - observation.appRight),
+        observation.viewport,
+      ).toBeLessThanOrEqual(1);
+      expect(observation.captionRadius, observation.viewport).toBe("20px");
+      expect(observation.descriptionTop).toBeGreaterThan(observation.captionTop);
       expect(
         observation.paintedStackTop - observation.headlineBottom,
         observation.viewport,

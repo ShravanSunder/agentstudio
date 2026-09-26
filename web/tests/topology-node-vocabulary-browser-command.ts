@@ -66,8 +66,9 @@ function readPorts(): TopologyPortObservation[] {
     }
     const anchorId = group.dataset["routeAnchor"];
     const target =
-      document.querySelector(`[data-rail-step-pill-target="${anchorId ?? ""}"]`) ??
-      document.querySelector(`[data-rail-surface-target="${anchorId ?? ""}"]`);
+      (group.dataset["targetEdge"] === "left"
+        ? document.querySelector(`[data-rail-step-pill-target="${anchorId ?? ""}"]`)
+        : null) ?? document.querySelector(`[data-rail-surface-target="${anchorId ?? ""}"]`);
     if (target === null) throw new Error("An attach branch has no target");
     const matrix = core.getScreenCTM();
     if (matrix === null) throw new Error("An attach branch has no screen transform");

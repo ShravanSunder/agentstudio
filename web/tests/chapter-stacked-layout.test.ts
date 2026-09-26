@@ -29,8 +29,9 @@ describe("the stacked chapter layout boundary", () => {
     const breakpoint = tailwindLargeBreakpoint();
     const chapterSurface = readSource("../src/chapters/ChapterSurface.astro");
 
-    // The glass still stacks at lg; the pill remains horizontal at every width.
-    expect(chapterSurface).toContain("max-lg:grid-cols-1");
+    // The G7 pill moves below the full-width glass at the rail's same lg edge.
+    expect(chapterSurface).toContain(`@media (width < ${breakpoint})`);
+    expect(chapterSurface).toContain("chapter-surface__stage");
     expect(topologyStackedLayoutBreakpointWidth).toBe(Number.parseFloat(breakpoint) * 16);
   });
 });

@@ -2,7 +2,6 @@
 import ScrollMaterialSurface from "@/home-page/ScrollMaterialSurface.astro";
 
 import ChapterStepPill from "./ChapterStepPill.astro";
-
 import type { Chapter } from "./chapter-catalog";
 import {
   playbackStageAttribute,
@@ -23,75 +22,56 @@ const surfaceAttributes = { [railSurfaceTargetAttribute]: chapter.id };
 const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStageAttribute]: "" };
 ---
 
-<!--
-  The id is the chapter's public URL anchor (/#<chapterId>), promised to media
-  for post links. The scroll margin keeps an anchor jump clear of the floating
-  sticky header (72px anchor plus its 12px floating offset).
--->
+<!-- The public /#chapterId anchor clears the floating header on arrival. -->
 <article
   id={chapter.id}
   class="chapter-section scroll-mt-24 py-chapter-block pr-page-inline pl-[calc(var(--spacing-page-inline)+var(--spacing-rail-gutter))]"
   aria-labelledby={titleId}
   data-chapter={chapter.id}
 >
-  <div data-chapter-steps-root={chapter.id}>
-    {hasStepSelector && <ChapterStepPill chapterId={chapter.id} steps={chapter.steps} />}
+  <div class="chapter-flow" data-chapter-steps-root={chapter.id} data-has-steps={String(hasStepSelector)}>
+    <h2
+      {...railAnchorAttributes}
+      id={titleId}
+      class="chapter-title m-0 font-display text-[clamp(30px,3.4vw,60px)] leading-[0.98] font-extrabold tracking-[-0.045em] text-balance text-ink"
+    >
+      {chapter.title.beforeAccent}<span class="text-primary">{chapter.title.accent}</span
+      >{chapter.title.afterAccent}
+    </h2>
+
+    {hasStepSelector && <div class="chapter-pill-slot"><ChapterStepPill chapterId={chapter.id} steps={chapter.steps} /></div>}
+
     <ScrollMaterialSurface
       {...surfaceAttributes}
-      class="chapter-surface grid grid-cols-[minmax(0,35fr)_minmax(0,65fr)] gap-1 border p-1 max-lg:grid-cols-1"
+      class="chapter-surface border p-1"
     >
       <div
-        class="scroll-material-pane chapter-surface__copy flex min-w-0 flex-col rounded-material-pane border border-line p-[clamp(28px,3vw,48px)] max-lg:contents"
-      >
-        <header class="max-lg:order-1 max-lg:px-7 max-lg:pt-7 max-lg:pb-3">
-          <h2
-            {...railAnchorAttributes}
-            id={titleId}
-            class="m-0 font-display text-[clamp(30px,3.4vw,60px)] leading-[0.98] font-extrabold tracking-[-0.045em] text-balance text-ink"
-          >
-            {chapter.title.beforeAccent}<span class="text-primary">{chapter.title.accent}</span
-            >{chapter.title.afterAccent}
-          </h2>
-        </header>
-
-        <div class="mt-12 max-lg:order-3 max-lg:mt-0 max-lg:px-7 max-lg:pt-4 max-lg:pb-7">
-          {
-            hasStepSelector ? (
-              <>
-                {chapter.steps.map((step, stepIndex) => (
-                  <div
-                    class="chapter-step-panel mt-5 max-w-[440px] rounded-control text-[16px] leading-[1.55] text-ink-muted max-lg:mt-4 max-lg:max-w-none max-phone:text-sm"
-                    data-chapter-step-panel={step.id}
-                    hidden={stepIndex !== 0}
-                  >
-                    <p class="m-0 mb-1.5 text-[17px] leading-snug text-ink max-phone:text-base">
-                      {step.label}
-                    </p>
-                    <p class="m-0 max-phone:hidden">{step.description}</p>
-                    <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
-                  </div>
-                ))}
-              </>
-            ) : (
-              chapter.steps.map((step) => (
-                <div class="max-w-[440px] text-[16px] leading-[1.55] text-ink-muted max-lg:max-w-none max-phone:text-sm">
-                  <p class="m-0 text-[17px] text-ink-secondary max-phone:text-base">{step.label}</p>
-                  <p class="mt-3 mb-0 max-phone:hidden">{step.description}</p>
-                  <p class="mt-3 mb-0 hidden max-phone:block">{step.phoneDescription}</p>
-                </div>
-              ))
-            )
-          }
-        </div>
-      </div>
-
-      <div
         {...stageAttributes}
-        class="scroll-material-pane chapter-surface__stage relative flex min-w-0 items-center overflow-clip rounded-material-pane border border-line p-1 max-lg:order-2"
+        class="scroll-material-pane chapter-surface__stage relative flex w-full min-w-0 items-center overflow-clip rounded-material-pane border border-line p-1"
       >
         <slot name="stage" />
       </div>
     </ScrollMaterialSurface>
+
+    <div class="chapter-caption" data-chapter-caption>
+      {
+        hasStepSelector ? (
+          chapter.steps.map((step, stepIndex) => (
+            <div class="chapter-step-panel" data-chapter-step-panel={step.id} aria-hidden={stepIndex !== 0}>
+              <p class="m-0 max-phone:hidden">{step.description}</p>
+              <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+            </div>
+          ))
+        ) : (
+          chapter.steps.map((step) => (
+            <div class="chapter-single-description">
+              <p class="m-0 max-phone:hidden">{step.description}</p>
+              <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+            </div>
+          ))
+        )
+      }
+    </div>
   </div>
 </article>
 
@@ -106,23 +86,18 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
 </script>
 
 <style>
-  @reference "../styles/global.css";
-
-  /* Stacked glass: the incoming step's copy fades in as the previous one leaves. */
-  @media (width < 64rem) and (prefers-reduced-motion: no-preference) {
-    .chapter-step-panel {
-      transition: opacity 150ms ease-out;
-
-      @starting-style {
-        opacity: 0;
-      }
-    }
+  .chapter-flow { display: flex; flex-direction: column; min-width: 0; }
+  .chapter-title { order: 1; }
+  .chapter-pill-slot { order: 2; margin-top: 14px; margin-bottom: 14px; align-self: flex-start; max-width: 100%; }
+  :global(.chapter-surface) { order: 3; }
+  .chapter-caption { order: 4; margin-top: 12px; }
+  .chapter-flow[data-has-steps="false"] :global(.chapter-surface) { margin-top: 20px; }
+  @media (width < 64rem) {
+    :global(.chapter-surface) { order: 2; margin-top: 20px; }
+    .chapter-pill-slot { order: 3; margin-top: 14px; margin-bottom: 0; }
+    .chapter-caption { margin-top: 10px; }
   }
-
-  /* The rail marks the current chapter's target; its hairline lights blue. */
   :global(.chapter-surface.scroll-material-surface[data-rail-current]) {
     border-color: rgb(137 180 250 / 88%);
   }
-
-  /* The pill owns selector paint; this surface keeps the panels and stage. */
 </style>

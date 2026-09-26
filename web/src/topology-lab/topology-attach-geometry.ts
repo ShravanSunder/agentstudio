@@ -31,11 +31,11 @@ export function attachXFor(
   stacked: boolean,
 ): number | undefined {
   const surface = anchor.surface;
-  if (anchor.stepPill !== undefined) return anchor.stepPill.left;
+  if (!stacked && anchor.stepPill !== undefined) return anchor.stepPill.left;
   if (surface === undefined) {
     return undefined;
   }
-  return stacked
+  return stacked || anchor.id === "hero"
     ? Math.min(surface.left + topologyStackedDropCornerInset, surface.left + surface.width / 2)
     : surface.left;
 }
@@ -84,20 +84,24 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
           }
         : { id: mainlineOwnerId, x: mainlineX, column: 0, accent: "main" };
 
-    if (anchor.stepPill !== undefined) {
+    if (!stacked && anchor.stepPill !== undefined) {
       const centerY = anchor.stepPill.top + anchor.stepPill.height / 2;
       const attachRow = rowYs.findIndex((rowY) => Math.abs(rowY - centerY) <= 0.5);
       const forkRow = attachRow - 1;
       const forkY = rowYs[forkRow];
       if (forkY === undefined) continue;
       const source = sourceAt(forkRow);
-      reserved.set(forkRow, {
-        x: source.x,
-        ownerId: source.id,
-        accent: source.accent,
-        kind: "fork",
-        anchorId: undefined,
-      });
+      // In G7 the title precedes the pill, so its chapter row can also be
+      // the row above the pill. Keep that chapter marker when the branch forks.
+      if (!reserved.has(forkRow)) {
+        reserved.set(forkRow, {
+          x: source.x,
+          ownerId: source.id,
+          accent: source.accent,
+          kind: "fork",
+          anchorId: undefined,
+        });
+      }
       attachRoutes.push({
         id: `attach-${anchor.id}`,
         kind: "attach",
@@ -115,7 +119,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       continue;
     }
 
-    if (stacked) {
+    if (stacked || anchor.id === "hero") {
       const copyAboveGlass = anchor.rect.top < target.top;
       const previousSurface = page.anchors[index - 1]?.surface;
       const clearTop = copyAboveGlass

@@ -31,6 +31,13 @@ export interface ChapterStepSnapshot {
   readonly focusedStepId: string | undefined;
   readonly selectedStepId: string | undefined;
   readonly highlightCenterOffset: number;
+  readonly captionHeight: number;
+  readonly nextSectionTop: number;
+  readonly progressWidth: number;
+  readonly expectedProgressWidth: number;
+  readonly visiblePillLabels: readonly string[];
+  readonly panelHeights: readonly number[];
+  readonly panelStyles: readonly string[];
 }
 
 interface ViewportRect {
@@ -44,6 +51,7 @@ interface ViewportRect {
 export interface ChapterGlassLayoutObservation {
   readonly glass: ViewportRect;
   readonly pill: ViewportRect;
+  readonly caption: ViewportRect;
   readonly title: ViewportRect;
   readonly stage: ViewportRect;
   readonly stepList: ViewportRect;
@@ -51,12 +59,17 @@ export interface ChapterGlassLayoutObservation {
   readonly titleInGlass: boolean;
   readonly stageInGlass: boolean;
   readonly stepListInPill: boolean;
-  readonly stepPanelsInGlass: boolean;
+  readonly stepPanelsInCaption: boolean;
+  readonly glassChildCount: number;
+  readonly realCaptureTextCount: number;
+  readonly captionRadius: string;
+  readonly captionBackground: string;
   readonly pillMaterialMatchesHeader: boolean;
   /** Elements in the chapter measured for autoplay centring, and whether the one is the stage. */
   readonly playbackStageCount: number;
   readonly playbackStageIsStage: boolean;
   readonly branchEndpoint: { readonly x: number; readonly y: number };
+  readonly targetEdge: string | undefined;
   readonly portNodeCount: number;
 }
 
@@ -80,8 +93,74 @@ export interface ChapterStepRowObservation {
 interface ChapterStepRowRequest {
   readonly pageUrl: string;
   readonly width: number;
+  readonly height?: number;
   readonly chapterId: string;
 }
+
+export interface SingleStepChapterObservation {
+  readonly pillCount: number;
+  readonly descriptionCount: number;
+  readonly titleBottom: number;
+  readonly titleLeft: number;
+  readonly glassTop: number;
+  readonly glassBottom: number;
+  readonly glassLeft: number;
+  readonly captionTop: number;
+  readonly captionLeft: number;
+  readonly targetEdge: string | null;
+}
+
+export const verifySingleStepChapter = defineBrowserCommand(
+  async ({ context }, request: ChapterStepRowRequest): Promise<SingleStepChapterObservation> => {
+    const applicationPage = await context.newPage();
+    try {
+      await openChapter(applicationPage, request);
+      await applicationPage.waitForSelector(
+        `[data-route-kind="attach"][data-route-anchor="${request.chapterId}"]`,
+        { state: "attached" },
+      );
+      return await applicationPage.evaluate((chapterId): SingleStepChapterObservation => {
+        const article = document.getElementById(chapterId);
+        const title = article?.querySelector("[data-rail-anchor]");
+        const glass = article?.querySelector("[data-rail-surface-target]");
+        const caption = article?.querySelector(".chapter-caption");
+        const route = document.querySelector(
+          `[data-route-kind="attach"][data-route-anchor="${chapterId}"]`,
+        );
+        if (
+          article === null ||
+          title === null ||
+          glass === null ||
+          caption === null ||
+          route === null ||
+          article === undefined ||
+          title === undefined ||
+          glass === undefined ||
+          caption === undefined
+        ) {
+          throw new Error(`Single-step chapter ${chapterId} is incomplete`);
+        }
+        const titleRect = title.getBoundingClientRect();
+        const glassRect = glass.getBoundingClientRect();
+        const captionRect = caption.getBoundingClientRect();
+        return {
+          pillCount: article.querySelectorAll("[data-chapter-step-list]").length,
+          descriptionCount: caption.querySelectorAll(".chapter-single-description").length,
+          titleBottom: titleRect.bottom,
+          titleLeft: titleRect.left,
+          glassTop: glassRect.top,
+          glassBottom: glassRect.bottom,
+          glassLeft: glassRect.left,
+          captionTop: captionRect.top,
+          captionLeft: captionRect.left,
+          targetEdge: route.getAttribute("data-target-edge"),
+        };
+      }, request.chapterId);
+    } finally {
+      await applicationPage.close();
+    }
+  },
+);
 
 function observeTitleAnchors(width: number): ChapterTitleAnchorObservation[] {
   return [...document.querySelectorAll<HTMLElement>("article[data-chapter]")].map((article) => {
@@ -89,7 +168,9 @@ function observeTitleAnchors(width: number): ChapterTitleAnchorObservation[] {
     const anchor = article.querySelector<HTMLElement>("[data-rail-anchor]");
     const node = document.querySelector(`[data-topology-chapter-node="${chapterId}"] circle`);
     if (anchor === null || node === null) {
-      throw new Error(`Chapter ${chapterId} is missing its anchor or rail node`);
+      throw new Error(
+        `Chapter ${chapterId} at ${width}px is missing ${anchor === null ? "anchor" : "rail node"}; nodes=${document.querySelectorAll("[data-topology-chapter-node]").length}`,
+      );
     }
     const range = document.createRange();
     range.selectNodeContents(anchor);
@@ -193,6 +274,7 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
   const stage = article.querySelector("[data-rail-media-target]");
   const stepList = article.querySelector("[data-chapter-step-list]");
   const pill = article.querySelector("[data-rail-step-pill-target]");
+  const caption = article.querySelector(".chapter-caption");
   const attachGroup = document.querySelector(
     `[data-route-kind="attach"][data-route-anchor="${chapterId}"]`,
   );
@@ -203,6 +285,7 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
     stage === null ||
     stepList === null ||
     pill === null ||
+    caption === null ||
     branch === undefined ||
     branch === null
   ) {
@@ -225,15 +308,22 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
   return {
     glass: box(glass),
     pill: box(pill),
+    caption: box(caption),
     title: box(title),
     stage: box(stage),
     stepList: box(stepList),
     titleInGlass: glass.contains(title),
     stageInGlass: glass.contains(stage),
     stepListInPill: pill.contains(stepList),
-    stepPanelsInGlass: [...article.querySelectorAll("[data-chapter-step-panel]")].every((panel) =>
-      glass.contains(panel),
+    stepPanelsInCaption: [...article.querySelectorAll("[data-chapter-step-panel]")].every((panel) =>
+      caption.contains(panel),
     ),
+    glassChildCount: glass.children.length,
+    realCaptureTextCount: [...document.querySelectorAll("body *")].filter(
+      (element) => element.children.length === 0 && element.textContent?.trim() === "Real capture",
+    ).length,
+    captionRadius: getComputedStyle(caption).borderRadius,
+    captionBackground: getComputedStyle(caption).backgroundColor,
     pillMaterialMatchesHeader:
       pillMaterial.background === headerMaterial.background &&
       pillMaterial.borderColor === headerMaterial.borderColor &&
@@ -241,6 +331,7 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
     playbackStageCount: playbackStages.length,
     playbackStageIsStage: playbackStages[0] === stage,
     branchEndpoint: { x: endpoint.x, y: endpoint.y },
+    targetEdge: attachGroup?.getAttribute("data-target-edge") ?? undefined,
     portNodeCount: attachGroup?.querySelectorAll("[data-topology-port-node]").length ?? 0,
   };
 }
@@ -251,13 +342,26 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
     throw new Error(`Chapter ${chapterId} has no steps root`);
   }
   const visiblePanels = [...root.querySelectorAll<HTMLElement>("[data-chapter-step-panel]")].filter(
-    (panel) => panel.getClientRects().length > 0,
+    (panel) => panel.getAttribute("aria-hidden") !== "true" && panel.getClientRects().length > 0,
   );
   const focused = document.activeElement;
   const selected = root.querySelector<HTMLElement>('[data-chapter-step][aria-selected="true"]');
   const highlight = root.querySelector<HTMLElement>(".chapter-step-highlight");
   const selectedBounds = selected?.getBoundingClientRect();
   const highlightBounds = highlight?.getBoundingClientRect();
+  const caption = root.querySelector<HTMLElement>(".chapter-caption");
+  const article = root.closest("article");
+  const nextSection = article?.nextElementSibling;
+  const progressFill = root.querySelector<HTMLElement>(".chapter-step-progress-fill");
+  const firstDot = root.querySelector<HTMLElement>("[data-chapter-step] .chapter-step__dot");
+  const selectedDot = selected?.querySelector<HTMLElement>(".chapter-step__dot");
+  const firstDotBounds = firstDot?.getBoundingClientRect();
+  const selectedDotBounds = selectedDot?.getBoundingClientRect();
+  const visiblePillLabels = [...root.querySelectorAll<HTMLElement>("[data-chapter-step-label]")]
+    .filter(
+      (label) => getComputedStyle(label).display !== "none" && label.getClientRects().length > 0,
+    )
+    .map((label) => label.textContent?.trim() ?? "");
   return {
     visiblePanelIds: visiblePanels.map((panel) => panel.dataset["chapterStepPanel"] ?? ""),
     visibleText: visiblePanels.map((panel) => panel.innerText).join("\n"),
@@ -273,6 +377,28 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
             (selectedBounds.left + selectedBounds.right) / 2 -
               (highlightBounds.left + highlightBounds.right) / 2,
           ),
+    captionHeight: caption?.getBoundingClientRect().height ?? Number.NaN,
+    nextSectionTop:
+      nextSection === null || nextSection === undefined
+        ? Number.NaN
+        : nextSection.getBoundingClientRect().top + window.scrollY,
+    progressWidth: progressFill?.getBoundingClientRect().width ?? Number.NaN,
+    expectedProgressWidth:
+      firstDotBounds === undefined || selectedDotBounds === undefined
+        ? Number.NaN
+        : (selectedDotBounds.left +
+            selectedDotBounds.right -
+            firstDotBounds.left -
+            firstDotBounds.right) /
+          2,
+    visiblePillLabels,
+    panelHeights: [...root.querySelectorAll<HTMLElement>("[data-chapter-step-panel]")].map(
+      (panel) => panel.getBoundingClientRect().height,
+    ),
+    panelStyles: [...root.querySelectorAll<HTMLElement>("[data-chapter-step-panel]")].map(
+      (panel) =>
+        `${getComputedStyle(panel).display}/${getComputedStyle(panel).visibility}/${getComputedStyle(panel).contentVisibility}`,
+    ),
   };
 }
 
@@ -288,7 +414,7 @@ async function openChapter(
   request: ChapterStepRowRequest,
 ): Promise<void> {
   await applicationPage.emulateMedia({ reducedMotion: "reduce" });
-  await applicationPage.setViewportSize({ width: request.width, height: 900 });
+  await applicationPage.setViewportSize({ width: request.width, height: request.height ?? 900 });
   const pageUrl = new URL(request.pageUrl);
   pageUrl.hash = request.chapterId;
   await applicationPage.goto(pageUrl.href, { waitUntil: "networkidle" });
