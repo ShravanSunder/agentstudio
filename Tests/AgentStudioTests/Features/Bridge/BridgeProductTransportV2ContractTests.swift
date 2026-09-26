@@ -168,6 +168,33 @@ struct BridgeProductTransportV2ContractTests {
         }
     }
 
+    @Test("File member-status records preserve source identity and last-good facts")
+    func fileMemberStatusRecordsRoundTrip() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-file-batch-row-corpus.json"
+        )
+        let entries = try fixtureArray(named: "memberStatuses", in: corpus)
+        #expect(entries.count == 3)
+        for entry in entries {
+            #expect(entry["recordKey"] as? String == BridgeProductFileMemberStatusRecord.recordKey)
+            let record = try #require(entry["record"] as? [String: Any])
+            let decoded = try #require(
+                decodeAndVerifyRoundTrips(BridgeProductFileBatchRecord.self, from: [record]).first
+            )
+            guard case .memberStatus(let status) = decoded else {
+                Issue.record("Expected a typed File member-status record")
+                continue
+            }
+            #expect(status.source.sourceId == "source-1")
+            #expect(status.branchName == "main")
+            #expect(status.ahead == 2)
+            #expect(status.behind == 1)
+            #expect(status.staged == 3)
+            #expect(status.unstaged == 4)
+            #expect(status.untracked == 5)
+        }
+    }
+
     @Test("File scopes reject future baselines and repeated change kinds")
     func invalidFileChangeFiltersFail() throws {
         let corpus = try fixtureJSONObject(

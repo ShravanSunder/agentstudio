@@ -133,5 +133,70 @@
         "descriptorOutcome": null
       }
     }
+  ],
+  "memberStatuses": [
+    {
+      "recordKey": "member-status",
+      "record": {
+        "kind": "memberStatus",
+        "source": {
+          "repoId": "00000000-0000-4000-8000-000000000001",
+          "rootRevisionToken": null,
+          "sourceCursor": "source-cursor-1",
+          "sourceId": "source-1",
+          "subscriptionGeneration": 11,
+          "worktreeId": "00000000-0000-4000-8000-000000000002"
+        },
+        "status": "ready",
+        "branchName": "main",
+        "ahead": 2,
+        "behind": 1,
+        "staged": 3,
+        "unstaged": 4,
+        "untracked": 5
+      }
+    },
+    {
+      "recordKey": "member-status",
+      "record": {
+        "kind": "memberStatus",
+        "source": {
+          "repoId": "00000000-0000-4000-8000-000000000001",
+          "rootRevisionToken": null,
+          "sourceCursor": "source-cursor-1",
+          "sourceId": "source-1",
+          "subscriptionGeneration": 11,
+          "worktreeId": "00000000-0000-4000-8000-000000000002"
+        },
+        "status": "stale",
+        "branchName": "main",
+        "ahead": 2,
+        "behind": 1,
+        "staged": 3,
+        "unstaged": 4,
+        "untracked": 5
+      }
+    },
+    {
+      "recordKey": "member-status",
+      "record": {
+        "kind": "memberStatus",
+        "source": {
+          "repoId": "00000000-0000-4000-8000-000000000001",
+          "rootRevisionToken": null,
+          "sourceCursor": "source-cursor-1",
+          "sourceId": "source-1",
+          "subscriptionGeneration": 11,
+          "worktreeId": "00000000-0000-4000-8000-000000000002"
+        },
+        "status": "failed",
+        "branchName": "main",
+        "ahead": 2,
+        "behind": 1,
+        "staged": 3,
+        "unstaged": 4,
+        "untracked": 5
+      }
+    }
   ]
 }
