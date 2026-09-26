@@ -39,6 +39,13 @@ export function initializeTopologyScrollReveal(
   const vibrancyMaskRect = artwork.querySelector<SVGRectElement>(
     "[data-topology-vibrancy-mask-rect]",
   );
+  const opacityGradient = artwork.querySelector<SVGLinearGradientElement>(
+    "#topology-rail-opacity-gradient",
+  );
+  const opacityMaskRect = artwork.querySelector<SVGRectElement>(
+    "[data-topology-opacity-mask-rect]",
+  );
+  const opacityLayer = artwork.querySelector<SVGGElement>("[data-topology-opacity-layer]");
   const colourLayer = artwork.querySelector<SVGGElement>("[data-topology-colour-layer]");
   const greyCopy = artwork.querySelector<SVGUseElement>("[data-topology-grey-copy]");
   if (
@@ -46,6 +53,9 @@ export function initializeTopologyScrollReveal(
     verticalRevealFade === null ||
     vibrancyGradient === null ||
     vibrancyMaskRect === null ||
+    opacityGradient === null ||
+    opacityMaskRect === null ||
+    opacityLayer === null ||
     colourLayer === null ||
     greyCopy === null
   ) {
@@ -199,15 +209,21 @@ export function initializeTopologyScrollReveal(
     }
 
     const artworkTop = artwork.getBoundingClientRect().top;
-    vibrancyGradient.setAttribute("y1", String(window.innerHeight * 0.8 - artworkTop));
-    vibrancyGradient.setAttribute("y2", String(window.innerHeight - artworkTop));
+    vibrancyGradient.setAttribute("y1", String(window.innerHeight * 0.73 - artworkTop));
+    vibrancyGradient.setAttribute("y2", String(window.innerHeight * 0.75 - artworkTop));
     vibrancyMaskRect.setAttribute("width", String(artwork.clientWidth));
     vibrancyMaskRect.setAttribute("height", String(artwork.clientHeight));
+    opacityGradient.setAttribute("y1", String(window.innerHeight * 0.9 - artworkTop));
+    opacityGradient.setAttribute("y2", String(window.innerHeight * 0.95 - artworkTop));
+    opacityMaskRect.setAttribute("width", String(artwork.clientWidth));
+    opacityMaskRect.setAttribute("height", String(artwork.clientHeight));
     greyCopy.style.display = reducedMotionQuery.matches ? "none" : "";
     if (reducedMotionQuery.matches) {
       colourLayer.removeAttribute("mask");
+      opacityLayer.removeAttribute("mask");
     } else {
       colourLayer.setAttribute("mask", "url(#topology-rail-vibrancy-mask)");
+      opacityLayer.setAttribute("mask", "url(#topology-rail-opacity-mask)");
     }
     const readingLineY = window.innerHeight * topologyReadingLineRatio - artworkTop;
     updateCurrentChapter(readingLineY);

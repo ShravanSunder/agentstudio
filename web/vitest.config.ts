@@ -17,6 +17,7 @@ import {
   verifyHeroIntroPlayback,
   verifyHeroIntroShift,
 } from "./tests/hero-intro-browser-command.ts";
+import { verifyRailViewportBands } from "./tests/rail-band-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
@@ -44,6 +45,7 @@ export default defineConfig({
           browser: {
             commands: {
               buildSceneBundlesForBrowserTest,
+              verifyRailViewportBands,
               verifyChapterAnchorLanding,
               verifyChapterAutoplayAtNaturalFraming,
               verifyChapterSceneClicks,

@@ -33,6 +33,12 @@ const artworkMarkup = `
         <mask id="topology-rail-vibrancy-mask" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
           <rect data-topology-vibrancy-mask-rect x="0" y="0" width="1000" height="5200" fill="url(#topology-rail-vibrancy-gradient)" />
         </mask>
+        <linearGradient id="topology-rail-opacity-gradient" gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="white" /><stop offset="1" stop-color="black" />
+        </linearGradient>
+        <mask id="topology-rail-opacity-mask" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+          <rect data-topology-opacity-mask-rect x="0" y="0" width="1000" height="5200" fill="url(#topology-rail-opacity-gradient)" />
+        </mask>
         <filter id="topology-rail-grey"><feColorMatrix type="saturate" values="0" /><feComponentTransfer><feFuncR type="linear" slope="0.7" /><feFuncG type="linear" slope="0.7" /><feFuncB type="linear" slope="0.7" /></feComponentTransfer></filter>
         <g id="topology-rail-source">
           <path data-mainline data-topology-path-role="core" data-topology-path-start="0" data-topology-path-end="1" />
@@ -41,8 +47,10 @@ const artworkMarkup = `
         </g>
       </defs>
       <g data-topology-reveal-layer mask="url(#topology-vertical-reveal-mask)">
-        <use data-topology-grey-copy href="#topology-rail-source" filter="url(#topology-rail-grey)" />
-        <g data-topology-colour-layer mask="url(#topology-rail-vibrancy-mask)"><use data-topology-colour-copy href="#topology-rail-source" /></g>
+        <g data-topology-opacity-layer mask="url(#topology-rail-opacity-mask)">
+          <use data-topology-grey-copy href="#topology-rail-source" filter="url(#topology-rail-grey)" />
+          <g data-topology-colour-layer mask="url(#topology-rail-vibrancy-mask)"><use data-topology-colour-copy href="#topology-rail-source" /></g>
+        </g>
       </g>
     </svg>
   </div>

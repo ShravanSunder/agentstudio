@@ -90,7 +90,7 @@ describe("full-page topology scroll reveal", () => {
     [1600, 1000, wideRevealLayout],
     [390, 844, phoneRevealLayout],
   ] as const) {
-    it(`keeps rail colour through 80 percent of the viewport at ${width}px`, async () => {
+    it(`greys at 75 percent and fades the whole rail from 90 to 95 percent at ${width}px`, async () => {
       await page.viewport(width, height);
       const fixture = mountRevealFixture(layout);
       await vi.waitFor(() => expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true));
@@ -98,28 +98,21 @@ describe("full-page topology scroll reveal", () => {
       const grey = fixture.artwork.querySelector("[data-topology-grey-copy]");
       const colour = fixture.artwork.querySelector("[data-topology-colour-copy]");
       const gradient = fixture.artwork.querySelector("#topology-rail-vibrancy-gradient");
+      const opacityGradient = fixture.artwork.querySelector("#topology-rail-opacity-gradient");
+      const opacityLayer = fixture.artwork.querySelector("[data-topology-opacity-layer]");
       expect(source).not.toBeNull();
       expect(grey?.getAttribute("href")).toBe("#topology-rail-source");
       expect(colour?.getAttribute("href")).toBe("#topology-rail-source");
       expect(gradient).not.toBeNull();
-      if (gradient === null) throw new Error("Vibrancy gradient is missing");
+      expect(opacityGradient).not.toBeNull();
+      expect(opacityLayer?.getAttribute("mask")).toBe("url(#topology-rail-opacity-mask)");
+      if (gradient === null || opacityGradient === null)
+        throw new Error("Rail gradients are missing");
       const artworkTop = fixture.artwork.getBoundingClientRect().top;
-      const colourLine = Number(gradient.getAttribute("y1")) + artworkTop;
-      const viewportBottom = Number(gradient.getAttribute("y2")) + artworkTop;
-      expect(colourLine).toBeCloseTo(height * 0.8, 0);
-      expect(viewportBottom).toBeCloseTo(height, 0);
-      for (const [viewportFraction, expectedColour] of [
-        [0.5, 1],
-        [0.79, 1],
-        [0.99, 0.05],
-      ] as const) {
-        const viewportY = height * viewportFraction;
-        const colourFraction = Math.max(
-          0,
-          Math.min(1, (viewportBottom - viewportY) / (viewportBottom - colourLine)),
-        );
-        expect(colourFraction).toBeCloseTo(expectedColour, 1);
-      }
+      expect(Number(gradient.getAttribute("y1")) + artworkTop).toBeCloseTo(height * 0.73, 0);
+      expect(Number(gradient.getAttribute("y2")) + artworkTop).toBeCloseTo(height * 0.75, 0);
+      expect(Number(opacityGradient.getAttribute("y1")) + artworkTop).toBeCloseTo(height * 0.9, 0);
+      expect(Number(opacityGradient.getAttribute("y2")) + artworkTop).toBeCloseTo(height * 0.95, 0);
     });
   }
   it("draws the rail through the viewport bottom after scrolling to a chapter", async () => {
