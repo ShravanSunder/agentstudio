@@ -1,6 +1,7 @@
 import { gsap } from "gsap";
 
 import { heroIntroFourthPlaneAttribute, heroIntroStateAttribute } from "./hero-intro-dom-contract";
+import { clearHeroRailStaircase } from "./hero-intro-rail-draw";
 import { collectHeroIntroTargets, buildHeroIntroScene } from "./hero-intro-scene";
 
 export interface HeroIntroPlayback {
@@ -51,6 +52,7 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
     const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
     if (rail !== null) {
       gsap.set(rail, { clearProps: "clipPath" }).kill();
+      clearHeroRailStaircase(rail);
       if (rail.getAttribute("style") === "") rail.removeAttribute("style");
     }
     root.querySelector<HTMLElement>("[data-hero-intro-typed-input]")?.replaceChildren();

@@ -66,16 +66,16 @@ export const codexTranscript: readonly TranscriptRow[] = [
 
 // The agents independently act in one workspace; this is not a cross-pane handoff.
 export const codexFinaleTranscript: readonly TranscriptRow[] = [
-  { kind: "user-band", text: "› map the worktrees", tiers: desktopTiers },
-  { kind: "codex-action", text: "• Ran", tiers: desktopTiers },
-  { kind: "codex-detail", text: "  └ git worktree list", tiers: desktopTiers },
-  { kind: "codex-detail", text: "  └ 3 worktrees · 5 branches", tiers: desktopTiers },
-  { kind: "codex-action", text: "• Mapped. Scroll to explore ↓", tiers: desktopTiers },
+  { kind: "user-band", text: "› map the worktrees → 3 worktrees", tiers: desktopTiers },
+  { kind: "codex-detail", text: "", tiers: desktopTiers },
+  { kind: "codex-detail", text: "", tiers: desktopTiers },
+  { kind: "codex-detail", text: "", tiers: desktopTiers },
+  { kind: "codex-detail", text: "", tiers: desktopTiers },
 ];
 
 export const claudeFinaleTranscript: readonly TranscriptRow[] = [
-  { kind: "user-band", text: "› map the worktrees", tiers: allTiers },
-  { kind: "tool-call", text: "● Bash(git worktree list)", tiers: allTiers },
-  { kind: "tool-result", text: "  ⎿ 3 worktrees · 5 branches", tiers: allTiers },
-  { kind: "assistant-text", text: "● Mapped. Scroll to explore ↓", tiers: allTiers },
+  { kind: "user-band", text: "› map the worktrees → 3 worktrees", tiers: allTiers },
+  { kind: "tool-result", text: "", tiers: allTiers },
+  { kind: "tool-call", text: "● Bash(brew install --cask agent-studio)", tiers: allTiers },
+  { kind: "tool-result", text: "", tiers: allTiers },
 ];

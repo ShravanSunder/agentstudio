@@ -14,9 +14,7 @@ import { marketingCopy } from "@/marketing-copy";
 import {
   heroIntroCopyAttribute,
   heroIntroDescriptionAttribute,
-  heroIntroEyebrowCursorAttribute,
   heroIntroEyebrowSettledAttribute,
-  heroIntroEyebrowTypedAttribute,
   heroIntroGlowAttribute,
   heroIntroHeadlineFirstAttribute,
   heroIntroHeadlineSecondAttribute,
@@ -77,7 +75,6 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
           ))
         }
       </span>
-      <span class="hero-eyebrow-type-layer" aria-hidden="true"><span {...{ [heroIntroEyebrowTypedAttribute]: "" }}></span><span class="hero-eyebrow-cursor" {...{ [heroIntroEyebrowCursorAttribute]: "" }}></span></span>
     </p>
     <h1
       id="hero-title"
@@ -94,7 +91,7 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
         >
       </span>
       <span
-        class="mt-[0.25em] block text-[clamp(24px,3.2vw,54px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-balance max-phone:whitespace-normal"
+        class="mt-[0.25em] block text-[clamp(24px,3.2vw,54px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-[20px]"
         ><span {...{ [heroIntroPayoffFirstAttribute]: "" }}>{payoffFirst}</span><span {...{ [heroIntroPayoffSecondAttribute]: "" }}> {payoffSecond}</span></span
       >
     </h1>
@@ -159,8 +156,6 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
 
 <style>
   .hero { isolation: isolate; overflow-x: clip; }
-  .hero-eyebrow-type-layer { position: absolute; top: 0; left: 0; max-width: 100%; visibility: hidden; opacity: 0; pointer-events: none; }
-  .hero-eyebrow-cursor { display: inline-block; width: 8px; height: 13px; margin-left: 2px; vertical-align: -2px; background: #e8e9ee; opacity: 0; }
   @media (width >= 64rem) and (height <= 56.25rem) {
     .hero { padding-top: clamp(24px, 1.5vw + 3vh - 12px, 72px); }
     #hero-title { font-size: clamp(34px, 3.2vw, 54px); }

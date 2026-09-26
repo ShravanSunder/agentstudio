@@ -16,7 +16,7 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
   >
     {
       marketingCopy.installation.commands.map((command) => (
-        <span class="text-ink"><span class="text-glyph" aria-hidden="true">$ </span>{command}</span>
+    <span class="install-command__line relative text-ink"><span class="text-glyph" aria-hidden="true">$ </span>{command}<span class="install-command__decode absolute inset-0 opacity-0" data-install-decode-line aria-hidden="true"></span></span>
       ))
     }
   </code>
@@ -34,6 +34,10 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
     aria-live="polite"
   ></span>
 </div>
+
+<style>
+  .install-command__decode { background: var(--color-active-surface); pointer-events: none; }
+</style>
 
 <script>
   import { initializeInstallCommand } from "@/install-command/install-command-controller";

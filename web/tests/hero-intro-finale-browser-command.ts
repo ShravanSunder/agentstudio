@@ -2,15 +2,22 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
 
 interface FinaleSample {
   readonly time: number | "settled";
-  readonly typedLength: number;
-  readonly eyebrowLength: number;
-  readonly cursorOpacity: number;
   readonly firstLine: number;
   readonly secondLine: number;
   readonly firstPayoff: number;
   readonly secondPayoff: number;
+  readonly payoffOverflow: number;
+  readonly installTransform: string;
+  readonly installOpacity: number;
+  readonly realCommandLines: readonly string[];
+  readonly visibleDecodeLines: number;
+  readonly copyOpacity: number;
   readonly railClip: string;
   readonly railRevealY: number;
+  readonly heroNodeY: number;
+  readonly introDotOpacities: readonly number[];
+  readonly heroBranchDashOffset: number;
+  readonly forkDashOffsets: readonly number[];
   readonly rowOpacity: readonly number[];
   readonly appTop: number;
   readonly windowHeight: number;
@@ -22,11 +29,14 @@ export interface FinaleObservation {
   readonly resizeRailClip: string;
   readonly resizeRailStyle: string | null;
   readonly resizeSceneInlineStyles: number;
+  readonly resizeRailIntroMarkers: number;
   readonly skipRailClip: string;
   readonly skipFinaleOpacity: readonly number[];
   readonly skipSceneInlineStyles: number;
+  readonly skipRailIntroMarkers: number;
   readonly reducedRailClip: string;
   readonly reducedFinaleOpacity: readonly number[];
+  readonly reducedRailIntroMarkers: number;
 }
 
 export const verifyHeroIntroFinale = defineBrowserCommand(
@@ -107,18 +117,66 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           const pane = innerWidth < 1024 ? "claude" : "codex";
           const railClip = getComputedStyle(rail).clipPath;
           const bottomInset = /([\d.]+)%\)/u.exec(railClip);
+          const heroNode = rail.querySelector<SVGGElement>('[data-topology-chapter-node="hero"]');
+          const heroBranch = rail.querySelector<SVGPathElement>(
+            '[data-route-anchor="hero"] [data-topology-path-role="core"]',
+          );
+          const heroNodeY = Number(heroNode?.querySelector("circle")?.getAttribute("cy"));
+          const branchStartY = heroBranch?.getPointAtLength(0).y ?? Number.NaN;
+          const introNodes = [
+            ...rail.querySelectorAll<SVGGElement>("[data-topology-node-progress]"),
+          ]
+            .filter((node) => {
+              const y = Number(node.querySelector("circle")?.getAttribute("cy"));
+              return y >= heroNodeY && y <= branchStartY;
+            })
+            .sort(
+              (left, right) =>
+                Number(left.querySelector("circle")?.getAttribute("cy")) -
+                Number(right.querySelector("circle")?.getAttribute("cy")),
+            );
+          const install = target("[data-hero-intro-install]");
+          const payoff = target("[data-hero-intro-payoff-first]").parentElement;
+          if (payoff === null) throw new Error("Payoff wrapper missing");
+          const realCommandLines = [
+            ...install.querySelectorAll<HTMLElement>(".install-command__line"),
+          ].map((line) =>
+            [...line.childNodes]
+              .filter(
+                (node) =>
+                  !(node instanceof HTMLElement && node.hasAttribute("data-install-decode-line")),
+              )
+              .map((node) => node.textContent ?? "")
+              .join(""),
+          );
           return {
             time,
-            typedLength: target("[data-hero-intro-eyebrow-typed]").textContent?.length ?? 0,
-            eyebrowLength:
-              target("[data-hero-intro-eyebrow-settled]").textContent?.replace(/\s+/gu, " ").trim()
-                .length ?? 0,
-            cursorOpacity: opacity("[data-hero-intro-eyebrow-cursor]"),
             firstLine: opacity("[data-hero-intro-headline-first]"),
             secondLine: opacity("[data-hero-intro-headline-second]"),
             firstPayoff: opacity("[data-hero-intro-payoff-first]"),
             secondPayoff: opacity("[data-hero-intro-payoff-second]"),
+            payoffOverflow: payoff.scrollWidth - payoff.clientWidth,
+            installTransform: getComputedStyle(install).transform,
+            installOpacity: Number(getComputedStyle(install).opacity),
+            realCommandLines,
+            visibleDecodeLines: [
+              ...install.querySelectorAll<HTMLElement>("[data-install-decode-line]"),
+            ].filter((line) => Number(getComputedStyle(line).opacity) > 0.05).length,
+            copyOpacity: Number(getComputedStyle(target("[data-install-copy]")).opacity),
             railClip,
+            heroNodeY: rail.getBoundingClientRect().top + heroNodeY,
+            introDotOpacities: introNodes.map((node) => Number(getComputedStyle(node).opacity)),
+            heroBranchDashOffset:
+              heroBranch === null
+                ? Number.NaN
+                : Number.parseFloat(getComputedStyle(heroBranch).strokeDashoffset),
+            forkDashOffsets: [
+              ...rail.querySelectorAll<SVGPathElement>(
+                '[data-route-kind="worktree"] [data-topology-path-role="core"]',
+              ),
+            ]
+              .filter((path) => path.getPointAtLength(0).y <= branchStartY)
+              .map((path) => Number.parseFloat(getComputedStyle(path).strokeDashoffset)),
             railRevealY:
               bottomInset === null
                 ? Number.POSITIVE_INFINITY
@@ -136,7 +194,8 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         };
         const observations: FinaleSample[] = [];
         for (const second of [
-          0, 0.2, 0.45, 0.8, 3.3, 3.5, 3.7, 5.5, 6.1, 6.4, 6.5, 6.8, 7.2, 7.8, 8.1,
+          0, 0.2, 0.3, 0.45, 0.8, 0.9, 1.5, 2.2, 2.5, 3.2, 3.5, 4.3, 4.9, 5.2, 5.4, 5.5, 5.8, 5.85,
+          6.1, 6.25, 6.4, 6.5, 6.63, 6.75, 6.8, 7.0,
         ]) {
           control.seek(second);
           observations.push(observe(second));
@@ -153,7 +212,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         (
           await (window as Window & { finaleReady?: Promise<{ seek(seconds: number): void }> })
             .finaleReady
-        )?.seek(7.2),
+        )?.seek(6.4),
       );
       await page.setViewportSize({ width: width < 1024 ? 430 : 1200, height });
       await page.waitForSelector('[data-hero-intro-state="settled"]');
@@ -161,13 +220,16 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         const rail = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
         if (rail === null) throw new Error("Resized rail missing");
         const sceneTargets = document.querySelectorAll<HTMLElement>(
-          "[data-hero-intro-eyebrow-settled], [data-hero-intro-eyebrow-typed], [data-hero-intro-eyebrow-cursor], [data-hero-intro-headline-first], [data-hero-intro-headline-second], [data-hero-intro-payoff-first], [data-hero-intro-payoff-second], [data-hero-intro-finale-row]",
+          "[data-hero-intro-eyebrow-settled], [data-hero-intro-headline-first], [data-hero-intro-headline-second], [data-hero-intro-payoff-first], [data-hero-intro-payoff-second], [data-hero-intro-finale-row]",
         );
         return {
           clip: getComputedStyle(rail).clipPath,
           style: rail.getAttribute("style"),
           sceneInlineStyles: [...sceneTargets].filter((target) => target.hasAttribute("style"))
             .length,
+          introMarkers: rail.querySelectorAll(
+            "[data-hero-intro-rail-node], [data-hero-intro-rail-path]",
+          ).length,
         };
       });
       await page.reload({ waitUntil: "commit" });
@@ -178,7 +240,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         (
           await (window as Window & { finaleReady?: Promise<{ seek(seconds: number): void }> })
             .finaleReady
-        )?.seek(7.2),
+        )?.seek(6.4),
       );
       await page.keyboard.press("Escape");
       await page.waitForSelector('[data-hero-intro-state="settled"]');
@@ -194,7 +256,10 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             ),
           ].map((row) => Number(getComputedStyle(row).opacity)),
           sceneInlineStyles: document.querySelectorAll(
-            "[data-hero-intro-eyebrow-settled][style], [data-hero-intro-eyebrow-typed][style], [data-hero-intro-eyebrow-cursor][style], [data-hero-intro-headline-first][style], [data-hero-intro-headline-second][style], [data-hero-intro-payoff-first][style], [data-hero-intro-payoff-second][style], [data-hero-intro-finale-row][style]",
+            "[data-hero-intro-eyebrow-settled][style], [data-hero-intro-headline-first][style], [data-hero-intro-headline-second][style], [data-hero-intro-payoff-first][style], [data-hero-intro-payoff-second][style], [data-hero-intro-finale-row][style]",
+          ).length,
+          introMarkers: rail.querySelectorAll(
+            "[data-hero-intro-rail-node], [data-hero-intro-rail-path]",
           ).length,
         };
       });
@@ -212,6 +277,9 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]`,
             ),
           ].map((row) => Number(getComputedStyle(row).opacity)),
+          introMarkers: rail.querySelectorAll(
+            "[data-hero-intro-rail-node], [data-hero-intro-rail-path]",
+          ).length,
         };
       });
       return {
@@ -219,11 +287,14 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         resizeRailClip: resize.clip,
         resizeRailStyle: resize.style,
         resizeSceneInlineStyles: resize.sceneInlineStyles,
+        resizeRailIntroMarkers: resize.introMarkers,
         skipRailClip: skipped.clip,
         skipFinaleOpacity: skipped.rowOpacity,
         skipSceneInlineStyles: skipped.sceneInlineStyles,
+        skipRailIntroMarkers: skipped.introMarkers,
         reducedRailClip: reduced.clip,
         reducedFinaleOpacity: reduced.rowOpacity,
+        reducedRailIntroMarkers: reduced.introMarkers,
       };
     } finally {
       await page.close();

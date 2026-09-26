@@ -6,9 +6,7 @@ import {
   heroIconStackAttribute,
   heroIntroContentAttribute,
   heroIntroCopyAttribute,
-  heroIntroEyebrowCursorAttribute,
   heroIntroEyebrowSettledAttribute,
-  heroIntroEyebrowTypedAttribute,
   heroIntroFinaleRowAttribute,
   heroIntroHeadlineFirstAttribute,
   heroIntroHeadlineSecondAttribute,
@@ -23,6 +21,7 @@ import {
   heroIntroTypedInputAttribute,
   heroTerminalWindowAttribute,
 } from "./hero-intro-dom-contract";
+import { addHeroRailStaircase } from "./hero-intro-rail-draw";
 
 function requiredTarget(root: HTMLElement, attribute: string): HTMLElement {
   const target = root.querySelector<HTMLElement>(`[${attribute}]`);
@@ -33,18 +32,13 @@ function requiredTarget(root: HTMLElement, attribute: string): HTMLElement {
 }
 
 export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
-  const eyebrowLayer = requiredTarget(root, heroIntroEyebrowTypedAttribute).parentElement;
-  if (eyebrowLayer === null) throw new Error("Hero intro eyebrow typing layer is missing");
   return [
     requiredTarget(root, heroIntroCopyAttribute),
     requiredTarget(root, heroIntroEyebrowSettledAttribute),
-    requiredTarget(root, heroIntroEyebrowTypedAttribute),
-    requiredTarget(root, heroIntroEyebrowCursorAttribute),
     requiredTarget(root, heroIntroHeadlineFirstAttribute),
     requiredTarget(root, heroIntroHeadlineSecondAttribute),
     requiredTarget(root, heroIntroPayoffFirstAttribute),
     requiredTarget(root, heroIntroPayoffSecondAttribute),
-    eyebrowLayer,
     requiredTarget(root, heroIconStackAttribute),
     requiredTarget(root, heroIconFrontAttribute),
     ...root.querySelectorAll<HTMLElement>(`[${heroIconRearAttribute}]`),
@@ -52,6 +46,7 @@ export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
     requiredTarget(root, heroTerminalWindowAttribute),
     requiredTarget(root, heroIntroContentAttribute),
     requiredTarget(root, heroIntroInstallAttribute),
+    ...root.querySelectorAll<HTMLElement>("[data-install-decode-line], [data-install-copy]"),
     requiredTarget(root, heroIntroReadyArrowAttribute),
     requiredTarget(root, heroIntroGlowAttribute),
     requiredTarget(root, heroIntroTypedInputAttribute),
@@ -75,10 +70,6 @@ function createFourthPlane(root: HTMLElement): HTMLElement {
   return fourthPlane;
 }
 
-function storyboardPower3InOut(progress: number): number {
-  return progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
-}
-
 /** Adds the single seek-safe intro to a paused timeline owned by playback. */
 export function buildHeroIntroScene(
   root: HTMLElement,
@@ -86,11 +77,6 @@ export function buildHeroIntroScene(
   options: SceneBuildOptions,
 ): void {
   const eyebrowSettled = requiredTarget(root, heroIntroEyebrowSettledAttribute);
-  const eyebrowTyped = requiredTarget(root, heroIntroEyebrowTypedAttribute);
-  const eyebrowCursor = requiredTarget(root, heroIntroEyebrowCursorAttribute);
-  const eyebrowLayer = eyebrowTyped.parentElement;
-  if (eyebrowLayer === null) throw new Error("Hero intro eyebrow typing layer is missing");
-  const eyebrowText = eyebrowSettled.textContent?.replace(/\s+/gu, " ").trim() ?? "";
   const headlineFirst = requiredTarget(root, heroIntroHeadlineFirstAttribute);
   const headlineSecond = requiredTarget(root, heroIntroHeadlineSecondAttribute);
   const payoffFirst = requiredTarget(root, heroIntroPayoffFirstAttribute);
@@ -119,7 +105,6 @@ export function buildHeroIntroScene(
   const spinner = requiredTarget(root, heroIntroSpinnerAttribute);
   const ready = requiredTarget(root, heroIntroReadyAttribute);
   const readyArrow = requiredTarget(root, heroIntroReadyArrowAttribute);
-  const codexFooter = root.querySelector<HTMLElement>(".hero-codex-footer");
   const codexCurrentRows = root.querySelector<HTMLElement>(".hero-codex-current-rows");
   const claudeCurrentRows = root.querySelector<HTMLElement>(".hero-claude-current-rows");
   const finalePane = options.width < 1024 ? "claude" : "codex";
@@ -130,130 +115,87 @@ export function buildHeroIntroScene(
   ];
   const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
 
-  // Read the three layout rects once. Every following value is derived from them.
+  // All layout measurements are taken before the timeline moves any surface.
   const sceneRect = sceneContainer.getBoundingClientRect();
   const frontRect = iconFront.getBoundingClientRect();
   const windowRect = windowNode.getBoundingClientRect();
-  const frontCenterX = frontRect.left + frontRect.width / 2;
-  const frontCenterY = frontRect.top + frontRect.height / 2;
-  const windowCenterX = windowRect.left + windowRect.width / 2;
-  const windowCenterY = windowRect.top + windowRect.height / 2;
   const startWidth = options.width < 620 ? 170 : 260;
   const startHeight = options.width < 620 ? 108 : 165;
-  const stackScale = startWidth / frontRect.width;
-  const stackStartX = windowCenterX - frontCenterX;
-  const stackStartY = windowCenterY - frontCenterY;
   const fourthPlane = createFourthPlane(sceneContainer);
-  const fourthLeft = frontRect.left - sceneRect.left;
-  const fourthTop = frontRect.top - sceneRect.top;
   const fourthDestinationLeft = windowRect.left - sceneRect.left;
   const fourthDestinationTop = windowRect.top - sceneRect.top;
-  const fourthDeal = options.width < 620 ? 24 : 48;
-  // The fanned front's bounding box starts farther left than its painted
-  // origin; these offsets keep the dealt plane behind the visible icon.
-  const fourthStartAdjustmentX = options.width < 620 ? 0 : -60;
-  const fourthDealAdjustmentX = options.width < 620 ? 12 : 6;
-  const fourthDealAdjustmentY = options.width < 620 ? 3 : 9;
-  const dockAtDeal = (2.55 - 2.4) / (2.75 - 2.4);
-  const dockProgressAtDeal = storyboardPower3InOut(dockAtDeal);
-  const fourthStartLeft =
-    fourthLeft + stackStartX * (1 - dockProgressAtDeal) + fourthStartAdjustmentX;
-  const fourthStartTop = fourthTop + stackStartY * (1 - dockProgressAtDeal);
-  const frontEntranceX = options.width - windowRect.left + startWidth;
-  const glassRadius = getComputedStyle(windowNode).borderTopLeftRadius;
-
-  timeline.set(eyebrowSettled, { opacity: 0 }, 0);
-  timeline.set(eyebrowLayer, { autoAlpha: 1 }, 0);
-  timeline.set(eyebrowCursor, { opacity: 1 }, 0);
-  const eyebrowTyping = { fraction: 0 };
-  timeline.to(
-    eyebrowTyping,
-    {
-      fraction: 1,
-      duration: 0.45,
-      ease: "none",
-      onUpdate: () => {
-        eyebrowTyped.textContent = eyebrowText.slice(
-          0,
-          Math.round(eyebrowTyping.fraction * eyebrowText.length),
-        );
-      },
-    },
-    0,
+  const fourthLeft = Math.min(
+    frontRect.left - sceneRect.left,
+    fourthDestinationLeft - (options.width < 620 ? 24 : 48),
   );
-  timeline.set(eyebrowTyped, { textContent: eyebrowText }, 0.45);
-  timeline.set(eyebrowCursor, { opacity: 0 }, 0.45);
-  timeline.set(eyebrowLayer, { autoAlpha: 0 }, 0.45);
-  timeline.set(eyebrowSettled, { opacity: 1 }, 0.45);
-  timeline.fromTo(headlineFirst, { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3 }, 0.45);
-  timeline.fromTo(headlineSecond, { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3 }, 0.65);
-  timeline.fromTo(payoffFirst, { opacity: 0 }, { opacity: 1, duration: 0.3 }, 3.4);
-  timeline.fromTo(payoffSecond, { opacity: 0 }, { opacity: 1, duration: 0.3 }, 7.8);
+  const fourthTop = frontRect.top - sceneRect.top;
+  const fourthDealX = fourthLeft + (fourthDestinationLeft - fourthLeft) * 0.35;
+  const glassRadius = getComputedStyle(windowNode).borderTopLeftRadius;
+  const decodeLines = [...install.querySelectorAll<HTMLElement>("[data-install-decode-line]")];
+  const decodeText = decodeLines.map((line) => line.parentElement?.textContent ?? "");
+  const copyButton = install.querySelector<HTMLElement>("[data-install-copy]");
+  const eyebrowStyle = getComputedStyle(eyebrowSettled);
+  const eyebrowBaseSpacing = Number.parseFloat(eyebrowStyle.letterSpacing) || 0;
+  const eyebrowStartSpacing = eyebrowBaseSpacing + Number.parseFloat(eyebrowStyle.fontSize) * 0.08;
+
+  timeline.addLabel("beat:statement", 0.15);
+  timeline.fromTo(
+    eyebrowSettled,
+    { opacity: 0, letterSpacing: `${eyebrowStartSpacing}px` },
+    { opacity: 1, letterSpacing: `${eyebrowBaseSpacing}px`, duration: 0.3, ease: "power1.out" },
+    0.15,
+  );
+  timeline.fromTo(
+    headlineFirst,
+    { y: 18, opacity: 0 },
+    { y: 0, opacity: 1, duration: 0.55, ease: "expo.out" },
+    0.25,
+  );
+  timeline.fromTo(
+    headlineSecond,
+    { y: 18, opacity: 0 },
+    { y: 0, opacity: 1, duration: 0.55, ease: "expo.out" },
+    0.37,
+  );
+  timeline.fromTo(
+    [payoffFirst, payoffSecond],
+    { y: 8, opacity: 0 },
+    { y: 0, opacity: 1, duration: 0.6, ease: "expo.out" },
+    6.2,
+  );
+
   if (codexCurrentRows !== null) timeline.set(codexCurrentRows, { opacity: 1 }, 0);
   if (claudeCurrentRows !== null && options.width < 1024)
     timeline.set(claudeCurrentRows, { opacity: 1 }, 0);
   if (finaleRows.length > 0) timeline.set(finaleRows, { opacity: 0 }, 0);
-  if (rail !== null) {
-    const appFrame = root.querySelector<HTMLElement>("[data-hero-app-frame]");
-    if (appFrame === null) throw new Error("Hero intro rail draw is missing the first app frame");
-    const railRect = rail.getBoundingClientRect();
-    const drawEndY = appFrame.getBoundingClientRect().top - railRect.top + 80;
-    const bottomInset = 100 - Math.min(100, Math.max(0, (drawEndY / railRect.height) * 100));
-    timeline.set(rail, { clipPath: "inset(0 0 100% 0)" }, 0);
-    timeline.to(
-      rail,
-      {
-        clipPath: `inset(0 0 ${bottomInset}% 0)`,
-        duration: 1,
-        ease: (progress: number): number => 1 - (1 - progress) ** 2.5,
-      },
-      6.8,
-    );
-  }
-  timeline.set(iconStack, { zIndex: 4 }, 0);
+  timeline.set(ready, { opacity: 0 }, 0);
+  timeline.set(spinner, { opacity: 0 }, 0);
+  timeline.set(typedInput, { textContent: "" }, 0);
+  timeline.set(decodeLines, { opacity: 0 }, 0);
+  if (copyButton !== null) timeline.set(copyButton, { opacity: 0 }, 0);
+
+  timeline.addLabel("beat:icon", 0.9);
   timeline.fromTo(
     iconStack,
-    { x: stackStartX, y: stackStartY, scale: stackScale },
-    { x: stackStartX, y: stackStartY, scale: stackScale, duration: 0.01 },
-    0,
+    { scale: 0.86, opacity: 0 },
+    { scale: 1, opacity: 1, duration: 0.45, ease: "back.out(1.4)" },
+    0.9,
   );
   timeline.set(fanPlanes, { rotation: 0 }, 0);
-  timeline.fromTo(
-    iconFront,
-    { x: frontEntranceX, opacity: 0 },
-    { x: 0, opacity: 1, duration: 0.5, ease: "power3.out" },
-    0.8,
-  );
-  timeline.fromTo(rearTwo, { x: 24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.22 }, 1.35);
-  timeline.fromTo(rearOne, { x: 18, opacity: 0 }, { x: 0, opacity: 1, duration: 0.22 }, 1.58);
-  timeline.fromTo(iconCursor, { opacity: 0 }, { opacity: 1, duration: 0.12 }, 2.2);
-  timeline.set(iconCursor, { opacity: 0 }, 2.75);
-  timeline.set(iconCursor, { opacity: 1 }, 3.05);
-  timeline.to(
-    iconStack,
-    { x: 0, y: 0, scale: 1, duration: 0.35, ease: storyboardPower3InOut },
-    2.4,
-  );
   fanPlanes.forEach((plane, index) => {
-    const planeStep = index + 1;
     timeline.to(
       plane,
-      { rotation: -((stackStep * 6) / 7) * planeStep, duration: 0.35, ease: storyboardPower3InOut },
-      2.4,
-    );
-    timeline.to(
-      plane,
-      { rotation: -stackStep * planeStep, duration: 0.3, ease: "back.out(1.6)" },
-      2.75,
+      { rotation: -stackStep * (index + 1), duration: 0.35, ease: "power3.out" },
+      1.2,
     );
   });
-  timeline.set(iconStack, { zIndex: 1 }, 3.05);
-
+  timeline.set(iconCursor, { opacity: 0 }, 0);
+  timeline.addLabel("beat:window", 1.45);
   timeline.fromTo(
     fourthPlane,
     {
-      left: fourthStartLeft,
-      top: fourthStartTop,
+      left: fourthLeft,
+      top: fourthTop,
       width: startWidth,
       height: startHeight,
       border: "5px solid #89b4fa",
@@ -261,15 +203,15 @@ export function buildHeroIntroScene(
       opacity: 0,
     },
     {
-      left: fourthLeft + fourthDeal + fourthDealAdjustmentX,
-      top: fourthTop + fourthDealAdjustmentY,
+      left: fourthDealX,
+      top: fourthTop - 10,
       width: startWidth,
       height: startHeight,
       opacity: 1,
-      duration: 0.4,
-      ease: "power3.out",
+      duration: 0.2,
+      ease: "power2.out",
     },
-    2.55,
+    1.45,
   );
   timeline.to(
     fourthPlane,
@@ -281,90 +223,129 @@ export function buildHeroIntroScene(
       borderWidth: 1,
       borderColor: "rgb(137 180 250 / 38%)",
       borderRadius: glassRadius,
-      duration: 0.45,
-      ease: storyboardPower3InOut,
+      duration: 0.55,
+      ease: "power3.inOut",
     },
-    2.95,
+    1.65,
   );
-  timeline.fromTo(windowNode, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 3.4);
-  timeline.to(fourthPlane, { opacity: 0, duration: 0.01 }, 3.4);
-  timeline.fromTo(windowContent, { opacity: 0 }, { opacity: 1, duration: 0.14 }, 3.4);
+  timeline.fromTo(windowNode, { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "sine.out" }, 2.2);
+  timeline.to(fourthPlane, { opacity: 0, duration: 0.2, ease: "sine.out" }, 2.2);
+  timeline.fromTo(
+    windowContent,
+    { opacity: 0 },
+    { opacity: 1, duration: 0.2, ease: "sine.out" },
+    2.2,
+  );
+  timeline.set(iconStack, { zIndex: 1 }, 2.2);
+  timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 2.8, ease: "sine.inOut" }, 2.2);
 
-  const currentRows = [
-    ...root.querySelectorAll<HTMLElement>(
-      ".hero-transcript-row--user-band, .hero-transcript-row--assistant-text, .hero-transcript-row--tool-call, .hero-transcript-row--tool-result:not([data-hero-intro-ready]), .hero-transcript-row--codex-action, .hero-transcript-row--codex-detail, .hero-transcript-row--codex-prose",
-    ),
-  ].filter((row) => !row.hasAttribute(heroIntroFinaleRowAttribute));
-  currentRows.forEach((row, index) => {
-    timeline.fromTo(row, { opacity: 0 }, { opacity: 1, duration: 0.08 }, 3.65 + index * 0.055);
-  });
-  const currentFinaleRows = options.width < 1024 ? claudeCurrentRows : codexCurrentRows;
-  if (currentFinaleRows !== null)
-    timeline.to(currentFinaleRows, { opacity: 0, duration: 0.08 }, 6.02);
-  finaleRows.forEach((row, index) => {
-    const appearance =
-      index === 0
-        ? 6.02
-        : index <= 2 && options.width >= 1024
-          ? 6.32
-          : index === 1
-            ? 6.32
-            : index === finaleRows.length - 1
-              ? 7.8
-              : 6.72;
-    timeline.fromTo(
-      row,
-      { opacity: 0 },
-      { opacity: 1, duration: index === finaleRows.length - 1 ? 0.3 : 0.08 },
-      appearance,
-    );
-  });
-
+  timeline.addLabel("beat:prompt", 2.6);
   const inputText = "set up Agent Studio for me";
   const typing = { fraction: 0 };
   timeline.to(
     typing,
     {
       fraction: 1,
-      duration: inputText.length * 0.018,
+      duration: 1,
       ease: "none",
       onUpdate: () => {
         typedInput.textContent = inputText.slice(0, Math.floor(typing.fraction * inputText.length));
       },
     },
-    3.45,
+    2.6,
   );
-  timeline.set(typedInput, { textContent: "" }, 4.03);
+  timeline.set(typedInput, { textContent: "" }, 3.7);
   const spinnerGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
   const spinnerState = { fraction: 0 };
-  timeline.fromTo(spinner, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 4.1);
+  timeline.addLabel("beat:spinner", 3.7);
+  timeline.fromTo(spinner, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 3.7);
   timeline.to(
     spinnerState,
     {
       fraction: 1,
-      duration: 0.4,
+      duration: 0.5,
       ease: "none",
       onUpdate: () => {
-        const glyphIndex = Math.min(4, Math.floor(spinnerState.fraction * spinnerGlyphs.length));
+        const glyphIndex = Math.min(
+          spinnerGlyphs.length - 1,
+          Math.floor(spinnerState.fraction * spinnerGlyphs.length),
+        );
         spinner.textContent = `${spinnerGlyphs[glyphIndex]} Brewing… (esc to interrupt)`;
       },
     },
-    4.1,
+    3.7,
   );
-  timeline.to(spinner, { opacity: 0, duration: 0.01 }, 4.5);
-  timeline.fromTo(ready, { opacity: 0 }, { opacity: 1, duration: 0.08 }, 4.5);
+  timeline.to(spinner, { opacity: 0, duration: 0.01 }, 4.2);
+
+  timeline.addLabel("beat:ready-and-install", 4.2);
+  timeline.fromTo(
+    ready,
+    { opacity: 0, x: -4 },
+    { opacity: 1, x: 0, duration: 0.2, ease: "power2.out" },
+    4.2,
+  );
   timeline.fromTo(
     readyArrow,
     { opacity: 1 },
-    { opacity: 0.35, duration: 0.15, ease: "none" },
-    4.55,
+    { opacity: 0.35, duration: 0.2, repeat: 1, yoyo: true, ease: "sine.inOut" },
+    4.35,
   );
-  timeline.to(readyArrow, { opacity: 1, duration: 0.15, ease: "none" }, 4.7);
-  timeline.to(readyArrow, { opacity: 0.35, duration: 0.15, ease: "none" }, 4.85);
-  timeline.to(readyArrow, { opacity: 1, duration: 0.15, ease: "none" }, 5.0);
-  if (codexFooter !== null) {
-    timeline.fromTo(codexFooter, { opacity: 0 }, { opacity: 1, duration: 0.16 }, 4.0);
+  timeline.fromTo(
+    install,
+    { opacity: 0 },
+    { opacity: 1, duration: 0.25, ease: "power1.out" },
+    4.45,
+  );
+  const decodeState = { fraction: 0 };
+  const glyphs = "▓▒░█<>/\\#$";
+  timeline.to(
+    decodeState,
+    {
+      fraction: 1,
+      duration: 0.82,
+      ease: "none",
+      onUpdate: () => {
+        const elapsed = decodeState.fraction * 0.82;
+        decodeLines.forEach((line, lineIndex) => {
+          const text = decodeText[lineIndex] ?? "";
+          const localDuration = lineIndex === 0 ? 0.7 : 0.58;
+          const progress = Math.max(0, Math.min(1, (elapsed - lineIndex * 0.12) / localDuration));
+          const settledCharacters = Math.floor(progress * text.length);
+          const timeSlice = Math.floor(elapsed * 30);
+          line.textContent = text
+            .split("")
+            .map((character, characterIndex) => {
+              if (characterIndex < settledCharacters || character === " ") return character;
+              return glyphs[(characterIndex * 17 + timeSlice * 7 + lineIndex * 11) % glyphs.length];
+            })
+            .join("");
+          line.style.opacity = progress >= 1 ? "0" : "1";
+        });
+        if (copyButton !== null) {
+          copyButton.style.opacity = String(Math.max(0, Math.min(1, (elapsed - 0.7) / 0.12)));
+        }
+      },
+    },
+    4.6,
+  );
+
+  timeline.addLabel("beat:resolve", 5.6);
+  const currentFinaleRows = options.width < 1024 ? claudeCurrentRows : codexCurrentRows;
+  if (currentFinaleRows !== null)
+    timeline.to(currentFinaleRows, { opacity: 0, duration: 0.25, ease: "power2.out" }, 5.6);
+  if (finaleRows[0] !== undefined)
+    timeline.fromTo(
+      finaleRows[0],
+      { opacity: 0 },
+      { opacity: 1, duration: 0.25, ease: "power2.out" },
+      5.6,
+    );
+  if (options.width < 1024) {
+    const preservedBashRow = finaleRows.find((row) => row.textContent?.includes("Bash("));
+    if (preservedBashRow !== undefined) timeline.set(preservedBashRow, { opacity: 1 }, 5.6);
   }
-  timeline.fromTo(install, { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power1.out" }, 5.05);
-  timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 0.8 }, 5.4);
+
+  if (rail !== null) {
+    addHeroRailStaircase({ timeline, artwork: rail });
+  }
 }
