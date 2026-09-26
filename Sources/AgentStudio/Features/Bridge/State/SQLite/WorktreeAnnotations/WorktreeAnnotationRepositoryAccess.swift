@@ -14,6 +14,10 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
     func fetchCatalogCapture(worktreeID: String) async throws -> WorktreeAnnotationCatalogCapture
+    func fetchCatalogRange(
+        worktreeID: String,
+        range: WorktreeAnnotationCatalogRange
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
     func fetchCurrentCatalogEntries(
         worktreeID: String,
         keys: Set<WorktreeAnnotationCatalogKey>
@@ -91,6 +95,14 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
 }
 
 extension WorktreeAnnotationRepositoryAccess {
+    func fetchCatalogRange(
+        worktreeID: String,
+        range: WorktreeAnnotationCatalogRange
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] {
+        _ = (worktreeID, range)
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
     func fetchCurrentCatalogEntries(
         worktreeID: String,
         keys: Set<WorktreeAnnotationCatalogKey>
@@ -244,6 +256,13 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
 
     func fetchCatalogCapture(worktreeID: String) async throws -> WorktreeAnnotationCatalogCapture {
         try await restore { try $0.fetchCatalogCapture(worktreeID: worktreeID) }
+    }
+
+    func fetchCatalogRange(
+        worktreeID: String,
+        range: WorktreeAnnotationCatalogRange
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] {
+        try await restore { try $0.fetchCatalogRange(worktreeID: worktreeID, range: range) }
     }
 
     func fetchCurrentCatalogEntries(

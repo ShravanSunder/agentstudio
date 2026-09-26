@@ -8,6 +8,35 @@ import Testing
 
 @Suite("Worktree annotation SQLite catalog repository")
 struct WorktreeAnnotationSQLiteCatalogRepositoryTests {
+    @Test("session range read returns complete current children and certifies a later cascade absence")
+    func sessionRangeReadCoversCascadeDeletion() throws {
+        let fixture = try WorktreeAnnotationCatalogRepositoryFixture()
+        let sessionID = WorktreeAnnotationSessionID.generate()
+        let threadID = WorktreeAnnotationThreadID.generate()
+        let messageID = WorktreeAnnotationMessageID.generate()
+        try fixture.insertSession(id: sessionID, worktreeID: "worktree-range")
+        try fixture.insertThread(id: threadID, sessionID: sessionID)
+        try fixture.insertMessage(id: messageID, threadID: threadID)
+
+        let before = try fixture.repository.fetchCatalogRange(
+            worktreeID: "worktree-range",
+            range: .session(sessionID)
+        )
+        #expect(Set(before.keys) == [.session(sessionID), .thread(threadID), .message(messageID)])
+
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: "DELETE FROM annotation_session WHERE id = ?",
+                arguments: [sessionID.databaseValue]
+            )
+        }
+        let after = try fixture.repository.fetchCatalogRange(
+            worktreeID: "worktree-range",
+            range: .session(sessionID)
+        )
+        #expect(after.isEmpty)
+    }
+
     @Test("keyed catalog read returns current rows and omits deleted or foreign keys")
     func keyedCatalogReadUsesOneCurrentTransaction() throws {
         let fixture = try WorktreeAnnotationCatalogRepositoryFixture()
