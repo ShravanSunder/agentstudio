@@ -15,10 +15,31 @@ import {
   assignTopologyRowOwners,
   measureTopologyGutterColumns,
   measureTopologyRows,
-  topologyRowUnit,
   type TopologyRowWorktree,
 } from "./full-page-topology-model";
-import { localForkPath, localMergePath } from "./full-page-topology-paths";
+import { attachXFor, planAttachRoutes } from "./topology-attach-geometry";
+import { topologyEndY, topologyRectBottom, topologyRectCenterY } from "./topology-end-geometry";
+import {
+  heroLaneOpenRow,
+  mainlineOwnerId,
+  planWorktreeLanes,
+  worktreePath,
+  type LanePlan,
+} from "./topology-lane-planning";
+
+export {
+  topologyAttachBandInset,
+  topologyStackedDropCornerInset,
+  topologyStackedVerticalEntry,
+  topologyStackedForkCopyClearance,
+  topologyStackedMinimumDrop,
+  topologyStackedFallbackDrop,
+} from "./topology-attach-geometry";
+export {
+  mainlineOwnerId,
+  topologyHeroLaneMinimumTravel,
+  topologyHeroLaneMaximumTravel,
+} from "./topology-lane-planning";
 
 /** A measured element rectangle in the artwork's coordinate space (CSS px). */
 export interface TopologyRect {
@@ -123,221 +144,6 @@ export interface TopologyComposition {
  * glass's left edge. Tailwind's `lg` boundary (`--breakpoint-lg: 64rem`).
  */
 export const topologyStackedLayoutBreakpointWidth = 1024;
-/** A wide branch enters its glass on a row at least this far inside the glass. */
-export const topologyAttachBandInset = 40;
-/**
- * Stacked: the branch drops this far inside the glass's left edge: its
- * rounded corner (16px) plus a clear gap.
- */
-export const topologyStackedDropCornerInset = 24;
-/** Stacked: the drop ends in a straight vertical run this long into the glass's top edge. */
-export const topologyStackedVerticalEntry = 8;
-/**
- * Stacked: when the row above the glass sits inside the copy above it (the
- * hero), the branch forks this far below the copy instead.
- */
-export const topologyStackedForkCopyClearance = 4;
-/** Stacked: a row above the glass only hosts the fork when it leaves at least this much drop. */
-export const topologyStackedMinimumDrop = 12;
-/** Stacked: with no free row above a chapter's glass, the fork sits this far above its top edge. */
-export const topologyStackedFallbackDrop = 32;
-/**
- * On wide screens the lane next to the content runs at least this many rows,
- * and at most `topologyHeroLaneMaximumTravel`, between its fork and the row it
- * leaves for the hero frame.
- */
-export const topologyHeroLaneMinimumTravel = 2;
-export const topologyHeroLaneMaximumTravel = 4;
-
-export const mainlineOwnerId = "main";
-const worktreeAccents = ["peach", "cyan"] as const satisfies readonly TopologyAccent[];
-
-function bottomOf(rect: TopologyRect): number {
-  return rect.top + rect.height;
-}
-
-function centerYOf(rect: TopologyRect): number {
-  return rect.top + rect.height / 2;
-}
-
-/**
- * Where a branch lands: the glass's left edge on wide screens, the drop point
- * on its top edge, clear of the corner, where glasses stack.
- */
-function attachXFor(anchor: TopologyAnchorMeasurement, stacked: boolean): number | undefined {
-  const surface = anchor.surface;
-  if (surface === undefined) {
-    return undefined;
-  }
-  return stacked
-    ? Math.min(surface.left + topologyStackedDropCornerInset, surface.left + surface.width / 2)
-    : surface.left;
-}
-
-interface WorktreeLane {
-  readonly id: string;
-  readonly column: number;
-  readonly x: number;
-  readonly parentId: string;
-  readonly parentX: number;
-  readonly accent: TopologyAccent;
-  readonly forkRow: number;
-  readonly mergeRow: number;
-}
-
-interface LanePlan {
-  readonly lanes: readonly WorktreeLane[];
-  readonly reserved: ReadonlyMap<number, Omit<TopologyRowDot, "row" | "y">>;
-}
-
-/**
- * Worktree lanes open as a one-column staircase (lane k forks from lane k-1 on
- * consecutive rows) starting at `openRow`, in the gutter beside the hero copy,
- * and close the same way in reverse after the last target, so every fork and
- * merge moves one column.
- */
-function planWorktreeLanes(props: {
-  readonly laneXs: readonly number[];
-  readonly mainlineX: number;
-  readonly rowYs: readonly number[];
-  readonly openRow: number;
-  readonly closeBelowY: number;
-  readonly lastUsableRow: number;
-}): LanePlan | undefined {
-  const laneCount = props.laneXs.length;
-  if (laneCount === 0) {
-    return { lanes: [], reserved: new Map() };
-  }
-  const openRow = props.openRow;
-  const closeRow = props.rowYs.findIndex((rowY) => rowY >= props.closeBelowY);
-  if (openRow < 0 || closeRow < 0 || closeRow + laneCount - 1 > props.lastUsableRow) {
-    return undefined;
-  }
-  const lanes: WorktreeLane[] = [];
-  const reserved = new Map<number, Omit<TopologyRowDot, "row" | "y">>();
-  for (let laneIndex = 0; laneIndex < laneCount; laneIndex += 1) {
-    const column = laneIndex + 1;
-    const forkRow = openRow + laneIndex;
-    const mergeRow = closeRow + (laneCount - 1 - laneIndex);
-    if (mergeRow - forkRow < 2) {
-      return undefined;
-    }
-    const parent = lanes[laneIndex - 1];
-    const lane: WorktreeLane = {
-      id: `worktree-${column}`,
-      column,
-      x: props.laneXs[laneIndex] ?? props.mainlineX,
-      parentId: parent?.id ?? mainlineOwnerId,
-      parentX: parent?.x ?? props.mainlineX,
-      accent: worktreeAccents[laneIndex % worktreeAccents.length] ?? "peach",
-      forkRow,
-      mergeRow,
-    };
-    lanes.push(lane);
-    const parentAccent = parent?.accent ?? "main";
-    reserved.set(forkRow, {
-      x: lane.parentX,
-      ownerId: lane.parentId,
-      accent: parentAccent,
-      kind: "fork",
-      anchorId: undefined,
-    });
-    reserved.set(mergeRow, {
-      x: lane.parentX,
-      ownerId: lane.parentId,
-      accent: parentAccent,
-      kind: "merge",
-      anchorId: undefined,
-      incomingAccent: lane.accent,
-    });
-  }
-  return { lanes, reserved };
-}
-
-/**
- * The mainline ends halfway between the bottom of the last chapter glass and
- * the top of the CTA icon. Without both measurements, it falls back to one
- * row above the CTA section or page end.
- */
-function topologyEndY(page: TopologyPageMeasurement): number {
-  const end = page.end;
-  const lastGlassBottom = page.anchors.reduce<number | undefined>((currentBottom, anchor) => {
-    if (anchor.surface === undefined) {
-      return currentBottom;
-    }
-    const glassBottom = bottomOf(anchor.surface);
-    return currentBottom === undefined ? glassBottom : Math.max(currentBottom, glassBottom);
-  }, undefined);
-  if (end?.mark !== undefined && lastGlassBottom !== undefined) {
-    return (lastGlassBottom + end.mark.top) / 2;
-  }
-  if (end !== undefined) {
-    return end.section.top - topologyRowUnit;
-  }
-  return page.height - topologyRowUnit;
-}
-
-/**
- * Wide screens: the lanes fork from the middle of the hero copy, one column
- * per row, so the lane next to the content runs 2–4 rows before it leaves for
- * the hero frame. A frame far below the copy moves the forks down with it.
- */
-function heroLaneOpenRow(props: {
-  readonly rowYs: readonly number[];
-  readonly heroRow: number;
-  readonly heroCopy: TopologyRect | undefined;
-  readonly heroTarget: TopologyRect | undefined;
-  readonly laneCount: number;
-}): number {
-  const { rowYs, heroRow, heroCopy, heroTarget, laneCount } = props;
-  const middleY = heroCopy === undefined ? (rowYs[heroRow] ?? 0) : centerYOf(heroCopy);
-  let middleRow = heroRow + 1;
-  for (const [row, rowY] of rowYs.entries()) {
-    if (
-      row > heroRow &&
-      Math.abs(rowY - middleY) < Math.abs((rowYs[middleRow] ?? Infinity) - middleY)
-    ) {
-      middleRow = row;
-    }
-  }
-  if (heroTarget === undefined) {
-    return middleRow;
-  }
-  const bandTop = heroTarget.top + Math.min(topologyAttachBandInset, heroTarget.height / 2);
-  const bandStartRow = rowYs.findIndex((rowY) => rowY >= bandTop);
-  // The outermost lane forks on `openRow + laneCount - 1` and leaves on the
-  // row above the frame's first band row, at most the maximum travel later.
-  const latestTravelOpenRow = bandStartRow - laneCount - topologyHeroLaneMaximumTravel;
-  return Math.max(heroRow + 1, middleRow, latestTravelOpenRow);
-}
-
-/**
- * A port: from the source lane's dot, the retired merge bend turns onto the
- * target row and runs one column straight into the target's left edge.
- */
-function leftEdgePortPath(sourceX: number, edgeX: number, forkY: number, attachY: number): string {
-  return [`M ${sourceX} ${forkY}`, ...localMergePath(edgeX, sourceX, forkY, attachY)].join(" ");
-}
-
-/**
- * A stacked-glass port: the retired fork bend runs out from the mainline and turns
- * down, then a short straight vertical run enters the glass's top edge.
- */
-function stackedDropPortPath(sourceX: number, dropX: number, forkY: number, edgeY: number): string {
-  const entry = Math.min(topologyStackedVerticalEntry, (edgeY - forkY) / 2);
-  return [...localForkPath(sourceX, dropX, forkY, edgeY - entry), `L ${dropX} ${edgeY}`].join(" ");
-}
-
-function worktreePath(lane: WorktreeLane, rowYs: readonly number[]): string {
-  const forkY = rowYs[lane.forkRow] ?? 0;
-  const arrivalY = rowYs[lane.forkRow + 1] ?? forkY;
-  const approachY = rowYs[lane.mergeRow - 1] ?? arrivalY;
-  const mergeY = rowYs[lane.mergeRow] ?? approachY;
-  return [
-    ...localForkPath(lane.parentX, lane.x, forkY, arrivalY),
-    ...localMergePath(lane.parentX, lane.x, approachY, mergeY),
-  ].join(" ");
-}
 
 export function composeFullPageTopology(
   page: TopologyPageMeasurement,
@@ -354,13 +160,13 @@ export function composeFullPageTopology(
     ...(attachXs.length > 0 ? attachXs : page.anchors.map((anchor) => anchor.rect.left)),
   );
   const { rowYs, anchorRows } = measureTopologyRows({
-    anchorYs: page.anchors.map((anchor) => anchor.lineY ?? centerYOf(anchor.rect)),
+    anchorYs: page.anchors.map((anchor) => anchor.lineY ?? topologyRectCenterY(anchor.rect)),
     endY: topologyEndY(page),
   });
   const finalRow = rowYs.length - 1;
   const firstAnchor = page.anchors[0];
   const targetBottoms = page.anchors.flatMap((anchor) =>
-    anchor.surface === undefined ? [] : [bottomOf(anchor.surface)],
+    anchor.surface === undefined ? [] : [topologyRectBottom(anchor.surface)],
   );
 
   // Fewer lanes when the page has too few rows to open and close them all.
@@ -426,123 +232,15 @@ export function composeFullPageTopology(
     });
   }
 
-  const attachRoutes: TopologyRoute[] = [];
-  for (const [index, anchor] of page.anchors.entries()) {
-    const anchorRow = anchorRows[index] ?? 0;
-    const attachX = attachXFor(anchor, stacked);
-    const target = anchor.surface;
-    if (attachX === undefined || target === undefined) {
-      continue;
-    }
-    // The branch leaves from the column next to the target: the outermost lane
-    // wherever it runs straight at the fork row, otherwise the mainline.
-    const sourceAt = (
-      row: number,
-    ): { id: string; x: number; column: number; accent: TopologyAccent } =>
-      outermostLane !== undefined && row > outermostLane.forkRow && row < outermostLane.mergeRow
-        ? {
-            id: outermostLane.id,
-            x: outermostLane.x,
-            column: outermostLane.column,
-            accent: outermostLane.accent,
-          }
-        : { id: mainlineOwnerId, x: columns.mainlineX, column: 0, accent: "main" };
-
-    if (stacked) {
-      // The drop enters the glass's top edge, so the fork sits in the open
-      // space above it: below the copy when the copy sits above the glass (the
-      // hero), otherwise below the previous glass. It forks on the last free
-      // row there; otherwise just below the copy, or a short way above the glass.
-      const copyAboveGlass = anchor.rect.top < target.top;
-      const previousSurface = page.anchors[index - 1]?.surface;
-      const clearTop = copyAboveGlass
-        ? bottomOf(anchor.copyBlock ?? anchor.rect)
-        : previousSurface === undefined
-          ? 0
-          : bottomOf(previousSurface);
-      const rowAbove = rowYs.findLastIndex((rowY) => rowY < target.top);
-      const rowAboveY = rowYs[rowAbove];
-      const forkOnRow =
-        rowAboveY !== undefined &&
-        rowAboveY >= clearTop &&
-        target.top - rowAboveY >= topologyStackedMinimumDrop &&
-        !reserved.has(rowAbove);
-      const gap = target.top - clearTop;
-      const fallbackForkY = copyAboveGlass
-        ? clearTop + Math.min(topologyStackedForkCopyClearance, gap / 2)
-        : target.top - Math.min(topologyStackedFallbackDrop, gap / 2);
-      const forkY = forkOnRow ? rowAboveY : fallbackForkY;
-      const source = sourceAt(forkOnRow ? rowAbove : Math.max(rowAbove, anchorRow));
-      if (forkOnRow) {
-        reserved.set(rowAbove, {
-          x: source.x,
-          ownerId: source.id,
-          accent: source.accent,
-          kind: "fork",
-          anchorId: undefined,
-        });
-      }
-      attachRoutes.push({
-        id: `attach-${anchor.id}`,
-        kind: "attach",
-        accent: "port",
-        pathData: stackedDropPortPath(source.x, attachX, forkY, target.top),
-        parentColumn: source.column,
-        column: source.column + 1,
-        startY: forkY,
-        endY: target.top,
-        anchorId: anchor.id,
-        targetEdge: "top",
-        portNode: { x: attachX, y: target.top },
-        sourceAccent: source.accent,
-      });
-      continue;
-    }
-    // Wide: enter the glass's left edge on the first row inside it whose row
-    // above is free for the fork and, when lanes exist, where the lane next to
-    // the content runs straight, so the step in is exactly one column.
-    const bandTop = target.top + Math.min(topologyAttachBandInset, target.height / 2);
-    const bandBottom = bottomOf(target) - Math.min(topologyAttachBandInset, target.height / 2);
-    const forksFromOutermostLane = (forkRow: number): boolean =>
-      outermostLane === undefined ||
-      (forkRow >= outermostLane.forkRow + topologyHeroLaneMinimumTravel &&
-        forkRow < outermostLane.mergeRow);
-    const attachRow = rowYs.findIndex(
-      (rowY, row) =>
-        row > 0 &&
-        rowY >= bandTop &&
-        rowY <= bandBottom &&
-        !reserved.has(row - 1) &&
-        forksFromOutermostLane(row - 1),
-    );
-    const attachY = rowYs[attachRow];
-    const forkY = rowYs[attachRow - 1];
-    if (attachRow < 0 || attachY === undefined || forkY === undefined) {
-      continue;
-    }
-    const source = sourceAt(attachRow - 1);
-    reserved.set(attachRow - 1, {
-      x: source.x,
-      ownerId: source.id,
-      accent: source.accent,
-      kind: "fork",
-      anchorId: undefined,
-    });
-    attachRoutes.push({
-      id: `attach-${anchor.id}`,
-      kind: "attach",
-      accent: "port",
-      pathData: leftEdgePortPath(source.x, attachX, forkY, attachY),
-      parentColumn: source.column,
-      column: source.column + 1,
-      startY: forkY,
-      endY: attachY,
-      anchorId: anchor.id,
-      targetEdge: "left",
-      portNode: { x: attachX, y: attachY },
-      sourceAccent: source.accent,
-    });
-  }
+  const attachRoutes = planAttachRoutes({
+    page,
+    stacked,
+    rowYs,
+    anchorRows,
+    reserved,
+    mainlineX: columns.mainlineX,
+    outermostLane,
+  });
 
   const worktrees: TopologyRowWorktree[] = lanes.map((lane) => ({
     endRow: lane.mergeRow,
