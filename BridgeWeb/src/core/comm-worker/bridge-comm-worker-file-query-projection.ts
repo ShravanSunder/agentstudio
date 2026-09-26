@@ -5,6 +5,7 @@ import {
 	type BridgeFileCollectionSearchResult,
 } from './bridge-comm-worker-file-collection-search.js';
 import type { BridgeCommWorkerFileDisplayEventAuthority } from './bridge-comm-worker-file-display-event-authority.js';
+import type { BridgeCommWorkerFileQueryDiagnosticEvent } from './bridge-comm-worker-telemetry.js';
 import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
 	type BridgeWorkerFileDisplayPatch,
@@ -47,6 +48,7 @@ export interface BridgeCommWorkerFileQueryProjectionResult {
 export interface BridgeCommWorkerFileQueryProjectionProps {
 	readonly maximumRowsPerQueryChunk?: number;
 	readonly recordEvaluatedQueryChunk?: (evaluatedRowCount: number) => void;
+	readonly recordQueryPhase?: (event: BridgeCommWorkerFileQueryDiagnosticEvent) => void;
 	readonly scheduleQueryChunk?: (runChunk: () => void) => void;
 }
 
@@ -65,6 +67,7 @@ export class BridgeCommWorkerFileQueryProjection {
 	readonly #maximumRowsPerQueryChunk: number;
 	#pendingQuery: PendingFileQueryProjection | null = null;
 	#projectedRowsById = new Map<string, FileTreeRow>();
+	readonly #recordQueryPhase: (event: BridgeCommWorkerFileQueryDiagnosticEvent) => void;
 	#publishedQuery: BridgeWorkerFileQuery = defaultBridgeWorkerFileQuery;
 	#publishedQueryPattern: RegExp | null = null;
 	#publishedQuerySearchError: string | null = null;
@@ -81,6 +84,7 @@ export class BridgeCommWorkerFileQueryProjection {
 			throw new Error('File query chunk row limit must be a positive integer.');
 		}
 		this.#recordEvaluatedQueryChunk = props.recordEvaluatedQueryChunk ?? ignoreQueryChunk;
+		this.#recordQueryPhase = props.recordQueryPhase ?? ignoreQueryPhase;
 		this.#scheduleQueryChunk = props.scheduleQueryChunk ?? scheduleFileQueryMacrotask;
 	}
 
@@ -237,6 +241,7 @@ export class BridgeCommWorkerFileQueryProjection {
 			evaluatedRowCount: 0,
 			generation: this.#queryGeneration,
 			nextProjectedRowsById: new Map(),
+			nextChunkIndex: 1,
 			operationBatches: [],
 			pendingOperations: [],
 			publish: props.publish,
@@ -262,6 +267,9 @@ export class BridgeCommWorkerFileQueryProjection {
 	#runQueryChunk(generation: number): void {
 		const pendingQuery = this.#pendingQuery;
 		if (pendingQuery === null || pendingQuery.generation !== generation) return;
+		const chunkIndex = pendingQuery.nextChunkIndex;
+		pendingQuery.nextChunkIndex += 1;
+		this.#recordQueryPhase({ phase: 'chunk_started', chunkIndex });
 		let evaluatedRowCount = 0;
 		let iteratorResult = pendingQuery.rowIterator.next();
 		while (!iteratorResult.done && evaluatedRowCount < this.#maximumRowsPerQueryChunk) {
@@ -271,6 +279,7 @@ export class BridgeCommWorkerFileQueryProjection {
 		}
 		pendingQuery.evaluatedRowCount += evaluatedRowCount;
 		this.#recordEvaluatedQueryChunk(evaluatedRowCount);
+		this.#recordQueryPhase({ phase: 'chunk_completed', chunkIndex, evaluatedRowCount });
 		if (iteratorResult.done) {
 			this.#finishPendingQuery(pendingQuery);
 			return;
@@ -469,6 +478,7 @@ interface PendingFileQueryProjection {
 	evaluatedRowCount: number;
 	readonly generation: number;
 	readonly nextProjectedRowsById: Map<string, FileTreeRow>;
+	nextChunkIndex: number;
 	readonly operationBatches: BridgeWorkerFileDisplayPatch[];
 	readonly pendingOperations: FileTreeOperation[];
 	readonly publish: (result: BridgeCommWorkerFileQueryProjectionResult) => void;
@@ -485,6 +495,7 @@ export function applyBridgeCommWorkerFileQueryUpdateCommand(props: {
 	readonly eventAuthority: BridgeCommWorkerFileDisplayEventAuthority;
 	readonly getWorkerDerivationEpoch: () => number;
 	readonly projection: BridgeCommWorkerFileQueryProjection;
+	readonly recordQueryPhase?: (event: BridgeCommWorkerFileQueryDiagnosticEvent) => void;
 	readonly publishMessages: (messages: readonly BridgeWorkerServerToMainWireMessage[]) => void;
 }): readonly BridgeWorkerServerToMainMessage[] {
 	const publishOutcome = (queryOutcome: BridgeCommWorkerFileQueryOutcome): void => {
@@ -497,7 +508,9 @@ export function applyBridgeCommWorkerFileQueryUpdateCommand(props: {
 			wireVersion: 1,
 		};
 		props.publishMessages([message]);
+		props.recordQueryPhase?.({ phase: 'outcome_published' });
 	};
+	props.recordQueryPhase?.({ phase: 'command_received' });
 	props.projection.updateQuery({
 		publish: (result): void => {
 			if (result.queryTransactionId === null) return;
@@ -508,6 +521,7 @@ export function applyBridgeCommWorkerFileQueryUpdateCommand(props: {
 					transactionId: result.queryTransactionId,
 				}),
 			);
+			props.recordQueryPhase?.({ phase: 'projection_published' });
 		},
 		publishOutcome,
 		query: props.command.query,
@@ -640,6 +654,8 @@ function scheduleFileQueryMacrotask(runChunk: () => void): void {
 }
 
 function ignoreQueryChunk(_evaluatedRowCount: number): void {}
+
+function ignoreQueryPhase(_event: BridgeCommWorkerFileQueryDiagnosticEvent): void {}
 
 function assertNeverFileDisplayPatch(patch: never): never {
 	throw new Error(`Unhandled File display patch: ${JSON.stringify(patch)}`);

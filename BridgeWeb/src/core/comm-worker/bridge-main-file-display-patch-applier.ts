@@ -1,3 +1,4 @@
+import type { BridgeMainFileQueryDiagnosticEvent } from './bridge-comm-worker-telemetry.js';
 import {
 	BridgeMainFileTreeDisplayIndex,
 	BridgeMainImmutableStringMap,
@@ -101,6 +102,7 @@ export interface BridgeMainFileDisplayResyncRequest {
 export interface BridgeMainFileDisplayPatchApplierProps {
 	readonly maximumBufferedBytes?: number;
 	readonly maximumBufferedEvents?: number;
+	readonly recordFileQueryDiagnostic?: (event: BridgeMainFileQueryDiagnosticEvent) => void;
 	readonly requestResync?: (request: BridgeMainFileDisplayResyncRequest) => void;
 }
 
@@ -110,6 +112,7 @@ export class BridgeMainFileDisplayPatchApplier {
 	readonly #fileTreePatchStream = new MutableBridgeMainFileTreePatchStream();
 	readonly #maximumBufferedBytes: number;
 	readonly #maximumBufferedEvents: number;
+	readonly #recordFileQueryDiagnostic: (event: BridgeMainFileQueryDiagnosticEvent) => void;
 	readonly #requestResync: (request: BridgeMainFileDisplayResyncRequest) => void;
 	#pendingQueryTransaction: PendingFileQueryTransaction | null = null;
 	#state: BridgeMainFileDisplayState = emptyBridgeMainFileDisplayState();
@@ -119,6 +122,7 @@ export class BridgeMainFileDisplayPatchApplier {
 			props.maximumBufferedBytes ?? BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES;
 		this.#maximumBufferedEvents =
 			props.maximumBufferedEvents ?? BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT;
+		this.#recordFileQueryDiagnostic = props.recordFileQueryDiagnostic ?? ignoreFileQueryDiagnostic;
 		this.#requestResync = props.requestResync ?? ((): void => {});
 	}
 
@@ -145,6 +149,14 @@ export class BridgeMainFileDisplayPatchApplier {
 
 	applyEvent(event: BridgeWorkerFileDisplayPatchEvent): BridgeMainFileDisplayState | null {
 		if (this.#pendingQueryTransaction?.workerCommitReceived === true) {
+			const transaction = event.queryTransaction;
+			if (transaction?.phase === 'batch') {
+				this.#recordFileQueryDiagnostic({
+					batchCount: transaction.batchCount,
+					batchIndex: transaction.batchIndex,
+					phase: 'applier_batch_buffered_after_commit',
+				});
+			}
 			return this.#bufferEventAfterTerminalCommit(event);
 		}
 		if (event.queryTransaction?.phase === 'abort') return this.#applyQueryAbortEvent(event);
@@ -266,11 +278,21 @@ export class BridgeMainFileDisplayPatchApplier {
 		if (transaction?.phase !== 'batch') return null;
 		const pendingFreshness = this.#pendingQueryTransaction?.finalFreshness ?? null;
 		if (!fileDisplayEventIsFresh(pendingFreshness ?? this.#state.fileDisplayFreshness, event)) {
+			this.#recordFileQueryDiagnostic({
+				batchCount: transaction.batchCount,
+				batchIndex: transaction.batchIndex,
+				phase: 'applier_batch_rejected_stale',
+			});
 			return null;
 		}
 		if (transaction.batchIndex === 0) {
 			if (this.#pendingQueryTransaction !== null) {
 				this.#failPendingQueryTransaction('protocolViolation');
+				this.#recordFileQueryDiagnostic({
+					batchCount: transaction.batchCount,
+					batchIndex: transaction.batchIndex,
+					phase: 'applier_batch_rejected_protocol',
+				});
 				return null;
 			}
 			this.#pendingQueryTransaction = {
@@ -299,6 +321,11 @@ export class BridgeMainFileDisplayPatchApplier {
 		let pendingTransaction = this.#pendingQueryTransaction;
 		if (!queryTransactionEventMatchesPending(pendingTransaction, event)) {
 			this.#failPendingQueryTransaction('protocolViolation');
+			this.#recordFileQueryDiagnostic({
+				batchCount: transaction.batchCount,
+				batchIndex: transaction.batchIndex,
+				phase: 'applier_batch_rejected_protocol',
+			});
 			return null;
 		}
 		let nextQuery = pendingTransaction.query;
@@ -335,8 +362,20 @@ export class BridgeMainFileDisplayPatchApplier {
 				kind: 'queryCommit',
 				transactionId: transaction.transactionId,
 			});
-			return this.#commitQueryTransaction(transaction.transactionId);
+			const committedState = this.#commitQueryTransaction(transaction.transactionId);
+			this.#recordFileQueryDiagnostic({
+				batchCount: transaction.batchCount,
+				batchIndex: transaction.batchIndex,
+				phase:
+					committedState === null ? 'applier_batch_rejected_protocol' : 'transaction_committed',
+			});
+			return committedState;
 		}
+		this.#recordFileQueryDiagnostic({
+			batchCount: transaction.batchCount,
+			batchIndex: transaction.batchIndex,
+			phase: 'applier_batch_accepted',
+		});
 		return null;
 	}
 
@@ -528,3 +567,5 @@ function encodedFileDisplayEventByteCount(event: BridgeWorkerFileDisplayPatchEve
 function assertNeverFileDisplayPatch(patch: never): never {
 	throw new Error(`Unhandled File display patch: ${JSON.stringify(patch)}`);
 }
+
+function ignoreFileQueryDiagnostic(_event: BridgeMainFileQueryDiagnosticEvent): void {}

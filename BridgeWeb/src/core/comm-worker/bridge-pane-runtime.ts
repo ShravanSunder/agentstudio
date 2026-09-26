@@ -5,7 +5,11 @@ import {
 } from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { encodeBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-protocol.js';
-import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
+import {
+	recordBridgeMainFileQueryDiagnosticPhase,
+	type BridgeCommWorkerTelemetryRecorder,
+	type BridgeMainFileQueryDiagnosticEvent,
+} from './bridge-comm-worker-telemetry.js';
 import type { BridgeMainFileDisplayPatchApplierProps } from './bridge-main-file-display-patch-applier.js';
 import {
 	createBridgeMainRenderDispositionAdmission,
@@ -134,6 +138,13 @@ export function createBridgePaneRuntime(
 	const admissionTelemetryRecorder: BridgeCommWorkerTelemetryRecorder = {
 		record: (sample): void => mainTelemetryRecorder?.record(sample),
 	};
+	const recordFileQueryDiagnostic = (event: BridgeMainFileQueryDiagnosticEvent): void => {
+		recordBridgeMainFileQueryDiagnosticPhase({
+			...event,
+			pageHidden: typeof document !== 'undefined' && document.visibilityState === 'hidden',
+			telemetryClient: admissionTelemetryRecorder,
+		});
+	};
 	const currentReplacementReplayEntryByKey = new Map<string, BridgePaneReplacementReplayEntry>();
 	let pendingReplacementReplayEntryByKey: Map<string, BridgePaneReplacementReplayEntry> | null =
 		null;
@@ -232,6 +243,7 @@ export function createBridgePaneRuntime(
 		const renderStore = renderStoreFactory(
 			surface === 'fileView'
 				? {
+						recordFileQueryDiagnostic,
 						requestResync: (request): void => {
 							if (fileRpcClient === null) {
 								throw new Error('Bridge pane runtime File RPC client is not installed.');
@@ -259,7 +271,16 @@ export function createBridgePaneRuntime(
 		if (surface === 'fileView') {
 			fileRpcClient = rpcClient;
 			rpcClient.subscribe((message): void => {
-				if (message.kind === 'fileDisplayPatch') latestFileDisplayEpoch = message.epoch;
+				if (message.kind !== 'fileDisplayPatch') return;
+				latestFileDisplayEpoch = message.epoch;
+				const transaction = message.queryTransaction;
+				if (transaction?.phase === 'batch') {
+					recordFileQueryDiagnostic({
+						batchCount: transaction.batchCount,
+						batchIndex: transaction.batchIndex,
+						phase: 'patch_received',
+					});
+				}
 			});
 		}
 		rpcClients.set(surface, rpcClient);

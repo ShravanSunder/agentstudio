@@ -737,7 +737,7 @@ extension WebKitSerializedTests {
                     physicalGate: statusPhysicalGate
                 ),
                 telemetryRuntimePolicy: .live,
-                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
+                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
                 telemetryRecorder: traceRecorder,
                 initialPaneActivity: .foreground
             )

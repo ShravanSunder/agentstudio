@@ -4,6 +4,7 @@ import {
 	Suspense,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -18,6 +19,7 @@ import { useBridgeMarkdownPresentation } from '../app/markdown/use-bridge-markdo
 import { useBridgeMarkdownSelectionRetirement } from '../app/markdown/use-bridge-markdown-selection-retirement.js';
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
 import { Button } from '../components/ui/button.js';
+import { recordBridgeMainFileQueryDiagnosticPhase } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import { recordBridgeFileSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
@@ -144,6 +146,11 @@ export function BridgeFileViewerAppImplementation(
 	const searchMode = acceptedCriteria.mode;
 	const searchText = acceptedCriteria.query;
 	const queryKey = bridgeWorkerFileQueryKey({ filterMode, searchMode, searchText });
+	const inputQueryKey = bridgeWorkerFileQueryKey({
+		filterMode,
+		searchMode: enteredCriteria.mode,
+		searchText: enteredCriteria.query,
+	});
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const contentHeaderControls = (
 		<>
@@ -181,6 +188,30 @@ export function BridgeFileViewerAppImplementation(
 		() => bridgeFileViewerDisplayModelForSnapshot(renderSnapshotController.fileDisplaySnapshot),
 		[renderSnapshotController.fileDisplaySnapshot],
 	);
+	useLayoutEffect((): void => {
+		if (
+			telemetryRecorder === undefined ||
+			displayModel.acceptedQueryKey === null ||
+			typeof document === 'undefined' ||
+			document.visibilityState !== 'hidden'
+		) {
+			return;
+		}
+		recordBridgeMainFileQueryDiagnosticPhase({
+			displayItemCount: displayModel.fileItemById.size,
+			pageHidden: true,
+			phase: 'render_consumer_committed',
+			queryKeyMatchesInput: displayModel.acceptedQueryKey === inputQueryKey,
+			telemetryClient: telemetryRecorder,
+			treeRowCount: displayModel.projectedRowCount,
+		});
+	}, [
+		displayModel.acceptedQueryKey,
+		displayModel.fileItemById.size,
+		displayModel.projectedRowCount,
+		inputQueryKey,
+		telemetryRecorder,
+	]);
 	const toggleSearch = useCallback((): void => {
 		setSearchRejectionMessage(null);
 		viewerActions.transitionSearch({ type: search.isOpen ? 'close' : 'open' });

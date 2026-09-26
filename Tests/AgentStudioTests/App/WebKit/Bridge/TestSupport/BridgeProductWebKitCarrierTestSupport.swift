@@ -593,14 +593,21 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
 
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano _: UInt64) {
         samples.append(sample)
+        recordRealGitFileQueryDiagnosticPhase(sample)
+        recordRealGitFileQueryPageDiagnosticPhase(sample)
     }
 
     func recordDrop(
-        reason _: BridgeTelemetryDropReason,
-        droppedCount _: Int,
-        firstRejectedEventName _: String?,
+        reason: BridgeTelemetryDropReason,
+        droppedCount: Int,
+        firstRejectedEventName: String?,
         receivedAtUnixNano _: UInt64
-    ) {}
+    ) {
+        guard firstRejectedEventName == "performance.bridge.worker.task" else { return }
+        recordRealGitLiveProofStage(
+            "worker-task-telemetry-drop reason=\(reason.rawValue),count=\(droppedCount)"
+        )
+    }
 
     func drain() {}
 

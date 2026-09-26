@@ -7,7 +7,15 @@ describe('Bridge main render snapshot store File query publication', () => {
 	test('observes an accepted File query only after its snapshot publication', () => {
 		// Arrange
 		const publicationOrder: string[] = [];
+		const fileQueryDiagnostics: Array<{
+			readonly displayItemCount: number;
+			readonly phase: 'snapshot_published';
+			readonly treeRowCount: number;
+		}> = [];
 		const store = createBridgeMainRenderSnapshotStore({
+			recordFileQueryDiagnostic: (event): void => {
+				if (event.phase === 'snapshot_published') fileQueryDiagnostics.push(event);
+			},
 			onFileQueryTransactionPublished: (transactionId): void => {
 				publicationOrder.push(`query:${transactionId}`);
 			},
@@ -24,7 +32,7 @@ describe('Bridge main render snapshot store File query publication', () => {
 					operation: 'upsert',
 					payload: {
 						filterMode: 'source',
-						projectedRowCount: 0,
+						projectedRowCount: 1,
 						searchError: null,
 						searchMode: 'text',
 						searchText: 'missing',
@@ -49,5 +57,8 @@ describe('Bridge main render snapshot store File query publication', () => {
 		// Act / Assert
 		expect(publicationOrder).toEqual(['snapshot', 'query:query-publication']);
 		expect(store.getSnapshot().fileQuerySlice?.searchText).toBe('missing');
+		expect(fileQueryDiagnostics).toEqual([
+			{ displayItemCount: 0, phase: 'snapshot_published', treeRowCount: 1 },
+		]);
 	});
 });

@@ -35,6 +35,8 @@ extension BridgeTelemetryWireSchema {
             shikiHighlightContractMatches(contract)
         case "performance.bridge.worker.task":
             workerTaskContractMatches(contract)
+        case "performance.bridge.web.file_query_diagnostic":
+            fileQueryDiagnosticContractMatches(contract)
         case "performance.bridge.worker.render_disposition_batch":
             workerRenderDispositionBatchContractMatches(contract)
         case "performance.bridge.worker.render_publication_outstanding":
@@ -513,6 +515,7 @@ extension BridgeTelemetryWireSchema {
             || commWorkerProductControlContractMatches(contract)
             || commWorkerContentPreparationContractMatches(contract)
             || commWorkerStoreActionContractMatches(contract)
+            || commWorkerFileQueryDiagnosticContractMatches(contract)
     }
 
     private static func panePresentationContractMatches(_ contract: EventContract) -> Bool {

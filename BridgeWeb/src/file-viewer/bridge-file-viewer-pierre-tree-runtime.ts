@@ -14,6 +14,7 @@ import {
 	type BridgePierreTreeScrollOwner,
 } from '../app/bridge-pierre-tree-adapter.js';
 import { bridgeViewerTreeUnsafeCSS } from '../app/bridge-viewer-tree-theme.js';
+import { recordBridgeMainFileQueryDiagnosticPhase } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
@@ -106,6 +107,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	patchCoordinatorRef.current ??= createBridgeFileViewerTreePatchCoordinator({
 		model,
 	});
+	const telemetryRecorder = props.telemetryRecorder;
 	const handleTreePatchStreamDrainRef = useRef<() => void>(() => {});
 	useBridgeFileTreePatchStream({
 		coordinator: patchCoordinatorRef.current,
@@ -114,11 +116,11 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			handleTreePatchStreamDrainRef.current();
 		},
 		stream: props.fileTreePatchStream,
+		telemetryRecorder,
 		treeRowByPath: props.treeRowByPath,
 	});
 
 	const onVisibleFileDemandChange = props.onVisibleFileDemandChange;
-	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
 	useLayoutEffect((): void => {
 		if (
@@ -265,11 +267,62 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	return { handleTreeClick, model };
 }
 
+function observeOpenShadowRoots(
+	root: HTMLElement | ShadowRoot,
+	observer: MutationObserver,
+	observedRoots: WeakSet<Node>,
+): void {
+	if (observedRoots.has(root)) return;
+	observedRoots.add(root);
+	observer.observe(root, {
+		attributes: true,
+		characterData: true,
+		childList: true,
+		subtree: true,
+	});
+	if (root instanceof HTMLElement && root.shadowRoot !== null) {
+		observeOpenShadowRoots(root.shadowRoot, observer, observedRoots);
+	}
+	for (const element of root.querySelectorAll('*')) {
+		if (element instanceof HTMLElement && element.shadowRoot !== null) {
+			observeOpenShadowRoots(element.shadowRoot, observer, observedRoots);
+		}
+	}
+}
+
+function fileTreeScrollElement(fileTreeRoot: HTMLElement): HTMLElement | null {
+	return (
+		fileTreeRoot
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]') ?? null
+	);
+}
+
+function mountedFileTreePathRowCount(fileTreeRoot: HTMLElement): number {
+	const countRows = (root: HTMLElement | ShadowRoot): number => {
+		let rowCount = root.querySelectorAll('[data-item-path]').length;
+		for (const element of root.querySelectorAll('*')) {
+			if (element instanceof HTMLElement && element.shadowRoot !== null) {
+				rowCount += countRows(element.shadowRoot);
+			}
+		}
+		return rowCount;
+	};
+	return countRows(fileTreeRoot);
+}
+
+function fileTreeViewportHasMeasuredGeometry(scrollElement: HTMLElement | null): boolean {
+	if (scrollElement === null) return false;
+	const measuredHeight = scrollElement.getBoundingClientRect().height;
+	return measuredHeight > 0 || scrollElement.clientHeight > 0;
+}
+
 function useBridgeFileTreePatchStream(props: {
 	readonly coordinator: BridgeFileViewerTreePatchCoordinator;
 	readonly isActive: boolean;
 	readonly onDrain: () => void;
 	readonly stream: BridgeMainFileTreePatchStream;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 	readonly treeRowByPath: UseBridgeFileViewerPierreTreeRuntimeProps['treeRowByPath'];
 }): void {
 	const streamCursor = useSyncExternalStore(
@@ -288,15 +341,69 @@ function useBridgeFileTreePatchStream(props: {
 	treeRowByPathRef.current = props.treeRowByPath;
 	const taskKeyRef = useRef<object>({});
 	const scheduleTreePatchTurnRef = useRef<() => void>(() => {});
+	const queryTaskDiagnosticRef = useRef({
+		hasPendingQuery: false,
+		taskStarted: false,
+		domCommitPending: false,
+	});
+	const queryDomObserverRef = useRef<MutationObserver | null>(null);
+	const startQueryDomObservationRef = useRef<() => void>(() => {});
+	const telemetryRecorderRef = useRef(props.telemetryRecorder);
+	telemetryRecorderRef.current = props.telemetryRecorder;
 
 	useEffect((): (() => void) => {
 		const scheduler = bridgeFileViewerTreePatchTaskSchedulerForDocument(document);
 		const taskKey = taskKeyRef.current;
+		const stopQueryDomObservation = (): void => {
+			queryDomObserverRef.current?.disconnect();
+			queryDomObserverRef.current = null;
+		};
+		const startQueryDomObservation = (): void => {
+			stopQueryDomObservation();
+			if (telemetryRecorderRef.current === undefined) return;
+			const fileTreeRoot = document.querySelector<HTMLElement>(
+				'[data-testid="bridge-file-viewer-pierre-file-tree"]',
+			);
+			if (fileTreeRoot === null) return;
+			const observedRoots = new WeakSet<Node>();
+			const observer = new MutationObserver((): void => {
+				observeOpenShadowRoots(fileTreeRoot, observer, observedRoots);
+				if (!queryTaskDiagnosticRef.current.domCommitPending) return;
+				const scrollElement = fileTreeScrollElement(fileTreeRoot);
+				recordBridgeMainFileQueryDiagnosticPhase({
+					mountedPathRowCount: mountedFileTreePathRowCount(fileTreeRoot),
+					pageHidden: document.visibilityState === 'hidden',
+					phase: 'tree_dom_commit',
+					telemetryClient: telemetryRecorderRef.current,
+					viewportMeasured: fileTreeViewportHasMeasuredGeometry(scrollElement),
+				});
+				queryTaskDiagnosticRef.current = {
+					hasPendingQuery: false,
+					taskStarted: false,
+					domCommitPending: false,
+				};
+				stopQueryDomObservation();
+			});
+			queryDomObserverRef.current = observer;
+			observeOpenShadowRoots(fileTreeRoot, observer, observedRoots);
+		};
+		startQueryDomObservationRef.current = startQueryDomObservation;
 		const scheduleTreePatchTurn = (): void => {
 			if (!coordinatorRef.current.hasPendingWork()) return;
 			const priority =
 				document.visibilityState === 'visible' && isActiveRef.current ? 'visible' : 'background';
 			scheduler.schedule(taskKey, priority, (): boolean => {
+				if (
+					queryTaskDiagnosticRef.current.hasPendingQuery &&
+					!queryTaskDiagnosticRef.current.taskStarted
+				) {
+					queryTaskDiagnosticRef.current.taskStarted = true;
+					recordBridgeMainFileQueryDiagnosticPhase({
+						pageHidden: document.visibilityState === 'hidden',
+						phase: 'tree_task_started',
+						telemetryClient: telemetryRecorderRef.current,
+					});
+				}
 				const turn = coordinatorRef.current.advanceNextTurn(undefined, (path): boolean => {
 					const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
 					return (
@@ -306,6 +413,17 @@ function useBridgeFileTreePatchStream(props: {
 				});
 				if (turn.blockedOnProjection) return false;
 				if (turn.hasPendingWork) return true;
+				if (queryTaskDiagnosticRef.current.hasPendingQuery) {
+					recordBridgeMainFileQueryDiagnosticPhase({
+						pageHidden: document.visibilityState === 'hidden',
+						phase: 'tree_turn_completed',
+						telemetryClient: telemetryRecorderRef.current,
+					});
+					queryTaskDiagnosticRef.current = {
+						...queryTaskDiagnosticRef.current,
+						domCommitPending: true,
+					};
+				}
 				onDrainRef.current();
 				return false;
 			});
@@ -317,6 +435,8 @@ function useBridgeFileTreePatchStream(props: {
 		return (): void => {
 			document.removeEventListener('visibilitychange', handleDocumentVisibilityChange);
 			scheduler.cancel(taskKey);
+			stopQueryDomObservation();
+			startQueryDomObservationRef.current = (): void => {};
 			scheduleTreePatchTurnRef.current = (): void => {};
 		};
 	}, []);
@@ -324,6 +444,26 @@ function useBridgeFileTreePatchStream(props: {
 	useEffect((): void => {
 		const newEntries = props.stream.readAfter(queuedCursorRef.current);
 		if (newEntries.length > 0) {
+			const receivedQueryEntry = newEntries.some(
+				(entry): boolean =>
+					entry.kind === 'queryBegin' ||
+					entry.kind === 'queryBatch' ||
+					entry.kind === 'queryCommit' ||
+					entry.kind === 'queryAbort',
+			);
+			if (receivedQueryEntry) {
+				queryTaskDiagnosticRef.current = {
+					hasPendingQuery: true,
+					taskStarted: false,
+					domCommitPending: false,
+				};
+				startQueryDomObservationRef.current();
+				recordBridgeMainFileQueryDiagnosticPhase({
+					pageHidden: document.visibilityState === 'hidden',
+					phase: 'tree_stream_received',
+					telemetryClient: telemetryRecorderRef.current,
+				});
+			}
 			for (const entry of newEntries) coordinatorRef.current.enqueueEntry(entry);
 			queuedCursorRef.current = newEntries.at(-1)?.cursor ?? queuedCursorRef.current;
 		}

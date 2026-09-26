@@ -19,6 +19,7 @@ private struct BridgeProductWebKitLiveFileLogicalSnapshot: Decodable {
 private struct BridgeProductWebKitLiveFileQueryState {
     let initialSnapshot: BridgeProductWebKitLiveFileLogicalSnapshot
     let filteredSnapshot: BridgeProductWebKitLiveFileLogicalSnapshot
+    let filteredTreeItemPaths: [String]
     let queryText: String
     let queryStatus: String
 }
@@ -128,9 +129,10 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         )
         #expect(
             run.value.fileState.displaySourceId?.isEmpty == false
-                && run.value.fileState.initialTreeRowCount > 1
+                && run.value.fileState.initialTreeRowCount == 130
                 && run.value.fileState.filteredDisplayItemCount > 0
-                && run.value.fileState.filteredTreeRowCount == 1,
+                && run.value.fileState.filteredTreeRowCount == 2
+                && run.value.fileState.filteredTreeRowCount < run.value.fileState.initialTreeRowCount,
             "G0 FILE INDEX/QUERY MISSING: logical collection index did not narrow to the tracked source; state=\(run.value.fileState)"
         )
         #expect(
@@ -380,7 +382,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                       ?.getAttribute('data-bridge-viewer-mode-active') === 'true',
                   fileShellPresent: fileShell !== null,
               fileViewerActive: fileShell?.getAttribute('data-file-viewer-active') === 'true',
-              displaySourceId: fileShell?.getAttribute('data-file-display-source-id') ?? null,
+              hasDisplaySource: fileShell?.getAttribute('data-file-display-source-id') !== null,
               displayItemCount: Number(fileShell?.getAttribute('data-file-display-item-count') ?? '0'),
               treeRowCount: Number(fileShell?.getAttribute('data-file-display-tree-row-count') ?? '0')
             });
@@ -400,6 +402,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         )
         let queryState = try await searchLiveFileByIPC(
             controller,
+            displayPath: fileDisplayPath,
             relativePath: sourceOracle.path,
             initialState: initialState
         )
@@ -418,6 +421,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             initialTreeRowCount: queryState.initialSnapshot.treeRowCount,
             filteredDisplayItemCount: queryState.filteredSnapshot.displayItemCount,
             filteredTreeRowCount: queryState.filteredSnapshot.treeRowCount,
+            filteredTreeItemPaths: queryState.filteredTreeItemPaths,
             queryText: queryState.queryText,
             queryStatus: queryState.queryStatus,
             revealItemId: revealState.itemId,
@@ -430,6 +434,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
     private func searchLiveFileByIPC(
         _ controller: BridgePaneController,
+        displayPath: String,
         relativePath: String,
         initialState: BridgeProductWebKitLiveFileLogicalSnapshot
     ) async throws -> BridgeProductWebKitLiveFileQueryState {
@@ -455,12 +460,13 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             return JSON.stringify({
               documentVisibilityState: document.visibilityState,
               displayItemCount: Number(fileShell?.getAttribute('data-file-display-item-count') ?? '0'),
-              displaySourceId: fileShell?.getAttribute('data-file-display-source-id') ?? null,
-              searchInputValue: searchInput?.value ?? null,
-              filterCountText: filterCount?.textContent?.trim() ?? null,
+              hasDisplaySource: fileShell?.getAttribute('data-file-display-source-id') !== null,
+              searchInputMatchesQuery: searchInput?.value === expectedSearchText,
+              filterCountPresent: filterCount !== null,
               treeRowCount: Number(fileShell?.getAttribute('data-file-display-tree-row-count') ?? '0')
             });
             """,
+            arguments: ["expectedSearchText": relativePath],
             contentWorld: .page
         )
         recordRealGitLiveProofStage(
@@ -469,15 +475,63 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         recordRealGitLiveProofStage("await-filtered-logical-file-index")
         let filteredState = try await waitForLiveFileQuery(
             controller.page,
-            expectedTreeRowCount: 1
+            expectedTreeRowCount: 2
         )
-        guard filteredState.treeRowCount < initialState.treeRowCount else {
+        recordRealGitLiveProofStage(
+            "filtered-logical-count-ready treeRowCount=\(filteredState.treeRowCount)"
+        )
+        guard displayPath.hasSuffix("/\(relativePath)") else {
+            throw WebKitLiveProofError.fileCollectionGroupPathWasUnavailable
+        }
+        let memberGroupDisplayPath = String(displayPath.dropLast(relativePath.count + 1))
+        let beforeDOMWaitSnapshot =
+            try await BridgeProductWebKitCarrierTestSupport
+            .fileTreeDOMSnapshot(
+                controller.page,
+                memberGroupDisplayPath: memberGroupDisplayPath
+            )
+        recordRealGitLiveProofStage(
+            "filtered-file-dom-wait-start shellTreeRowCount=\(beforeDOMWaitSnapshot.shellTreeRowCount),mountedPathRowCount=\(beforeDOMWaitSnapshot.mountedPathRowCount)"
+        )
+        guard beforeDOMWaitSnapshot.shellTreeRowCount == filteredState.treeRowCount else {
+            throw WebKitLiveProofError.fileShellTreeRowCountWasStale
+        }
+        recordRealGitLiveProofStage("await-filtered-file-tree-path-set")
+        let filteredDOMSnapshot =
+            try await BridgeProductWebKitCarrierTestSupport
+            .waitForFileTreeItemPaths(
+                controller.page,
+                memberGroupDisplayPath: memberGroupDisplayPath,
+                equals: ["tracked.txt", "untracked.txt"]
+            )
+        let filteredTreeItemPaths = filteredDOMSnapshot.filteredFileRelativePaths
+        recordRealGitLiveProofStage(
+            "filtered-file-dom-wait-complete shellTreeRowCount=\(filteredDOMSnapshot.shellTreeRowCount),mountedPathRowCount=\(filteredDOMSnapshot.mountedPathRowCount)"
+        )
+        guard initialState.treeRowCount == 130,
+            filteredState.treeRowCount == 2,
+            filteredState.treeRowCount < initialState.treeRowCount
+        else {
             throw WebKitLiveProofError.fileQueryDidNotReplaceTheIndex
         }
+        let filteredTreeItemPathsMatchExpected =
+            filteredTreeItemPaths == ["tracked.txt", "untracked.txt"]
+            && filteredDOMSnapshot.unmatchedFileRowCount == 0
+        #expect(
+            filteredTreeItemPathsMatchExpected,
+            "G0 FILE QUERY PATH SET MISSING: expected tracked.txt and untracked.txt; actual=\(filteredTreeItemPaths),unmatchedFileRows=\(filteredDOMSnapshot.unmatchedFileRowCount)"
+        )
+        recordRealGitLiveProofStage(
+            "filtered-file-tree-path-set-observed count=\(filteredTreeItemPaths.count),matchesExpected=\(filteredTreeItemPathsMatchExpected)"
+        )
+        recordRealGitLiveProofStage(
+            "page-applied-file-query treeRowCount=\(filteredState.treeRowCount),displayItemCount=\(filteredState.displayItemCount)"
+        )
 
         return BridgeProductWebKitLiveFileQueryState(
             initialSnapshot: initialState,
             filteredSnapshot: filteredState,
+            filteredTreeItemPaths: filteredTreeItemPaths,
             queryText: searchResult.treeSearchText,
             queryStatus: searchResult.status
         )
@@ -608,6 +662,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 }
 
 private enum WebKitLiveProofError: Error {
+    case fileCollectionGroupPathWasUnavailable
     case fileIndexMissing
     case fileDOMRowWasNotInstalled
     case fileLogicalStateWasNotReturned
@@ -616,4 +671,5 @@ private enum WebKitLiveProofError: Error {
     case fileRevealWasNotAccepted
     case fileRowCouldNotBeSelected
     case fileSearchWasNotAccepted
+    case fileShellTreeRowCountWasStale
 }
