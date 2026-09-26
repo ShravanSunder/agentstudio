@@ -104,8 +104,8 @@ export interface TopologyRoute {
   /** Attach branches only: the anchor whose target this branch enters. */
   readonly anchorId: string | undefined;
   readonly targetEdge: TopologyTargetEdge | undefined;
-  /** Attach branches only: the port node exactly on the target edge. */
-  readonly portNode: { readonly x: number; readonly y: number } | undefined;
+  /** Attach branches only: the path's last point on the target edge. */
+  readonly targetPoint: { readonly x: number; readonly y: number } | undefined;
   /** Attach branches only: the accent of the lane the port leaves, where its gradient starts. */
   readonly sourceAccent: TopologyAccent | undefined;
 }
@@ -293,7 +293,7 @@ export function composeFullPageTopology(
     endY: rowYs[lane.mergeRow] ?? 0,
     anchorId: undefined,
     targetEdge: undefined,
-    portNode: undefined,
+    targetPoint: undefined,
     sourceAccent: undefined,
   }));
 

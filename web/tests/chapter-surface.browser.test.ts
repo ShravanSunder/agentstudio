@@ -63,9 +63,10 @@ describe("chapter surfaces on the home page", () => {
       // Autoplay still measures the stage alone.
       expect(layout.playbackStageCount).toBe(1);
       expect(layout.playbackStageIsStage).toBe(true);
-      // The rail's port lands on the glass's top edge, clear of its corner.
-      expect(Math.abs(layout.portNode.y - layout.glass.top)).toBeLessThanOrEqual(1);
-      expect(layout.portNode.x - layout.glass.left).toBeGreaterThanOrEqual(16 + 8);
+      // The rail's branch ends on the glass's top edge, clear of its corner.
+      expect(layout.portNodeCount).toBe(0);
+      expect(Math.abs(layout.branchEndpoint.y - layout.glass.top)).toBeLessThanOrEqual(1);
+      expect(layout.branchEndpoint.x - layout.glass.left).toBeGreaterThanOrEqual(16 + 8);
 
       // A horizontal tablist of dots on one line, each a real target.
       expect(observation.role).toBe("tablist");

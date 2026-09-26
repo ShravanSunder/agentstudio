@@ -124,7 +124,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
         endY: target.top,
         anchorId: anchor.id,
         targetEdge: "top",
-        portNode: { x: attachX, y: target.top },
+        targetPoint: { x: attachX, y: target.top },
         sourceAccent: source.accent,
       });
       continue;
@@ -168,7 +168,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       endY: attachY,
       anchorId: anchor.id,
       targetEdge: "left",
-      portNode: { x: attachX, y: attachY },
+      targetPoint: { x: attachX, y: attachY },
       sourceAccent: source.accent,
     });
   }

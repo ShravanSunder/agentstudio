@@ -211,35 +211,19 @@ describe("full-page topology scroll reveal", () => {
     ).toEqual(["chapter-2"]);
   });
 
-  it("draws a port only once its glass comes into view", async () => {
-    // Arrange
+  it("renders attach branches without port dots or draw-in state", async () => {
     await page.viewport(1920, 1080);
     const fixture = mountRevealFixture();
     await vi.waitFor(() => {
-      expect(
-        fixture.artwork
-          .querySelector('[data-route-anchor="hero"]')
-          ?.hasAttribute("data-port-drawn"),
-      ).toBe(true);
+      expect(fixture.artwork.querySelectorAll('[data-route-kind="attach"]').length).toBeGreaterThan(
+        0,
+      );
     });
-    const farPort = fixture.artwork.querySelector('[data-route-anchor="chapter-3"]');
-    const farGlass = fixture.host.querySelector('[data-rail-surface-target="chapter-3"]');
-    if (farPort === null || farGlass === null) {
-      throw new Error("Reveal fixture is missing chapter 3");
-    }
-    expect(farGlass.getBoundingClientRect().top).toBeGreaterThan(window.innerHeight);
-    expect(farPort.hasAttribute("data-port-drawn")).toBe(false);
-
-    // Act
-    window.scrollTo(
-      0,
-      window.scrollY + farGlass.getBoundingClientRect().top - window.innerHeight / 2,
-    );
-
-    // Assert
-    await vi.waitFor(() => {
-      expect(farPort.hasAttribute("data-port-drawn")).toBe(true);
-    });
+    const branches = [...fixture.artwork.querySelectorAll('[data-route-kind="attach"]')];
+    expect(
+      branches.every((branch) => branch.querySelector("[data-topology-port-node]") === null),
+    ).toBe(true);
+    expect(branches.every((branch) => !branch.hasAttribute("data-port-drawn"))).toBe(true);
   });
 
   it("shows the complete topology without pulse state for reduced motion", async () => {
@@ -275,9 +259,8 @@ describe("full-page topology scroll reveal", () => {
     expect(
       Number(fixture.artwork.querySelector("[data-topology-reveal-fade]")?.getAttribute("height")),
     ).toBe(0);
-    // Every port shows at once, with no draw-in.
-    const ports = [...fixture.artwork.querySelectorAll('[data-route-kind="attach"]')];
-    expect(ports.length).toBeGreaterThan(0);
-    expect(ports.every((port) => port.hasAttribute("data-port-drawn"))).toBe(true);
+    expect(
+      fixture.artwork.querySelectorAll("[data-topology-port-node], [data-port-drawn]"),
+    ).toHaveLength(0);
   });
 });

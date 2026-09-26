@@ -23,24 +23,19 @@ import {
 const svgNamespace = "http://www.w3.org/2000/svg";
 // The node vocabulary, smallest to largest: commit and fork dots, the chapter
 // ring and the two-parent merge ring, then the current chapter's terminal
-// (r=7, from the retired artwork). The port keeps the retired commit size.
+// (r=7, from the retired artwork).
 export const topologyNodeRadii = {
   commit: 3.5,
   chapter: 5.5,
   merge: 6,
   mergeCore: 2.5,
   terminal: 7,
-  port: 4,
 } as const;
 
 /** `<g data-topology-chapter-node="<anchorId>">`: the mainline dot level with each chapter anchor. */
 export const topologyChapterNodeAttribute = "data-topology-chapter-node";
-/** The primary-blue node where a port meets its target edge. */
-export const topologyPortNodeAttribute = "data-topology-port-node";
 /** The gradient a port's stroke shifts along, from its source lane to primary. */
 export const topologyPortGradientAttribute = "data-topology-port-gradient";
-/** Set on an attach route group once its target is in view and the port has drawn in. */
-export const topologyPortDrawnAttribute = "data-port-drawn";
 /** `"left" | "top"` on a chapter node: the glass edge its branch enters; its glass lights when current. */
 export const topologyChapterTargetEdgeAttribute = "data-topology-target-edge";
 
@@ -224,21 +219,10 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
     );
     path.setAttribute("data-route", "");
     path.setAttribute("data-topology-path-role", role);
-    if (route.kind === "attach") {
-      // A unit path length lets the port draw in with one dash.
-      path.setAttribute("pathLength", "1");
-    }
     if (role === "core" && gradient !== undefined) {
       path.style.stroke = `url(#${gradient.id})`;
     }
     group.append(path);
-  }
-  if (route.portNode !== undefined) {
-    const port = createSvgElement(ownerDocument, "circle");
-    port.setAttribute("class", "node-port");
-    port.setAttribute(topologyPortNodeAttribute, "");
-    port.setAttribute("r", String(topologyNodeRadii.port));
-    group.append(port);
   }
   return group;
 }
@@ -385,18 +369,13 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     if (route.targetEdge !== undefined) {
       setAttributeIfChanged(group, "data-target-edge", route.targetEdge);
     }
-    const port = group.querySelector(`[${topologyPortNodeAttribute}]`);
-    if (port !== null && route.portNode !== undefined) {
-      setAttributeIfChanged(port, "cx", String(route.portNode.x));
-      setAttributeIfChanged(port, "cy", String(route.portNode.y));
-    }
     const gradient = group.querySelector(`[${topologyPortGradientAttribute}]`);
-    if (gradient !== null && route.portNode !== undefined) {
+    if (gradient !== null && route.targetPoint !== undefined) {
       const start = pathStartPoint(route.pathData);
       setAttributeIfChanged(gradient, "x1", String(start.x));
       setAttributeIfChanged(gradient, "y1", String(start.y));
-      setAttributeIfChanged(gradient, "x2", String(route.portNode.x));
-      setAttributeIfChanged(gradient, "y2", String(route.portNode.y));
+      setAttributeIfChanged(gradient, "x2", String(route.targetPoint.x));
+      setAttributeIfChanged(gradient, "y2", String(route.targetPoint.y));
     }
   }
 

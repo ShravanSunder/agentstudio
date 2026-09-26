@@ -374,7 +374,7 @@ describe("composed topology", () => {
         }
       });
 
-      it("enters each target through a primary-blue port, one column × one row, ending in a node on the edge", () => {
+      it("enters each target with a one-column branch whose last point meets the edge", () => {
         const attaches = composition.routes.filter((route) => route.kind === "attach");
         expect(attaches.map((route) => route.anchorId)).toEqual(
           fixture.page.anchors.map((anchor) => anchor.id),
@@ -420,8 +420,9 @@ describe("composed topology", () => {
             attach.targetEdge === "left"
               ? { x: anchor?.surface?.left ?? Number.NaN, y: end.y }
               : { x: end.x, y: anchor?.surface?.top ?? Number.NaN };
-          expect(Math.abs((attach.portNode?.x ?? Number.NaN) - edge.x)).toBeLessThanOrEqual(1);
-          expect(Math.abs((attach.portNode?.y ?? Number.NaN) - edge.y)).toBeLessThanOrEqual(1);
+          expect(Math.abs(end.x - edge.x)).toBeLessThanOrEqual(1);
+          expect(Math.abs(end.y - edge.y)).toBeLessThanOrEqual(1);
+          expect(attach.targetPoint).toEqual(end);
         }
       });
 

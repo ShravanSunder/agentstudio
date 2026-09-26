@@ -126,11 +126,9 @@ describe("full-page topology layout", () => {
       expect(end.y).toBeGreaterThan(glassBounds.top);
       expect(end.y).toBeLessThan(glassBounds.bottom);
       expect(end.x - (fixture.artwork.getBoundingClientRect().left + start.x)).toBeCloseTo(unit, 0);
-      // The port is primary blue and ends in a node exactly on the glass edge.
+      // The primary-blue branch ends directly on the glass edge, with no port node.
       expect(group.classList.contains("accent-port")).toBe(true);
-      const port = required(group, "[data-topology-port-node]").getBoundingClientRect();
-      expect(Math.abs(port.left + port.width / 2 - glassBounds.left)).toBeLessThanOrEqual(1);
-      expect(Math.abs(port.top + port.height / 2 - end.y)).toBeLessThanOrEqual(1);
+      expect(group.querySelector("[data-topology-port-node]")).toBeNull();
     }
   });
 

@@ -38,7 +38,7 @@ interface ViewportRect {
   readonly right: number;
 }
 
-/** Where the title, stage, steps, and port sit relative to the chapter's glass. */
+/** Where the title, stage, steps, and branch endpoint sit relative to the chapter's glass. */
 export interface ChapterGlassLayoutObservation {
   readonly glass: ViewportRect;
   readonly title: ViewportRect;
@@ -51,8 +51,8 @@ export interface ChapterGlassLayoutObservation {
   /** Elements in the chapter measured for autoplay centring, and whether the one is the stage. */
   readonly playbackStageCount: number;
   readonly playbackStageIsStage: boolean;
-  /** The center of the port node the rail draws for this chapter. */
-  readonly portNode: { readonly x: number; readonly y: number };
+  readonly branchEndpoint: { readonly x: number; readonly y: number };
+  readonly portNodeCount: number;
 }
 
 export interface ChapterStepRowObservation {
@@ -184,23 +184,27 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
   const title = article.querySelector("[data-rail-anchor]");
   const stage = article.querySelector("[data-rail-media-target]");
   const stepList = article.querySelector("[data-chapter-step-list]");
-  const portNode = document.querySelector(
-    `[data-route-kind="attach"][data-route-anchor="${chapterId}"] [data-topology-port-node]`,
+  const attachGroup = document.querySelector(
+    `[data-route-kind="attach"][data-route-anchor="${chapterId}"]`,
   );
+  const branch = attachGroup?.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
   if (
     glass === null ||
     title === null ||
     stage === null ||
     stepList === null ||
-    portNode === null
+    branch === undefined ||
+    branch === null
   ) {
-    throw new Error(`Chapter ${chapterId} is missing its glass, parts, or port`);
+    throw new Error(`Chapter ${chapterId} is missing its glass, parts, or branch`);
   }
   const box = (element: Element): ViewportRect => {
     const bounds = element.getBoundingClientRect();
     return { top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right };
   };
-  const portBounds = portNode.getBoundingClientRect();
+  const matrix = branch.getScreenCTM();
+  if (matrix === null) throw new Error(`Chapter ${chapterId} branch has no screen transform`);
+  const endpoint = branch.getPointAtLength(branch.getTotalLength()).matrixTransform(matrix);
   const playbackStages = [...article.querySelectorAll("[data-scroll-playback-stage]")];
   return {
     glass: box(glass),
@@ -212,10 +216,8 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
     stepListInGlass: glass.contains(stepList),
     playbackStageCount: playbackStages.length,
     playbackStageIsStage: playbackStages[0] === stage,
-    portNode: {
-      x: portBounds.left + portBounds.width / 2,
-      y: portBounds.top + portBounds.height / 2,
-    },
+    branchEndpoint: { x: endpoint.x, y: endpoint.y },
+    portNodeCount: attachGroup?.querySelectorAll("[data-topology-port-node]").length ?? 0,
   };
 }
 
@@ -281,7 +283,7 @@ export const verifyChapterStepRow = defineBrowserCommand(
         { state: "attached" },
       );
       await applicationPage.waitForSelector(
-        `[data-route-kind="attach"][data-route-anchor="${chapterId}"] [data-topology-port-node]`,
+        `[data-route-kind="attach"][data-route-anchor="${chapterId}"] [data-topology-path-role="core"]`,
         { state: "attached" },
       );
       glassLayout = await applicationPage.evaluate(readGlassLayout, chapterId);
