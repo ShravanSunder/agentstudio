@@ -27,6 +27,12 @@ import { verifyTopologyEnd, verifyTopologyEndPulse } from "./tests/topology-end-
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
 import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
 
+export function selectChromeLaunchOptions(
+  chromeBin: string | undefined,
+): { readonly executablePath: string } | { readonly channel: "chrome" } {
+  return chromeBin ? { executablePath: chromeBin } : { channel: "chrome" };
+}
+
 export default defineConfig({
   test: {
     projects: [
@@ -68,7 +74,9 @@ export default defineConfig({
               verifyWebsiteQualityLayout,
             },
             enabled: true,
-            provider: playwright({ launchOptions: { channel: "chrome" } }),
+            provider: playwright({
+              launchOptions: selectChromeLaunchOptions(process.env["CHROME_BIN"]),
+            }),
             headless: true,
             instances: [{ browser: "chromium" }],
           },
