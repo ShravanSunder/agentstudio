@@ -4,6 +4,11 @@ import Foundation
 
 extension AppDelegate {
     func bootStartTerminalActivityRouter(bus: EventBus<RuntimeEnvelope>) {
+        let paneActivityClock = PaneActivityClock { [weak self] batch in
+            self?.atomStore.core.paneActivityTime.apply(batch)
+        }
+        self.paneActivityClock = paneActivityClock
+        Task { await paneActivityClock.start() }
         terminalActivityRouter = TerminalActivityRouter(
             bus: bus,
             activityAtom: atomStore.terminalActivity,
