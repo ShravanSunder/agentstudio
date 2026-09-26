@@ -85,6 +85,25 @@ describe("hero intro", () => {
         observation.viewport,
       ).toBeGreaterThanOrEqual(observation.viewportWidth < 620 ? 32 : 48);
       expect(observation.visibleBashRows, observation.viewport).toBe(1);
+      if (observation.viewport === "1600x1000" || observation.viewport === "390x844") {
+        for (const [index, expectedAngle] of [-7, -14, -21].entries()) {
+          expect(observation.stackAngles[index], observation.viewport).toBeCloseTo(
+            expectedAngle,
+            1,
+          );
+        }
+        const phone = observation.viewport === "390x844";
+        expect(observation.stackPeekLeft, observation.viewport).toBeGreaterThanOrEqual(
+          phone ? 12 : 30,
+        );
+        expect(observation.stackPeekLeft, observation.viewport).toBeLessThanOrEqual(
+          phone ? 16 : 40,
+        );
+        expect(observation.stackPeekTop, observation.viewport).toBeGreaterThanOrEqual(
+          phone ? 12 : 30,
+        );
+        expect(observation.stackPeekTop, observation.viewport).toBeLessThanOrEqual(phone ? 16 : 40);
+      }
       if (observation.viewport === "820x1180") {
         expect(observation.earlierExchangeVisible).toBe(true);
       }
@@ -125,6 +144,10 @@ describe("hero intro", () => {
   it("settles once on resize or keydown and leaves CSS in charge of the final layout", async () => {
     const observation = await commands.verifyHeroIntroPlayback(inject("siteHeaderBrowserTestUrl"));
     expect(observation.midIntroWasPlaying).toBe(true);
+    for (const [index, expectedAngle] of [-7, -14, -21].entries()) {
+      expect(observation.fanAnglesAtEnd[index]).toBeCloseTo(expectedAngle, 1);
+    }
+    expect(observation.fourthAngleAtEnd).toBeCloseTo(0, 1);
     expect(observation.midIntroHorizontalOverflow).toBeLessThanOrEqual(0);
     expect(observation.resizeSettledEvents).toBe(1);
     expect(observation.resizeProgress).toBe(1);

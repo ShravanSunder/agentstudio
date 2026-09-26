@@ -22,6 +22,9 @@ export interface HeroLayoutObservation {
   readonly captionRadius: string;
   readonly installCenterOffset: number;
   readonly paintedStackTop: number;
+  readonly stackAngles: readonly number[];
+  readonly stackPeekLeft: number;
+  readonly stackPeekTop: number;
   readonly cursorCount: number;
   readonly documentWidth: number;
   readonly viewportWidth: number;
@@ -77,6 +80,10 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 throw new Error("Hero stack or description is missing");
               }
               const padding = parseFloat(getComputedStyle(windowNode).borderTopWidth);
+              const angle = (element: HTMLElement): number => {
+                const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+                return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
+              };
               const visibleRows = [
                 ...windowNode.querySelectorAll<HTMLElement>("[data-transcript-tier]"),
               ].filter((row) => row.getClientRects().length > 0);
@@ -118,6 +125,19 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                   frontPlane.getBoundingClientRect().top,
                   ...rearPlanes.map((plane) => plane.getBoundingClientRect().top),
                 ),
+                stackAngles: [frontPlane, ...[...rearPlanes].reverse()].map(angle),
+                stackPeekLeft:
+                  windowRect.left -
+                  Math.min(
+                    frontPlane.getBoundingClientRect().left,
+                    ...rearPlanes.map((plane) => plane.getBoundingClientRect().left),
+                  ),
+                stackPeekTop:
+                  windowRect.top -
+                  Math.min(
+                    frontPlane.getBoundingClientRect().top,
+                    ...rearPlanes.map((plane) => plane.getBoundingClientRect().top),
+                  ),
                 cursorCount: document.querySelectorAll("[data-hero-cursor]").length,
                 documentWidth: document.documentElement.scrollWidth,
                 viewportWidth: document.documentElement.clientWidth,
@@ -157,6 +177,8 @@ interface HeroWindowRect {
 
 export interface HeroPlaybackObservation {
   readonly midIntroWasPlaying: boolean;
+  readonly fanAnglesAtEnd: readonly number[];
+  readonly fourthAngleAtEnd: number;
   readonly midIntroHorizontalOverflow: number;
   readonly resizeSettledEvents: number;
   readonly resizeProgress: number;
@@ -263,6 +285,28 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
             .querySelector("[data-hero-intro-root]")
             ?.getAttribute("data-hero-intro-state") === "playing",
       );
+      await introPage.evaluate(() => {
+        (
+          window as Window & { heroIntroPlaybackControl?: { seek(seconds: number): void } }
+        ).heroIntroPlaybackControl?.seek(3.2);
+      });
+      const { fanAnglesAtEnd, fourthAngleAtEnd } = await introPage.evaluate(() => {
+        const angle = (element: Element): number => {
+          const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+          return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
+        };
+        const front = document.querySelector("[data-hero-icon-front]");
+        const rearOne = document.querySelector('[data-hero-icon-rear="one"]');
+        const rearTwo = document.querySelector('[data-hero-icon-rear="two"]');
+        const fourth = document.querySelector("[data-hero-intro-fourth-plane]");
+        if (front === null || rearOne === null || rearTwo === null || fourth === null) {
+          throw new Error("Hero fan or fourth plane is incomplete");
+        }
+        return {
+          fanAnglesAtEnd: [front, rearTwo, rearOne].map(angle),
+          fourthAngleAtEnd: angle(fourth),
+        };
+      });
       const midIntroHorizontalOverflow = await introPage.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
@@ -341,6 +385,8 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
       );
       return {
         midIntroWasPlaying,
+        fanAnglesAtEnd,
+        fourthAngleAtEnd,
         midIntroHorizontalOverflow,
         resizeSettledEvents,
         resizeProgress: resized.progress,

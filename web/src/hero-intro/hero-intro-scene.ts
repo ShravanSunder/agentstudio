@@ -77,6 +77,9 @@ export function buildHeroIntroScene(
   if (rearOne === undefined || rearTwo === undefined) {
     throw new Error("Hero intro needs both rear icon planes");
   }
+  const fanPlanes = [iconFront, rearTwo, rearOne] as const;
+  const stackStep =
+    Number.parseFloat(getComputedStyle(root).getPropertyValue("--hero-stack-step")) || 7;
   const iconCursor = requiredTarget(root, heroIconCursorAttribute);
   const windowNode = requiredTarget(root, heroTerminalWindowAttribute);
   const windowContent = requiredTarget(root, heroIntroContentAttribute);
@@ -106,8 +109,8 @@ export function buildHeroIntroScene(
   const fourthDestinationLeft = windowRect.left - sceneRect.left;
   const fourthDestinationTop = windowRect.top - sceneRect.top;
   const fourthDeal = options.width < 620 ? 24 : 48;
-  // The rotated desktop front's bounding box starts farther right than its
-  // painted plane; these offsets keep the dealt plane behind the visible icon.
+  // The fanned front's bounding box starts farther left than its painted
+  // origin; these offsets keep the dealt plane behind the visible icon.
   const fourthStartAdjustmentX = options.width < 620 ? 0 : -60;
   const fourthDealAdjustmentX = options.width < 620 ? 12 : 6;
   const fourthDealAdjustmentY = options.width < 620 ? 3 : 9;
@@ -123,10 +126,11 @@ export function buildHeroIntroScene(
   timeline.set(iconStack, { zIndex: 4 }, 0);
   timeline.fromTo(
     iconStack,
-    { x: stackStartX, y: stackStartY, scale: stackScale, rotation: 0 },
-    { x: stackStartX, y: stackStartY, scale: stackScale, rotation: 0, duration: 0.01 },
+    { x: stackStartX, y: stackStartY, scale: stackScale },
+    { x: stackStartX, y: stackStartY, scale: stackScale, duration: 0.01 },
     0,
   );
+  timeline.set(fanPlanes, { rotation: 0 }, 0);
   timeline.fromTo(
     iconFront,
     { x: frontEntranceX, opacity: 0 },
@@ -140,18 +144,22 @@ export function buildHeroIntroScene(
   timeline.set(iconCursor, { opacity: 1 }, 3.05);
   timeline.to(
     iconStack,
-    { x: 0, y: 0, scale: 1, rotation: -6, duration: 0.35, ease: storyboardPower3InOut },
+    { x: 0, y: 0, scale: 1, duration: 0.35, ease: storyboardPower3InOut },
     2.4,
   );
-  const settledStackTilt =
-    Number.parseFloat(getComputedStyle(iconStack).getPropertyValue("--hero-stack-tilt")) ||
-    Number.parseFloat(getComputedStyle(root).getPropertyValue("--hero-stack-tilt")) ||
-    -7;
-  timeline.to(
-    iconStack,
-    { rotation: settledStackTilt, duration: 0.3, ease: "back.out(1.6)" },
-    2.75,
-  );
+  fanPlanes.forEach((plane, index) => {
+    const planeStep = index + 1;
+    timeline.to(
+      plane,
+      { rotation: -6 * planeStep, duration: 0.35, ease: storyboardPower3InOut },
+      2.4,
+    );
+    timeline.to(
+      plane,
+      { rotation: -stackStep * planeStep, duration: 0.3, ease: "back.out(1.6)" },
+      2.75,
+    );
+  });
   timeline.set(iconStack, { zIndex: 1 }, 3.05);
 
   timeline.fromTo(
