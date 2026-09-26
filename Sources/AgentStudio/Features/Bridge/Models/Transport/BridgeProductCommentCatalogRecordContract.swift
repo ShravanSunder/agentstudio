@@ -12,6 +12,12 @@ struct BridgeProductCommentCatalogRecord: Codable, Equatable, Sendable {
     let entry: WorktreeAnnotationCatalogEntry
     let revision: Int
 
+    init(entry: WorktreeAnnotationCatalogEntry, revision: Int) throws {
+        try BridgeProductContractDecoding.validatePositive(revision, name: "revision", codingPath: [])
+        self.entry = entry
+        self.revision = revision
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -29,11 +35,7 @@ struct BridgeProductCommentCatalogRecord: Codable, Equatable, Sendable {
     }
 
     var recordKey: String {
-        switch entry {
-        case .session(let session): "session:\(session.sessionID.rawValue.uuidString.lowercased())"
-        case .thread(let thread): "thread:\(thread.threadID.rawValue.uuidString.lowercased())"
-        case .message(let message): "message:\(message.messageID.rawValue.uuidString.lowercased())"
-        }
+        WorktreeAnnotationCatalogKey(entry: entry).recordKey
     }
 
     func encode(to encoder: Encoder) throws {

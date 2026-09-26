@@ -14,6 +14,10 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
     func fetchCatalogCapture(worktreeID: String) async throws -> WorktreeAnnotationCatalogCapture
+    func fetchCurrentCatalogEntries(
+        worktreeID: String,
+        keys: Set<WorktreeAnnotationCatalogKey>
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
         -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSessionDetail>
     func flushDraft(_ props: WorktreeAnnotationSQLiteRepository.FlushDraftProps) async throws
@@ -87,6 +91,14 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
 }
 
 extension WorktreeAnnotationRepositoryAccess {
+    func fetchCurrentCatalogEntries(
+        worktreeID: String,
+        keys: Set<WorktreeAnnotationCatalogKey>
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] {
+        _ = (worktreeID, keys)
+        throw WorktreeAnnotationRepositoryError.invalidState
+    }
+
     func fetchCatalogCapture(worktreeID: String) async throws -> WorktreeAnnotationCatalogCapture {
         _ = worktreeID
         throw WorktreeAnnotationRepositoryError.invalidState
@@ -232,6 +244,15 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
 
     func fetchCatalogCapture(worktreeID: String) async throws -> WorktreeAnnotationCatalogCapture {
         try await restore { try $0.fetchCatalogCapture(worktreeID: worktreeID) }
+    }
+
+    func fetchCurrentCatalogEntries(
+        worktreeID: String,
+        keys: Set<WorktreeAnnotationCatalogKey>
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] {
+        try await restore {
+            try $0.fetchCurrentCatalogEntries(worktreeID: worktreeID, keys: keys)
+        }
     }
 
     func createRootDraft(_ props: WorktreeAnnotationSQLiteRepository.CreateRootDraftProps) async throws
