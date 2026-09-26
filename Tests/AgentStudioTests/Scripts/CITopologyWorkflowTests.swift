@@ -48,6 +48,8 @@ struct CITopologyWorkflowTests {
         )
 
         #expect(qualityJob.contains("runs-on: ubuntu-24.04"))
+        #expect(qualityJob.contains("swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9"))
+        #expect(qualityJob.contains("swift-version: \"6.3.3\""))
         #expect(marketingJob.contains("runs-on: ubuntu-24.04"))
         #expect(bridgeWebJob.contains("runs-on: macos-26"))
         #expect(bridgeWebJob.contains("      - parallel:\n          - name: Install BridgeWeb dependencies"))
