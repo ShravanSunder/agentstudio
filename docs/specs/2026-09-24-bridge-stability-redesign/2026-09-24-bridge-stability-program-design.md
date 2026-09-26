@@ -271,7 +271,11 @@ flowchart TB
       - `contributor_key` is non-null: `app | person | agent:<canonical SessionRef>`.
       - Its typed columns hold the worktree id, or the forge host, owner, repository and number, plus the contributor's session and `added_at`.
     - **Keys.** `item_key` is one lossless canonical codec per typed identity, with no delimiter concatenation. Every read verifies it against the typed columns, and a row whose columns don't fit its kind is rejected and reported.
-    - **Ordering.** Every write carries the receiver's command generation and applies only if it is newer.
+    - **Ordering.** Every write carries the receiver's command generation and applies only if it is newer **for its own key**. There is no receiver-wide floor, because keys are independent.
+      - A keyed delete writes a **tombstone**: the row stays with `is_deleted = 1` (a boolean) and the deleting generation. A stale write to that key is therefore still rejected after deletion.
+      - Reads skip tombstones.
+      - A tombstone is overwritten by a newer write to its key, or purged with the receiver.
+      - A UI save that references a member with no live contribution is rejected in the same transaction (PR2 QUESTION-2.1c-2).
     - **Membership and PR-reference mutations commit durably first.**
       - One repository transaction includes their dependent changes; for example, removing a member drops its `reviewComparison`, its `itemOrder`, and a `selectedFilesDocument` under it.
       - Then the atom publishes, guarded by that generation.
