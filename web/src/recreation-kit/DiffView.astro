@@ -25,7 +25,7 @@ const { diff, scenePart } = Astro.props;
         line.kind === "collapsed" ? (
           <div class="kit-diff-view__collapsed">{line.label}</div>
         ) : (
-          <div class="kit-diff-view__line" data-diff-kind={line.kind}>
+          <div class="kit-diff-view__line" data-diff-kind={line.kind} {...scenePartAttributes(line.scenePart)}>
             <span class="kit-diff-view__number">{line.lineNumber}</span>
             <span class="kit-diff-view__text">{line.text}</span>
           </div>

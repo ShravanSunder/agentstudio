@@ -27,6 +27,14 @@ const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
 /** The visitor's play/pause control for a scene; hidden until motion can run. */
 const scenePlaybackToggleSelector = "[data-scene-playback-toggle]";
+export const scenePlaybackReadyEventName = "scene-playback-ready";
+
+export interface ScenePlaybackControl {
+  readonly duration: number;
+  pause(): void;
+  seek(seconds: number): void;
+  finish(): void;
+}
 
 export type SceneModuleResolver = (sceneId: SceneId) => SceneModule | undefined;
 
@@ -52,6 +60,7 @@ interface ScenePlaybackState {
   lastReportedStepId: string | undefined;
   latestProgress: number;
   phase: ScenePlaybackPhase;
+  proofVideoEnded: boolean;
   replayTimer: number | undefined;
   /** A manual play paused only because the document is hidden; intent is kept. */
   suspendedWhileHidden: boolean;
@@ -95,6 +104,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   const sceneModule = readSceneModule(sceneRoot, props.resolveModule ?? resolveSceneModule);
   const motionPreference = window.matchMedia(reducedMotionQuery);
   const toggle = surface.querySelector<HTMLButtonElement>(scenePlaybackToggleSelector);
+  const proofVideo = surface.querySelector<HTMLVideoElement>("[data-scene-proof-video]");
   const proofLayer = findSceneProofLayer(surface, sceneRoot);
   const lifecycle = new AbortController();
   const state: ScenePlaybackState = {
@@ -105,6 +115,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     lastReportedStepId: undefined,
     latestProgress: 0,
     phase: "settled",
+    proofVideoEnded: false,
     replayTimer: undefined,
     suspendedWhileHidden: false,
     timeline: undefined,
@@ -112,6 +123,38 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
 
   const motionAllowed = (): boolean =>
     sceneModule !== undefined && !state.buildFailed && !motionPreference.matches;
+
+  let proofVideoIntent: PlaybackIntent = "auto";
+  let automaticVideoPlayPending = false;
+  let automaticVideoPausePending = false;
+  const pauseProofVideoAutomatically = (): void => {
+    if (proofVideo === null || proofVideo.paused || proofVideoIntent === "manual-play") return;
+    automaticVideoPausePending = true;
+    proofVideo.pause();
+  };
+  const playProofVideoAutomatically = (): void => {
+    if (
+      proofVideo === null ||
+      !proofVideo.paused ||
+      proofVideoIntent !== "auto" ||
+      state.proofVideoEnded
+    )
+      return;
+    automaticVideoPlayPending = true;
+    void proofVideo.play().catch((): void => {
+      automaticVideoPlayPending = false;
+    });
+  };
+  const resetProofVideo = (): void => {
+    if (proofVideo === null) return;
+    if (!proofVideo.paused) {
+      automaticVideoPausePending = true;
+      proofVideo.pause();
+    }
+    proofVideo.currentTime = 0;
+    proofVideoIntent = "auto";
+    state.proofVideoEnded = false;
+  };
 
   // Show, then prove: the real capture holds the stage between loops, and it is
   // the static view whenever a registered scene cannot move (reduced motion or
@@ -129,6 +172,12 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.phase = phase;
     sceneRoot.dataset["scenePlaybackState"] = phase;
     proofLayer.render(proofBelongsToPhase(phase), proofTransition);
+    if (phase === "awaiting-replay") {
+      if (state.autoplayEnabled && state.latestProgress >= startProgress)
+        playProofVideoAutomatically();
+    } else {
+      resetProofVideo();
+    }
     if (toggle === null) {
       return;
     }
@@ -218,6 +267,23 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     if (sceneModule !== undefined) {
       reportStep(findStepAtTime(sceneModule, timeline));
     }
+    sceneRoot.dispatchEvent(
+      new CustomEvent<ScenePlaybackControl>(scenePlaybackReadyEventName, {
+        bubbles: true,
+        detail: {
+          duration: timeline.duration(),
+          pause: (): void => {
+            timeline.pause();
+          },
+          seek: (seconds: number): void => {
+            timeline.pause().time(seconds);
+          },
+          finish: (): void => {
+            timeline.progress(1);
+          },
+        },
+      }),
+    );
   };
 
   const playAutomatically = (): void => {
@@ -243,6 +309,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     if (
       state.replayTimer !== undefined ||
       !state.awaitingReplay ||
+      (proofVideo !== null && !state.proofVideoEnded) ||
       !state.autoplayEnabled ||
       state.intent !== "auto" ||
       state.latestProgress < startProgress
@@ -269,6 +336,39 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.intent = "manual-play";
     startTimeline(timeline);
   };
+
+  proofVideo?.addEventListener(
+    "play",
+    (): void => {
+      if (automaticVideoPlayPending) {
+        automaticVideoPlayPending = false;
+        return;
+      }
+      proofVideoIntent = "manual-play";
+    },
+    { signal: lifecycle.signal },
+  );
+  proofVideo?.addEventListener(
+    "pause",
+    (): void => {
+      if (automaticVideoPausePending) {
+        automaticVideoPausePending = false;
+        return;
+      }
+      if (!proofVideo.ended) proofVideoIntent = "manual-pause";
+    },
+    { signal: lifecycle.signal },
+  );
+  proofVideo?.addEventListener(
+    "ended",
+    (): void => {
+      state.proofVideoEnded = true;
+      proofVideoIntent = "auto";
+      proofVideo.currentTime = 0;
+      replayIfEligible();
+    },
+    { signal: lifecycle.signal },
+  );
 
   // Manual intent wins over scroll position, but never over a hidden document:
   // pause without changing intent, and resume on return while still centered.
@@ -342,6 +442,10 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     synchronize: (progress: number, autoplayEnabled: boolean): void => {
       state.latestProgress = progress;
       state.autoplayEnabled = autoplayEnabled;
+      if (state.phase === "awaiting-replay") {
+        if (!autoplayEnabled || progress < stopProgress) pauseProofVideoAutomatically();
+        else if (progress >= startProgress) playProofVideoAutomatically();
+      }
       // Follows a reduced-motion change that happens before any timeline exists.
       proofLayer.render(proofBelongsToPhase(state.phase), "instant");
 

@@ -62,7 +62,7 @@ describe("chapter catalog", () => {
     ]);
   });
 
-  it("stages chapters one to three as scenes, review as a still, and restore as a video", () => {
+  it("stages all five chapters as a scene followed by its real proof", () => {
     // Arrange / Act
     const stageKinds = chapterCatalog.map((chapter) => chapter.stage.kind);
     const stagedSceneIds = chapterCatalog.flatMap((chapter) =>
@@ -70,8 +70,20 @@ describe("chapter catalog", () => {
     );
 
     // Assert
-    expect(stageKinds).toEqual(["scene", "scene", "scene", "still", "video"]);
+    expect(stageKinds).toEqual(["scene", "scene", "scene", "scene", "scene"]);
     expect(stagedSceneIds).toEqual([...sceneIds]);
+    const review = chapterCatalog.find((chapter) => chapter.id === "review");
+    const comeBack = chapterCatalog.find((chapter) => chapter.id === "come-back");
+    expect(review?.stage).toMatchObject({
+      kind: "scene",
+      sceneId: "chapter-review",
+      proofKind: "image",
+    });
+    expect(comeBack?.stage).toMatchObject({
+      kind: "scene",
+      sceneId: "chapter-come-back",
+      proofKind: "video",
+    });
   });
 
   it("proves the task-drawer chapter with the approved capture's own description", () => {

@@ -11,9 +11,11 @@ import {
   type SceneTimeline,
 } from "../src/motion-scenes/scene-contract";
 import { resolveSceneModule } from "../src/motion-scenes/scene-registry";
+import { chapterComeBackStepKeyParts } from "../src/motion-scenes/scenes/chapter-come-back/chapter-come-back-fixture";
 import { chapterContextWithTaskStepKeyParts } from "../src/motion-scenes/scenes/chapter-context-with-task/chapter-context-with-task-fixture";
 import { chapterFindAndFocusStepKeyParts } from "../src/motion-scenes/scenes/chapter-find-and-focus/chapter-find-and-focus-fixture";
 import { chapterManyAgentsStepKeyParts } from "../src/motion-scenes/scenes/chapter-many-agents/chapter-many-agents-fixture";
+import { chapterReviewStepKeyParts } from "../src/motion-scenes/scenes/chapter-review/chapter-review-fixture";
 import { kitPhoneAttribute, scenePartSelector } from "../src/recreation-kit/recreation-kit-dom";
 
 declare module "vitest" {
@@ -41,6 +43,8 @@ const sceneStepKeyParts: Readonly<
   "chapter-many-agents": chapterManyAgentsStepKeyParts,
   "chapter-context-with-task": chapterContextWithTaskStepKeyParts,
   "chapter-find-and-focus": chapterFindAndFocusStepKeyParts,
+  "chapter-review": chapterReviewStepKeyParts,
+  "chapter-come-back": chapterComeBackStepKeyParts,
 };
 
 interface SceneMarkupSource {
