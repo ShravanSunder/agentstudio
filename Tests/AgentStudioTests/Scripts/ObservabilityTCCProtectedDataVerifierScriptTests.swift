@@ -17,8 +17,8 @@ struct ObservabilityTCCProtectedDataVerifierScriptTests {
     }
 
     @Test("strict protected data grant fails on mixed grant and denial sequences")
-    func strictProtectedDataGrantFailsOnMixedSequences() throws {
-        try assertStrictVerifierFailsOnMixedSequences(
+    func strictProtectedDataGrantFailsOnMixedSequences() async throws {
+        try await assertStrictVerifierFailsOnMixedSequences(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFileBody: debugStateFileBody(appPath:),
             environment: debugVerifierEnvironment(fixture:app:)
@@ -29,7 +29,7 @@ struct ObservabilityTCCProtectedDataVerifierScriptTests {
         scriptPath: String,
         stateFileBody: (String) -> String,
         environment: (LauncherScriptFixture, URL) throws -> [String: String]
-    ) throws {
+    ) async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -44,7 +44,7 @@ struct ObservabilityTCCProtectedDataVerifierScriptTests {
         var verifierEnvironment = try environment(fixture, app)
         verifierEnvironment["AGENTSTUDIO_OBSERVABILITY_STATE_FILE"] = stateFile.path
         verifierEnvironment["AGENTSTUDIO_TCC_REQUIRE_PROTECTED_DATA_GRANT"] = "1"
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: scriptPath,
             stateFile: stateFile,
             environment: verifierEnvironment

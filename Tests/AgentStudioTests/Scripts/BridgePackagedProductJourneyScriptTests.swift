@@ -6,11 +6,11 @@ import Testing
 @Suite("Bridge packaged product journey scripts")
 struct BridgePackagedProductJourneyScriptTests {
     @Test("runner dry-run declares strict LaunchServices fixture and preservation contract")
-    func runnerDryRunDeclaresStrictLaunchAndFixtureContract() throws {
+    func runnerDryRunDeclaresStrictLaunchAndFixtureContract() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-bridge-packaged-product-journey.sh",
             arguments: ["--dry-run"],
             environment: [:]
@@ -40,11 +40,11 @@ struct BridgePackagedProductJourneyScriptTests {
     }
 
     @Test("verifier dry-run declares artifact IPC Victoria and visual proof owners")
-    func verifierDryRunDeclaresProofOwners() throws {
+    func verifierDryRunDeclaresProofOwners() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/verify-bridge-packaged-product-journey.sh",
             arguments: ["--dry-run"],
             environment: [:]
@@ -349,7 +349,7 @@ struct BridgePackagedProductJourneyScriptTests {
     }
 
     @Test("verifier rejects non-exact fixture counts before IPC authentication")
-    func verifierRejectsNonExactFixtureCountsBeforeIPCAuthentication() throws {
+    func verifierRejectsNonExactFixtureCountsBeforeIPCAuthentication() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
 
@@ -389,7 +389,7 @@ struct BridgePackagedProductJourneyScriptTests {
             """
             .appending("\n").write(to: journeyStateFile, atomically: true, encoding: .utf8)
 
-            let result = try fixture.runScript(
+            let result = try await fixture.runScript(
                 "scripts/verify-bridge-packaged-product-journey.sh",
                 arguments: [],
                 environment: [
@@ -445,7 +445,7 @@ struct BridgePackagedProductJourneyScriptTests {
         """
         .appending("\n").write(to: journeyStateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/verify-bridge-packaged-product-journey.sh",
             arguments: [],
             environment: [
@@ -499,7 +499,7 @@ struct BridgePackagedProductJourneyScriptTests {
         """
         .appending("\n").write(to: journeyStateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/verify-bridge-packaged-product-journey.sh",
             arguments: [],
             environment: [

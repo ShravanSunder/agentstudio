@@ -70,7 +70,7 @@ struct LauncherScriptFixture {
         _ scriptPath: String,
         arguments: [String],
         environment: [String: String]
-    ) throws -> ScriptRunResult {
+    ) async throws -> ScriptRunResult {
         let stackHelper = try executable(
             "observability-stack",
             """
@@ -88,10 +88,6 @@ struct LauncherScriptFixture {
             exit 0
             """
         )
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptPath] + arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         var mergedEnvironment = ProcessInfo.processInfo.environment
         mergedEnvironment.removeValue(forKey: "SWIFT_BUILD_DIR")
         mergedEnvironment["HOME"] = root.path
@@ -104,56 +100,56 @@ struct LauncherScriptFixture {
         for (key, value) in environment {
             mergedEnvironment[key] = value
         }
-        process.environment = mergedEnvironment
-
-        return try run(process)
+        return try await run(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: [scriptPath] + arguments,
+            currentDirectoryURL: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            environment: mergedEnvironment
+        )
     }
 
     func runVerifier(
         scriptPath: String = "scripts/verify-beta-observability.sh",
         stateFile: URL,
         environment: [String: String]
-    ) throws -> ScriptRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptPath]
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    ) async throws -> ScriptRunResult {
         var mergedEnvironment = ProcessInfo.processInfo.environment
         mergedEnvironment.removeValue(forKey: "SWIFT_BUILD_DIR")
         mergedEnvironment["AGENTSTUDIO_OBSERVABILITY_STATE_FILE"] = stateFile.path
         for (key, value) in environment {
             mergedEnvironment[key] = value
         }
-        process.environment = mergedEnvironment
-
-        return try run(process)
+        return try await run(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: [scriptPath],
+            currentDirectoryURL: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            environment: mergedEnvironment
+        )
     }
 
-    func worktreeDebugCode(for rootPath: String = FileManager.default.currentDirectoryPath) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [
-            "-c",
-            """
-            import hashlib, os, sys
-            alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
-            space = 36 ** 4
-            root = os.path.realpath(sys.argv[1])
-            value = int.from_bytes(hashlib.sha256(root.encode("utf-8")).digest()[:4], "big") % space
-            chars = []
-            for _ in range(4):
-                value, digit = divmod(value, 36)
-                chars.append(alphabet[digit])
-            print("".join(reversed(chars)))
-            """,
-            rootPath,
-        ]
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        try process.run()
-        process.waitUntilExit()
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    func worktreeDebugCode(for rootPath: String = FileManager.default.currentDirectoryPath) async throws -> String {
+        let output = try await run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+            arguments: [
+                "-c",
+                """
+                import hashlib, os, sys
+                alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+                space = 36 ** 4
+                root = os.path.realpath(sys.argv[1])
+                value = int.from_bytes(hashlib.sha256(root.encode("utf-8")).digest()[:4], "big") % space
+                chars = []
+                for _ in range(4):
+                    value, digit = divmod(value, 36)
+                    chars.append(alphabet[digit])
+                print("".join(reversed(chars)))
+                """,
+                rootPath,
+            ],
+            currentDirectoryURL: nil,
+            environment: nil
+        )
+        return output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Waits until `url` exists and contains `expectedContent`, with no deadline, and returns
@@ -203,22 +199,22 @@ struct LauncherScriptFixture {
         }
     }
 
-    private func run(_ process: Process) throws -> ScriptRunResult {
-        let output = ProcessOutputCapture()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        output.capture(stdout, as: .stdout)
-        output.capture(stderr, as: .stderr)
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        process.waitUntilExit()
-        output.finish(stdout, as: .stdout)
-        output.finish(stderr, as: .stderr)
+    private func run(
+        executableURL: URL,
+        arguments: [String],
+        currentDirectoryURL: URL?,
+        environment: [String: String]?
+    ) async throws -> ScriptRunResult {
+        let output = try await runProcessToExit(
+            executableURL: executableURL,
+            arguments: arguments,
+            currentDirectoryURL: currentDirectoryURL,
+            environment: environment
+        )
         return ScriptRunResult(
-            exitCode: process.terminationStatus,
-            stdout: output.stdout,
-            stderr: output.stderr
+            exitCode: output.terminationStatus,
+            stdout: String(data: output.standardOutput, encoding: .utf8) ?? "",
+            stderr: String(data: output.standardError, encoding: .utf8) ?? ""
         )
     }
 }
@@ -231,54 +227,4 @@ struct ScriptRunResult {
     let exitCode: Int32
     let stdout: String
     let stderr: String
-}
-
-private final class ProcessOutputCapture: @unchecked Sendable {
-    enum Stream {
-        case stdout
-        case stderr
-    }
-
-    private let lock = NSLock()
-    private var stdoutData = Data()
-    private var stderrData = Data()
-
-    var stdout: String {
-        lock.withLock {
-            String(data: stdoutData, encoding: .utf8) ?? ""
-        }
-    }
-
-    var stderr: String {
-        lock.withLock {
-            String(data: stderrData, encoding: .utf8) ?? ""
-        }
-    }
-
-    func capture(_ pipe: Pipe, as stream: Stream) {
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            self?.append(data, to: stream)
-        }
-    }
-
-    func finish(_ pipe: Pipe, as stream: Stream) {
-        pipe.fileHandleForReading.readabilityHandler = nil
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        if !data.isEmpty {
-            append(data, to: stream)
-        }
-    }
-
-    private func append(_ data: Data, to stream: Stream) {
-        lock.withLock {
-            switch stream {
-            case .stdout:
-                stdoutData.append(data)
-            case .stderr:
-                stderrData.append(data)
-            }
-        }
-    }
 }

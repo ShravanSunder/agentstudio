@@ -47,12 +47,12 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("debug worktree code avoids known four character collision")
-    func debugWorktreeCodeAvoidsKnownFourCharacterCollision() throws {
+    func debugWorktreeCodeAvoidsKnownFourCharacterCollision() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
 
-        let firstCode = try fixture.worktreeDebugCode(for: "/tmp/worktree-657")
-        let secondCode = try fixture.worktreeDebugCode(for: "/tmp/worktree-1190")
+        let firstCode = try await fixture.worktreeDebugCode(for: "/tmp/worktree-657")
+        let secondCode = try await fixture.worktreeDebugCode(for: "/tmp/worktree-1190")
 
         #expect(firstCode.count == 4)
         #expect(secondCode.count == 4)
@@ -280,7 +280,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("beta observability verifier fails before querying logs when launcher state failed")
-    func betaObservabilityVerifierFailsFastForFailedLauncherState() throws {
+    func betaObservabilityVerifierFailsFastForFailedLauncherState() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -293,7 +293,7 @@ struct ObservabilityLaunchScriptsTests {
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let curlMarker = fixture.url("curl-called")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             stateFile: stateFile,
             environment: [
                 "AGENTSTUDIO_CURL_BIN": try fixture.executable(
@@ -314,7 +314,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("beta observability verifier requires exact expected app binding")
-    func betaObservabilityVerifierRequiresExactExpectedAppBinding() throws {
+    func betaObservabilityVerifierRequiresExactExpectedAppBinding() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -327,7 +327,7 @@ struct ObservabilityLaunchScriptsTests {
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let curlMarker = fixture.url("curl-called")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             stateFile: stateFile,
             environment: [
                 "AGENTSTUDIO_CURL_BIN": try fixture.executable(
@@ -347,7 +347,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("beta observability verifier uses configured curl for VictoriaLogs queries")
-    func betaObservabilityVerifierUsesConfiguredCurlForQueries() throws {
+    func betaObservabilityVerifierUsesConfiguredCurlForQueries() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -367,7 +367,7 @@ struct ObservabilityLaunchScriptsTests {
         let curlMarker = fixture.url("curl-called")
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             stateFile: stateFile,
             environment: [
                 "AGENTSTUDIO_EXPECTED_BETA_APP": betaAppPath,
@@ -422,7 +422,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("beta observability verifier rejects PID from a different beta bundle path")
-    func betaObservabilityVerifierRejectsPidFromDifferentBetaBundlePath() throws {
+    func betaObservabilityVerifierRejectsPidFromDifferentBetaBundlePath() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -438,7 +438,7 @@ struct ObservabilityLaunchScriptsTests {
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let curlMarker = fixture.url("curl-called")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             stateFile: stateFile,
             environment: [
                 "AGENTSTUDIO_EXPECTED_BETA_APP": expectedApp.path,
@@ -466,7 +466,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("beta observability verifier rejects stale running state before querying logs")
-    func betaObservabilityVerifierRejectsStaleRunningStateBeforeQueryingLogs() throws {
+    func betaObservabilityVerifierRejectsStaleRunningStateBeforeQueryingLogs() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -481,7 +481,7 @@ struct ObservabilityLaunchScriptsTests {
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let curlMarker = fixture.url("curl-called")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             stateFile: stateFile,
             environment: [
                 "AGENTSTUDIO_EXPECTED_BETA_APP": betaAppPath,
@@ -503,7 +503,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("beta observability verifier fails when completed app launch telemetry is missing")
-    func betaObservabilityVerifierFailsWhenCompletedAppLaunchTelemetryIsMissing() throws {
+    func betaObservabilityVerifierFailsWhenCompletedAppLaunchTelemetryIsMissing() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -518,7 +518,7 @@ struct ObservabilityLaunchScriptsTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             stateFile: stateFile,
             environment: [
                 "AGENTSTUDIO_EXPECTED_BETA_APP": betaApp.path,
@@ -548,7 +548,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("beta observability verifier rejects unexpected beta app path")
-    func betaObservabilityVerifierRejectsUnexpectedBetaAppPath() throws {
+    func betaObservabilityVerifierRejectsUnexpectedBetaAppPath() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -561,7 +561,7 @@ struct ObservabilityLaunchScriptsTests {
         """.write(to: stateFile, atomically: true, encoding: .utf8)
         let curlMarker = fixture.url("curl-called")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             stateFile: stateFile,
             environment: [
                 "AGENTSTUDIO_EXPECTED_BETA_APP": fixture.url("workflow/AgentStudio Beta.app").path,
@@ -582,7 +582,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("debug observability verifier requires completed app launch telemetry and scrubbed output")
-    func debugObservabilityVerifierRequiresCompletedAppLaunchTelemetryAndScrubbedOutput() throws {
+    func debugObservabilityVerifierRequiresCompletedAppLaunchTelemetryAndScrubbedOutput() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -603,7 +603,7 @@ struct ObservabilityLaunchScriptsTests {
         let curlMarker = fixture.url("curl-called")
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -652,7 +652,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("debug observability verifier fails when completed app launch telemetry is missing")
-    func debugObservabilityVerifierFailsWhenCompletedAppLaunchTelemetryIsMissing() throws {
+    func debugObservabilityVerifierFailsWhenCompletedAppLaunchTelemetryIsMissing() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -670,7 +670,7 @@ struct ObservabilityLaunchScriptsTests {
             bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -700,7 +700,7 @@ struct ObservabilityLaunchScriptsTests {
     }
 
     @Test("debug observability verifier rejects stale running state before querying logs")
-    func debugObservabilityVerifierRejectsStaleRunningStateBeforeQueryingLogs() throws {
+    func debugObservabilityVerifierRejectsStaleRunningStateBeforeQueryingLogs() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -715,7 +715,7 @@ struct ObservabilityLaunchScriptsTests {
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let curlMarker = fixture.url("curl-called")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -736,12 +736,37 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!FileManager.default.fileExists(atPath: curlMarker.path))
     }
 
+    @Test("script runner captures final stderr output across repeated exits")
+    func scriptRunnerCapturesFinalStderrOutputAcrossRepeatedExits() async throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let markerScript = try fixture.executable(
+            "emit-final-stderr-marker",
+            """
+            #!/bin/bash
+            printf '%s' "$OBSERVABILITY_TEST_MARKER" >&2
+            """
+        )
+
+        for runIndex in 0..<64 {
+            let marker = "observability-final-stderr-marker-\(runIndex)"
+            let result = try await fixture.runScript(
+                markerScript.path,
+                arguments: [],
+                environment: ["OBSERVABILITY_TEST_MARKER": marker]
+            )
+
+            #expect(result.exitCode == 0)
+            #expect(result.stderr.contains(marker))
+        }
+    }
+
 }
 
 @Suite("Observability beta launcher scripts")
 struct ObservabilityBetaLauncherScriptsTests {
     @Test("beta launcher uses latest local artifact only when explicitly requested")
-    func betaLauncherUsesLatestLocalArtifactOnlyWhenExplicitlyRequested() throws {
+    func betaLauncherUsesLatestLocalArtifactOnlyWhenExplicitlyRequested() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let primaryRoot = fixture.url("primary-beta-root")
@@ -761,7 +786,7 @@ struct ObservabilityBetaLauncherScriptsTests {
         let openArgs = fixture.url("open-args")
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-observability.sh",
             arguments: ["--latest-local", "--detach"],
             environment: [
@@ -793,12 +818,12 @@ struct ObservabilityBetaLauncherScriptsTests {
     }
 
     @Test("beta launcher requires explicit app unless latest local diagnostic mode is selected")
-    func betaLauncherRequiresExplicitAppUnlessLatestLocalDiagnosticModeIsSelected() throws {
+    func betaLauncherRequiresExplicitAppUnlessLatestLocalDiagnosticModeIsSelected() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let openMarker = fixture.url("open-called")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-observability.sh",
             arguments: ["--detach"],
             environment: [
@@ -819,14 +844,14 @@ struct ObservabilityBetaLauncherScriptsTests {
     }
 
     @Test("beta launcher records launch failure when no PID appears")
-    func betaLauncherRecordsPidLookupFailureState() throws {
+    func betaLauncherRecordsPidLookupFailureState() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let app = try fixture.makeAppBundle(name: "AgentStudio Beta.app", releaseChannel: "beta")
         let openMarker = fixture.url("open-called")
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-observability.sh",
             arguments: ["--app", app.path, "--detach"],
             environment: [
@@ -858,14 +883,14 @@ struct ObservabilityBetaLauncherScriptsTests {
     }
 
     @Test("beta launcher records launch failure when collector is unhealthy")
-    func betaLauncherRecordsCollectorHealthFailureState() throws {
+    func betaLauncherRecordsCollectorHealthFailureState() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let app = try fixture.makeAppBundle(name: "AgentStudio Beta.app", releaseChannel: "beta")
         let openMarker = fixture.url("open-called")
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-observability.sh",
             arguments: ["--app", app.path, "--detach"],
             environment: [
@@ -903,7 +928,7 @@ struct ObservabilityBetaLauncherScriptsTests {
     }
 
     @Test("beta launcher does not bind launched proof to a different beta bundle path")
-    func betaLauncherDoesNotBindProofToDifferentBetaBundlePathAfterLaunch() throws {
+    func betaLauncherDoesNotBindProofToDifferentBetaBundlePathAfterLaunch() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let selectedApp = try fixture.makeAppBundle(name: "Selected AgentStudio Beta.app", releaseChannel: "beta")
@@ -912,7 +937,7 @@ struct ObservabilityBetaLauncherScriptsTests {
         let pgrepState = fixture.url("pgrep-state")
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-observability.sh",
             arguments: ["--app", selectedApp.path, "--detach"],
             environment: [
