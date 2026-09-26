@@ -89,6 +89,11 @@ struct SwiftLaneHangEvidenceTests {
         #expect(!taskDumps.isEmpty)
         #expect(taskDumps.allSatisfy { $0.hasPrefix(evidenceStem + "-pid") })
         #expect(evidenceFiles.contains(heldStepLog))
+        #expect(evidenceFiles.contains(evidenceStem + ".timing.json"))
+        let timingData = try Data(
+            contentsOf: URL(fileURLWithPath: evidenceDirectory + "/" + evidenceStem + ".timing.json"))
+        let timingRecord = try #require(JSONSerialization.jsonObject(with: timingData) as? [String: Any])
+        #expect(timingRecord["timed_out"] as? Bool == true)
         #expect(laneOutput.contains("lane-report task_dump=\(evidenceDirectory)/\(evidenceStem)-pid"))
         let firstDump = try String(
             contentsOfFile: evidenceDirectory + "/" + (try #require(taskDumps.first)),
@@ -97,7 +102,7 @@ struct SwiftLaneHangEvidenceTests {
         #expect(firstDump.contains("parkForever()"))
         // Every file the hang left is one the CI failure upload selects.
         #expect(uploadGlobs.count == 3)
-        for evidenceFile in evidenceFiles {
+        for evidenceFile in evidenceFiles where !evidenceFile.hasSuffix(".timing.json") {
             #expect(
                 uploadGlobs.contains { fnmatch($0, evidenceFile, 0) == 0 },
                 "\(evidenceFile) is not selected by the CI upload globs \(uploadGlobs)"
@@ -206,10 +211,12 @@ struct SwiftLaneHangEvidenceTests {
         var seededFiles: [(name: String, contents: String)] = []
         for stemNumber in 1...5 {
             seededFiles.append(("\(stemPrefix)\(stemNumber)-100.events.jsonl", "ledger"))
+            seededFiles.append(("\(stemPrefix)\(stemNumber)-100.timing.json", "{}"))
             seededFiles.append(("\(stemPrefix)\(stemNumber)-100-pid\(stemNumber)0.task-dump.txt", "TASKS"))
         }
         seededFiles.append(("\(stemPrefix)2-100.held-steps.log", "waiting\tstep-1\tgate\tSuite.swift one()"))
         seededFiles.append(("\(stemPrefix)6-100.events.jsonl", "ledger"))
+        seededFiles.append(("\(stemPrefix)6-100.timing.json", "{}"))
         for dumpedPid in [61, 62, 63] {
             seededFiles.append(("\(stemPrefix)6-100-pid\(dumpedPid).task-dump.txt", "TASKS"))
         }
@@ -234,7 +241,8 @@ struct SwiftLaneHangEvidenceTests {
                 + "\"$evidence_file\"; done"
         )
         let pruned = try await laneBash(
-            "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' LANE_EVENT_STREAM_KEEP_PER_LABEL=5; "
+            "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' LANE_EVENT_STREAM_KEEP_PER_LABEL=5 "
+                + "LANE_EVENT_STREAM_RETAIN_ALWAYS=0; "
                 + "source scripts/swift-test-helpers.sh; set -euo pipefail; "
                 + "prune_lane_event_streams retention-probe; echo PRUNE_STATUS=$?"
         )
@@ -251,6 +259,13 @@ struct SwiftLaneHangEvidenceTests {
         // non-empty held-step log. The oldest stem is gone, and so is the stem
         // made only of an empty held-step log, which never took a slot.
         #expect(remainingFiles == expectedFiles)
+        _ = try await laneBash(
+            "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' LANE_EVENT_STREAM_KEEP_PER_LABEL=1 "
+                + "LANE_EVENT_STREAM_RETAIN_ALWAYS=1; "
+                + "source scripts/swift-test-helpers.sh; prune_lane_event_streams retention-probe"
+        )
+        let retainedFiles = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory).sorted()
+        #expect(retainedFiles == expectedFiles)
     }
 
     @Test("a task dump is kept beside the ledger, and a refused attach is recorded with its reason")

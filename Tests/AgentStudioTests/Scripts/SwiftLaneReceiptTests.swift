@@ -358,7 +358,8 @@ struct SwiftLaneReceiptTests {
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)'; LANE_EVENT_STREAM_RETAIN_ALWAYS=1; "
                 + "source scripts/swift-test-helpers.sh; "
                 + "run_swift_with_timeout 'clean half' 60 /bin/bash -c 'echo CLEAN_RUN_OK'; "
-                + "echo \"LEDGERS=$(ls -1 '\(workDirectory)' | wc -l | tr -d '[:space:]')\""
+                + "echo \"LEDGERS=$(find '\(workDirectory)' -name '*.events.jsonl' | wc -l | tr -d '[:space:]')\"; "
+                + "echo \"TIMINGS=$(find '\(workDirectory)' -name '*.timing.json' | wc -l | tr -d '[:space:]')\""
         )
 
         #expect(comparisonTask.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-width-comparison\""))
@@ -388,5 +389,6 @@ struct SwiftLaneReceiptTests {
         #expect(retained.contains("CLEAN_RUN_OK"))
         #expect(retained.contains("lane-report event_stream=\(workDirectory)/lane-clean-half-"))
         #expect(retained.contains("LEDGERS=1"))
+        #expect(retained.contains("TIMINGS=1"))
     }
 }
