@@ -95,6 +95,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             AgentStudioGitRemoteReferenceRefreshProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         repositoryLocalActivityProjector: RepositoryLocalActivityProjector? = nil,
         filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
         filesystemMaxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
@@ -111,6 +112,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             bus: bus,
             fseventStreamClient: fseventStreamClient,
             repositoryLocalActivityProjector: repositoryLocalActivityProjector,
+            watchedFolderScanScheduler: watchedFolderScanScheduler,
             debounceWindow: filesystemDebounceWindow,
             maxFlushLatency: filesystemMaxFlushLatency,
             performanceTraceRecorder: performanceTraceRecorder
@@ -416,6 +418,20 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             _ = await filesystemActor.refreshWatchedFolders(
                 watchedPaths, restoring: repositories, membershipRevision: revision)
         }
+    }
+}
+
+extension FilesystemGitPipeline: WorktreePublicationHolding {
+    func holdPublication(of destination: URL) async -> WatchedFolderPublicationHoldID {
+        await filesystemActor.holdWatchedFolderPublication(of: destination)
+    }
+
+    func releasePublicationHold(_ holdID: WatchedFolderPublicationHoldID) async {
+        await filesystemActor.releaseWatchedFolderPublicationHold(holdID)
+    }
+
+    func refreshWatchedFolder(_ watchedPathID: UUID, among watchedPaths: [WatchedPath]) async {
+        _ = await filesystemActor.refreshWatchedFolders(watchedPaths, scanning: [watchedPathID])
     }
 }
 

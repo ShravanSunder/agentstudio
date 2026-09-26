@@ -73,6 +73,8 @@ package enum CommandBarAction {
     case quickOpen(CommandBarQuickOpenTarget)
     /// Re-resolve a typed recent entity against live state immediately before dispatch.
     case activateRecent(CommandBarRecentActivation)
+    /// Create a worktree from the selected repository default or source worktree.
+    case createWorktree(CommandBarWorktreeCreationDraft)
 }
 
 package enum CommandBarItemKind {
@@ -109,6 +111,7 @@ package struct CommandBarItem: Identifiable {
     package let action: CommandBarAction
     /// The underlying command, if any. Used for dimming navigate items whose command is unavailable.
     package let command: AppCommand?
+    package let isEnabled: Bool
     package let accessibilityLabel: String
     package let accessibilityHint: String
 
@@ -128,6 +131,7 @@ package struct CommandBarItem: Identifiable {
         showsActionsButton: Bool = false,
         action: CommandBarAction,
         command: AppCommand? = nil,
+        isEnabled: Bool = true,
         accessibilityLabel: String? = nil,
         accessibilityHint: String? = nil
     ) {
@@ -146,6 +150,7 @@ package struct CommandBarItem: Identifiable {
         self.showsActionsButton = showsActionsButton
         self.action = action
         self.command = command
+        self.isEnabled = isEnabled
         self.accessibilityLabel =
             accessibilityLabel
             ?? [title, subtitle, secondaryLine?.text].compactMap(\.self).joined(separator: ", ")
@@ -184,6 +189,8 @@ package struct CommandBarItem: Identifiable {
             case .worktree: return "Show worktree actions"
             case .pane: return "Focus pane"
             }
+        case .createWorktree:
+            return "Create worktree"
         }
     }
 
@@ -212,6 +219,7 @@ package struct CommandBarItem: Identifiable {
             showsActionsButton: showsActionsButton ?? self.showsActionsButton,
             action: action ?? self.action,
             command: command,
+            isEnabled: isEnabled,
             accessibilityLabel: accessibilityLabel ?? self.accessibilityLabel,
             accessibilityHint: accessibilityHint ?? self.accessibilityHint
         )
@@ -221,7 +229,8 @@ package struct CommandBarItem: Identifiable {
         switch action {
         case .worktreeAction(let presence):
             return presence.openState
-        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .quickOpen, .activateRecent:
+        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom, .quickOpen, .activateRecent,
+            .createWorktree:
             return nil
         }
     }
@@ -236,7 +245,7 @@ package struct CommandBarItem: Identifiable {
             case .worktree: return .worktree
             case .directory: return .other
             }
-        case .dispatch:
+        case .dispatch, .createWorktree:
             return .command
         case .navigate:
             return command == nil ? .other : .command
@@ -302,6 +311,32 @@ struct CommandBarBreadcrumbItem: Equatable {
     let icon: AppEntityIcon?
 }
 
+/// What a text-entry level's rows are derived from.
+package struct CommandBarTextEntryInput: Equatable, Sendable {
+    package let text: String
+}
+
+package enum CommandBarCreationQuery {
+    case defaultStartPoint(Repo)
+    case forkEligibility(Repo)
+    case worktreeEligibility(Repo, Worktree)
+}
+
+/// A nested level whose field is typed input rather than a filter: its rows derive
+/// from the current input and are shown unfiltered.
+package struct CommandBarTextEntry {
+    package let placeholder: String
+    package let rowsForInput: @MainActor (CommandBarTextEntryInput) -> [CommandBarItem]
+
+    package init(
+        placeholder: String,
+        rowsForInput: @escaping @MainActor (CommandBarTextEntryInput) -> [CommandBarItem]
+    ) {
+        self.placeholder = placeholder
+        self.rowsForInput = rowsForInput
+    }
+}
+
 /// A navigation level in the command bar (for nested drill-in).
 ///
 /// `scopeLabel` identifies the level's entity or action kind in the breadcrumb.
@@ -312,6 +347,8 @@ package struct CommandBarLevel: Identifiable {
     package let scopeLabel: String?
     package let breadcrumbIcon: AppEntityIcon?
     package let items: [CommandBarItem]
+    package let textEntry: CommandBarTextEntry?
+    package let creationQuery: CommandBarCreationQuery?
 
     package init(
         id: String,
@@ -319,7 +356,9 @@ package struct CommandBarLevel: Identifiable {
         parentLabel: String? = nil,
         scopeLabel: String? = nil,
         breadcrumbIcon: AppEntityIcon? = nil,
-        items: [CommandBarItem]
+        items: [CommandBarItem],
+        textEntry: CommandBarTextEntry? = nil,
+        creationQuery: CommandBarCreationQuery? = nil
     ) {
         self.id = id
         self.title = title
@@ -327,6 +366,8 @@ package struct CommandBarLevel: Identifiable {
         self.scopeLabel = scopeLabel
         self.breadcrumbIcon = breadcrumbIcon
         self.items = items
+        self.textEntry = textEntry
+        self.creationQuery = creationQuery
     }
 }
 
@@ -411,6 +452,9 @@ package enum FooterHintBuilder {
     ) -> [FooterHint] {
         if isNested {
             var hints: [FooterHint] = []
+            if case .createWorktree(let draft) = item?.action {
+                hints.append(contentsOf: CommandBarWorktreeCreationResolver.footerHints(for: draft))
+            }
             if item?.hasChildren == true {
                 hints.append(FooterHint(id: "drill-in", key: "⇥", label: "Actions"))
             }

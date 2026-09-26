@@ -12,6 +12,7 @@ final class FakeAppCommandDispatcher: AppCommandDispatching {
     var bridgeTargetLookupCount = 0
     var bridgeTargetLookupWorktreeIds: [UUID] = []
     var movePaneDispatches: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
+    var worktreeCreationDispatches: [WorktreeCreationRequest] = []
 
     func dispatch(_ command: AppCommand) -> Bool {
         dispatchedCommands.append(command)
@@ -38,5 +39,10 @@ final class FakeAppCommandDispatcher: AppCommandDispatching {
 
     func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
         movePaneDispatches.append((sourcePaneId, sourceTabId, targetTabId))
+    }
+
+    func dispatchWorktreeCreation(_ request: WorktreeCreationRequest) -> Bool {
+        worktreeCreationDispatches.append(request)
+        return availableCommands.contains(request.kind.command)
     }
 }

@@ -261,6 +261,20 @@ extension CommandBarDataSource {
         var items: [CommandBarItem] = []
         let canOpenInCurrentTab = store.tabLayoutAtom.activeTabId != nil
 
+        if available != nil {
+            items.append(
+                CommandBarItem(
+                    id: "repo-newWorktree-\(repo.id.uuidString)",
+                    title: AppCommand.newWorktree.definition.label,
+                    icon: AppCommand.newWorktree.definition.icon,
+                    group: "Worktrees",
+                    groupPriority: 2,
+                    hasChildren: true,
+                    action: .navigate(worktreeCreationMenuLevel(repository: repo)),
+                    command: .newWorktree
+                ))
+        }
+
         if let defaultWorktree {
             items.append(
                 contentsOf: terminalWorktreeActionItems(
@@ -298,7 +312,8 @@ extension CommandBarDataSource {
                         worktree: worktree,
                         presence: presence,
                         canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
-                        dispatcher: dispatcher
+                        dispatcher: dispatcher,
+                        repository: repo
                     )
                     return CommandBarItem(
                         id: "repo-wt-\(worktree.id.uuidString)",
@@ -365,7 +380,9 @@ extension CommandBarDataSource {
         worktree: Worktree,
         presence: WorktreePresence,
         canOpenInCurrentTab: Bool,
-        dispatcher: any AppCommandDispatching
+        dispatcher: any AppCommandDispatching,
+        repository: Repo? = nil,
+        forkEligibility: WorktreeForkEligibility? = nil
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
         let bridgeResolution =
@@ -375,6 +392,36 @@ extension CommandBarDataSource {
             worktreeId: worktreeId,
             canOpenInCurrentTab: canOpenInCurrentTab
         )
+        if let repository {
+            let localSpec = LocalActionSpec.forkThisWorktree.actionSpec
+            let unavailability: String?
+            if case .unavailable(let reason) = forkEligibility {
+                unavailability = reason
+            } else if forkEligibility == nil {
+                unavailability = "Checking fork availability…"
+            } else {
+                unavailability = nil
+            }
+            items.append(
+                CommandBarItem(
+                    id: "wt-fork-\(worktreeId.uuidString)",
+                    title: localSpec.label,
+                    subtitle: unavailability,
+                    icon: localSpec.icon,
+                    group: "Worktrees",
+                    groupPriority: 0,
+                    hasChildren: true,
+                    action: .navigate(
+                        worktreeCreationBranchLevel(
+                            repository: repository,
+                            kind: .fork,
+                            source: worktree,
+                            sourceDisplay: worktree.name
+                        )),
+                    command: .forkWorktree,
+                    isEnabled: unavailability == nil
+                ))
+        }
         items.append(
             copyPathItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Path", groupPriority: 1)
         )
@@ -430,7 +477,8 @@ extension CommandBarDataSource {
                 colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
                 isMain: worktree.isMainWorktree
             ),
-            items: items
+            items: items,
+            creationQuery: repository.map { .worktreeEligibility($0, worktree) }
         )
     }
 

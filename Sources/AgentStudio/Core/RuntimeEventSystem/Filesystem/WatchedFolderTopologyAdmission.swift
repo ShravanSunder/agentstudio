@@ -4,8 +4,11 @@ import Foundation
 
 /// Interprets source facts without I/O; ordinary work inside a known checkout cannot change scan membership.
 enum WatchedFolderTopologyAdmission {
+    /// `heldCheckoutPaths` are destinations a creation owner is still materializing; their
+    /// directory churn is ordinary work inside a checkout, not a membership change.
     static func shouldScan(
-        _ batch: FSEventBatch, root: RegisteredRootDescriptor, knownGroups: [RepoScanner.RepoScanGroup]
+        _ batch: FSEventBatch, root: RegisteredRootDescriptor, knownGroups: [RepoScanner.RepoScanGroup],
+        heldCheckoutPaths: [String] = []
     ) -> Bool {
         if batch.paths.contains(where: isGitTopologyPath) || batch.requiresFullGitRefresh
             || batch.observations.contains(where: \.hasCoverageLoss)
@@ -16,8 +19,10 @@ enum WatchedFolderTopologyAdmission {
         let canonicalRoot = comparisonPath(
             root.aliases.onceResolvedCanonical.path, policy: root.volumeSemantics.casePolicy)
         let lexicalRoot = comparisonPath(root.aliases.standardizedLexical.path, policy: root.volumeSemantics.casePolicy)
-        let knownPaths = knownGroups.flatMap { [$0.clonePath] + $0.linkedWorktreePaths }
-            .map { comparisonPath($0.path, policy: root.volumeSemantics.casePolicy) }
+        let knownPaths =
+            (knownGroups.flatMap { [$0.clonePath] + $0.linkedWorktreePaths }.map(\.path)
+            + heldCheckoutPaths)
+            .map { comparisonPath($0, policy: root.volumeSemantics.casePolicy) }
         return batch.observations.contains { observation in
             guard isDirectoryStructureChange(observation) else { return false }
             var path = comparisonPath(observation.path, policy: root.volumeSemantics.casePolicy)
