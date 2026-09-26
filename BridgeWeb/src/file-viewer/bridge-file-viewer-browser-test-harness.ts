@@ -53,10 +53,11 @@ export async function interactAndWaitForBridgeFileViewerQueryCompletion(
 			await actScopedInteraction();
 		});
 		endInteractionAct();
-		await act(async (): Promise<void> => {
-			await completion.promise;
-			await waitForBridgeFileViewerWorkerPublicationQueue();
-		});
+		// The worker message publisher already owns its React act scope.
+		// This completion can resolve from inside that scope on the worker
+		// commit, so waiting for it inside another act would overlap them.
+		await completion.promise;
+		await waitForBridgeFileViewerWorkerPublicationQueue();
 	} catch (error: unknown) {
 		endInteractionAct();
 		completion.cancel();

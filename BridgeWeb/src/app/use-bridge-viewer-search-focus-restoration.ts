@@ -7,20 +7,22 @@ type BridgeViewerSearchFocusIdentity =
 
 export function useBridgeViewerSearchFocusRestoration(props: {
 	readonly isActive: boolean;
+	readonly isTreePathEligible?: (path: string) => boolean;
 	readonly isSearchOpen: boolean;
 	readonly searchTriggerRef: RefObject<HTMLButtonElement | null>;
 	readonly surfaceRootRef: RefObject<HTMLElement | null>;
 }): void {
+	const { isActive, isSearchOpen, isTreePathEligible, searchTriggerRef, surfaceRootRef } = props;
 	const focusIdentityRef = useRef<BridgeViewerSearchFocusIdentity | null>(null);
-	const wasSearchOpenRef = useRef(props.isSearchOpen);
+	const wasSearchOpenRef = useRef(isSearchOpen);
 
 	useEffect((): (() => void) => {
-		if (!props.isActive) return (): void => {};
+		if (!isActive) return (): void => {};
 		const recordFocusIdentity = (event: FocusEvent): void => {
-			const surfaceRoot = props.surfaceRootRef.current;
+			const surfaceRoot = surfaceRootRef.current;
 			if (surfaceRoot === null) return;
 			const eventPath = event.composedPath();
-			const searchTrigger = props.searchTriggerRef.current;
+			const searchTrigger = searchTriggerRef.current;
 			if (
 				!eventPath.includes(surfaceRoot) ||
 				(searchTrigger !== null && eventPath.includes(searchTrigger))
@@ -60,26 +62,28 @@ export function useBridgeViewerSearchFocusRestoration(props: {
 		};
 		document.addEventListener('focusin', recordFocusIdentity, true);
 		return (): void => document.removeEventListener('focusin', recordFocusIdentity, true);
-	}, [props.isActive, props.searchTriggerRef, props.surfaceRootRef]);
+	}, [isActive, searchTriggerRef, surfaceRootRef]);
 
 	useLayoutEffect((): void => {
-		const didClose = wasSearchOpenRef.current && !props.isSearchOpen;
-		wasSearchOpenRef.current = props.isSearchOpen;
-		if (!didClose || !props.isActive) return;
-		const surfaceRoot = props.surfaceRootRef.current;
+		const didClose = wasSearchOpenRef.current && !isSearchOpen;
+		wasSearchOpenRef.current = isSearchOpen;
+		if (!didClose || !isActive) return;
+		const surfaceRoot = surfaceRootRef.current;
 		if (surfaceRoot === null || !surfaceRoot.isConnected) return;
+		const focusIdentity = focusIdentityRef.current;
 		const semanticOwner =
-			focusIdentityRef.current === null
+			focusIdentity === null ||
+			(focusIdentity.kind === 'tree_path' && isTreePathEligible?.(focusIdentity.path) === false)
 				? null
-				: resolveSearchFocusIdentity(surfaceRoot, focusIdentityRef.current);
-		const searchTrigger = props.searchTriggerRef.current;
+				: resolveSearchFocusIdentity(surfaceRoot, focusIdentity);
+		const searchTrigger = searchTriggerRef.current;
 		const focusTarget =
 			semanticOwner ??
 			(searchTrigger?.isConnected === true && surfaceRoot.contains(searchTrigger)
 				? searchTrigger
 				: surfaceRoot);
 		focusTarget.focus({ preventScroll: true });
-	}, [props.isActive, props.isSearchOpen, props.searchTriggerRef, props.surfaceRootRef]);
+	}, [isActive, isSearchOpen, isTreePathEligible, searchTriggerRef, surfaceRootRef]);
 }
 
 function resolveSearchFocusIdentity(

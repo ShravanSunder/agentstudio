@@ -392,13 +392,19 @@ export function createBridgeFileViewerBrowserQueryCompletion(): BridgeFileViewer
 	const pendingInteractionWaiters: BridgeFileViewerBrowserQueryWaiter[] = [];
 	const waitersByRequestId = new Map<string, BridgeFileViewerBrowserQueryWaiter>();
 	const waitersByTransactionId = new Map<string, BridgeFileViewerBrowserQueryWaiter>();
+	const publishedTransactionIds = new Set<string>();
 	let isDisposed = false;
 
+	const hasWaiterWithoutTransactionId = (): boolean =>
+		[...waitersByRequestId.values()].some(
+			(waiter): boolean => !waiter.settled && waiter.transactionId === null,
+		);
 	const removeWaiter = (waiter: BridgeFileViewerBrowserQueryWaiter): void => {
 		const pendingIndex = pendingInteractionWaiters.indexOf(waiter);
 		if (pendingIndex >= 0) pendingInteractionWaiters.splice(pendingIndex, 1);
 		if (waiter.requestId !== null) waitersByRequestId.delete(waiter.requestId);
 		if (waiter.transactionId !== null) waitersByTransactionId.delete(waiter.transactionId);
+		if (!hasWaiterWithoutTransactionId()) publishedTransactionIds.clear();
 	};
 	const resolveWaiter = (waiter: BridgeFileViewerBrowserQueryWaiter): void => {
 		if (waiter.settled) return;
@@ -424,6 +430,7 @@ export function createBridgeFileViewerBrowserQueryCompletion(): BridgeFileViewer
 			for (const waiter of outstandingWaiters) {
 				rejectWaiter(waiter, new Error('File query completion disposed.'));
 			}
+			publishedTransactionIds.clear();
 		},
 		observeCommand: (message): void => {
 			if (isDisposed || message.command !== 'fileQueryUpdate') return;
@@ -445,12 +452,20 @@ export function createBridgeFileViewerBrowserQueryCompletion(): BridgeFileViewer
 				return;
 			}
 			waiter.transactionId = message.outcome.transactionId;
+			if (publishedTransactionIds.delete(message.outcome.transactionId)) {
+				resolveWaiter(waiter);
+				return;
+			}
 			waitersByTransactionId.set(message.outcome.transactionId, waiter);
 		},
 		observePublishedTransaction: (transactionId): void => {
 			if (isDisposed) return;
 			const waiter = waitersByTransactionId.get(transactionId);
-			if (waiter !== undefined) resolveWaiter(waiter);
+			if (waiter !== undefined) {
+				resolveWaiter(waiter);
+				return;
+			}
+			if (hasWaiterWithoutTransactionId()) publishedTransactionIds.add(transactionId);
 		},
 		prepareNextQueryCompletion: (): BridgeFileViewerBrowserPreparedQueryCompletion => {
 			if (isDisposed) {

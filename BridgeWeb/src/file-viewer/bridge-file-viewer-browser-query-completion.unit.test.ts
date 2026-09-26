@@ -31,6 +31,41 @@ describe('Bridge File Viewer browser query completion', () => {
 		await expect(pending.promise).resolves.toBeUndefined();
 	});
 
+	test('settles when the display transaction is published before its query outcome arrives', async () => {
+		// Arrange
+		const completion = createBridgeFileViewerBrowserQueryCompletion();
+		const pending = completion.prepareNextQueryCompletion();
+		completion.observeCommand(fileQueryCommand('query-published-first'));
+		let didResolve = false;
+		void pending.promise.then(
+			(): void => {
+				didResolve = true;
+			},
+			(): void => {},
+		);
+
+		// Act: the main-thread display snapshot can publish from the final batch
+		// before the following fileQueryOutcome supplies its transaction ID.
+		completion.observePublishedTransaction('unrelated-transaction');
+		await Promise.resolve();
+		expect(didResolve).toBe(false);
+		completion.observePublishedTransaction('transaction-published-first');
+		await Promise.resolve();
+		expect(didResolve).toBe(false);
+		completion.observeOutcome(
+			fileQueryOutcome('query-published-first', {
+				kind: 'projected',
+				transactionId: 'transaction-published-first',
+			}),
+		);
+		await Promise.resolve();
+		const didResolveAfterMatchingOutcome = didResolve;
+		if (!didResolveAfterMatchingOutcome) pending.cancel();
+
+		// Assert
+		expect(didResolveAfterMatchingOutcome).toBe(true);
+	});
+
 	test('settles unchanged and rejects superseded exact requests', async () => {
 		// Arrange / Act: unchanged is terminal without a display transaction.
 		const completion = createBridgeFileViewerBrowserQueryCompletion();

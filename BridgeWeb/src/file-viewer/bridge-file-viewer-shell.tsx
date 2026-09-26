@@ -1,4 +1,4 @@
-import { useRef, type ReactElement, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactElement, type ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import {
@@ -89,8 +89,13 @@ export interface BridgeFileViewerShellProps {
 export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactElement {
 	const surfaceRootRef = useRef<HTMLElement>(null);
 	const searchTriggerRef = useRef<HTMLButtonElement>(null);
+	const isTreePathEligible = useCallback(
+		(path: string): boolean => props.displayModel.treeRowByPath.get(path) !== undefined,
+		[props.displayModel.treeRowByPath],
+	);
 	useBridgeViewerSearchFocusRestoration({
 		isActive: props.isActive,
+		isTreePathEligible,
 		isSearchOpen: props.isSearchOpen,
 		searchTriggerRef,
 		surfaceRootRef,

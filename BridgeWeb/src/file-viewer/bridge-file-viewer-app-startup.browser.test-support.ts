@@ -1,10 +1,7 @@
 import { act } from 'react';
 
 import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import {
-	actFrame,
-	bridgeFileViewerNoopResizeObserverIsInstalled,
-} from './bridge-file-viewer-browser-test-harness.js';
+import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
 
 interface FileViewerUiTraceEntry {
 	readonly contentStateText: string | null;
@@ -14,53 +11,6 @@ interface FileViewerUiTraceEntry {
 	readonly metadataTreeRowCount: string | null;
 	readonly timestampMilliseconds: number;
 	readonly visibleText: string;
-}
-
-export interface FileFilterActDiagnostic {
-	oldCheckedIndicator: Element | null;
-	selectedOption: HTMLElement | null;
-}
-
-export function recordFileFilterActDiagnostic(
-	diagnostic: FileFilterActDiagnostic | null,
-	phase: string,
-): void {
-	if (diagnostic === null) return;
-
-	const popup = document.querySelector('[data-testid="worktree-file-filter-menu-popover"]');
-	const popupAnimations =
-		popup instanceof HTMLElement ? popup.getAnimations({ subtree: true }) : [];
-	const selectedIndicator = diagnostic.selectedOption?.querySelector('[data-checked]') ?? null;
-	const activeElement = document.activeElement;
-	const activeElementOwner =
-		activeElement === null
-			? 'none'
-			: popup instanceof HTMLElement && popup.contains(activeElement)
-				? 'popup'
-				: activeElement.getAttribute('data-testid') === 'worktree-file-filter-menu'
-					? 'trigger'
-					: 'other';
-	const animationPlayStateCounts = popupAnimations.reduce<Record<AnimationPlayState, number>>(
-		(counts, animation) => {
-			counts[animation.playState] += 1;
-			return counts;
-		},
-		{ finished: 0, idle: 0, paused: 0, running: 0 },
-	);
-
-	console.info(
-		'[file-filter-act-diagnostic]',
-		JSON.stringify({
-			activeElementOwner,
-			animationCount: popupAnimations.length,
-			animationPlayStateCounts,
-			noOpResizeObserverInstalled: bridgeFileViewerNoopResizeObserverIsInstalled(),
-			oldCheckedIndicatorConnected: diagnostic.oldCheckedIndicator?.isConnected ?? null,
-			phase,
-			popupConnected: popup?.isConnected ?? false,
-			selectedIndicatorConnected: selectedIndicator?.isConnected ?? false,
-		}),
-	);
 }
 
 declare global {
@@ -189,16 +139,26 @@ export async function waitForFileViewerMenuOptionContaining(props: {
 
 export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	readonly interaction: () => Promise<void>;
-	readonly onDiagnosticPhase?: (phase: FileViewerCheckedMenuDiagnosticPhase) => void;
 	readonly option: HTMLElement;
 }): Promise<void> {
+	await props.interaction();
 	await act(async (): Promise<void> => {
-		props.onDiagnosticPhase?.('before-interaction-act');
-		await props.interaction();
-		props.onDiagnosticPhase?.('after-interaction-act');
-		props.onDiagnosticPhase?.('before-animation-finish-wait');
 		await waitForFileViewerAnimationsToFinish(props.option);
-		props.onDiagnosticPhase?.('after-animation-finish-wait');
+	});
+	// Base UI clears its starting-style state from an animation-frame callback.
+	// Ending this act first lets React commit that callback's state update before
+	// the event-driven DOM assertion below observes the transition attributes.
+	await actFrame();
+	await waitForFileViewerDomState(() => {
+		const checkedIndicator = props.option.querySelector(
+			'[data-slot="dropdown-menu-checkbox-item-indicator"] [data-checked]',
+		);
+		return props.option.getAttribute('aria-checked') === 'true' &&
+			checkedIndicator instanceof HTMLElement &&
+			!checkedIndicator.hasAttribute('data-starting-style') &&
+			!checkedIndicator.hasAttribute('data-ending-style')
+			? true
+			: undefined;
 	});
 
 	const checkedIndicator = props.option.querySelector(
@@ -220,12 +180,6 @@ export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	}
 }
 
-export type FileViewerCheckedMenuDiagnosticPhase =
-	| 'before-interaction-act'
-	| 'after-interaction-act'
-	| 'before-animation-finish-wait'
-	| 'after-animation-finish-wait';
-
 export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
 	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
@@ -236,12 +190,14 @@ export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Pro
 		return;
 	}
 
+	await actFrame();
 	await act(async (): Promise<void> => {
 		await waitForFileViewerAnimationsToFinish(popup);
-		if (expectedExpandedState === 'false') {
-			await waitForFileViewerDomState(() => (popup.isConnected ? undefined : true));
-		}
 	});
+	await waitForFileViewerTransitionStylesToClear(popup);
+	if (expectedExpandedState === 'false') {
+		await waitForFileViewerDomState(() => (popup.isConnected ? undefined : true));
+	}
 }
 
 async function waitForFileViewerMenuState(props: {
@@ -284,6 +240,18 @@ async function waitForFileViewerAnimationsToFinish(element: HTMLElement): Promis
 		await waitForFileViewerAnimationsToFinish(element);
 	}
 }
+
+async function waitForFileViewerTransitionStylesToClear(element: HTMLElement): Promise<void> {
+	await waitForFileViewerDomState(() => {
+		if (!element.isConnected) return true;
+		const transitionStylesRemain =
+			element.hasAttribute('data-starting-style') ||
+			element.hasAttribute('data-ending-style') ||
+			element.querySelector('[data-starting-style], [data-ending-style]') !== null;
+		return transitionStylesRemain ? undefined : true;
+	});
+}
+
 function waitForFileViewerDomState<TStateValue>(
 	readState: () => TStateValue | undefined,
 ): Promise<TStateValue> {
