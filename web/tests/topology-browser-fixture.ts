@@ -87,7 +87,7 @@ export function mountTopologyFixture(layout: TopologyFixtureLayout): TopologyFix
     <div style="${box(layout.contentLeft, heroTop, 700, 380)}">
       <p data-rail-anchor="hero" style="margin:0">Hero eyebrow</p>
     </div>
-    <div data-rail-surface-target="hero" data-rail-media-target="hero"
+    <div data-rail-surface-target="hero" data-rail-target-edge="top" data-rail-media-target="hero"
       style="position:absolute;left:${layout.contentLeft}px;top:${heroFrameTop}px;width:calc(100% - ${layout.contentLeft + 24}px);height:400px"></div>
     ${chapterTops.map((anchorTop, index) => chapterMarkup(`chapter-${index + 1}`, layout, anchorTop)).join("")}
   `;

@@ -7,6 +7,7 @@ import {
   railAnchorAttribute,
   railMediaTargetAttribute,
   railSurfaceTargetAttribute,
+  railTargetEdgeAttribute,
 } from "@/chapters/chapter-dom-contract";
 import { marketingCopy } from "@/marketing-copy";
 import {
@@ -30,6 +31,7 @@ const heroRailId = "hero";
 const railAnchorAttributes = { [railAnchorAttribute]: heroRailId };
 const appFrameRailAttributes = {
   [railSurfaceTargetAttribute]: heroRailId,
+  [railTargetEdgeAttribute]: "top",
   [railMediaTargetAttribute]: heroRailId,
 };
 // Lines may break between the eyebrow's sentences, never inside "Repo-aware."

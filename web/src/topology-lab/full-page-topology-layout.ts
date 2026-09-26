@@ -10,6 +10,7 @@ import {
   railMediaTargetAttribute,
   railStepPillTargetAttribute,
   railSurfaceTargetAttribute,
+  railTargetEdgeAttribute,
 } from "../chapters/chapter-dom-contract";
 import {
   composeFullPageTopology,
@@ -112,10 +113,12 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
     const media = medias.get(id);
     const stepPill = stepPills.get(id);
     const firstLine = firstLineBox(anchor);
+    const declaredEdge = surface?.getAttribute(railTargetEdgeAttribute);
     return {
       id,
       rect: measure(anchor),
       surface: surface === undefined ? undefined : measure(surface),
+      targetEdge: declaredEdge === "top" || declaredEdge === "left" ? declaredEdge : undefined,
       media: media === undefined ? undefined : measure(media),
       stepPill: stepPill === undefined ? undefined : measure(stepPill),
       copyBlock: media === undefined ? undefined : measure(findCopyBlock(anchor, media)),

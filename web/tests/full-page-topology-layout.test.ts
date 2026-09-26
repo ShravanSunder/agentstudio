@@ -55,6 +55,7 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
   const anchors: TopologyAnchorMeasurement[] = [
     {
       id: "hero",
+      targetEdge: "top",
       rect: rect(heroCopyLeft, 110, 400, 12),
       surface: heroFrame,
       media: heroFrame,
@@ -135,6 +136,20 @@ describe("step pill attachment", () => {
     const route = composed(fixture).routes.find((candidate) => candidate.anchorId === "hero");
     expect(route?.targetEdge).toBe("top");
     expect(route?.targetPoint?.y).toBe(hero?.surface?.top);
+  });
+  it("enters a non-hero anchor's declared top edge on desktop", () => {
+    const fixture = homePageAt(1600);
+    const chapter = fixture.page.anchors[1];
+    if (chapter?.surface === undefined) throw new Error("First chapter glass is missing");
+    const anchors = fixture.page.anchors.map((anchor, index) =>
+      index === 1 ? { ...anchor, targetEdge: "top" as const } : anchor,
+    );
+    const route = composeFullPageTopology({ ...fixture.page, anchors })?.routes.find(
+      (candidate) => candidate.anchorId === chapter.id,
+    );
+    expect(route?.targetEdge).toBe("top");
+    expect(route?.targetPoint?.y).toBe(chapter.surface.top);
+    expect(route?.targetPoint?.x).toBe(chapter.surface.left + topologyStackedDropCornerInset);
   });
   for (const width of [390, 820, 1280, 1600]) {
     it(`uses the pill on desktop and glass top on stacked layouts at ${width}px`, () => {

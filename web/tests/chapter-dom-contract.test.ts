@@ -12,6 +12,7 @@ describe("chapter DOM contract", () => {
       new Set([
         "data-rail-anchor",
         "data-rail-surface-target",
+        "data-rail-target-edge",
         "data-rail-media-target",
         "data-rail-step-pill-target",
         "data-rail-end-mark",

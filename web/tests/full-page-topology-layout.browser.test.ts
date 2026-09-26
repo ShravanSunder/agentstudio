@@ -145,6 +145,31 @@ describe("full-page topology layout", () => {
     }
   });
 
+  it("measures a non-hero surface's declared top edge", async () => {
+    await page.viewport(1600, 1000);
+    const fixture = mount({
+      contentLeft: 197,
+      anchorTops: [110, 1300],
+      height: 2500,
+      phone: false,
+    });
+    const glass = required(fixture.host, '[data-rail-surface-target="chapter-1"]');
+    glass.setAttribute("data-rail-target-edge", "top");
+
+    expect(layoutFullPageTopology(fixture.artwork)).toBe(true);
+
+    const route = required(
+      fixture.artwork,
+      '[data-route-kind="attach"][data-route-anchor="chapter-1"]',
+    );
+    const core = requiredPath(route, '[data-topology-path-role="core"]');
+    const endpoint = pathEnd(fixture.artwork, core);
+    const bounds = glass.getBoundingClientRect();
+    expect(route.getAttribute("data-target-edge")).toBe("top");
+    expect(Math.abs(endpoint.y - bounds.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(endpoint.x - bounds.left - 24)).toBeLessThanOrEqual(1);
+  });
+
   it("draws a single mainline on a phone and drops each branch into its glass's top edge", async () => {
     // Arrange
     await page.viewport(390, 844);

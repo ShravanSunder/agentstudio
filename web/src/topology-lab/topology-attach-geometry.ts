@@ -35,7 +35,7 @@ export function attachXFor(
   if (surface === undefined) {
     return undefined;
   }
-  return stacked || anchor.id === "hero"
+  return stacked || anchor.targetEdge === "top"
     ? Math.min(surface.left + topologyStackedDropCornerInset, surface.left + surface.width / 2)
     : surface.left;
 }
@@ -119,7 +119,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       continue;
     }
 
-    if (stacked || anchor.id === "hero") {
+    if (stacked || anchor.targetEdge === "top") {
       const copyAboveGlass = anchor.rect.top < target.top;
       const previousSurface = page.anchors[index - 1]?.surface;
       const clearTop = copyAboveGlass

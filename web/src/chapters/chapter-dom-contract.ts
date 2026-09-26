@@ -8,6 +8,9 @@ export const railAnchorAttribute = "data-rail-anchor";
 /** `data-rail-surface-target="<id>"`: wide and laptop branches join this element's left edge. */
 export const railSurfaceTargetAttribute = "data-rail-surface-target";
 
+/** `data-rail-target-edge="top|left"`: a surface's preferred wide-layout branch entry. */
+export const railTargetEdgeAttribute = "data-rail-target-edge";
+
 /** `data-rail-media-target="<id>"`: phone branches drop into this element's top edge. */
 export const railMediaTargetAttribute = "data-rail-media-target";
 

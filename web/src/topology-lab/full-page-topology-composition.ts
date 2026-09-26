@@ -58,6 +58,8 @@ export interface TopologyAnchorMeasurement {
   readonly rect: TopologyRect;
   /** `data-rail-surface-target`: wide and laptop branches enter its left edge. */
   readonly surface: TopologyRect | undefined;
+  /** Surface-declared preferred edge on wide layouts; stacked layouts enter the top. */
+  readonly targetEdge?: TopologyTargetEdge | undefined;
   /** `data-rail-media-target`: the stage inside the glass. */
   readonly media: TopologyRect | undefined;
   /** `data-rail-step-pill-target`: multi-step chapters attach here. */
