@@ -1,5 +1,6 @@
 ---
 import { installCommandText, marketingCopy } from "@/marketing-copy";
+import KitIcon from "@/recreation-kit/KitIcon.astro";
 ---
 
 <!--
@@ -12,7 +13,8 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
   data-install-command={installCommandText}
 >
   <code
-    class="grid min-w-0 flex-1 gap-1 overflow-x-auto px-4.25 py-3.75 font-mono-product text-[14px] leading-normal whitespace-nowrap text-ink max-phone:px-3 max-phone:py-3 max-phone:text-[11px]"
+    class="install-command__code grid min-w-0 flex-1 gap-1 overflow-x-auto px-4.25 py-3.75 font-mono-product leading-normal whitespace-nowrap text-ink max-phone:px-3 max-phone:py-3"
+    data-install-code
   >
     {
       marketingCopy.installation.commands.map((command) => (
@@ -22,11 +24,12 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
   </code>
   <button
     type="button"
-    class="flex-none cursor-pointer rounded-r-xl border-l border-line px-4.5 font-mono-product text-[12px] font-semibold tracking-[0.14em] text-ink-faint uppercase transition-colors duration-150 ease-out hover:bg-[rgb(255_255_255/4%)] hover:text-ink motion-reduce:transition-none max-phone:px-3 max-phone:text-[11px]"
+    class="install-command__copy flex-none cursor-pointer rounded-r-xl border-l border-line px-4.5 font-mono-product text-[12px] font-semibold tracking-[0.14em] text-ink-faint uppercase transition-colors duration-150 ease-out hover:bg-[rgb(255_255_255/4%)] hover:text-ink motion-reduce:transition-none"
     data-install-copy
     aria-label={marketingCopy.installation.copyButton}
   >
-    {marketingCopy.installation.copyButtonVisible}
+    <span data-install-copy-label>{marketingCopy.installation.copyButtonVisible}</span>
+    <KitIcon name="copy" class="install-command__copy-icon h-4 w-4" />
   </button>
   <span
     class="absolute top-[calc(100%+7px)] left-0 text-[12px] text-glyph"
@@ -37,6 +40,21 @@ import { installCommandText, marketingCopy } from "@/marketing-copy";
 
 <style>
   .install-command__decode { background: var(--color-active-surface); pointer-events: none; }
+  .install-command__code {
+    font-size: clamp(9px, 2.45vw, 14px);
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+    scrollbar-width: none;
+  }
+  .install-command__code::-webkit-scrollbar { display: none; }
+  .install-command[data-install-overflow] .install-command__code {
+    mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  }
+  .install-command__copy-icon { display: none; }
+  .install-command[data-compact-copy] .install-command__copy { width: 36px; padding: 0; }
+  .install-command[data-compact-copy] [data-install-copy-label] { display: none; }
+  .install-command[data-compact-copy] .install-command__copy-icon { display: block; margin: auto; }
 </style>
 
 <script>

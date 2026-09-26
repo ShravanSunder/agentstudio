@@ -215,6 +215,7 @@ describe("interactive website controllers", () => {
   it("reports copy success and preserves a useful clipboard failure fallback", async () => {
     const fixture = addFixture(`
       <div data-install-root data-install-command="brew install --cask agent-studio">
+        <code data-install-code>brew install --cask agent-studio</code>
         <button data-install-copy>Copy</button>
         <span data-install-status></span>
       </div>
@@ -243,6 +244,7 @@ describe("interactive website controllers", () => {
   it("reports copy failure when the Clipboard API is unavailable", async () => {
     const fixture = addFixture(`
       <div data-install-root data-install-command="brew install --cask agent-studio">
+        <code data-install-code>brew install --cask agent-studio</code>
         <button data-install-copy>Copy</button>
         <span data-install-status></span>
       </div>

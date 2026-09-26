@@ -3,6 +3,7 @@ import { reduceInstallCommandState, type InstallCommandState } from "./install-c
 
 interface InstallCommandControllerElements {
   readonly button: HTMLButtonElement;
+  readonly code: HTMLElement;
   readonly status: HTMLElement;
 }
 
@@ -25,19 +26,34 @@ function copyStatusText(state: InstallCommandState): string {
 
 function resolveControllerElements(root: HTMLElement): InstallCommandControllerElements {
   const button = root.querySelector<HTMLButtonElement>("[data-install-copy]");
+  const code = root.querySelector<HTMLElement>("[data-install-code]");
   const status = root.querySelector<HTMLElement>("[data-install-status]");
 
-  if (button === null || status === null) {
+  if (button === null || code === null || status === null) {
     throw new Error("Install command markup is incomplete.");
   }
 
-  return { button, status };
+  return { button, code, status };
 }
 
 export function initializeInstallCommand(root: HTMLElement): () => void {
-  const { button, status } = resolveControllerElements(root);
+  const { button, code, status } = resolveControllerElements(root);
   const lifecycle = new AbortController();
   let state: InstallCommandState = { kind: "idle" };
+
+  const measureCopyLayout = (): void => {
+    root.removeAttribute("data-compact-copy");
+    const narrowViewport = window.matchMedia("(max-width: 38.749rem)").matches;
+    root.toggleAttribute(
+      "data-compact-copy",
+      narrowViewport || code.scrollWidth > code.clientWidth,
+    );
+    root.toggleAttribute("data-install-overflow", code.scrollWidth > code.clientWidth);
+  };
+  const resizeObserver = new ResizeObserver(measureCopyLayout);
+  resizeObserver.observe(root);
+  window.addEventListener("resize", measureCopyLayout, { signal: lifecycle.signal });
+  measureCopyLayout();
 
   button.addEventListener(
     "click",
@@ -80,5 +96,8 @@ export function initializeInstallCommand(root: HTMLElement): () => void {
     { signal: lifecycle.signal },
   );
 
-  return (): void => lifecycle.abort();
+  return (): void => {
+    resizeObserver.disconnect();
+    lifecycle.abort();
+  };
 }
