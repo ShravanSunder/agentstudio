@@ -54,6 +54,7 @@ enum BridgeProductRequestErrorCode: String, Codable, Equatable, Sendable {
     case staleSource = "stale_source"
     case superseded
     case resultCapacityExhausted = "result_capacity_exhausted"
+    case mutationWatchCapacityExhausted = "mutation_watch_capacity_exhausted"
     case payloadTooLarge = "payload_too_large"
     case unsupportedCall = "unsupported_call"
     case unsupportedSubscription = "unsupported_subscription"

@@ -8,10 +8,13 @@ import {
 	bridgeProductPositiveSequenceSchema,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductMetadataApplicationKindSchema } from './bridge-product-metadata-application-protocol.js';
+import { bridgeProductViewScopeSchema } from './bridge-product-view-control-wire-contracts.js';
 
 const batchIdentityShape = {
 	batchId: bridgeProductIdentifierSchema,
+	domain: bridgeProductIdentifierSchema,
 	handle: bridgeProductIdentifierSchema,
+	incarnation: bridgeProductIdentifierSchema,
 	metadataStreamId: bridgeProductIdentifierSchema,
 	paneSessionId: bridgeProductIdentifierSchema,
 	scopeRevision: bridgeProductNonnegativeSequenceSchema,
@@ -22,7 +25,6 @@ const batchIdentityShape = {
 	workerInstanceId: bridgeProductIdentifierSchema,
 } as const;
 
-const scopeSchema = z.object({ kind: z.string().min(1) }).catchall(z.unknown());
 const presentValueSchema = z.custom<unknown>((value): boolean => value !== undefined);
 
 export const bridgeProductBatchModeSchema = z.enum(['snapshot', 'change', 'coverage']);
@@ -53,7 +55,8 @@ const bridgeProductBatchBeginFrameSchema = z
 		kind: z.literal('subscription.batchBegin'),
 		mode: bridgeProductBatchModeSchema,
 		partCount: bridgeProductNonnegativeSequenceSchema,
-		scope: scopeSchema,
+		requiresCollection: bridgeProductNonnegativeSequenceSchema.optional(),
+		scope: bridgeProductViewScopeSchema,
 		targetRevision: bridgeProductNonnegativeSequenceSchema,
 	})
 	.strict()
@@ -76,7 +79,7 @@ const bridgeProductBatchPartFrameSchema = z
 const bridgeProductBatchCompleteFrameSchema = z
 	.object({
 		...batchIdentityShape,
-		coveredScope: scopeSchema,
+		coveredScope: bridgeProductViewScopeSchema,
 		kind: z.literal('subscription.batchComplete'),
 	})
 	.strict();

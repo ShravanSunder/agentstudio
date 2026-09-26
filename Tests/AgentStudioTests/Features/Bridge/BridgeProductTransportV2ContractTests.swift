@@ -74,7 +74,7 @@ struct BridgeProductTransportV2ContractTests {
             BridgeProductBatchFrame.self,
             from: try fixtureArray(named: "batchFrames", in: transport)
         )
-        #expect(batches.count == 7)
+        #expect(batches.count == 9)
     }
 
     @Test("shared v2 invalid envelopes fail at the same structural boundary")
@@ -99,6 +99,96 @@ struct BridgeProductTransportV2ContractTests {
         var batch = try #require(fixtureArray(named: "batchFrames", in: transport).first)
         batch["scope"] = NSNull()
         #expect(decodingFails(BridgeProductBatchFrame.self, object: batch))
+    }
+
+    @Test("File batch rows retain canonical identity and deleted ghosts have no read capability")
+    func fileBatchRowsRoundTrip() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-file-batch-row-corpus.json"
+        )
+        let entries = try fixtureArray(named: "rows", in: corpus)
+        #expect(entries.count == 3)
+        for entry in entries {
+            let recordKey = try #require(entry["recordKey"] as? String)
+            #expect(recordKey.hasPrefix("/workspace/"))
+            let rowObject = try #require(entry["row"] as? [String: Any])
+            let rows = try decodeAndVerifyRoundTrips(BridgeProductFileBatchRow.self, from: [rowObject])
+            let row = try #require(rows.first)
+            if row.kind == .deleted {
+                #expect(row.readDescriptor == nil)
+                #expect(row.oldPath != nil)
+            }
+        }
+    }
+
+    @Test("File scopes reject future baselines and repeated change kinds")
+    func invalidFileChangeFiltersFail() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        let transport = try #require(corpus["transportV2"] as? [String: Any])
+        let requests = try fixtureArray(named: "viewScopeRequests", in: transport)
+        var request = try #require(requests.last)
+        var scope = try #require(request["scope"] as? [String: Any])
+        var filter = try #require(scope["changeFilter"] as? [String: Any])
+        filter["baseline"] = ["kind": "commit", "oid": "abc"]
+        scope["changeFilter"] = filter
+        request["scope"] = scope
+        #expect(decodingFails(BridgeProductViewScopeRequest.self, object: request))
+
+        filter["baseline"] = ["kind": "uncommitted"]
+        filter["kinds"] = ["added", "added"]
+        scope["changeFilter"] = filter
+        request["scope"] = scope
+        #expect(decodingFails(BridgeProductViewScopeRequest.self, object: request))
+    }
+
+    @Test("a deleted File row cannot carry a read descriptor")
+    func deletedFileRowCannotBeOpened() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-file-batch-row-corpus.json"
+        )
+        let entries = try fixtureArray(named: "rows", in: corpus)
+        let descriptorRow = try #require(entries.first?["row"] as? [String: Any])
+        let descriptor = try #require(descriptorRow["readDescriptor"] as? [String: Any])
+        var ghost = try #require(entries.last?["row"] as? [String: Any])
+        ghost["readDescriptor"] = descriptor
+        #expect(decodingFails(BridgeProductFileBatchRow.self, object: ghost))
+    }
+
+    @Test("comment catalog records freeze keyed identity and transaction revision")
+    func commentCatalogRecordsRoundTrip() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-comment-catalog-record-corpus.json"
+        )
+        let entries = try fixtureArray(named: "records", in: corpus)
+        #expect(entries.count == 3)
+        for entry in entries {
+            let expectedKey = try #require(entry["recordKey"] as? String)
+            let recordObject = try #require(entry["record"] as? [String: Any])
+            let records = try decodeAndVerifyRoundTrips(BridgeProductCommentCatalogRecord.self, from: [recordObject])
+            #expect(records.first?.recordKey == expectedKey)
+        }
+    }
+
+    @Test("revision-aware mutation observation has distinct unknown and late evidence")
+    func mutationObservationRoundTrips() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-operation-observation-corpus.json"
+        )
+        _ = try decodeAndVerifyRoundTrips(
+            BridgeProductOperationObservationRequest.self,
+            from: try fixtureArray(named: "observeRequests", in: corpus)
+        )
+        let responses = try decodeAndVerifyRoundTrips(
+            BridgeProductOperationObservationResponse.self,
+            from: try fixtureArray(named: "observeResponses", in: corpus)
+        )
+        #expect(responses.count == 2)
+        _ = try decodeAndVerifyRoundTrips(
+            BridgeProductOperationLateOutcomeAcknowledgement.self,
+            from: try fixtureArray(named: "lateOutcomeAcknowledgements", in: corpus)
+        )
     }
 
     private func decodeAndVerifyRoundTrips<CodableValue: Codable>(

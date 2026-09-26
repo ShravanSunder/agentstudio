@@ -21,19 +21,49 @@ const controlCorrelationShape = {
 
 const viewControlShape = {
 	...controlCorrelationShape,
+	domain: bridgeProductIdentifierSchema,
 	handle: bridgeProductIdentifierSchema,
+	incarnation: bridgeProductIdentifierSchema,
 	scopeRevision: bridgeProductNonnegativeSequenceSchema,
 	subscriptionId: bridgeProductIdentifierSchema,
 	subscriptionKind: bridgeProductMetadataApplicationKindSchema,
 } as const;
 
-const scopeSchema = z.object({ kind: z.string().min(1) }).catchall(z.unknown());
+const fileChangeKindSchema = z.enum(['added', 'modified', 'renamed', 'deleted', 'copied']);
+const fileChangeKindsSchema = z.array(fileChangeKindSchema).superRefine((kinds, context): void => {
+	if (new Set(kinds).size !== kinds.length) {
+		context.addIssue({ code: 'custom', message: 'File change kinds must be unique.' });
+	}
+});
+const fileChangeFilterSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('none') }).strict(),
+	z
+		.object({
+			baseline: z.discriminatedUnion('kind', [
+				z.object({ kind: z.literal('uncommitted') }).strict(),
+				z.object({ kind: z.literal('originDefaultMergeBase') }).strict(),
+			]),
+			kind: z.literal('changes'),
+			kinds: fileChangeKindsSchema,
+		})
+		.strict(),
+]);
+
+export const bridgeProductViewScopeSchema = z
+	.object({ kind: z.string().min(1) })
+	.catchall(z.unknown())
+	.superRefine((scope, context): void => {
+		if (scope.kind !== 'file') return;
+		if (!fileChangeFilterSchema.safeParse(scope['changeFilter']).success) {
+			context.addIssue({ code: 'custom', message: 'Invalid File change filter.' });
+		}
+	});
 
 export const bridgeProductViewScopeRequestSchema = z
 	.object({
 		...viewControlShape,
 		kind: z.literal('subscription.setScope'),
-		scope: scopeSchema,
+		scope: bridgeProductViewScopeSchema,
 	})
 	.strict();
 
@@ -46,7 +76,9 @@ export const bridgeProductViewResnapshotRequestSchema = z
 
 export const bridgeProductViewAcknowledgementRequestSchema = z
 	.object({
+		domain: bridgeProductIdentifierSchema,
 		handle: bridgeProductIdentifierSchema,
+		incarnation: bridgeProductIdentifierSchema,
 		kind: z.literal('subscription.acknowledge'),
 		paneSessionId: bridgeProductIdentifierSchema,
 		receivedThroughDeliverySequence: bridgeProductPositiveSequenceSchema,

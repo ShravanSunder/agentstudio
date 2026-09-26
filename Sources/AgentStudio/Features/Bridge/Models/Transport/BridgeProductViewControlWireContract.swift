@@ -11,12 +11,64 @@ enum BridgeProductViewScopeContract {
             )
         }
         try BridgeProductContractDecoding.validateNonemptyString(kind, codingPath: codingPath)
+        guard kind == "file" else { return }
+        guard let changeFilter = members["changeFilter"],
+            case .object(let filterMembers) = changeFilter,
+            case .string(let filterKind)? = filterMembers["kind"]
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "File scope requires a change filter",
+                codingPath: codingPath
+            )
+        }
+        switch filterKind {
+        case "none":
+            guard Set(filterMembers.keys) == ["kind"] else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "None change filter has no other members",
+                    codingPath: codingPath
+                )
+            }
+        case "changes":
+            guard Set(filterMembers.keys) == ["kind", "baseline", "kinds"],
+                case .object(let baselineMembers)? = filterMembers["baseline"],
+                Set(baselineMembers.keys) == ["kind"],
+                case .string(let baselineKind)? = baselineMembers["kind"],
+                ["uncommitted", "originDefaultMergeBase"].contains(baselineKind),
+                case .array(let kinds)? = filterMembers["kinds"]
+            else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Invalid File change filter baseline or kinds",
+                    codingPath: codingPath
+                )
+            }
+            let allowedKinds: Set<String> = ["added", "modified", "renamed", "deleted", "copied"]
+            var seenKinds: Set<String> = []
+            for value in kinds {
+                guard case .string(let changeKind) = value,
+                    allowedKinds.contains(changeKind),
+                    seenKinds.insert(changeKind).inserted
+                else {
+                    throw BridgeProductContractDecoding.invalidValue(
+                        "Invalid or repeated File change kind",
+                        codingPath: codingPath
+                    )
+                }
+            }
+        default:
+            throw BridgeProductContractDecoding.invalidValue(
+                "Unknown File change filter",
+                codingPath: codingPath
+            )
+        }
     }
 }
 
 struct BridgeProductViewScopeRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case domain
         case handle
+        case incarnation
         case kind
         case scope
         case scopeRevision
@@ -25,7 +77,9 @@ struct BridgeProductViewScopeRequest: Codable, Equatable, Sendable {
     }
 
     let correlation: BridgeProductControlCorrelation
+    let domain: String
     let handle: String
+    let incarnation: String
     let scope: BridgeProductJSONValue
     let scopeRevision: Int
     let subscriptionId: String
@@ -47,13 +101,17 @@ struct BridgeProductViewScopeRequest: Codable, Equatable, Sendable {
             )
         }
         correlation = try BridgeProductControlCorrelation(from: decoder)
+        domain = try container.decode(String.self, forKey: .domain)
         handle = try container.decode(String.self, forKey: .handle)
+        incarnation = try container.decode(String.self, forKey: .incarnation)
         scope = try container.decode(BridgeProductJSONValue.self, forKey: .scope)
         try BridgeProductViewScopeContract.validate(scope, codingPath: decoder.codingPath)
         scopeRevision = try container.decode(Int.self, forKey: .scopeRevision)
         subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateNonnegative(
             scopeRevision,
             name: "scopeRevision",
@@ -65,7 +123,9 @@ struct BridgeProductViewScopeRequest: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         try correlation.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(domain, forKey: .domain)
         try container.encode(handle, forKey: .handle)
+        try container.encode(incarnation, forKey: .incarnation)
         try container.encode("subscription.setScope", forKey: .kind)
         try container.encode(scope, forKey: .scope)
         try container.encode(scopeRevision, forKey: .scopeRevision)
@@ -76,7 +136,9 @@ struct BridgeProductViewScopeRequest: Codable, Equatable, Sendable {
 
 struct BridgeProductViewResnapshotRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case domain
         case handle
+        case incarnation
         case kind
         case scopeRevision
         case subscriptionId
@@ -84,7 +146,9 @@ struct BridgeProductViewResnapshotRequest: Codable, Equatable, Sendable {
     }
 
     let correlation: BridgeProductControlCorrelation
+    let domain: String
     let handle: String
+    let incarnation: String
     let scopeRevision: Int
     let subscriptionId: String
     let subscriptionKind: BridgeProductSubscriptionKind
@@ -105,11 +169,15 @@ struct BridgeProductViewResnapshotRequest: Codable, Equatable, Sendable {
             )
         }
         correlation = try BridgeProductControlCorrelation(from: decoder)
+        domain = try container.decode(String.self, forKey: .domain)
         handle = try container.decode(String.self, forKey: .handle)
+        incarnation = try container.decode(String.self, forKey: .incarnation)
         scopeRevision = try container.decode(Int.self, forKey: .scopeRevision)
         subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateNonnegative(
             scopeRevision,
             name: "scopeRevision",
@@ -121,7 +189,9 @@ struct BridgeProductViewResnapshotRequest: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         try correlation.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(domain, forKey: .domain)
         try container.encode(handle, forKey: .handle)
+        try container.encode(incarnation, forKey: .incarnation)
         try container.encode("subscription.resnapshot", forKey: .kind)
         try container.encode(scopeRevision, forKey: .scopeRevision)
         try container.encode(subscriptionId, forKey: .subscriptionId)
@@ -133,7 +203,9 @@ struct BridgeProductViewResnapshotRequest: Codable, Equatable, Sendable {
 /// soon as a part is received, independently of atomic batch installation.
 struct BridgeProductViewAcknowledgementRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case domain
         case handle
+        case incarnation
         case kind
         case paneSessionId
         case receivedThroughDeliverySequence
@@ -142,7 +214,9 @@ struct BridgeProductViewAcknowledgementRequest: Codable, Equatable, Sendable {
         case workerInstanceId
     }
 
+    let domain: String
     let handle: String
+    let incarnation: String
     let paneSessionId: String
     let receivedThroughDeliverySequence: Int
     let subscriptionId: String
@@ -162,13 +236,17 @@ struct BridgeProductViewAcknowledgementRequest: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        domain = try container.decode(String.self, forKey: .domain)
         handle = try container.decode(String.self, forKey: .handle)
+        incarnation = try container.decode(String.self, forKey: .incarnation)
         paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
         receivedThroughDeliverySequence = try container.decode(Int.self, forKey: .receivedThroughDeliverySequence)
         subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         wireVersion = try container.decode(Int.self, forKey: .wireVersion)
         workerInstanceId = try container.decode(String.self, forKey: .workerInstanceId)
+        try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validatePositive(
             receivedThroughDeliverySequence,
@@ -182,7 +260,9 @@ struct BridgeProductViewAcknowledgementRequest: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(domain, forKey: .domain)
         try container.encode(handle, forKey: .handle)
+        try container.encode(incarnation, forKey: .incarnation)
         try container.encode("subscription.acknowledge", forKey: .kind)
         try container.encode(paneSessionId, forKey: .paneSessionId)
         try container.encode(receivedThroughDeliverySequence, forKey: .receivedThroughDeliverySequence)

@@ -68,7 +68,7 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 				expect(schema.parse(value)).toEqual(value);
 			}
 		}
-		expect(transport.batchFrames).toHaveLength(7);
+		expect(transport.batchFrames).toHaveLength(9);
 	});
 
 	test('requires the complete sealed-batch envelope and typed settlement', () => {
@@ -95,6 +95,38 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 				...settled,
 				outcome: 'cancelled',
 				result: { published: true },
+			}).success,
+		).toBe(false);
+	});
+
+	test('rejects an uncommitted baseline extension and repeated File change kinds', () => {
+		const fileScopeRequest = validProductSessionCorpus.transportV2.viewScopeRequests.at(-1);
+		expect(fileScopeRequest).toBeDefined();
+		if (fileScopeRequest === undefined) return;
+		expect(
+			bridgeProductViewScopeRequestSchema.safeParse({
+				...fileScopeRequest,
+				scope: {
+					kind: 'file',
+					changeFilter: {
+						kind: 'changes',
+						kinds: ['added'],
+						baseline: { kind: 'commit', oid: 'abc' },
+					},
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductViewScopeRequestSchema.safeParse({
+				...fileScopeRequest,
+				scope: {
+					kind: 'file',
+					changeFilter: {
+						kind: 'changes',
+						kinds: ['added', 'added'],
+						baseline: { kind: 'uncommitted' },
+					},
+				},
 			}).success,
 		).toBe(false);
 	});

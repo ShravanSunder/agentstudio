@@ -9,7 +9,9 @@ enum BridgeProductBatchMode: String, Codable, Equatable, Sendable {
 struct BridgeProductBatchFrameIdentity: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case batchId
+        case domain
         case handle
+        case incarnation
         case scopeRevision
         case subscriptionId
         case subscriptionKind
@@ -21,7 +23,9 @@ struct BridgeProductBatchFrameIdentity: Codable, Equatable, Sendable {
 
     let frame: BridgeProductMetadataFrameIdentity
     let batchId: String
+    let domain: String
     let handle: String
+    let incarnation: String
     let scopeRevision: Int
     let subscriptionId: String
     let subscriptionKind: BridgeProductSubscriptionKind
@@ -31,12 +35,16 @@ struct BridgeProductBatchFrameIdentity: Codable, Equatable, Sendable {
         frame = try BridgeProductMetadataFrameIdentity(from: decoder)
         try frame.validateProgressSequence(codingPath: decoder.codingPath)
         batchId = try container.decode(String.self, forKey: .batchId)
+        domain = try container.decode(String.self, forKey: .domain)
         handle = try container.decode(String.self, forKey: .handle)
+        incarnation = try container.decode(String.self, forKey: .incarnation)
         scopeRevision = try container.decode(Int.self, forKey: .scopeRevision)
         subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
         try BridgeProductContractDecoding.validateIdentifier(batchId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateNonnegative(
             scopeRevision,
             name: "scopeRevision",
@@ -49,7 +57,9 @@ struct BridgeProductBatchFrameIdentity: Codable, Equatable, Sendable {
         try frame.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(batchId, forKey: .batchId)
+        try container.encode(domain, forKey: .domain)
         try container.encode(handle, forKey: .handle)
+        try container.encode(incarnation, forKey: .incarnation)
         try container.encode(scopeRevision, forKey: .scopeRevision)
         try container.encode(subscriptionId, forKey: .subscriptionId)
         try container.encode(subscriptionKind, forKey: .subscriptionKind)
@@ -144,6 +154,7 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         case kind
         case mode
         case partCount
+        case requiresCollection
         case scope
         case targetRevision
     }
@@ -152,6 +163,7 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
     let baseRevision: Int
     let mode: BridgeProductBatchMode
     let partCount: Int
+    let requiresCollection: Int?
     let scope: BridgeProductJSONValue
     let targetRevision: Int
 
@@ -174,6 +186,14 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         baseRevision = try container.decode(Int.self, forKey: .baseRevision)
         mode = try container.decode(BridgeProductBatchMode.self, forKey: .mode)
         partCount = try container.decode(Int.self, forKey: .partCount)
+        requiresCollection = try container.decodeIfPresent(Int.self, forKey: .requiresCollection)
+        if let requiresCollection {
+            try BridgeProductContractDecoding.validateNonnegative(
+                requiresCollection,
+                name: "requiresCollection",
+                codingPath: decoder.codingPath
+            )
+        }
         scope = try container.decode(BridgeProductJSONValue.self, forKey: .scope)
         try BridgeProductViewScopeContract.validate(scope, codingPath: decoder.codingPath)
         targetRevision = try container.decode(Int.self, forKey: .targetRevision)
@@ -207,6 +227,7 @@ struct BridgeProductBatchBeginFrame: Codable, Equatable, Sendable {
         try container.encode("subscription.batchBegin", forKey: .kind)
         try container.encode(mode, forKey: .mode)
         try container.encode(partCount, forKey: .partCount)
+        try container.encodeIfPresent(requiresCollection, forKey: .requiresCollection)
         try container.encode(scope, forKey: .scope)
         try container.encode(targetRevision, forKey: .targetRevision)
     }

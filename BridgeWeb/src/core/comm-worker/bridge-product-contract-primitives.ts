@@ -124,6 +124,7 @@ export const bridgeProductRequestErrorCodeSchema = z.enum([
 	'stale_source',
 	'superseded',
 	'result_capacity_exhausted',
+	'mutation_watch_capacity_exhausted',
 	'payload_too_large',
 	'unsupported_call',
 	'unsupported_subscription',
