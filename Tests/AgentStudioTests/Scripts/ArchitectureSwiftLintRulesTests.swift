@@ -84,12 +84,34 @@ struct ArchitectureSwiftLintRulesTests {
         }
         try FileManager.default.copyItem(atPath: fixturePath, toPath: temporaryFile.path)
 
+        let swiftLintLookup = try await runProcess(arguments: ["sh", "-c", "command -v swiftlint"])
+        let processPath = ProcessInfo.processInfo.environment["PATH"] ?? "<unset>"
+        #expect(
+            swiftLintLookup.exitCode == 0,
+            Comment(
+                rawValue: "swiftlint not found on PATH: \(processPath)\n\(processDiagnostics(swiftLintLookup))"
+            )
+        )
+
         let result = try await runProcess(arguments: [
             "swiftlint", "lint", "--strict", "--config", ".swiftlint.yml", temporaryFile.path,
         ])
 
-        #expect(result.exitCode != 0)
-        #expect(result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"))
+        #expect(result.exitCode != 0, Comment(rawValue: processDiagnostics(result)))
+        #expect(
+            result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"),
+            Comment(rawValue: processDiagnostics(result))
+        )
+    }
+
+    private func processDiagnostics(_ result: ScriptRunResult) -> String {
+        """
+        exitCode: \(result.exitCode)
+        stdout:
+        \(result.stdout)
+        stderr:
+        \(result.stderr)
+        """
     }
 
     private func runProcess(arguments: [String]) async throws -> ScriptRunResult {

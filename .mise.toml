@@ -1,6 +1,7 @@
 [tools]
 node = "26.5.0"
 pnpm = "11.14.0"
+swiftlint = "0.65.1"
 zig = "0.16.0"
 
 [env]
