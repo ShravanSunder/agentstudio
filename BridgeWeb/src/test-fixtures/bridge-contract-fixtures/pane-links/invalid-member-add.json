@@ -1,0 +1,8 @@
+{
+  "union": "BridgeMemberAddResult",
+  "value": {
+    "kind": "added",
+    "effect": "newItem",
+    "extra": true
+  }
+}
