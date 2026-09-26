@@ -9,6 +9,45 @@ import Testing
 /// A silent provider must not hold admission for independent operations.
 @Suite("Bridge product session held-provider recovery (S13)")
 struct BridgeProductHeldProviderStallTests {
+    @Test("unknown mutation remains watched through a still-unknown observation and late success")
+    func unknownMutationPublishesLateOutcomeWithoutSecondSettlement() async throws {
+        let harness = try HeldProviderSessionHarness.make()
+        try await harness.open()
+        await harness.provider.holdNextProductCall()
+        let admission = try await harness.admit(bridgeProductSchemeReviewCallBody(requestSequence: 3))
+        #expect(await harness.provider.waitUntilProductCallStarted(count: 1) == 1)
+
+        let resultTask = Task { try await harness.result(operationId: admission.operationId) }
+        await harness.clock.waitForPendingSleepCount(atLeast: 1)
+        harness.clock.advance(by: AppPolicies.Bridge.productOperationSettlementDeadline)
+        #expect(try await resultTask.value.outcome == .outcomeUnknown)
+        try await harness.acknowledge(operationId: admission.operationId, requestSequence: 4)
+
+        let firstObservation = Task { try await harness.observe(operationId: admission.operationId, after: 1) }
+        await harness.clock.waitForPendingSleepCount(atLeast: 1)
+        harness.clock.advance(by: AppPolicies.Bridge.productMutationObservationDeadline)
+        guard case .stillUnknown(_, let revision) = try await firstObservation.value else {
+            Issue.record("Expected observation deadline to report stillUnknown")
+            return
+        }
+        #expect(revision == 1)
+
+        let secondObservation = Task { try await harness.observe(operationId: admission.operationId, after: 1) }
+        await harness.clock.waitForPendingSleepCount(atLeast: 1)
+        await harness.provider.releaseHeldProductCall()
+        await harness.session.waitForOperationExecution(operationId: admission.operationId)
+        guard case .lateOutcome(let late) = try await secondObservation.value else {
+            Issue.record("Expected late outcome evidence after provider release")
+            return
+        }
+        #expect(late.revision == 2)
+        #expect(late.outcome == .succeeded)
+        try await harness.acknowledgeLate(operationId: admission.operationId, requestSequence: 5)
+        #expect((await harness.session.operationTable.mutationWatchesById).isEmpty)
+        #expect((await harness.session.diagnosticSnapshot).mutationWatchCount == 0)
+        #expect((await harness.session.diagnosticSnapshot).observationWaiterCount == 0)
+    }
+
     @Test("cancelling a pending scheme result read preserves its later settlement")
     func cancelledSchemeResultReadPreservesSettlement() async throws {
         let (registrations, registrationContinuation) = AsyncStream.makeStream(
@@ -520,6 +559,40 @@ private struct HeldProviderSessionHarness {
             from: reply.body
         )
         #expect(acknowledged.operationId == operationId)
+    }
+
+    func observe(operationId: String, after revision: Int) async throws
+        -> BridgeProductOperationObservationResponse
+    {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "kind": "operation.observe",
+            "operationId": operationId,
+            "after": revision,
+            "paneSessionId": bridgeProductTestPaneSessionId,
+            "wireVersion": BridgeProductWireContract.version,
+            "workerInstanceId": bridgeProductTestWorkerInstanceId,
+        ])
+        let reply = try await send(body)
+        #expect(reply.response?.statusCode == 200)
+        return try BridgeProductStrictJSON.decode(
+            BridgeProductOperationObservationResponse.self,
+            from: reply.body
+        )
+    }
+
+    func acknowledgeLate(operationId: String, requestSequence: Int) async throws {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "kind": "operation.lateOutcomeAcknowledgement",
+            "operationId": operationId,
+            "revision": 2,
+            "paneSessionId": bridgeProductTestPaneSessionId,
+            "requestId": "late-ack-\(requestSequence)",
+            "requestSequence": requestSequence,
+            "wireVersion": BridgeProductWireContract.version,
+            "workerInstanceId": bridgeProductTestWorkerInstanceId,
+        ])
+        let reply = try await send(body)
+        #expect(reply.response?.statusCode == 204)
     }
 
     func installMetadataStream() async throws -> HeldStep<BridgeProductProducerLease> {

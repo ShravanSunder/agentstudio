@@ -439,6 +439,74 @@ describe('worktree annotation surface command rendezvous', () => {
 		harness.client.dispose();
 	});
 
+	test('keeps an unknown Save draft through worker session loss', async () => {
+		const harness = createSurfaceClientHarness();
+		const releaseSession = harness.client.acquireSession(sessionId);
+		const initialSnapshot = projectionSnapshot(3, 12);
+		const initialThread = initialSnapshot.threads[0];
+		const initialMessage = initialThread?.messages[0];
+		if (initialThread === undefined || initialMessage === undefined) {
+			throw new Error('Expected a draft message fixture.');
+		}
+		harness.publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjectionConvergence',
+			operationCorrelationId: 'a'.repeat(64),
+			state: {
+				contentSessionIds: [sessionId],
+				kind: 'ready',
+				snapshot: {
+					...initialSnapshot,
+					threads: [
+						{
+							...initialThread,
+							messages: [
+								{
+									...initialMessage,
+									draft: { activeEditToken: null, body: 'Unsaved after loss', revision: 2 },
+								},
+							],
+						},
+					],
+				},
+			},
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+		const save = harness.client.execute({
+			editToken: '00000000-0000-7000-8000-000000000014',
+			expectedDraftRevision: 2,
+			expectedMessageRevision: 1,
+			kind: 'draft.save',
+			messageId,
+			sessionId,
+		});
+		expect(harness.sentCommands.at(-1)?.command).toBe('annotationCommand');
+		const saveRequestId = `worker-save-${harness.sentCommands.length.toString()}`;
+		harness.publish({
+			deliveryStatus: 'unknownAfterDispatch',
+			direction: 'serverWorkerToMain',
+			kind: 'health',
+			requestId: saveRequestId,
+			status: 'degraded',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		});
+		await expect(save).rejects.toThrow(worktreeAnnotationOutcomeUnknownMessage);
+		expect(harness.client.getSnapshot().readStatus).toEqual({ kind: 'ready' });
+		expect(harness.client.getSnapshot().threads[0]?.messages[0]?.draft?.body).toBe(
+			'Unsaved after loss',
+		);
+
+		harness.fireWorkerReplacement();
+		expect(harness.client.getSnapshot().threads[0]?.messages[0]?.draft?.body).toBe(
+			'Unsaved after loss',
+		);
+		releaseSession();
+		harness.client.dispose();
+	});
+
 	test('exact Save outcome settles while projection transport is unavailable', async () => {
 		const harness = createSurfaceClientHarness();
 		const save = harness.client.execute({

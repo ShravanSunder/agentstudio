@@ -136,73 +136,93 @@ describe.each(['fileView', 'review'] as const)(
 		});
 
 		test('reports a Save past its deadline as unknown and still publishes the late committed outcome', async () => {
-			vi.useFakeTimers();
-			try {
-				// Arrange: the transport answers only after the product-control deadline.
-				const action = deferredProductControlAction();
-				const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
-				const requestId = 'request-late-save';
-				dispatchAnnotationOutput({
-					surface,
-					operation: {
-						editToken: '00000000-0000-7000-8000-000000000015',
-						expectedDraftRevision: 1,
-						expectedMessageRevision: 2,
-						kind: 'draft.save',
-						messageId: '00000000-0000-7000-8000-000000000016',
-						sessionId: '00000000-0000-7000-8000-000000000013',
-					},
-					publish: (message): void => {
-						publishedMessages.push(message);
-					},
+			// Arrange: W1 settles unknown, then its revision-aware observer receives the late result.
+			const action = deferredProductControlAction();
+			const lateAction = deferredProductControlAction();
+			const acknowledgeLate = vi.fn(async (): Promise<void> => {});
+			const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+			const requestId = 'request-late-save';
+			dispatchAnnotationOutput({
+				surface,
+				operation: {
+					editToken: '00000000-0000-7000-8000-000000000015',
+					expectedDraftRevision: 1,
+					expectedMessageRevision: 2,
+					kind: 'draft.save',
+					messageId: '00000000-0000-7000-8000-000000000016',
+					sessionId: '00000000-0000-7000-8000-000000000013',
+				},
+				publish: (message): void => {
+					publishedMessages.push(message);
+				},
+				requestId,
+				sendProductControl: action.send,
+				timeoutMilliseconds: 25,
+			});
+
+			// Act: W1 reports its typed deadline settlement.
+			await flushBridgeWorkerRuntimeContinuations();
+			action.reject(
+				new BridgeProductControlRequestError({
+					code: 'internal',
+					message: 'Save result is unknown.',
+					outcome: 'outcomeUnknown',
+					retryAfterMilliseconds: null,
+					retryable: true,
+					observeLateOutcome: async () => ({
+						actionResult: await lateAction.send(),
+						evidence: {
+							failureCode: null,
+							kind: 'operation.lateOutcome',
+							operationId: 'save-operation-1',
+							outcome: 'succeeded',
+							result: { committed: true },
+							revision: 2,
+						},
+						acknowledge: acknowledgeLate,
+					}),
+				}),
+			);
+			await flushBridgeWorkerRuntimeContinuations();
+
+			// Assert: the outcome is unknown, not failed.
+			expect(publishedMessages).toEqual([
+				expect.objectContaining({
+					deliveryStatus: 'unknownAfterDispatch',
+					kind: 'health',
 					requestId,
-					sendProductControl: action.send,
-					timeoutMilliseconds: 25,
-				});
+					status: 'degraded',
+				}),
+			]);
 
-				// Act: the deadline passes.
-				await vi.advanceTimersByTimeAsync(25);
-				await flushBridgeWorkerRuntimeContinuations();
+			// Act: native commits the Save late and W1's observer reports revision two.
+			lateAction.resolve({
+				kind: 'completed',
+				outcome: {
+					requestId: `product-${requestId}`,
+					sessionId: '00000000-0000-7000-8000-000000000013',
+					status: { kind: 'committed' },
+					surface: surface === 'review' ? 'review' : 'file',
+				},
+			});
+			await flushBridgeWorkerRuntimeContinuations();
 
-				// Assert: the outcome is unknown, not failed.
-				expect(publishedMessages).toEqual([
-					expect.objectContaining({
-						deliveryStatus: 'unknownAfterDispatch',
-						kind: 'health',
-						requestId,
-						status: 'degraded',
-					}),
-				]);
-
-				// Act: native commits the Save late.
-				action.resolve({
-					kind: 'completed',
-					outcome: {
-						requestId: `product-${requestId}`,
-						sessionId: '00000000-0000-7000-8000-000000000013',
-						status: { kind: 'committed' },
-						surface: surface === 'review' ? 'review' : 'file',
-					},
-				});
-				await flushBridgeWorkerRuntimeContinuations();
-
-				// Assert: the late committed outcome still reaches main for reconciliation.
-				expect(
-					publishedMessages.filter((message) => message.kind === 'annotationCommandAccepted'),
-				).toEqual([
-					expect.objectContaining({
-						outcome: expect.objectContaining({ status: { kind: 'committed' } }),
-						requestId,
-					}),
-				]);
-				expect(
-					publishedMessages.filter(
-						(message) => message.kind === 'health' && message.status === 'degraded',
-					),
-				).toHaveLength(1);
-			} finally {
-				vi.useRealTimers();
-			}
+			// Assert: the late committed outcome still reaches main for reconciliation.
+			expect(action.send).toHaveBeenCalledTimes(1);
+			expect(
+				publishedMessages.filter((message) => message.kind === 'annotationCommandAccepted'),
+			).toEqual([
+				expect.objectContaining({
+					outcome: expect.objectContaining({ status: { kind: 'committed' } }),
+					requestId,
+				}),
+			]);
+			expect(
+				publishedMessages.filter(
+					(message) => message.kind === 'health' && message.status === 'degraded',
+				),
+			).toHaveLength(1);
+			expect(acknowledgeLate).toHaveBeenCalledTimes(1);
 		});
 
 		test('reports the W1 outcomeUnknown settlement for clipboard output commits', async () => {

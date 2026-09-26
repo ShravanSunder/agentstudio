@@ -154,6 +154,42 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 							requestId: productControlCommand.requestId,
 						}),
 					);
+					if (
+						error instanceof BridgeProductControlRequestError &&
+						error.outcome === 'outcomeUnknown' &&
+						error.observeLateOutcome !== undefined
+					) {
+						void error
+							.observeLateOutcome()
+							.then(async (observation): Promise<void> => {
+								if (
+									observation.evidence.outcome === 'succeeded' &&
+									observation.actionResult !== null
+								) {
+									completeBridgeCommWorkerProductControlSuccess({
+										actionResult: observation.actionResult,
+										command: productControlCommand.command,
+										mainCommand: props.mainCommand,
+										messages: props.messages,
+										publish: props.publish,
+										requestId: productControlCommand.requestId,
+										reviewSuccessorSettlementOwner: props.reviewMetadataApplicator,
+										reviewWorkerDerivationEpoch: props.activeReviewWorkerDerivationEpoch,
+									});
+								} else {
+									props.publish(
+										buildBridgeWorkerRuntimeCommandFailedHealthEvent({
+											requestId: productControlCommand.requestId,
+											message: `Bridge product operation later settled as ${observation.evidence.outcome}.`,
+										}),
+									);
+								}
+								await observation.acknowledge();
+							})
+							.catch((): void => {
+								// The initial unknown report remains authoritative if observation is lost.
+							});
+					}
 					return;
 				}
 				if (

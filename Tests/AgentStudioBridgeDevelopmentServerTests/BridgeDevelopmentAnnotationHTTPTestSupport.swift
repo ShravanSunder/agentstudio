@@ -723,6 +723,7 @@ private func metadataFrameIdentity(
     case .subscriptionAccepted(let value): value.frameIdentity
     case .subscriptionInterestsCommitted(let value): value.identity.frameIdentity
     case .subscriptionData(let value): value.frameIdentity
+    case .batch(let value): value.identity.frame
     case .subscriptionReset(let value): value.identity.frameIdentity
     case .subscriptionEnd(let value): value.identity.frameIdentity
     case .subscriptionCancelled(let value): value.identity.frameIdentity

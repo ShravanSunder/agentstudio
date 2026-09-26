@@ -38,6 +38,7 @@ actor BridgeProductSession {
     var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
     var pendingControl: BridgeProductSessionPendingControl?
     var operationTable = BridgeProductOperationTable()
+    var observationDeadlineTasksByWaiterId: [UUID: Task<Void, Never>] = [:]
     var activeEscapeEffectIds: Set<UUID> = []
     var escapeEffectTasksById: [UUID: Task<Void, Never>] = [:]
     var protocolSubscriptionDeliveryById: [String: BridgeProductProtocolSubscriptionDelivery] = [:]
@@ -52,6 +53,7 @@ actor BridgeProductSession {
         workerInstanceId: String,
         capabilityBytes: [UInt8],
         maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
+        maximumMutationWatches: Int = AppPolicies.Bridge.maximumProductMutationWatches,
         deadlineClock: (any Clock<Duration> & Sendable)? = nil,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
@@ -75,6 +77,7 @@ actor BridgeProductSession {
         let resolvedDeadlineClock: any Clock<Duration> & Sendable = deadlineClock ?? ContinuousClock()
         self.deadlineClock = resolvedDeadlineClock
         self.operationDelay = deadlineClock.map(AsyncDelay.clock) ?? .taskSleep
+        self.operationTable = BridgeProductOperationTable(maximumMutationWatches: maximumMutationWatches)
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
         self.resultWaiterRegistrationObserver = resultWaiterRegistrationObserver
@@ -487,6 +490,12 @@ actor BridgeProductSession {
         {
             return .rejected(.init(reason: .resultCapacityExhausted, request: request))
         }
+        if request.requestSequence == controlReplay.snapshot.nextExpectedRequestSequence,
+            operationIsMutation(request),
+            !operationTable.hasMutationWatchCapacity
+        {
+            return .rejected(.init(reason: .mutationWatchCapacityExhausted, request: request))
+        }
 
         switch controlReplay.begin(
             requestSequence: request.requestSequence,
@@ -604,9 +613,9 @@ actor BridgeProductSession {
         if lifecycle != .revoked, case .workerSessionOpen = operation.admission.request {
             lifecycle = .awaitingOpen
         }
-        _ = operationTable.settle(
-            .init(operationId: operation.operationId, outcome: .failed)
-        )
+        let outcome: BridgeProductOperationSettlement =
+            operation.isMutation && operation.didDispatchMutation ? .outcomeUnknown : .failed
+        _ = operationTable.settle(.init(operationId: operation.operationId, outcome: outcome))
     }
 
     func abandonControl(token: BridgeProductControlAdmissionToken) throws {
@@ -641,6 +650,8 @@ actor BridgeProductSession {
             self.pendingControl = nil
         }
         operationTable.cancelAndForgetAllOperations()
+        for deadlineTask in observationDeadlineTasksByWaiterId.values { deadlineTask.cancel() }
+        observationDeadlineTasksByWaiterId.removeAll(keepingCapacity: false)
         for task in escapeEffectTasksById.values { task.cancel() }
         subscriptionState.revokeWorker()
         protocolSubscriptionDeliveryById.removeAll(keepingCapacity: false)

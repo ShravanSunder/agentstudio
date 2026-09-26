@@ -20,6 +20,7 @@ enum BridgeProductSessionControlRejection: Equatable, Sendable {
     case payloadTooLarge
     case requestInFlight(nextExpectedRequestSequence: Int)
     case resultCapacityExhausted
+    case mutationWatchCapacityExhausted
     case revoked
     case sequenceExhausted(nextExpectedRequestSequence: Int)
     case sequenceConflict(nextExpectedRequestSequence: Int)
@@ -121,6 +122,7 @@ enum BridgeProductSessionError: Error, Equatable {
     case lifecycleFrameAdmissionFailed
     case mismatchedControlResponse
     case resultCapacityExhausted
+    case mutationWatchCapacityExhausted
     case subscriptionStateRejected(BridgeProductSubscriptionStateError)
 }
 
@@ -146,6 +148,8 @@ struct BridgeProductSessionSnapshot: Equatable, Sendable {
 struct BridgeProductSessionDiagnosticSnapshot: Equatable, Sendable {
     let activeEscapeEffectCount: Int
     let activeOperationExecutionCount: Int
+    let mutationWatchCount: Int
+    let observationWaiterCount: Int
     let retainedOperationResultCount: Int
     let pendingControlCount: Int
     let activeSubscriptionCount: Int

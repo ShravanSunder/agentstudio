@@ -170,6 +170,10 @@ package enum AppPolicies {
         /// Settled results retain their slots until the worker acknowledges them.
         package static let maximumOrdinaryProductOperations: Int = 32
         package static let maximumHumanWaitProductOperations: Int = 2
+        /// Reserved at mutation admission so unknown outcomes remain observable
+        /// without consuming ordinary result slots indefinitely.
+        package static let maximumProductMutationWatches: Int = 64
+        package static let productMutationObservationDeadline: Duration = .seconds(4)
         package static let productOperationSettlementDeadline: Duration = .seconds(4)
         /// The worker allows the native settlement deadline to fire first.
         package static let productWorkerSettlementDeadline: Duration = .seconds(5)

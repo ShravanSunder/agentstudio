@@ -204,6 +204,23 @@ struct BridgeProductSchemeAdapter: Sendable {
                 continuation: continuation
             )
             return
+        case .operationObservation(let observation):
+            try await routeOperationObservation(
+                observation,
+                responseURL: request.url,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        case .lateOutcomeAcknowledgement(let acknowledgement):
+            try await routeLateOutcomeAcknowledgement(
+                acknowledgement,
+                exactRequestBytes: request.exactBodyBytes,
+                responseURL: request.url,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
         case .control:
             break
         }
@@ -215,11 +232,25 @@ struct BridgeProductSchemeAdapter: Sendable {
             exactRequestBytes: request.exactBodyBytes,
             presentedCapability: request.presentedCapability
         )
+        try await sendControlDispatchResult(
+            result,
+            responseURL: request.url,
+            productAdmission: productAdmission,
+            continuation: continuation
+        )
+    }
+
+    private func sendControlDispatchResult(
+        _ result: BridgeProductSchemeControlDispatchResult,
+        responseURL: URL,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
         switch result {
         case .admissionClosed:
             try await sendResponse(
                 statusCode: 409,
-                url: request.url,
+                url: responseURL,
                 contentType: "application/json",
                 contentLength: 0,
                 productAdmission: productAdmission,
@@ -228,7 +259,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         case .rejected(let rejection):
             try await sendResponse(
                 statusCode: Self.statusCode(for: rejection),
-                url: request.url,
+                url: responseURL,
                 contentType: "application/json",
                 contentLength: 0,
                 productAdmission: productAdmission,
@@ -237,7 +268,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         case .response(let exactResponseBytes):
             try await sendResponse(
                 statusCode: 200,
-                url: request.url,
+                url: responseURL,
                 contentType: "application/json",
                 contentLength: exactResponseBytes.count,
                 productAdmission: productAdmission,
@@ -306,6 +337,65 @@ struct BridgeProductSchemeAdapter: Sendable {
             productAdmission: productAdmission,
             continuation: continuation
         )
+    }
+
+    private func routeOperationObservation(
+        _ request: BridgeProductOperationObservationRequest,
+        responseURL: URL,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
+        guard
+            let response = await session.observeOperation(
+                request,
+                productAdmission: productAdmission
+            )
+        else {
+            try await sendRejectedBody(
+                url: responseURL,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        }
+        try await sendOperationResponse(
+            try JSONEncoder().encode(response),
+            responseURL: responseURL,
+            productAdmission: productAdmission,
+            continuation: continuation
+        )
+    }
+
+    private func routeLateOutcomeAcknowledgement(
+        _ acknowledgement: BridgeProductOperationLateOutcomeAcknowledgement,
+        exactRequestBytes: Data,
+        responseURL: URL,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
+        guard
+            await session.acknowledgeLateOutcome(
+                acknowledgement,
+                exactRequestBytes: exactRequestBytes,
+                productAdmission: productAdmission
+            )
+        else {
+            try await sendRejectedBody(
+                url: responseURL,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        }
+        try await sendResponse(
+            statusCode: 204,
+            url: responseURL,
+            contentType: "application/json",
+            contentLength: 0,
+            productAdmission: productAdmission,
+            continuation: continuation
+        )
+        continuation.finish()
     }
 
     private func sendOperationResponse(
@@ -665,7 +755,8 @@ struct BridgeProductSchemeAdapter: Sendable {
         case .invalidRequest: 400
         case .payloadTooLarge: 413
         case .unauthorized: 403
-        case .inactiveSession, .requestInFlight, .resultCapacityExhausted, .revoked, .sequenceConflict,
+        case .inactiveSession, .requestInFlight, .resultCapacityExhausted,
+            .mutationWatchCapacityExhausted, .revoked, .sequenceConflict,
             .sequenceExhausted, .staleDerivationEpoch, .staleWorker,
             .streamSequenceConflict:
             409

@@ -1,0 +1,194 @@
+import { describe, expect, test } from 'vitest';
+import { z } from 'zod';
+
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
+import {
+	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	BRIDGE_PRODUCT_WIRE_VERSION,
+} from './bridge-product-contract-primitives.js';
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
+import {
+	bridgeProductOperationLateOutcomeAcknowledgementSchema,
+	bridgeProductOperationObservationRequestSchema,
+} from './bridge-product-operation-observation-wire-contracts.js';
+import {
+	bridgeProductOperationResultAcknowledgementSchema,
+	bridgeProductOperationResultRequestSchema,
+} from './bridge-product-operation-wire-contracts.js';
+import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
+import {
+	BridgeProductControlMux,
+	BridgeProductControlRequestError,
+	BridgeProductSessionAuthorityStore,
+} from './bridge-product-session-authority.js';
+import {
+	bridgeProductControlRequestSchema,
+	type BridgeProductSessionBootstrap,
+} from './bridge-product-session-contracts.js';
+
+const commandSchema = z.union([
+	bridgeProductControlRequestSchema,
+	bridgeProductOperationResultRequestSchema,
+	bridgeProductOperationResultAcknowledgementSchema,
+	bridgeProductOperationObservationRequestSchema,
+	bridgeProductOperationLateOutcomeAcknowledgementSchema,
+]);
+
+const noDeadlineClock: BridgeProductDeadlineClock = {
+	schedule: (): (() => void) => (): void => {},
+};
+
+const bootstrap: BridgeProductSessionBootstrap = {
+	kind: 'productSession.bootstrap' as const,
+	paneSessionId: 'pane-session-late',
+	policy: {
+		maximumContentBytes: 2 * 1024 * 1024,
+		maximumMetadataFrameBytes: 128 * 1024,
+		maximumQueuedStreamBytes: 4 * 1024 * 1024,
+		maximumQueuedStreamFrames: 64,
+		maximumRequestBodyBytes: 256 * 1024,
+		terminalFrameReserve: 1,
+	},
+	wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+	workerInstanceId: 'worker-instance-late',
+};
+
+function jsonResponse(body: object): Response {
+	return new Response(JSON.stringify(body), {
+		headers: { 'Content-Type': 'application/json' },
+		status: 200,
+	});
+}
+
+describe('Bridge product in-session late mutation outcome', () => {
+	test('stillUnknown can be observed again, and revision two is acknowledged without replay', async () => {
+		const secondObservationRequested = createBridgeProductDeferred<void>();
+		const lateResponse = createBridgeProductDeferred<Response>();
+		let productCallCount = 0;
+		let observationCount = 0;
+		let lateAcknowledgements = 0;
+		let callRequestId = '';
+		let callRequestSequence = 0;
+		const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
+			if (!(requestInit.body instanceof Uint8Array)) throw new Error('Missing command body.');
+			const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
+			if (command.kind === 'operation.result') {
+				return command.operationId === 'operation-open'
+					? jsonResponse({
+							failureCode: null,
+							kind: 'operation.result',
+							operationId: command.operationId,
+							outcome: 'succeeded',
+							result: {
+								kind: 'workerSession.accepted',
+								paneSessionId: bootstrap.paneSessionId,
+								requestId: 'worker-session-open-1',
+								requestSequence: 1,
+								result: null,
+								wireVersion: bootstrap.wireVersion,
+								workerInstanceId: bootstrap.workerInstanceId,
+							},
+						})
+					: jsonResponse({
+							failureCode: null,
+							kind: 'operation.result',
+							operationId: command.operationId,
+							outcome: 'outcomeUnknown',
+							result: null,
+						});
+			}
+			if (command.kind === 'operation.resultAcknowledgement') {
+				return jsonResponse({ ...command, kind: 'operation.resultAcknowledged' });
+			}
+			if (command.kind === 'operation.observe') {
+				observationCount += 1;
+				if (observationCount === 1) {
+					return jsonResponse({
+						kind: 'operation.stillUnknown',
+						operationId: command.operationId,
+						revision: command.after,
+					});
+				}
+				secondObservationRequested.resolve();
+				return await lateResponse.promise;
+			}
+			if (command.kind === 'operation.lateOutcomeAcknowledgement') {
+				lateAcknowledgements += 1;
+				return new Response(null, { status: 204 });
+			}
+			if (command.kind === 'product.call') {
+				productCallCount += 1;
+				callRequestId = command.requestId;
+				callRequestSequence = command.requestSequence;
+			}
+			return jsonResponse({
+				kind: 'operation.admitted',
+				operationId: command.kind === 'workerSession.open' ? 'operation-open' : 'operation-save',
+				paneSessionId: command.paneSessionId,
+				requestId: command.requestId,
+				requestSequence: command.requestSequence,
+				waitKind: 'ordinary',
+				wireVersion: command.wireVersion,
+				workerInstanceId: command.workerInstanceId,
+			});
+		};
+		const authority = new BridgeProductSessionAuthorityStore(
+			executeProductRequest,
+			noDeadlineClock,
+		).install({
+			bootstrap,
+			productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		});
+		await authority.open;
+		const mux = new BridgeProductControlMux({
+			authority,
+			createRequestId: (() => {
+				let requestCount = 0;
+				return (): string => `late-request-${++requestCount}`;
+			})(),
+			deadlineClock: noDeadlineClock,
+			executeProductRequest,
+		});
+		let unknownError: unknown = null;
+		try {
+			await mux.call({
+				method: 'review.markFileViewed',
+				request: { itemId: 'item-save' },
+				workerDerivationEpoch: 1,
+			});
+		} catch (error: unknown) {
+			unknownError = error;
+		}
+		expect(unknownError).toMatchObject({ outcome: 'outcomeUnknown' });
+		if (!(unknownError instanceof BridgeProductControlRequestError)) return;
+		const observeLateOutcome = unknownError.observeLateOutcome;
+		expect(observeLateOutcome).toBeDefined();
+		if (observeLateOutcome === undefined) return;
+		const pendingLate = observeLateOutcome();
+		await secondObservationRequested.promise;
+		lateResponse.resolve(
+			jsonResponse({
+				failureCode: null,
+				kind: 'operation.lateOutcome',
+				operationId: 'operation-save',
+				outcome: 'succeeded',
+				result: {
+					call: { method: 'review.markFileViewed', result: null },
+					kind: 'call.completed',
+					paneSessionId: bootstrap.paneSessionId,
+					requestId: callRequestId,
+					requestSequence: callRequestSequence,
+					wireVersion: bootstrap.wireVersion,
+					workerInstanceId: bootstrap.workerInstanceId,
+				},
+				revision: 2,
+			}),
+		);
+		const observed = await pendingLate;
+		expect(observed.evidence.revision).toBe(2);
+		expect(observationCount).toBe(2);
+		expect(productCallCount).toBe(1);
+		await observed.acknowledge();
+		expect(lateAcknowledgements).toBe(1);
+	});
+});

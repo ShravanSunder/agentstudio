@@ -122,4 +122,93 @@ struct BridgeProductOperationTableTests {
         #expect(table.entriesById.isEmpty)
         #expect(table.executionTasksById.isEmpty)
     }
+
+    @Test("acknowledging unknown revision one preserves late revision two evidence")
+    func lateMutationEvidenceSurvivesUnknownAcknowledgement() async throws {
+        let request = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: bridgeProductSchemeReviewCallBody(requestSequence: 3)
+        )
+        let operationId = UUIDv7.generate().uuidString.lowercased()
+        var table = BridgeProductOperationTable(maximumMutationWatches: 1)
+        table.admit(
+            operationId: operationId,
+            waitKind: .ordinary,
+            isMutation: true,
+            admission: .init(
+                deferredResyncEpochs: [:],
+                productAdmission: try BridgeProductAdmissionTestContext.make().context,
+                request: request,
+                token: .init(identifier: 3, requestSequence: 3)
+            )
+        )
+        #expect(!table.hasMutationWatchCapacity)
+        let unknown = table.settle(.init(operationId: operationId, outcome: .outcomeUnknown))
+        let late = table.recordLateOutcome(
+            operationId: operationId,
+            outcome: .succeeded,
+            result: .object(["committed": .boolean(true)])
+        )
+        let acknowledgedUnknown = table.acknowledge(operationId: operationId)
+        let observed: BridgeProductOperationObservationResponse? = await withCheckedContinuation { continuation in
+            table.observeAfter(
+                operationId: operationId,
+                revision: 1,
+                waiterId: UUIDv7.generate(),
+                continuation: continuation
+            )
+        }
+        #expect(unknown && late && acknowledgedUnknown)
+        guard case .lateOutcome(let evidence) = observed else {
+            Issue.record("Revision two was lost after revision one acknowledgement")
+            return
+        }
+        #expect(evidence.revision == 2)
+        #expect(evidence.outcome == .succeeded)
+        let acknowledgedLate = table.acknowledgeLateOutcome(operationId: operationId, revision: 2)
+        #expect(acknowledgedLate)
+        #expect(table.hasMutationWatchCapacity)
+    }
+
+    @Test("a full mutation-watch pool refuses another mutation while a read still admits")
+    func fullWatchPoolLeavesReadsAvailable() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(maximumMutationWatches: 1)
+        let firstMutation = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: bridgeProductSchemeReviewCallBody(requestSequence: 2)
+        )
+        guard case .execute(let firstToken, _) = try await harness.begin(firstMutation) else {
+            Issue.record("Expected the first mutation admission")
+            return
+        }
+        _ = try await harness.session.admitControlOperation(token: firstToken, execute: { _ in })
+        let secondMutation = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: bridgeProductSchemeReviewCallBody(requestSequence: 3)
+        )
+        guard case .rejected(let rejection) = try await harness.begin(secondMutation) else {
+            Issue.record("Expected mutation watch capacity refusal")
+            return
+        }
+        #expect(rejection.reason == .mutationWatchCapacityExhausted)
+
+        let readBytes = try JSONSerialization.data(withJSONObject: [
+            "call": ["method": "file.source.current", "request": [:]],
+            "kind": "product.call",
+            "paneSessionId": "pane-session-1",
+            "requestId": "read-with-full-watch-pool",
+            "requestSequence": 3,
+            "wireVersion": BridgeProductWireContract.version,
+            "workerDerivationEpoch": 1,
+            "workerInstanceId": "worker-instance-1",
+        ])
+        let read = try BridgeProductStrictJSON.decode(BridgeProductControlRequest.self, from: readBytes)
+        guard case .execute(let readToken, _) = try await harness.begin(read) else {
+            Issue.record("Expected the independent read to admit")
+            return
+        }
+        try await harness.session.abandonControl(token: readToken)
+        let revocation = await harness.session.revoke(acknowledgeLifecycle: { _ in true })
+        #expect(await revocation.wait())
+    }
 }

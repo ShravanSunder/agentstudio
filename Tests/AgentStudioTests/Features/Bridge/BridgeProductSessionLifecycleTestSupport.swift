@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import Foundation
 import Testing
@@ -10,6 +11,8 @@ struct BridgeProductSessionLifecycleHarness {
     let session: BridgeProductSession
 
     static func opened(
+        maximumMutationWatches: Int = AppPolicies.Bridge.maximumProductMutationWatches,
+        deadlineClock: (any Clock<Duration> & Sendable)? = nil,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             BridgeProductSession.ProducerObservationPacingRegistrationObserver? = nil
@@ -20,6 +23,8 @@ struct BridgeProductSessionLifecycleHarness {
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-1",
             capabilityBytes: capabilityBytes,
+            maximumMutationWatches: maximumMutationWatches,
+            deadlineClock: deadlineClock,
             producerQueueLimits: producerQueueLimits,
             producerObservationPacingRegistrationObserver:
                 producerObservationPacingRegistrationObserver

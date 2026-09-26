@@ -109,6 +109,9 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
                 else {
                     throw BridgeProductSchemeAdapterError.producerRetirementFailed
                 }
+                guard await session.markOperationDispatched(operationId: operationId) else {
+                    return
+                }
                 let providerResponse = await provider.response(
                     for: request,
                     productAdmission: productAdmission
@@ -116,16 +119,24 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
                 if (productAdmission.withValidAdmission { true }) != true {
                     await session.settleControlProviderDispatch(token: token)
                 } else {
-                    let authoritativeResponse = try await session.authoritativeControlResponse(
-                        token: token,
-                        providerResponse: providerResponse
-                    )
-                    await completeControl(
-                        providerResponse: authoritativeResponse,
-                        operationId: operationId,
-                        request: request,
-                        token: token
-                    )
+                    do {
+                        let authoritativeResponse = try await session.authoritativeControlResponse(
+                            token: token,
+                            providerResponse: providerResponse
+                        )
+                        await completeControl(
+                            providerResponse: authoritativeResponse,
+                            operationId: operationId,
+                            request: request,
+                            token: token
+                        )
+                    } catch {
+                        if await session.isOperationSettledUnknown(operationId) {
+                            await session.settleOperation(operationId: operationId, response: providerResponse)
+                        } else {
+                            throw error
+                        }
+                    }
                 }
             } catch {
                 await session.settleControlProviderDispatch(token: token)
@@ -154,6 +165,10 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             )
             await session.settleOperation(operationId: operationId, response: providerResponse)
         } catch {
+            if await session.isOperationSettledUnknown(operationId) {
+                await session.settleOperation(operationId: operationId, response: providerResponse)
+                return
+            }
             // These enums contain only closed reason cases and bounded sequence
             // integers. Never log an arbitrary provider error or request payload.
             let failureReason = (error as? BridgeProductSessionError).map(String.init(describing:)) ?? "unexpected"
@@ -209,6 +224,10 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
             retryable = false
         case .resultCapacityExhausted:
             code = .resultCapacityExhausted
+            nextExpectedRequestSequence = request.requestSequence
+            retryable = true
+        case .mutationWatchCapacityExhausted:
+            code = .mutationWatchCapacityExhausted
             nextExpectedRequestSequence = request.requestSequence
             retryable = true
         case .requestInFlight(let nextExpected):

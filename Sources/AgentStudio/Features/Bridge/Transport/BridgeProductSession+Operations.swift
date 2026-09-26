@@ -2,6 +2,22 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension BridgeProductSession {
+    func operationIsMutation(_ request: BridgeProductControlRequest) -> Bool {
+        guard case .productCall(let callRequest) = request else { return false }
+        switch callRequest.call {
+        case .fileAnnotationsOutputInspect, .fileAnnotationsProjectionQuery,
+            .fileSourceCurrent, .reviewAnnotationsOutputInspect,
+            .reviewAnnotationsProjectionQuery, .reviewComparisonTargetsQuery,
+            .reviewPublicationInstallAdmission:
+            return false
+        case .fileAnnotationsCommand, .fileRefreshRetry, .fileActiveViewerModeUpdate,
+            .reviewActiveViewerModeUpdate, .reviewComparisonUpdate,
+            .reviewIntakeReady, .reviewMarkFileViewed,
+            .reviewPublicationApplied, .reviewAnnotationsCommand:
+            return true
+        }
+    }
+
     func operationWaitKind(
         for request: BridgeProductControlRequest
     ) -> BridgeProductOperationWaitKind {
@@ -34,6 +50,10 @@ extension BridgeProductSession {
         guard operationTable.hasCapacity(for: waitKind) else {
             throw BridgeProductSessionError.resultCapacityExhausted
         }
+        let isMutation = operationIsMutation(pendingControl.request)
+        guard !isMutation || operationTable.hasMutationWatchCapacity else {
+            throw BridgeProductSessionError.mutationWatchCapacityExhausted
+        }
         let operationId = UUIDv7.generate().uuidString
         let response = BridgeProductOperationAdmittedResponse(
             correlation: pendingControl.request.correlation,
@@ -47,6 +67,7 @@ extension BridgeProductSession {
         operationTable.admit(
             operationId: operationId,
             waitKind: waitKind,
+            isMutation: isMutation,
             admission: pendingControl
         )
         // Provider work must start off this session actor's executor.
@@ -128,6 +149,16 @@ extension BridgeProductSession {
         operationTable.finishExecution(operationId: operationId)
     }
 
+    /// A deadline during prerequisite work prevents the effect from starting.
+    func markOperationDispatched(operationId: String) -> Bool {
+        guard lifecycle != .revoked,
+            let entry = operationTable.entriesById[operationId],
+            entry.settlement == nil
+        else { return false }
+        operationTable.markMutationDispatched(operationId: operationId)
+        return true
+    }
+
     func beginEscapeEffect() -> UUID? {
         guard lifecycle == .active else { return nil }
         let effectId = UUIDv7.generate()
@@ -160,7 +191,7 @@ extension BridgeProductSession {
             return
         }
         let outcome: BridgeProductOperationSettlement =
-            entry.admission.request.kind == "product.call" ? .outcomeUnknown : .failed
+            entry.isMutation && entry.didDispatchMutation ? .outcomeUnknown : .failed
         guard
             operationTable.settle(
                 .init(operationId: operationId, outcome: outcome)
@@ -205,6 +236,101 @@ extension BridgeProductSession {
 
     private func cancelOperationResultWaiter(operationId: String, waiterId: UUID) {
         operationTable.cancelResultWaiter(operationId: operationId, waiterId: waiterId)
+    }
+
+    func observeOperation(
+        _ request: BridgeProductOperationObservationRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> BridgeProductOperationObservationResponse? {
+        guard request.paneSessionId == paneSessionId,
+            request.workerInstanceId == workerInstanceId,
+            productAdmission.withValidAdmission({ true }) == true
+        else { return nil }
+        let waiterId = UUIDv7.generate()
+        let observation: BridgeProductOperationObservationResponse? = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let didPark = operationTable.observeAfter(
+                    operationId: request.operationId,
+                    revision: request.after,
+                    waiterId: waiterId,
+                    continuation: continuation
+                )
+                guard didPark else { return }
+                observationDeadlineTasksByWaiterId[waiterId] = Task { [self] in
+                    do {
+                        try await operationDelay.wait(AppPolicies.Bridge.productMutationObservationDeadline)
+                        operationTable.expireObservation(
+                            operationId: request.operationId,
+                            revision: request.after,
+                            waiterId: waiterId
+                        )
+                    } catch is CancellationError {
+                        // A receipt, cancellation, or session end removed this observer.
+                    } catch {
+                        operationTable.expireObservation(
+                            operationId: request.operationId,
+                            revision: request.after,
+                            waiterId: waiterId
+                        )
+                    }
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelOperationObservation(
+                    operationId: request.operationId,
+                    waiterId: waiterId
+                )
+            }
+        }
+        observationDeadlineTasksByWaiterId.removeValue(forKey: waiterId)?.cancel()
+        return observation
+    }
+
+    private func cancelOperationObservation(operationId: String, waiterId: UUID) {
+        observationDeadlineTasksByWaiterId.removeValue(forKey: waiterId)?.cancel()
+        operationTable.cancelObservation(operationId: operationId, waiterId: waiterId)
+    }
+
+    func acknowledgeLateOutcome(
+        _ request: BridgeProductOperationLateOutcomeAcknowledgement,
+        exactRequestBytes: Data,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Bool {
+        guard request.correlation.paneSessionId == paneSessionId,
+            request.correlation.workerInstanceId == workerInstanceId,
+            productAdmission.withValidAdmission({ true }) == true
+        else { return false }
+        switch controlReplay.begin(
+            requestSequence: request.correlation.requestSequence,
+            exactRequestBytes: exactRequestBytes
+        ) {
+        case .replay:
+            return true
+        case .rejected:
+            return false
+        case .execute(let token):
+            guard let watch = operationTable.mutationWatchesById[request.operationId],
+                watch.unknownAcknowledged,
+                case .lateOutcome(let evidence)? = watch.lateOutcome,
+                evidence.revision == request.revision
+            else {
+                try? controlReplay.abandon(token: token)
+                return false
+            }
+            guard (try? controlReplay.complete(token: token, exactResponseBytes: Data())) != nil else {
+                try? controlReplay.abandon(token: token)
+                return false
+            }
+            return operationTable.acknowledgeLateOutcome(
+                operationId: request.operationId,
+                revision: request.revision
+            )
+        }
     }
 
     func acknowledgeOperationResult(
@@ -264,7 +390,7 @@ extension BridgeProductSession {
         let result = encodedResponse.flatMap {
             try? JSONDecoder().decode(BridgeProductJSONValue.self, from: $0)
         }
-        _ = operationTable.settle(
+        let didSettle = operationTable.settle(
             .init(
                 failureCode: failureCode,
                 operationId: operationId,
@@ -272,6 +398,18 @@ extension BridgeProductSession {
                 result: outcome == .succeeded ? result : nil
             )
         )
+        if !didSettle {
+            _ = operationTable.recordLateOutcome(
+                operationId: operationId,
+                outcome: outcome,
+                failureCode: failureCode,
+                result: outcome == .succeeded ? result : nil
+            )
+        }
+    }
+
+    func isOperationSettledUnknown(_ operationId: String) -> Bool {
+        operationTable.mutationWatchesById[operationId]?.wasSettledUnknown == true
     }
 
 }

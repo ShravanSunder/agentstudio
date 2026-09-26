@@ -97,6 +97,8 @@ struct DevelopmentDisplayMetadataStream {
                 case .delta, .invalidated, .reset:
                     throw DevelopmentDisplayWorkerClientError.unexpectedReviewMetadataEvent
                 }
+            case .batch:
+                Issue.record("Legacy Review replay observer requires a batch-aware oracle")
             case .metadataStreamError, .subscriptionReset, .subscriptionEnd:
                 throw DevelopmentDisplayWorkerClientError.reviewMetadataTerminatedBeforeFinalWindow
             case .contentCancelled, .metadataStreamAccepted, .panePresentation,
