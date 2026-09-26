@@ -34,8 +34,18 @@ struct DrawerPresentationDatabases {
 
     func bootStore(legacySource: LegacyDrawerPresentationSource? = nil) async throws -> WorkspaceStore {
         let datastore = makeDatastore(legacySource: legacySource)
-        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
-            throw DrawerPresentationTestFailure.databasesNotPrepared
+        let preparationResult = await datastore.prepareDatabasesForBoot()
+        guard case .prepared = preparationResult else {
+            if case .failed(let failure) = preparationResult {
+                throw DrawerPresentationTestFailure.databasePreparationFailed(
+                    kind: String(describing: failure.kind),
+                    description: failure.failure.description
+                )
+            }
+            throw DrawerPresentationTestFailure.databasePreparationFailed(
+                kind: "unknown",
+                description: "database preparation returned an unexpected result"
+            )
         }
         let store = WorkspaceStore(sqliteDatastore: datastore, startsObserving: false)
         switch await store.loadCanonicalComposition() {
@@ -126,7 +136,7 @@ struct DrawerPresentationDatabases {
 }
 
 private enum DrawerPresentationTestFailure: Error {
-    case databasesNotPrepared
+    case databasePreparationFailed(kind: String, description: String)
     case loadFailed(String)
 }
 
