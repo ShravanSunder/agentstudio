@@ -111,39 +111,70 @@ extension CommandBarPanelController {
     private func refreshCreationLevel(_ level: CommandBarLevel, for repository: Repo) {
         switch level.creationQuery {
         case .defaultStartPoint(let queriedRepository) where queriedRepository.id == repository.id:
+            break
+        case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
+            break
+        case .worktreeEligibility(let queriedRepository, _) where queriedRepository.id == repository.id:
+            break
+        default:
+            return
+        }
+        guard let currentRepository = CommandBarDataSource.availableRepository(repository, store: store) else {
+            replaceCreationLevelWithoutActions(level)
+            return
+        }
+        switch level.creationQuery {
+        case .defaultStartPoint(let queriedRepository) where queriedRepository.id == repository.id:
             state.replaceLevel(
                 CommandBarDataSource.worktreeCreationMenuLevel(
-                    repository: repository,
+                    repository: currentRepository,
                     defaultStartPoint: state.defaultStartPointByRepositoryId[repository.id],
                     defaultQueryFailed: state.defaultStartPointQueryFailures.contains(repository.id)
                 ))
         case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
             let eligibility = state.forkEligibilityBySourceWorktreeId
-            let focusedWorktreeId = focusedWorktreeId(in: repository)
+            let focusedWorktreeId = focusedWorktreeId(in: currentRepository)
             state.replaceLevel(
                 CommandBarDataSource.worktreeCreationForkPickerLevel(
-                    repository: repository,
+                    repository: currentRepository,
                     eligibilityByWorktreeId: eligibility,
                     focusedWorktreeId: focusedWorktreeId
                 ))
         case .worktreeEligibility(let queriedRepository, let worktree) where queriedRepository.id == repository.id:
+            guard let currentWorktree = currentRepository.worktrees.first(where: { $0.id == worktree.id }) else {
+                replaceCreationLevelWithoutActions(level)
+                return
+            }
             let presence = CommandBarDataSource.buildWorktreePresence(
-                worktree: worktree,
-                repo: repository,
+                worktree: currentWorktree,
+                repo: currentRepository,
                 store: store
             )
             state.replaceLevel(
                 CommandBarDataSource.buildWorktreeActionsLevel(
-                    worktree: worktree,
+                    worktree: currentWorktree,
                     presence: presence,
                     canOpenInCurrentTab: canOpenWorktreeInCurrentTab,
                     dispatcher: dispatcher,
-                    repository: repository,
-                    forkEligibility: state.forkEligibilityBySourceWorktreeId[worktree.id]
+                    repository: currentRepository,
+                    forkEligibility: state.forkEligibilityBySourceWorktreeId[currentWorktree.id]
                 ))
         default:
             break
         }
+    }
+
+    private func replaceCreationLevelWithoutActions(_ level: CommandBarLevel) {
+        state.replaceLevel(
+            CommandBarLevel(
+                id: level.id,
+                title: level.title,
+                parentLabel: level.parentLabel,
+                scopeLabel: level.scopeLabel,
+                breadcrumbIcon: level.breadcrumbIcon,
+                items: [],
+                creationQuery: level.creationQuery
+            ))
     }
 
     private func focusedWorktreeId(in repository: Repo) -> UUID? {

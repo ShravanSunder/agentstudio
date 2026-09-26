@@ -244,6 +244,29 @@ struct CommandBarWorktreeCreationTests {
         #expect(controller.state.currentLevel?.items.first?.subtitle == "origin/main")
     }
 
+    @Test("a pending default answer cannot restore creation rows after the repository becomes unavailable")
+    func unavailableRepositoryCannotReviveCreationRows() async throws {
+        let fixture = Self.makeFixture()
+        let resolver = SequencedDefaultStartPointResolver()
+        let dispatcher = FakeAppCommandDispatcher()
+        let controller = makeController(store: fixture.store, dispatcher: dispatcher, defaultResolver: resolver)
+        controller.state.show(prefix: ">")
+        controller.state.pushLevel(CommandBarDataSource.worktreeCreationMenuLevel(repository: fixture.repository))
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        #expect(await resolver.awaitQueries(count: 1) == 1)
+        let task = try #require(controller.defaultStartPointQueriesByRepositoryId[fixture.repository.id]?.task)
+        fixture.store.markRepoUnavailable(fixture.repository.id)
+
+        await resolver.answer(at: 0, with: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main"))
+        await task.value
+
+        #expect(controller.state.currentLevel?.items.isEmpty == true)
+        let currentSnapshot = snapshot(for: controller, store: fixture.store, dispatcher: dispatcher)
+        #expect(currentSnapshot.displayedItems.isEmpty)
+        #expect(currentSnapshot.selectedItem == nil)
+        #expect(dispatcher.worktreeCreationDispatches.isEmpty)
+    }
+
     @Test("fork answer updates its picker beneath a child level")
     func forkAnswerUpdatesCoveredPicker() async throws {
         let fixture = Self.makeFixture()

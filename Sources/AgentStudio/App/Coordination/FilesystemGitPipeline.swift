@@ -95,6 +95,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             AgentStudioGitRemoteReferenceRefreshProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
+        watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
         repositoryLocalActivityProjector: RepositoryLocalActivityProjector? = nil,
         filesystemDebounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
         filesystemMaxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
@@ -111,6 +112,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             bus: bus,
             fseventStreamClient: fseventStreamClient,
             repositoryLocalActivityProjector: repositoryLocalActivityProjector,
+            watchedFolderScanScheduler: watchedFolderScanScheduler,
             debounceWindow: filesystemDebounceWindow,
             maxFlushLatency: filesystemMaxFlushLatency,
             performanceTraceRecorder: performanceTraceRecorder

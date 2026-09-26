@@ -2,7 +2,7 @@ import AgentStudioInfrastructure
 import Foundation
 
 extension WatchedFolderScanScheduler {
-    static func production(
+    package static func production(
         deadlineScheduler: any RepoDiscoveryDeadlineScheduler = DispatchRepoDiscoveryDeadlineScheduler()
     ) -> WatchedFolderScanScheduler {
         let validationExecutor: RepoScannerValidationExecutor

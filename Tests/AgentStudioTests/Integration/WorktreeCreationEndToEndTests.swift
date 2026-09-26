@@ -187,17 +187,20 @@ private func awaitTopology<TObservation: Sendable>(
     until observe: @escaping @MainActor () -> TObservation?
 ) async -> TObservation {
     while true {
-        if let observation = observe() {
+        let (changes, changeContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let observation = withObservationTracking {
+            _ = store.repositoryTopologyAtom.repos
+            return observe()
+        } onChange: {
+            changeContinuation.yield()
+        }
+        if let observation {
+            changeContinuation.finish()
             return observation
         }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            withObservationTracking {
-                _ = store.repositoryTopologyAtom.repos
-                _ = observe()
-            } onChange: {
-                continuation.resume()
-            }
-        }
+        var changeIterator = changes.makeAsyncIterator()
+        _ = await changeIterator.next()
+        changeContinuation.finish()
     }
 }
 
@@ -222,6 +225,7 @@ private struct EndToEndSystem {
             gitWorkingTreeProvider: .stub { _ in nil },
             forgeStatusProvider: .stub { _ in .complete([]) },
             fseventStreamClient: ControllableFSEventStreamClient(),
+            watchedFolderScanScheduler: .production(deadlineScheduler: InertWorktreeCreationDiscoveryDeadline()),
             gitCoalescingWindow: .zero,
             gitRefreshPolicy: AppPolicies.GitRefresh.Policy()
         )
@@ -252,6 +256,16 @@ private struct EndToEndSystem {
     func shutdown() async {
         await cacheCoordinator.shutdown()
         await pipeline.shutdown()
+    }
+}
+
+/// Real scanning and Git discovery without a machine-load-dependent admission deadline.
+private struct InertWorktreeCreationDiscoveryDeadline: RepoDiscoveryDeadlineScheduler {
+    func scheduleDeadline(
+        after duration: Duration,
+        _ handler: @escaping @Sendable () -> Void
+    ) -> RepoDiscoveryScheduledDeadline {
+        RepoDiscoveryScheduledDeadline(cancel: {})
     }
 }
 
