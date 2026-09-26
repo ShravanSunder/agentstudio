@@ -156,13 +156,13 @@ struct BridgeProductTransportV2ContractTests {
         #expect(decodingFails(BridgeProductFileBatchRow.self, object: ghost))
     }
 
-    @Test("comment catalog records freeze keyed identity and transaction revision")
+    @Test("comment catalog records keep wire and semantic revisions independent")
     func commentCatalogRecordsRoundTrip() throws {
         let corpus = try fixtureJSONObject(
             relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-comment-catalog-record-corpus.json"
         )
         let entries = try fixtureArray(named: "records", in: corpus)
-        #expect(entries.count == 3)
+        #expect(entries.count == 4)
         for entry in entries {
             let expectedKey = try #require(entry["recordKey"] as? String)
             let recordObject = try #require(entry["record"] as? [String: Any])

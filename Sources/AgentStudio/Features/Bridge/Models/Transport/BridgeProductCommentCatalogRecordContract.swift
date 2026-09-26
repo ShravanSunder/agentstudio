@@ -1,7 +1,8 @@
 import Foundation
 
 /// The batch part's key is derived from the entry identity. The record revision
-/// comes from the SQLite mutation that committed the entry, not from delivery.
+/// is minted by N10 for the current install, independently of the entry's
+/// per-row semantic revision in SQLite.
 struct BridgeProductCommentCatalogRecord: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case entry
@@ -25,12 +26,6 @@ struct BridgeProductCommentCatalogRecord: Codable, Equatable, Sendable {
             name: "revision",
             codingPath: decoder.codingPath
         )
-        if case .session(let session) = entry, session.semanticRevision != revision {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Session catalog record revision differs from its semantic revision",
-                codingPath: decoder.codingPath
-            )
-        }
     }
 
     var recordKey: String {

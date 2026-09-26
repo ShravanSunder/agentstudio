@@ -8,15 +8,7 @@ export const bridgeProductCommentCatalogRecordSchema = z
 		entry: bridgeProductWorktreeAnnotationCatalogEntrySchema,
 		revision: bridgeProductPositiveSequenceSchema,
 	})
-	.strict()
-	.superRefine((record, context): void => {
-		if (record.entry.kind === 'session' && record.entry.semanticRevision !== record.revision) {
-			context.addIssue({
-				code: 'custom',
-				message: 'Session record revision must match its semantic revision.',
-			});
-		}
-	});
+	.strict();
 
 export function bridgeProductCommentCatalogRecordKey(
 	record: z.infer<typeof bridgeProductCommentCatalogRecordSchema>,
