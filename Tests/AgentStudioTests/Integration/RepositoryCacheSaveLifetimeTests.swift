@@ -165,12 +165,7 @@ struct RepositoryCacheSaveLifetimeTests {
                 if case .failure(let error) = heldSaveResult {
                     #expect(error is CancellationError)
                 }
-                await assertEventuallyAsync(
-                    "the non-forced corrective autosave commits",
-                    timeout: .milliseconds(250)
-                ) {
-                    await scenario.saveBarrier.didObserveCorrectiveSaveSucceeded
-                }
+                await scenario.saveBarrier.waitForCorrectiveSaveSucceeded()
                 try #require(await scenario.saveBarrier.didObserveCorrectiveSaveSucceeded)
 
                 let correctedState = try scenario.sqliteFixture.localRepository.fetchCacheState()
@@ -476,6 +471,7 @@ private actor PostcommitRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
     private var isArmed = false
     private var matchingSucceededSaveCount = 0
     private var pausedSaveContinuation: CheckedContinuation<Void, Never>?
+    private var correctiveSaveSucceededContinuation: CheckedContinuation<Void, Never>?
     private var shouldReleasePausedSave = false
     private(set) var isSavePausedAfterCommit = false
     private(set) var didObserveCorrectiveSaveSucceeded = false
@@ -495,6 +491,15 @@ private actor PostcommitRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
             }
         } else {
             didObserveCorrectiveSaveSucceeded = true
+            correctiveSaveSucceededContinuation?.resume()
+            correctiveSaveSucceededContinuation = nil
+        }
+    }
+
+    func waitForCorrectiveSaveSucceeded() async {
+        guard !didObserveCorrectiveSaveSucceeded else { return }
+        await withCheckedContinuation { continuation in
+            correctiveSaveSucceededContinuation = continuation
         }
     }
 
