@@ -477,6 +477,67 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
   },
 );
 
+export interface HeroRefreshObservation {
+  readonly reloadState: string | null;
+  readonly reloadScrollY: number;
+  readonly programmaticScrollState: string | null;
+  readonly wheelState: string | null;
+  readonly hashState: string | null;
+  readonly hashCreatedTimeline: boolean;
+}
+
+export const verifyHeroIntroRefresh = defineBrowserCommand(
+  async ({ context }, pageUrl: string): Promise<HeroRefreshObservation> => {
+    const applicationPage = await context.newPage();
+    const hashPage = await context.newPage();
+    try {
+      await applicationPage.addInitScript(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        document.addEventListener("hero-intro-playback-ready", (event) => {
+          if (event instanceof CustomEvent) {
+            (event.detail as { pause(): void }).pause();
+          }
+        });
+      });
+      await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await applicationPage.evaluate(() => window.scrollTo(0, 1800));
+      await applicationPage.reload({ waitUntil: "domcontentloaded" });
+      await applicationPage.waitForSelector('[data-hero-intro-state="playing"]');
+      const reloadState = await applicationPage
+        .locator("[data-hero-intro-root]")
+        .getAttribute("data-hero-intro-state");
+      const reloadScrollY = await applicationPage.evaluate(() => window.scrollY);
+      await applicationPage.evaluate(() => window.scrollTo(0, 100));
+      const programmaticScrollState = await applicationPage
+        .locator("[data-hero-intro-root]")
+        .getAttribute("data-hero-intro-state");
+      await applicationPage.evaluate(() => window.dispatchEvent(new WheelEvent("wheel")));
+      const wheelState = await applicationPage
+        .locator("[data-hero-intro-root]")
+        .getAttribute("data-hero-intro-state");
+
+      const hashUrl = new URL(pageUrl);
+      hashUrl.hash = "many-agents";
+      await hashPage.goto(hashUrl.href, { waitUntil: "domcontentloaded" });
+      const hashRoot = hashPage.locator("[data-hero-intro-root]");
+      const hashState = await hashRoot.getAttribute("data-hero-intro-state");
+      const hashCreatedTimeline = await hashRoot.evaluate((root) =>
+        root.hasAttribute("data-hero-intro-timeline-created"),
+      );
+      return {
+        reloadState,
+        reloadScrollY,
+        programmaticScrollState,
+        wheelState,
+        hashState,
+        hashCreatedTimeline,
+      };
+    } finally {
+      await Promise.all([applicationPage.close(), hashPage.close()]);
+    }
+  },
+);
+
 export interface HeroShiftObservation {
   readonly time: number | "settled";
   readonly appTop: number;

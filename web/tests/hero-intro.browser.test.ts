@@ -4,6 +4,7 @@ import { commands } from "vitest/browser";
 import type {
   HeroLayoutObservation,
   HeroPlaybackObservation,
+  HeroRefreshObservation,
   HeroShiftObservation,
 } from "./hero-intro-browser-command";
 
@@ -14,6 +15,7 @@ declare module "vitest/browser" {
       viewports: readonly { readonly width: number; readonly height: number }[],
     ): Promise<HeroLayoutObservation[]>;
     verifyHeroIntroPlayback(pageUrl: string): Promise<HeroPlaybackObservation>;
+    verifyHeroIntroRefresh(pageUrl: string): Promise<HeroRefreshObservation>;
     verifyHeroIntroShift(
       pageUrl: string,
       width: number,
@@ -37,6 +39,15 @@ const viewports = [
 ] as const;
 
 describe("hero intro", () => {
+  it("replays from the top on reload, settles for anchors, and skips on wheel", async () => {
+    const observation = await commands.verifyHeroIntroRefresh(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.reloadState).toBe("playing");
+    expect(observation.reloadScrollY).toBe(0);
+    expect(observation.programmaticScrollState).toBe("playing");
+    expect(observation.wheelState).toBe("settled");
+    expect(observation.hashState).toBe("settled");
+    expect(observation.hashCreatedTimeline).toBe(false);
+  });
   it("keeps the settled terminal, install box and canvas correct at every approved size", async () => {
     const observations = await commands.verifyHeroIntroLayout(
       inject("siteHeaderBrowserTestUrl"),

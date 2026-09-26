@@ -15,6 +15,7 @@ import {
 import {
   verifyHeroIntroLayout,
   verifyHeroIntroPlayback,
+  verifyHeroIntroRefresh,
   verifyHeroIntroShift,
 } from "./tests/hero-intro-browser-command.ts";
 import { verifyHeroIntroFinale } from "./tests/hero-intro-finale-browser-command.ts";
@@ -53,6 +54,7 @@ export default defineConfig({
               verifyChapterScrollGeometry,
               verifyHeroIntroLayout,
               verifyHeroIntroPlayback,
+              verifyHeroIntroRefresh,
               verifyHeroIntroShift,
               verifyHeroIntroFinale,
               verifyChapterStepRow,

@@ -25,6 +25,8 @@ export const verifyRailViewportBands = defineBrowserCommand(
     try {
       await applicationPage.setViewportSize({ width, height });
       await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await applicationPage.evaluate(() => window.dispatchEvent(new WheelEvent("wheel")));
+      await applicationPage.waitForSelector('[data-hero-intro-state="settled"]');
       await applicationPage.evaluate(async () => {
         await document.fonts.ready;
       });

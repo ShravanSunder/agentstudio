@@ -23,7 +23,7 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
   let timeline: ReturnType<typeof gsap.timeline> | null = null;
 
   function removeFinishListeners(): void {
-    for (const eventName of ["wheel", "touchstart", "keydown", "scroll", "resize"]) {
+    for (const eventName of ["wheel", "touchstart", "keydown", "pointerdown", "resize"]) {
       window.removeEventListener(eventName, finish);
     }
   }
@@ -59,7 +59,11 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
     root.dispatchEvent(new CustomEvent("hero-intro-settled", { bubbles: true }));
   }
 
-  if (document.hidden || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  if (
+    document.hidden ||
+    window.location.hash !== "" ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
     finish();
     return {
       timeline: null,
@@ -84,7 +88,7 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
     seed: 0,
   });
   root.setAttribute(heroIntroStateAttribute, "playing");
-  for (const eventName of ["wheel", "touchstart", "keydown", "scroll", "resize"]) {
+  for (const eventName of ["wheel", "touchstart", "keydown", "pointerdown", "resize"]) {
     window.addEventListener(eventName, finish, { passive: true });
   }
   timeline.play();
