@@ -89,7 +89,12 @@ describe("chapter surfaces on the home page", () => {
       expect(layout.glassChildCount).toBe(1);
       expect(layout.realCaptureTextCount).toBe(0);
       expect(layout.captionRadius).toBe("20px");
-      expect(layout.captionBackground).toBe("rgb(40, 44, 52)");
+      expect(layout.captionBackground).toBe("rgba(40, 44, 52, 0.72)");
+      expect(layout.captionBackgroundImage).toContain("linear-gradient");
+      expect(layout.captionBackdropFilter).toContain("blur(16px)");
+      expect(layout.captionBorderColor).toBe("rgba(255, 255, 255, 0.12)");
+      expect(layout.captionTextColor).toBe("rgb(234, 234, 234)");
+      expect(layout.captionIconCount).toBe(observation.tabs.length);
       expect(layout.pillMaterialMatchesHeader).toBe(true);
       for (const left of [layout.glass.left, layout.pill.left, layout.caption.left]) {
         expect(Math.abs(left - layout.title.left)).toBeLessThanOrEqual(1);

@@ -20,7 +20,9 @@ export const topologyStackedDropCornerInset = 24;
 /** Stacked drops finish with a straight vertical entry. */
 export const topologyStackedVerticalEntry = 8;
 /** Hero stacked forks clear copy above the glass. */
-export const topologyStackedForkCopyClearance = 4;
+export const topologyStackedForkCopyClearance = 14;
+/** A declared wide top entry keeps the existing lane travel before its fork. */
+export const topologyWideTopForkCopyClearance = 4;
 /** A free row must leave at least this much drop. */
 export const topologyStackedMinimumDrop = 12;
 /** A chapter without a free row forks this far above its glass. */
@@ -120,6 +122,9 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
     }
 
     if (stacked || anchor.targetEdge === "top") {
+      const copyClearance = stacked
+        ? topologyStackedForkCopyClearance
+        : topologyWideTopForkCopyClearance;
       const copyAboveGlass = anchor.rect.top < target.top;
       const previousSurface = page.anchors[index - 1]?.surface;
       const clearTop = copyAboveGlass
@@ -131,12 +136,12 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       const rowAboveY = rowYs[rowAbove];
       const forkOnRow =
         rowAboveY !== undefined &&
-        rowAboveY >= clearTop &&
+        rowAboveY >= clearTop + (copyAboveGlass ? copyClearance : 0) &&
         target.top - rowAboveY >= topologyStackedMinimumDrop &&
         !reserved.has(rowAbove);
       const gap = target.top - clearTop;
       const fallbackForkY = copyAboveGlass
-        ? clearTop + Math.min(topologyStackedForkCopyClearance, gap / 2)
+        ? clearTop + Math.min(copyClearance, stacked ? Math.max(gap - 4, 0) : gap / 2)
         : target.top - Math.min(topologyStackedFallbackDrop, gap / 2);
       const forkY = forkOnRow ? rowAboveY : fallbackForkY;
       const source = sourceAt(forkOnRow ? rowAbove : Math.max(rowAbove, anchorRow));

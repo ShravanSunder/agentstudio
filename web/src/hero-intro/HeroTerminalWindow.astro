@@ -26,7 +26,7 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-icon-plane--rear-two) { left: calc(var(--hero-stack-position-step) * -2); top: calc(var(--hero-stack-position-step) * -2); transform: rotate(calc(var(--hero-stack-step) * -2)); border: 3px solid #ef9f76; background: #191b1f; box-shadow: 0 10px 26px #0005; }
   :global(.hero-icon-plane--front) { left: calc(var(--hero-stack-position-step) * -1); top: calc(var(--hero-stack-position-step) * -1); transform: rotate(calc(var(--hero-stack-step) * -1)); border: 3px solid #89b4fa; background: #1e1e2e; }
   :global(.hero-icon-plane svg) { display: block; width: 100%; height: 100%; }
-  .hero-terminal-window { position: relative; z-index: 2; overflow: hidden; border: 1px solid rgb(137 180 250 / 38%); border-radius: var(--scroll-material-radius, 16px); background: #282c34; box-shadow: 0 16px 34px #0004; color: #cdd6f4; font: 13px/1.5 var(--font-mono-product); }
+  .hero-terminal-window { position: relative; z-index: 2; overflow: hidden; border: 1px solid rgb(137 180 250 / 38%); border-radius: 20px; background: #282c34; box-shadow: 0 16px 34px #0004; color: #cdd6f4; font: 13px/1.5 var(--font-mono-product); }
   .hero-terminal-content { display: flex; align-items: stretch; }
   :global(.hero-terminal-pane) { display: flex; flex: 1 1 50%; flex-direction: column; min-width: 0; }
   :global(.hero-terminal-pane--codex) { border-left: 1px solid rgb(255 255 255 / 10%); }
@@ -41,6 +41,8 @@ import HeroIconStack from "./HeroIconStack.astro";
   :global(.hero-terminal-lavender) { color: #cba6f7; }
   :global(.hero-phone-only) { display: none; }
   :global(.hero-transcript-row) { min-height: 19.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  :global(.hero-transcript-row--tool-call) { overflow-wrap: normal; word-break: normal; hyphens: none; }
+  :global(.hero-command-token) { white-space: nowrap; }
   :global(.hero-transcript-row--blank) { min-height: 8px; height: 8px; }
   :global(.hero-transcript-row--user-band) { padding: 1px 6px; margin: 1px 0; background: #44474e; }
   :global(.hero-terminal-green) { color: #a6e3a1; }
@@ -77,7 +79,7 @@ import HeroIconStack from "./HeroIconStack.astro";
     :global(.hero-icon-stack) { width: 170px; height: 108px; }
     :global(.hero-icon-plane) { width: 170px; height: 108px; border-radius: 14px; }
     :global(.hero-icon-plane--rear-one), :global(.hero-icon-plane--rear-two) { border-width: 2px; }
-    .hero-terminal-window { font-size: 12px; }
+    .hero-terminal-window { font-size: 12px; border-radius: 18px; }
     :global(.hero-terminal-transcript) { padding: 10px 12px 8px; }
     :global(.hero-claude-startup) { min-height: 42px; gap: 8px; }
     :global(.hero-claude-mascot) { width: 31px; height: 29px; }

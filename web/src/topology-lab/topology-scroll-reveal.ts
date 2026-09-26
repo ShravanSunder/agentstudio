@@ -199,7 +199,7 @@ export function initializeTopologyScrollReveal(
     }
 
     const artworkTop = artwork.getBoundingClientRect().top;
-    vibrancyGradient.setAttribute("y1", String(window.innerHeight * 0.75 - artworkTop));
+    vibrancyGradient.setAttribute("y1", String(window.innerHeight * 0.8 - artworkTop));
     vibrancyGradient.setAttribute("y2", String(window.innerHeight - artworkTop));
     vibrancyMaskRect.setAttribute("width", String(artwork.clientWidth));
     vibrancyMaskRect.setAttribute("height", String(artwork.clientHeight));
@@ -231,7 +231,7 @@ export function initializeTopologyScrollReveal(
     const span = Math.max(topologyEndY - topologyStartY, 1);
     const progressY = topologyStartY + span * scrollProgress;
     furthestRevealY ??= window.innerHeight - artworkTop;
-    furthestRevealY = Math.max(furthestRevealY, progressY, readingLineY);
+    furthestRevealY = Math.max(furthestRevealY, progressY, window.innerHeight - artworkTop);
     const revealY = reducedMotionQuery.matches
       ? topologyEndY
       : Math.min(furthestRevealY, topologyEndY);
@@ -272,6 +272,14 @@ export function initializeTopologyScrollReveal(
 
   const artworkResizeObserver = new ResizeObserver(forceLayoutUpdate);
   artworkResizeObserver.observe(artwork);
+  // The chapter wrapper, rather than its glass, now carries the scroll lift.
+  // Its style mutation is the geometry change that requires a fresh attach path.
+  const liftObserver = new MutationObserver(forceLayoutUpdate);
+  for (const liftGroup of artwork.ownerDocument.querySelectorAll(
+    "[data-scroll-material-lift-target]",
+  )) {
+    liftObserver.observe(liftGroup, { attributes: true, attributeFilter: ["style"] });
+  }
   window.addEventListener("scroll", forceLayoutUpdate, { passive: true, signal: lifecycle.signal });
   window.addEventListener("resize", forceLayoutUpdate, { signal: lifecycle.signal });
   window.addEventListener("load", forceLayoutUpdate, { signal: lifecycle.signal });
@@ -282,6 +290,7 @@ export function initializeTopologyScrollReveal(
   return (): void => {
     lifecycle.abort();
     artworkResizeObserver.disconnect();
+    liftObserver.disconnect();
     updateCurrentNodes(0, false);
     currentBranch?.removeAttribute("data-topology-current-branch");
     lightTarget(undefined);

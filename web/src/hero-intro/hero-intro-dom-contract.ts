@@ -13,5 +13,6 @@ export const heroIntroContentAttribute = "data-hero-intro-content";
 export const heroIntroTypedInputAttribute = "data-hero-intro-typed-input";
 export const heroIntroSpinnerAttribute = "data-hero-intro-spinner";
 export const heroIntroReadyAttribute = "data-hero-intro-ready";
+export const heroIntroReadyArrowAttribute = "data-hero-intro-ready-arrow";
 export const heroIntroFourthPlaneAttribute = "data-hero-intro-fourth-plane";
 export const heroTranscriptTierAttribute = "data-transcript-tier";

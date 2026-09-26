@@ -192,14 +192,15 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
       signal: lifecycle.signal,
     });
 
-    // A visitor's choice: select, then ask the scene to seek and play there.
+    // A visitor's choice enters on the glass, where the scene listens; the
+    // event bubbles back to this root for other chapter observers.
     const chooseStep = (stepIndex: number): void => {
       selectStep(stepIndex);
       const chosenStep = validatedContract.steps[stepIndex];
       if (chosenStep !== undefined) {
-        root.dispatchEvent(
-          createChapterStepEvent(chapterStepRequestedEventName, chosenStep.stepId),
-        );
+        root
+          .querySelector("[data-rail-surface-target]")
+          ?.dispatchEvent(createChapterStepEvent(chapterStepRequestedEventName, chosenStep.stepId));
       }
     };
 

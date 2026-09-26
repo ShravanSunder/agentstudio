@@ -44,6 +44,7 @@ export interface TopologyNodeVocabularyResult {
   readonly beforeReveal: readonly TopologyGlyphObservation[];
   readonly afterReveal: readonly TopologyGlyphObservation[];
   readonly ports: readonly TopologyPortObservation[];
+  readonly glowTransitions: readonly { readonly property: string; readonly duration: string }[];
 }
 
 function readPorts(): TopologyPortObservation[] {
@@ -153,6 +154,17 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
         },
       );
       const beforeReveal = await applicationPage.evaluate(readGlyphs);
+      const glowTransitions = await applicationPage.evaluate(() => {
+        const branch = document.querySelector(
+          '[data-route-kind="attach"][data-route-anchor="many-agents"]',
+        );
+        const node = document.querySelector('[data-topology-chapter-node="many-agents"]');
+        if (branch === null || node === null) throw new Error("Chapter glow targets are missing");
+        return [branch, node].map((element) => {
+          const style = getComputedStyle(element);
+          return { property: style.transitionProperty, duration: style.transitionDuration };
+        });
+      });
       await applicationPage.evaluate(() => {
         window.scrollTo(0, document.documentElement.scrollHeight);
       });
@@ -161,14 +173,9 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
           node.hasAttribute("data-topology-node-revealed"),
         ),
       );
-      await applicationPage.evaluate(async () => {
-        await Promise.all(
-          document
-            .getAnimations()
-            .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
-            .map((animation) => animation.finished),
-        );
-      });
+      // The final glyph state is independent of transition timing. Disable
+      // motion after the scroll has revealed every node before reading paint.
+      await applicationPage.emulateMedia({ reducedMotion: "reduce" });
       const afterReveal = await applicationPage.evaluate(readGlyphs);
       const { canvasColor, primaryColor } = await applicationPage.evaluate(() => {
         const branch = document.querySelector("[data-route-kind=attach]");
@@ -178,7 +185,7 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
         };
       });
       const ports = await applicationPage.evaluate(readPorts);
-      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports };
+      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports, glowTransitions };
     } finally {
       await applicationPage.close();
     }

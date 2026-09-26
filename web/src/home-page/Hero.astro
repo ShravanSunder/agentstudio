@@ -3,6 +3,7 @@ import { Image } from "astro:assets";
 
 import parallelAgentsImage from "@/assets/captures/parallel-agents.png";
 import parallelWorkPhoneImage from "@/assets/captures/parallel-work-phone.png";
+import appLogo from "@/assets/brand/app-logo-transparent.svg";
 import {
   railAnchorAttribute,
   railMediaTargetAttribute,
@@ -97,6 +98,7 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
     </div>
   </div>
 
+  <div class="hero-frame-flow scroll-material-lift-group" data-scroll-material-lift-target>
   <ScrollMaterialSurface
     {...appFrameRailAttributes}
     staticMaterial
@@ -134,9 +136,13 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
     </div>
   </ScrollMaterialSurface>
   <div class="chapter-caption mt-3" data-hero-caption>
-    <p class="m-0" {...{ [heroIntroDescriptionAttribute]: "" }}>
-      {marketingCopy.hero.description}
-    </p>
+    <div class="chapter-caption__content">
+      <span class="chapter-caption__icon" data-hero-caption-icon><img src={appLogo.src} width="20" height="20" alt="" aria-hidden="true" /></span>
+      <p class="chapter-caption__copy m-0" {...{ [heroIntroDescriptionAttribute]: "" }}>
+        {marketingCopy.hero.description}
+      </p>
+    </div>
+  </div>
   </div>
 </section>
 

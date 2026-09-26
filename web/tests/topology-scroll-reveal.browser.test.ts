@@ -90,7 +90,7 @@ describe("full-page topology scroll reveal", () => {
     [1600, 1000, wideRevealLayout],
     [390, 844, phoneRevealLayout],
   ] as const) {
-    it(`fades rail colour across the bottom quarter at ${width}px in one source and two copies`, async () => {
+    it(`keeps rail colour through 80 percent of the viewport at ${width}px`, async () => {
       await page.viewport(width, height);
       const fixture = mountRevealFixture(layout);
       await vi.waitFor(() => expect(Number.isFinite(revealEdgeY(fixture.artwork))).toBe(true));
@@ -106,12 +106,12 @@ describe("full-page topology scroll reveal", () => {
       const artworkTop = fixture.artwork.getBoundingClientRect().top;
       const colourLine = Number(gradient.getAttribute("y1")) + artworkTop;
       const viewportBottom = Number(gradient.getAttribute("y2")) + artworkTop;
-      expect(colourLine).toBeCloseTo(height * 0.75, 0);
+      expect(colourLine).toBeCloseTo(height * 0.8, 0);
       expect(viewportBottom).toBeCloseTo(height, 0);
       for (const [viewportFraction, expectedColour] of [
         [0.5, 1],
-        [0.87, 0.52],
-        [0.99, 0.04],
+        [0.79, 1],
+        [0.99, 0.05],
       ] as const) {
         const viewportY = height * viewportFraction;
         const colourFraction = Math.max(
@@ -122,6 +122,18 @@ describe("full-page topology scroll reveal", () => {
       }
     });
   }
+  it("draws the rail through the viewport bottom after scrolling to a chapter", async () => {
+    await page.viewport(1600, 1000);
+    const fixture = mountRevealFixture();
+    const chapter = fixture.host.querySelector<HTMLElement>('[data-rail-anchor="chapter-1"]');
+    if (chapter === null) throw new Error("First chapter is missing");
+    window.scrollTo(0, window.scrollY + chapter.getBoundingClientRect().top - 200);
+    await vi.waitFor(() => {
+      const solid = fixture.artwork.querySelector("[data-topology-reveal-solid]");
+      const viewportBottom = window.innerHeight - fixture.artwork.getBoundingClientRect().top;
+      expect(Number(solid?.getAttribute("height"))).toBeGreaterThanOrEqual(viewportBottom - 1);
+    });
+  });
   for (const [label, width, height, layout] of [
     ["wide", 1920, 1080, wideRevealLayout],
     ["phone", 390, 844, phoneRevealLayout],

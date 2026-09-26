@@ -303,7 +303,7 @@ describe("scene playback", () => {
     }
   });
 
-  it("seeks to a requested step, plays, and reports the steps it passes", () => {
+  it("seeks to a requested step and holds it against autoplay", () => {
     stubReducedMotion(false);
     const scene = createFakeSceneFixture();
     const playback = createScenePlayback({
@@ -322,13 +322,12 @@ describe("scene playback", () => {
       }),
     );
 
-    expect(scene.playbackState()).toBe("playing");
+    expect(scene.playbackState()).toBe("paused");
     expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     expect(reachedSteps).toEqual(["watch-folders"]);
-
-    // time() renders with callbacks, like a ticker frame; seek() would suppress them.
-    scene.timeline().time(0);
-    expect(reachedSteps).toEqual(["watch-folders", "parallel-agents"]);
+    playback.synchronize(1, true);
+    expect(scene.timeline().paused()).toBe(true);
+    expect(reachedSteps).toEqual(["watch-folders"]);
 
     playback.dispose();
   });
@@ -440,7 +439,7 @@ describe("scene playback", () => {
       state: "hidden",
       transition: "instant",
     });
-    expect(scene.playbackState()).toBe("playing");
+    expect(scene.playbackState()).toBe("paused");
     expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     playback.dispose();
   });

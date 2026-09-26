@@ -11,6 +11,7 @@ import {
   heroIntroInstallAttribute,
   heroIntroSpinnerAttribute,
   heroIntroReadyAttribute,
+  heroIntroReadyArrowAttribute,
   heroIntroTypedInputAttribute,
   heroTerminalWindowAttribute,
 } from "./hero-intro-dom-contract";
@@ -33,6 +34,7 @@ export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
     requiredTarget(root, heroTerminalWindowAttribute),
     requiredTarget(root, heroIntroContentAttribute),
     requiredTarget(root, heroIntroInstallAttribute),
+    requiredTarget(root, heroIntroReadyArrowAttribute),
     requiredTarget(root, heroIntroGlowAttribute),
     requiredTarget(root, heroIntroTypedInputAttribute),
     requiredTarget(root, heroIntroSpinnerAttribute),
@@ -88,6 +90,7 @@ export function buildHeroIntroScene(
   const typedInput = requiredTarget(root, heroIntroTypedInputAttribute);
   const spinner = requiredTarget(root, heroIntroSpinnerAttribute);
   const ready = requiredTarget(root, heroIntroReadyAttribute);
+  const readyArrow = requiredTarget(root, heroIntroReadyArrowAttribute);
   const codexFooter = root.querySelector<HTMLElement>(".hero-codex-footer");
 
   // Read the three layout rects once. Every following value is derived from them.
@@ -243,9 +246,18 @@ export function buildHeroIntroScene(
   );
   timeline.to(spinner, { opacity: 0, duration: 0.01 }, 4.5);
   timeline.fromTo(ready, { opacity: 0 }, { opacity: 1, duration: 0.08 }, 4.5);
+  timeline.fromTo(
+    readyArrow,
+    { opacity: 1 },
+    { opacity: 0.35, duration: 0.15, ease: "none" },
+    4.55,
+  );
+  timeline.to(readyArrow, { opacity: 1, duration: 0.15, ease: "none" }, 4.7);
+  timeline.to(readyArrow, { opacity: 0.35, duration: 0.15, ease: "none" }, 4.85);
+  timeline.to(readyArrow, { opacity: 1, duration: 0.15, ease: "none" }, 5.0);
   if (codexFooter !== null) {
     timeline.fromTo(codexFooter, { opacity: 0 }, { opacity: 1, duration: 0.16 }, 4.0);
   }
-  timeline.fromTo(install, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3 }, 4.5);
-  timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 0.8 }, 4.8);
+  timeline.fromTo(install, { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power1.out" }, 5.05);
+  timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 0.8 }, 5.4);
 }

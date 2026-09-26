@@ -1,5 +1,6 @@
 ---
 import ScrollMaterialSurface from "@/home-page/ScrollMaterialSurface.astro";
+import KitIcon from "@/recreation-kit/KitIcon.astro";
 
 import ChapterStepPill from "./ChapterStepPill.astro";
 import type { Chapter } from "./chapter-catalog";
@@ -29,7 +30,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
   aria-labelledby={titleId}
   data-chapter={chapter.id}
 >
-  <div class="chapter-flow" data-chapter-steps-root={chapter.id} data-has-steps={String(hasStepSelector)}>
+  <div class="chapter-flow scroll-material-lift-group" data-scroll-material-lift-target data-chapter-steps-root={chapter.id} data-has-steps={String(hasStepSelector)}>
     <h2
       {...railAnchorAttributes}
       id={titleId}
@@ -58,15 +59,21 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
         hasStepSelector ? (
           chapter.steps.map((step, stepIndex) => (
             <div class="chapter-step-panel" data-chapter-step-panel={step.id} aria-hidden={stepIndex !== 0}>
-              <p class="m-0 max-phone:hidden">{step.description}</p>
-              <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+              <span class="chapter-caption__icon" data-chapter-caption-icon={step.captionIcon}><KitIcon name={step.captionIcon} /></span>
+              <div class="chapter-caption__copy">
+                <p class="m-0 max-phone:hidden">{step.description}</p>
+                <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+              </div>
             </div>
           ))
         ) : (
           chapter.steps.map((step) => (
             <div class="chapter-single-description">
-              <p class="m-0 max-phone:hidden">{step.description}</p>
-              <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+              <span class="chapter-caption__icon" data-chapter-caption-icon={step.captionIcon}><KitIcon name={step.captionIcon} /></span>
+              <div class="chapter-caption__copy">
+                <p class="m-0 max-phone:hidden">{step.description}</p>
+                <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+              </div>
             </div>
           ))
         )

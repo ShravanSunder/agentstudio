@@ -22,7 +22,7 @@ import { heroTranscriptTierAttribute } from "./hero-intro-dom-contract";
             {row.kind === "codex-action" ? (
               <><span class="hero-terminal-dim">•</span>{" "}<span class="hero-terminal-lavender">{row.text.slice(2)}</span></>
             ) : resultIndex >= 0 ? (
-              <><span class="hero-terminal-muted">{row.text.slice(0, resultIndex)}</span><span class="hero-terminal-green">14 passed</span><span class="hero-terminal-muted">{row.text.slice(resultIndex + "14 passed".length)}</span></>
+              <><span class="hero-terminal-muted">{row.text.slice(0, resultIndex)}</span><span class="hero-terminal-muted">14 passed</span><span class="hero-terminal-muted">{row.text.slice(resultIndex + "14 passed".length)}</span></>
             ) : row.kind === "codex-prose" ? (
               <><span class="hero-terminal-dim">•</span><span class="hero-terminal-muted">{row.text.slice(1)}</span></>
             ) : row.text}

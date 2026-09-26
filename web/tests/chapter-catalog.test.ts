@@ -9,6 +9,7 @@ import {
 import { websiteCaptureSuite } from "../src/content/website-capture-manifest";
 import { sceneIds } from "../src/motion-scenes/scene-contract";
 import { resolveSceneModule } from "../src/motion-scenes/scene-registry";
+import { kitIconNames } from "../src/recreation-kit/kit-icon-names";
 
 describe("chapter catalog", () => {
   it("tells the five chapters in narrative order with unique ids", () => {
@@ -41,6 +42,7 @@ describe("chapter catalog", () => {
         expect(step.label.trim()).not.toBe("");
         expect(step.description.trim()).not.toBe("");
         expect(step.phoneDescription.trim()).not.toBe("");
+        expect(kitIconNames).toContain(step.captionIcon);
       }
     }
   });

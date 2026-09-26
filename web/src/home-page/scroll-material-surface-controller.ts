@@ -17,11 +17,16 @@ function easeProgress(progress: number): number {
   return progress * progress * (3 - 2 * progress);
 }
 
+function scrollLiftTargetFor(surface: HTMLElement): HTMLElement {
+  return surface.closest<HTMLElement>("[data-scroll-material-lift-target]") ?? surface;
+}
+
 function applySurfaceProgress(surface: HTMLElement, progress: number, shouldLift: boolean): void {
   const phoneLayout = window.matchMedia(phoneMediaQuery).matches;
   const liftDistance = phoneLayout ? 12 : 24;
+  const liftTarget = scrollLiftTargetFor(surface);
   surface.style.setProperty("--scroll-material-progress", progress.toFixed(3));
-  surface.style.setProperty(
+  liftTarget.style.setProperty(
     "--scroll-material-lift",
     `${shouldLift ? (-liftDistance * progress).toFixed(2) : "0"}px`,
   );
@@ -50,7 +55,7 @@ function applySurfaceProgress(surface: HTMLElement, progress: number, shouldLift
 
 function readSurfaceLift(surface: HTMLElement): number {
   const currentLift = Number.parseFloat(
-    getComputedStyle(surface).getPropertyValue("--scroll-material-lift"),
+    getComputedStyle(scrollLiftTargetFor(surface)).getPropertyValue("--scroll-material-lift"),
   );
   return Number.isFinite(currentLift) ? currentLift : 0;
 }
@@ -76,6 +81,24 @@ function readBookendProgress(element: HTMLElement, surfaceLift: number): number 
         : (elementBottom - topBookend) / elementBounds.height,
   );
   return easeProgress(rawProgress);
+}
+
+interface StagePlaybackBounds {
+  readonly stageTop: number;
+  readonly stageHeight: number;
+  readonly viewportHeight: number;
+}
+
+/** The existing 0.95 autoplay threshold means 60% of the smaller visible box. */
+export function stagePlaybackProgressForBounds(bounds: StagePlaybackBounds): number {
+  const { stageTop, stageHeight, viewportHeight } = bounds;
+  const referenceHeight = Math.min(stageHeight, viewportHeight);
+  if (referenceHeight <= 0) return 0;
+  const visibleHeight = Math.max(
+    0,
+    Math.min(stageTop + stageHeight, viewportHeight) - Math.max(stageTop, 0),
+  );
+  return Math.min(0.95, (visibleHeight / referenceHeight) * (0.95 / 0.6));
 }
 
 export function initializeScrollMaterialSurfaces(): void {
@@ -109,8 +132,15 @@ export function initializeScrollMaterialSurfaces(): void {
       }
       const surfaceLift = readSurfaceLift(materialSurface);
       const materialProgress = readBookendProgress(materialSurface, surfaceLift);
+      const stageBounds = playbackStage?.getBoundingClientRect();
       const playbackProgress =
-        playbackStage === null ? materialProgress : readBookendProgress(playbackStage, surfaceLift);
+        stageBounds === undefined
+          ? materialProgress
+          : stagePlaybackProgressForBounds({
+              stageTop: stageBounds.top,
+              stageHeight: stageBounds.height,
+              viewportHeight: window.innerHeight,
+            });
       applySurfaceProgress(materialSurface, materialProgress, true);
       surfacePlayback.synchronize(playbackProgress, true);
     }

@@ -319,8 +319,13 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     }
     // A step chosen during the proof beat drops the proof at once, then seeks.
     proofLayer.render(false, "instant");
+    clearReplayTimer();
     timeline.pause(step.timelineLabel);
-    playManually(timeline);
+    state.awaitingReplay = false;
+    state.suspendedWhileHidden = false;
+    state.intent = "manual-pause";
+    renderPhase("paused", "instant");
+    reportStep(step.stepId);
   };
 
   toggle?.addEventListener("click", handleToggle, { signal: lifecycle.signal });

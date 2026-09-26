@@ -79,12 +79,20 @@ describe("hero intro", () => {
         observation.viewport,
       ).toBeLessThanOrEqual(1);
       expect(observation.captionRadius, observation.viewport).toBe("20px");
+      expect(observation.captionBackgroundImage, observation.viewport).toContain("linear-gradient");
+      expect(observation.captionBackdropFilter, observation.viewport).toContain("blur(16px)");
+      expect(observation.captionIconCount, observation.viewport).toBe(1);
       expect(observation.descriptionTop).toBeGreaterThan(observation.captionTop);
       expect(
         observation.paintedStackTop - observation.headlineBottom,
         observation.viewport,
       ).toBeGreaterThanOrEqual(observation.viewportWidth < 620 ? 32 : 48);
       expect(observation.visibleBashRows, observation.viewport).toBe(1);
+      expect(observation.windowRadius, observation.viewport).toBe(observation.appRadius);
+      if ([1024, 1280, 1600, 2560].includes(observation.viewportWidth)) {
+        expect(observation.bashSplitTokens, observation.viewport).toEqual([]);
+        expect(observation.codexPassedColor, observation.viewport).toBe("rgb(155, 161, 173)");
+      }
       if (observation.viewport === "1600x1000" || observation.viewport === "390x844") {
         for (const [index, expectedAngle] of [-3, -6, -9].entries()) {
           expect(observation.stackAngles[index], observation.viewport).toBeCloseTo(

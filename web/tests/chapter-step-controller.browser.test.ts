@@ -52,7 +52,7 @@ function createChapterStepsFixture(): HTMLElement {
             `<div data-chapter-step-panel="${stepId}" aria-hidden="${index !== 0}">${stepId} copy</div>`,
         )
         .join("")}
-      <div data-scene-root="chapter-context-with-task"></div>
+      <div data-rail-surface-target="context-with-task"><div data-scene-root="chapter-context-with-task"></div></div>
     </section>
   `;
   document.body.append(fixture);
@@ -133,9 +133,16 @@ describe("chapter step tabs", () => {
   it("selects a clicked step, shows its panel, and asks the scene to seek there", () => {
     const root = createChapterStepsFixture();
     const requestedSteps: string[] = [];
+    const receivedAtSurface: string[] = [];
     root.addEventListener(chapterStepRequestedEventName, (event: Event): void => {
       requestedSteps.push(readChapterStepEventStepId(event) ?? "unreadable");
     });
+    requiredHtmlElement(root, "[data-rail-surface-target]").addEventListener(
+      chapterStepRequestedEventName,
+      (event: Event): void => {
+        receivedAtSurface.push(readChapterStepEventStepId(event) ?? "unreadable");
+      },
+    );
     const controller = initializeChapterSteps(root);
 
     requiredButton(root, '[data-chapter-step="git-context"]').click();
@@ -158,6 +165,7 @@ describe("chapter step tabs", () => {
       "upcoming",
     );
     expect(requestedSteps).toEqual(["git-context"]);
+    expect(receivedAtSurface).toEqual(["git-context"]);
 
     controller.destroy();
   });

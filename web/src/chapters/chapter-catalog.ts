@@ -14,6 +14,7 @@ import sessionRestorePoster from "../assets/media/session-restore-poster.jpg";
 import sessionRestoreVideoUrl from "../assets/media/session-restore.mp4?url";
 import { marketingCopy } from "../marketing-copy";
 import type { SceneId } from "../motion-scenes/scene-contract";
+import type { KitIconName } from "../recreation-kit/kit-icon-names";
 import type { ChapterId, ChapterStepId } from "./chapter-ids";
 
 export {
@@ -48,6 +49,7 @@ export type ChapterStage =
 
 export interface ChapterStep {
   readonly id: ChapterStepId;
+  readonly captionIcon: KitIconName;
   readonly label: string;
   readonly description: string;
   readonly phoneDescription: string;
@@ -95,18 +97,21 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "parallel-agents",
+        captionIcon: "stack",
         label: stories.parallelWork.label,
         description: stories.parallelWork.description,
         phoneDescription: stories.parallelWork.phoneDescription,
       },
       {
         id: "watch-folders",
+        captionIcon: "folder",
         label: stories.watchFolders.label,
         description: stories.watchFolders.description,
         phoneDescription: stories.watchFolders.phoneDescription,
       },
       {
         id: "navigation",
+        captionIcon: "search",
         label: `${navigationDetail.title.beforeAccent}${navigationDetail.title.accent}${navigationDetail.title.afterAccent}`,
         description: navigationDetail.summary,
         phoneDescription: navigationDetail.summary,
@@ -126,18 +131,21 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "task-drawers",
+        captionIcon: "drawer",
         label: stories.paneDrawer.label,
         description: stories.paneDrawer.description,
         phoneDescription: stories.paneDrawer.phoneDescription,
       },
       {
         id: "git-context",
+        captionIcon: "branch",
         label: stories.gitContext.label,
         description: stories.gitContext.description,
         phoneDescription: stories.gitContext.phoneDescription,
       },
       {
         id: "files",
+        captionIcon: "files",
         label: stories.files.label,
         description: stories.files.description,
         phoneDescription: stories.files.phoneDescription,
@@ -157,12 +165,14 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "quick-find",
+        captionIcon: "search",
         label: stories.quickFind.label,
         description: stories.quickFind.description,
         phoneDescription: stories.quickFind.phoneDescription,
       },
       {
         id: "pane-zoom",
+        captionIcon: "zoom",
         label: arrangementsDetail.paneZoomLabel,
         description: arrangementsDetail.detail,
         phoneDescription: arrangementsDetail.detail,
@@ -182,6 +192,7 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "review-diff",
+        captionIcon: "review",
         label: stories.review.label,
         description: stories.review.description,
         phoneDescription: stories.review.phoneDescription,
@@ -200,6 +211,7 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "persistence",
+        captionIcon: "clock",
         label: stories.persistence.label,
         description: stories.persistence.description,
         phoneDescription: stories.persistence.description,

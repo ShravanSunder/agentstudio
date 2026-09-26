@@ -64,6 +64,11 @@ export interface ChapterGlassLayoutObservation {
   readonly realCaptureTextCount: number;
   readonly captionRadius: string;
   readonly captionBackground: string;
+  readonly captionBackgroundImage: string;
+  readonly captionBackdropFilter: string;
+  readonly captionBorderColor: string;
+  readonly captionTextColor: string;
+  readonly captionIconCount: number;
   readonly pillMaterialMatchesHeader: boolean;
   /** Elements in the chapter measured for autoplay centring, and whether the one is the stage. */
   readonly playbackStageCount: number;
@@ -324,6 +329,11 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
     ).length,
     captionRadius: getComputedStyle(caption).borderRadius,
     captionBackground: getComputedStyle(caption).backgroundColor,
+    captionBackgroundImage: getComputedStyle(caption).backgroundImage,
+    captionBackdropFilter: getComputedStyle(caption).backdropFilter,
+    captionBorderColor: getComputedStyle(caption).borderTopColor,
+    captionTextColor: getComputedStyle(caption).color,
+    captionIconCount: caption.querySelectorAll("[data-chapter-caption-icon]").length,
     pillMaterialMatchesHeader:
       pillMaterial.background === headerMaterial.background &&
       pillMaterial.borderColor === headerMaterial.borderColor &&

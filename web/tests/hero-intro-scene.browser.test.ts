@@ -24,7 +24,7 @@ describe("hero intro scene contract", () => {
       </div>
       <div data-hero-terminal-window><div data-hero-intro-content>
         <div class="hero-transcript-row hero-transcript-row--user-band">set up Agent Studio</div>
-        <div class="hero-transcript-row hero-transcript-row--tool-result" data-hero-intro-ready>Ready.</div>
+        <div class="hero-transcript-row hero-transcript-row--tool-result" data-hero-intro-ready>Ready. Copy it below <span data-hero-intro-ready-arrow>↓</span></div>
         <div data-hero-intro-spinner>Brewing</div><span data-hero-intro-typed-input></span>
         <div class="hero-codex-footer">Ask Codex</div>
       </div></div>
@@ -51,6 +51,27 @@ describe("hero intro scene contract", () => {
       timeline.time(4.2);
       const spinner = fixture.querySelector<HTMLElement>("[data-hero-intro-spinner]");
       expect(spinner === null ? "missing" : getComputedStyle(spinner).display).not.toBe("none");
+      const arrow = fixture.querySelector<HTMLElement>("[data-hero-intro-ready-arrow]");
+      const install = fixture.querySelector<HTMLElement>("[data-hero-intro-install]");
+      const glow = fixture.querySelector<HTMLElement>("[data-hero-intro-glow]");
+      if (arrow === null || install === null || glow === null)
+        throw new Error("Intro timing targets are missing");
+      timeline.time(4.7);
+      expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(0.35, 1);
+      expect(Number(getComputedStyle(install).opacity)).toBe(0);
+      expect(getComputedStyle(install).transform).toBe("none");
+      timeline.time(5.0);
+      expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(0.35, 1);
+      timeline.time(5.15);
+      expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(1, 1);
+      timeline.time(5.4);
+      expect(Number(getComputedStyle(install).opacity)).toBeGreaterThan(0);
+      expect(Number(getComputedStyle(install).opacity)).toBeLessThan(1);
+      expect(Number(getComputedStyle(glow).opacity)).toBe(0);
+      timeline.time(5.75);
+      expect(Number(getComputedStyle(install).opacity)).toBeCloseTo(1, 1);
+      timeline.time(6.2);
+      expect(Number(getComputedStyle(glow).opacity)).toBeCloseTo(1, 1);
       timeline.time(5.6);
       const sceneWindow = windowNode.getBoundingClientRect();
       const sceneStack = stack.getBoundingClientRect();

@@ -8,6 +8,8 @@ export interface HeroLayoutObservation {
   readonly windowRight: number;
   readonly windowTop: number;
   readonly windowBottom: number;
+  readonly windowRadius: string;
+  readonly appRadius: string;
   readonly headlineBottom: number;
   readonly columnTop: number;
   readonly rootTop: number;
@@ -20,6 +22,9 @@ export interface HeroLayoutObservation {
   readonly captionLeft: number;
   readonly captionRight: number;
   readonly captionRadius: string;
+  readonly captionBackgroundImage: string;
+  readonly captionBackdropFilter: string;
+  readonly captionIconCount: number;
   readonly installCenterOffset: number;
   readonly paintedStackTop: number;
   readonly stackAngles: readonly number[];
@@ -35,6 +40,8 @@ export interface HeroLayoutObservation {
   readonly codexVisible: boolean;
   readonly canvasColor: string;
   readonly visibleBashRows: number;
+  readonly bashSplitTokens: readonly string[];
+  readonly codexPassedColor: string | undefined;
   readonly earlierExchangeVisible: boolean;
   readonly overflowElements: readonly string[];
 }
@@ -92,6 +99,27 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
               const visibleRows = [
                 ...windowNode.querySelectorAll<HTMLElement>("[data-transcript-tier]"),
               ].filter((row) => row.getClientRects().length > 0);
+              const bashArgs = visibleRows
+                .find((row) => row.textContent?.includes("Bash("))
+                ?.querySelector<HTMLElement>(".hero-terminal-muted");
+              const bashSplitTokens: string[] = [];
+              if (bashArgs !== undefined && bashArgs !== null) {
+                const textNodes = document.createTreeWalker(bashArgs, NodeFilter.SHOW_TEXT);
+                while (textNodes.nextNode()) {
+                  const bashText = textNodes.currentNode;
+                  for (const match of bashText.textContent?.matchAll(/\S+/gu) ?? []) {
+                    const start = match.index;
+                    if (start === undefined) continue;
+                    const range = document.createRange();
+                    range.setStart(bashText, start);
+                    range.setEnd(bashText, start + match[0].length);
+                    if (range.getClientRects().length > 1) bashSplitTokens.push(match[0]);
+                  }
+                }
+              }
+              const codexPassed = [...windowNode.querySelectorAll<HTMLElement>("span")].find(
+                (span) => span.textContent === "14 passed",
+              );
               return {
                 viewport: `${width}x${height}`,
                 rowsInsideWindow: visibleRows.every((row) => {
@@ -106,6 +134,8 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 windowRight: windowRect.right,
                 windowTop: windowRect.top,
                 windowBottom: windowRect.bottom,
+                windowRadius: getComputedStyle(windowNode).borderTopLeftRadius,
+                appRadius: getComputedStyle(appFrame).borderTopLeftRadius,
                 headlineBottom:
                   document.querySelector("#hero-title")?.getBoundingClientRect().bottom ?? NaN,
                 columnTop:
@@ -121,6 +151,9 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 captionLeft: caption.getBoundingClientRect().left,
                 captionRight: caption.getBoundingClientRect().right,
                 captionRadius: getComputedStyle(caption).borderRadius,
+                captionBackgroundImage: getComputedStyle(caption).backgroundImage,
+                captionBackdropFilter: getComputedStyle(caption).backdropFilter,
+                captionIconCount: caption.querySelectorAll("[data-hero-caption-icon]").length,
                 installCenterOffset: Math.abs(
                   (install.getBoundingClientRect().left + install.getBoundingClientRect().right) /
                     2 -
@@ -162,6 +195,9 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 canvasColor: getComputedStyle(document.body).backgroundColor,
                 visibleBashRows: visibleRows.filter((row) => row.textContent?.includes("Bash("))
                   .length,
+                bashSplitTokens,
+                codexPassedColor:
+                  codexPassed === undefined ? undefined : getComputedStyle(codexPassed).color,
                 earlierExchangeVisible: visibleRows.some((row) =>
                   row.textContent?.includes("sidebar filter ordering"),
                 ),

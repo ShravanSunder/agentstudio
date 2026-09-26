@@ -3,6 +3,11 @@ import { defineConfig } from "vitest/config";
 
 import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-command.ts";
 import {
+  verifyChapterAutoplayAtNaturalFraming,
+  verifyChapterSceneClicks,
+} from "./tests/chapter-autoplay-browser-command.ts";
+import { verifyChapterScrollGeometry } from "./tests/chapter-scroll-geometry-browser-command.ts";
+import {
   verifyChapterStepRow,
   verifySingleStepChapter,
   verifyChapterTitleAnchors,
@@ -40,6 +45,9 @@ export default defineConfig({
             commands: {
               buildSceneBundlesForBrowserTest,
               verifyChapterAnchorLanding,
+              verifyChapterAutoplayAtNaturalFraming,
+              verifyChapterSceneClicks,
+              verifyChapterScrollGeometry,
               verifyHeroIntroLayout,
               verifyHeroIntroPlayback,
               verifyHeroIntroShift,
