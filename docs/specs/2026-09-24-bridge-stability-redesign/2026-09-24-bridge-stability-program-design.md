@@ -201,13 +201,19 @@ flowchart TB
   - A keyed **member-status** record (`loading | ready | failed`) lets the page tell "loading" from "empty".
 - **A new handle replaces everything, range by range.** A new handle resets every domain and per-key revision. The old handle's rows stay as a **stale presentation bank**. They are readable and marked stale, but they're never authority for revisions or descriptors. Each successfully certified range of the new handle replaces its stale rows. A failed range keeps them stale. Stale rows of domains that no longer exist are dropped with the new membership batch. No zombie row survives as current.
 - **Multi-root obligations this design keeps** (from #367's `docs/specs/2026-09-12-bridge-navigation/`, as stated by its orchestrator on 2026-09-25):
-  - The receiver's persisted navigation record and its ownership are unchanged. Review stays one worktree; a Files transition never rewrites Review state.
-  - **Pane links are membership (owner, 2026-09-26; Panes and workspace-control agree).** A pane's worktree and repo links ARE its receiver's multi-root membership: one source of truth, with no second list.
-    - Each member records **provenance**: `addedBy` (an agent SessionRef or the person) and `addedAt`. That's a persisted receiver-record change, made in PR2 while #367 is re-carried.
-    - The receiver also keeps a separate **PR-reference list** for pull requests that have no local known worktree. They're never members (R16 refuses unknown worktrees), but they are included in R19's summary and popover with the same vocabulary.
-    - The Panes row PR chip is a second visible consumer of R19's facts, and they stay current while either is visible.
-    - The current-CWD member stays protected from removal.
-    - A drawer terminal maps to its owner pane's receiver.
+  - Receiver navigation **ownership** is unchanged. Review stays one worktree; a Files transition never rewrites Review state. Its **persisted shape changes in PR2** (see *Receiver storage* below). #367's unshipped `local_bridge_navigation` is amended before merge.
+  - **Pane links are membership, recorded per contribution** (owner, 2026-09-26; Panes, workspace-control and the shared advisor agree, board thread `01a0cdc9` seq 1855–1876).
+    - A pane's worktree and repo links ARE its receiver's multi-root membership. There is one source of truth, with no second list.
+    - A link is the effective item over one or more **contributions**, one per author. The owning runtime stamps `addedBy: agent(SessionRef) | person | app` and `addedAt`. A caller never nominates its author.
+    - An add by a new author inserts a contribution. An agent removes only its own contribution. The person removes the link with all its contributions.
+    - Order belongs to the effective item and survives until the item disappears. A contribution owns only its authorship and time.
+    - The receiver also keeps **PR references**: a separate contribution kind for pull requests with no local known worktree. They're never members (R16 refuses unknown worktrees).
+      - Identity is the canonical forge identity (host, owner, repository, number), never a local repository id.
+      - No repository is registered just to fetch a reference.
+      - Duplicates merge at presentation only.
+    - **The git/PR summary moves owner.** This is #367 navigation-spec R19 (not this Specification's R19), formerly Bridge's B3. See *Pane-link port and git/PR summary delivery* below. Its obligations are unchanged.
+    - The current-CWD member stays protected from removal. Protection is **derived** from the owner's current terminal association (`BridgeNavigationRecord.swift:54` on `bridge-multi-root`), never persisted, so no row can restore stale protection. When protection moves, the original insertion provenance is kept.
+    - A drawer terminal maps to its owner pane's receiver. If the drawer owner moves while an operation waits, the result is `staleOwner`.
   - **Activation and draft barrier.** A source switch settles drafts first, and a refused flush keeps the old document.
     - **Navigation sequencing stays in `BridgeNavigationCommandHandler`**, at receiver level. It spans old-session preparation and new-session activation. Every *transport* operation stays bound to one pane session: when a session is replaced mid-activation, that session's operations settle `cancelled` and the handler re-issues in the new session. No E4 is carried across a session fence.
     - The receiver **navigation generation is captured before discovery** and checked before every effect and every receipt. Today admission is acquired after awaits (`BridgePaneController+FileActivation.swift:43-58`), and the generation is checked only after arrival (`BridgeNavigationCommandHandler+Activation.swift:58-60`), which is too late.
@@ -222,6 +228,52 @@ flowchart TB
   - **The INST receipt core lands in PR2's first integrated slice** (advisor round 4; PR1 QUESTION-11), before #367's activation uses it. The page receipt owner it extends (`use-bridge-file-viewer-selection-receipts.ts`) exists only in #367, and PR1 has no consumer for it. PR3's reconciler extends the same owner. PR1 stands on its own transport proofs. A receipt is emitted when the model and content are installed, independent of paint and visibility. It is correlated by session and source, selection generation, command identity and displayed descriptor. So two selections in one publication are distinguished, and a human selecting the same file never inherits a native command's identity. Today receipts are inactive-gated and correlated by file id alone (`use-bridge-file-viewer-selection-receipts.ts:100-120`). Hidden preparation keeps #367's no-focus, no-visible-selection-change contract. An IPC "shown at line" is never reported from metadata installation alone.
   - **Reveal (R39).** A reveal carries the dependency it needs: `(handle, domain, incarnation, required domain cursor, key)` plus the selection generation (commands and rows travel on routes with no ordering between them). It validates the key's current ownership **and** current-scope coverage, not only the cursor. If a transfer or a scope change moves the key while the reveal waits, the reveal retargets within the same bounded navigation attempt. It resolves the admitted canonical document, then pins its key into the File view's scope. Native answers a pinned key by **point lookup**, without waiting for its member's scan to finish, and adds the ancestor coverage the pin needs, even when the directory is filtered out or unopened. So a reveal into a member that is still scanning never exhausts a deadline for the whole view. It then awaits the draft gate and a correlated installation. Only successful complete coverage establishes "not found"; a deadline expiry settles unavailable and retryable. IPC keeps "accepted" and "shown" distinct (#364). Today missing rows are rejected immediately (`use-bridge-file-viewer-control-event-listeners.ts:119-125`), and the selection promise is discarded (`bridge-file-viewer-app.tsx:407-409`). With no live page, a reveal settles `noLivePage` at admission.
   - **Non-render state never waits on paint (clarified, advisor round 8).** Batch install, the logical index, selection, content requests and control replies complete while the page is hidden. Applying a tree's model and committing its DOM rows is *application* work, not paint: it runs on a bounded **task** scheduler, not `requestAnimationFrame`, whether the page is visible or hidden. Each turn is bounded by operations and bytes, superseded render state is coalesced, scheduling stops when idle or disposed, and visible panes go first. Applying received state never starts hidden Review builds or speculative content reads. Only visual measurement, scroll, and visible-frame confirmation use rAF. DOM rows existing while occluded are not proof of pixels. So R39's 'shown at line' stays visibility-dependent, and a hidden page answers 'installed, not shown'. The INST receipt means *installed in the page model*, not painted. A coherent previous view is kept until the next complete projection is ready.
+  - **Pane-link port and git/PR summary delivery** (board thread `01a0cdc9`, final union seq 1876; PR B mirrors it through `PaneLinkMembershipPort` / `PaneRevealPort`). Shared authorization, validation and unavailable errors stay outside these unions.
+
+    | Operation | Outcomes |
+    |---|---|
+    | Add a member | `added(effect: newItem \| newContribution)` · `alreadyPresent` (this contributor already exists; authorship never transfers) · `refusedUnknownWorktree` · `staleOwner` · `staleReceiver` · `unsupportedReceiver` |
+    | Remove a member | `removed` · `alreadyAbsent` (no such item) · `refusedProtectedCurrentDirectory` · `refusedNotAuthor` (an agent with no own contribution on an existing item) · `staleOwner` · `staleReceiver` · `pendingDraftSettlement(operationId)` |
+    | Pending removal, terminal | Revalidated after the wait: `removed` · `alreadyAbsent` · `refusedProtectedCurrentDirectory` · `staleOwner` · `staleReceiver` · `draftKept(reason: refused \| saveFailed \| saveOutcomeUnknown)` (membership **known kept**) · `membershipOutcomeUnknown` (the membership commit was dispatched and its effect is uncertain) |
+    | Add or remove a PR reference | The member cases, without `refusedUnknownWorktree`, CWD protection, or draft cases |
+    | Reveal: admission | `admitted(operationId)` · `noLivePage` · `unsupportedTarget` · `staleOwner` · `staleReceiver` |
+    | Reveal: settlement (exactly once) | `shown` · `hidden` (installed, not shown) · `superseded` · `unavailable` (retryable) · `notFound` (complete coverage only) · `draftKept(reason)` · `staleOwner` · `cancelled` (fenced before any effect) · `outcomeUnknown` |
+
+    - A draft settlement happens only when the **effective** membership disappears, never when one of several contributions goes.
+    - `requestedBy` is stamped by the runtime. `reason` is bound to that request's selection generation, so a superseded request never relabels later content.
+    - Reveal targets are a canonical file, with an optional line.
+    - PR and artifact targets settle `unsupportedTarget`. A branch-name match cannot resolve a PR (forks, several matching worktrees, no local checkout, uncommitted work), and a local worktree's Review is not the PR diff. A PR target needs its own contract first, covering canonical PR and head-repository identity, ambiguity, and the Review comparison.
+    - **Shared fixtures:** `Tests/BridgeContractFixtures/pane-links/` and `…/reveal/` are published by PR2 and imported by PR B's stand-ins. They cover drawer moves, draft refusal, duplicate contributions, missing targets, page replacement, and lost receipts. The stand-ins stay unverified until the real Bridge integration passes.
+    - **Git/PR summary delivery (navigation-spec R19; replaces B3).**
+      - PR B owns the pure, off-main summary derivation. It takes values and does no IO.
+      - Forge owns fetching and facts, and a Forge fact change bumps the pane-context revision.
+      - PR C owns the one shared stateless chip-and-popover component. Bridge's bottom bar, the Panes row and the drawer row consume it.
+      - Any visible consumer keeps the demand alive, and hiding one never cancels another's.
+      - The chip shows only a PR icon, a count and a state glyph, with color carrying the state (✓ green, ✗ red, ◌ blue running, grey no info).
+      - The navigation-spec R19 words appear only in the tooltip and the popover header, and the popover shows provenance.
+      - Bridge adds no variant of its own.
+  - **Receiver storage (owner write-pattern rule, 2026-09-26).** Tables are split by write pattern, not by leaf kind. There are no triggers, no CHECK constraints (no boolean remains), no FK cascades, and no JSON records.
+    - **`bridge_receiver_state`** holds current values, one row per `(workspace_id, receiver_pane_id, kind, item_key)`.
+      - Kinds: `filesFilter | selectedFilesDocument | reviewSelection | surface | reviewComparison` (keyed by worktree) `| itemOrder` (the effective item's ordinal) `| openedDocument`.
+      - `openedDocument` is app-owned inventory: one entry per canonical location, with `requested_by` provenance. Closing removes it.
+      - Each kind has typed columns.
+    - **`bridge_receiver_item`** holds contributions, one row per `(workspace_id, receiver_pane_id, kind, item_key, contributor_key)`.
+      - Kinds: `member | prReference`.
+      - `contributor_key` is non-null: `app | person | agent:<canonical SessionRef>`.
+      - Its typed columns hold the worktree id, or the forge host, owner, repository and number, plus the contributor's session and `added_at`.
+    - **Keys.** `item_key` is one lossless canonical codec per typed identity, with no delimiter concatenation. Every read verifies it against the typed columns, and a row whose columns don't fit its kind is rejected and reported.
+    - **Ordering.** Every write carries the receiver's command generation and applies only if it is newer.
+    - **Membership and PR-reference mutations commit durably first.**
+      - One repository transaction includes their dependent changes; for example, removing a member drops its `reviewComparison`, its `itemOrder`, and a `selectedFilesDocument` under it.
+      - Then the atom publishes, guarded by that generation.
+      - If the commit fails, the atom is unchanged and the result is the shared unavailable error.
+    - UI current values (filter, surface, selection) stay atom-first, with keyed, generation-ordered saves. Losing the last save to a crash is accepted.
+    - **Retirement.**
+      - Retiring a receiver revokes access at once and records a stable `purge_after`, about 24 h after undo retirement, owned by the same retirement path as PR B.
+      - The repository rejects late writes to a retired receiver.
+      - It purges all that receiver's rows in one transaction.
+      - Retention grants no resurrection.
+    - The repository is the only writer. There is never a whole-workspace rewrite; today's `replaceBridgeNavigationRows` DELETE+INSERT is removed.
 - **The collection is the File view's content.** #367's `BridgeFileCollectionSource` feeds N10. Members may be **0..n**.
   - **Membership update = one sealed batch.** The ordered inventory, the loose-document mapping, `membershipRevision`, and every eviction or replacement of rows that the membership change affects install together. Today they are emitted separately across suspension points (`BridgeFileCollectionSource+Membership.swift:35-58` on `bridge-multi-root`), which would let new rows install with old mappings. A member's full scan can then complete in later batches, each with its own coverage.
   - **The File view's scope is separate from membership.** Scope = member-qualified browse ranges, plus the change filter, plus pins (the open file, a pending reveal). Membership says which members exist.
