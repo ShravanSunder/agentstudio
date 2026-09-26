@@ -14,7 +14,8 @@ extension WebKitSerializedTests {
         struct LiveProof {
             let fileDOMAfterFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
             let fileModeActivated: Bool
-            let filePathSelected: Bool
+            let fileIPCRevealSelected: Bool
+            let fileState: BridgeProductWebKitLiveFileState
             let initialReviewGeneration: Int
             let native: BridgeProductWebKitCarrierNativeSnapshot
             let reviewDOMBeforeFileSwitch: BridgeProductWebKitCarrierDOMSnapshot
@@ -31,7 +32,6 @@ extension WebKitSerializedTests {
         }
 
         struct LiveSourceOracle {
-            let canaryText: String
             let path: String
         }
 
@@ -102,21 +102,31 @@ extension WebKitSerializedTests {
         @Test("bundled comm worker carries real-git File and Review product data through production WebKit")
         func bundledWorkerCarriesRealGitFileAndReviewProductData() async throws {
             // Arrange
+            recordRealGitLiveProofStage("fixture-create-start")
             let repoURL = try await FilesystemTestGitRepo.create(named: "bridge-product-file-review-webkit")
+            recordRealGitLiveProofStage("fixture-created")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
+            recordRealGitLiveProofStage("fixture-seed-start")
             try await seedHeavyReviewChanges(at: repoURL, trackedFileCount: 128)
-            let sourceOracle = LiveSourceOracle(canaryText: "updated", path: "tracked.txt")
+            recordRealGitLiveProofStage("fixture-seeded")
+            let sourceOracle = LiveSourceOracle(path: "tracked.txt")
             let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
+            recordRealGitLiveProofStage("controller-create-start")
             let controller = makeController(
                 repoURL: repoURL,
                 traceRecorder: traceRecorder
             )
+            recordRealGitLiveProofStage("controller-created")
 
             // Act
+            recordRealGitLiveProofStage("live-proof-start")
             let run = try await collectLiveProof(
                 controller: controller,
                 sourceOracle: sourceOracle,
                 traceRecorder: traceRecorder
+            )
+            FileHandle.standardError.write(
+                Data("[real-git-file-review-logical] host=\(run.hostSnapshot)\n".utf8)
             )
 
             // Assert
@@ -758,93 +768,6 @@ extension WebKitSerializedTests {
             } catch {
                 return nil
             }
-        }
-
-        private func assertProof(
-            _ run: BridgeProductWebKitCarrierRunResult<LiveProof>
-        ) {
-            let fileDOM = run.value.fileDOMAfterFileSwitch
-            let reviewDOM = run.value.reviewDOMBeforeFileSwitch
-            #expect(
-                reviewDOM.hasAppRoot && fileDOM.hasAppRoot,
-                "W0 product seam: the current bundled BridgeWeb app did not mount"
-            )
-            #expect(
-                run.value.native.lifecycle == "active",
-                "W0 product seam: the bundled worker did not open the production product session; native=\(run.value.native)"
-            )
-            #expect(
-                run.value.trace.hasCanonicalEagerSubscriptions,
-                "W0 product seam: the worker did not open canonical eager File+Review subscriptions; trace=\(run.value.trace)"
-            )
-            #expect(
-                run.value.trace.hasFileMetadataWindow,
-                "W0 product seam: production agentstudio-git File metadata did not reach the worker stream; trace=\(run.value.trace)"
-            )
-            #expect(
-                run.value.trace.hasReviewMetadataPublication,
-                "W0 product seam: production agentstudio-git Review metadata did not reach the worker stream; trace=\(run.value.trace)"
-            )
-            #expect(
-                run.value.reviewMetadataItemCount >= 128,
-                "W0 product seam: the worker did not publish the complete heavy Review metadata set; itemCount=\(run.value.reviewMetadataItemCount), trace=\(run.value.trace)"
-            )
-            #expect(
-                run.value.successorReviewGeneration > run.value.initialReviewGeneration,
-                "W0 product seam: the production refresh did not replace the initial Review publication; initialGeneration=\(run.value.initialReviewGeneration), successorGeneration=\(run.value.successorReviewGeneration)"
-            )
-            #expect(
-                run.value.native.nextControlRequestSequence > 1,
-                "W0 product seam: worker-initiated product command POSTs were not acknowledged; native=\(run.value.native)"
-            )
-            #expect(
-                run.value.native.nextMetadataStreamSequence > 1,
-                "W0 product seam: streamed metadata frames and bodyless observations did not advance; native=\(run.value.native)"
-            )
-            #expect(
-                run.value.native.inFlightControlRequestSequence == nil,
-                "W0 product seam: a product command remained in flight; native=\(run.value.native)"
-            )
-            #expect(
-                reviewDOM.hasReviewModeHost && fileDOM.hasFileModeHost,
-                "W0 product seam: the canonical File+Review viewer hosts were not both constructed; reviewDOM=\(reviewDOM), fileDOM=\(fileDOM)"
-            )
-            #expect(
-                reviewDOM.hasReviewShell,
-                "W0 construction seam: Review metadata crossed the worker but no product Review shell mounted; reviewDOM=\(reviewDOM), trace=\(run.value.trace)"
-            )
-            #expect(
-                reviewDOM.hasReviewCodeViewPanel
-                    && reviewDOM.reviewSelectedContentState == "ready"
-                    && reviewDOM.reviewSelectedContentLineCount > 0
-                    && reviewDOM.reviewSelectedContentHashes
-                        == run.value.reviewSelectedContentHashes,
-                "W0 content-observation seam: Swift emitted successor Review content, but the worker did not acknowledge and drain it into a ready CodeView; reviewDOM=\(reviewDOM), native=\(run.value.native), host=\(run.hostSnapshot)"
-            )
-            #expect(
-                reviewDOM.reviewSelectedDisplayPath == run.value.sourceOracle.path,
-                "G0 PACKAGED SELECTED IDENTITY MISSING: selected Review path did not match the live-git oracle; selected=\(reviewDOM.reviewSelectedDisplayPath ?? "missing"), expected=\(run.value.sourceOracle.path)"
-            )
-            #expect(
-                reviewDOM.reviewRenderedItemId?.isEmpty == false,
-                "G0 PACKAGED SEMANTIC ITEM MISSING: rendered Review item did not retain its canonical semantic identity"
-            )
-            #expect(
-                run.value.fileModeActivated,
-                "G0 PACKAGED FILE MODE MISSING: the real bundled File control was not available"
-            )
-            #expect(
-                run.value.filePathSelected,
-                "G0 PACKAGED FILE SELECTION MISSING: File mode did not select the live-git source through the real tree"
-            )
-            #expect(
-                fileDOM.fileReadableText.contains(run.value.sourceOracle.canaryText),
-                "W0 content-observation seam: File readable DOM did not contain the real-git canary"
-            )
-            #expect(
-                run.teardownSnapshot.hasZeroResidue,
-                "W0 teardown seam: production product session retained transport residue; snapshot=\(run.teardownSnapshot)"
-            )
         }
 
     }

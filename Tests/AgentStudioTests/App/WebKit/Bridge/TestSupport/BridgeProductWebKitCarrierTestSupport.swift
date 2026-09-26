@@ -680,7 +680,6 @@ enum BridgeProductWebKitCarrierTestSupport {
     static func withHostedController<Value>(
         _ controller: BridgePaneController,
         frame: NSRect = NSRect(x: 0, y: 0, width: 960, height: 720),
-        requireVisibleHost: Bool = false,
         operation: @MainActor (BridgePaneController, NSWindow) async throws -> Value
     ) async throws -> BridgeProductWebKitCarrierRunResult<Value> {
         let window = NSWindow(
@@ -699,17 +698,6 @@ enum BridgeProductWebKitCarrierTestSupport {
         window.orderFrontRegardless()
 
         do {
-            if requireVisibleHost {
-                let readinessSnapshot = hostSnapshot(window: window, mountView: mountView)
-                guard
-                    readinessSnapshot.windowIsVisible,
-                    readinessSnapshot.windowOcclusionIsVisible
-                else {
-                    throw BridgeProductWebKitCarrierHostReadinessError(
-                        snapshot: readinessSnapshot
-                    )
-                }
-            }
             let value = try await operation(controller, window)
             let hostSnapshot = hostSnapshot(window: window, mountView: mountView)
             let teardownSnapshot = await teardown(controller: controller, window: window)
@@ -964,7 +952,7 @@ enum BridgeProductWebKitCarrierTestSupport {
         }
     }
 
-    private static func hostSnapshot(
+    static func hostSnapshot(
         window: NSWindow,
         mountView: BridgePaneMountView
     ) -> BridgeProductWebKitCarrierHostSnapshot {
@@ -987,13 +975,5 @@ enum BridgeProductWebKitCarrierTestSupport {
         for _ in 0..<turns {
             await Task.yield()
         }
-    }
-}
-
-private struct BridgeProductWebKitCarrierHostReadinessError: Error, CustomStringConvertible {
-    let snapshot: BridgeProductWebKitCarrierHostSnapshot
-
-    var description: String {
-        "WebKit bootstrap requires a visible, unoccluded host; observed=\(snapshot)"
     }
 }

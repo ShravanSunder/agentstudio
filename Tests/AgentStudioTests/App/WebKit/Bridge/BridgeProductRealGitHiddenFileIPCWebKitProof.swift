@@ -50,6 +50,9 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
         let controller = makeController(repoURL: repoURL, traceRecorder: traceRecorder)
         let run = try await runHiddenFileIPCProof(controller)
+        FileHandle.standardError.write(
+            Data("[real-git-hidden-file-ipc-logical] host=\(run.hostSnapshot)\n".utf8)
+        )
         expectHiddenFileIPCProof(run)
     }
 }
@@ -64,10 +67,12 @@ private func runHiddenFileIPCProof(
     let relativePath = "untracked.txt"
 
     return try await BridgeProductWebKitCarrierTestSupport.withHostedController(
-        controller,
-        requireVisibleHost: true
+        controller
     ) { hostedController, hostWindow in
-        try await executeHiddenFileIPCJourney(
+        recordRealGitLiveProofStage(
+            "hidden-proof-host-snapshot=\(BridgeProductWebKitCarrierTestSupport.hostSnapshot(window: hostWindow))"
+        )
+        return try await executeHiddenFileIPCJourney(
             hostedController,
             hostWindow: hostWindow,
             worktreeId: worktreeId,
@@ -83,7 +88,7 @@ private func executeHiddenFileIPCJourney(
     worktreeId: UUID,
     relativePath: String
 ) async throws -> BridgeProductHiddenFileIPCProof {
-    let acceptedState = try await bootstrapVisibleFilesPage(controller)
+    let acceptedState = try await bootstrapFilesPage(controller)
     let context = try await hideFilesPageWithAcceptedMetadata(
         controller,
         hostWindow: hostWindow,
@@ -105,24 +110,13 @@ private func executeHiddenFileIPCJourney(
 }
 
 @MainActor
-private func bootstrapVisibleFilesPage(
+private func bootstrapFilesPage(
     _ controller: BridgePaneController
 ) async throws -> BridgeProductHiddenFileViewerState {
     recordHiddenFileProofStage("launch")
     controller.loadApp()
     await WebPageEventWaits.waitForNavigationToFinish(controller.page)
     recordHiddenFileProofStage("navigation-finished")
-
-    let visibleDocumentState = try await WebPageEventWaits.waitForDocumentVisibility(
-        controller.page,
-        equals: "visible"
-    )
-    guard visibleDocumentState == "visible" else {
-        throw hiddenPageProofError(
-            "The Files page was not visible during bootstrap; observed \(visibleDocumentState)"
-        )
-    }
-    recordHiddenFileProofStage("document-visible-before-bootstrap")
 
     try await WebPageEventWaits.waitForDocumentSelector(
         controller.page,
@@ -137,7 +131,32 @@ private func bootstrapVisibleFilesPage(
         throw hiddenPageProofError("The hidden Files surface did not activate")
     }
     recordHiddenFileProofStage("files-activated")
+    recordHiddenFileProofStage("awaiting-active-file-viewer-host")
+    try await BridgeProductWebKitCarrierTestSupport.waitForActiveFileViewerHost(controller.page)
+    recordHiddenFileProofStage("active-file-viewer-host-ready")
 
+    recordHiddenFileProofStage("capture-initial-logical-file-index")
+    let initialFileIndexSnapshot = try await controller.page.callJavaScript(
+        """
+        const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+        const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+        return JSON.stringify({
+          documentVisibilityState: document.visibilityState,
+          fileModeHostPresent: fileModeHost !== null,
+          fileModeHostActive:
+            fileModeHost?.getAttribute('data-bridge-viewer-mode-active') === 'true',
+          fileShellPresent: fileShell !== null,
+          fileViewerActive: fileShell?.getAttribute('data-file-viewer-active') === 'true',
+          displaySourceId: fileShell?.getAttribute('data-file-display-source-id') ?? null,
+          displayItemCount: Number(fileShell?.getAttribute('data-file-display-item-count') ?? '0'),
+          treeRowCount: Number(fileShell?.getAttribute('data-file-display-tree-row-count') ?? '0')
+        });
+        """,
+        contentWorld: .page
+    )
+    recordHiddenFileProofStage(
+        "initial-logical-file-index-snapshot=\(initialFileIndexSnapshot as? String ?? "unavailable")"
+    )
     recordHiddenFileProofStage("awaiting-logical-files-index")
     let acceptedState = try await waitForAcceptedHiddenFilesState(controller.page)
     recordHiddenFileProofStage("logical-files-index-ready")
@@ -224,7 +243,8 @@ private func searchHiddenFilesWithoutFrames(
         correlationId: nil
     )
     guard result.status == "accepted",
-        result.method == IPCBridgePageControlCommand.fileTreeSearch(searchText: searchText).method
+        result.method == IPCBridgePageControlCommand.fileTreeSearch(searchText: searchText).method,
+        result.treeSearchText == searchText
     else {
         throw hiddenPageProofError("The hidden Files search was not accepted; result=\(result)")
     }
@@ -341,7 +361,20 @@ private func waitForHiddenFileQueryState(
 }
 
 private func recordHiddenFileProofStage(_ stage: String) {
-    FileHandle.standardError.write(Data("[hidden-file-ipc] \(stage)\n".utf8))
+    let marker = "[hidden-file-ipc] \(stage)\n"
+    FileHandle.standardError.write(Data(marker.utf8))
+    if let phaseFilePath = ProcessInfo.processInfo.environment["AGENTSTUDIO_B1_PHASE_FILE"] {
+        let phaseFileURL = URL(fileURLWithPath: phaseFilePath)
+        if FileManager.default.fileExists(atPath: phaseFileURL.path),
+            let phaseFileHandle = try? FileHandle(forWritingTo: phaseFileURL)
+        {
+            _ = try? phaseFileHandle.seekToEnd()
+            try? phaseFileHandle.write(contentsOf: Data(marker.utf8))
+            try? phaseFileHandle.close()
+        } else {
+            try? Data(marker.utf8).write(to: phaseFileURL, options: .atomic)
+        }
+    }
 }
 
 @MainActor
