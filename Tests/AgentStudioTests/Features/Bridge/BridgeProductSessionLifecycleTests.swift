@@ -9,6 +9,7 @@ struct BridgeProductSessionLifecycleTests {
     func subscriptionResponseCorrelationGuardsMutation() async throws {
         // Arrange
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let metadataLease = try await harness.admitMetadataFrames(through: 0)
         let openRequest = try bridgeProductLifecycleControlRequest(
             bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 7)
         )
@@ -30,7 +31,7 @@ struct BridgeProductSessionLifecycleTests {
 
         // Act / Assert
         await #expect(throws: BridgeProductSessionError.mismatchedControlResponse) {
-            _ = try await harness.session.completeControl(
+            _ = try await harness.session.completeAdmittedControl(
                 token: openToken,
                 exactResponseBytes: try JSONEncoder().encode(mismatchedOpenResponse)
             )
@@ -45,7 +46,7 @@ struct BridgeProductSessionLifecycleTests {
             correlating: openRequest,
             interestSha256: emptyReviewSHA256
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: openToken,
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
@@ -70,7 +71,7 @@ struct BridgeProductSessionLifecycleTests {
             )
         )
         await #expect(throws: BridgeProductSessionError.mismatchedControlResponse) {
-            _ = try await harness.session.completeControl(
+            _ = try await harness.session.completeAdmittedControl(
                 token: cancelToken,
                 exactResponseBytes: try JSONEncoder().encode(mismatchedCancelResponse)
             )
@@ -84,7 +85,7 @@ struct BridgeProductSessionLifecycleTests {
         let cancelResponse = try BridgeProductControlResponse.subscriptionCancelAccepted(
             correlating: cancelRequest
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: cancelToken,
             exactResponseBytes: try JSONEncoder().encode(cancelResponse)
         )
@@ -93,12 +94,14 @@ struct BridgeProductSessionLifecycleTests {
                 subscriptionId: "review-subscription-1"
             ) == nil
         )
+        try await harness.closeProducer(metadataLease)
     }
 
     @Test("ordinary epoch advance resets only the admitted surface")
     func ordinaryEpochAdvanceIsSurfaceScoped() async throws {
         // Arrange
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let metadataLease = try await harness.admitMetadataFrames(through: 0)
         try await harness.openSubscription(
             bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 7)
         )
@@ -150,6 +153,7 @@ struct BridgeProductSessionLifecycleTests {
                 subscriptionId: "file-subscription-1"
             ) != nil
         )
+        try await harness.closeProducer(metadataLease)
     }
 
     @Test("resync reopens a File subscription after its delivered reset becomes terminal")
@@ -163,7 +167,7 @@ struct BridgeProductSessionLifecycleTests {
         let fileOpenToken = try #require(
             try await harness.begin(fileOpenRequest).executionToken
         )
-        #expect(await harness.session.claimControlProviderDispatch(token: fileOpenToken))
+        #expect(await harness.session.admitControlProviderExecution(token: fileOpenToken))
         let emptyFileSHA256 =
             try BridgeProductSubscriptionInterestState
             .fileMetadata(interests: [], pathScope: [])
@@ -172,7 +176,7 @@ struct BridgeProductSessionLifecycleTests {
             correlating: fileOpenRequest,
             interestSha256: emptyFileSHA256
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: fileOpenToken,
             exactResponseBytes: try JSONEncoder().encode(fileOpenResponse)
         )
@@ -224,7 +228,7 @@ struct BridgeProductSessionLifecycleTests {
             request: resyncRequest,
             token: resyncToken
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: resyncToken,
             exactResponseBytes: try JSONEncoder().encode(resyncResponse)
         )
@@ -250,13 +254,7 @@ struct BridgeProductSessionLifecycleTests {
     func resyncIsAtomicAcrossIndependentSurfaceEpochs() async throws {
         // Arrange
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
-        try await harness.openSubscription(
-            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 7)
-        )
-        try await harness.openSubscription(
-            bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 3, epoch: 2)
-        )
-        let metadataLease = try await harness.admitMetadataFrames(through: 6)
+        let metadataLease = try await prepareMetadataForAtomicResync(on: harness)
         try await harness.expectStreamSequenceRejectionPreservesState(
             .init(
                 requestSequence: 4,
@@ -280,6 +278,7 @@ struct BridgeProductSessionLifecycleTests {
         let resyncToken = try #require(
             try await harness.begin(resyncRequest).executionToken
         )
+        _ = try await harness.session.admitControlOperation(token: resyncToken, execute: { _ in })
         let beforeCompletion = await harness.session.snapshot
         let mismatchedResponse = try BridgeProductControlResponse.resyncAccepted(
             correlating: resyncRequest,
@@ -291,7 +290,7 @@ struct BridgeProductSessionLifecycleTests {
         #expect(beforeCompletion.workerDerivationEpochBySurface[.review] == 7)
         #expect(beforeCompletion.workerDerivationEpochBySurface[.file] == 2)
         await #expect(throws: BridgeProductSessionError.mismatchedControlResponse) {
-            _ = try await harness.session.completeControl(
+            _ = try await harness.session.completeAdmittedControl(
                 token: resyncToken,
                 exactResponseBytes: try JSONEncoder().encode(mismatchedResponse)
             )
@@ -307,7 +306,7 @@ struct BridgeProductSessionLifecycleTests {
             request: resyncRequest,
             token: resyncToken
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: resyncToken,
             exactResponseBytes: try JSONEncoder().encode(acceptedResponse)
         )
@@ -381,7 +380,7 @@ struct BridgeProductSessionLifecycleTests {
             request: laggingRequest,
             token: laggingToken
         )
-        let effects = try await harness.session.completeControl(
+        let effects = try await harness.session.completeAdmittedControl(
             token: laggingToken,
             exactResponseBytes: try JSONEncoder().encode(laggingResponse)
         )
@@ -392,6 +391,29 @@ struct BridgeProductSessionLifecycleTests {
         #expect((await harness.session.producerSnapshot()).nextMetadataStreamSequence == 7)
         try await harness.closeProducer(metadataLease)
     }
+}
+
+private func prepareMetadataForAtomicResync(
+    on harness: BridgeProductSessionLifecycleHarness
+) async throws -> BridgeProductProducerLease {
+    let lease = try await harness.admitMetadataFrames(through: 0)
+    try await harness.openSubscription(
+        bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 7)
+    )
+    try await harness.openSubscription(
+        bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 3, epoch: 2)
+    )
+    for expectedSequence in 1...2 {
+        #expect(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )?.sequence == expectedSequence
+        )
+    }
+    try await harness.admitMetadataProgress(through: 6, on: lease)
+    return lease
 }
 
 extension BridgeProductSessionControlAdmission {

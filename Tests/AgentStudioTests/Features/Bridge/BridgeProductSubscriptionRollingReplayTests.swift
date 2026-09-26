@@ -37,7 +37,8 @@ struct BridgeProductSubscriptionRollingReplayTests {
                     disposition: .committed
                 )
                 let responseBytes = try encode(response)
-                let effect = try await harness.session.completeControl(token: token, exactResponseBytes: responseBytes)
+                let effect = try await harness.session.completeAdmittedControl(
+                    token: token, exactResponseBytes: responseBytes)
                 guard case .subscriptionInterestsCommitted = effect else {
                     Issue.record("Expected a committed interest transition")
                     break

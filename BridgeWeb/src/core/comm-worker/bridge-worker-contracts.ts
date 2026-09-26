@@ -625,6 +625,15 @@ export const bridgeWorkerHealthEventSchema = bridgeWorkerServerToMainBaseSchema
 	})
 	.strict();
 
+export const bridgeWorkerSessionSuspectEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		kind: z.literal('sessionSuspect'),
+		paneSessionId: bridgeProductIdentifierSchema,
+		reason: z.enum(['admissionReplyExhausted', 'resultDeadlineExhausted']),
+		workerInstanceId: bridgeProductIdentifierSchema,
+	})
+	.strict();
+
 export const bridgeWorkerSlicePatchEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('slicePatch'),
@@ -848,6 +857,7 @@ export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('k
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerHealthEventSchema,
+	bridgeWorkerSessionSuspectEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,
 	bridgeWorkerFileQueryOutcomeEventSchema,
@@ -866,6 +876,7 @@ export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('k
 ]);
 
 export type BridgeWorkerHealthEvent = z.infer<typeof bridgeWorkerHealthEventSchema>;
+export type BridgeWorkerSessionSuspectEvent = z.infer<typeof bridgeWorkerSessionSuspectEventSchema>;
 export type BridgeWorkerSlicePatchEvent = z.infer<typeof bridgeWorkerSlicePatchEventSchema>;
 export type BridgeWorkerFileDisplayPatchEvent = z.infer<
 	typeof bridgeWorkerFileDisplayPatchEventSchema

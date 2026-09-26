@@ -5,6 +5,7 @@ import { encodeBridgeWorkerMetadataInterestUpdateCommand } from './bridge-comm-w
 import { dispatchBridgeCommWorkerRuntimeProductControl } from './bridge-comm-worker-runtime-product-control-dispatch.js';
 import { flushBridgeWorkerRuntimeContinuations } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import type { BridgeProductWorktreeAnnotationOperation } from './bridge-product-call-contracts.js';
+import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
@@ -204,47 +205,52 @@ describe.each(['fileView', 'review'] as const)(
 			}
 		});
 
-		test('retains the ordinary deadline for clipboard output commits', async () => {
-			vi.useFakeTimers();
-			try {
-				// Arrange
-				const action = deferredProductControlAction();
-				const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
-				dispatchAnnotationOutput({
-					surface,
-					operation: {
-						displayedProjectionRevision: 9,
-						expectedSessionRevision: 4,
-						kind: 'output.scope.commit',
-						outputKind: 'clipboardMarkdown',
-						scope: 'pending',
-						sessionId: '00000000-0000-7000-8000-000000000013',
-						sourceGeneration: 7,
-					},
-					publish: (message): void => {
-						publishedMessages.push(message);
-					},
+		test('reports the W1 outcomeUnknown settlement for clipboard output commits', async () => {
+			// Arrange
+			const action = deferredProductControlAction();
+			const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+			dispatchAnnotationOutput({
+				surface,
+				operation: {
+					displayedProjectionRevision: 9,
+					expectedSessionRevision: 4,
+					kind: 'output.scope.commit',
+					outputKind: 'clipboardMarkdown',
+					scope: 'pending',
+					sessionId: '00000000-0000-7000-8000-000000000013',
+					sourceGeneration: 7,
+				},
+				publish: (message): void => {
+					publishedMessages.push(message);
+				},
+				requestId: 'request-clipboard-output',
+				sendProductControl: action.send,
+				timeoutMilliseconds: 25,
+			});
+
+			// W1 owns the deadline and reports its typed settlement to this dispatcher.
+			await flushBridgeWorkerRuntimeContinuations();
+			action.reject(
+				new BridgeProductControlRequestError({
+					code: 'internal',
+					message: 'Clipboard output result is unknown.',
+					outcome: 'outcomeUnknown',
+					retryAfterMilliseconds: null,
+					retryable: true,
+				}),
+			);
+			await flushBridgeWorkerRuntimeContinuations();
+
+			// Assert
+			expect(action.send).toHaveBeenCalledTimes(1);
+			expect(publishedMessages).toEqual([
+				expect.objectContaining({
+					deliveryStatus: 'unknownAfterDispatch',
+					kind: 'health',
 					requestId: 'request-clipboard-output',
-					sendProductControl: action.send,
-					timeoutMilliseconds: 25,
-				});
-
-				// Act
-				await vi.advanceTimersByTimeAsync(25);
-				await flushBridgeWorkerRuntimeContinuations();
-
-				// Assert
-				expect(action.send).toHaveBeenCalledTimes(1);
-				expect(publishedMessages).toEqual([
-					expect.objectContaining({
-						kind: 'health',
-						requestId: 'request-clipboard-output',
-						status: 'degraded',
-					}),
-				]);
-			} finally {
-				vi.useRealTimers();
-			}
+					status: 'degraded',
+				}),
+			]);
 		});
 	},
 );
@@ -420,14 +426,18 @@ function dispatchAnnotationOutput(props: {
 }
 
 function deferredProductControlAction(): {
+	readonly reject: (reason: Error) => void;
 	readonly resolve: (value: unknown) => void;
 	readonly send: ReturnType<typeof vi.fn<() => Promise<unknown>>>;
 } {
 	let resolveAction!: (value: unknown) => void;
-	const promise = new Promise<unknown>((resolve): void => {
+	let rejectAction!: (reason: Error) => void;
+	const promise = new Promise<unknown>((resolve, reject): void => {
 		resolveAction = resolve;
+		rejectAction = reject;
 	});
 	return {
+		reject: rejectAction,
 		resolve: resolveAction,
 		send: vi.fn(async (): Promise<unknown> => promise),
 	};

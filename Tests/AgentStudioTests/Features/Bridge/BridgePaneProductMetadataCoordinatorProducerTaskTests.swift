@@ -38,14 +38,14 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
 
         // Act
         let token = try #require(producerTaskControlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256:
                 BridgeProductSubscriptionInterestState
                 .fileMetadata(interests: [], pathScope: []).sha256Hex()
         )
-        let effect = try await harness.session.completeControl(
+        let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
@@ -115,14 +115,14 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
             bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
         )
         let token = try #require(producerTaskControlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256:
                 BridgeProductSubscriptionInterestState
                 .fileMetadata(interests: [], pathScope: []).sha256Hex()
         )
-        let effect = try await harness.session.completeControl(
+        let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )

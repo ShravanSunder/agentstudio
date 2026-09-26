@@ -290,7 +290,20 @@ func dispatchReconnectControl(
     guard case .response(let responseData) = result else {
         throw ReconnectSubscriptionTestError.expectedControlResponse
     }
-    return try BridgeProductStrictJSON.decode(BridgeProductControlResponse.self, from: responseData)
+    let admitted = try BridgeProductStrictJSON.decode(
+        BridgeProductOperationAdmittedResponse.self,
+        from: responseData
+    )
+    await dispatcher.session.waitForOperationExecution(operationId: admitted.operationId)
+    guard
+        let settlement = await dispatcher.session.operationTable.entriesById[admitted.operationId]?.settlement,
+        settlement.outcome == .succeeded,
+        let responseValue = settlement.result
+    else { throw ReconnectSubscriptionTestError.expectedControlResponse }
+    return try BridgeProductStrictJSON.decode(
+        BridgeProductControlResponse.self,
+        from: JSONEncoder().encode(responseValue)
+    )
 }
 
 /// Pulls frames until the post-reconnect cursor arrives.

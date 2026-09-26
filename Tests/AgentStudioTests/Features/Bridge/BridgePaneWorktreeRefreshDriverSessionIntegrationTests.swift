@@ -208,7 +208,7 @@ private func openSessionIntegrationFileSubscription(
         )
     )
     let token = try #require(controlExecutionToken(try await harness.begin(request)))
-    #expect(await harness.session.claimControlProviderDispatch(token: token))
+    #expect(await harness.session.admitControlProviderExecution(token: token))
     let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
         correlating: request,
         interestSha256:
@@ -216,7 +216,7 @@ private func openSessionIntegrationFileSubscription(
             .fileMetadata(interests: [], pathScope: [])
             .sha256Hex()
     )
-    _ = try await harness.session.completeControl(
+    _ = try await harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )
@@ -260,7 +260,7 @@ private func resyncSessionIntegrationFileSubscription(
         request: request,
         token: token
     )
-    return try await harness.session.completeControl(
+    return try await harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )

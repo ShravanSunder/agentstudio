@@ -248,14 +248,14 @@ private func commitBootstrapContextFileSubscription(
     let token = try #require(
         bootstrapContextControlExecutionToken(try await resources.harness.begin(request))
     )
-    #expect(await resources.harness.session.claimControlProviderDispatch(token: token))
+    #expect(await resources.harness.session.admitControlProviderExecution(token: token))
     let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
         correlating: request,
         interestSha256:
             BridgeProductSubscriptionInterestState
             .fileMetadata(interests: [], pathScope: []).sha256Hex()
     )
-    let effect = try await resources.harness.session.completeControl(
+    let effect = try await resources.harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )
@@ -588,9 +588,9 @@ private func cancelBootstrapContextFileSubscription(
             try await harness.begin(request)
         )
     else { return }
-    guard await harness.session.claimControlProviderDispatch(token: token) else { return }
+    guard await harness.session.admitControlProviderExecution(token: token) else { return }
     let response = try BridgeProductControlResponse.subscriptionCancelAccepted(correlating: request)
-    let effect = try await harness.session.completeControl(
+    let effect = try await harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )

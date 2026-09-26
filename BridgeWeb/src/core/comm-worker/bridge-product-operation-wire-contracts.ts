@@ -6,6 +6,8 @@ import {
 	bridgeProductIdentifierSchema,
 	bridgeProductPositiveSequenceSchema,
 	bridgeProductRequestErrorCodeSchema,
+	bridgeProductNonnegativeSequenceSchema,
+	bridgeProductSafeMessageSchema,
 } from './bridge-product-contract-primitives.js';
 
 const controlCorrelationShape = {
@@ -36,6 +38,21 @@ export const bridgeProductOperationAdmittedResponseSchema = z
 		waitKind: bridgeProductOperationWaitKindSchema,
 	})
 	.strict();
+
+export const bridgeProductAdmissionResponseSchema = z.discriminatedUnion('kind', [
+	bridgeProductOperationAdmittedResponseSchema,
+	z
+		.object({
+			...controlCorrelationShape,
+			code: bridgeProductRequestErrorCodeSchema,
+			kind: z.literal('request.error'),
+			nextExpectedRequestSequence: bridgeProductPositiveSequenceSchema.nullable(),
+			retryAfterMilliseconds: bridgeProductNonnegativeSequenceSchema.nullable(),
+			retryable: z.boolean(),
+			safeMessage: bridgeProductSafeMessageSchema.nullable(),
+		})
+		.strict(),
+]);
 
 /** Result reads are outside the sequenced admission chain. */
 export const bridgeProductOperationResultRequestSchema = z

@@ -168,6 +168,8 @@ enum BridgeProductCommandPackage: Decodable, Sendable {
     case contentFrameAcknowledgement(BridgeProductContentFrameAcknowledgement)
     case control(BridgeProductControlRequest)
     case metadataFrameAcknowledgement(BridgeProductMetadataFrameAcknowledgement)
+    case operationResult(BridgeProductOperationResultRequest)
+    case operationResultAcknowledgement(BridgeProductOperationResultAcknowledgement)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -177,6 +179,12 @@ enum BridgeProductCommandPackage: Decodable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .kind) {
+        case "operation.result":
+            self = .operationResult(try BridgeProductOperationResultRequest(from: decoder))
+        case "operation.resultAcknowledgement":
+            self = .operationResultAcknowledgement(
+                try BridgeProductOperationResultAcknowledgement(from: decoder)
+            )
         case "stream.frameObserved":
             switch try container.decode(String.self, forKey: .streamKind) {
             case "content":

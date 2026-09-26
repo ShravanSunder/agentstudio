@@ -160,7 +160,7 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
             request: resyncRequest,
             token: resyncToken
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: resyncToken,
             exactResponseBytes: try JSONEncoder().encode(resyncResponse)
         )
@@ -199,7 +199,9 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
             provider: provider,
             productAdmission: productAdmission
         )
-        _ = try await dispatcher.dispatch(
+        try await dispatchFloorRetirementOperation(
+            dispatcher: dispatcher,
+            session: session,
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
@@ -207,7 +209,9 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
             in: session,
             productAdmission: productAdmission
         )
-        _ = try await dispatcher.dispatch(
+        try await dispatchFloorRetirementOperation(
+            dispatcher: dispatcher,
+            session: session,
             exactRequestBytes: floorRetirementReviewOpenBody(
                 subscriptionId: "review-subscription-epoch-1",
                 requestSequence: 2,
@@ -217,7 +221,9 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
         )
 
         // Act: a Review open at epoch 2 advances the floor.
-        _ = try await dispatcher.dispatch(
+        try await dispatchFloorRetirementOperation(
+            dispatcher: dispatcher,
+            session: session,
             exactRequestBytes: floorRetirementReviewOpenBody(
                 subscriptionId: "review-subscription-epoch-2",
                 requestSequence: 3,
@@ -236,6 +242,31 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
         )
         _ = await session.stopProducer(lease)
     }
+}
+
+private func dispatchFloorRetirementOperation(
+    dispatcher: BridgeProductSchemeControlDispatcher,
+    session: BridgeProductSession,
+    exactRequestBytes: Data,
+    presentedCapability: String
+) async throws {
+    let dispatch = try await dispatcher.dispatch(
+        exactRequestBytes: exactRequestBytes,
+        presentedCapability: presentedCapability
+    )
+    guard case .response(let responseBytes) = dispatch else {
+        Issue.record("Expected a Bridge product operation admission")
+        return
+    }
+    let admitted = try BridgeProductStrictJSON.decode(
+        BridgeProductOperationAdmittedResponse.self,
+        from: responseBytes
+    )
+    await session.waitForOperationExecution(operationId: admitted.operationId)
+    #expect(
+        await session.operationTable.entriesById[admitted.operationId]?.settlement?.outcome
+            == .succeeded
+    )
 }
 
 private struct FloorRetirementReset: Equatable {
@@ -275,7 +306,7 @@ private func completeDeliveredOpen(
     request: BridgeProductControlRequest,
     token: BridgeProductControlAdmissionToken
 ) async throws {
-    #expect(await harness.session.claimControlProviderDispatch(token: token))
+    #expect(await harness.session.admitControlProviderExecution(token: token))
     let interestState: BridgeProductSubscriptionInterestState =
         request.surface == .file
         ? .fileMetadata(interests: [], pathScope: [])
@@ -284,7 +315,7 @@ private func completeDeliveredOpen(
         correlating: request,
         interestSha256: try interestState.sha256Hex()
     )
-    _ = try await harness.session.completeControl(
+    _ = try await harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )

@@ -235,7 +235,7 @@ private func admitFileBootstrapSubscription(
     let controlToken = try #require(
         controlExecutionToken(try await props.harness.begin(openRequest))
     )
-    #expect(await props.harness.session.claimControlProviderDispatch(token: controlToken))
+    #expect(await props.harness.session.admitControlProviderExecution(token: controlToken))
     let openResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
         correlating: openRequest,
         interestSha256: BridgeProductSubscriptionInterestState.fileMetadata(
@@ -243,7 +243,7 @@ private func admitFileBootstrapSubscription(
             pathScope: []
         ).sha256Hex()
     )
-    let openEffect = try await props.harness.session.completeControl(
+    let openEffect = try await props.harness.session.completeAdmittedControl(
         token: controlToken,
         exactResponseBytes: try JSONEncoder().encode(openResponse)
     )

@@ -10,7 +10,6 @@ enum BridgeProductSessionLifecycle: Equatable, Sendable {
 struct BridgeProductSessionPendingControl: Sendable {
     let deferredResyncEpochs: [BridgeProductSurface: Int]
     let productAdmission: BridgeProductAdmissionContext
-    var providerDispatchCompletion: BridgeProductControlDispatchCompletion?
     let request: BridgeProductControlRequest
     let token: BridgeProductControlAdmissionToken
 }
@@ -20,6 +19,7 @@ enum BridgeProductSessionControlRejection: Equatable, Sendable {
     case invalidRequest
     case payloadTooLarge
     case requestInFlight(nextExpectedRequestSequence: Int)
+    case resultCapacityExhausted
     case revoked
     case sequenceExhausted(nextExpectedRequestSequence: Int)
     case sequenceConflict(nextExpectedRequestSequence: Int)
@@ -120,7 +120,7 @@ enum BridgeProductSessionError: Error, Equatable {
     case invalidAdmissionToken
     case lifecycleFrameAdmissionFailed
     case mismatchedControlResponse
-    case providerDispatchAlreadyClaimed
+    case resultCapacityExhausted
     case subscriptionStateRejected(BridgeProductSubscriptionStateError)
 }
 
@@ -139,12 +139,14 @@ enum BridgeProductSessionCompletionEffect: Equatable, Sendable {
 struct BridgeProductSessionSnapshot: Equatable, Sendable {
     let controlReplay: BridgeProductControlReplaySnapshot
     let lifecycle: BridgeProductSessionLifecycle
-    let pendingControlProviderDispatched: Bool
     let pendingRequestKind: String?
     let workerDerivationEpochBySurface: [BridgeProductSurface: Int]
 }
 
 struct BridgeProductSessionDiagnosticSnapshot: Equatable, Sendable {
+    let activeEscapeEffectCount: Int
+    let activeOperationExecutionCount: Int
+    let retainedOperationResultCount: Int
     let pendingControlCount: Int
     let activeSubscriptionCount: Int
     let producerFrameWaiterCount: Int

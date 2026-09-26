@@ -30,7 +30,7 @@ struct BridgeProductSessionReentrancyTests {
         )
 
         // Act
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: openToken,
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
@@ -99,11 +99,6 @@ struct BridgeProductSessionReentrancyTests {
     func laterEpochAdvanceCannotRegressCompletedResyncFloor() async throws {
         // Arrange
         let harness = try await ReentrancySessionHarness.opened()
-        try await harness.openFileSubscription(
-            requestSequence: 2,
-            workerDerivationEpoch: 2
-        )
-
         let metadataProducer = HeldProducerOperation()
         let metadataRequest = try metadataStreamRequest()
         let metadataRegistration = await harness.session.registerMetadataProducer(
@@ -137,6 +132,10 @@ struct BridgeProductSessionReentrancyTests {
                 productAdmission: harness.productAdmission.context
             )?.sequence == 0
         )
+        try await harness.openFileSubscription(
+            requestSequence: 2,
+            workerDerivationEpoch: 2
+        )
 
         let heldProducer = HeldProducerOperation()
         let oldRegistration = await harness.session.registerContentProducer(
@@ -160,6 +159,7 @@ struct BridgeProductSessionReentrancyTests {
         let resyncToken = try #require(
             try await harness.begin(resyncRequest).executionToken
         )
+        _ = try await harness.session.admitControlOperation(token: resyncToken, execute: { _ in })
         let providerResyncResponse = try BridgeProductControlResponse.resyncAccepted(
             correlating: resyncRequest,
             metadataStreamSequenceBarrier: 0,
@@ -172,7 +172,7 @@ struct BridgeProductSessionReentrancyTests {
         )
 
         // Act
-        let completionEffects = try await harness.session.completeControl(
+        let completionEffects = try await harness.session.completeAdmittedControl(
             token: resyncToken,
             exactResponseBytes: try JSONEncoder().encode(resyncResponse)
         )
@@ -282,7 +282,7 @@ private struct ReentrancySessionHarness {
         let openResponse = try BridgeProductControlResponse.workerSessionAccepted(
             correlating: openRequest
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: openToken,
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
@@ -312,7 +312,7 @@ private struct ReentrancySessionHarness {
             correlating: request,
             interestSha256: emptyFileInterestSHA256()
         )
-        _ = try await session.completeControl(
+        _ = try await session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )

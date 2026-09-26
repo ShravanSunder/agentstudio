@@ -210,7 +210,7 @@ struct BridgeProductAdmissionIntegrationTests {
         #expect(providerSnapshot.controlRequests.count == 1)
         #expect(providerSnapshot.controlCompletionCount == 1)
         #expect(sessionSnapshot.pendingRequestKind == nil)
-        #expect(!sessionSnapshot.pendingControlProviderDispatched)
+        #expect((await harness.installation.session.diagnosticSnapshot).activeOperationExecutionCount == 0)
         #expect(sessionSnapshot.controlReplay.inFlightRequestSequence == nil)
         #expect(sessionSnapshot.controlReplay.replayableRequestSequence == nil)
         #expect(routerSnapshot.hasZeroResidue)
@@ -236,7 +236,7 @@ struct BridgeProductAdmissionIntegrationTests {
             Issue.record("Expected worker-open control execution admission")
             return
         }
-        guard await session.claimControlProviderDispatch(token: token) else {
+        guard await session.admitControlProviderExecution(token: token) else {
             Issue.record("Expected worker-open provider dispatch claim")
             return
         }
@@ -246,7 +246,7 @@ struct BridgeProductAdmissionIntegrationTests {
 
         // Act
         harness.owner.productAdmissionGate.close()
-        let completionEffect = try await session.completeControl(
+        let completionEffect = try await session.completeAdmittedControl(
             token: token,
             exactResponseBytes: exactResponseBytes
         )
@@ -256,7 +256,7 @@ struct BridgeProductAdmissionIntegrationTests {
         // Assert
         #expect(completionEffect == .noEffect)
         #expect(sessionSnapshot.pendingRequestKind == nil)
-        #expect(!sessionSnapshot.pendingControlProviderDispatched)
+        #expect((await session.diagnosticSnapshot).activeOperationExecutionCount == 0)
         #expect(sessionSnapshot.controlReplay.inFlightRequestSequence == nil)
         #expect(sessionSnapshot.controlReplay.replayableRequestSequence == nil)
         #expect(sessionSnapshot.lifecycle == .awaitingOpen)

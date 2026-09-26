@@ -29,6 +29,16 @@ private func installMetadataStream(
     return coordinator
 }
 
+private func openOutgoingReviewSubscription(
+    on harness: BridgeProductSessionLifecycleHarness
+) async throws {
+    let outgoingLease = try await harness.admitMetadataFrames(through: 0)
+    try await harness.openSubscription(
+        bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
+    )
+    try await harness.closeProducer(outgoingLease)
+}
+
 @Suite("Bridge product metadata stream subscription replay")
 struct BridgePaneProductMetadataStreamReplayTests {
     /// A fresh open means the worker poisoned its metadata session (or is a new
@@ -40,9 +50,7 @@ struct BridgePaneProductMetadataStreamReplayTests {
     func freshMetadataStreamRetiresEarlierSubscriptions() async throws {
         // Arrange -- a session still holding a subscription from a stream that died.
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
-        try await harness.openSubscription(
-            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
-        )
+        try await openOutgoingReviewSubscription(on: harness)
         #expect(
             await harness.session.subscriptionSnapshots().map(\.subscriptionId)
                 == ["review-subscription-1"]
@@ -67,9 +75,7 @@ struct BridgePaneProductMetadataStreamReplayTests {
     func exactHeadResumeReplaysSubscriptions() async throws {
         // Arrange
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
-        try await harness.openSubscription(
-            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
-        )
+        try await openOutgoingReviewSubscription(on: harness)
         let coordinator = try await installMetadataStream(
             on: harness,
             metadataStreamId: "metadata-stream-resumed",
@@ -97,9 +103,7 @@ struct BridgePaneProductMetadataStreamReplayTests {
     func subscriptionOpenedAfterInstallSurvivesRetirement() async throws {
         // Arrange -- the outgoing client's subscription, then a fresh stream installed.
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
-        try await harness.openSubscription(
-            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
-        )
+        try await openOutgoingReviewSubscription(on: harness)
         let coordinator = try await installMetadataStream(
             on: harness,
             metadataStreamId: "metadata-stream-fresh-with-late-subscription",
@@ -130,9 +134,7 @@ struct BridgePaneProductMetadataStreamReplayTests {
     func gappedResumeStillReplaysSubscriptions() async throws {
         // Arrange
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
-        try await harness.openSubscription(
-            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
-        )
+        try await openOutgoingReviewSubscription(on: harness)
         let coordinator = try await installMetadataStream(
             on: harness,
             metadataStreamId: "metadata-stream-resumed-with-gap",

@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -10,6 +12,7 @@ struct BridgeProductSessionControlMutationTests {
         // Arrange
         let interestFixture = try ReviewInterestFixture.make()
         let harness = try await RawControlSessionHarness.opened()
+        defer { harness.metadataProducer.release() }
         let openEffects = try await openReviewSubscription(
             harness,
             interestFixture: interestFixture
@@ -108,7 +111,8 @@ struct BridgeProductSessionControlMutationTests {
         #expect(committedSnapshot.interestSha256 == interestFixture.targetSHA256)
         #expect(committedSnapshot.interestState == interestFixture.targetState)
         #expect(!committedSnapshot.hasStagedUpdate)
-        #expect(retryAdmission == .replay(exactResponseBytes: finalBatchResponseBytes))
+        let replay = try admittedReplay(retryAdmission)
+        #expect(replay.correlation.requestSequence == 4)
         #expect(subscriptionAfterRetry == committedSnapshot)
         #expect((await harness.session.snapshot) == sessionAfterCommit)
     }
@@ -118,6 +122,7 @@ struct BridgeProductSessionControlMutationTests {
         // Arrange
         let interestFixture = try ReviewInterestFixture.make()
         let harness = try await RawControlSessionHarness.opened()
+        defer { harness.metadataProducer.release() }
         _ = try await openReviewSubscription(harness, interestFixture: interestFixture)
         try await stageFirstReviewBatch(harness, interestFixture: interestFixture)
         let finalRequestBytes = try jsonData(
@@ -182,6 +187,7 @@ struct BridgeProductSessionControlMutationTests {
     func requestErrorDoesNotApplyCandidateMutation() async throws {
         // Arrange
         let harness = try await RawControlSessionHarness.opened()
+        defer { harness.metadataProducer.release() }
         let requestBytes = try jsonData(reviewSubscriptionOpenObject(requestSequence: 2))
         let responseBytes = try jsonData(
             requestErrorObject(
@@ -207,7 +213,8 @@ struct BridgeProductSessionControlMutationTests {
         #expect(completedSnapshot.pendingRequestKind == nil)
         #expect(completedSnapshot.controlReplay.nextExpectedRequestSequence == 3)
         #expect(completedSnapshot.controlReplay.replayableRequestSequence == 2)
-        #expect(retryAdmission == .replay(exactResponseBytes: responseBytes))
+        let replay = try admittedReplay(retryAdmission)
+        #expect(replay.correlation.requestSequence == 2)
         #expect(
             await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId) == nil
         )
@@ -218,6 +225,7 @@ struct BridgeProductSessionControlMutationTests {
         // Arrange
         let interestFixture = try ReviewInterestFixture.make()
         let harness = try await RawControlSessionHarness.opened()
+        defer { harness.metadataProducer.release() }
         let initialSnapshot = await harness.session.snapshot
         let invalidRequests = [
             Data("{".utf8),
@@ -277,8 +285,8 @@ struct BridgeProductSessionControlMutationTests {
         )
 
         #expect((await harness.session.snapshot) == pendingSnapshot)
-        #expect(pendingSnapshot.controlReplay.inFlightRequestSequence == 2)
-        #expect(pendingSnapshot.controlReplay.replayableRequestSequence == 1)
+        #expect(pendingSnapshot.controlReplay.inFlightRequestSequence == nil)
+        #expect(pendingSnapshot.controlReplay.replayableRequestSequence == 2)
 
         let correctResponseBytes = try jsonData(
             reviewSubscriptionOpenAcceptedObject(
@@ -291,7 +299,8 @@ struct BridgeProductSessionControlMutationTests {
         )
         let retryAdmission = await harness.begin(requestBytes)
 
-        #expect(retryAdmission == .replay(exactResponseBytes: correctResponseBytes))
+        let replay = try admittedReplay(retryAdmission)
+        #expect(replay.correlation.requestSequence == 2)
     }
 }
 
@@ -326,13 +335,16 @@ private struct ReviewInterestFixture: Sendable {
 
 private struct RawControlSessionHarness {
     let capabilityHeader: String
+    let metadataProducer: HeldStep<BridgeProductProducerLease>
     let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
     static func opened() async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
+        let metadataProducer = HeldStep<BridgeProductProducerLease>("rawControlMetadataProducer")
         let harness = try Self(
             capabilityHeader: BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes),
+            metadataProducer: metadataProducer,
             productAdmission: .make(),
             session: BridgeProductSession(
                 paneSessionId: paneSessionId,
@@ -349,6 +361,27 @@ private struct RawControlSessionHarness {
             ).merging(["result": NSNull()]) { _, newValue in newValue }
         )
         _ = try await harness.execute(requestBytes: requestBytes, responseBytes: responseBytes)
+        let metadataRequest = try bridgeProductMetadataStreamRequest(
+            metadataStreamId: "metadata-control-mutation-\(UUIDv7.generate().uuidString)",
+            resumeFromStreamSequence: nil
+        )
+        let registration = await harness.session.registerMetadataProducer(
+            request: metadataRequest,
+            productAdmission: harness.productAdmission.context
+        ) { lease in
+            try? await metadataProducer.arrive(lease)
+        }
+        guard case .accepted(let lease) = registration else {
+            throw BridgeProductSessionError.lifecycleFrameAdmissionFailed
+        }
+        #expect(try await metadataProducer.firstArrival() == lease)
+        _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
+            for: lease,
+            productAdmission: harness.productAdmission.context,
+            build: { sequence in
+                try producerRegistryMetadataOpeningFrame(for: metadataRequest, sequence: sequence)
+            }
+        )
         return harness
     }
 
@@ -366,6 +399,7 @@ private struct RawControlSessionHarness {
             Issue.record("Expected execution admission, received \(admission)")
             throw RawControlSessionHarnessError.expectedExecution
         }
+        _ = try await session.admitControlOperation(token: token, execute: { _ in })
         return token
     }
 
@@ -374,15 +408,36 @@ private struct RawControlSessionHarness {
         responseBytes: Data
     ) async throws -> BridgeProductSessionCompletionEffect {
         let token = try await beginExecution(requestBytes)
-        return try await session.completeControl(
+        let effect = try await session.completeControl(
             token: token,
             exactResponseBytes: responseBytes
         )
+        let response = try BridgeProductStrictJSON.decode(
+            BridgeProductControlResponse.self,
+            from: responseBytes
+        )
+        if let operationId = await session.operationTable.entry(for: token)?.operationId {
+            await session.settleOperation(operationId: operationId, response: response)
+        }
+        return effect
     }
 }
 
 private enum RawControlSessionHarnessError: Error {
     case expectedExecution
+}
+
+private func admittedReplay(
+    _ admission: BridgeProductSessionControlAdmission
+) throws -> BridgeProductOperationAdmittedResponse {
+    guard case .replay(let exactResponseBytes) = admission else {
+        Issue.record("Expected exact replay of the operation admission")
+        throw RawControlSessionHarnessError.expectedExecution
+    }
+    return try BridgeProductStrictJSON.decode(
+        BridgeProductOperationAdmittedResponse.self,
+        from: exactResponseBytes
+    )
 }
 
 private struct ResponseMismatchFixture: Sendable {

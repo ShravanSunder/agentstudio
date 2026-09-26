@@ -463,7 +463,7 @@ private struct FrameIdentitySessionHarness {
         let response = try BridgeProductControlResponse.workerSessionAccepted(
             correlating: request
         )
-        _ = try await session.completeControl(
+        _ = try await session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )

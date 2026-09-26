@@ -34,14 +34,14 @@ struct BridgePaneProductMetadataCoordinatorTests {
 
         // Act
         let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256:
                 BridgeProductSubscriptionInterestState
                 .fileMetadata(interests: [], pathScope: []).sha256Hex()
         )
-        let effect = try await harness.session.completeControl(
+        let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
@@ -113,7 +113,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
 
         // Act
         let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256:
@@ -121,7 +121,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
                 .fileMetadata(interests: [], pathScope: [])
                 .sha256Hex()
         )
-        let effect = try await harness.session.completeControl(
+        let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
@@ -183,12 +183,12 @@ struct BridgePaneProductMetadataCoordinatorTests {
 
         // Act
         let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256: BridgeProductSubscriptionInterestState.reviewMetadata(interests: []).sha256Hex()
         )
-        let effect = try await harness.session.completeControl(
+        let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
@@ -286,7 +286,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
             bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
         )
         let openToken = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: openToken))
+        #expect(await harness.session.admitControlProviderExecution(token: openToken))
         let emptyInterestSha256 =
             try BridgeProductSubscriptionInterestState
             .reviewMetadata(interests: []).sha256Hex()
@@ -294,7 +294,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
             correlating: openRequest,
             interestSha256: emptyInterestSha256
         )
-        let openEffect = try await harness.session.completeControl(
+        let openEffect = try await harness.session.completeAdmittedControl(
             token: openToken,
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
@@ -312,12 +312,12 @@ struct BridgePaneProductMetadataCoordinatorTests {
 
         // Act
         let updateToken = try #require(controlExecutionToken(try await harness.begin(updateRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: updateToken))
+        #expect(await harness.session.admitControlProviderExecution(token: updateToken))
         let updateResponse = try BridgeProductControlResponse.subscriptionUpdateBatchAccepted(
             correlating: updateRequest,
             disposition: .committed
         )
-        let updateEffect = try await harness.session.completeControl(
+        let updateEffect = try await harness.session.completeAdmittedControl(
             token: updateToken,
             exactResponseBytes: try JSONEncoder().encode(updateResponse)
         )
@@ -375,12 +375,12 @@ struct BridgePaneProductMetadataCoordinatorTests {
             bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
         )
         let openToken = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: openToken))
+        #expect(await harness.session.admitControlProviderExecution(token: openToken))
         let openResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256: BridgeProductSubscriptionInterestState.reviewMetadata(interests: []).sha256Hex()
         )
-        let openEffect = try await harness.session.completeControl(
+        let openEffect = try await harness.session.completeAdmittedControl(
             token: openToken,
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
@@ -397,11 +397,11 @@ struct BridgePaneProductMetadataCoordinatorTests {
 
         // Act
         let cancelToken = try #require(controlExecutionToken(try await harness.begin(cancelRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: cancelToken))
+        #expect(await harness.session.admitControlProviderExecution(token: cancelToken))
         let cancelResponse = try BridgeProductControlResponse.subscriptionCancelAccepted(
             correlating: cancelRequest
         )
-        let cancelEffect = try await harness.session.completeControl(
+        let cancelEffect = try await harness.session.completeAdmittedControl(
             token: cancelToken,
             exactResponseBytes: try JSONEncoder().encode(cancelResponse)
         )
@@ -470,12 +470,12 @@ struct BridgePaneProductMetadataCoordinatorTests {
             ),
         ] {
             let token = try #require(controlExecutionToken(try await harness.begin(request)))
-            #expect(await harness.session.claimControlProviderDispatch(token: token))
+            #expect(await harness.session.admitControlProviderExecution(token: token))
             let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
                 correlating: request,
                 interestSha256: expectedInterestState.sha256Hex()
             )
-            let effect = try await harness.session.completeControl(
+            let effect = try await harness.session.completeAdmittedControl(
                 token: token,
                 exactResponseBytes: try JSONEncoder().encode(response)
             )
@@ -542,12 +542,12 @@ struct BridgePaneProductMetadataCoordinatorTests {
             ),
         ] {
             let token = try #require(controlExecutionToken(try await harness.begin(request)))
-            #expect(await harness.session.claimControlProviderDispatch(token: token))
+            #expect(await harness.session.admitControlProviderExecution(token: token))
             let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
                 correlating: request,
                 interestSha256: expectedInterestState.sha256Hex()
             )
-            let effect = try await harness.session.completeControl(
+            let effect = try await harness.session.completeAdmittedControl(
                 token: token,
                 exactResponseBytes: try JSONEncoder().encode(response)
             )
@@ -615,14 +615,14 @@ struct BridgePaneProductMetadataCoordinatorTests {
             bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
         )
         let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: token))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256:
                 BridgeProductSubscriptionInterestState
                 .fileMetadata(interests: [], pathScope: []).sha256Hex()
         )
-        let effect = try await harness.session.completeControl(
+        let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
@@ -698,12 +698,12 @@ struct BridgePaneProductMetadataCoordinatorTests {
 
         // Act
         let openToken = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: openToken))
+        #expect(await harness.session.admitControlProviderExecution(token: openToken))
         let openResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
             interestSha256: emptyInterestSha256
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: openToken,
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
@@ -718,12 +718,12 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let updateToken = try #require(
             controlExecutionToken(try await harness.begin(updateRequest))
         )
-        #expect(await harness.session.claimControlProviderDispatch(token: updateToken))
+        #expect(await harness.session.admitControlProviderExecution(token: updateToken))
         let updateResponse = try BridgeProductControlResponse.subscriptionUpdateBatchAccepted(
             correlating: updateRequest,
             disposition: .committed
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: updateToken,
             exactResponseBytes: try JSONEncoder().encode(updateResponse)
         )
@@ -736,11 +736,11 @@ struct BridgePaneProductMetadataCoordinatorTests {
         let cancelToken = try #require(
             controlExecutionToken(try await harness.begin(cancelRequest))
         )
-        #expect(await harness.session.claimControlProviderDispatch(token: cancelToken))
+        #expect(await harness.session.admitControlProviderExecution(token: cancelToken))
         let cancelResponse = try BridgeProductControlResponse.subscriptionCancelAccepted(
             correlating: cancelRequest
         )
-        _ = try await harness.session.completeControl(
+        _ = try await harness.session.completeAdmittedControl(
             token: cancelToken,
             exactResponseBytes: try JSONEncoder().encode(cancelResponse)
         )

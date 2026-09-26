@@ -26,6 +26,11 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
         }
     }
 
+    var isSlotFreeEscape: Bool {
+        if case .subscriptionCancel = self { return true }
+        return false
+    }
+
     var correlation: BridgeProductControlCorrelation {
         switch self {
         case .workerSessionOpen(let request): request.correlation

@@ -261,6 +261,7 @@ export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 					queryCompletion.observeOutcome(message);
 					return;
 				}
+				if (message.kind === 'sessionSuspect') return;
 				if (
 					message.kind === 'health' &&
 					message.requestId?.startsWith(bridgeFileViewerBrowserWorkerDrainRequestPrefix) === true

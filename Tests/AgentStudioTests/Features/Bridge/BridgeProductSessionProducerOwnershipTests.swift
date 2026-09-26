@@ -185,7 +185,6 @@ struct BridgeProductSessionProducerOwnershipTests {
     func revokeAwaitsAcknowledgementsAndClearsOwnedResidue() async throws {
         // Arrange
         let harness = try await ProducerSessionHarness.opened()
-        try await harness.openFileSubscription(workerDerivationEpoch: 2)
 
         let metadataOperation = HeldStep<BridgeProductProducerLease>("metadataOperation")
         let metadataRequest = try metadataStreamRequest(
@@ -200,6 +199,23 @@ struct BridgeProductSessionProducerOwnershipTests {
         }
         let metadataLease = try #require(metadataRegistration.lease)
         _ = try await metadataOperation.firstArrival()
+        _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
+            for: metadataLease,
+            productAdmission: harness.productAdmission.context,
+            build: { sequence in
+                try metadataAcceptedProducerFrame(
+                    request: metadataRequest,
+                    streamSequence: sequence,
+                    resumeDisposition: .snapshotRequired
+                )
+            }
+        )
+        _ = await consumeNextBridgeProductProducerFrame(
+            for: metadataLease,
+            from: harness.session,
+            productAdmission: harness.productAdmission.context
+        )
+        try await harness.openFileSubscription(workerDerivationEpoch: 2)
 
         let contentOperation = HeldStep<BridgeProductProducerLease>("contentOperation")
         let contentRequest = try fileContentRequest(
@@ -214,17 +230,6 @@ struct BridgeProductSessionProducerOwnershipTests {
         }
         let contentLease = try #require(contentRegistration.lease)
         _ = try await contentOperation.firstArrival()
-        _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
-            for: metadataLease,
-            productAdmission: harness.productAdmission.context,
-            build: { sequence in
-                try metadataAcceptedProducerFrame(
-                    request: metadataRequest,
-                    streamSequence: sequence,
-                    resumeDisposition: .snapshotRequired
-                )
-            }
-        )
         _ = try await harness.session.enqueueRequiredProducerOpeningFrame(
             for: contentLease,
             productAdmission: harness.productAdmission.context,
@@ -327,7 +332,7 @@ private struct ProducerSessionHarness {
             ).executionToken
         )
         let response = try BridgeProductControlResponse.workerSessionAccepted(correlating: request)
-        _ = try await session.completeControl(
+        _ = try await session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
@@ -371,7 +376,7 @@ private struct ProducerSessionHarness {
             correlating: request,
             interestSha256: interestSha256
         )
-        _ = try await session.completeControl(
+        _ = try await session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )

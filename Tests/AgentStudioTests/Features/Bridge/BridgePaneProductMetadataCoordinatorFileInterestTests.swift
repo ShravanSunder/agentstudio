@@ -36,7 +36,7 @@ struct BridgeFileInterestAdmissionTests {
             bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
         )
         let openToken = try #require(controlExecutionToken(try await harness.begin(openRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: openToken))
+        #expect(await harness.session.admitControlProviderExecution(token: openToken))
         let emptyInterestSha256 = try BridgeProductSubscriptionInterestState.fileMetadata(
             interests: [],
             pathScope: []
@@ -45,7 +45,7 @@ struct BridgeFileInterestAdmissionTests {
             correlating: openRequest,
             interestSha256: emptyInterestSha256
         )
-        let openEffect = try await harness.session.completeControl(
+        let openEffect = try await harness.session.completeAdmittedControl(
             token: openToken,
             exactResponseBytes: try JSONEncoder().encode(openResponse)
         )
@@ -66,12 +66,12 @@ struct BridgeFileInterestAdmissionTests {
 
         // Act
         let updateToken = try #require(controlExecutionToken(try await harness.begin(updateRequest)))
-        #expect(await harness.session.claimControlProviderDispatch(token: updateToken))
+        #expect(await harness.session.admitControlProviderExecution(token: updateToken))
         let updateResponse = try BridgeProductControlResponse.subscriptionUpdateBatchAccepted(
             correlating: updateRequest,
             disposition: .committed
         )
-        let updateEffect = try await harness.session.completeControl(
+        let updateEffect = try await harness.session.completeAdmittedControl(
             token: updateToken,
             exactResponseBytes: try JSONEncoder().encode(updateResponse)
         )

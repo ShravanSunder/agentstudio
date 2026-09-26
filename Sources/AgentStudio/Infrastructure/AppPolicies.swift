@@ -167,6 +167,13 @@ package enum AppPolicies {
     }
 
     package enum Bridge {
+        /// Settled results retain their slots until the worker acknowledges them.
+        package static let maximumOrdinaryProductOperations: Int = 32
+        package static let maximumHumanWaitProductOperations: Int = 2
+        package static let productOperationSettlementDeadline: Duration = .seconds(4)
+        /// The worker allows the native settlement deadline to fire first.
+        package static let productWorkerSettlementDeadline: Duration = .seconds(5)
+        package static let productAdmissionRetryCount: Int = 2
         package static let fileRefreshMaximumAutomaticRetryCount: Int = 1
         /// Observability-only custody for pairing Bridge lifecycle starts and
         /// terminals. This never controls product work or retry behavior.

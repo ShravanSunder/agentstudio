@@ -187,6 +187,23 @@ struct BridgeProductSchemeAdapter: Sendable {
                 continuation: continuation
             )
             return
+        case .operationResult(let resultRequest):
+            try await routeOperationResult(
+                resultRequest,
+                responseURL: request.url,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        case .operationResultAcknowledgement(let acknowledgement):
+            try await routeOperationResultAcknowledgement(
+                acknowledgement,
+                exactRequestBytes: request.exactBodyBytes,
+                responseURL: request.url,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
         case .control:
             break
         }
@@ -232,6 +249,80 @@ struct BridgeProductSchemeAdapter: Sendable {
                 continuation: continuation
             )
         }
+        continuation.finish()
+    }
+
+    private func routeOperationResult(
+        _ resultRequest: BridgeProductOperationResultRequest,
+        responseURL: URL,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
+        guard
+            let result = await session.readOperationResult(
+                resultRequest,
+                productAdmission: productAdmission
+            )
+        else {
+            try await sendRejectedBody(
+                url: responseURL,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        }
+        try await sendOperationResponse(
+            try JSONEncoder().encode(result),
+            responseURL: responseURL,
+            productAdmission: productAdmission,
+            continuation: continuation
+        )
+    }
+
+    private func routeOperationResultAcknowledgement(
+        _ acknowledgement: BridgeProductOperationResultAcknowledgement,
+        exactRequestBytes: Data,
+        responseURL: URL,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
+        guard
+            let responseBytes = await session.acknowledgeOperationResult(
+                acknowledgement,
+                exactRequestBytes: exactRequestBytes,
+                productAdmission: productAdmission
+            )
+        else {
+            try await sendRejectedBody(
+                url: responseURL,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        }
+        try await sendOperationResponse(
+            responseBytes,
+            responseURL: responseURL,
+            productAdmission: productAdmission,
+            continuation: continuation
+        )
+    }
+
+    private func sendOperationResponse(
+        _ responseBytes: Data,
+        responseURL: URL,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
+        try await sendResponse(
+            statusCode: 200,
+            url: responseURL,
+            contentType: "application/json",
+            contentLength: responseBytes.count,
+            productAdmission: productAdmission,
+            continuation: continuation
+        )
+        try emit(.data(responseBytes), productAdmission: productAdmission, continuation: continuation)
         continuation.finish()
     }
 
@@ -574,7 +665,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         case .invalidRequest: 400
         case .payloadTooLarge: 413
         case .unauthorized: 403
-        case .inactiveSession, .requestInFlight, .revoked, .sequenceConflict,
+        case .inactiveSession, .requestInFlight, .resultCapacityExhausted, .revoked, .sequenceConflict,
             .sequenceExhausted, .staleDerivationEpoch, .staleWorker,
             .streamSequenceConflict:
             409

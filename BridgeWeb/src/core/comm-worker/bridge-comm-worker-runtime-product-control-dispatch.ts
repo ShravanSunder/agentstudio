@@ -17,15 +17,16 @@ import {
 	buildBridgeWorkerRuntimeCommandFailedHealthEvent,
 } from './bridge-comm-worker-runtime-health.js';
 import type { BridgeCommWorkerProductControlSender } from './bridge-comm-worker-runtime-protocol-contracts.js';
+import { sendBridgeCommWorkerActionWithTimeout } from './bridge-comm-worker-runtime-support.js';
 import {
-	sendBridgeCommWorkerActionWithOutcomeDeadline,
-	sendBridgeCommWorkerActionWithTimeout,
-} from './bridge-comm-worker-runtime-support.js';
-import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
+	BridgeProductControlRequestError,
+	BridgeProductSessionSuspectError,
+} from './bridge-product-session-authority.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type {
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerServerToMainMessage,
+	BridgeWorkerSessionSuspectEvent,
 } from './bridge-worker-contracts.js';
 
 export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
@@ -39,12 +40,17 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 		message: BridgeWorkerServerToMainMessage,
 		transfer?: readonly Transferable[],
 	) => void;
+	readonly publishSessionSuspect?: (message: BridgeWorkerSessionSuspectEvent) => void;
 	readonly productControlTimeoutMilliseconds: number;
 	readonly productController: BridgeCommWorkerProductController | null;
 	readonly productTransport: BridgeProductTransportSession | undefined;
 	readonly publishReviewMetadataInterests: () => Promise<void>;
 	readonly reviewMetadataApplicator: BridgeCommWorkerReviewMetadataApplicator | null;
 	readonly sendProductControl: BridgeCommWorkerProductControlSender;
+	readonly sessionIdentity?: {
+		readonly paneSessionId: string;
+		readonly workerInstanceId: string;
+	};
 	readonly setActiveComparisonTargetsRequestId: (requestId: string | null) => void;
 }): void {
 	const productControlCommand = bridgeWorkerRuntimeProductControlCommandForMessage(
@@ -95,33 +101,9 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 			props.setActiveComparisonTargetsRequestId(productControlCommand.requestId);
 		}
 		const send = (): Promise<unknown> => props.sendProductControl(productControlCommand.command);
-		let outcomeReportedUnknown = false;
-		const reportUnknownOutcome = (): void => {
-			outcomeReportedUnknown = true;
-			props.publish(
-				buildBridgeWorkerRuntimeCommandFailedHealthEvent({
-					deliveryStatus: 'unknownAfterDispatch',
-					message: `Bridge comm worker has not received the outcome of ${productControlCommand.command.method}.`,
-					requestId: productControlCommand.requestId,
-				}),
-			);
-		};
-		// A native Save panel has a user-controlled lifetime. Timing it out does not
-		// cancel the native effect, and would discard a later successful save.
-		// Other annotation commands may also commit after the deadline: report the
-		// outcome as unknown at the deadline and still deliver the late receipt.
-		const completion = annotationOutputMayOpenSavePanel(productControlCommand.command)
-			? Promise.resolve().then(send)
-			: annotationCommandReceiptReconcilesLate(productControlCommand.command)
-				? sendBridgeCommWorkerActionWithOutcomeDeadline({
-						onDeadlineExceeded: reportUnknownOutcome,
-						send,
-						timeoutMilliseconds: props.productControlTimeoutMilliseconds,
-					})
-				: sendBridgeCommWorkerActionWithTimeout({
-						send,
-						timeoutMilliseconds: props.productControlTimeoutMilliseconds,
-					});
+		// W1 owns result and admission deadlines. A declared human wait has no
+		// result deadline; only its admission reply remains bounded.
+		const completion = Promise.resolve().then(send);
 		void completion
 			.then((actionResult): void => {
 				if (
@@ -143,9 +125,37 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 					reviewWorkerDerivationEpoch: props.activeReviewWorkerDerivationEpoch,
 				});
 			})
-			.catch((): void => {
-				// Main already holds an unknown outcome; the annotation projection is authoritative.
-				if (outcomeReportedUnknown) return;
+			.catch((error: unknown): void => {
+				if (
+					error instanceof BridgeProductSessionSuspectError &&
+					error.shouldNotify &&
+					props.sessionIdentity !== undefined &&
+					props.publishSessionSuspect !== undefined
+				) {
+					props.publishSessionSuspect({
+						direction: 'serverWorkerToMain',
+						kind: 'sessionSuspect',
+						paneSessionId: props.sessionIdentity.paneSessionId,
+						reason:
+							error.phase === 'admission' ? 'admissionReplyExhausted' : 'resultDeadlineExhausted',
+						transferDescriptors: [],
+						wireVersion: 1,
+						workerInstanceId: props.sessionIdentity.workerInstanceId,
+					});
+				}
+				if (
+					error instanceof BridgeProductSessionSuspectError ||
+					(error instanceof BridgeProductControlRequestError && error.outcome === 'outcomeUnknown')
+				) {
+					props.publish(
+						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
+							deliveryStatus: 'unknownAfterDispatch',
+							message: `Bridge comm worker has not received the outcome of ${productControlCommand.command.method}.`,
+							requestId: productControlCommand.requestId,
+						}),
+					);
+					return;
+				}
 				if (
 					productControlCommand.command.method === 'review.comparisonTargets.query' &&
 					props.getActiveComparisonTargetsRequestId() === productControlCommand.requestId
@@ -199,23 +209,4 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				),
 			);
 	}
-}
-
-function annotationCommandReceiptReconcilesLate(command: BridgeProductControlCommand): boolean {
-	return (
-		command.method === 'file.annotations.command' || command.method === 'review.annotations.command'
-	);
-}
-
-function annotationOutputMayOpenSavePanel(command: BridgeProductControlCommand): boolean {
-	if (
-		command.method !== 'file.annotations.command' &&
-		command.method !== 'review.annotations.command'
-	)
-		return false;
-	const operation = command.params.operation;
-	return (
-		operation.kind === 'output.repeat' ||
-		(operation.kind === 'output.scope.commit' && operation.outputKind === 'jsonFile')
-	);
 }

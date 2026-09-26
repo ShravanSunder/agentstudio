@@ -724,7 +724,7 @@ private func installRefreshAdmissionMetadataProducer(
     guard case .execute(let workerOpenToken, _) = workerOpenAdmission else {
         throw RefreshAdmissionIntegrationError.expectedWorkerSessionExecution
     }
-    _ = try await installation.session.completeControl(
+    _ = try await installation.session.completeAdmittedControl(
         token: workerOpenToken,
         exactResponseBytes: try JSONEncoder().encode(
             BridgeProductControlResponse.workerSessionAccepted(correlating: workerOpenRequest)

@@ -194,7 +194,7 @@ struct BridgeProductSessionProducerHarness {
         )
         let token = try bridgeProductExecutionToken(admission)
         let response = try BridgeProductControlResponse.workerSessionAccepted(correlating: request)
-        _ = try await session.completeControl(
+        _ = try await session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )

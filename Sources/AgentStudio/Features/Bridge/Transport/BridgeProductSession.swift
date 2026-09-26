@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 private struct BridgeProductMetadataFrameAcknowledgementReplay {
@@ -10,18 +11,21 @@ actor BridgeProductSession {
         @Sendable (BridgeProductProducerLifecycleAcknowledgement) async -> Bool
     typealias ProducerObservationPacingRegistrationObserver =
         @Sendable (BridgeProductProducerLease, Int) -> Void
+    typealias ResultWaiterRegistrationObserver = @Sendable (String) -> Void
 
     nonisolated let capabilityAuthenticator: BridgeProductCapabilityAuthenticator
     private let maximumRequestOrResponseBytes: Int
     let deadlineClock: any Clock<Duration> & Sendable
-    private let paneSessionId: String
+    let operationDelay: AsyncDelay
+    let paneSessionId: String
     let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
+    let resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver?
     var producerRegistry: BridgeProductProducerRegistry
     private var lastAcceptedContentFrameAcknowledgementByProducerLease:
         [BridgeProductProducerLease: BridgeProductContentFrameAcknowledgement] = [:]
     private var lastAcceptedMetadataFrameAcknowledgement: BridgeProductMetadataFrameAcknowledgementReplay?
     private var revocationState = BridgeProductSessionRevocationState.idle
-    private let workerInstanceId: String
+    let workerInstanceId: String
     var contentAdmissionByProducerLease: [BridgeProductProducerLease: BridgeProductContentAdmission] = [:]
     var productAdmissionByProducerLease: [BridgeProductProducerLease: BridgeProductAdmissionContext] = [:]
     var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
@@ -30,9 +34,12 @@ actor BridgeProductSession {
     var producerObservationPacingWaitersByLease:
         [BridgeProductProducerLease: [UUID: BridgeProductProducerPacingWaiter]] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
-    private var controlReplay: BridgeProductControlReplayCache
-    private var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
+    var controlReplay: BridgeProductControlReplayCache
+    var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
     var pendingControl: BridgeProductSessionPendingControl?
+    var operationTable = BridgeProductOperationTable()
+    var activeEscapeEffectIds: Set<UUID> = []
+    var escapeEffectTasksById: [UUID: Task<Void, Never>] = [:]
     var protocolSubscriptionDeliveryById: [String: BridgeProductProtocolSubscriptionDelivery] = [:]
     var subscriptionState = BridgeProductSubscriptionState()
     var workerDerivationEpochBySurface: [BridgeProductSurface: Int] = [:]
@@ -45,10 +52,11 @@ actor BridgeProductSession {
         workerInstanceId: String,
         capabilityBytes: [UInt8],
         maximumRequestOrResponseBytes: Int = BridgeProductWireContract.maximumRequestBodyBytes,
-        deadlineClock: any Clock<Duration> & Sendable = ContinuousClock(),
+        deadlineClock: (any Clock<Duration> & Sendable)? = nil,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
-            ProducerObservationPacingRegistrationObserver? = nil
+            ProducerObservationPacingRegistrationObserver? = nil,
+        resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver? = nil
     ) throws {
         guard maximumRequestOrResponseBytes > 0,
             maximumRequestOrResponseBytes <= BridgeProductWireContract.maximumRequestBodyBytes
@@ -64,13 +72,16 @@ actor BridgeProductSession {
             encodedCapability: capabilityHeader
         )
         self.maximumRequestOrResponseBytes = maximumRequestOrResponseBytes
-        self.deadlineClock = deadlineClock
+        let resolvedDeadlineClock: any Clock<Duration> & Sendable = deadlineClock ?? ContinuousClock()
+        self.deadlineClock = resolvedDeadlineClock
+        self.operationDelay = deadlineClock.map(AsyncDelay.clock) ?? .taskSleep
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
+        self.resultWaiterRegistrationObserver = resultWaiterRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
         self.producerRegistry = BridgeProductProducerRegistry(
             limits: producerQueueLimits,
-            deadlineClock: deadlineClock
+            deadlineClock: resolvedDeadlineClock
         )
         self.controlReplay = .init(
             maximumRequestOrResponseBytes: maximumRequestOrResponseBytes
@@ -81,8 +92,6 @@ actor BridgeProductSession {
         .init(
             controlReplay: controlReplay.snapshot,
             lifecycle: lifecycle,
-            pendingControlProviderDispatched:
-                pendingControl?.providerDispatchCompletion != nil,
             pendingRequestKind: pendingControl?.request.kind,
             workerDerivationEpochBySurface: workerDerivationEpochBySurface
         )
@@ -472,6 +481,12 @@ actor BridgeProductSession {
                 )
             )
         }
+        if request.requestSequence == controlReplay.snapshot.nextExpectedRequestSequence,
+            !request.isSlotFreeEscape,
+            !operationTable.hasCapacity(for: operationWaitKind(for: request))
+        {
+            return .rejected(.init(reason: .resultCapacityExhausted, request: request))
+        }
 
         switch controlReplay.begin(
             requestSequence: request.requestSequence,
@@ -500,7 +515,6 @@ actor BridgeProductSession {
             pendingControl = .init(
                 deferredResyncEpochs: deferredResyncEpochs,
                 productAdmission: productAdmission,
-                providerDispatchCompletion: nil,
                 request: request,
                 token: token
             )
@@ -508,34 +522,17 @@ actor BridgeProductSession {
         }
     }
 
-    func claimControlProviderDispatch(
-        token: BridgeProductControlAdmissionToken
-    ) -> Bool {
-        guard var pendingControl,
-            pendingControl.token == token,
-            pendingControl.providerDispatchCompletion == nil,
-            lifecycle != .revoked
-        else {
-            return false
-        }
-        return pendingControl.productAdmission.withValidAdmission {
-            pendingControl.providerDispatchCompletion = BridgeProductControlDispatchCompletion()
-            self.pendingControl = pendingControl
-            return true
-        } ?? false
-    }
-
     func completeControl(
         token: BridgeProductControlAdmissionToken,
         exactResponseBytes: Data
     ) async throws -> BridgeProductSessionCompletionEffect {
-        guard let pendingControl, pendingControl.token == token else {
+        guard let operation = operationTable.entry(for: token), operation.settlement == nil else {
             throw BridgeProductSessionError.invalidAdmissionToken
         }
+        let pendingControl = operation.admission
         guard
             (pendingControl.productAdmission.withValidAdmission { true }) == true
         else {
-            await settleControlProviderDispatch(token: token)
             return .noEffect
         }
         guard exactResponseBytes.count <= maximumRequestOrResponseBytes,
@@ -555,16 +552,6 @@ actor BridgeProductSession {
         )
 
         if lifecycle == .revoked || pendingControlIsStale(pendingControl) {
-            let didComplete =
-                try pendingControl.productAdmission.withValidAdmission {
-                    try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
-                    return true
-                } ?? false
-            if didComplete {
-                await settlePendingControl(pendingControl)
-            } else {
-                await settleControlProviderDispatch(token: token)
-            }
             return .noEffect
         }
 
@@ -594,10 +581,7 @@ actor BridgeProductSession {
                     )
                 }
             }
-            if pendingControl.providerDispatchCompletion != nil {
-                try admitRequiredProtocolLifecycleFrame(for: transition.effect)
-            }
-            try controlReplay.complete(token: token, exactResponseBytes: exactResponseBytes)
+            try admitRequiredProtocolLifecycleFrame(for: transition.effect)
             subscriptionState = transition.subscriptionState
             if case .resynced(let resyncResult) = transition.effect {
                 reconcileProtocolSubscriptionDeliveries(resyncResult)
@@ -608,41 +592,26 @@ actor BridgeProductSession {
             )
             return transition.effect
         }
-        guard let committedEffect else {
-            await settleControlProviderDispatch(token: token)
-            return .noEffect
-        }
-        if committedEffect == .noEffect
-            || pendingControl.providerDispatchCompletion == nil
-        {
-            await settlePendingControl(pendingControl)
-        }
-        return committedEffect
+        return committedEffect ?? .noEffect
     }
 
     func settleControlProviderDispatch(
         token: BridgeProductControlAdmissionToken
     ) async {
-        guard let pendingControl, pendingControl.token == token else { return }
-        do {
-            try controlReplay.abandon(token: token)
-            if lifecycle != .revoked,
-                case .workerSessionOpen = pendingControl.request
-            {
-                lifecycle = .awaitingOpen
-            }
-        } catch {
-            // Another completion path already settled this exact admission.
+        guard let operation = operationTable.entry(for: token), operation.settlement == nil else {
+            return
         }
-        await settlePendingControl(pendingControl)
+        if lifecycle != .revoked, case .workerSessionOpen = operation.admission.request {
+            lifecycle = .awaitingOpen
+        }
+        _ = operationTable.settle(
+            .init(operationId: operation.operationId, outcome: .failed)
+        )
     }
 
     func abandonControl(token: BridgeProductControlAdmissionToken) throws {
         guard let pendingControl, pendingControl.token == token else {
             throw BridgeProductSessionError.invalidAdmissionToken
-        }
-        guard pendingControl.providerDispatchCompletion == nil else {
-            throw BridgeProductSessionError.providerDispatchAlreadyClaimed
         }
         try controlReplay.abandon(token: token)
         if case .workerSessionOpen = pendingControl.request {
@@ -667,14 +636,12 @@ actor BridgeProductSession {
         lastAcceptedContentFrameAcknowledgementByProducerLease.removeAll(
             keepingCapacity: false
         )
-        let pendingProviderDispatchCompletion =
-            pendingControl?.providerDispatchCompletion
         if let pendingControl {
-            if pendingProviderDispatchCompletion == nil {
-                try? controlReplay.abandon(token: pendingControl.token)
-                self.pendingControl = nil
-            }
+            try? controlReplay.abandon(token: pendingControl.token)
+            self.pendingControl = nil
         }
+        operationTable.cancelAndForgetAllOperations()
+        for task in escapeEffectTasksById.values { task.cancel() }
         subscriptionState.revokeWorker()
         protocolSubscriptionDeliveryById.removeAll(keepingCapacity: false)
         let producerResidueLeases = producerRegistry.lifecycleResidueLeases()
@@ -695,9 +662,6 @@ actor BridgeProductSession {
             id: revocationId,
             task: Task { [self] in
                 var didRevoke = true
-                if let pendingProviderDispatchCompletion {
-                    await pendingProviderDispatchCompletion.wait()
-                }
                 for retirementBarrier in retirementBarriers {
                     guard await retirementBarrier.wait() else {
                         didRevoke = false
@@ -836,13 +800,6 @@ actor BridgeProductSession {
                 request: request
             )
         )
-    }
-
-    private func settlePendingControl(
-        _ pendingControl: BridgeProductSessionPendingControl
-    ) async {
-        self.pendingControl = nil
-        await pendingControl.providerDispatchCompletion?.complete()
     }
 
     private func applyCompletedLifecycle(

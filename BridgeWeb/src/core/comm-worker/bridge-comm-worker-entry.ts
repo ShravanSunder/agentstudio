@@ -7,11 +7,13 @@ import {
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
 } from './bridge-comm-worker-runtime-protocol.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 import { bridgeProductMetadataApplicationRegistry } from './bridge-product-metadata-application-registry.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
 	BridgeProductControlMux,
 	BridgeProductSessionAuthorityStore,
+	BridgeProductSessionSuspectError,
 	type BridgeProductSessionAuthorityInstallInput,
 } from './bridge-product-session-authority.js';
 import { bridgePaneCommWorkerInstallSchema } from './bridge-product-session-contracts.js';
@@ -57,6 +59,7 @@ export interface BridgeCommWorkerEntryDependencies {
 }
 
 export interface RegisterBridgeCommWorkerEntryProps {
+	readonly deadlineClock?: BridgeProductDeadlineClock;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
 	readonly maximumConcurrentContentResponses?: number;
 }
@@ -211,12 +214,14 @@ function bridgeCommWorkerEntryDependencies(
 ): BridgeCommWorkerEntryDependencies {
 	const productSessionAuthority = new BridgeProductSessionAuthorityStore(
 		props.executeProductRequest,
+		props.deadlineClock,
 	);
 	return {
 		installProductSession: (input): BridgeCommWorkerInstalledProductSession => {
 			const authority = productSessionAuthority.install(input);
 			const controlMux = new BridgeProductControlMux({
 				authority,
+				...(props.deadlineClock === undefined ? {} : { deadlineClock: props.deadlineClock }),
 				executeProductRequest: props.executeProductRequest,
 			});
 			return {
@@ -284,8 +289,20 @@ function bootstrapBridgeCommWorkerRuntimeEntry(
 						dispatchPendingMessageToRuntime(port, pendingMessage);
 					}
 				})
-				.catch((): void => {
+				.catch((error: unknown): void => {
 					pendingMessagesBeforeBootstrap.splice(0, pendingMessagesBeforeBootstrap.length);
+					if (error instanceof BridgeProductSessionSuspectError && error.shouldNotify) {
+						port.postMessage({
+							direction: 'serverWorkerToMain',
+							kind: 'sessionSuspect',
+							paneSessionId: renderFulfillmentContext.paneSessionId,
+							reason:
+								error.phase === 'admission' ? 'admissionReplyExhausted' : 'resultDeadlineExhausted',
+							transferDescriptors: [],
+							wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+							workerInstanceId: renderFulfillmentContext.workerInstanceId,
+						});
+					}
 					port.postMessage(
 						buildBridgeWorkerEntryDegradedHealthEvent({
 							requestId: parsedBootstrap.data.requestId,

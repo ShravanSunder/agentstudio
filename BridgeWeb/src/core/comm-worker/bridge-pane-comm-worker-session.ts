@@ -249,6 +249,16 @@ export class BridgePaneCommWorkerSession {
 						]);
 						return;
 					}
+					if (parsedMessage.data.kind === 'sessionSuspect') {
+						const installed = nativeBootstrap.bootstrap;
+						if (
+							installed.paneSessionId === parsedMessage.data.paneSessionId &&
+							installed.workerInstanceId === parsedMessage.data.workerInstanceId
+						) {
+							this.requestWorkerReplacement();
+						}
+						return;
+					}
 					if (parsedMessage.data.kind === 'fileQueryOutcome') return;
 					if (
 						parsedMessage.data.kind === 'health' &&

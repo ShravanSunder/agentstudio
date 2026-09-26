@@ -11,6 +11,7 @@ import {
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
 import {
+	createEntryProductRequestRecorder,
 	makeCompletedReviewContentStream,
 	makeFetchedReviewContentResource,
 	makeReviewPublicationIdentity,
@@ -42,9 +43,7 @@ import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-
 import {
 	bridgePaneCommWorkerInstallSchema,
 	bridgeProductControlRequestSchema,
-	bridgeProductMetadataStreamRequestSchema,
 	type BridgePaneCommWorkerInstall,
-	type BridgeProductMetadataStreamRequest,
 } from './bridge-product-session-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
@@ -448,70 +447,8 @@ describe('Bridge comm worker entry', () => {
 
 	test('carries mark-viewed through the installed capability-bound product session', async () => {
 		// Arrange
-		const observedBodies: unknown[] = [];
-		const observedMetadataStreamRequests: BridgeProductMetadataStreamRequest[] = [];
-		const fetchSpy = vi
-			.spyOn(globalThis, 'fetch')
-			.mockImplementation(
-				async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-					if (init?.body instanceof ArrayBuffer) {
-						observedMetadataStreamRequests.push(
-							bridgeProductMetadataStreamRequestSchema.parse(
-								JSON.parse(new TextDecoder().decode(init.body)),
-							),
-						);
-						throw new Error('Metadata stream is intentionally unavailable in this test.');
-					}
-					if (!(init?.body instanceof Uint8Array)) {
-						throw new Error('Expected encoded Bridge product request bytes.');
-					}
-					const request = bridgeProductControlRequestSchema.parse(
-						JSON.parse(new TextDecoder().decode(init.body)),
-					);
-					observedBodies.push(request);
-					return new Response(
-						JSON.stringify(
-							request.kind === 'workerSession.open'
-								? {
-										paneSessionId: request.paneSessionId,
-										workerInstanceId: request.workerInstanceId,
-										wireVersion: request.wireVersion,
-										requestId: request.requestId,
-										requestSequence: request.requestSequence,
-										kind: 'workerSession.accepted',
-										result: null,
-									}
-								: request.kind === 'product.call' && request.call.method === 'file.source.current'
-									? {
-											paneSessionId: request.paneSessionId,
-											workerInstanceId: request.workerInstanceId,
-											wireVersion: request.wireVersion,
-											requestId: request.requestId,
-											requestSequence: request.requestSequence,
-											kind: 'call.completed',
-											call: {
-												method: 'file.source.current',
-												result: {
-													reason: 'no-file-source-authority',
-													status: 'unavailable',
-												},
-											},
-										}
-									: request.kind === 'product.call'
-										? {
-												paneSessionId: request.paneSessionId,
-												workerInstanceId: request.workerInstanceId,
-												wireVersion: request.wireVersion,
-												requestId: request.requestId,
-												requestSequence: request.requestSequence,
-												kind: 'call.completed',
-												call: { method: request.call.method, result: null },
-											}
-										: null,
-						),
-					);
-				},
-			);
+		const productRequests = createEntryProductRequestRecorder();
+		const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(productRequests.respond);
 		const globalPort = createRecordingBridgeCommWorkerPort();
 		const productChannel = new MessageChannel();
 		const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
@@ -543,37 +480,45 @@ describe('Bridge comm worker entry', () => {
 			requestId: 'mark-viewed-product-chain',
 			status: 'ready',
 		});
-		expect(fetchSpy).toHaveBeenCalledTimes(6);
-		expect(observedMetadataStreamRequests).toEqual([
+		expect(fetchSpy).toHaveBeenCalledTimes(productRequests.observedBodies.length * 3 + 1);
+		expect(productRequests.observedResultReads).toHaveLength(productRequests.observedBodies.length);
+		expect(productRequests.observedResultAcknowledgements).toEqual(
+			productRequests.observedResultReads,
+		);
+		expect(productRequests.observedMetadataStreamRequests).toEqual([
 			expect.objectContaining({
 				kind: 'metadataStream.open',
 				resumeFromStreamSequence: null,
 				wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
 			}),
 		]);
-		expect(observedBodies).toEqual([
+		expect(productRequests.observedBodies).toEqual([
 			expect.objectContaining({ kind: 'workerSession.open', requestSequence: 1 }),
 			expect.objectContaining({
 				call: expect.objectContaining({ method: 'file.activeViewerMode.update' }),
 				kind: 'product.call',
-				requestSequence: 2,
+				requestSequence: expect.any(Number),
 			}),
 			expect.objectContaining({
 				call: { method: 'file.source.current', request: {} },
 				kind: 'product.call',
-				requestSequence: 3,
+				requestSequence: expect.any(Number),
 			}),
 			expect.objectContaining({
 				call: expect.objectContaining({ method: 'review.intake.ready' }),
 				kind: 'product.call',
-				requestSequence: 4,
+				requestSequence: expect.any(Number),
 			}),
 			expect.objectContaining({
 				call: { method: 'review.markFileViewed', request: { itemId: 'item-1' } },
 				kind: 'product.call',
-				requestSequence: 5,
+				requestSequence: expect.any(Number),
 			}),
 		]);
+		const controlSequences = productRequests.observedBodies.map(
+			(body) => bridgeProductControlRequestSchema.parse(body).requestSequence,
+		);
+		expect(controlSequences).toEqual([...controlSequences].sort((left, right) => left - right));
 
 		productPort.close();
 		productChannel.port1.close();

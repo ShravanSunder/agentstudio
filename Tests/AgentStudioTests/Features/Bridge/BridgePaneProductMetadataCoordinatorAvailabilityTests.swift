@@ -854,12 +854,12 @@ private func openAvailabilityReviewSubscription(
         bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
     )
     let token = try #require(availabilityControlExecutionToken(try await harness.begin(openRequest)))
-    #expect(await harness.session.claimControlProviderDispatch(token: token))
+    #expect(await harness.session.admitControlProviderExecution(token: token))
     let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
         correlating: openRequest,
         interestSha256: BridgeProductSubscriptionInterestState.reviewMetadata(interests: []).sha256Hex()
     )
-    let effect = try await harness.session.completeControl(
+    let effect = try await harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )

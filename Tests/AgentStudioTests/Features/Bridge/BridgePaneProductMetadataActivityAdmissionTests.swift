@@ -407,7 +407,7 @@ func openActivityMetadataSubscription(
     guard case .execute(let token, _) = try await context.harness.begin(request) else {
         throw ActivityMetadataAdmissionTestError.expectedControlExecution
     }
-    #expect(await context.harness.session.claimControlProviderDispatch(token: token))
+    #expect(await context.harness.session.admitControlProviderExecution(token: token))
     let interestSha256: String
     switch request.surface {
     case .file:
@@ -427,7 +427,7 @@ func openActivityMetadataSubscription(
         correlating: request,
         interestSha256: interestSha256
     )
-    let effect = try await context.harness.session.completeControl(
+    let effect = try await context.harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )

@@ -26,6 +26,16 @@ struct BridgeProductOperationAdmittedResponse: Codable, Equatable, Sendable {
     let operationId: String
     let waitKind: BridgeProductOperationWaitKind
 
+    init(
+        correlation: BridgeProductControlCorrelation,
+        operationId: String,
+        waitKind: BridgeProductOperationWaitKind
+    ) {
+        self.correlation = correlation
+        self.operationId = operationId
+        self.waitKind = waitKind
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -119,6 +129,18 @@ struct BridgeProductOperationResultResponse: Codable, Equatable, Sendable {
     let outcome: BridgeProductOperationSettlement
     let result: BridgeProductJSONValue?
 
+    init(
+        failureCode: BridgeProductRequestErrorCode? = nil,
+        operationId: String,
+        outcome: BridgeProductOperationSettlement,
+        result: BridgeProductJSONValue? = nil
+    ) {
+        self.failureCode = failureCode
+        self.operationId = operationId
+        self.outcome = outcome
+        self.result = result
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -180,6 +202,11 @@ struct BridgeProductOperationResultAcknowledgement: Codable, Equatable, Sendable
     let correlation: BridgeProductControlCorrelation
     let operationId: String
 
+    init(correlation: BridgeProductControlCorrelation, operationId: String) {
+        self.correlation = correlation
+        self.operationId = operationId
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
@@ -216,6 +243,11 @@ struct BridgeProductOperationResultAcknowledgedResponse: Codable, Equatable, Sen
 
     let correlation: BridgeProductControlCorrelation
     let operationId: String
+
+    init(correlation: BridgeProductControlCorrelation, operationId: String) {
+        self.correlation = correlation
+        self.operationId = operationId
+    }
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(

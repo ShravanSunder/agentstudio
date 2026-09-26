@@ -925,12 +925,16 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				if (transfer === undefined) port.postMessage(message);
 				else port.postMessage(message, [...transfer]);
 			},
+			publishSessionSuspect: (message): void => port.postMessage(message),
 			productControlTimeoutMilliseconds,
 			productController,
 			productTransport,
 			publishReviewMetadataInterests: reviewDemandScheduling.publishCurrentMetadataInterests,
 			reviewMetadataApplicator,
 			sendProductControl,
+			...(props.renderFulfillmentContext === undefined
+				? {}
+				: { sessionIdentity: props.renderFulfillmentContext }),
 			setActiveComparisonTargetsRequestId: (requestId): void => {
 				activeComparisonTargetsProductControlRequestId = requestId;
 			},

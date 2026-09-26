@@ -493,12 +493,12 @@ private func openPacingReviewSubscription(
         bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
     )
     let token = try #require(controlExecutionToken(try await harness.begin(request)))
-    #expect(await harness.session.claimControlProviderDispatch(token: token))
+    #expect(await harness.session.admitControlProviderExecution(token: token))
     let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
         correlating: request,
         interestSha256: BridgeProductSubscriptionInterestState.reviewMetadata(interests: []).sha256Hex()
     )
-    let effect = try await harness.session.completeControl(
+    let effect = try await harness.session.completeAdmittedControl(
         token: token,
         exactResponseBytes: try JSONEncoder().encode(response)
     )
