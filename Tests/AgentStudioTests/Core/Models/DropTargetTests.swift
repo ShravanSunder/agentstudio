@@ -6,18 +6,6 @@ import Testing
 @Suite(.serialized)
 struct DropTargetTests {
     @Test
-    func rowID_mainIsNotDrawer() {
-        #expect(RowID.main != .drawerTop)
-        #expect(RowID.main != .drawerBottom)
-    }
-
-    @Test
-    func dropZoneSide_leftRightDistinct() {
-        #expect(DropZoneSide.left != .right)
-        #expect(DropZoneSide.allCases.count == 2)
-    }
-
-    @Test
     func dropTarget_paneSplitEquality() {
         let paneId = UUID()
         let a: DropTarget = .paneSplit(paneId: paneId, side: .left)

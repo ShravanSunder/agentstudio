@@ -32,11 +32,39 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                     harness.store.setActiveTab(tab.id)
                     _ = try #require(harness.store.addDrawerPane(to: parentPane.id))
                     let event = try #require(cmdShiftUEvent())
+                    let paneIDsBeforeDispatch = harness.store.panes.map(\.id)
 
                     #expect(!harness.controller.handleAppOwnedKeyEvent(event))
-                    #expect(harness.paneInboxPresenter.request == nil)
+                    #expect(harness.store.panes.map(\.id) == paneIDsBeforeDispatch)
                 }
             )
+        }
+    }
+
+    @Test("pane inbox commands are unavailable without a production presentation")
+    func paneInboxCommandsAreUnavailableWithoutPresentation() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+            let parentPane = harness.store.createPane()
+            let tab = Tab(paneId: parentPane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            let paneIDsBeforeCheck = harness.store.panes.map(\.id)
+
+            for command in [AppCommand.showPaneInboxNotifications, .clearPaneInboxNotifications] {
+                #expect(!harness.controller.canExecute(command))
+                #expect(
+                    !harness.controller.canExecute(
+                        command,
+                        target: parentPane.id,
+                        targetType: .pane
+                    )
+                )
+            }
+
+            #expect(harness.store.panes.map(\.id) == paneIDsBeforeCheck)
         }
     }
 

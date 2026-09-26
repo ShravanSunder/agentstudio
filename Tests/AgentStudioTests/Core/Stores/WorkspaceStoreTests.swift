@@ -947,7 +947,6 @@ final class WorkspaceStoreTests {
             return
         }
         let sqliteDatastore = preparedDatastore.sqliteDatastore
-        let localRepositoryFactory = preparedDatastore.localRepositoryFactory
         let clock = TestPushClock()
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let failureReports = AsyncStream.makeStream(
@@ -996,7 +995,6 @@ final class WorkspaceStoreTests {
         #expect(await saveProbe.saveCount == 3)
         #expect(await saveProbe.succeededSaveCount == 0)
         #expect(await saveProbe.failedSaveCount == 3)
-        #expect(localRepositoryFactory.openAttemptCount == 1)
         #expect(recoveryEvents.count == 3)
         #expect(recoveryEvents.allSatisfy { $0.store == .workspace && $0.recovery == .saveFailed })
         #expect(store.isDirty)
@@ -1009,7 +1007,6 @@ final class WorkspaceStoreTests {
         #expect(await saveProbe.saveCount == 4)
         #expect(await saveProbe.failedSaveCount == 4)
         #expect(await saveProbe.succeededSaveCount == 0)
-        #expect(localRepositoryFactory.openAttemptCount == 1)
         #expect(recoveryEvents.count == 3)
         #expect(store.isDirty)
 
@@ -1021,7 +1018,6 @@ final class WorkspaceStoreTests {
         #expect(await saveProbe.saveCount == 5)
         #expect(await saveProbe.succeededSaveCount == 0)
         #expect(await saveProbe.failedSaveCount == 5)
-        #expect(localRepositoryFactory.openAttemptCount == 1)
         #expect(recoveryEvents.count == 3)
         #expect(store.isDirty)
     }

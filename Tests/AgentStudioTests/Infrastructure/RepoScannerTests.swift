@@ -169,19 +169,6 @@ struct RepoScannerTests {
         try? fm.removeItem(at: tmp)
     }
 
-    @Test("real project-dev invalid worktree path is filtered out")
-    func realProjectDevInvalidWorktreePathIsFilteredOut() async {
-        let root = URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/project-dev")
-        let invalidPath = root.appending(path: "agent-studio.window-system")
-        guard FileManager.default.fileExists(atPath: invalidPath.path) else {
-            return
-        }
-
-        let repos = await RepoScanner().scanForGitRepos(in: root, maxDepth: 3)
-        let discoveredPaths = Set(repos.map(canonicalPath(_:)))
-        #expect(!discoveredPaths.contains(canonicalPath(invalidPath)))
-    }
-
     @Test("submodule working trees are filtered out")
     func submoduleWorkingTreesAreFilteredOut() async throws {
         let tmp = FileManager.default.temporaryDirectory
@@ -376,19 +363,6 @@ struct RepoScannerTests {
         #expect(groups.count == 1)
         #expect(groups.first?.clonePath.standardizedFileURL.path == worktreePath.standardizedFileURL.path)
         #expect(groups.first?.linkedWorktreePaths.map(canonicalPath(_:)) == [canonicalPath(linkedWorktreePath)])
-    }
-
-    @Test("real project-dev ghostty submodule path is filtered out")
-    func realProjectDevGhosttySubmodulePathIsFilteredOut() async {
-        let root = URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/project-dev")
-        let ghosttyPath = root.appending(path: "agent-studio.window-system/vendor/ghostty")
-        guard FileManager.default.fileExists(atPath: ghosttyPath.path) else {
-            return
-        }
-
-        let repos = await RepoScanner().scanForGitRepos(in: root, maxDepth: 4)
-        let discoveredPaths = Set(repos.map(canonicalPath(_:)))
-        #expect(!discoveredPaths.contains(canonicalPath(ghosttyPath)))
     }
 
     private func initializeGitRepository(at path: URL) async throws {
