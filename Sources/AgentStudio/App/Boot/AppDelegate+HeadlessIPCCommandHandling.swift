@@ -44,6 +44,10 @@ extension AppDelegate {
             // The Inbox feature is dormant. Report that honestly instead of
             // reviving a surface no owner currently implements.
             return .unavailable(.featureUnavailable)
+        case .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            // Creation needs a source worktree and a branch name; no parameterized
+            // IPC contract carries them yet, so the typed channel reports that.
+            return .unavailable(.featureUnavailable)
         default:
             return .unsupportedCommand
         }
