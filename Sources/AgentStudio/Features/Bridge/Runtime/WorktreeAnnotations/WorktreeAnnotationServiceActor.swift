@@ -58,6 +58,7 @@ package actor WorktreeAnnotationServiceActor {
     private var latestSourceRefreshFenceByContextKey:
         [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationSourceRefreshFence] = [:]
     var changeObserverByToken: [UUID: WorktreeAnnotationChangeObserverState] = [:]
+    var catalogInvalidationObserverByToken: [UUID: WorktreeAnnotationCatalogInvalidationObserverState] = [:]
     var projectionRevision = 0
     let editOwnership = WorktreeAnnotationEditOwnershipRegistry()
     var recoveryState: WorktreeAnnotationRecoveryState = .available
@@ -546,6 +547,7 @@ package actor WorktreeAnnotationServiceActor {
         )
         do {
             let committedMutation = try await mutation()
+            emitCommittedCatalogInvalidation(committedMutation.change)
             await recordNativeAnnotationWork(
                 operationCorrelationID: operationCorrelationID,
                 result: .success,
@@ -557,6 +559,7 @@ package actor WorktreeAnnotationServiceActor {
             )
             return committedMutation.canonicalResult
         } catch {
+            emitConservativeCatalogInvalidationAfterUnknownOutcome()
             await recordNativeAnnotationWork(
                 operationCorrelationID: operationCorrelationID,
                 result: .failure,
