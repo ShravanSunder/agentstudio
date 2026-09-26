@@ -4,7 +4,7 @@ import Testing
 @Suite("Observability TCC replacement experiment script")
 struct ObservabilityTCCReplacementExperimentScriptTests {
     @Test("replacement experiment dry run accepts generated debug app state")
-    func replacementExperimentDryRunAcceptsGeneratedDebugAppState() throws {
+    func replacementExperimentDryRunAcceptsGeneratedDebugAppState() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let debugCode = "tcc1"
@@ -38,7 +38,7 @@ struct ObservabilityTCCReplacementExperimentScriptTests {
         AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=tcc-upgrade-probe
         """.write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/replace-running-debug-app-for-tcc-probe.sh",
             arguments: [
                 "--state-file", stateFile.path,
@@ -64,7 +64,7 @@ struct ObservabilityTCCReplacementExperimentScriptTests {
     }
 
     @Test("replacement experiment refuses non debug runtime")
-    func replacementExperimentRefusesNonDebugRuntime() throws {
+    func replacementExperimentRefusesNonDebugRuntime() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -75,7 +75,7 @@ struct ObservabilityTCCReplacementExperimentScriptTests {
         AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=tcc-upgrade-probe
         """.write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/replace-running-debug-app-for-tcc-probe.sh",
             arguments: ["--state-file", stateFile.path, "--dry-run"],
             environment: [:]
@@ -86,7 +86,7 @@ struct ObservabilityTCCReplacementExperimentScriptTests {
     }
 
     @Test("replacement experiment refuses app outside generated debug root")
-    func replacementExperimentRefusesAppOutsideGeneratedDebugRoot() throws {
+    func replacementExperimentRefusesAppOutsideGeneratedDebugRoot() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let fakeHome = fixture.url("home")
@@ -111,7 +111,7 @@ struct ObservabilityTCCReplacementExperimentScriptTests {
         AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=tcc-upgrade-probe
         """.write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/replace-running-debug-app-for-tcc-probe.sh",
             arguments: [
                 "--state-file", stateFile.path,

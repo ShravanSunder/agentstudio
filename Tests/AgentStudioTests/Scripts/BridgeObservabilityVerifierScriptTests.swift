@@ -6,7 +6,7 @@ import Testing
 @Suite("Bridge observability verifier script")
 struct BridgeObservabilityVerifierScriptTests {
     @Test("verifier accepts selected file materialization with positive file lines")
-    func verifierAcceptsSelectedFileMaterializationWithPositiveFileLines() throws {
+    func verifierAcceptsSelectedFileMaterializationWithPositiveFileLines() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -23,7 +23,7 @@ struct BridgeObservabilityVerifierScriptTests {
         let diagnosticRecord = """
             {"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.expected_visible_pane.count":1,"agentstudio.startup_diagnostic.bridge.review_expected_item.count":697,"agentstudio.startup_diagnostic.bridge.review_metadata_item.count":697,"agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count":905,"agentstudio.startup_diagnostic.bridge.review_shell.visible":true,"agentstudio.startup_diagnostic.bridge.review_shell.state":"ready","agentstudio.startup_diagnostic.bridge.code_view.visible":true,"agentstudio.startup_diagnostic.bridge.selected_item.visible":true,"agentstudio.startup_diagnostic.bridge.selected_path.visible":true,"agentstudio.startup_diagnostic.bridge.selected_content.visible":true,"agentstudio.startup_diagnostic.bridge.selected_content.state":"ready","agentstudio.startup_diagnostic.bridge.selected_content_role.count":1,"agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count":1,"agentstudio.startup_diagnostic.bridge.selected_content_character.count":1294,"agentstudio.startup_diagnostic.bridge.selected_content_line.count":0,"agentstudio.startup_diagnostic.bridge.selected_materialized.update_result":"updated","agentstudio.startup_diagnostic.bridge.selected_materialized.item_type":"file","agentstudio.startup_diagnostic.bridge.selected_materialized.item_version":5,"agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count":0,"agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count":0,"agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count":31,"agentstudio.startup_diagnostic.bridge.page_issue.count":0,"agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count":0,"agentstudio.startup_diagnostic.bridge.bridge_command.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count":1,"agentstudio.startup_diagnostic.bridge.bridge_response.count":1,"agentstudio.startup_diagnostic.bridge.intake_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_snapshot_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_metadata_window_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake.last_frame_kind":"review.metadataWindow","agentstudio.startup_diagnostic.bridge.review_intake.last_stream_id_matches":true,"agentstudio.startup_diagnostic.bridge.diff_container.count":5,"agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px":44,"agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count":5,"agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type":"file","agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version":5,"agentstudio.startup_diagnostic.bridge.code_view_panel.width_px":2208,"agentstudio.startup_diagnostic.bridge.code_view_panel.height_px":1081,"agentstudio.startup_diagnostic.bridge.diff_container.width_px":2195,"agentstudio.startup_diagnostic.bridge.code_text.length":2243,"agentstudio.startup_diagnostic.bridge.code_shadow_text.length":2222,"agentstudio.startup_diagnostic.bridge.worker_pool.state":"ready","agentstudio.startup_diagnostic.bridge.worker_pool.manager_state":"initialized","agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed":false,"agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count":3,"agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count":0,"agentstudio.startup_diagnostic.render_proof.succeeded":true}
             """
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-bridge-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -79,7 +79,7 @@ struct BridgeObservabilityVerifierScriptTests {
     }
 
     @Test("verifier accepts skipped review startup diagnostic when frame is not live")
-    func verifierAcceptsSkippedReviewStartupDiagnosticFrameNotLive() throws {
+    func verifierAcceptsSkippedReviewStartupDiagnosticFrameNotLive() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -96,7 +96,7 @@ struct BridgeObservabilityVerifierScriptTests {
         let skippedRecord = """
             {"_msg":"app.startup_diagnostic_action.skipped","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":false,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}
             """
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-bridge-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -140,7 +140,7 @@ struct BridgeObservabilityVerifierScriptTests {
     }
 
     @Test("verifier rejects skipped review startup diagnostic unless render proof failed")
-    func verifierRejectsSkippedReviewStartupDiagnosticWithoutFailedRenderProof() throws {
+    func verifierRejectsSkippedReviewStartupDiagnosticWithoutFailedRenderProof() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -157,7 +157,7 @@ struct BridgeObservabilityVerifierScriptTests {
         let skippedRecord = """
             {"_msg":"app.startup_diagnostic_action.skipped","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.render_proof.succeeded":true,"agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive":"false","agentstudio.startup_diagnostic.skip_reason":"frame_not_live"}
             """
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-bridge-observability.sh",
             stateFile: stateFile,
             environment: [
