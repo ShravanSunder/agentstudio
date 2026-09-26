@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Security
 
@@ -71,6 +72,7 @@ enum BridgePaneProductSessionRetirementReason: Equatable, Sendable {
 enum BridgePaneProductSessionRetirementResult: Equatable, Sendable {
     case retired
     case revocationFailed
+    case quiescenceDeadlineExceeded(unfinishedExecutionCount: Int)
 }
 
 struct BridgePaneProductSessionOwnerSnapshot: Equatable, Sendable {
@@ -149,6 +151,7 @@ package actor BridgePaneProductSessionOwner {
     private let paneSessionId: String
     private var preparedInstallationsByWorkerInstanceId: [String: BridgeProductSessionInstallation] = [:]
     private let provider: any BridgeProductSchemeProvider
+    private let retirementDelay: AsyncDelay
     private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     private let didRetireWorkerInstance: @Sendable (String) async -> Void
     private var retiringInstallationsByWorkerInstanceId: [String: BridgeProductSessionInstallation] = [:]
@@ -165,6 +168,7 @@ package actor BridgePaneProductSessionOwner {
         activeInstallation: BridgeProductSessionInstallation? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         didRetireWorkerInstance: @escaping @Sendable (String) async -> Void = { _ in },
+        retirementClock: (any Clock<Duration> & Sendable)? = nil,
         schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus()
     ) throws {
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: [])
@@ -174,6 +178,7 @@ package actor BridgePaneProductSessionOwner {
         )
         self.paneSessionId = paneSessionId
         self.provider = provider
+        self.retirementDelay = retirementClock.map(AsyncDelay.clock) ?? .taskSleep
         self.telemetryRecorder = telemetryRecorder
         self.didRetireWorkerInstance = didRetireWorkerInstance
         self.productAdmissionGate = productAdmissionGate
@@ -265,7 +270,33 @@ package actor BridgePaneProductSessionOwner {
         lifecycleTransitionTail = Task {
             _ = await transition.value
         }
-        return await transition.value
+        guard reason == .paneDisposal else { return await transition.value }
+        let (completionStream, completionSignal) = AsyncStream.makeStream(
+            of: BridgePaneProductSessionRetirementResult.self,
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        Task {
+            completionSignal.yield(await transition.value)
+            completionSignal.finish()
+        }
+        let deadlineTask = Task { [self] in
+            do {
+                try await retirementDelay.wait(AppPolicies.Bridge.productRetirementQuiescenceDeadline)
+            } catch is CancellationError {
+                return
+            } catch {
+                // A failed clock still resolves disposal through the typed diagnostic.
+            }
+            let unfinishedExecutionCount = await snapshot().activeOperationExecutionCount
+            completionSignal.yield(
+                .quiescenceDeadlineExceeded(unfinishedExecutionCount: unfinishedExecutionCount)
+            )
+            completionSignal.finish()
+        }
+        var completionIterator = completionStream.makeAsyncIterator()
+        let result = await completionIterator.next() ?? .revocationFailed
+        deadlineTask.cancel()
+        return result
     }
 
     private func performActivation(

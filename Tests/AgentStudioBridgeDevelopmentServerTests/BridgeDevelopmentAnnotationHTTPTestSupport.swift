@@ -387,7 +387,7 @@ func shutdownHTTPHostAndDrainMetadataStream(
     host: BridgeDevelopmentProductHost,
     drain: Task<Void, any Error>
 ) async throws {
-    async let shutdown: Void = host.shutdown()
+    async let shutdown: Void = { _ = await host.shutdown() }()
     do {
         try await drain.value
     } catch is CancellationError {

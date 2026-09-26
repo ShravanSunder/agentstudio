@@ -343,7 +343,7 @@ struct BridgeDevHostSharedConstructionTests {
         }
         let shutdownStarted = await host.isShutdown
         await comparisonGate.releaseAll()
-        await shutdown.value
+        _ = await shutdown.value
 
         // Assert
         #expect(shutdownStarted)

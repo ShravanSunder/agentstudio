@@ -3,33 +3,44 @@ import AgentStudioInfrastructure
 import Foundation
 import WebKit
 
+package enum BridgeDevelopmentProductHostShutdownResult: Equatable, Sendable {
+    case completed
+    case quiescenceDeadlineExceeded(unfinishedExecutionCount: Int)
+}
+
+package struct BridgeDevelopmentProductHostShutdownSnapshot: Equatable, Sendable {
+    package let unfinishedDrainCount: Int
+    package let cleanupCompleted: Bool
+}
+
 package actor BridgeDevelopmentProductHost {
     struct FileNavigationPublication: Equatable {
         let bindingRevision: Int
         let source: BridgeProductFileSourceIdentity
     }
 
-    private let constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+    let constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
     let contributionTargetCommit:
         @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult
     private let committedCallTarget: BridgeDevelopmentProductCommittedCallTarget
     var activeReviewComparisonTask: Task<Void, Never>?
     var activeReviewComparisonTaskAttempt: UInt64?
     var retiringReviewComparisonTasks: [UInt64: Task<Void, Never>] = [:]
-    private var bootstrapTransitionTail: Task<Void, Never>?
-    private let gitReadScheduler: BridgeGitReadScheduler
+    var bootstrapTransitionTail: Task<Void, Never>?
+    let gitReadScheduler: BridgeGitReadScheduler
     private var navigationBindingRevision = 0
     private var navigationIntent: BridgeDevelopmentProductBootstrapRequest.NavigationIntent?
     private let paneSessionId: String
+    let retirementDelay: AsyncDelay
     let productAdmission: BridgeProductAdmissionContext
     let productAdmissionGate: BridgeProductAdmissionGate
     let productProvider: BridgePaneProductSchemeProvider
-    private let productSessionOwner: BridgePaneProductSessionOwner
+    let productSessionOwner: BridgePaneProductSessionOwner
     let refreshAdmissionCoordinator: BridgePaneRefreshAdmissionCoordinator
     let worktreeRefreshDriver: BridgePaneWorktreeRefreshDriver
     private let repoId: UUID
     private let reviewedSubjectLabel: String?
-    private let reviewContentLoaderCache: BridgeReviewContentLoaderCache
+    let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     var paneState: BridgePaneState
     private let reviewPipeline: BridgeReviewPipeline
     let reviewProvider: any BridgeReviewSourceProvider
@@ -39,6 +50,12 @@ package actor BridgeDevelopmentProductHost {
     private let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     private let schemeHandler: BridgeSchemeHandler
     var isShutdown = false
+    var shutdownCompletion: AsyncStream<BridgeDevelopmentProductHostShutdownResult>.Continuation?
+    var shutdownDeadlineTask: Task<Void, Never>?
+    var unfinishedShutdownDrains: Set<String> = []
+    var shutdownResult: BridgeDevelopmentProductHostShutdownResult?
+    var shutdownWaiters: [CheckedContinuation<BridgeDevelopmentProductHostShutdownResult, Never>] = []
+    var cleanupWaiters: [CheckedContinuation<Void, Never>] = []
     private var nextReviewComparisonTaskAttempt: UInt64 = 0
     var nextReviewGeneration: BridgeReviewGeneration = 1
     private var publishedFileNavigation: FileNavigationPublication?
@@ -50,6 +67,7 @@ package actor BridgeDevelopmentProductHost {
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
+        retirementClock: (any Clock<Duration> & Sendable)? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult
@@ -58,6 +76,7 @@ package actor BridgeDevelopmentProductHost {
             source: source,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
+            retirementClock: retirementClock,
             contributionTargetCommit: contributionTargetCommit,
             statusPhysicalGate: statusPhysicalGate,
             makeReviewProvider: { repositoryPath, gitReadContext in
@@ -74,6 +93,7 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
+        retirementClock: (any Clock<Duration> & Sendable)? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
             BridgePaneStateMutationResult,
@@ -132,6 +152,7 @@ package actor BridgeDevelopmentProductHost {
         self.committedCallTarget = productPreparation.committedCallTarget
         self.gitReadScheduler = gitReadScheduler
         self.paneSessionId = paneId.uuidString
+        self.retirementDelay = retirementClock.map(AsyncDelay.clock) ?? .taskSleep
         self.productAdmission = productPreparation.productAdmission
         self.productAdmissionGate = productPreparation.productAdmissionGate
         self.productProvider = productPreparation.productProvider
@@ -277,53 +298,6 @@ package actor BridgeDevelopmentProductHost {
         if affectedLanes.contains(.review) {
             await scheduleObservedReviewRefreshIfPossible()
         }
-    }
-
-    package func shutdown() async {
-        guard !isShutdown else { return }
-        isShutdown = true
-        let transitionTail = bootstrapTransitionTail
-        await transitionTail?.value
-        bootstrapTransitionTail = nil
-        let reviewComparisonTask = activeReviewComparisonTask
-        reviewComparisonTask?.cancel()
-        let retiringReviewComparisonTasks = Array(retiringReviewComparisonTasks.values)
-        for retiringReviewComparisonTask in retiringReviewComparisonTasks {
-            retiringReviewComparisonTask.cancel()
-        }
-        await reviewComparisonTask?.value
-        for retiringReviewComparisonTask in retiringReviewComparisonTasks {
-            await retiringReviewComparisonTask.value
-        }
-        activeReviewComparisonTask = nil
-        activeReviewComparisonTaskAttempt = nil
-        self.retiringReviewComparisonTasks.removeAll()
-        reviewGitRefreshSeedHolder.retire()
-        await MainActor.run {
-            // Drained cancelled tasks cannot publish over a successor; shutdown settles its own pending state.
-            if let comparison = refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison,
-                case .pending(let generation) = comparison.attempt
-            {
-                refreshAdmissionCoordinator.failReviewComparisonAttempt(
-                    reviewGeneration: generation,
-                    failureKind: "publication_failed",
-                    retryable: true
-                )
-            }
-            refreshAdmissionCoordinator.close()
-            productAdmissionGate.close()
-        }
-        await worktreeRefreshDriver.closeAndDrain()
-        let publicationDrain = await MainActor.run {
-            reviewPublicationCoordinator.close()
-        }
-        _ = await productSessionOwner.retire(reason: .paneDisposal)
-        async let providerDrain: Void = productProvider.closeAndDrain()
-        await reviewContentLoaderCache.closeAndDrain()
-        await providerDrain
-        await publicationDrain.releaseAndWait()
-        await constructionCoordinator.shutdown()
-        await gitReadScheduler.shutdown()
     }
 
     private var worktreeConstructionIdentity: BridgeWorktreeIdentityKey {

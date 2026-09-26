@@ -174,6 +174,7 @@ package enum AppPolicies {
         /// without consuming ordinary result slots indefinitely.
         package static let maximumProductMutationWatches: Int = 64
         package static let productMutationObservationDeadline: Duration = .seconds(4)
+        package static let productRetirementQuiescenceDeadline: Duration = .seconds(4)
         package static let productOperationSettlementDeadline: Duration = .seconds(4)
         /// The worker allows the native settlement deadline to fire first.
         package static let productWorkerSettlementDeadline: Duration = .seconds(5)

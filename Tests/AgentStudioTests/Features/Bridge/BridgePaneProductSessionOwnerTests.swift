@@ -572,7 +572,7 @@ private actor RetiredWorkerRecorder {
     }
 }
 
-private func installFirstCandidate(
+func installFirstCandidate(
     in owner: BridgePaneProductSessionOwner
 ) async throws -> BridgeProductSessionInstallation {
     let productAdmission = try #require(owner.productAdmissionGate.acquire())
@@ -694,7 +694,7 @@ private func collectPaneOwnerProductReply(
     )
 }
 
-private func paneOwnerProductCallSchemeRequest(
+func paneOwnerProductCallSchemeRequest(
     installation: BridgeProductSessionInstallation,
     identitySuffix: String
 ) throws -> URLRequest {
@@ -723,7 +723,7 @@ private func paneOwnerProductCallSchemeRequest(
     )
 }
 
-private func collectBridgeSchemeHandlerProductReply(
+func collectBridgeSchemeHandlerProductReply(
     handler: BridgeSchemeHandler,
     request: URLRequest
 ) async throws -> BridgeProductSchemeReplyObservation {
