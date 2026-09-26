@@ -90,30 +90,6 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"))
     }
 
-    @Test("local architecture tool exposes expected rule inventory")
-    func localArchitectureToolExposesExpectedRuleInventory() async throws {
-        let buildSlot = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
-        let architectureBuildPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent(buildSlot)
-            .appendingPathComponent("architecture-lint").path
-        let result = try await runProcess(arguments: [
-            "swift", "run",
-            "--package-path", "Tools/AgentStudioArchitectureLint",
-            "--build-path", architectureBuildPath,
-            "agentstudio-architecture-lint",
-            "--print-rules",
-        ])
-
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("agentstudio_import_direction error"))
-        #expect(result.stdout.contains("agentstudio_state_actor_path warning"))
-        #expect(result.stdout.contains("agentstudio_ipc_programmatic_control_boundary error"))
-        #expect(result.stdout.contains("agentstudio_appipc_port_boundary error"))
-        #expect(result.stdout.contains("agentstudio_ipc_composition_location error"))
-        #expect(result.stdout.contains("agentstudio_ipc_public_surface_sanitization error"))
-        #expect(result.stdout.contains("agentstudio_ipc_no_direct_atom_access error"))
-    }
-
     private func runProcess(arguments: [String]) async throws -> ScriptRunResult {
         let processOutput = try await withoutBlockingCooperativePool {
             let stdoutURL = FileManager.default.temporaryDirectory

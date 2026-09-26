@@ -5,7 +5,7 @@ import Testing
 @Suite("Observability debug verifier scripts")
 struct ObservabilityDebugVerifierScriptsTests {
     @Test("debug observability verifier queries TCC upgrade probe telemetry when requested")
-    func debugObservabilityVerifierQueriesTCCUpgradeProbeTelemetryWhenRequested() throws {
+    func debugObservabilityVerifierQueriesTCCUpgradeProbeTelemetryWhenRequested() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -26,7 +26,7 @@ struct ObservabilityDebugVerifierScriptsTests {
         )
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [

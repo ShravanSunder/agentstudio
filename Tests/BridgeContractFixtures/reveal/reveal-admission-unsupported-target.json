@@ -1,0 +1,6 @@
+{
+  "union": "BridgeRevealAdmissionResult",
+  "value": {
+    "kind": "unsupportedTarget"
+  }
+}

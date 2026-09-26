@@ -56,7 +56,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .openWorktree, .openWorktreeInPane,
+            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -126,21 +126,9 @@ extension AppDelegate: ShellCommandHandling {
         case .closeWindow:
             closeWindow()
             return true
-        case .showCommandBarEverything:
-            showCommandBar(prefix: nil, context: "command bar")
-            return true
-        case .showCommandBarQuickOpen:
-            showCommandBar(defaultRootScope: .quickOpen, context: "command bar (quick open)")
-            return true
-        case .showCommandBarCommands:
-            showCommandBar(prefix: ">", context: "command bar (commands)")
-            return true
-        case .showCommandBarPanes:
-            showCommandBar(prefix: "$", context: "command bar (panes)")
-            return true
-        case .showCommandBarRepos:
-            showCommandBar(prefix: "#", context: "command bar (repos)")
-            return true
+        case .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos:
+            return executeCommandBarShellAction(command)
         case .signInGitHub:
             handleSignInRequested(provider: .github)
             return true
@@ -172,6 +160,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -192,6 +181,24 @@ extension AppDelegate: ShellCommandHandling {
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             return false
         }
+    }
+
+    private func executeCommandBarShellAction(_ command: AppCommand) -> Bool {
+        switch command {
+        case .showCommandBarEverything:
+            showCommandBar(prefix: nil, context: "command bar")
+        case .showCommandBarQuickOpen:
+            showCommandBar(defaultRootScope: .quickOpen, context: "command bar (quick open)")
+        case .showCommandBarCommands:
+            showCommandBar(prefix: ">", context: "command bar (commands)")
+        case .showCommandBarPanes:
+            showCommandBar(prefix: "$", context: "command bar (panes)")
+        case .showCommandBarRepos:
+            showCommandBar(prefix: "#", context: "command bar (repos)")
+        default:
+            return false
+        }
+        return true
     }
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
@@ -223,7 +230,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .watchFolder, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .openWorktree, .openWorktreeInPane,
+            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -254,6 +261,9 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if WorktreeCreationKind(command: command) != nil {
+            return canExecuteWorktreeCreation(command, targetId: target, targetType: targetType)
+        }
         guard command == .updateRepositoryFacts else {
             return canExecute(command)
         }
