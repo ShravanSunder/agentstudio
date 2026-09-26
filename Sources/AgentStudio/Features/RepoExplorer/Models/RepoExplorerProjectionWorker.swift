@@ -285,6 +285,22 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
 }
 
 actor RepoExplorerProjectionWorker {
+    let presentationDeadlineDelay: AsyncDelay
+    let presentationDeadlineNow: @Sendable () -> Date
+    let onPresentationDeadline: @MainActor @Sendable (Int, RepoExplorerPreparedPresentationDeadline) -> Void
+    var presentationDeadlineTask: Task<Void, Never>?
+    var latestPresentationDeadlineGeneration = -1
+
+    init(
+        deadlineDelay: AsyncDelay = .taskSleep,
+        deadlineNow: @escaping @Sendable () -> Date = Date.init,
+        onDeadline: @escaping @MainActor @Sendable (Int, RepoExplorerPreparedPresentationDeadline) -> Void = { _, _ in }
+    ) {
+        presentationDeadlineDelay = deadlineDelay
+        presentationDeadlineNow = deadlineNow
+        onPresentationDeadline = onDeadline
+    }
+
     static func project(
         _ work: RepoExplorerProjectionWork
     ) throws -> RepoExplorerProjectionResult {

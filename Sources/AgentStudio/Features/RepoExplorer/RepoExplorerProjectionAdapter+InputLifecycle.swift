@@ -65,6 +65,9 @@ extension RepoExplorerProjectionAdapter {
             suspendDemand()
             return
         }
+        if visibilityChanged {
+            sendPresentationDeadline(nil, demanded: true)
+        }
 
         resumeRegisteredMaterializationHostIfNeeded()
         guard materializationHost != nil, acknowledgedMaterializationBaseline != nil else {
@@ -96,8 +99,7 @@ extension RepoExplorerProjectionAdapter {
         pendingInvalidation = RepoExplorerPendingInvalidation()
         invalidationTask?.cancel()
         invalidationTask = nil
-        recencyDeadlineTask?.cancel()
-        recencyDeadlineTask = nil
+        sendPresentationDeadline(nil, demanded: false)
     }
 
     private func installObservationTokens() {
@@ -356,56 +358,54 @@ extension RepoExplorerProjectionAdapter {
     }
 
     func scheduleRecencyDeadline(for result: RepoExplorerProjectionResult) {
-        recencyDeadlineTask?.cancel()
-        recencyDeadlineTask = nil
-        guard isDemanded else { return }
-
-        guard let preparedDeadline = result.preparedPresentationDeadline else { return }
-        let generation = observationGeneration
-        let delay = recencyDelay
-        let now = deadlineNow
-        recencyDeadlineTask = Task { [weak self] in
-            do {
-                try await Self.waitForRecencyDeadline(
-                    delay: delay,
-                    deadline: preparedDeadline.deadline,
-                    now: now
-                )
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self, self.isDemanded, self.observationGeneration == generation else { return }
-                self.recencyReferenceDate = self.recencyNow()
-                if !preparedDeadline.paneIDs.isEmpty {
-                    self.captureFullProjection(force: true)
-                    return
-                }
-                for repositoryID in preparedDeadline.repositoryIDs {
-                    self.pendingInvalidation.insert(.repositoryActivity(repositoryID))
-                }
-                self.enqueuePendingInvalidationTurn()
-            }
-        }
+        sendPresentationDeadline(result.preparedPresentationDeadline, demanded: isDemanded)
     }
 
     func handleSystemTimeInvalidation() {
-        recencyDeadlineTask?.cancel()
-        recencyDeadlineTask = nil
+        sendPresentationDeadline(nil, demanded: false)
         guard !hasStopped, isDemanded else { return }
         captureFullProjection(force: true)
     }
 
-    @concurrent nonisolated private static func waitForRecencyDeadline(
-        delay: AsyncDelay,
-        deadline: Date,
-        now: @Sendable () -> Date
-    ) async throws {
-        let maximumDelaySeconds = Double(Int64.max / 1_000_000_000)
-        let delaySeconds = max(0, min(deadline.timeIntervalSince(now()), maximumDelaySeconds))
-        let delayNanoseconds = Int64(delaySeconds * 1_000_000_000)
-        try await delay.wait(.nanoseconds(delayNanoseconds))
+    private func sendPresentationDeadline(
+        _ preparedDeadline: RepoExplorerPreparedPresentationDeadline?,
+        demanded: Bool
+    ) {
+        deadlineRequestGeneration += 1
+        let generation = deadlineRequestGeneration
+        activeDeadlineObservationGeneration = demanded && preparedDeadline != nil ? observationGeneration : nil
+        let worker = deadlineWorker!
+        deadlineMessageTask = Task {
+            await worker.updatePresentationDeadline(
+                preparedDeadline,
+                demanded: demanded,
+                generation: generation
+            )
+        }
+    }
+
+    func waitForDeadlineWorkerUpdate() async {
+        await deadlineMessageTask?.value
+    }
+
+    func applyPreparedPresentationDeadline(
+        _ preparedDeadline: RepoExplorerPreparedPresentationDeadline,
+        generation: Int
+    ) {
+        guard !hasStopped,
+            isDemanded,
+            generation == deadlineRequestGeneration,
+            activeDeadlineObservationGeneration == observationGeneration
+        else { return }
+        recencyReferenceDate = recencyNow()
+        if !preparedDeadline.paneIDs.isEmpty {
+            captureFullProjection(force: true)
+            return
+        }
+        for repositoryID in preparedDeadline.repositoryIDs {
+            pendingInvalidation.insert(.repositoryActivity(repositoryID))
+        }
+        enqueuePendingInvalidationTurn()
     }
 
     private func enqueuePendingInvalidationTurn() {
