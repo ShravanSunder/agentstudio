@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct BridgeProductCommentCatalogBatch: Equatable, Sendable {
@@ -12,18 +13,25 @@ struct BridgeProductCommentCatalogBatch: Equatable, Sendable {
     let deletes: [Delete]
 }
 
-/// N10's serialized comment minter. Repository reads return current rows in one
-/// transaction; invalidations carry keys, never a suspended mutation's payload.
+enum WorktreeAnnotationCatalogRange: Hashable, Sendable {
+    case worktree
+    case session(WorktreeAnnotationSessionID)
+}
+
+/// N10 owns canonical installed membership. A range read certifies every row
+/// inside that range, including absence after a SQLite cascade deletion.
 actor BridgeProductCommentCatalogPublisher {
     typealias ReadCurrent =
-        @Sendable (Set<WorktreeAnnotationCatalogKey>) async throws ->
+        @Sendable (WorktreeAnnotationCatalogRange) async throws ->
         [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
 
     private var handle: String
     private let readCurrent: ReadCurrent
-    private var dirtyKeys: Set<WorktreeAnnotationCatalogKey> = []
+    private var dirtyRanges: Set<WorktreeAnnotationCatalogRange> = []
+    private var installedEntries: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] = [:]
+    private var installedSessionByKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] = [:]
     private var nextWireRevision = 0
-    private var captureInProgress = false
+    private var activeCaptureID: UUID?
 
     init(handle: String, readCurrent: @escaping ReadCurrent) {
         precondition(!handle.isEmpty)
@@ -36,69 +44,140 @@ actor BridgeProductCommentCatalogPublisher {
         guard newHandle != handle else { return }
         handle = newHandle
         nextWireRevision = 0
-        dirtyKeys.removeAll()
+        dirtyRanges.removeAll()
+        installedEntries.removeAll()
+        installedSessionByKey.removeAll()
+        activeCaptureID = nil
     }
 
-    func invalidate(_ keys: Set<WorktreeAnnotationCatalogKey>) {
-        dirtyKeys.formUnion(keys)
+    func invalidate(_ range: WorktreeAnnotationCatalogRange) {
+        dirtyRanges.insert(range)
     }
 
-    func pendingDirtyKeyCount() -> Int { dirtyKeys.count }
+    func pendingDirtyRangeCount() -> Int { dirtyRanges.count }
 
-    /// The caller registers for invalidations before its SQLite snapshot read.
-    /// Invalidations that arrive during that read remain dirty for the next batch.
-    func installSnapshot(_ entries: [WorktreeAnnotationCatalogEntry]) throws
-        -> BridgeProductCommentCatalogBatch
-    {
-        let revision = try mintWireRevision()
-        let puts = try entries.map { try BridgeProductCommentCatalogRecord(entry: $0, revision: revision) }
-            .sorted { $0.recordKey < $1.recordKey }
-        return .init(handle: handle, targetRevision: revision, puts: puts, deletes: [])
+    /// Registers for invalidations before the read. The captured handle must
+    /// still be current when the complete read installs its diff and revision.
+    func captureSnapshot() async throws -> BridgeProductCommentCatalogBatch? {
+        guard let captureID = beginCapture() else { return nil }
+        defer { endCapture(captureID) }
+        let capturedHandle = handle
+        let rows = try await readCurrent(.worktree)
+        guard handle == capturedHandle else { return nil }
+        return try install(rows, in: .worktree)
     }
 
     func captureDirty() async throws -> BridgeProductCommentCatalogBatch? {
-        guard !captureInProgress, !dirtyKeys.isEmpty else { return nil }
-        captureInProgress = true
-        defer { captureInProgress = false }
+        guard let range = nextDirtyRange(),
+            let captureID = beginCapture()
+        else { return nil }
+        defer { endCapture(captureID) }
         let capturedHandle = handle
-        let requestedKeys = dirtyKeys
-        dirtyKeys.subtract(requestedKeys)
-        let currentRows: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
+        dirtyRanges.remove(range)
+        let rows: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
         do {
-            currentRows = try await readCurrent(requestedKeys)
+            rows = try await readCurrent(range)
         } catch {
-            if handle == capturedHandle { dirtyKeys.formUnion(requestedKeys) }
+            if handle == capturedHandle { dirtyRanges.insert(range) }
             throw error
         }
         guard handle == capturedHandle else { return nil }
-        // A second commit for one key may have arrived while the read was
-        // suspended. Leave it dirty and avoid minting old content over it.
-        let settledKeys = requestedKeys.subtracting(dirtyKeys)
-        guard !settledKeys.isEmpty else { return nil }
-        for key in settledKeys {
-            if let entry = currentRows[key], WorktreeAnnotationCatalogKey(entry: entry) != key {
-                dirtyKeys.formUnion(settledKeys)
-                throw WorktreeAnnotationServiceError.staleSourceEpoch
-            }
+        // A second invalidation during the read remains dirty for another
+        // pass. This complete read still installs, so continuous edits cannot
+        // starve publication.
+        do {
+            return try install(rows, in: range)
+        } catch {
+            dirtyRanges.insert(range)
+            throw error
         }
-        let revision = try mintWireRevision()
-        var puts: [BridgeProductCommentCatalogRecord] = []
-        var deletes: [BridgeProductCommentCatalogBatch.Delete] = []
-        for key in settledKeys.sorted(by: { $0.recordKey < $1.recordKey }) {
-            if let entry = currentRows[key] {
-                puts.append(try BridgeProductCommentCatalogRecord(entry: entry, revision: revision))
-            } else {
-                deletes.append(.init(key: key, revision: revision))
-            }
-        }
-        return .init(handle: handle, targetRevision: revision, puts: puts, deletes: deletes)
     }
 
-    private func mintWireRevision() throws -> Int {
+    private func beginCapture() -> UUID? {
+        guard activeCaptureID == nil else { return nil }
+        let captureID = UUIDv7.generate()
+        activeCaptureID = captureID
+        return captureID
+    }
+
+    private func endCapture(_ captureID: UUID) {
+        if activeCaptureID == captureID { activeCaptureID = nil }
+    }
+
+    private func nextDirtyRange() -> WorktreeAnnotationCatalogRange? {
+        if dirtyRanges.contains(.worktree) { return .worktree }
+        return dirtyRanges.compactMap { range -> WorktreeAnnotationSessionID? in
+            if case .session(let id) = range { return id }
+            return nil
+        }.min { $0.rawValue.uuidString < $1.rawValue.uuidString }
+            .map(WorktreeAnnotationCatalogRange.session)
+    }
+
+    private func install(
+        _ rows: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry],
+        in range: WorktreeAnnotationCatalogRange
+    ) throws -> BridgeProductCommentCatalogBatch {
         guard nextWireRevision < BridgeProductWireContract.maximumSafeInteger else {
             throw WorktreeAnnotationServiceError.unavailable
         }
-        nextWireRevision += 1
-        return nextWireRevision
+        let revision = nextWireRevision + 1
+        let membership = try sessionMembership(for: rows)
+        if case .session(let sessionID) = range,
+            membership.values.contains(where: { $0 != sessionID })
+        {
+            throw WorktreeAnnotationServiceError.staleSourceEpoch
+        }
+        let previousKeys: Set<WorktreeAnnotationCatalogKey> =
+            switch range {
+            case .worktree: Set(installedEntries.keys)
+            case .session(let sessionID):
+                Set(
+                    installedSessionByKey.compactMap { key, owner in
+                        owner == sessionID ? key : nil
+                    })
+            }
+        let currentKeys = Set(rows.keys)
+        let puts = try rows.keys.sorted { $0.recordKey < $1.recordKey }.map { key in
+            guard let entry = rows[key] else { preconditionFailure("A selected catalog row disappeared") }
+            return try BridgeProductCommentCatalogRecord(entry: entry, revision: revision)
+        }
+        let deletes = previousKeys.subtracting(currentKeys)
+            .sorted { $0.recordKey < $1.recordKey }
+            .map { BridgeProductCommentCatalogBatch.Delete(key: $0, revision: revision) }
+
+        for key in previousKeys.subtracting(currentKeys) {
+            installedEntries.removeValue(forKey: key)
+            installedSessionByKey.removeValue(forKey: key)
+        }
+        for (key, entry) in rows {
+            installedEntries[key] = entry
+            installedSessionByKey[key] = membership[key]
+        }
+        nextWireRevision = revision
+        return .init(handle: handle, targetRevision: revision, puts: puts, deletes: deletes)
+    }
+
+    private func sessionMembership(
+        for rows: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
+    ) throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] {
+        var membership: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] = [:]
+        for (key, entry) in rows {
+            guard WorktreeAnnotationCatalogKey(entry: entry) == key else {
+                throw WorktreeAnnotationServiceError.staleSourceEpoch
+            }
+            switch entry {
+            case .session(let session): membership[key] = session.sessionID
+            case .thread(let thread): membership[key] = thread.sessionID
+            case .message: break
+            }
+        }
+        for (key, entry) in rows {
+            guard case .message(let message) = entry else { continue }
+            guard let sessionID = membership[.thread(message.threadID)] else {
+                throw WorktreeAnnotationServiceError.staleSourceEpoch
+            }
+            membership[key] = sessionID
+        }
+        return membership
     }
 }
