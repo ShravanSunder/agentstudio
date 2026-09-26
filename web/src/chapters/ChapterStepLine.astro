@@ -1,0 +1,91 @@
+---
+import type { ChapterStep } from "./chapter-catalog";
+import { railStepLineTargetAttribute } from "./chapter-dom-contract";
+
+interface Props {
+  readonly chapterId: string;
+  readonly steps: readonly ChapterStep[];
+}
+
+const { chapterId, steps } = Astro.props;
+---
+
+<div class="chapter-step-line relative h-[78px] w-[min(100%,480px)]" data-chapter-step-line>
+  <!-- The rail joins the bare line before its first commit dot. -->
+  <span class="chapter-step-line__start absolute top-[11.5px] left-0 h-px w-px" {...{ [railStepLineTargetAttribute]: chapterId }} aria-hidden="true"></span>
+  <span class="chapter-step-progress-track" aria-hidden="true"></span>
+  <span class="chapter-step-progress-fill" aria-hidden="true"></span>
+  <div class="chapter-step-list absolute top-0 left-4 flex items-center" data-chapter-step-list>
+    {
+      steps.map((step, stepIndex) => (
+        <button
+          type="button"
+          class="chapter-step relative z-[3] flex h-6 w-6 flex-none cursor-pointer items-center justify-center rounded-full disabled:cursor-default"
+          data-chapter-step={step.id}
+          data-step-state={stepIndex === 0 ? "current" : "upcoming"}
+          aria-label={step.label}
+          disabled
+          tabindex="-1"
+        >
+          <span class="chapter-step__dot" aria-hidden="true" />
+          <span class="sr-only" data-chapter-step-label>{step.label}</span>
+        </button>
+      ))
+    }
+  </div>
+  <svg class="chapter-step-branch pointer-events-none absolute inset-0 h-[64px] w-full overflow-visible" aria-hidden="true">
+    <path class="chapter-step-active-branch" d="M 28 12 C 46 14.8 48 15.5 48 51 L 52 51" data-chapter-step-branch />
+  </svg>
+  <span class="chapter-step-active-label floating-glass-material absolute top-[37px] left-[52px] rounded-full border px-3 py-1 text-[13px] leading-[20px] whitespace-nowrap text-ink" data-chapter-step-active-label aria-hidden="true">{steps[0]?.label}</span>
+</div>
+
+<style>
+  .chapter-step-progress-track,
+  .chapter-step-progress-fill {
+    position: absolute;
+    top: 11.25px;
+    left: 0;
+    height: 1.5px;
+    pointer-events: none;
+  }
+  .chapter-step-progress-track {
+    width: var(--chapter-step-track-width, 0px);
+    background: color-mix(in srgb, var(--color-primary) 46%, transparent);
+  }
+  .chapter-step-progress-fill {
+    width: var(--chapter-step-progress-width, 0px);
+    background: var(--color-primary);
+    transition: width 300ms ease-out;
+  }
+  .chapter-step:nth-child(n + 2) { margin-left: 44px; }
+  .chapter-step__dot {
+    width: 9px;
+    height: 9px;
+    border: 1.5px solid rgb(155 161 173 / 80%);
+    border-radius: 999px;
+    background: #282c34;
+  }
+  .chapter-step[data-step-state="passed"] .chapter-step__dot {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+  }
+  .chapter-step[data-step-state="current"] .chapter-step__dot {
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--color-primary);
+    box-shadow: 0 0 0 2px rgb(137 180 250 / 42%), 0 0 6px rgb(137 180 250 / 35%);
+  }
+  .chapter-step-active-branch {
+    fill: none;
+    stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+  .chapter-step-active-label { max-width: calc(100% - var(--chapter-step-label-left, 52px)); overflow: hidden; text-overflow: ellipsis; }
+  @media (width < 38.75rem) {
+    .chapter-step:nth-child(n + 2) { margin-left: -2px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chapter-step-progress-fill { transition: none; }
+  }
+</style>

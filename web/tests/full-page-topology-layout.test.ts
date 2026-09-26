@@ -107,8 +107,8 @@ function composed(fixture: TopologyPageFixture): TopologyComposition {
   return composition;
 }
 
-describe("step pill attachment", () => {
-  it("keeps the title chapter dot when the desktop pill follows its title", () => {
+describe("step line attachment", () => {
+  it("keeps the title chapter dot when the desktop step line follows its title", () => {
     const fixture = homePageAt(1600);
     const firstChapter = fixture.page.anchors[1];
     if (firstChapter === undefined) throw new Error("First chapter is missing");
@@ -119,7 +119,7 @@ describe("step pill attachment", () => {
       40,
     );
     const anchors = fixture.page.anchors.map((anchor, index) =>
-      index === 1 ? { ...anchor, stepPill: pill } : anchor,
+      index === 1 ? { ...anchor, stepLine: pill } : anchor,
     );
     const composition = composeFullPageTopology({ ...fixture.page, anchors });
     expect(composition?.rows.find((row) => row.anchorId === firstChapter.id)?.kind).toBe("chapter");
@@ -149,7 +149,7 @@ describe("step pill attachment", () => {
     expect(route?.targetPoint?.x).toBe(chapter.surface.left + topologyStackedDropCornerInset);
   });
   for (const width of [390, 820, 1280, 1600]) {
-    it(`uses the pill on desktop and glass top on stacked layouts at ${width}px`, () => {
+    it(`enters the step line start at ${width}px`, () => {
       const fixture = homePageAt(width);
       const firstChapter = fixture.page.anchors[1];
       if (firstChapter?.surface === undefined) throw new Error("First chapter glass is missing");
@@ -160,19 +160,14 @@ describe("step pill attachment", () => {
         40,
       );
       const anchors = fixture.page.anchors.map((anchor, index) =>
-        index === 1 ? { ...anchor, stepPill: pill } : anchor,
+        index === 1 ? { ...anchor, stepLine: pill } : anchor,
       );
       const composition = composeFullPageTopology({ ...fixture.page, anchors });
       if (composition === undefined) throw new Error("Pill topology did not compose");
       const route = composition.routes.find((candidate) => candidate.anchorId === firstChapter.id);
-      if (width >= 1024) {
-        expect(route?.targetPoint).toEqual({ x: pill.left, y: pill.top + pill.height / 2 });
-        expect(composition.rowYs).toContain(pill.top + pill.height / 2);
-      } else {
-        expect(route?.targetEdge).toBe("top");
-        expect(route?.targetPoint?.y).toBe(firstChapter.surface.top);
-        expect(composition.rowYs).not.toContain(pill.top + pill.height / 2);
-      }
+      expect(route?.targetEdge).toBe("left");
+      expect(route?.targetPoint).toEqual({ x: pill.left, y: pill.top + pill.height / 2 });
+      expect(composition.rowYs).toContain(pill.top + pill.height / 2);
       expect(composition.mainlineX).toBe(composed(fixture).mainlineX);
     });
   }

@@ -33,7 +33,7 @@ export function attachXFor(
   stacked: boolean,
 ): number | undefined {
   const surface = anchor.surface;
-  if (!stacked && anchor.stepPill !== undefined) return anchor.stepPill.left;
+  if (anchor.stepLine !== undefined) return anchor.stepLine.left;
   if (surface === undefined) {
     return undefined;
   }
@@ -86,8 +86,8 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
           }
         : { id: mainlineOwnerId, x: mainlineX, column: 0, accent: "main" };
 
-    if (!stacked && anchor.stepPill !== undefined) {
-      const centerY = anchor.stepPill.top + anchor.stepPill.height / 2;
+    if (anchor.stepLine !== undefined) {
+      const centerY = anchor.stepLine.top + anchor.stepLine.height / 2;
       const attachRow = rowYs.findIndex((rowY) => Math.abs(rowY - centerY) <= 0.5);
       const forkRow = attachRow - 1;
       const forkY = rowYs[forkRow];

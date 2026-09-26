@@ -28,7 +28,8 @@ function readChapterScrollGeometry({
 }): ChapterScrollGeometrySample {
   const chapter = document.getElementById(chapterId);
   const title = chapter?.querySelector("[data-rail-anchor]");
-  const pill = chapter?.querySelector("[data-rail-step-pill-target]");
+  const stepLine = chapter?.querySelector("[data-chapter-step-line]");
+  const lineStart = chapter?.querySelector("[data-rail-step-line-target]");
   const glass = chapter?.querySelector("[data-rail-surface-target]");
   const caption = chapter?.querySelector(".chapter-caption");
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
@@ -55,13 +56,14 @@ function readChapterScrollGeometry({
   const titleBox = title.getBoundingClientRect();
   const glassBox = glass.getBoundingClientRect();
   const captionBox = caption.getBoundingClientRect();
-  const pillBox = pill?.getBoundingClientRect();
+  const pillBox = stepLine?.getBoundingClientRect();
+  const lineStartBox = lineStart?.getBoundingClientRect();
   const desktop = width >= 1024;
-  const targetIsPill = desktop && pillBox !== undefined;
-  const targetIsTop = !desktop;
+  const targetIsLine = lineStartBox !== undefined;
+  const targetIsTop = !desktop && !targetIsLine;
   const textRects = [
     title,
-    ...chapter.querySelectorAll("[data-chapter-step-label], .chapter-caption__copy"),
+    ...chapter.querySelectorAll("[data-chapter-step-active-label], .chapter-caption__copy"),
   ]
     .filter(
       (element) =>
@@ -86,29 +88,31 @@ function readChapterScrollGeometry({
     chapterId,
     width,
     scrollY: window.scrollY,
-    gaps: targetIsPill
-      ? [
-          pillBox.top - titleBox.bottom,
-          glassBox.top - pillBox.bottom,
-          captionBox.top - glassBox.bottom,
-        ]
-      : pillBox === undefined
-        ? [glassBox.top - titleBox.bottom, captionBox.top - glassBox.bottom]
-        : [
-            glassBox.top - titleBox.bottom,
-            pillBox.top - glassBox.bottom,
-            captionBox.top - pillBox.bottom,
-          ],
-    branchEdgeError: targetIsPill
-      ? Math.max(
-          Math.abs(end.x - pillBox.left),
-          Math.abs(end.y - (pillBox.top + pillBox.bottom) / 2),
-        )
-      : targetIsTop
-        ? Math.abs(end.y - glassBox.top)
-        : Math.abs(end.x - glassBox.left),
+    gaps:
+      desktop && pillBox !== undefined
+        ? [
+            pillBox.top - titleBox.bottom,
+            glassBox.top - pillBox.bottom,
+            captionBox.top - glassBox.bottom,
+          ]
+        : pillBox === undefined
+          ? [glassBox.top - titleBox.bottom, captionBox.top - glassBox.bottom]
+          : [
+              glassBox.top - titleBox.bottom,
+              pillBox.top - glassBox.bottom,
+              captionBox.top - pillBox.bottom,
+            ],
+    branchEdgeError:
+      targetIsLine && lineStartBox !== undefined
+        ? Math.max(
+            Math.abs(end.x - lineStartBox.left),
+            Math.abs(end.y - (lineStartBox.top + lineStartBox.bottom) / 2),
+          )
+        : targetIsTop
+          ? Math.abs(end.y - glassBox.top)
+          : Math.abs(end.x - glassBox.left),
     branchWithinTarget:
-      targetIsPill || targetIsTop ? true : end.y >= glassBox.top && end.y <= glassBox.bottom,
+      targetIsLine || targetIsTop ? true : end.y >= glassBox.top && end.y <= glassBox.bottom,
     glassTransform: getComputedStyle(glass).transform,
     glassLiftValue: Number.parseFloat(
       getComputedStyle(glass).getPropertyValue("--scroll-material-lift"),
@@ -167,7 +171,9 @@ export const verifyChapterScrollGeometry = defineBrowserCommand(
           await applicationPage.waitForFunction(
             ({ chapterId, width }) => {
               const glass = document.querySelector(`[data-rail-surface-target="${chapterId}"]`);
-              const pill = document.querySelector(`[data-rail-step-pill-target="${chapterId}"]`);
+              const lineStart = document.querySelector(
+                `[data-rail-step-line-target="${chapterId}"]`,
+              );
               const path = document.querySelector<SVGPathElement>(
                 `[data-route-kind="attach"][data-route-anchor="${chapterId}"] [data-topology-path-role="core"]`,
               );
@@ -176,13 +182,13 @@ export const verifyChapterScrollGeometry = defineBrowserCommand(
                 return false;
               const end = path.getPointAtLength(path.getTotalLength()).matrixTransform(matrix);
               const glassBox = glass.getBoundingClientRect();
-              const pillBox = pill?.getBoundingClientRect();
-              return width < 1024
-                ? Math.abs(end.y - glassBox.top) <= 1
-                : pillBox === undefined
-                  ? Math.abs(end.x - glassBox.left) <= 1
-                  : Math.abs(end.x - pillBox.left) <= 1 &&
-                    Math.abs(end.y - (pillBox.top + pillBox.bottom) / 2) <= 1;
+              const lineStartBox = lineStart?.getBoundingClientRect();
+              return lineStartBox === undefined
+                ? width < 1024
+                  ? Math.abs(end.y - glassBox.top) <= 1
+                  : Math.abs(end.x - glassBox.left) <= 1
+                : Math.abs(end.x - lineStartBox.left) <= 1 &&
+                    Math.abs(end.y - (lineStartBox.top + lineStartBox.bottom) / 2) <= 1;
             },
             { chapterId, width: request.width },
           );

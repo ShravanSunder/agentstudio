@@ -14,8 +14,8 @@ export const railTargetEdgeAttribute = "data-rail-target-edge";
 /** `data-rail-media-target="<id>"`: phone branches drop into this element's top edge. */
 export const railMediaTargetAttribute = "data-rail-media-target";
 
-/** `data-rail-step-pill-target="<chapterId>"`: multi-step branches enter its left center. */
-export const railStepPillTargetAttribute = "data-rail-step-pill-target";
+/** `data-rail-step-line-target="<chapterId>"`: a branch joins the line before its first dot. */
+export const railStepLineTargetAttribute = "data-rail-step-line-target";
 
 /** `data-rail-current`: set by the rail on the current chapter's target so its hairline lights. */
 export const railCurrentAttribute = "data-rail-current";

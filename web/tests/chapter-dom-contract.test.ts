@@ -14,7 +14,7 @@ describe("chapter DOM contract", () => {
         "data-rail-surface-target",
         "data-rail-target-edge",
         "data-rail-media-target",
-        "data-rail-step-pill-target",
+        "data-rail-step-line-target",
         "data-rail-current",
         "data-scroll-playback-stage",
         "data-scene-root",

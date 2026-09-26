@@ -2,7 +2,7 @@
 import ScrollMaterialSurface from "@/home-page/ScrollMaterialSurface.astro";
 import KitIcon from "@/recreation-kit/KitIcon.astro";
 
-import ChapterStepPill from "./ChapterStepPill.astro";
+import ChapterStepLine from "./ChapterStepLine.astro";
 import type { Chapter } from "./chapter-catalog";
 import {
   playbackStageAttribute,
@@ -40,7 +40,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       >{chapter.title.afterAccent}
     </h2>
 
-    {hasStepSelector && <div class="chapter-pill-slot"><ChapterStepPill chapterId={chapter.id} steps={chapter.steps} /></div>}
+    {hasStepSelector && <div class="chapter-pill-slot"><ChapterStepLine chapterId={chapter.id} steps={chapter.steps} /></div>}
 
     <ScrollMaterialSurface
       {...surfaceAttributes}
@@ -95,7 +95,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
 <style>
   .chapter-flow { display: flex; flex-direction: column; min-width: 0; }
   .chapter-title { order: 1; }
-  .chapter-pill-slot { order: 2; margin-top: 14px; margin-bottom: 14px; align-self: flex-start; max-width: 100%; }
+  .chapter-pill-slot { order: 2; margin-top: 14px; margin-bottom: 14px; align-self: flex-start; width: 100%; max-width: 100%; }
   :global(.chapter-surface) { order: 3; }
   .chapter-caption { order: 4; margin-top: 12px; }
   .chapter-flow[data-has-steps="false"] :global(.chapter-surface) { margin-top: 20px; }

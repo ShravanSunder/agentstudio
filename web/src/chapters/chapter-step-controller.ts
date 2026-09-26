@@ -1,3 +1,4 @@
+import { localForkPath } from "../topology-lab/full-page-topology-paths";
 import { isChapterStepId, type ChapterStepId } from "./chapter-ids";
 import {
   chapterStepRequestedEventName,
@@ -89,7 +90,11 @@ function renderStaticContract(contract: ChapterStepsDomContract): void {
   contract.root.dataset["enhanced"] = "false";
 }
 
-function renderSelectedStep(contract: ChapterStepsDomContract, selectedIndex: number): void {
+function renderSelectedStep(
+  contract: ChapterStepsDomContract,
+  selectedIndex: number,
+  animateBranch: boolean,
+): void {
   const idPrefix = `chapter-step-${contract.root.dataset["chapterStepsRoot"] ?? "chapter"}`;
   contract.list.setAttribute("role", "tablist");
   contract.list.setAttribute("aria-orientation", "horizontal");
@@ -111,36 +116,86 @@ function renderSelectedStep(contract: ChapterStepsDomContract, selectedIndex: nu
   });
   contract.root.dataset["enhanced"] = "true";
   const selected = contract.steps[selectedIndex]?.selector;
-  if (selected !== undefined && contract.list.querySelector(".chapter-step-highlight") !== null) {
-    contract.list.style.setProperty("--chapter-step-highlight-x", `${selected.offsetLeft}px`);
-    contract.list.style.setProperty("--chapter-step-highlight-width", `${selected.offsetWidth}px`);
-  }
-  const firstDot = contract.steps[0]?.selector.querySelector<HTMLElement>(".chapter-step__dot");
+  const stepLine = contract.root.querySelector<HTMLElement>("[data-chapter-step-line]");
+  const branch = stepLine?.querySelector<SVGPathElement>("[data-chapter-step-branch]");
+  const label = stepLine?.querySelector<HTMLElement>("[data-chapter-step-active-label]");
   const lastDot = contract.steps.at(-1)?.selector.querySelector<HTMLElement>(".chapter-step__dot");
   const currentDot = selected?.querySelector<HTMLElement>(".chapter-step__dot");
   if (
-    firstDot !== undefined &&
-    firstDot !== null &&
+    stepLine !== null &&
+    stepLine !== undefined &&
+    branch !== null &&
+    branch !== undefined &&
+    label !== null &&
+    label !== undefined &&
     lastDot !== undefined &&
     lastDot !== null &&
     currentDot !== undefined &&
     currentDot !== null
   ) {
-    const listLeft = contract.list.getBoundingClientRect().left;
+    const lineBounds = stepLine.getBoundingClientRect();
     const center = (dot: HTMLElement): number => {
       const bounds = dot.getBoundingClientRect();
-      return (bounds.left + bounds.right) / 2 - listLeft;
+      return (bounds.left + bounds.right) / 2 - lineBounds.left;
     };
-    const firstCenter = center(firstDot);
-    contract.list.style.setProperty("--chapter-step-track-left", `${firstCenter}px`);
-    contract.list.style.setProperty(
-      "--chapter-step-track-width",
-      `${center(lastDot) - firstCenter}px`,
+    const currentCenter = center(currentDot);
+    stepLine.style.setProperty("--chapter-step-track-width", `${center(lastDot)}px`);
+    stepLine.style.setProperty("--chapter-step-progress-width", `${currentCenter}px`);
+
+    const shouldAnimate =
+      animateBranch && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (shouldAnimate) {
+      const outgoingLabel = label.cloneNode(true);
+      if (outgoingLabel instanceof HTMLElement) {
+        outgoingLabel.removeAttribute("data-chapter-step-active-label");
+        stepLine.append(outgoingLabel);
+        void outgoingLabel
+          .animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150 })
+          .finished.then(() => outgoingLabel.remove())
+          .catch(() => outgoingLabel.remove());
+      }
+      const outgoingBranch = branch.cloneNode(true);
+      if (outgoingBranch instanceof SVGPathElement) {
+        outgoingBranch.removeAttribute("data-chapter-step-branch");
+        branch.parentElement?.append(outgoingBranch);
+        void outgoingBranch
+          .animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150 })
+          .finished.then(() => outgoingBranch.remove())
+          .catch(() => outgoingBranch.remove());
+      }
+    }
+
+    label.textContent = selected?.getAttribute("aria-label") ?? "";
+    const desiredLeft = currentCenter + 24;
+    const maximumLeft = Math.max(0, stepLine.clientWidth - label.scrollWidth - 4);
+    const labelLeft = Math.min(desiredLeft, maximumLeft);
+    label.style.left = `${labelLeft}px`;
+    stepLine.style.setProperty("--chapter-step-label-left", `${labelLeft}px`);
+    const dotY =
+      (currentDot.getBoundingClientRect().top + currentDot.getBoundingClientRect().bottom) / 2 -
+      lineBounds.top;
+    const labelY = label.offsetTop + label.offsetHeight / 2;
+    branch.setAttribute(
+      "d",
+      [
+        ...localForkPath(currentCenter, labelLeft - 5, dotY, labelY),
+        `L ${labelLeft} ${labelY}`,
+      ].join(" "),
     );
-    contract.list.style.setProperty(
-      "--chapter-step-progress-width",
-      `${center(currentDot) - firstCenter}px`,
-    );
+    if (shouldAnimate) {
+      const length = branch.getTotalLength();
+      branch.animate(
+        [
+          { strokeDasharray: length, strokeDashoffset: length },
+          { strokeDasharray: length, strokeDashoffset: 0 },
+        ],
+        { duration: 240, easing: "ease-out" },
+      );
+      label.animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], {
+        duration: 390,
+        easing: "ease-out",
+      });
+    }
   }
 }
 
@@ -185,8 +240,9 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
     contract = validatedContract;
     let selectedIndex = 0;
     const selectStep = (stepIndex: number): void => {
+      const changed = stepIndex !== selectedIndex;
       selectedIndex = stepIndex;
-      renderSelectedStep(validatedContract, selectedIndex);
+      renderSelectedStep(validatedContract, selectedIndex, changed);
     };
     window.addEventListener("resize", () => selectStep(selectedIndex), {
       signal: lifecycle.signal,

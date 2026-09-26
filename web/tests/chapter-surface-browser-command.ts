@@ -30,12 +30,13 @@ export interface ChapterStepSnapshot {
   readonly visibleText: string;
   readonly focusedStepId: string | undefined;
   readonly selectedStepId: string | undefined;
-  readonly highlightCenterOffset: number;
+  readonly activeLabelGap: number;
+  readonly activeBranchAnimationCount: number;
   readonly captionHeight: number;
   readonly nextSectionTop: number;
   readonly progressWidth: number;
   readonly expectedProgressWidth: number;
-  readonly visiblePillLabels: readonly string[];
+  readonly visibleStepLabels: readonly string[];
   readonly panelHeights: readonly number[];
   readonly panelStyles: readonly string[];
 }
@@ -55,6 +56,7 @@ export interface ChapterGlassLayoutObservation {
   readonly title: ViewportRect;
   readonly stage: ViewportRect;
   readonly stepList: ViewportRect;
+  readonly lineStart: ViewportRect;
   /** Whether each part is a descendant of the glass surface element. */
   readonly titleInGlass: boolean;
   readonly stageInGlass: boolean;
@@ -278,7 +280,8 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
   const title = article.querySelector("[data-rail-anchor]");
   const stage = article.querySelector("[data-rail-media-target]");
   const stepList = article.querySelector("[data-chapter-step-list]");
-  const pill = article.querySelector("[data-rail-step-pill-target]");
+  const pill = article.querySelector("[data-chapter-step-line]");
+  const lineStart = article.querySelector("[data-rail-step-line-target]");
   const caption = article.querySelector(".chapter-caption");
   const attachGroup = document.querySelector(
     `[data-route-kind="attach"][data-route-anchor="${chapterId}"]`,
@@ -290,6 +293,7 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
     stage === null ||
     stepList === null ||
     pill === null ||
+    lineStart === null ||
     caption === null ||
     branch === undefined ||
     branch === null
@@ -317,6 +321,7 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
     title: box(title),
     stage: box(stage),
     stepList: box(stepList),
+    lineStart: box(lineStart),
     titleInGlass: glass.contains(title),
     stageInGlass: glass.contains(stage),
     stepListInPill: pill.contains(stepList),
@@ -356,18 +361,21 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
   );
   const focused = document.activeElement;
   const selected = root.querySelector<HTMLElement>('[data-chapter-step][aria-selected="true"]');
-  const highlight = root.querySelector<HTMLElement>(".chapter-step-highlight");
   const selectedBounds = selected?.getBoundingClientRect();
-  const highlightBounds = highlight?.getBoundingClientRect();
+  const activeLabel = root.querySelector<HTMLElement>("[data-chapter-step-active-label]");
+  const activeBranch = root.querySelector<SVGPathElement>("[data-chapter-step-branch]");
+  const labelBounds = activeLabel?.getBoundingClientRect();
   const caption = root.querySelector<HTMLElement>(".chapter-caption");
   const article = root.closest("article");
   const nextSection = article?.nextElementSibling;
   const progressFill = root.querySelector<HTMLElement>(".chapter-step-progress-fill");
-  const firstDot = root.querySelector<HTMLElement>("[data-chapter-step] .chapter-step__dot");
+  const lineStart = root.querySelector<HTMLElement>("[data-rail-step-line-target]");
   const selectedDot = selected?.querySelector<HTMLElement>(".chapter-step__dot");
-  const firstDotBounds = firstDot?.getBoundingClientRect();
+  const lineStartBounds = lineStart?.getBoundingClientRect();
   const selectedDotBounds = selectedDot?.getBoundingClientRect();
-  const visiblePillLabels = [...root.querySelectorAll<HTMLElement>("[data-chapter-step-label]")]
+  const visibleStepLabels = [
+    ...root.querySelectorAll<HTMLElement>("[data-chapter-step-active-label]"),
+  ]
     .filter(
       (label) => getComputedStyle(label).display !== "none" && label.getClientRects().length > 0,
     )
@@ -380,13 +388,12 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
         ? focused.dataset["chapterStep"]
         : undefined,
     selectedStepId: selected?.dataset["chapterStep"],
-    highlightCenterOffset:
-      selectedBounds === undefined || highlightBounds === undefined
+    activeLabelGap:
+      selectedBounds === undefined || labelBounds === undefined
         ? Number.NaN
-        : Math.abs(
-            (selectedBounds.left + selectedBounds.right) / 2 -
-              (highlightBounds.left + highlightBounds.right) / 2,
-          ),
+        : labelBounds.left - selectedBounds.right,
+    activeBranchAnimationCount:
+      (activeLabel?.getAnimations().length ?? 0) + (activeBranch?.getAnimations().length ?? 0),
     captionHeight: caption?.getBoundingClientRect().height ?? Number.NaN,
     nextSectionTop:
       nextSection === null || nextSection === undefined
@@ -394,14 +401,10 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
         : nextSection.getBoundingClientRect().top + window.scrollY,
     progressWidth: progressFill?.getBoundingClientRect().width ?? Number.NaN,
     expectedProgressWidth:
-      firstDotBounds === undefined || selectedDotBounds === undefined
+      lineStartBounds === undefined || selectedDotBounds === undefined
         ? Number.NaN
-        : (selectedDotBounds.left +
-            selectedDotBounds.right -
-            firstDotBounds.left -
-            firstDotBounds.right) /
-          2,
-    visiblePillLabels,
+        : (selectedDotBounds.left + selectedDotBounds.right) / 2 - lineStartBounds.left,
+    visibleStepLabels,
     panelHeights: [...root.querySelectorAll<HTMLElement>("[data-chapter-step-panel]")].map(
       (panel) => panel.getBoundingClientRect().height,
     ),

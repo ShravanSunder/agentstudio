@@ -6,7 +6,7 @@
 import {
   railAnchorAttribute,
   railMediaTargetAttribute,
-  railStepPillTargetAttribute,
+  railStepLineTargetAttribute,
   railSurfaceTargetAttribute,
   railTargetEdgeAttribute,
 } from "../chapters/chapter-dom-contract";
@@ -104,11 +104,11 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
   };
   const surfaces = elementsById(ownerDocument, railSurfaceTargetAttribute);
   const medias = elementsById(ownerDocument, railMediaTargetAttribute);
-  const stepPills = elementsById(ownerDocument, railStepPillTargetAttribute);
+  const stepLines = elementsById(ownerDocument, railStepLineTargetAttribute);
   return [...elementsById(ownerDocument, railAnchorAttribute)].map(([id, anchor]) => {
     const surface = surfaces.get(id);
     const media = medias.get(id);
-    const stepPill = stepPills.get(id);
+    const stepLine = stepLines.get(id);
     const firstLine = firstLineBox(anchor);
     const declaredEdge = surface?.getAttribute(railTargetEdgeAttribute);
     return {
@@ -117,7 +117,7 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
       surface: surface === undefined ? undefined : measure(surface),
       targetEdge: declaredEdge === "top" || declaredEdge === "left" ? declaredEdge : undefined,
       media: media === undefined ? undefined : measure(media),
-      stepPill: stepPill === undefined ? undefined : measure(stepPill),
+      stepLine: stepLine === undefined ? undefined : measure(stepLine),
       copyBlock: media === undefined ? undefined : measure(findCopyBlock(anchor, media)),
       lineY:
         firstLine === undefined ? undefined : firstLine.top - origin.top + firstLine.height / 2,

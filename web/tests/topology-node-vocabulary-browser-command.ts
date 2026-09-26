@@ -68,7 +68,7 @@ function readPorts(): TopologyPortObservation[] {
     const anchorId = group.dataset["routeAnchor"];
     const target =
       (group.dataset["targetEdge"] === "left"
-        ? document.querySelector(`[data-rail-step-pill-target="${anchorId ?? ""}"]`)
+        ? document.querySelector(`[data-rail-step-line-target="${anchorId ?? ""}"]`)
         : null) ?? document.querySelector(`[data-rail-surface-target="${anchorId ?? ""}"]`);
     if (target === null) throw new Error("An attach branch has no target");
     const matrix = core.getScreenCTM();

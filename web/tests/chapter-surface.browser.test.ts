@@ -95,7 +95,7 @@ describe("chapter surfaces on the home page", () => {
       expect(layout.captionBorderColor).toBe("rgba(255, 255, 255, 0.12)");
       expect(layout.captionTextColor).toBe("rgb(234, 234, 234)");
       expect(layout.captionIconCount).toBe(observation.tabs.length);
-      expect(layout.pillMaterialMatchesHeader).toBe(true);
+      expect(layout.pillMaterialMatchesHeader).toBe(false);
       for (const left of [layout.glass.left, layout.pill.left, layout.caption.left]) {
         expect(Math.abs(left - layout.title.left)).toBeLessThanOrEqual(1);
       }
@@ -104,16 +104,19 @@ describe("chapter surfaces on the home page", () => {
         expect(layout.glass.top - layout.pill.bottom).toBeCloseTo(14, 0);
         expect(layout.caption.top - layout.glass.bottom).toBeCloseTo(12, 0);
         expect(layout.targetEdge).toBe("left");
-        expect(Math.abs(layout.branchEndpoint.x - layout.pill.left)).toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.branchEndpoint.x - layout.lineStart.left)).toBeLessThanOrEqual(1);
         expect(
-          Math.abs(layout.branchEndpoint.y - (layout.pill.top + layout.pill.bottom) / 2),
+          Math.abs(layout.branchEndpoint.y - (layout.lineStart.top + layout.lineStart.bottom) / 2),
         ).toBeLessThanOrEqual(1);
       } else {
         expect(layout.glass.top - layout.title.bottom).toBeCloseTo(20, 0);
         expect(layout.pill.top - layout.glass.bottom).toBeCloseTo(14, 0);
         expect(layout.caption.top - layout.pill.bottom).toBeCloseTo(10, 0);
-        expect(layout.targetEdge).toBe("top");
-        expect(Math.abs(layout.branchEndpoint.y - layout.glass.top)).toBeLessThanOrEqual(1);
+        expect(layout.targetEdge).toBe("left");
+        expect(Math.abs(layout.branchEndpoint.x - layout.lineStart.left)).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(layout.branchEndpoint.y - (layout.lineStart.top + layout.lineStart.bottom) / 2),
+        ).toBeLessThanOrEqual(1);
       }
       expect(layout.portNodeCount).toBe(0);
       expect(layout.playbackStageCount).toBe(1);
@@ -157,13 +160,21 @@ describe("chapter surfaces on the home page", () => {
         expect(Math.abs(sample.progressWidth - sample.expectedProgressWidth)).toBeLessThanOrEqual(
           1,
         );
-        expect(sample.highlightCenterOffset).toBeLessThanOrEqual(1);
-        const labels =
-          width < 620
-            ? [observation.labels[sample.selectedStepId ?? ""]]
-            : Object.values(observation.labels);
-        expect(sample.visiblePillLabels).toEqual(labels);
+        expect(sample.activeLabelGap).toBeGreaterThanOrEqual(0);
+        expect(sample.activeBranchAnimationCount).toBe(0);
+        const labels = [observation.labels[sample.selectedStepId ?? ""]];
+        expect(sample.visibleStepLabels).toEqual(labels);
       }
+      for (let index = 1; index < observation.tabs.length; index += 1) {
+        const currentTab = observation.tabs[index];
+        const previousTab = observation.tabs[index - 1];
+        if (currentTab === undefined || previousTab === undefined) throw new Error("Step missing");
+        expect(currentTab.centerX - previousTab.centerX, `${width}px step spacing`).toBeCloseTo(
+          width < 620 ? 22 : 68,
+          0,
+        );
+      }
+      expect(observation.tabs.every((tab) => tab.width >= 24 && tab.height >= 24)).toBe(true);
       for (const [index, sample] of observation.afterClicks.entries()) {
         expect(sample.visiblePanelIds).toEqual([stepIds[index]]);
       }

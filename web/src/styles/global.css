@@ -64,7 +64,10 @@
   }
 }
 
-.floating-glass-material:is(.chapter-step-pill, .site-header[data-visual-state="floating"]) {
+.floating-glass-material:is(
+  .chapter-step-active-label,
+  .site-header[data-visual-state="floating"]
+) {
   border-color: rgb(137 180 250 / 38%);
   background:
     linear-gradient(135deg, rgb(137 180 250 / 11%), transparent 40%, rgb(116 199 236 / 6%)),

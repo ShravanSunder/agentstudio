@@ -62,8 +62,8 @@ export interface TopologyAnchorMeasurement {
   readonly targetEdge?: TopologyTargetEdge | undefined;
   /** `data-rail-media-target`: the stage inside the glass. */
   readonly media: TopologyRect | undefined;
-  /** `data-rail-step-pill-target`: multi-step chapters attach here. */
-  readonly stepPill?: TopologyRect | undefined;
+  /** `data-rail-step-line-target`: the line's start before its first dot. */
+  readonly stepLine?: TopologyRect | undefined;
   /** The copy between the anchor and its media target; a hero phone branch turns below it. */
   readonly copyBlock: TopologyRect | undefined;
   /**
@@ -154,7 +154,7 @@ export function composeFullPageTopology(
   // into the chapter. Its attach path can extend past the nearest lane column.
   const contentX = Math.min(
     ...page.anchors.map((anchor) =>
-      anchor.stepPill === undefined
+      anchor.stepLine === undefined
         ? (attachXFor(anchor, stacked) ?? anchor.rect.left)
         : stacked
           ? (anchor.surface?.left ?? anchor.rect.left) + topologyStackedDropCornerInset
@@ -163,11 +163,9 @@ export function composeFullPageTopology(
   );
   const { rowYs, anchorRows } = measureTopologyRows({
     anchorYs: page.anchors.map((anchor) => anchor.lineY ?? topologyRectCenterY(anchor.rect)),
-    forcedYs: stacked
-      ? []
-      : page.anchors.flatMap((anchor) =>
-          anchor.stepPill === undefined ? [] : [topologyRectCenterY(anchor.stepPill)],
-        ),
+    forcedYs: page.anchors.flatMap((anchor) =>
+      anchor.stepLine === undefined ? [] : [topologyRectCenterY(anchor.stepLine)],
+    ),
     endY: topologyEndY(page),
   });
   const finalRow = rowYs.length - 1;
