@@ -32,10 +32,10 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                     harness.store.setActiveTab(tab.id)
                     _ = try #require(harness.store.addDrawerPane(to: parentPane.id))
                     let event = try #require(cmdShiftUEvent())
-                    let paneIDsBeforeDispatch = harness.store.panes.map(\.id)
+                    let paneIDsBeforeDispatch = Set(harness.store.panes.keys)
 
                     #expect(!harness.controller.handleAppOwnedKeyEvent(event))
-                    #expect(harness.store.panes.map(\.id) == paneIDsBeforeDispatch)
+                    #expect(Set(harness.store.panes.keys) == paneIDsBeforeDispatch)
                 }
             )
         }
@@ -51,7 +51,7 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
             let tab = Tab(paneId: parentPane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
-            let paneIDsBeforeCheck = harness.store.panes.map(\.id)
+            let paneIDsBeforeCheck = Set(harness.store.panes.keys)
 
             for command in [AppCommand.showPaneInboxNotifications, .clearPaneInboxNotifications] {
                 #expect(!harness.controller.canExecute(command))
@@ -64,7 +64,7 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                 )
             }
 
-            #expect(harness.store.panes.map(\.id) == paneIDsBeforeCheck)
+            #expect(Set(harness.store.panes.keys) == paneIDsBeforeCheck)
         }
     }
 
