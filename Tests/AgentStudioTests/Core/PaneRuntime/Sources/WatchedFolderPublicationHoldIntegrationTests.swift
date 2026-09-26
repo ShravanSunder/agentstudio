@@ -16,10 +16,7 @@ struct WatchedFolderPublicationHoldIntegrationTests {
         // Arrange
         let fixture = try await PublicationHoldFixture.make()
         defer { fixture.remove() }
-        let filesystem = FilesystemActor(
-            bus: EventBus<RuntimeEnvelope>(),
-            fseventStreamClient: ControllableFSEventStreamClient()
-        )
+        let filesystem = try makeFilesystemWithoutDiscoveryDeadline()
         let watchedPath = WatchedPath(path: fixture.watchedRoot)
         let initialSummary = await filesystem.refreshWatchedFolders([watchedPath])
         #expect(
@@ -54,10 +51,7 @@ struct WatchedFolderPublicationHoldIntegrationTests {
         // Arrange
         let fixture = try await PublicationHoldFixture.make()
         defer { fixture.remove() }
-        let filesystem = FilesystemActor(
-            bus: EventBus<RuntimeEnvelope>(),
-            fseventStreamClient: ControllableFSEventStreamClient()
-        )
+        let filesystem = try makeFilesystemWithoutDiscoveryDeadline()
         let watchedPath = WatchedPath(path: fixture.watchedRoot)
         _ = await filesystem.refreshWatchedFolders([watchedPath])
         let sourceID = FilesystemSourceID(kind: .watchedParentMembership, rootID: watchedPath.id)
@@ -97,6 +91,48 @@ struct WatchedFolderPublicationHoldIntegrationTests {
         -> [String]
     {
         summary.linkedWorktreePaths(in: fixture.watchedRoot).map(canonicalPath)
+    }
+}
+
+/// The production scanner and real Git discovery, minus the production discovery
+/// deadline: a wall-clock validation deadline would let machine load decide whether the
+/// fixture repository is admitted, so the deadline never fires here and the lane's hang
+/// bound is the only elapsed-time bound.
+private func makeFilesystemWithoutDiscoveryDeadline() throws -> FilesystemActor {
+    let validationExecutor = try RepoScannerValidationExecutor(
+        validationClient: RepoScannerGitDiscoveryClient(),
+        deadlineScheduler: InertPublicationHoldDiscoveryDeadline()
+    )
+    let scanScheduler = try WatchedFolderScanScheduler(
+        maximumConcurrentScans: AppPolicies.WatchedFolderScanning.maximumConcurrentTraversalQuanta,
+        now: RepoDiscoveryValidationClock.productionNow(),
+        validationExecutor: validationExecutor,
+        sessionFactory: { request, _ in
+            let session = RepoScanner().makeSession(
+                in: URL(fileURLWithPath: request.canonicalRoot.aliases.onceResolvedCanonical.path),
+                retainedCheckoutPaths: request.retainedCheckoutPaths
+            )
+            return WatchedFolderScannerSessionPort(
+                id: session.id,
+                advanceOneQuantum: session.advanceOneQuantum,
+                cancel: session.cancel,
+                consumeValidationCompletion: session.consumeValidationCompletion
+            )
+        }
+    )
+    return FilesystemActor(
+        bus: EventBus<RuntimeEnvelope>(),
+        fseventStreamClient: ControllableFSEventStreamClient(),
+        watchedFolderScanScheduler: scanScheduler
+    )
+}
+
+private struct InertPublicationHoldDiscoveryDeadline: RepoDiscoveryDeadlineScheduler {
+    func scheduleDeadline(
+        after duration: Duration,
+        _ handler: @escaping @Sendable () -> Void
+    ) -> RepoDiscoveryScheduledDeadline {
+        RepoDiscoveryScheduledDeadline(cancel: {})
     }
 }
 
