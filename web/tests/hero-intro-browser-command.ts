@@ -408,7 +408,7 @@ export const verifyHeroIntroShift = defineBrowserCommand(
         async () => await (window as Window & { heroIntroReady?: Promise<string> }).heroIntroReady,
       );
       if (ready !== "playing") throw new Error(`Shift intro settled before control: ${ready}`);
-      await applicationPage.waitForSelector("[data-topology-chapter-node] circle", {
+      await applicationPage.waitForSelector('[data-topology-chapter-node="many-agents"] circle', {
         state: "attached",
       });
       return await applicationPage.evaluate(async () => {
@@ -424,7 +424,7 @@ export const verifyHeroIntroShift = defineBrowserCommand(
           const windowNode = document.querySelector<HTMLElement>("[data-hero-terminal-window]");
           const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
           const chapterNode = artwork?.querySelector<SVGCircleElement>(
-            "[data-topology-chapter-node] circle",
+            '[data-topology-chapter-node="many-agents"] circle',
           );
           if (
             appFrame === null ||
