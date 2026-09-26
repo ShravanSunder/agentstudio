@@ -120,8 +120,7 @@ export type BridgeMainFileQueryDiagnosticPhase =
 	| 'snapshot_published'
 	| 'tree_stream_received'
 	| 'tree_task_started'
-	| 'tree_turn_completed'
-	| 'tree_dom_commit';
+	| 'tree_turn_completed';
 
 export type BridgeMainFileQueryDiagnosticEvent =
 	| {
@@ -148,11 +147,6 @@ export type BridgeMainFileQueryDiagnosticEvent =
 	  }
 	| {
 			readonly phase: 'tree_stream_received' | 'tree_task_started' | 'tree_turn_completed';
-	  }
-	| {
-			readonly phase: 'tree_dom_commit';
-			readonly mountedPathRowCount: number;
-			readonly viewportMeasured: boolean;
 	  };
 
 export type RecordBridgeMainFileQueryDiagnosticPhaseProps = BridgeMainFileQueryDiagnosticEvent & {
@@ -179,9 +173,6 @@ export function recordBridgeMainFileQueryDiagnosticPhase(
 			props.displayItemCount;
 		numericAttributes['agentstudio.bridge.file_query.diagnostic.tree_row.count'] =
 			props.treeRowCount;
-	} else if (props.phase === 'tree_dom_commit') {
-		numericAttributes['agentstudio.bridge.file_query.diagnostic.mounted_path_row.count'] =
-			props.mountedPathRowCount;
 	}
 	props.telemetryClient?.record({
 		scope: 'web',
@@ -203,11 +194,6 @@ export function recordBridgeMainFileQueryDiagnosticPhase(
 				? {
 						'agentstudio.bridge.file_query.diagnostic.query_key_matches_input':
 							props.queryKeyMatchesInput,
-					}
-				: {}),
-			...(props.phase === 'tree_dom_commit'
-				? {
-						'agentstudio.bridge.file_query.diagnostic.viewport_measured': props.viewportMeasured,
 					}
 				: {}),
 		},

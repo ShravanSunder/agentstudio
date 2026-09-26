@@ -282,21 +282,6 @@ struct BridgeTelemetryWireSchemaTests {
                 "agentstudio.bridge.file_query.diagnostic.query_key_matches_input": true,
             ]
         )
-        let treeDOMCommitAttributes = commonStringAttributes.merging([
-            "agentstudio.bridge.file_query.diagnostic.phase": "tree_dom_commit"
-        ]) { _, newValue in newValue }
-        let treeDOMCommitResult = BridgeTelemetryWireSchema.dropReason(
-            eventName: "performance.bridge.web.file_query_diagnostic",
-            durationMilliseconds: nil,
-            stringAttributes: treeDOMCommitAttributes,
-            numericAttributes: [
-                "agentstudio.bridge.file_query.diagnostic.mounted_path_row.count": 3
-            ],
-            booleanAttributes: [
-                "agentstudio.bridge.file_query.diagnostic.page_hidden": true,
-                "agentstudio.bridge.file_query.diagnostic.viewport_measured": false,
-            ]
-        )
         let rejectedPath = BridgeTelemetryWireSchema.dropReason(
             eventName: "performance.bridge.web.file_query_diagnostic",
             durationMilliseconds: nil,
@@ -316,7 +301,6 @@ struct BridgeTelemetryWireSchemaTests {
         #expect(batchResult == nil)
         #expect(snapshotResult == nil)
         #expect(renderConsumerResult == nil)
-        #expect(treeDOMCommitResult == nil)
         #expect(rejectedPath == .unsafeAttribute)
     }
 

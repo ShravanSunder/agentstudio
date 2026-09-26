@@ -114,18 +114,6 @@ extension BridgeProductWebKitCarrierTraceRecorder {
             recordRealGitLiveProofStage(
                 "page-file-query-tree-turn-completed visibility=\(pageVisibility)"
             )
-        case "tree_dom_commit":
-            let mountedPathRowCount = sample.numericAttributes[
-                "agentstudio.bridge.file_query.diagnostic.mounted_path_row.count"
-            ]?.rounded(.towardZero)
-            guard let mountedPathRowCount,
-                let viewportMeasured = sample.booleanAttributes[
-                    "agentstudio.bridge.file_query.diagnostic.viewport_measured"
-                ]
-            else { return }
-            recordRealGitLiveProofStage(
-                "page-file-query-tree-dom-commit mountedPathRowCount=\(Int(mountedPathRowCount)),viewportMeasured=\(viewportMeasured),visibility=\(pageVisibility)"
-            )
         default:
             return
         }

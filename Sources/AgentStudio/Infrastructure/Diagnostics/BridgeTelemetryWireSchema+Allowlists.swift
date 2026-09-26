@@ -869,7 +869,6 @@ extension BridgeTelemetryWireSchema {
             "tree_stream_received",
             "tree_task_started",
             "tree_turn_completed",
-            "tree_dom_commit",
         ],
         "agentstudio.bridge.worker.payload_class": [
             "inline",

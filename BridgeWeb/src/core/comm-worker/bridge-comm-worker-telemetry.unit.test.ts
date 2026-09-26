@@ -119,15 +119,8 @@ describe('Bridge comm worker telemetry', () => {
 			telemetryClient,
 			treeRowCount: 1,
 		});
-		recordBridgeMainFileQueryDiagnosticPhase({
-			mountedPathRowCount: 3,
-			pageHidden: true,
-			phase: 'tree_dom_commit',
-			telemetryClient,
-			viewportMeasured: false,
-		});
 
-		expect(samples).toHaveLength(4);
+		expect(samples).toHaveLength(3);
 		expect(samples[0]).toMatchObject({
 			name: 'performance.bridge.web.file_query_diagnostic',
 			stringAttributes: {
@@ -152,18 +145,6 @@ describe('Bridge comm worker telemetry', () => {
 			booleanAttributes: {
 				'agentstudio.bridge.file_query.diagnostic.page_hidden': true,
 				'agentstudio.bridge.file_query.diagnostic.query_key_matches_input': true,
-			},
-		});
-		expect(samples[3]).toMatchObject({
-			stringAttributes: {
-				'agentstudio.bridge.file_query.diagnostic.phase': 'tree_dom_commit',
-			},
-			numericAttributes: {
-				'agentstudio.bridge.file_query.diagnostic.mounted_path_row.count': 3,
-			},
-			booleanAttributes: {
-				'agentstudio.bridge.file_query.diagnostic.page_hidden': true,
-				'agentstudio.bridge.file_query.diagnostic.viewport_measured': false,
 			},
 		});
 		expect(JSON.stringify(samples)).not.toContain('tracked.txt');

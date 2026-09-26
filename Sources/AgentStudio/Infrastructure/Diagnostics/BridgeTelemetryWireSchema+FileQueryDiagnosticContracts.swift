@@ -34,12 +34,9 @@ extension BridgeTelemetryWireSchema {
         let batchIndexKey = "agentstudio.bridge.file_query.diagnostic.batch.index"
         let displayItemCountKey = "agentstudio.bridge.file_query.diagnostic.display_item.count"
         let pageHiddenKey = "agentstudio.bridge.file_query.diagnostic.page_hidden"
-        let mountedPathRowCountKey =
-            "agentstudio.bridge.file_query.diagnostic.mounted_path_row.count"
         let queryKeyMatchesInputKey =
             "agentstudio.bridge.file_query.diagnostic.query_key_matches_input"
         let treeRowCountKey = "agentstudio.bridge.file_query.diagnostic.tree_row.count"
-        let viewportMeasuredKey = "agentstudio.bridge.file_query.diagnostic.viewport_measured"
         func matches(numericKeys: Set<String>, booleanKeys: Set<String>) -> Bool {
             contract.matches(
                 .init(
@@ -68,10 +65,6 @@ extension BridgeTelemetryWireSchema {
             || matches(
                 numericKeys: snapshotCountKeys,
                 booleanKeys: pageHiddenKeys.union([queryKeyMatchesInputKey])
-            )
-            || matches(
-                numericKeys: [mountedPathRowCountKey],
-                booleanKeys: pageHiddenKeys.union([viewportMeasuredKey])
             )
     }
 }
