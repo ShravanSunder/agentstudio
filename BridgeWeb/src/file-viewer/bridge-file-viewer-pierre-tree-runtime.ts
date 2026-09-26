@@ -37,7 +37,6 @@ import {
 } from './bridge-file-viewer-tree-patch-coordinator.js';
 
 export interface UseBridgeFileViewerPierreTreeRuntimeProps {
-	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly fileActivationSequence: number | null;
 	readonly fileActivationStartedAtPerfNow: number | null;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
@@ -62,14 +61,12 @@ export function useBridgeFileViewerPierreTreeRuntime(
 ): BridgeFileViewerPierreTreeRuntime {
 	const onSelectFileRef = useRef(props.onSelectFile);
 	const treeRowByPathRef = useRef(props.treeRowByPath);
-	const completeFileQueryTransactionRef = useRef(props.completeFileQueryTransaction);
 	const isSyncingSelectedPathRef = useRef(false);
 	const firstInteractionMountStartedAtRef = useRef(performance.now());
 	const hasRecordedFirstInteractionRef = useRef(false);
 	const recordedActivationSequenceRef = useRef<number | null>(null);
 	onSelectFileRef.current = props.onSelectFile;
 	treeRowByPathRef.current = props.treeRowByPath;
-	completeFileQueryTransactionRef.current = props.completeFileQueryTransaction;
 
 	const selectPath = useCallback((selectedPath: string): void => {
 		const normalizedPath = selectedPath.endsWith('/') ? selectedPath.slice(0, -1) : selectedPath;
@@ -106,8 +103,6 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	const patchCoordinatorRef = useRef<BridgeFileViewerTreePatchCoordinator | null>(null);
 	patchCoordinatorRef.current ??= createBridgeFileViewerTreePatchCoordinator({
 		model,
-		onQueryTransactionReady: (transactionId): boolean =>
-			completeFileQueryTransactionRef.current(transactionId),
 	});
 	const handleTreePatchStreamDrainRef = useRef<() => void>(() => {});
 	useBridgeFileTreePatchStream({

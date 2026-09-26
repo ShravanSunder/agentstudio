@@ -10,14 +10,9 @@ import {
 describe('Bridge File viewer tree patch coordinator', () => {
 	test('keeps one model unchanged until every staged query batch commits atomically', () => {
 		const active = createRecordingTreeModel(['Sources/Current.swift']);
-		const readyTransactions: string[] = [];
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
-			onQueryTransactionReady: (transactionId): boolean => {
-				readyTransactions.push(transactionId);
-				return true;
-			},
 		});
 
 		coordinator.applyEntry(queryBegin(1, 'query-1'));
@@ -26,7 +21,6 @@ describe('Bridge File viewer tree patch coordinator', () => {
 
 		expect(active.paths).toEqual(['Sources/Current.swift']);
 		expect(active.batchCalls).toEqual([]);
-		expect(readyTransactions).toEqual([]);
 
 		coordinator.applyEntry(queryCommit(4, 'query-1'));
 
@@ -39,19 +33,13 @@ describe('Bridge File viewer tree patch coordinator', () => {
 			],
 		]);
 		expect(active.resetCalls).toEqual([]);
-		expect(readyTransactions).toEqual(['query-1']);
 	});
 
 	test('discards superseded staging and applies later deltas to the same committed model', () => {
 		const active = createRecordingTreeModel(['Sources/Current.swift']);
-		const readyTransactions: string[] = [];
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
-			onQueryTransactionReady: (transactionId): boolean => {
-				readyTransactions.push(transactionId);
-				return true;
-			},
 		});
 
 		coordinator.applyEntry(queryBegin(1, 'query-old'));
@@ -69,25 +57,26 @@ describe('Bridge File viewer tree patch coordinator', () => {
 
 		expect(active.paths).toEqual(['Sources/New.swift', 'Sources/Delta.swift']);
 		expect(active.resetCalls).toEqual([]);
-		expect(readyTransactions).toEqual(['query-new']);
 	});
 
-	test('keeps the current model unchanged when main rejects acknowledgement or aborts staging', () => {
+	test('keeps paint staging atomic until query commit and discards an aborted transaction', () => {
 		const active = createRecordingTreeModel(['Sources/Current.swift']);
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
-			onQueryTransactionReady: (): boolean => false,
 		});
 
-		coordinator.applyEntry(queryBegin(1, 'query-rejected'));
-		coordinator.applyEntry(queryBatch(2, 'query-rejected', ['Sources/Rejected.swift']));
-		coordinator.applyEntry(queryCommit(3, 'query-rejected'));
+		coordinator.applyEntry(queryBegin(1, 'query-committed'));
+		coordinator.applyEntry(queryBatch(2, 'query-committed', ['Sources/Committed.swift']));
+		expect(active.paths).toEqual(['Sources/Current.swift']);
+		coordinator.applyEntry(queryCommit(3, 'query-committed'));
+		expect(active.paths).toEqual(['Sources/Committed.swift']);
+
 		coordinator.applyEntry(queryBegin(4, 'query-aborted'));
 		coordinator.applyEntry(queryBatch(5, 'query-aborted', ['Sources/Aborted.swift']));
 		coordinator.applyEntry({ cursor: 6, kind: 'queryAbort', transactionId: 'query-aborted' });
 
-		expect(active.paths).toEqual(['Sources/Current.swift']);
+		expect(active.paths).toEqual(['Sources/Committed.swift']);
 		expect(active.resetCalls).toEqual([]);
 	});
 
@@ -96,7 +85,6 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
-			onQueryTransactionReady: (): boolean => true,
 		});
 
 		coordinator.applyEntry(queryBegin(1, 'query-empty'));
@@ -112,7 +100,6 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
-			onQueryTransactionReady: (): boolean => true,
 		});
 
 		coordinator.applyEntry(queryBegin(1, 'query-clear'));
@@ -131,7 +118,6 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
-			onQueryTransactionReady: (): boolean => true,
 		});
 
 		coordinator.applyEntry({ cursor: 1, kind: 'reset' });
@@ -157,7 +143,6 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		const active = createRecordingTreeModel();
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			model: active.model,
-			onQueryTransactionReady: (): boolean => true,
 		});
 
 		coordinator.applyEntry({ cursor: 1, kind: 'reset' });
@@ -179,12 +164,11 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		]);
 	});
 
-	test('keeps source replacement staging independent from aborted or rejected queries', () => {
+	test('keeps source replacement staging independent from aborted query transactions', () => {
 		const active = createRecordingTreeModel(['Sources/Current.swift']);
 		const coordinator = createBridgeFileViewerTreePatchCoordinator({
 			initialPaths: active.paths,
 			model: active.model,
-			onQueryTransactionReady: (): boolean => false,
 		});
 
 		coordinator.applyEntry({ cursor: 1, kind: 'reset' });
@@ -196,13 +180,10 @@ describe('Bridge File viewer tree patch coordinator', () => {
 		coordinator.applyEntry(queryBegin(3, 'query-aborted'));
 		coordinator.applyEntry(queryBatch(4, 'query-aborted', ['Sources/QueryAbort.swift']));
 		coordinator.applyEntry({ cursor: 5, kind: 'queryAbort', transactionId: 'query-aborted' });
-		coordinator.applyEntry(queryBegin(6, 'query-rejected'));
-		coordinator.applyEntry(queryBatch(7, 'query-rejected', ['Sources/QueryReject.swift']));
-		coordinator.applyEntry(queryCommit(8, 'query-rejected'));
 
 		expect(active.paths).toEqual(['Sources/Current.swift']);
 
-		coordinator.applyEntry({ cursor: 9, kind: 'replacementCommit' });
+		coordinator.applyEntry({ cursor: 6, kind: 'replacementCommit' });
 
 		expect(active.paths).toEqual(['Sources/Replacement.swift']);
 	});

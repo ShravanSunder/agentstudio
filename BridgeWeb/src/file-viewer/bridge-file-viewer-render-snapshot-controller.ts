@@ -53,7 +53,6 @@ export function BridgeFileViewerSurfaceClientProvider(
 
 export interface BridgeFileViewerRenderSnapshotController {
 	readonly clearSelectedFileViewContent: () => void;
-	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly dispatchFileViewQueryFact: (query: BridgeWorkerFileQuery) => void;
 	readonly dispatchSelectedFileViewContentRequest: (props: {
 		readonly fileId: string;
@@ -267,7 +266,6 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 	return useMemo(
 		(): BridgeFileViewerRenderSnapshotController => ({
 			clearSelectedFileViewContent,
-			completeFileQueryTransaction: renderSnapshotStore.completeFileQueryTransaction,
 			dispatchFileViewQueryFact,
 			dispatchSelectedFileViewContentRequest,
 			dispatchVisibleFileViewViewportFact,
@@ -294,7 +292,6 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			dispatchVisibleFileViewViewportFact,
 			retryUnavailableFileRefresh,
 			sendFileSelectionReceipt,
-			renderSnapshotStore.completeFileQueryTransaction,
 			renderSnapshotStore.fileTreePatchStream,
 			fileViewClient.renderFulfillmentCoordinator,
 			renderSnapshot.fileDisplayFreshness,

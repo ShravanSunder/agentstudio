@@ -846,7 +846,7 @@ describe('Bridge comm worker File product runtime', () => {
 		dispatch.message(
 			encodeBridgeWorkerFileDisplayResyncCommand({
 				epoch: 99,
-				reason: 'acknowledgementTimeout',
+				reason: 'bufferOverflow',
 				requestId: 'request-file-display-resync',
 				transactionId: 'file-query-7',
 			}),

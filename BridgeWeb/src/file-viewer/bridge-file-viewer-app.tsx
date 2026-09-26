@@ -528,7 +528,6 @@ export function BridgeFileViewerAppImplementation(
 		>
 			<FileViewerShell
 				codeViewOptions={codeViewOptions}
-				completeFileQueryTransaction={renderSnapshotController.completeFileQueryTransaction}
 				contentHeaderTitle={contentHeaderTitle}
 				dispatchVisibleFileDemand={dispatchVisibleFileDemand}
 				displayModel={displayModel}

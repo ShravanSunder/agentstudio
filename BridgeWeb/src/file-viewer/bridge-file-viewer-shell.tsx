@@ -39,7 +39,6 @@ export interface BridgeFileViewerShellProps {
 	readonly codeViewOptions?: BridgeFilesCodeViewOptions;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
-	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly contentHeaderTitle: string;
 	readonly dispatchVisibleFileDemand: (change: BridgeFileViewerVisibleFileDemandChange) => void;
 	readonly displayModel: BridgeFileViewerDisplayModel;
@@ -195,7 +194,6 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 				handleTestId="bridge-file-viewer-rail-resize-handle"
 				rail={
 					<BridgeFileViewerTreePanel
-						completeFileQueryTransaction={props.completeFileQueryTransaction}
 						filterMode={props.filterMode}
 						isFilterMenuOpen={props.isFilterMenuOpen}
 						fileTreePatchStream={props.fileTreePatchStream}

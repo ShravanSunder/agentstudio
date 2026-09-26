@@ -47,11 +47,7 @@ describe('Bridge main render snapshot store File query publication', () => {
 		});
 
 		// Act / Assert
-		expect(publicationOrder).toEqual([]);
-		expect(store.completeFileQueryTransaction('query-publication')).toBe(true);
 		expect(publicationOrder).toEqual(['snapshot', 'query:query-publication']);
 		expect(store.getSnapshot().fileQuerySlice?.searchText).toBe('missing');
-		expect(store.completeFileQueryTransaction('wrong-query')).toBe(false);
-		expect(publicationOrder).toEqual(['snapshot', 'query:query-publication']);
 	});
 });

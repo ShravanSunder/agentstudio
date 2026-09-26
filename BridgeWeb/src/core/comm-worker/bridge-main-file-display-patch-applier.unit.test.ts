@@ -75,63 +75,70 @@ describe('Bridge main File display patch applier', () => {
 		]);
 	});
 
-	test('buffers terminal metadata and a later query in FIFO order until each exact acknowledgement', () => {
+	test('replays events buffered during paint commit in FIFO order after the worker commit', () => {
 		const applier = new BridgeMainFileDisplayPatchApplier();
 		applier.applyEvent(baseTreeEvent(1, [fileTreeUpsert('row-a', 'Sources/A.swift', 0)]));
+		const cursorBeforeQueries = applier.fileTreePatchStream.getCursor();
+		let replayedBufferedEvents = false;
+		applier.fileTreePatchStream.subscribe((): void => {
+			const latestEntry = applier.fileTreePatchStream.readAfter(cursorBeforeQueries).at(-1);
+			if (
+				replayedBufferedEvents ||
+				latestEntry?.kind !== 'queryCommit' ||
+				latestEntry.transactionId !== 'query-first'
+			) {
+				return;
+			}
+			replayedBufferedEvents = true;
+			applier.applyEvent(deltaTreeEvent(3, [fileTreeUpsert('row-c', 'Sources/C.swift', 1)]));
+			applier.applyEvent(singleBatchQueryEvent(4, 'query-second', 'row-d', 'Sources/D.swift'));
+		});
 		applier.applyEvent(singleBatchQueryEvent(2, 'query-first', 'row-b', 'Sources/B.swift'));
-		applier.applyEvent(deltaTreeEvent(3, [fileTreeUpsert('row-c', 'Sources/C.swift', 1)]));
-		applier.applyEvent(singleBatchQueryEvent(4, 'query-second', 'row-d', 'Sources/D.swift'));
+
+		expect(replayedBufferedEvents).toBe(true);
+		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/A.swift')).toBeUndefined();
+		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeUndefined();
+		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/C.swift')).toBeUndefined();
+		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/D.swift')).toBeDefined();
+		expect(applier.state.fileDisplayFreshness?.sequence).toBe(4);
+		expect(
+			applier.fileTreePatchStream.readAfter(cursorBeforeQueries).map((entry) => entry.kind),
+		).toEqual([
+			'queryBegin',
+			'queryBatch',
+			'queryCommit',
+			'delta',
+			'queryBegin',
+			'queryBatch',
+			'queryCommit',
+		]);
+	});
+
+	test('preserves old visible state and requests resync if buffered worker events overflow', () => {
+		const resyncRequests: unknown[] = [];
+		const applier = new BridgeMainFileDisplayPatchApplier({
+			maximumBufferedEvents: 0,
+			requestResync: (request): void => {
+				resyncRequests.push(request);
+			},
+		});
+		applier.applyEvent(baseTreeEvent(1, [fileTreeUpsert('row-a', 'Sources/A.swift', 0)]));
+		let injectedAfterCommit = false;
+		applier.fileTreePatchStream.subscribe((): void => {
+			if (injectedAfterCommit) return;
+			if (applier.fileTreePatchStream.readAfter(0).at(-1)?.kind !== 'queryCommit') return;
+			injectedAfterCommit = true;
+			applier.applyEvent(deltaTreeEvent(3, [fileTreeUpsert('row-c', 'Sources/C.swift', 1)]));
+		});
+
+		applier.applyEvent(singleBatchQueryEvent(2, 'query-failure', 'row-b', 'Sources/B.swift'));
 
 		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/A.swift')).toBeDefined();
 		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeUndefined();
-		expect(applier.completeQueryTransaction('query-first')?.fileTreeSlice.index.size).toBe(2);
-		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeDefined();
-		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/C.swift')).toBeDefined();
-		expect(applier.completeQueryTransaction('query-second')?.fileTreeSlice.index.size).toBe(1);
-		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/D.swift')).toBeDefined();
+		expect(resyncRequests).toEqual([{ reason: 'bufferOverflow', transactionId: 'query-failure' }]);
 	});
 
-	test('preserves old visible state on ack mismatch, timeout, and buffer overflow', () => {
-		for (const scenario of ['mismatch', 'timeout', 'overflow'] as const) {
-			const resyncRequests: unknown[] = [];
-			let fireTimeout = noOperation;
-			const applier = new BridgeMainFileDisplayPatchApplier({
-				maximumBufferedEvents: scenario === 'overflow' ? 0 : 256,
-				requestResync: (request): void => {
-					resyncRequests.push(request);
-				},
-				scheduleTimeout: (callback): (() => void) => {
-					fireTimeout = callback;
-					return (): void => {};
-				},
-			});
-			applier.applyEvent(baseTreeEvent(1, [fileTreeUpsert('row-a', 'Sources/A.swift', 0)]));
-			applier.applyEvent(singleBatchQueryEvent(2, 'query-failure', 'row-b', 'Sources/B.swift'));
-
-			if (scenario === 'mismatch') applier.completeQueryTransaction('wrong-query');
-			if (scenario === 'timeout') fireTimeout();
-			if (scenario === 'overflow') {
-				applier.applyEvent(deltaTreeEvent(3, [fileTreeUpsert('row-c', 'Sources/C.swift', 1)]));
-			}
-
-			expect(applier.state.fileTreeSlice.index.rowForPath('Sources/A.swift')).toBeDefined();
-			expect(applier.state.fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeUndefined();
-			expect(applier.completeQueryTransaction('query-failure')).toBeNull();
-			expect(resyncRequests).toEqual([
-				{
-					reason:
-						scenario === 'mismatch'
-							? 'acknowledgementMismatch'
-							: scenario === 'timeout'
-								? 'acknowledgementTimeout'
-								: 'bufferOverflow',
-					transactionId: 'query-failure',
-				},
-			]);
-		}
-	});
-
-	test('publishes no React snapshot before the terminal Pierre acknowledgement', () => {
+	test('publishes the atomic File query snapshot on worker commit before Pierre paints it', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		store.applyFileDisplayPatchEvent(
 			baseTreeEvent(1, [fileTreeUpsert('row-a', 'Sources/A.swift', 0)]),
@@ -155,19 +162,99 @@ describe('Bridge main File display patch applier', () => {
 			}),
 		);
 
-		expect(publishCount).toBe(0);
-		expect(store.getSnapshot().fileTreeSlice.index.rowForPath('Sources/A.swift')).toBeDefined();
-		expect(store.getSnapshot().fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeUndefined();
-
-		store.completeFileQueryTransaction('query-store');
-
 		expect(publishCount).toBe(1);
 		expect(store.getSnapshot().fileTreeSlice.index.rowForPath('Sources/A.swift')).toBeUndefined();
 		expect(store.getSnapshot().fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeDefined();
+		expect(store.getSnapshot().fileQuerySlice).toMatchObject({
+			projectedRowCount: 1,
+			totalRowCount: 2,
+		});
 		unsubscribe();
 	});
 
-	test('stages every query batch without publishing visible state until Pierre acknowledges commit', () => {
+	test('publishes a hidden-page query replacement on worker commit without Pierre frames', () => {
+		const resyncRequests: unknown[] = [];
+		const store = createBridgeMainRenderSnapshotStore({
+			requestResync: (request): void => {
+				resyncRequests.push(request);
+			},
+		});
+		store.applyFileDisplayPatchEvent(
+			baseTreeEvent(1, [fileTreeUpsert('old', 'Sources/Old.swift', 0)]),
+		);
+		const publications: Array<{
+			readonly freshnessSequence: number | null;
+			readonly queryText: string | undefined;
+			readonly rowPaths: readonly string[];
+		}> = [];
+		const unsubscribe = store.subscribe((): void => {
+			const snapshot = store.getSnapshot();
+			publications.push({
+				freshnessSequence: snapshot.fileDisplayFreshness?.sequence ?? null,
+				queryText: snapshot.fileQuerySlice?.searchText,
+				rowPaths: ['Sources/Old.swift', 'Sources/New.swift', 'Sources/Next.swift'].filter(
+					(path): boolean => snapshot.fileTreeSlice.index.rowForPath(path) !== undefined,
+				),
+			});
+		});
+
+		store.applyFileDisplayPatchEvent(
+			queryEvent({
+				batchCount: 2,
+				batchIndex: 0,
+				patches: [fileTreeBatch([fileTreeUpsert('new', 'Sources/New.swift', 0)])],
+				projectionRevision: 2,
+				sequence: 2,
+				transactionId: 'hidden-query-replacement',
+			}),
+		);
+		store.applyFileDisplayPatchEvent(
+			queryEvent({
+				batchCount: 2,
+				batchIndex: 1,
+				patches: [
+					fileTreeBatch([fileTreeUpsert('next', 'Sources/Next.swift', 1)]),
+					{
+						...fileQueryPatch(2, 3),
+						payload: {
+							...fileQueryPatch(2, 3).payload,
+							searchText: 'new',
+						},
+					},
+				],
+				projectionRevision: 3,
+				sequence: 3,
+				transactionId: 'hidden-query-replacement',
+			}),
+		);
+
+		// Model a hidden document: the Pierre patch stream has no consumer, so no rAF drain runs.
+		const snapshot = store.getSnapshot();
+		expect({
+			freshnessSequence: snapshot.fileDisplayFreshness?.sequence ?? null,
+			publications,
+			queryText: snapshot.fileQuerySlice?.searchText,
+			resyncRequests,
+			rowPaths: ['Sources/Old.swift', 'Sources/New.swift', 'Sources/Next.swift'].filter(
+				(path): boolean => snapshot.fileTreeSlice.index.rowForPath(path) !== undefined,
+			),
+		}).toEqual({
+			freshnessSequence: 3,
+			publications: [
+				{
+					freshnessSequence: 3,
+					queryText: 'new',
+					rowPaths: ['Sources/New.swift', 'Sources/Next.swift'],
+				},
+			],
+			queryText: 'new',
+			resyncRequests: [],
+			rowPaths: ['Sources/New.swift', 'Sources/Next.swift'],
+		});
+		unsubscribe();
+	});
+
+	test('stages every worker query batch and commits query state atomically before Pierre drains', () => {
 		const applier = new BridgeMainFileDisplayPatchApplier();
 		applier.applyEvent(baseTreeEvent(1, [fileTreeUpsert('row-a', 'Sources/A.swift', 0)]));
 		const visibleBeforeQuery = applier.state;
@@ -185,32 +272,24 @@ describe('Bridge main File display patch applier', () => {
 				}),
 			),
 		).toBeNull();
-		expect(
-			applier.applyEvent(
-				queryEvent({
-					batchCount: 2,
-					batchIndex: 1,
-					patches: [fileQueryPatch(1, 2)],
-					projectionRevision: 3,
-					sequence: 3,
-					transactionId: 'query-one',
-				}),
-			),
-		).toBeNull();
-
 		expect(applier.state).toBe(visibleBeforeQuery);
-		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/A.swift')).toBeDefined();
-		expect(applier.state.fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeUndefined();
-		expect(
-			applier.fileTreePatchStream.readAfter(cursorBeforeQuery).map((entry) => entry.kind),
-		).toEqual(['queryBegin', 'queryBatch', 'queryCommit']);
+		const committed = applier.applyEvent(
+			queryEvent({
+				batchCount: 2,
+				batchIndex: 1,
+				patches: [fileQueryPatch(1, 2)],
+				projectionRevision: 3,
+				sequence: 3,
+				transactionId: 'query-one',
+			}),
+		);
 
-		const committed = applier.completeQueryTransaction('query-one');
-
-		expect(committed?.fileTreeSlice.index.size).toBe(1);
 		expect(committed?.fileTreeSlice.index.rowForPath('Sources/A.swift')).toBeUndefined();
 		expect(committed?.fileTreeSlice.index.rowForPath('Sources/B.swift')).toBeDefined();
 		expect(committed?.fileQuerySlice).toMatchObject({ projectedRowCount: 1, totalRowCount: 2 });
+		expect(
+			applier.fileTreePatchStream.readAfter(cursorBeforeQuery).map((entry) => entry.kind),
+		).toEqual(['queryBegin', 'queryBatch', 'queryCommit']);
 	});
 
 	test('replays every stream operation after a skipped snapshot and supports one-to-many replacement', () => {
@@ -266,10 +345,7 @@ describe('Bridge main File display patch applier', () => {
 				.flatMap((entry) => entry.operations)
 				.map((operation) => operation.path),
 		).toEqual(['Sources/A.swift', 'Sources/B.swift', 'Sources/C.swift']);
-		expect(applier.state.fileTreeSlice.index.size).toBe(1);
-
-		const committed = applier.completeQueryTransaction('query-many');
-		expect(committed?.fileTreeSlice.index.size).toBe(3);
+		expect(applier.state.fileTreeSlice.index.size).toBe(3);
 	});
 });
 
@@ -407,12 +483,10 @@ function fileTreeUpsert(
 	};
 }
 
-function noOperation(): void {}
-
 function fileQueryPatch(
 	projectedRowCount: number,
 	totalRowCount: number,
-): BridgeWorkerFileDisplayPatch {
+): Extract<BridgeWorkerFileDisplayPatch, { readonly slice: 'fileQuery' }> {
 	return {
 		operation: 'upsert',
 		payload: {

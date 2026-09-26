@@ -28,6 +28,7 @@ private struct BridgeProductHiddenFileIPCProof {
     let controlResult: IPCBridgePageControlResult
     let displayPath: String
     let stateBeforeControl: BridgeProductHiddenFileViewerState
+    let stateAfterQuery: BridgeProductHiddenFileViewerState
     let stateAfterOpen: BridgeProductHiddenFileViewerState
 }
 
@@ -38,7 +39,7 @@ private struct BridgeProductHiddenFileIPCContext {
 
 @MainActor
 extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
-    @Test("hidden Files page accepts native IPC reveal and opens the document without an animation frame")
+    @Test("hidden Files query and native IPC reveal complete without an animation frame")
     func hiddenFilesIPCRevealCompletesSelectionAndOpenStateWithoutAnimationFrame() async throws {
         let repoURL = try await FilesystemTestGitRepo.create(
             named: "bridge-product-hidden-file-ipc-webkit"
@@ -90,9 +91,15 @@ private func executeHiddenFileIPCJourney(
         relativePath: relativePath,
         acceptedState: acceptedState
     )
+    let stateAfterQuery = try await searchHiddenFilesWithoutFrames(
+        controller,
+        context: context,
+        searchText: relativePath
+    )
     return try await revealFileAndAwaitOpenState(
         controller,
         context: context,
+        stateAfterQuery: stateAfterQuery,
         relativePath: relativePath
     )
 }
@@ -206,9 +213,41 @@ private func hideFilesPageWithAcceptedMetadata(
 }
 
 @MainActor
+private func searchHiddenFilesWithoutFrames(
+    _ controller: BridgePaneController,
+    context: BridgeProductHiddenFileIPCContext,
+    searchText: String
+) async throws -> BridgeProductHiddenFileViewerState {
+    recordHiddenFileProofStage("issuing-hidden-query")
+    let result = try await controller.applyPageControlForIPC(
+        .fileTreeSearch(searchText: searchText),
+        correlationId: nil
+    )
+    guard result.status == "accepted",
+        result.method == IPCBridgePageControlCommand.fileTreeSearch(searchText: searchText).method
+    else {
+        throw hiddenPageProofError("The hidden Files search was not accepted; result=\(result)")
+    }
+    recordHiddenFileProofStage("hidden-query-control-replied")
+
+    let state = try await waitForHiddenFileQueryState(
+        controller.page,
+        expectedRafFiredCount: context.stateBeforeControl.frameLivenessRafFiredCount
+    )
+    guard state.fileDisplayTreeRowCount < context.stateBeforeControl.fileDisplayTreeRowCount else {
+        throw hiddenPageProofError(
+            "The hidden query did not replace the logical Files rows; before=\(context.stateBeforeControl), after=\(state)"
+        )
+    }
+    recordHiddenFileProofStage("hidden-query-logical-state-ready")
+    return state
+}
+
+@MainActor
 private func revealFileAndAwaitOpenState(
     _ controller: BridgePaneController,
     context: BridgeProductHiddenFileIPCContext,
+    stateAfterQuery: BridgeProductHiddenFileViewerState,
     relativePath: String
 ) async throws -> BridgeProductHiddenFileIPCProof {
     recordHiddenFileProofStage("issuing-ipc-reveal")
@@ -238,6 +277,7 @@ private func revealFileAndAwaitOpenState(
         controlResult: controlResult,
         displayPath: context.displayPath,
         stateBeforeControl: context.stateBeforeControl,
+        stateAfterQuery: stateAfterQuery,
         stateAfterOpen: openedState
     )
 }
@@ -249,16 +289,55 @@ private func expectHiddenFileIPCProof(
     #expect(run.value.controlResult.status == "accepted")
     #expect(run.value.controlResult.path == run.value.displayPath)
     #expect(run.value.stateBeforeControl.documentVisibilityState == "hidden")
+    #expect(run.value.stateAfterQuery.documentVisibilityState == "hidden")
     #expect(run.value.stateAfterOpen.documentVisibilityState == "hidden")
+    #expect(run.value.stateAfterQuery.fileDisplayTreeRowCount == 1)
     #expect(run.value.stateAfterOpen.selectedDisplayPath == run.value.displayPath)
     #expect(run.value.stateAfterOpen.openFilePath == run.value.displayPath)
     #expect(run.value.stateAfterOpen.openFileState == "ready")
     #expect(run.value.stateBeforeControl.frameLivenessRafFiredCount == 0)
     #expect(
+        run.value.stateAfterQuery.frameLivenessRafFiredCount
+            == run.value.stateBeforeControl.frameLivenessRafFiredCount
+    )
+    #expect(
         run.value.stateAfterOpen.frameLivenessRafFiredCount
             == run.value.stateBeforeControl.frameLivenessRafFiredCount
     )
     #expect(run.teardownSnapshot.hasZeroResidue)
+}
+
+@MainActor
+private func waitForHiddenFileQueryState(
+    _ page: WebPage,
+    expectedRafFiredCount: Int
+) async throws -> BridgeProductHiddenFileViewerState {
+    let encodedState = try await WebPageEventWaits.waitForDocumentValue(
+        page,
+        reader: """
+            const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+            if (fileShell === null || document.visibilityState !== 'hidden') return null;
+            const fileDisplayTreeRowCount = Number(fileShell.getAttribute('data-file-display-tree-row-count') ?? '0');
+            if (fileDisplayTreeRowCount !== 1) return null;
+            const probe = window.__bridgeFrameLivenessProbe;
+            const frameLivenessRafFiredCount = probe?.rafFiredCount ?? 0;
+            if (frameLivenessRafFiredCount !== expectedRafFiredCount) return null;
+            return JSON.stringify({
+              documentVisibilityState: document.visibilityState,
+              fileDisplayItemCount: Number(fileShell.getAttribute('data-file-display-item-count') ?? '0'),
+              fileDisplayTreeRowCount,
+              fileViewerActive: fileShell.getAttribute('data-file-viewer-active') === 'true',
+              frameLivenessRafAlive: probe?.rafAlive ?? 'missing',
+              frameLivenessRafFiredCount,
+              frameLivenessRafScheduledCount: probe?.rafScheduledCount ?? 0,
+              openFilePath: fileShell.getAttribute('data-worktree-open-file-path'),
+              openFileState: fileShell.getAttribute('data-worktree-open-file-state'),
+              selectedDisplayPath: fileShell.getAttribute('data-selected-display-path')
+            });
+            """,
+        arguments: ["expectedRafFiredCount": expectedRafFiredCount]
+    )
+    return try decodeHiddenFileViewerState(encodedState)
 }
 
 private func recordHiddenFileProofStage(_ stage: String) {

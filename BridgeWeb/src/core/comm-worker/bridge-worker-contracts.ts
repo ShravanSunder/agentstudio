@@ -284,8 +284,6 @@ export const bridgeWorkerReviewProjectionUpdateCommandSchema = bridgeWorkerMainT
 	.strict();
 
 export const bridgeWorkerFileDisplayResyncReasonSchema = z.enum([
-	'acknowledgementMismatch',
-	'acknowledgementTimeout',
 	'bufferOverflow',
 	'initialMount',
 	'protocolViolation',

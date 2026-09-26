@@ -15,7 +15,6 @@ export interface BridgeFileViewerTreePatchCoordinator {
 export function createBridgeFileViewerTreePatchCoordinator(props: {
 	readonly initialPaths?: readonly string[];
 	readonly model: BridgeFileViewerPatchableTreeModel;
-	readonly onQueryTransactionReady: (transactionId: string) => boolean;
 }): BridgeFileViewerTreePatchCoordinator {
 	let committedPaths = new Set(props.initialPaths ?? []);
 	let replacementPublishesIncrementally = false;
@@ -87,10 +86,6 @@ export function createBridgeFileViewerTreePatchCoordinator(props: {
 					return;
 				case 'queryCommit':
 					if (stagingTransaction?.transactionId !== entry.transactionId) return;
-					if (!props.onQueryTransactionReady(entry.transactionId)) {
-						stagingTransaction = null;
-						return;
-					}
 					committedPaths = replaceCommittedPaths({
 						committedPaths,
 						model: props.model,

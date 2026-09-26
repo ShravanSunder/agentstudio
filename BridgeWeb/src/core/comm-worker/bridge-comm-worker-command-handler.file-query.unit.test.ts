@@ -51,7 +51,7 @@ describe('Bridge comm worker File query command handling', () => {
 		});
 		const command = encodeBridgeWorkerFileDisplayResyncCommand({
 			epoch: 10,
-			reason: 'acknowledgementTimeout',
+			reason: 'bufferOverflow',
 			requestId: 'file-display-resync-1',
 			transactionId: 'file-query-3',
 		});

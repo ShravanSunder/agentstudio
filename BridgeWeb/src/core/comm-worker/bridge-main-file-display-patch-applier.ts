@@ -91,11 +91,7 @@ export interface BridgeMainFileTreePatchStream {
 	readonly subscribe: (listener: () => void) => () => void;
 }
 
-export type BridgeMainFileDisplayResyncReason =
-	| 'acknowledgementMismatch'
-	| 'acknowledgementTimeout'
-	| 'bufferOverflow'
-	| 'protocolViolation';
+export type BridgeMainFileDisplayResyncReason = 'bufferOverflow' | 'protocolViolation';
 
 export interface BridgeMainFileDisplayResyncRequest {
 	readonly reason: BridgeMainFileDisplayResyncReason;
@@ -103,36 +99,27 @@ export interface BridgeMainFileDisplayResyncRequest {
 }
 
 export interface BridgeMainFileDisplayPatchApplierProps {
-	readonly acknowledgementTimeoutMilliseconds?: number;
 	readonly maximumBufferedBytes?: number;
 	readonly maximumBufferedEvents?: number;
 	readonly requestResync?: (request: BridgeMainFileDisplayResyncRequest) => void;
-	readonly scheduleTimeout?: (callback: () => void, delayMilliseconds: number) => () => void;
 }
 
-const bridgeMainFileQueryAcknowledgementTimeoutMilliseconds = 5_000;
 const bridgeMainFileDisplayEventEncoder = new TextEncoder();
 
 export class BridgeMainFileDisplayPatchApplier {
 	readonly #fileTreePatchStream = new MutableBridgeMainFileTreePatchStream();
-	readonly #acknowledgementTimeoutMilliseconds: number;
 	readonly #maximumBufferedBytes: number;
 	readonly #maximumBufferedEvents: number;
 	readonly #requestResync: (request: BridgeMainFileDisplayResyncRequest) => void;
-	readonly #scheduleTimeout: (callback: () => void, delayMilliseconds: number) => () => void;
 	#pendingQueryTransaction: PendingFileQueryTransaction | null = null;
 	#state: BridgeMainFileDisplayState = emptyBridgeMainFileDisplayState();
 
 	constructor(props: BridgeMainFileDisplayPatchApplierProps = {}) {
-		this.#acknowledgementTimeoutMilliseconds =
-			props.acknowledgementTimeoutMilliseconds ??
-			bridgeMainFileQueryAcknowledgementTimeoutMilliseconds;
 		this.#maximumBufferedBytes =
 			props.maximumBufferedBytes ?? BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES;
 		this.#maximumBufferedEvents =
 			props.maximumBufferedEvents ?? BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT;
 		this.#requestResync = props.requestResync ?? ((): void => {});
-		this.#scheduleTimeout = props.scheduleTimeout ?? defaultScheduleTimeout;
 	}
 
 	get state(): BridgeMainFileDisplayState {
@@ -146,7 +133,6 @@ export class BridgeMainFileDisplayPatchApplier {
 	prepareForWorkerReplacement(): BridgeMainFileDisplayState {
 		const pendingTransaction = this.#pendingQueryTransaction;
 		if (pendingTransaction !== null) {
-			pendingTransaction.cancelAcknowledgementTimeout?.();
 			this.#fileTreePatchStream.append({
 				kind: 'queryAbort',
 				transactionId: pendingTransaction.transactionId,
@@ -182,17 +168,16 @@ export class BridgeMainFileDisplayPatchApplier {
 		return this.#state;
 	}
 
-	completeQueryTransaction(transactionId: string): BridgeMainFileDisplayState | null {
+	#commitQueryTransaction(transactionId: string): BridgeMainFileDisplayState | null {
 		const pendingTransaction = this.#pendingQueryTransaction;
 		if (pendingTransaction === null) return null;
 		if (
 			pendingTransaction.transactionId !== transactionId ||
 			!pendingTransaction.workerCommitReceived
 		) {
-			this.#failPendingQueryTransaction('acknowledgementMismatch');
+			this.#failPendingQueryTransaction('protocolViolation');
 			return null;
 		}
-		pendingTransaction.cancelAcknowledgementTimeout?.();
 		this.#state = {
 			...this.#state,
 			fileDisplayFreshness: pendingTransaction.finalFreshness,
@@ -292,7 +277,6 @@ export class BridgeMainFileDisplayPatchApplier {
 				batchCount: transaction.batchCount,
 				bufferedByteCount: 0,
 				bufferedEvents: [],
-				cancelAcknowledgementTimeout: null,
 				epoch: event.epoch,
 				finalFreshness: freshnessForEvent(event),
 				nextBatchIndex: 0,
@@ -347,20 +331,11 @@ export class BridgeMainFileDisplayPatchApplier {
 		};
 		this.#pendingQueryTransaction = pendingTransaction;
 		if (pendingTransaction.workerCommitReceived) {
-			const transactionId = transaction.transactionId;
-			pendingTransaction = {
-				...pendingTransaction,
-				cancelAcknowledgementTimeout: this.#scheduleTimeout((): void => {
-					if (this.#pendingQueryTransaction?.transactionId === transactionId) {
-						this.#failPendingQueryTransaction('acknowledgementTimeout');
-					}
-				}, this.#acknowledgementTimeoutMilliseconds),
-			};
-			this.#pendingQueryTransaction = pendingTransaction;
 			this.#fileTreePatchStream.append({
 				kind: 'queryCommit',
 				transactionId: transaction.transactionId,
 			});
+			return this.#commitQueryTransaction(transaction.transactionId);
 		}
 		return null;
 	}
@@ -421,7 +396,6 @@ export class BridgeMainFileDisplayPatchApplier {
 	#failPendingQueryTransaction(reason: BridgeMainFileDisplayResyncReason): void {
 		const pendingTransaction = this.#pendingQueryTransaction;
 		if (pendingTransaction === null) return;
-		pendingTransaction.cancelAcknowledgementTimeout?.();
 		this.#pendingQueryTransaction = null;
 		this.#fileTreePatchStream.append({
 			kind: 'queryAbort',
@@ -435,7 +409,6 @@ interface PendingFileQueryTransaction {
 	readonly batchCount: number;
 	readonly bufferedByteCount: number;
 	readonly bufferedEvents: readonly BridgeWorkerFileDisplayPatchEvent[];
-	readonly cancelAcknowledgementTimeout: (() => void) | null;
 	readonly epoch: number;
 	readonly finalFreshness: BridgeMainFileDisplayFreshness;
 	readonly nextBatchIndex: number;
@@ -550,13 +523,6 @@ function queryTransactionEventMatchesPending(
 
 function encodedFileDisplayEventByteCount(event: BridgeWorkerFileDisplayPatchEvent): number {
 	return bridgeMainFileDisplayEventEncoder.encode(JSON.stringify(event)).byteLength;
-}
-
-function defaultScheduleTimeout(callback: () => void, delayMilliseconds: number): () => void {
-	const timeoutId = setTimeout(callback, delayMilliseconds);
-	return (): void => {
-		clearTimeout(timeoutId);
-	};
 }
 
 function assertNeverFileDisplayPatch(patch: never): never {

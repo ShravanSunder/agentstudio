@@ -27,7 +27,6 @@ import { BridgeFileViewerFacetMenu } from './bridge-file-viewer-facet-menu.js';
 import { useBridgeFileViewerPierreTreeRuntime } from './bridge-file-viewer-pierre-tree-runtime.js';
 
 export interface BridgeFileViewerTreePanelProps {
-	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly filterMode: BridgeFileViewerFilterMode;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 	readonly fileActivationSequence?: number | null;
@@ -67,7 +66,6 @@ const bridgeFileViewerTreeRowHeightPixels = 24;
 export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps): ReactElement {
 	const { searchError, searchText } = props;
 	const treeRuntime = useBridgeFileViewerPierreTreeRuntime({
-		completeFileQueryTransaction: props.completeFileQueryTransaction,
 		fileActivationSequence: props.fileActivationSequence ?? null,
 		fileActivationStartedAtPerfNow: props.fileActivationStartedAtPerfNow ?? null,
 		fileTreePatchStream: props.fileTreePatchStream,

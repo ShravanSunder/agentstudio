@@ -225,7 +225,6 @@ export interface BridgeMainRenderSnapshotStore extends BridgeMainReviewCandidate
 	readonly applySnapshotUpdate: (update: BridgeMainRenderSnapshotUpdate) => void;
 	readonly applyFileDisplayPatchEvent: (event: BridgeWorkerFileDisplayPatchEvent) => void;
 	readonly applyReviewDisplayPatchEvent: (event: BridgeWorkerReviewDisplayPatchEvent) => void;
-	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 }
 
@@ -672,7 +671,12 @@ export function createBridgeMainRenderSnapshotStore(
 		applyFileDisplayPatchEvent: (event: BridgeWorkerFileDisplayPatchEvent): void => {
 			if (isDisposed) return;
 			const fileDisplayState = fileDisplayPatchApplier.applyEvent(event);
-			if (fileDisplayState !== null) publish({ ...snapshot, ...fileDisplayState });
+			if (fileDisplayState === null) return;
+			publish({ ...snapshot, ...fileDisplayState });
+			const transaction = event.queryTransaction;
+			if (transaction?.phase === 'batch' && transaction.batchIndex + 1 === transaction.batchCount) {
+				onFileQueryTransactionPublished?.(transaction.transactionId);
+			}
 		},
 		applyReviewDisplayPatchEvent: (event: BridgeWorkerReviewDisplayPatchEvent): void => {
 			if (isDisposed) return;
@@ -762,14 +766,6 @@ export function createBridgeMainRenderSnapshotStore(
 				reviewCodeViewItemListeners.publish(itemId);
 			}
 			publishBridgeMainListeners(reviewCatalogListeners);
-		},
-		completeFileQueryTransaction: (transactionId: string): boolean => {
-			if (isDisposed) return false;
-			const fileDisplayState = fileDisplayPatchApplier.completeQueryTransaction(transactionId);
-			if (fileDisplayState === null) return false;
-			publish({ ...snapshot, ...fileDisplayState });
-			onFileQueryTransactionPublished?.(transactionId);
-			return true;
 		},
 		fileTreePatchStream,
 	};

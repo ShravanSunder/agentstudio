@@ -595,7 +595,7 @@ describe('Bridge pane runtime', () => {
 		runtime.dispose();
 	});
 
-	test('routes File render-store resync through one stable File RPC client request', async () => {
+	test('publishes a File query when its worker commit arrives without renderer acknowledgement', async () => {
 		// Arrange
 		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
@@ -632,23 +632,14 @@ describe('Bridge pane runtime', () => {
 
 		// Act
 		publishWorkerMessages?.([queryPatch]);
-		fileClient.renderStore.completeFileQueryTransaction('wrong-query');
-		fileClient.renderStore.completeFileQueryTransaction('wrong-query-again');
 
 		// Assert
-		expect(dispatchedMessages).toEqual([
-			{
-				command: 'fileDisplayResync',
-				direction: 'mainToServerWorker',
-				epoch: 7,
-				kind: 'command',
-				reason: 'acknowledgementMismatch',
-				requestId: 'bridge-fileView-rpc-1',
-				transactionId: 'file-query-7',
-				transferDescriptors: [],
-				wireVersion: 1,
-			},
-		]);
+		expect(fileClient.renderStore.getSnapshot().fileQuerySlice).toMatchObject({
+			projectedRowCount: 0,
+			searchText: '',
+			totalRowCount: 0,
+		});
+		expect(dispatchedMessages).toEqual([]);
 		runtime.dispose();
 	});
 
