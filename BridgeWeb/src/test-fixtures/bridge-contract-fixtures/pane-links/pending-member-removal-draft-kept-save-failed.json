@@ -1,0 +1,7 @@
+{
+  "union": "BridgePendingMemberRemovalSettlement",
+  "value": {
+    "kind": "draftKept",
+    "reason": "saveFailed"
+  }
+}
