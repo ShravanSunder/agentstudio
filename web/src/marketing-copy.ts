@@ -106,8 +106,6 @@ export const marketingCopy = {
       sessionRestoreVideoLabel: "Agent Studio persistent session restore demonstration",
       sessionRestoreVideoFallback: "This browser cannot play the session restore video.",
     },
-    // Marks the real app screenshot that follows each recreated scene.
-    realCaptureLabel: "Real capture",
   },
   // Accessible names for pause/play controls on motion that runs longer than
   // five seconds (WCAG 2.2.2).
@@ -143,6 +141,7 @@ export const marketingCopy = {
   },
   ghosttyUrl: "https://ghostty.org",
   finalCallToAction: {
+    starOnGitHub: "Star on GitHub",
     description: "A native macOS IDE for parallel agents and all your work.",
     traits: "Native macOS. Repo-aware. Terminal-first.",
     technologyCredit: "👻 Built on Ghostty. ",

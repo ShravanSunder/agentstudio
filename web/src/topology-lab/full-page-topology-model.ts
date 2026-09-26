@@ -86,25 +86,30 @@ export interface TopologyRows {
  */
 export function measureTopologyRows(props: {
   readonly anchorYs: readonly number[];
+  readonly forcedYs?: readonly number[];
   readonly endY: number;
 }): TopologyRows {
   const rowYs: number[] = [];
   const anchorRows: number[] = [];
   const pageEndY = props.endY;
-  for (const [index, anchorY] of props.anchorYs.entries()) {
-    anchorRows.push(rowYs.length);
-    rowYs.push(anchorY);
-    const nextAnchorY = props.anchorYs[index + 1];
-    const gapEnd = nextAnchorY ?? pageEndY;
-    const gap = gapEnd - anchorY;
+  const points = [
+    ...props.anchorYs.map((y, anchorIndex) => ({ y, anchorIndex })),
+    ...(props.forcedYs ?? []).map((y) => ({ y, anchorIndex: undefined })),
+  ].toSorted((first, second) => first.y - second.y);
+  for (const [index, point] of points.entries()) {
+    if (point.anchorIndex !== undefined) anchorRows[point.anchorIndex] = rowYs.length;
+    rowYs.push(point.y);
+    const nextPoint = points[index + 1];
+    const gapEnd = nextPoint?.y ?? pageEndY;
+    const gap = gapEnd - point.y;
     const rowCount =
-      nextAnchorY === undefined
+      nextPoint === undefined
         ? Math.round(gap / topologyRowUnit)
         : Math.max(1, Math.round(gap / topologyRowUnit));
     for (let step = 1; step < rowCount; step += 1) {
-      rowYs.push(anchorY + (gap * step) / rowCount);
+      rowYs.push(point.y + (gap * step) / rowCount);
     }
-    if (nextAnchorY === undefined && rowCount >= 1) {
+    if (nextPoint === undefined && rowCount >= 1) {
       rowYs.push(gapEnd);
     }
   }

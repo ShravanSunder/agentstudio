@@ -22,7 +22,6 @@ function isReadyMessage(message: unknown): message is ReadyMessage {
 async function waitForOwnedServer(childProcess: ChildProcess): Promise<number> {
   return await new Promise<number>((resolve, reject): void => {
     const cleanup = (): void => {
-      clearTimeout(timeout);
       childProcess.off("error", rejectOwnedServer);
       childProcess.off("exit", rejectExitedServer);
       childProcess.off("message", resolveReadyServer);
@@ -42,11 +41,8 @@ async function waitForOwnedServer(childProcess: ChildProcess): Promise<number> {
         resolve(message.port);
       }
     };
-    const timeout = setTimeout(
-      (): void =>
-        rejectOwnedServer(new Error("Astro header browser-test process did not report ready")),
-      5_000,
-    );
+    // Astro's cold import/optimizer can exceed five seconds while still starting
+    // correctly. Readiness is the IPC fact; the outer test job owns the hang bound.
     childProcess.once("error", rejectOwnedServer);
     childProcess.once("exit", rejectExitedServer);
     childProcess.on("message", resolveReadyServer);

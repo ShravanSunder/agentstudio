@@ -5,16 +5,15 @@
 // Relative imports keep this module loadable by Vitest, which has no "@/" alias.
 import {
   railAnchorAttribute,
-  railEndMarkAttribute,
-  railEndSectionAttribute,
   railMediaTargetAttribute,
+  railStepPillTargetAttribute,
   railSurfaceTargetAttribute,
+  railTargetEdgeAttribute,
 } from "../chapters/chapter-dom-contract";
 import {
   composeFullPageTopology,
   type TopologyAnchorMeasurement,
   type TopologyComposition,
-  type TopologyEndMeasurement,
   type TopologyRect,
   type TopologyRoute,
   type TopologyRowDot,
@@ -23,24 +22,19 @@ import {
 const svgNamespace = "http://www.w3.org/2000/svg";
 // The node vocabulary, smallest to largest: commit and fork dots, the chapter
 // ring and the two-parent merge ring, then the current chapter's terminal
-// (r=7, from the retired artwork). The port keeps the retired commit size.
+// (r=7, from the retired artwork).
 export const topologyNodeRadii = {
   commit: 3.5,
   chapter: 5.5,
   merge: 6,
   mergeCore: 2.5,
   terminal: 7,
-  port: 4,
 } as const;
 
 /** `<g data-topology-chapter-node="<anchorId>">`: the mainline dot level with each chapter anchor. */
 export const topologyChapterNodeAttribute = "data-topology-chapter-node";
-/** The primary-blue node where a port meets its target edge. */
-export const topologyPortNodeAttribute = "data-topology-port-node";
 /** The gradient a port's stroke shifts along, from its source lane to primary. */
 export const topologyPortGradientAttribute = "data-topology-port-gradient";
-/** Set on an attach route group once its target is in view and the port has drawn in. */
-export const topologyPortDrawnAttribute = "data-port-drawn";
 /** `"left" | "top"` on a chapter node: the glass edge its branch enters; its glass lights when current. */
 export const topologyChapterTargetEdgeAttribute = "data-topology-target-edge";
 
@@ -110,15 +104,20 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
   };
   const surfaces = elementsById(ownerDocument, railSurfaceTargetAttribute);
   const medias = elementsById(ownerDocument, railMediaTargetAttribute);
+  const stepPills = elementsById(ownerDocument, railStepPillTargetAttribute);
   return [...elementsById(ownerDocument, railAnchorAttribute)].map(([id, anchor]) => {
     const surface = surfaces.get(id);
     const media = medias.get(id);
+    const stepPill = stepPills.get(id);
     const firstLine = firstLineBox(anchor);
+    const declaredEdge = surface?.getAttribute(railTargetEdgeAttribute);
     return {
       id,
       rect: measure(anchor),
       surface: surface === undefined ? undefined : measure(surface),
+      targetEdge: declaredEdge === "top" || declaredEdge === "left" ? declaredEdge : undefined,
       media: media === undefined ? undefined : measure(media),
+      stepPill: stepPill === undefined ? undefined : measure(stepPill),
       copyBlock: media === undefined ? undefined : measure(findCopyBlock(anchor, media)),
       lineY:
         firstLine === undefined ? undefined : firstLine.top - origin.top + firstLine.height / 2,
@@ -131,27 +130,6 @@ function firstLineBox(element: Element): DOMRect | undefined {
   const range = element.ownerDocument.createRange();
   range.selectNodeContents(element);
   return [...range.getClientRects()].find((box) => box.width > 0 && box.height > 0);
-}
-
-/** The final call to action section and midpoint mark for the rail end. */
-function measureEnd(artwork: SVGSVGElement): TopologyEndMeasurement | undefined {
-  const ownerDocument = artwork.ownerDocument;
-  const section = ownerDocument.querySelector(`[${railEndSectionAttribute}]`);
-  if (section === null || section.getClientRects().length === 0) {
-    return undefined;
-  }
-  const origin = artwork.getBoundingClientRect();
-  const measure = (element: Element): TopologyRect => {
-    const bounds = element.getBoundingClientRect();
-    return {
-      left: bounds.left - origin.left,
-      top: bounds.top - origin.top,
-      width: bounds.width,
-      height: bounds.height,
-    };
-  };
-  const mark = section.querySelector(`[${railEndMarkAttribute}]`);
-  return { section: measure(section), mark: mark === null ? undefined : measure(mark) };
 }
 
 function progressForY(composition: TopologyComposition, y: number): number {
@@ -224,27 +202,16 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
     );
     path.setAttribute("data-route", "");
     path.setAttribute("data-topology-path-role", role);
-    if (route.kind === "attach") {
-      // A unit path length lets the port draw in with one dash.
-      path.setAttribute("pathLength", "1");
-    }
     if (role === "core" && gradient !== undefined) {
       path.style.stroke = `url(#${gradient.id})`;
     }
     group.append(path);
   }
-  if (route.portNode !== undefined) {
-    const port = createSvgElement(ownerDocument, "circle");
-    port.setAttribute("class", "node-port");
-    port.setAttribute(topologyPortNodeAttribute, "");
-    port.setAttribute("r", String(topologyNodeRadii.port));
-    group.append(port);
-  }
   return group;
 }
 
 function rowDotSignature(dot: TopologyRowDot): string {
-  return `${dot.kind}:${dot.accent}:${dot.incomingAccent ?? ""}:${dot.ownerId}:${dot.anchorId ?? ""}`;
+  return `${dot.kind}:${dot.accent}:${dot.incomingAccent ?? ""}:${dot.ownerId}:${dot.anchorId ?? ""}:${dot.terminal === true}`;
 }
 
 function createCircle(
@@ -265,10 +232,13 @@ function createCircle(
  */
 function createRowNode(ownerDocument: Document, dot: TopologyRowDot): SVGGElement {
   const group = createSvgElement(ownerDocument, "g");
-  const terminal = dot.kind === "chapter" || dot.kind === "end";
+  const terminal = dot.kind === "chapter" || dot.kind === "end" || dot.terminal === true;
   group.setAttribute("class", `${terminal ? "node-terminal-group " : ""}accent-${dot.accent}`);
   group.setAttribute("data-node", "");
   group.setAttribute("data-node-kind", dot.kind);
+  if (dot.kind === "end" || dot.terminal === true) {
+    group.setAttribute("data-topology-terminal", "");
+  }
   if (dot.anchorId !== undefined) {
     group.setAttribute(topologyChapterNodeAttribute, dot.anchorId);
   }
@@ -287,10 +257,10 @@ function createRowNode(ownerDocument: Document, dot: TopologyRowDot): SVGGElemen
     group.append(createCircle(ownerDocument, "node-commit", topologyNodeRadii.commit));
   }
   if (terminal) {
-    group.append(
-      createCircle(ownerDocument, "node-terminal-halo", topologyNodeRadii.terminal),
-      createCircle(ownerDocument, "node-terminal", topologyNodeRadii.terminal),
-    );
+    group.append(createCircle(ownerDocument, "node-terminal-halo", topologyNodeRadii.terminal));
+    if (dot.kind !== "merge") {
+      group.append(createCircle(ownerDocument, "node-terminal", topologyNodeRadii.terminal));
+    }
   }
   return group;
 }
@@ -314,12 +284,10 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
   if (ownerWindow === null || mainline === null || routeLayer === null || nodeLayer === null) {
     return hideTopology(artwork, "incomplete-artwork");
   }
-  const end = measureEnd(artwork);
   const composition = composeFullPageTopology({
     viewportWidth: ownerWindow.innerWidth,
     height: artwork.clientHeight,
     anchors: measureAnchors(artwork),
-    ...(end === undefined ? {} : { end }),
   });
   if (composition === undefined) {
     routeLayer.replaceChildren();
@@ -385,18 +353,13 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     if (route.targetEdge !== undefined) {
       setAttributeIfChanged(group, "data-target-edge", route.targetEdge);
     }
-    const port = group.querySelector(`[${topologyPortNodeAttribute}]`);
-    if (port !== null && route.portNode !== undefined) {
-      setAttributeIfChanged(port, "cx", String(route.portNode.x));
-      setAttributeIfChanged(port, "cy", String(route.portNode.y));
-    }
     const gradient = group.querySelector(`[${topologyPortGradientAttribute}]`);
-    if (gradient !== null && route.portNode !== undefined) {
+    if (gradient !== null && route.targetPoint !== undefined) {
       const start = pathStartPoint(route.pathData);
       setAttributeIfChanged(gradient, "x1", String(start.x));
       setAttributeIfChanged(gradient, "y1", String(start.y));
-      setAttributeIfChanged(gradient, "x2", String(route.portNode.x));
-      setAttributeIfChanged(gradient, "y2", String(route.portNode.y));
+      setAttributeIfChanged(gradient, "x2", String(route.targetPoint.x));
+      setAttributeIfChanged(gradient, "y2", String(route.targetPoint.y));
     }
   }
 

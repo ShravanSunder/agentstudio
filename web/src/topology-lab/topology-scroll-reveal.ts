@@ -2,7 +2,6 @@ import { railCurrentAttribute, railSurfaceTargetAttribute } from "../chapters/ch
 import {
   topologyChapterNodeAttribute,
   topologyChapterTargetEdgeAttribute,
-  topologyPortDrawnAttribute,
 } from "./full-page-topology-layout";
 
 type LayoutTopologyArtwork = (artwork: SVGSVGElement) => boolean;
@@ -34,8 +33,33 @@ export function initializeTopologyScrollReveal(
   };
   const verticalRevealSolid = artwork.querySelector<SVGRectElement>("[data-topology-reveal-solid]");
   const verticalRevealFade = artwork.querySelector<SVGRectElement>("[data-topology-reveal-fade]");
-  if (verticalRevealSolid === null || verticalRevealFade === null) {
-    throw new Error("Topology vertical reveal mask is incomplete");
+  const vibrancyGradient = artwork.querySelector<SVGLinearGradientElement>(
+    "#topology-rail-vibrancy-gradient",
+  );
+  const vibrancyMaskRect = artwork.querySelector<SVGRectElement>(
+    "[data-topology-vibrancy-mask-rect]",
+  );
+  const opacityGradient = artwork.querySelector<SVGLinearGradientElement>(
+    "#topology-rail-opacity-gradient",
+  );
+  const opacityMaskRect = artwork.querySelector<SVGRectElement>(
+    "[data-topology-opacity-mask-rect]",
+  );
+  const opacityLayer = artwork.querySelector<SVGGElement>("[data-topology-opacity-layer]");
+  const colourLayer = artwork.querySelector<SVGGElement>("[data-topology-colour-layer]");
+  const greyCopy = artwork.querySelector<SVGUseElement>("[data-topology-grey-copy]");
+  if (
+    verticalRevealSolid === null ||
+    verticalRevealFade === null ||
+    vibrancyGradient === null ||
+    vibrancyMaskRect === null ||
+    opacityGradient === null ||
+    opacityMaskRect === null ||
+    opacityLayer === null ||
+    colourLayer === null ||
+    greyCopy === null
+  ) {
+    throw new Error("Topology reveal or vibrancy mask is incomplete");
   }
   const lifecycle = new AbortController();
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -45,6 +69,7 @@ export function initializeTopologyScrollReveal(
   let litTarget: HTMLElement | undefined;
   /** The lowest fog edge reached so far, in artwork coordinates; it never retreats. */
   let furthestRevealY: number | undefined;
+  let endReachedDispatched = false;
 
   const updateCurrentNodes = (revealProgress: number, enabled: boolean): void => {
     const nextCurrentNodes = new Set<SVGGraphicsElement>();
@@ -113,27 +138,6 @@ export function initializeTopologyScrollReveal(
     currentNodes = nextCurrentNodes;
   };
 
-  // A port draws in once its target glass enters the viewport, and stays
-  // drawn. Reduced motion shows every port at once.
-  const updatePortDraws = (): void => {
-    for (const group of routeGroups) {
-      if (
-        group.dataset["routeKind"] !== "attach" ||
-        group.hasAttribute(topologyPortDrawnAttribute)
-      ) {
-        continue;
-      }
-      const target = artwork.ownerDocument.querySelector(
-        `[${railSurfaceTargetAttribute}="${group.dataset["routeAnchor"] ?? ""}"]`,
-      );
-      const bounds = target?.getBoundingClientRect();
-      const inView = bounds !== undefined && bounds.top < window.innerHeight && bounds.bottom > 0;
-      if (reducedMotionQuery.matches || inView) {
-        group.setAttribute(topologyPortDrawnAttribute, "");
-      }
-    }
-  };
-
   const lightTarget = (nextTarget: HTMLElement | undefined): void => {
     if (litTarget === nextTarget) {
       return;
@@ -193,9 +197,24 @@ export function initializeTopologyScrollReveal(
     }
 
     const artworkTop = artwork.getBoundingClientRect().top;
+    vibrancyGradient.setAttribute("y1", String(window.innerHeight * 0.73 - artworkTop));
+    vibrancyGradient.setAttribute("y2", String(window.innerHeight * 0.75 - artworkTop));
+    vibrancyMaskRect.setAttribute("width", String(artwork.clientWidth));
+    vibrancyMaskRect.setAttribute("height", String(artwork.clientHeight));
+    opacityGradient.setAttribute("y1", String(window.innerHeight * 0.9 - artworkTop));
+    opacityGradient.setAttribute("y2", String(window.innerHeight * 0.95 - artworkTop));
+    opacityMaskRect.setAttribute("width", String(artwork.clientWidth));
+    opacityMaskRect.setAttribute("height", String(artwork.clientHeight));
+    greyCopy.style.display = reducedMotionQuery.matches ? "none" : "";
+    if (reducedMotionQuery.matches) {
+      colourLayer.removeAttribute("mask");
+      opacityLayer.removeAttribute("mask");
+    } else {
+      colourLayer.setAttribute("mask", "url(#topology-rail-vibrancy-mask)");
+      opacityLayer.setAttribute("mask", "url(#topology-rail-opacity-mask)");
+    }
     const readingLineY = window.innerHeight * topologyReadingLineRatio - artworkTop;
     updateCurrentChapter(readingLineY);
-    updatePortDraws();
 
     const maximumScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
     const scrollProgress = clamp(window.scrollY / maximumScroll, 0, 1);
@@ -216,7 +235,7 @@ export function initializeTopologyScrollReveal(
     const span = Math.max(topologyEndY - topologyStartY, 1);
     const progressY = topologyStartY + span * scrollProgress;
     furthestRevealY ??= window.innerHeight - artworkTop;
-    furthestRevealY = Math.max(furthestRevealY, progressY, readingLineY);
+    furthestRevealY = Math.max(furthestRevealY, progressY, window.innerHeight - artworkTop);
     const revealY = reducedMotionQuery.matches
       ? topologyEndY
       : Math.min(furthestRevealY, topologyEndY);
@@ -233,10 +252,12 @@ export function initializeTopologyScrollReveal(
       path.style.visibility = "visible";
     }
     for (const node of revealNodes) {
-      node.toggleAttribute(
-        topologyNodeRevealedAttribute,
-        Number(node.dataset["topologyNodeProgress"]) <= revealProgress + 1e-6,
-      );
+      const revealed = Number(node.dataset["topologyNodeProgress"]) <= revealProgress + 1e-6;
+      node.toggleAttribute(topologyNodeRevealedAttribute, revealed);
+      if (revealed && node.hasAttribute("data-topology-terminal") && !endReachedDispatched) {
+        endReachedDispatched = true;
+        artwork.ownerDocument.dispatchEvent(new Event("topology-end-reached"));
+      }
     }
     updateCurrentNodes(revealProgress, !reducedMotionQuery.matches);
   };
@@ -257,6 +278,14 @@ export function initializeTopologyScrollReveal(
 
   const artworkResizeObserver = new ResizeObserver(forceLayoutUpdate);
   artworkResizeObserver.observe(artwork);
+  // The chapter wrapper, rather than its glass, now carries the scroll lift.
+  // Its style mutation is the geometry change that requires a fresh attach path.
+  const liftObserver = new MutationObserver(forceLayoutUpdate);
+  for (const liftGroup of artwork.ownerDocument.querySelectorAll(
+    "[data-scroll-material-lift-target]",
+  )) {
+    liftObserver.observe(liftGroup, { attributes: true, attributeFilter: ["style"] });
+  }
   window.addEventListener("scroll", forceLayoutUpdate, { passive: true, signal: lifecycle.signal });
   window.addEventListener("resize", forceLayoutUpdate, { signal: lifecycle.signal });
   window.addEventListener("load", forceLayoutUpdate, { signal: lifecycle.signal });
@@ -267,6 +296,7 @@ export function initializeTopologyScrollReveal(
   return (): void => {
     lifecycle.abort();
     artworkResizeObserver.disconnect();
+    liftObserver.disconnect();
     updateCurrentNodes(0, false);
     lightTarget(undefined);
     if (pendingAnimationFrame !== undefined) {

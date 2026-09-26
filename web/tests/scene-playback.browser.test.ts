@@ -303,7 +303,7 @@ describe("scene playback", () => {
     }
   });
 
-  it("seeks to a requested step, plays, and reports the steps it passes", () => {
+  it("seeks to a requested step and holds it against autoplay", () => {
     stubReducedMotion(false);
     const scene = createFakeSceneFixture();
     const playback = createScenePlayback({
@@ -322,13 +322,12 @@ describe("scene playback", () => {
       }),
     );
 
-    expect(scene.playbackState()).toBe("playing");
+    expect(scene.playbackState()).toBe("paused");
     expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     expect(reachedSteps).toEqual(["watch-folders"]);
-
-    // time() renders with callbacks, like a ticker frame; seek() would suppress them.
-    scene.timeline().time(0);
-    expect(reachedSteps).toEqual(["watch-folders", "parallel-agents"]);
+    playback.synchronize(1, true);
+    expect(scene.timeline().paused()).toBe(true);
+    expect(reachedSteps).toEqual(["watch-folders"]);
 
     playback.dispose();
   });
@@ -414,6 +413,46 @@ describe("scene playback", () => {
     playback.dispose();
   });
 
+  it("plays a proof video only after the scene and holds it through its end before replay", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const proof = requiredHtmlElement(scene.surface, "[data-scene-proof]");
+    proof.innerHTML = "<video data-scene-proof-video controls muted playsinline></video>";
+    const video = proof.querySelector("video");
+    if (!(video instanceof HTMLVideoElement)) throw new Error("Proof video is missing");
+    let videoPaused = true;
+    Object.defineProperty(video, "paused", { configurable: true, get: (): boolean => videoPaused });
+    const play = vi.spyOn(video, "play").mockImplementation((): Promise<void> => {
+      videoPaused = false;
+      video.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    });
+    const pause = vi.spyOn(video, "pause").mockImplementation((): void => {
+      videoPaused = true;
+      video.dispatchEvent(new Event("pause"));
+    });
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+
+    playback.synchronize(1, true);
+    expect(play).not.toHaveBeenCalled();
+    scene.timeline().progress(1);
+    expect(observeProof(scene.surface).state).toBe("shown");
+    expect(play).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(3000);
+    expect(scene.playbackState()).toBe("awaiting-replay");
+    video.dispatchEvent(new Event("ended"));
+    vi.advanceTimersByTime(3000);
+    expect(scene.playbackState()).toBe("playing");
+    expect(observeProof(scene.surface).state).toBe("hidden");
+    expect(pause).toHaveBeenCalled();
+    playback.dispose();
+  });
+
   it("hides the proof at once and seeks when a step is chosen during the proof beat", () => {
     // Arrange
     stubReducedMotion(false);
@@ -440,7 +479,7 @@ describe("scene playback", () => {
       state: "hidden",
       transition: "instant",
     });
-    expect(scene.playbackState()).toBe("playing");
+    expect(scene.playbackState()).toBe("paused");
     expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     playback.dispose();
   });

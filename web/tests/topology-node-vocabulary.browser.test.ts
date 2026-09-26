@@ -23,7 +23,8 @@ describe("topology node vocabulary on the home page", () => {
   it("draws each node kind with its own glyph, color, and size", async () => {
     // Act
     const result = await commands.verifyTopologyNodeVocabulary(inject("siteHeaderBrowserTestUrl"));
-
+    expect(result.routeFilters.length).toBeGreaterThan(0);
+    expect(result.routeFilters).toEqual(result.routeFilters.map(() => "none"));
     // Assert: before the reveal, every glyph is a faint thin outline at its own size.
     const unrevealed = result.beforeReveal.filter((glyph) => !glyph.revealed);
     expect(unrevealed.length).toBeGreaterThan(0);
@@ -79,15 +80,15 @@ describe("topology node vocabulary on the home page", () => {
       expect(chapter.glyph.fill).toBe(result.canvasColor);
     }
 
-    // Ports: the line has exactly the lanes' weight; a port leaving a worktree
-    // lane shifts hue along a gradient that starts in that lane's color; the
-    // node carries the emphasis and stays no larger than a chapter ring.
+    // Attach branches keep their lane-weight gradient and end on the glass
+    // edge with no port circle.
     expect(result.ports.length).toBeGreaterThan(0);
     const fromWorktree = result.ports.filter((port) => port.source !== "main");
     expect(fromWorktree.length).toBeGreaterThan(0);
     for (const port of result.ports) {
       expect(port.strokeWidth).toBe(port.laneStrokeWidth);
-      expect(port.nodeRadius).toBeLessThanOrEqual(sizeOf("chapter") ?? 0);
+      expect(port.nodeCount).toBe(0);
+      expect(port.endpointOffset).toBeLessThanOrEqual(1);
     }
     for (const port of fromWorktree) {
       expect(port.stroke).toMatch(/^url\("?#topology-port-gradient-/u);

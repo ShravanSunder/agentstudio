@@ -34,7 +34,8 @@ export interface TopologyPortObservation {
   readonly firstStopColor: string | undefined;
   /** The computed stroke of the lane the port leaves. */
   readonly sourceLaneStroke: string | undefined;
-  readonly nodeRadius: number;
+  readonly nodeCount: number;
+  readonly endpointOffset: number;
 }
 
 export interface TopologyNodeVocabularyResult {
@@ -43,6 +44,7 @@ export interface TopologyNodeVocabularyResult {
   readonly beforeReveal: readonly TopologyGlyphObservation[];
   readonly afterReveal: readonly TopologyGlyphObservation[];
   readonly ports: readonly TopologyPortObservation[];
+  readonly routeFilters: readonly string[];
 }
 
 function readPorts(): TopologyPortObservation[] {
@@ -60,10 +62,23 @@ function readPorts(): TopologyPortObservation[] {
     ) ?? artwork.querySelector<SVGPathElement>("[data-mainline]");
   return [...artwork.querySelectorAll<SVGGElement>('[data-route-kind="attach"]')].map((group) => {
     const core = group.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
-    const node = group.querySelector<SVGCircleElement>("[data-topology-port-node]");
-    if (core === null || node === null || anyLane === null) {
-      throw new Error("A port is missing its line or node");
+    if (core === null || anyLane === null) {
+      throw new Error("An attach branch is missing its line");
     }
+    const anchorId = group.dataset["routeAnchor"];
+    const target =
+      (group.dataset["targetEdge"] === "left"
+        ? document.querySelector(`[data-rail-step-pill-target="${anchorId ?? ""}"]`)
+        : null) ?? document.querySelector(`[data-rail-surface-target="${anchorId ?? ""}"]`);
+    if (target === null) throw new Error("An attach branch has no target");
+    const matrix = core.getScreenCTM();
+    if (matrix === null) throw new Error("An attach branch has no screen transform");
+    const endpoint = core.getPointAtLength(core.getTotalLength()).matrixTransform(matrix);
+    const bounds = target.getBoundingClientRect();
+    const endpointOffset =
+      group.dataset["targetEdge"] === "top"
+        ? Math.abs(endpoint.y - bounds.top)
+        : Math.abs(endpoint.x - bounds.left);
     const source = group.dataset["routeSource"] ?? "";
     const firstStop = group.querySelector("[data-topology-port-gradient] stop");
     const sourceLane = laneCore(source);
@@ -74,7 +89,8 @@ function readPorts(): TopologyPortObservation[] {
       stroke: getComputedStyle(core).stroke,
       firstStopColor: firstStop === null ? undefined : getComputedStyle(firstStop).stopColor,
       sourceLaneStroke: sourceLane === null ? undefined : getComputedStyle(sourceLane).stroke,
-      nodeRadius: node.r.baseVal.value,
+      nodeCount: group.querySelectorAll("[data-topology-port-node]").length,
+      endpointOffset,
     };
   });
 }
@@ -138,6 +154,11 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
         },
       );
       const beforeReveal = await applicationPage.evaluate(readGlyphs);
+      const routeFilters = await applicationPage.evaluate(() =>
+        [...document.querySelectorAll<SVGGElement>("[data-topology-route-group]")].map(
+          (route) => getComputedStyle(route).filter,
+        ),
+      );
       await applicationPage.evaluate(() => {
         window.scrollTo(0, document.documentElement.scrollHeight);
       });
@@ -146,24 +167,19 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
           node.hasAttribute("data-topology-node-revealed"),
         ),
       );
-      await applicationPage.evaluate(async () => {
-        await Promise.all(
-          document
-            .getAnimations()
-            .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
-            .map((animation) => animation.finished),
-        );
-      });
+      // The final glyph state is independent of transition timing. Disable
+      // motion after the scroll has revealed every node before reading paint.
+      await applicationPage.emulateMedia({ reducedMotion: "reduce" });
       const afterReveal = await applicationPage.evaluate(readGlyphs);
       const { canvasColor, primaryColor } = await applicationPage.evaluate(() => {
-        const port = document.querySelector("[data-topology-port-node]");
+        const branch = document.querySelector("[data-route-kind=attach]");
         return {
           canvasColor: getComputedStyle(document.body).backgroundColor,
-          primaryColor: port === null ? "" : getComputedStyle(port).fill,
+          primaryColor: branch === null ? "" : getComputedStyle(branch).color,
         };
       });
       const ports = await applicationPage.evaluate(readPorts);
-      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports };
+      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports, routeFilters };
     } finally {
       await applicationPage.close();
     }

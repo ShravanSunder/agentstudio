@@ -14,6 +14,7 @@ import sessionRestorePoster from "../assets/media/session-restore-poster.jpg";
 import sessionRestoreVideoUrl from "../assets/media/session-restore.mp4?url";
 import { marketingCopy } from "../marketing-copy";
 import type { SceneId } from "../motion-scenes/scene-contract";
+import type { KitIconName } from "../recreation-kit/kit-icon-names";
 import type { ChapterId, ChapterStepId } from "./chapter-ids";
 
 export {
@@ -24,30 +25,28 @@ export {
   type ChapterStepId,
 } from "./chapter-ids";
 
-export type ChapterStage =
+export type ChapterStage = {
+  readonly kind: "scene";
+  readonly sceneId: SceneId;
+} & (
   | {
-      readonly kind: "scene";
-      readonly sceneId: SceneId;
+      readonly proofKind: "image";
       readonly proofImage: ImageMetadata;
       /** Purpose-made phone crop of the same capture, shown below the phone breakpoint. */
       readonly proofPhoneImage: ImageMetadata;
       readonly proofAlt: string;
     }
   | {
-      readonly kind: "still";
-      readonly image: ImageMetadata;
-      readonly phoneImage: ImageMetadata;
-      readonly alt: string;
+      readonly proofKind: "video";
+      readonly proofVideo: string;
+      readonly proofPoster: ImageMetadata;
+      readonly proofLabel: string;
     }
-  | {
-      readonly kind: "video";
-      readonly source: string;
-      readonly poster: ImageMetadata;
-      readonly label: string;
-    };
+);
 
 export interface ChapterStep {
   readonly id: ChapterStepId;
+  readonly captionIcon: KitIconName;
   readonly label: string;
   readonly description: string;
   readonly phoneDescription: string;
@@ -95,18 +94,21 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "parallel-agents",
+        captionIcon: "stack",
         label: stories.parallelWork.label,
         description: stories.parallelWork.description,
         phoneDescription: stories.parallelWork.phoneDescription,
       },
       {
         id: "watch-folders",
+        captionIcon: "folder",
         label: stories.watchFolders.label,
         description: stories.watchFolders.description,
         phoneDescription: stories.watchFolders.phoneDescription,
       },
       {
         id: "navigation",
+        captionIcon: "search",
         label: `${navigationDetail.title.beforeAccent}${navigationDetail.title.accent}${navigationDetail.title.afterAccent}`,
         description: navigationDetail.summary,
         phoneDescription: navigationDetail.summary,
@@ -115,6 +117,7 @@ export const chapterCatalog: readonly Chapter[] = [
     stage: {
       kind: "scene",
       sceneId: "chapter-many-agents",
+      proofKind: "image",
       proofImage: parallelAgentsImage,
       proofPhoneImage: parallelWorkPhoneImage,
       proofAlt: stories.parallelWork.imageDescription,
@@ -126,18 +129,21 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "task-drawers",
+        captionIcon: "drawer",
         label: stories.paneDrawer.label,
         description: stories.paneDrawer.description,
         phoneDescription: stories.paneDrawer.phoneDescription,
       },
       {
         id: "git-context",
+        captionIcon: "branch",
         label: stories.gitContext.label,
         description: stories.gitContext.description,
         phoneDescription: stories.gitContext.phoneDescription,
       },
       {
         id: "files",
+        captionIcon: "files",
         label: stories.files.label,
         description: stories.files.description,
         phoneDescription: stories.files.phoneDescription,
@@ -146,6 +152,7 @@ export const chapterCatalog: readonly Chapter[] = [
     stage: {
       kind: "scene",
       sceneId: "chapter-context-with-task",
+      proofKind: "image",
       proofImage: taskDrawerToolsImage,
       proofPhoneImage: taskDrawerToolsPhoneImage,
       proofAlt: taskToolsDetail.imageDescription,
@@ -157,12 +164,14 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "quick-find",
+        captionIcon: "search",
         label: stories.quickFind.label,
         description: stories.quickFind.description,
         phoneDescription: stories.quickFind.phoneDescription,
       },
       {
         id: "pane-zoom",
+        captionIcon: "zoom",
         label: arrangementsDetail.paneZoomLabel,
         description: arrangementsDetail.detail,
         phoneDescription: arrangementsDetail.detail,
@@ -171,6 +180,7 @@ export const chapterCatalog: readonly Chapter[] = [
     stage: {
       kind: "scene",
       sceneId: "chapter-find-and-focus",
+      proofKind: "image",
       proofImage: commandBarImage,
       proofPhoneImage: commandBarPhoneImage,
       proofAlt: stories.quickFind.imageDescription,
@@ -182,16 +192,19 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "review-diff",
+        captionIcon: "review",
         label: stories.review.label,
         description: stories.review.description,
         phoneDescription: stories.review.phoneDescription,
       },
     ],
     stage: {
-      kind: "still",
-      image: reviewImage,
-      phoneImage: reviewPhoneImage,
-      alt: stories.review.imageDescription,
+      kind: "scene",
+      sceneId: "chapter-review",
+      proofKind: "image",
+      proofImage: reviewImage,
+      proofPhoneImage: reviewPhoneImage,
+      proofAlt: stories.review.imageDescription,
     },
   },
   {
@@ -200,16 +213,19 @@ export const chapterCatalog: readonly Chapter[] = [
     steps: [
       {
         id: "persistence",
+        captionIcon: "clock",
         label: stories.persistence.label,
         description: stories.persistence.description,
         phoneDescription: stories.persistence.description,
       },
     ],
     stage: {
-      kind: "video",
-      source: sessionRestoreVideoUrl,
-      poster: sessionRestorePoster,
-      label: chapters.comeBack.sessionRestoreVideoLabel,
+      kind: "scene",
+      sceneId: "chapter-come-back",
+      proofKind: "video",
+      proofVideo: sessionRestoreVideoUrl,
+      proofPoster: sessionRestorePoster,
+      proofLabel: chapters.comeBack.sessionRestoreVideoLabel,
     },
   },
 ];

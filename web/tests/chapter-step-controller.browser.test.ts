@@ -49,10 +49,10 @@ function createChapterStepsFixture(): HTMLElement {
       ${stepIds
         .map(
           (stepId, index) =>
-            `<div data-chapter-step-panel="${stepId}" ${index === 0 ? "" : "hidden"}>${stepId} copy</div>`,
+            `<div data-chapter-step-panel="${stepId}" aria-hidden="${index !== 0}">${stepId} copy</div>`,
         )
         .join("")}
-      <div data-scene-root="chapter-context-with-task"></div>
+      <div data-rail-surface-target="context-with-task"><div data-scene-root="chapter-context-with-task"></div></div>
     </section>
   `;
   document.body.append(fixture);
@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe("chapter step tabs", () => {
-  it("enhances the static steps into a vertical tablist with synchronized panels", async () => {
+  it("enhances the static steps into a horizontal tablist with synchronized panels", async () => {
     await page.viewport(1280, 800);
     const root = createChapterStepsFixture();
     const list = requiredHtmlElement(root, "[data-chapter-step-list]");
@@ -95,7 +95,7 @@ describe("chapter step tabs", () => {
 
     expect(root.dataset["enhanced"]).toBe("true");
     expect(list.getAttribute("role")).toBe("tablist");
-    expect(list.getAttribute("aria-orientation")).toBe("vertical");
+    expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     expect(firstStep.getAttribute("role")).toBe("tab");
     expect(firstStep.getAttribute("aria-selected")).toBe("true");
     expect(firstStep.tabIndex).toBe(0);
@@ -111,7 +111,7 @@ describe("chapter step tabs", () => {
     expect(firstStep.disabled).toBe(true);
   });
 
-  it("announces a horizontal tablist on phones and follows the viewport across the breakpoint", async () => {
+  it("keeps the pill tablist horizontal across the breakpoint", async () => {
     // Arrange
     await page.viewport(390, 844);
     const root = createChapterStepsFixture();
@@ -124,7 +124,7 @@ describe("chapter step tabs", () => {
     expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     await page.viewport(1280, 800);
     await vi.waitFor(() => {
-      expect(list.getAttribute("aria-orientation")).toBe("vertical");
+      expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     });
 
     controller.destroy();
@@ -133,16 +133,31 @@ describe("chapter step tabs", () => {
   it("selects a clicked step, shows its panel, and asks the scene to seek there", () => {
     const root = createChapterStepsFixture();
     const requestedSteps: string[] = [];
+    const receivedAtSurface: string[] = [];
     root.addEventListener(chapterStepRequestedEventName, (event: Event): void => {
       requestedSteps.push(readChapterStepEventStepId(event) ?? "unreadable");
     });
+    requiredHtmlElement(root, "[data-rail-surface-target]").addEventListener(
+      chapterStepRequestedEventName,
+      (event: Event): void => {
+        receivedAtSurface.push(readChapterStepEventStepId(event) ?? "unreadable");
+      },
+    );
     const controller = initializeChapterSteps(root);
 
     requiredButton(root, '[data-chapter-step="git-context"]').click();
 
     expect(selectedStepId(root)).toBe("git-context");
-    expect(requiredHtmlElement(root, '[data-chapter-step-panel="git-context"]').hidden).toBe(false);
-    expect(requiredHtmlElement(root, '[data-chapter-step-panel="task-drawers"]').hidden).toBe(true);
+    expect(
+      requiredHtmlElement(root, '[data-chapter-step-panel="git-context"]').getAttribute(
+        "aria-hidden",
+      ),
+    ).toBe("false");
+    expect(
+      requiredHtmlElement(root, '[data-chapter-step-panel="task-drawers"]').getAttribute(
+        "aria-hidden",
+      ),
+    ).toBe("true");
     expect(
       requiredHtmlElement(root, '[data-chapter-step="task-drawers"]').dataset["stepState"],
     ).toBe("passed");
@@ -150,6 +165,7 @@ describe("chapter step tabs", () => {
       "upcoming",
     );
     expect(requestedSteps).toEqual(["git-context"]);
+    expect(receivedAtSurface).toEqual(["git-context"]);
 
     controller.destroy();
   });

@@ -1,23 +1,16 @@
 ---
 import appLogo from "@/assets/brand/app-logo-transparent.svg";
-import { railEndMarkAttribute, railEndSectionAttribute } from "@/chapters/chapter-dom-contract";
 import { marketingCopy } from "@/marketing-copy";
 
 import InstallCommand from "./InstallCommand.astro";
 
-// The page topology's mainline ends halfway between the last chapter glass
-// and this icon.
-const railEndMarkAttributes = { [railEndMarkAttribute]: "" };
-const railEndSectionAttributes = { [railEndSectionAttribute]: "" };
 ---
 
 <section
-  {...railEndSectionAttributes}
   class="final-cta grid min-h-[700px] grid-cols-[minmax(0,1fr)] justify-items-center gap-y-6 px-page-inline py-section-block text-center"
   aria-labelledby="final-cta-title"
 >
   <img
-    {...railEndMarkAttributes}
     src={appLogo.src}
     width="88"
     height="88"
@@ -35,6 +28,15 @@ const railEndSectionAttributes = { [railEndSectionAttribute]: "" };
     {marketingCopy.finalCallToAction.description}
   </p>
   <div class="mt-4 flex w-full max-w-[560px] flex-col items-stretch gap-3 text-left">
+    <a
+      class="final-star-button relative mx-auto inline-flex min-h-12 items-center justify-center rounded-xl px-6 font-semibold"
+      data-final-star-button
+      href={marketingCopy.githubUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {marketingCopy.finalCallToAction.starOnGitHub}
+    </a>
     <InstallCommand />
     <p class="m-0 mt-6 text-center text-[14px] text-ink-faint">
       {marketingCopy.installation.systemRequirement}
@@ -44,3 +46,41 @@ const railEndSectionAttributes = { [railEndSectionAttribute]: "" };
     {marketingCopy.finalCallToAction.traits}
   </p>
 </section>
+
+<script>
+  const starButton = document.querySelector<HTMLElement>("[data-final-star-button]");
+  if (starButton !== null) {
+    const markPulse = (): void => {
+      starButton.setAttribute("data-pulsed", "");
+    };
+    document.addEventListener("topology-end-reached", markPulse, { once: true });
+  }
+</script>
+
+<style>
+  .final-star-button {
+    background: var(--color-primary);
+    color: var(--color-canvas);
+    box-shadow: 0 7px 24px rgb(137 180 250 / 22%);
+  }
+  .final-star-button:hover { background: color-mix(in srgb, var(--color-primary) 86%, white); }
+  .final-star-button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--color-primary);
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+  }
+  .final-star-button[data-pulsed]::after {
+    animation: final-star-pulse 900ms ease-out 1 both;
+  }
+  @keyframes final-star-pulse {
+    from { opacity: 0.85; transform: scale(1); }
+    to { opacity: 0; transform: scale(1.25); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .final-star-button[data-pulsed]::after { animation: none; }
+  }
+</style>

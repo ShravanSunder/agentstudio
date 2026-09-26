@@ -30,7 +30,7 @@ const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canoni
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#2E3036" />
+    <meta name="theme-color" content="#191B1F" />
     <link rel="canonical" href={canonicalUrl} />
     <link rel="icon" href={appLogo.src} type="image/svg+xml" />
     <meta property="og:type" content="website" />
@@ -54,7 +54,7 @@ const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canoni
     <FullPageTopologyBackdrop />
     <div class="site-header-anchor sticky top-0 z-20 h-18" data-site-header-anchor>
       <header
-        class="site-header relative top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
+        class="site-header floating-glass-material relative top-px z-20 mx-auto flex min-h-18 items-center justify-between rounded-floating-shell border border-[rgb(137_180_250/24%)] px-5.5 py-4"
         data-site-header
         data-visual-state="resting"
       >
@@ -158,15 +158,6 @@ const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canoni
   .site-header[data-visual-state="floating"] {
     @apply top-3 min-h-16 rounded-floating-shell px-5.5 py-3;
     width: min(80vw, 672px);
-    border-color: rgb(137 180 250 / 38%);
-    background:
-      linear-gradient(135deg, rgb(137 180 250 / 11%), transparent 40%, rgb(116 199 236 / 6%)),
-      rgb(30 30 46 / 88%);
-    box-shadow:
-      0 20px 46px rgb(8 9 14 / 28%),
-      0 6px 16px rgb(10 11 17 / 18%),
-      0 1px 0 rgb(137 180 250 / 8%),
-      inset 0 1px rgb(255 255 255 / 10%);
   }
 
   .site-header-frost {

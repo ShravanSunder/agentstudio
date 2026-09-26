@@ -3,12 +3,28 @@ import { Image } from "astro:assets";
 
 import parallelAgentsImage from "@/assets/captures/parallel-agents.png";
 import parallelWorkPhoneImage from "@/assets/captures/parallel-work-phone.png";
+import appLogo from "@/assets/brand/app-logo-transparent.svg";
 import {
   railAnchorAttribute,
   railMediaTargetAttribute,
   railSurfaceTargetAttribute,
+  railTargetEdgeAttribute,
 } from "@/chapters/chapter-dom-contract";
 import { marketingCopy } from "@/marketing-copy";
+import {
+  heroIntroCopyAttribute,
+  heroIntroDescriptionAttribute,
+  heroIntroEyebrowSettledAttribute,
+  heroIntroGlowAttribute,
+  heroIntroHeadlineFirstAttribute,
+  heroIntroHeadlineSecondAttribute,
+  heroIntroInstallAttribute,
+  heroIntroPayoffFirstAttribute,
+  heroIntroPayoffSecondAttribute,
+  heroIntroRootAttribute,
+  heroIntroStateAttribute,
+} from "@/hero-intro/hero-intro-dom-contract";
+import HeroTerminalWindow from "@/hero-intro/HeroTerminalWindow.astro";
 
 import { heroLoopMedia } from "./hero-loop-media";
 import HeroLoopVideo from "./HeroLoopVideo.astro";
@@ -21,71 +37,76 @@ const heroRailId = "hero";
 const railAnchorAttributes = { [railAnchorAttribute]: heroRailId };
 const appFrameRailAttributes = {
   [railSurfaceTargetAttribute]: heroRailId,
+  [railTargetEdgeAttribute]: "top",
   [railMediaTargetAttribute]: heroRailId,
 };
 // Lines may break between the eyebrow's sentences, never inside "Repo-aware."
 // or "Terminal-first.".
 const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
+const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<=\.)\s+/u);
 ---
 
 <!--
   The owner prefers air to peek: the hero keeps fluid gaps between the
   payoff and the description and between the install row and the app frame,
   and trims the headline size rather than those gaps when the frame sinks.
-  On wide screens the description sits beside the install command. The bottom
+  The description follows the first image. The bottom
   padding tops up the first chapter's own block so the hero-to-chapter gap is
   one section block.
 -->
 <section
   class="hero relative pt-[clamp(32px,1.5vw+3vh,80px)] pr-page-inline pb-[calc(var(--spacing-section-block)-var(--spacing-chapter-block))] pl-[calc(var(--spacing-page-inline)+var(--spacing-rail-gutter))]"
   aria-labelledby="hero-title"
+  {...{ [heroIntroRootAttribute]: "", [heroIntroStateAttribute]: "settled" }}
 >
+  <div class="hero-glow" {...{ [heroIntroGlowAttribute]: "" }} aria-hidden="true"></div>
   <div class="relative z-[2] max-w-hero lg:pl-[clamp(24px,2.6vw,56px)]">
     <p
       {...railAnchorAttributes}
-      class="eyebrow m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase"
+      class="eyebrow relative m-0 font-mono-product text-eyebrow tracking-eyebrow text-ink-faint uppercase"
     >
-      {
-        eyebrowPhrases.map((phrase, phraseIndex) => (
-          <>
-            {phraseIndex > 0 && " "}
-            <span class="whitespace-nowrap">{phrase}</span>
-          </>
-        ))
-      }
+      <span {...{ [heroIntroEyebrowSettledAttribute]: "" }}>
+        {
+          eyebrowPhrases.map((phrase, phraseIndex) => (
+            <>
+              {phraseIndex > 0 && " "}
+              <span class="whitespace-nowrap">{phrase}</span>
+            </>
+          ))
+        }
+      </span>
     </p>
     <h1
       id="hero-title"
       class="mt-4 mb-0 max-w-hero font-display text-[clamp(34px,4.6vw,80px)] leading-[0.9] font-extrabold tracking-[-0.05em]"
       aria-label={marketingCopy.hero.headline}
+      {...{ [heroIntroCopyAttribute]: "" }}
     >
-      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal"
+      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal" {...{ [heroIntroHeadlineFirstAttribute]: "" }}
         >{marketingCopy.hero.headlineSetupFirst}</span
       >
-      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal">
+      <span class="block whitespace-nowrap max-phone:text-balance max-phone:whitespace-normal" {...{ [heroIntroHeadlineSecondAttribute]: "" }}>
         {marketingCopy.hero.headlineSetupSecondBeforeAccent}<span
           >{marketingCopy.hero.headlineSetupSecondAccent}</span
         >
       </span>
       <span
-        class="mt-[0.25em] block text-[clamp(24px,3.2vw,54px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-balance max-phone:whitespace-normal"
-        >{marketingCopy.hero.headlinePayoff}</span
+        class="mt-[0.25em] block text-[clamp(24px,3.2vw,54px)] leading-[0.96] tracking-[-0.035em] whitespace-nowrap text-primary max-phone:text-[20px]"
+        ><span {...{ [heroIntroPayoffFirstAttribute]: "" }}>{payoffFirst}</span><span {...{ [heroIntroPayoffSecondAttribute]: "" }}> {payoffSecond}</span></span
       >
     </h1>
-    <div
-      class="mt-hero-copy flex flex-col gap-6 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-10"
-    >
-      <p class="m-0 max-w-copy text-marketing-body text-ink-muted lg:max-w-[34rem] lg:flex-[1_1_24rem]">
-        {marketingCopy.hero.description}
-      </p>
-      <div
-        class="hero__actions flex w-full flex-wrap items-center gap-3 max-phone:flex-col max-phone:flex-nowrap max-phone:items-stretch lg:w-auto lg:flex-none"
-      >
+  </div>
+
+  <div class="hero-intro-column relative z-[2] mt-hero-copy">
+    <HeroTerminalWindow />
+    <div class="hero-install-row mt-5 flex justify-center" {...{ [heroIntroInstallAttribute]: "" }}>
+      <div class="hero__actions flex w-full flex-wrap items-center justify-center gap-3 max-phone:flex-col max-phone:flex-nowrap max-phone:items-stretch lg:w-auto lg:flex-none">
         <InstallCommand />
       </div>
     </div>
   </div>
 
+  <div class="hero-frame-flow scroll-material-lift-group" data-scroll-material-lift-target>
   <ScrollMaterialSurface
     {...appFrameRailAttributes}
     staticMaterial
@@ -122,9 +143,26 @@ const eyebrowPhrases = marketingCopy.hero.eyebrow.split(/(?<=\.)\s+/u);
       }
     </div>
   </ScrollMaterialSurface>
+  <div class="chapter-caption mt-3" data-hero-caption>
+    <div class="chapter-caption__content">
+      <span class="chapter-caption__icon" data-hero-caption-icon><img src={appLogo.src} width="20" height="20" alt="" aria-hidden="true" /></span>
+      <p class="chapter-caption__copy m-0" {...{ [heroIntroDescriptionAttribute]: "" }}>
+        {marketingCopy.hero.description}
+      </p>
+    </div>
+  </div>
+  </div>
 </section>
 
 <style>
+  .hero { isolation: isolate; overflow-x: clip; }
+  @media (width >= 64rem) and (height <= 56.25rem) {
+    .hero { padding-top: clamp(24px, 1.5vw + 3vh - 12px, 72px); }
+    #hero-title { font-size: clamp(34px, 3.2vw, 54px); }
+    #hero-title > span:last-child { font-size: clamp(24px, 2.6vw, 43px); }
+  }
+  .hero-intro-column { width: 100%; }
+  .hero-glow { position: absolute; z-index: 0; top: -12%; bottom: 0; left: 0; right: 0; pointer-events: none; background: radial-gradient(ellipse 64% 65% at 54% 38%, #282c34 0%, rgb(40 44 52 / 75%) 34%, transparent 73%); }
   /* The rail marks the hero frame while the hero is current; its hairline lights blue. */
   :global(.hero-app-frame.scroll-material-surface[data-rail-current]) {
     border-color: rgb(137 180 250 / 88%);

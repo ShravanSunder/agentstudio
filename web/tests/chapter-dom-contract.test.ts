@@ -12,9 +12,9 @@ describe("chapter DOM contract", () => {
       new Set([
         "data-rail-anchor",
         "data-rail-surface-target",
+        "data-rail-target-edge",
         "data-rail-media-target",
-        "data-rail-end-mark",
-        "data-rail-end-section",
+        "data-rail-step-pill-target",
         "data-rail-current",
         "data-scroll-playback-stage",
         "data-scene-root",

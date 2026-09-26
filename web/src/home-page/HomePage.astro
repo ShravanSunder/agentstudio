@@ -23,6 +23,12 @@ const { canonicalPath, socialUrlPath } = Astro.props;
   canonicalPath={canonicalPath}
   socialUrlPath={socialUrlPath}
 >
+  <script is:inline>
+    history.scrollRestoration = "manual";
+    if (window.location.hash === "") {
+      window.scrollTo(0, 0);
+    }
+  </script>
   <Hero />
   {
     chapterCatalog.map((chapter) => (

@@ -16,13 +16,11 @@ if (sessionVideoTags?.length !== 1) {
 const [sessionVideoTag] = sessionVideoTags;
 const requiredAttributes = [
   "controls",
+  "muted",
   "playsinline",
   'preload="metadata"',
   'aria-label="Agent Studio persistent session restore demonstration"',
-  "data-scroll-autoplay-video",
-  'data-scroll-autoplay-start-progress="0.95"',
-  'data-scroll-autoplay-stop-progress="0.9"',
-  'data-scroll-autoplay-replay-delay-ms="3000"',
+  "data-scene-proof-video",
 ] as const;
 
 for (const requiredAttribute of requiredAttributes) {
@@ -31,8 +29,15 @@ for (const requiredAttribute of requiredAttributes) {
   }
 }
 
-if (/\sautoplay(?:\s|=|>)/u.test(sessionVideoTag)) {
-  throw new Error("Rendered session-restore video must not use native autoplay.");
+if (/\s(?:autoplay|data-scroll-autoplay-video)(?:\s|=|>)/u.test(sessionVideoTag)) {
+  throw new Error("Rendered session-restore proof video must wait for its scene handoff.");
+}
+
+if (
+  !renderedHomepage.includes('data-scene-root="chapter-come-back"') ||
+  !renderedHomepage.includes('data-scene-proof="chapter-come-back"')
+) {
+  throw new Error("Session restore must render both its recreation and real video proof.");
 }
 
 console.log("Verified the rendered session-restore player contract.");

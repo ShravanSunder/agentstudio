@@ -12,14 +12,6 @@ import {
 // without moving focus; a visitor's selection asks the scene to seek there.
 
 const stepSelector = "[data-chapter-step]";
-/**
- * Below Tailwind's `lg` boundary (`--breakpoint-lg: 64rem`) the chapter glass
- * stacks (title, stage, steps) and the steps render as a horizontal dot row.
- * ChapterSurface.astro styles the row under the same query.
- */
-export const chapterStackedLayoutMediaQuery = "(width < 64rem)";
-
-type StepListOrientation = "horizontal" | "vertical";
 const panelSelector = "[data-chapter-step-panel]";
 
 export type ChapterStepState = "passed" | "current" | "upcoming";
@@ -88,7 +80,8 @@ function renderStaticContract(contract: ChapterStepsDomContract): void {
     selector.removeAttribute("aria-controls");
     selector.removeAttribute("aria-selected");
     selector.dataset["stepState"] = stepStateFor(stepIndex, 0);
-    panel.hidden = stepIndex !== 0;
+    panel.removeAttribute("hidden");
+    panel.setAttribute("aria-hidden", String(stepIndex !== 0));
     panel.removeAttribute("role");
     panel.removeAttribute("aria-labelledby");
     panel.removeAttribute("tabindex");
@@ -96,14 +89,10 @@ function renderStaticContract(contract: ChapterStepsDomContract): void {
   contract.root.dataset["enhanced"] = "false";
 }
 
-function renderSelectedStep(
-  contract: ChapterStepsDomContract,
-  selectedIndex: number,
-  orientation: StepListOrientation,
-): void {
+function renderSelectedStep(contract: ChapterStepsDomContract, selectedIndex: number): void {
   const idPrefix = `chapter-step-${contract.root.dataset["chapterStepsRoot"] ?? "chapter"}`;
   contract.list.setAttribute("role", "tablist");
-  contract.list.setAttribute("aria-orientation", orientation);
+  contract.list.setAttribute("aria-orientation", "horizontal");
   contract.steps.forEach(({ panel, selector, stepId }, stepIndex): void => {
     const isSelected = stepIndex === selectedIndex;
     selector.disabled = false;
@@ -114,12 +103,45 @@ function renderSelectedStep(
     selector.setAttribute("aria-selected", String(isSelected));
     selector.dataset["stepState"] = stepStateFor(stepIndex, selectedIndex);
     panel.id = `${idPrefix}-panel-${stepId}`;
-    panel.hidden = !isSelected;
+    panel.removeAttribute("hidden");
+    panel.setAttribute("aria-hidden", String(!isSelected));
     panel.tabIndex = 0;
     panel.setAttribute("role", "tabpanel");
     panel.setAttribute("aria-labelledby", selector.id);
   });
   contract.root.dataset["enhanced"] = "true";
+  const selected = contract.steps[selectedIndex]?.selector;
+  if (selected !== undefined && contract.list.querySelector(".chapter-step-highlight") !== null) {
+    contract.list.style.setProperty("--chapter-step-highlight-x", `${selected.offsetLeft}px`);
+    contract.list.style.setProperty("--chapter-step-highlight-width", `${selected.offsetWidth}px`);
+  }
+  const firstDot = contract.steps[0]?.selector.querySelector<HTMLElement>(".chapter-step__dot");
+  const lastDot = contract.steps.at(-1)?.selector.querySelector<HTMLElement>(".chapter-step__dot");
+  const currentDot = selected?.querySelector<HTMLElement>(".chapter-step__dot");
+  if (
+    firstDot !== undefined &&
+    firstDot !== null &&
+    lastDot !== undefined &&
+    lastDot !== null &&
+    currentDot !== undefined &&
+    currentDot !== null
+  ) {
+    const listLeft = contract.list.getBoundingClientRect().left;
+    const center = (dot: HTMLElement): number => {
+      const bounds = dot.getBoundingClientRect();
+      return (bounds.left + bounds.right) / 2 - listLeft;
+    };
+    const firstCenter = center(firstDot);
+    contract.list.style.setProperty("--chapter-step-track-left", `${firstCenter}px`);
+    contract.list.style.setProperty(
+      "--chapter-step-track-width",
+      `${center(lastDot) - firstCenter}px`,
+    );
+    contract.list.style.setProperty(
+      "--chapter-step-progress-width",
+      `${center(currentDot) - firstCenter}px`,
+    );
+  }
 }
 
 function movementForKey(key: string): StepMovement | null {
@@ -162,33 +184,23 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
     const validatedContract = validateChapterStepsDom(root);
     contract = validatedContract;
     let selectedIndex = 0;
-    const stepRowQuery = window.matchMedia(chapterStackedLayoutMediaQuery);
-    const currentOrientation = (): StepListOrientation =>
-      stepRowQuery.matches ? "horizontal" : "vertical";
-
     const selectStep = (stepIndex: number): void => {
       selectedIndex = stepIndex;
-      renderSelectedStep(validatedContract, selectedIndex, currentOrientation());
+      renderSelectedStep(validatedContract, selectedIndex);
     };
+    window.addEventListener("resize", () => selectStep(selectedIndex), {
+      signal: lifecycle.signal,
+    });
 
-    // The row turns vertical again on wider screens; keep the announced
-    // orientation in step with the layout.
-    stepRowQuery.addEventListener(
-      "change",
-      (): void => {
-        validatedContract.list.setAttribute("aria-orientation", currentOrientation());
-      },
-      { signal: lifecycle.signal },
-    );
-
-    // A visitor's choice: select, then ask the scene to seek and play there.
+    // A visitor's choice enters on the glass, where the scene listens; the
+    // event bubbles back to this root for other chapter observers.
     const chooseStep = (stepIndex: number): void => {
       selectStep(stepIndex);
       const chosenStep = validatedContract.steps[stepIndex];
       if (chosenStep !== undefined) {
-        root.dispatchEvent(
-          createChapterStepEvent(chapterStepRequestedEventName, chosenStep.stepId),
-        );
+        root
+          .querySelector("[data-rail-surface-target]")
+          ?.dispatchEvent(createChapterStepEvent(chapterStepRequestedEventName, chosenStep.stepId));
       }
     };
 

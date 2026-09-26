@@ -21,6 +21,7 @@ import {
   topologyRowUnit,
 } from "../src/topology-lab/full-page-topology-model";
 import { localForkPath, localMergePath } from "../src/topology-lab/full-page-topology-paths";
+import { planWorktreeLanes } from "../src/topology-lab/topology-lane-planning";
 
 function rect(left: number, top: number, width: number, height: number): TopologyRect {
   return { left, top, width, height };
@@ -55,6 +56,7 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
   const anchors: TopologyAnchorMeasurement[] = [
     {
       id: "hero",
+      targetEdge: "top",
       rect: rect(heroCopyLeft, 110, 400, 12),
       surface: heroFrame,
       media: heroFrame,
@@ -84,14 +86,10 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
     );
   }
   const lastAnchor = anchors.at(-1);
-  // The final call to action's centered logo.
-  const ctaSection = rect(0, (lastAnchor?.rect.top ?? 0) + 760, viewportWidth, 700);
-  const ctaIcon = rect((viewportWidth - 88) / 2, ctaSection.top + 100, 88, 88);
   const page = {
     viewportWidth,
-    height: ctaSection.top + ctaSection.height + 200,
+    height: (lastAnchor?.rect.top ?? 0) + 1660,
     anchors,
-    end: { section: ctaSection, mark: ctaIcon },
   };
   const textRects = anchors.flatMap((anchor) =>
     stacked || anchor.id === "hero"
@@ -108,6 +106,77 @@ function composed(fixture: TopologyPageFixture): TopologyComposition {
   }
   return composition;
 }
+
+describe("step pill attachment", () => {
+  it("keeps the title chapter dot when the desktop pill follows its title", () => {
+    const fixture = homePageAt(1600);
+    const firstChapter = fixture.page.anchors[1];
+    if (firstChapter === undefined) throw new Error("First chapter is missing");
+    const pill = rect(
+      firstChapter.rect.left,
+      firstChapter.rect.top + firstChapter.rect.height + 14,
+      300,
+      40,
+    );
+    const anchors = fixture.page.anchors.map((anchor, index) =>
+      index === 1 ? { ...anchor, stepPill: pill } : anchor,
+    );
+    const composition = composeFullPageTopology({ ...fixture.page, anchors });
+    expect(composition?.rows.find((row) => row.anchorId === firstChapter.id)?.kind).toBe("chapter");
+    expect(
+      composition?.routes.find((route) => route.anchorId === firstChapter.id)?.targetPoint,
+    ).toEqual({ x: pill.left, y: pill.top + 20 });
+  });
+  it("enters the hero app-frame top edge even on desktop", () => {
+    const fixture = homePageAt(1600);
+    const hero = fixture.page.anchors[0];
+    const route = composed(fixture).routes.find((candidate) => candidate.anchorId === "hero");
+    expect(route?.targetEdge).toBe("top");
+    expect(route?.targetPoint?.y).toBe(hero?.surface?.top);
+  });
+  it("enters a non-hero anchor's declared top edge on desktop", () => {
+    const fixture = homePageAt(1600);
+    const chapter = fixture.page.anchors[1];
+    if (chapter?.surface === undefined) throw new Error("First chapter glass is missing");
+    const anchors = fixture.page.anchors.map((anchor, index) =>
+      index === 1 ? { ...anchor, targetEdge: "top" as const } : anchor,
+    );
+    const route = composeFullPageTopology({ ...fixture.page, anchors })?.routes.find(
+      (candidate) => candidate.anchorId === chapter.id,
+    );
+    expect(route?.targetEdge).toBe("top");
+    expect(route?.targetPoint?.y).toBe(chapter.surface.top);
+    expect(route?.targetPoint?.x).toBe(chapter.surface.left + topologyStackedDropCornerInset);
+  });
+  for (const width of [390, 820, 1280, 1600]) {
+    it(`uses the pill on desktop and glass top on stacked layouts at ${width}px`, () => {
+      const fixture = homePageAt(width);
+      const firstChapter = fixture.page.anchors[1];
+      if (firstChapter?.surface === undefined) throw new Error("First chapter glass is missing");
+      const pill = rect(
+        firstChapter.surface.left + (width < 1024 ? 33 : 54),
+        firstChapter.surface.top - 56,
+        300,
+        40,
+      );
+      const anchors = fixture.page.anchors.map((anchor, index) =>
+        index === 1 ? { ...anchor, stepPill: pill } : anchor,
+      );
+      const composition = composeFullPageTopology({ ...fixture.page, anchors });
+      if (composition === undefined) throw new Error("Pill topology did not compose");
+      const route = composition.routes.find((candidate) => candidate.anchorId === firstChapter.id);
+      if (width >= 1024) {
+        expect(route?.targetPoint).toEqual({ x: pill.left, y: pill.top + pill.height / 2 });
+        expect(composition.rowYs).toContain(pill.top + pill.height / 2);
+      } else {
+        expect(route?.targetEdge).toBe("top");
+        expect(route?.targetPoint?.y).toBe(firstChapter.surface.top);
+        expect(composition.rowYs).not.toContain(pill.top + pill.height / 2);
+      }
+      expect(composition.mainlineX).toBe(composed(fixture).mainlineX);
+    });
+  }
+});
 
 interface PathPoint {
   readonly x: number;
@@ -217,7 +286,7 @@ describe("gutter columns", () => {
     const laneCounts = viewportWidths.map((width) => composed(homePageAt(width)).laneXs.length);
 
     // Assert
-    expect(laneCounts).toEqual([0, 0, 0, 1, 1, 1]);
+    expect(laneCounts).toEqual([0, 0, 0, 2, 2, 2]);
     expect(Math.max(...laneCounts)).toBeLessThanOrEqual(topologyMaximumLaneCount);
   });
 
@@ -252,7 +321,9 @@ describe("gutter columns", () => {
       const forkRow = composition.rowYs.indexOf(outermost?.startY ?? Number.NaN);
       const portRow = composition.rowYs.indexOf(heroPort?.startY ?? Number.NaN);
       expect(forkRow).toBeGreaterThanOrEqual(0);
-      expect(portRow - forkRow).toBeGreaterThanOrEqual(topologyHeroLaneMinimumTravel);
+      expect(portRow - forkRow, String(width)).toBeGreaterThanOrEqual(
+        topologyHeroLaneMinimumTravel,
+      );
       expect(portRow - forkRow).toBeLessThanOrEqual(topologyHeroLaneMaximumTravel);
       expect(heroPort?.parentColumn).toBe(outermost?.column);
     }
@@ -367,14 +438,18 @@ describe("composed topology", () => {
           expect(route.column).toBe(route.parentColumn + 1);
           for (const command of pathCommands(route.pathData).slice(1)) {
             const end = command.points.at(-1) ?? command.from;
+            const heroTopInset =
+              route.anchorId === "hero" && width >= topologyStackedLayoutBreakpointWidth
+                ? topologyStackedDropCornerInset
+                : 0;
             expect(Math.abs(end.x - command.from.x)).toBeLessThanOrEqual(
-              composition.columnUnit + 0.01,
+              composition.columnUnit + heroTopInset + 0.01,
             );
           }
         }
       });
 
-      it("enters each target through a primary-blue port, one column × one row, ending in a node on the edge", () => {
+      it("enters each target with a one-column branch whose last point meets the edge", () => {
         const attaches = composition.routes.filter((route) => route.kind === "attach");
         expect(attaches.map((route) => route.anchorId)).toEqual(
           fixture.page.anchors.map((anchor) => anchor.id),
@@ -387,7 +462,11 @@ describe("composed topology", () => {
             throw new Error("Attach branch is empty");
           }
           expect(attach.accent).toBe("port");
-          expect(end.x - start.x).toBeCloseTo(composition.columnUnit, 6);
+          const heroTopInset =
+            attach.anchorId === "hero" && width >= topologyStackedLayoutBreakpointWidth
+              ? topologyStackedDropCornerInset
+              : 0;
+          expect(end.x - start.x).toBeCloseTo(composition.columnUnit + heroTopInset, 6);
           expect(end.y - start.y).toBeGreaterThan(0);
           expect(end.y - start.y).toBeLessThanOrEqual(topologyRowUnit * 1.25);
           // Wide ports turn with the retired merge bend onto the target row and
@@ -410,7 +489,9 @@ describe("composed topology", () => {
           const anchor = fixture.page.anchors.find((candidate) => candidate.id === attach.anchorId);
           if (attach.targetEdge === "top") {
             // Stacked ports enter the glass's top edge straight down, clear of its corner.
-            expect(width).toBeLessThan(topologyStackedLayoutBreakpointWidth);
+            expect(width < topologyStackedLayoutBreakpointWidth || attach.anchorId === "hero").toBe(
+              true,
+            );
             const lastRun = pathCommands(attach.pathData).at(-1);
             expect(lastRun?.command).toBe("L");
             expect(lastRun?.from.x).toBe(end.x);
@@ -420,8 +501,9 @@ describe("composed topology", () => {
             attach.targetEdge === "left"
               ? { x: anchor?.surface?.left ?? Number.NaN, y: end.y }
               : { x: end.x, y: anchor?.surface?.top ?? Number.NaN };
-          expect(Math.abs((attach.portNode?.x ?? Number.NaN) - edge.x)).toBeLessThanOrEqual(1);
-          expect(Math.abs((attach.portNode?.y ?? Number.NaN) - edge.y)).toBeLessThanOrEqual(1);
+          expect(Math.abs(end.x - edge.x)).toBeLessThanOrEqual(1);
+          expect(Math.abs(end.y - edge.y)).toBeLessThanOrEqual(1);
+          expect(attach.targetPoint).toEqual(end);
         }
       });
 
@@ -463,28 +545,23 @@ describe("composed topology", () => {
     }
   });
 
-  it("ends halfway between the last glass and CTA icon, with no geometry below it", () => {
+  it("ends at the last chapter glass center, with one terminal merge when lanes fit", () => {
     for (const width of [390, 1280, 1920]) {
-      // Arrange
       const fixture = homePageAt(width);
-      const end = fixture.page.end;
-      if (end?.mark === undefined) {
-        throw new Error("Fixture has no CTA icon");
-      }
-      const lastGlassBottom = Math.max(
-        ...fixture.page.anchors.flatMap((anchor) =>
-          anchor.surface === undefined ? [] : [anchor.surface.top + anchor.surface.height],
-        ),
-      );
-
-      // Act
+      const lastGlass = fixture.page.anchors.at(-1)?.surface;
+      if (lastGlass === undefined) throw new Error("Last chapter glass is missing");
       const composition = composed(fixture);
-
-      // Assert: the end node bisects the gap between the last glass and CTA icon.
       const endDot = composition.rows.at(-1);
-      expect(endDot?.kind).toBe("end");
-      const expectedEndY = (lastGlassBottom + end.mark.top) / 2;
-      expect(Math.abs((endDot?.y ?? Number.NaN) - expectedEndY)).toBeLessThanOrEqual(1);
+      expect(endDot?.y).toBeCloseTo(lastGlass.top + lastGlass.height / 2, 1);
+      if (composition.laneXs.length > 0) {
+        expect(endDot?.kind).toBe("merge");
+        expect(endDot?.terminal).toBe(true);
+        expect(composition.routes.filter((route) => route.kind === "worktree").at(0)?.endY).toBe(
+          endDot?.y,
+        );
+      } else {
+        expect(endDot?.kind).toBe("end");
+      }
       const lowestPoint = Math.max(
         ...composition.rows.map((dot) => dot.y),
         ...composition.routes.flatMap((route) =>
@@ -496,33 +573,45 @@ describe("composed topology", () => {
     }
   });
 
-  it("uses the existing CTA and page fallbacks when midpoint measurements are unavailable", () => {
-    // Arrange
+  it("falls back to one row above page end when no glass is measured", () => {
     const fixture = homePageAt(1280);
-    const end = fixture.page.end;
-    if (end === undefined) {
-      throw new Error("Fixture has no CTA section");
-    }
-
-    // Act
-    const sectionFallback = composeFullPageTopology({
-      ...fixture.page,
-      end: { section: end.section, mark: undefined },
-    });
-    const noGlassFallback = composeFullPageTopology({
+    const composition = composeFullPageTopology({
       ...fixture.page,
       anchors: fixture.page.anchors.map((anchor) => ({ ...anchor, surface: undefined })),
     });
-    const pageFallback = composeFullPageTopology({
-      viewportWidth: fixture.page.viewportWidth,
-      height: fixture.page.height,
-      anchors: fixture.page.anchors,
-    });
+    expect(composition?.rows.at(-1)?.y).toBe(fixture.page.height - topologyRowUnit);
+  });
 
-    // Assert
-    expect(sectionFallback?.rows.at(-1)?.y).toBe(end.section.top - topologyRowUnit);
-    expect(noGlassFallback?.rows.at(-1)?.y).toBe(end.section.top - topologyRowUnit);
-    expect(pageFallback?.rows.at(-1)?.y).toBe(fixture.page.height - topologyRowUnit);
+  it("staircases one to four lanes into the last row, one merge per row", () => {
+    const rowYs = Array.from({ length: 30 }, (_, row) => row * topologyRowUnit);
+    for (const laneCount of [1, 2, 3, 4]) {
+      const plan = planWorktreeLanes({
+        laneXs: Array.from({ length: laneCount }, (_, index) => (index + 1) * 80),
+        mainlineX: 0,
+        rowYs,
+        openRow: 1,
+        endRow: 29,
+        lastAttachRow: 20,
+      });
+      expect(plan?.terminalMerge).toBe(true);
+      expect(plan?.lanes.map((lane) => lane.mergeRow)).toEqual(
+        Array.from({ length: laneCount }, (_, index) => 29 - index),
+      );
+      expect(new Set(plan?.lanes.map((lane) => lane.mergeRow)).size).toBe(laneCount);
+    }
+  });
+
+  it("reduces the lane count when a terminal staircase has no room", () => {
+    const rowYs = Array.from({ length: 11 }, (_, row) => row * topologyRowUnit);
+    const plan = planWorktreeLanes({
+      laneXs: [80, 160],
+      mainlineX: 0,
+      rowYs,
+      openRow: 1,
+      endRow: 10,
+      lastAttachRow: 8,
+    });
+    expect(plan).toBeUndefined();
   });
 
   it("draws nothing without chapter anchors", () => {
