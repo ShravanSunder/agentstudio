@@ -267,7 +267,15 @@ flowchart TB
       - One repository transaction includes their dependent changes; for example, removing a member drops its `reviewComparison`, its `itemOrder`, and a `selectedFilesDocument` under it.
       - Then the atom publishes, guarded by that generation.
       - If the commit fails, the atom is unchanged and the result is the shared unavailable error.
-    - UI current values (filter, surface, selection) stay atom-first, with keyed, generation-ordered saves. Losing the last save to a crash is accepted.
+    - UI current values (filter, surface, selection) stay atom-first, with keyed, generation-ordered saves. Losing the latest unsaved UI preference to a crash is accepted. An orderly shutdown and restore still keep them.
+    - **Coupling invariants between the two paths** (shared advisor, seq 1879):
+      1. **Membership-induced UI changes commit with the membership.** One transaction carries whatever the removal clears or resets: the Files selection, affected opened documents, a member filter, the Review fallback, and the comparison and order state. `BridgeNavigationMembershipRules` (`BridgeNavigationMembershipRules.swift:103-135` on `bridge-multi-root`) already computes this as one removal result, and that whole valid result is what gets persisted.
+      2. **A stale UI save cannot resurrect.** A queued UI save is checked against the authoritative transaction state: its generation, whether the members it references still exist, and retirement. Deleting a row never erases the condition that rejects a stale write.
+      3. **Committed membership always publishes.** A newer, unrelated UI generation never suppresses publication of a membership effect that has already committed. The committed membership is reconciled into the latest valid projection, and newer UI choices are kept only where they are still valid. Superseding a command *before* its effect is not the same as publishing an effect that already committed.
+    - **Proof:**
+      - A queued selection save at g10, then that member removed at g11, then the g10 save delivered: the selection stays cleared.
+      - A membership commit at g20 is delayed, an independent UI action at g21 publishes, then g20 commits: the atom shows the g20 membership and keeps g21's UI choice where it is still valid.
+      - A crash between the commit and the publication: on restore, the atom shows the committed membership.
     - **Retirement.**
       - Retiring a receiver revokes access at once and records a stable `purge_after`, about 24 h after undo retirement, owned by the same retirement path as PR B.
       - The repository rejects late writes to a retired receiver.
