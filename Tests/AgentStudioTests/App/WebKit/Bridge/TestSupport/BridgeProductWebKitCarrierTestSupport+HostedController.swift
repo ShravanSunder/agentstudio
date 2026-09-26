@@ -36,12 +36,12 @@ extension BridgeProductWebKitCarrierTestSupport {
         return hostSnapshot(window: window, mountView: mountView)
     }
 
-    static func waitForActiveFileViewerHost(_ page: WebPage) async throws {
+    static func waitForActiveFileViewerShell(_ page: WebPage) async throws {
         _ = try await WebPageEventWaits.waitForDocumentValue(
             page,
             reader: """
-                const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
-                if (fileModeHost?.getAttribute('data-bridge-viewer-mode-active') !== 'true') {
+                const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+                if (fileShell?.getAttribute('data-file-viewer-active') !== 'true') {
                   return null;
                 }
                 return true;

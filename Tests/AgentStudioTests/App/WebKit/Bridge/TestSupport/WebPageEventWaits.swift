@@ -33,13 +33,14 @@ enum WebPageEventWaits {
     ///
     /// `readerBody` is a JavaScript function body that returns the value once its
     /// condition holds and `null` (or `undefined`) while it does not. It runs once
-    /// up front and then again from a `MutationObserver` on
-    /// `document.documentElement` watching `childList`, `subtree`, `attributes` and
-    /// `characterData` — every channel through which the Bridge app publishes
-    /// test-visible state. Observer callbacks are microtasks fired by the mutation
-    /// itself: they are NOT throttled by page visibility or requestAnimationFrame,
-    /// which is what makes this sound on the hidden headless page the lane runs,
-    /// where no animation frames are scheduled at all.
+    /// up front and then again from `MutationObserver`s on
+    /// `document.documentElement` and every open shadow root, watching `childList`,
+    /// `subtree`, `attributes` and `characterData` — every channel through which
+    /// the Bridge app publishes test-visible state. Observer callbacks are
+    /// microtasks fired by the mutation itself: they are NOT throttled by page
+    /// visibility or requestAnimationFrame, which is what makes this sound on the
+    /// hidden headless page the lane runs, where no animation frames are scheduled
+    /// at all.
     ///
     /// It answers with whatever the reader sees at the moment a mutation is
     /// delivered, so a value that appears and is replaced inside one mutation batch
@@ -56,22 +57,44 @@ enum WebPageEventWaits {
             """
             const readDocumentValue = () => { \(readerBody) };
             return await new Promise((resolve) => {
+              const observers = [];
+              const observedRoots = new WeakSet();
+              const disconnectObservers = () => {
+                for (const observer of observers) observer.disconnect();
+              };
               const attempt = () => {
                 const value = readDocumentValue();
                 if (value === null || value === undefined) { return false; }
                 resolve(value);
+                disconnectObservers();
                 return true;
               };
               if (attempt()) { return; }
-              const observer = new MutationObserver(() => {
-                if (attempt()) { observer.disconnect(); }
-              });
-              observer.observe(document.documentElement, {
-                attributes: true,
-                characterData: true,
-                childList: true,
-                subtree: true
-              });
+              const observeMutations = (root) => {
+                if (observedRoots.has(root)) return;
+                observedRoots.add(root);
+                const observer = new MutationObserver(() => {
+                  observeNestedOpenShadowRoots(root);
+                  attempt();
+                });
+                observer.observe(root, {
+                  attributes: true,
+                  characterData: true,
+                  childList: true,
+                  subtree: true
+                });
+                observers.push(observer);
+                observeNestedOpenShadowRoots(root);
+              };
+              const observeNestedOpenShadowRoots = (root) => {
+                for (const element of root.querySelectorAll('*')) {
+                  if (element.shadowRoot !== null) {
+                    observeMutations(element.shadowRoot);
+                  }
+                }
+              };
+              observeMutations(document.documentElement);
+              attempt();
             });
             """,
             arguments: arguments

@@ -131,9 +131,9 @@ private func bootstrapFilesPage(
         throw hiddenPageProofError("The hidden Files surface did not activate")
     }
     recordHiddenFileProofStage("files-activated")
-    recordHiddenFileProofStage("awaiting-active-file-viewer-host")
-    try await BridgeProductWebKitCarrierTestSupport.waitForActiveFileViewerHost(controller.page)
-    recordHiddenFileProofStage("active-file-viewer-host-ready")
+    recordHiddenFileProofStage("awaiting-active-file-viewer-shell")
+    try await BridgeProductWebKitCarrierTestSupport.waitForActiveFileViewerShell(controller.page)
+    recordHiddenFileProofStage("active-file-viewer-shell-ready")
 
     recordHiddenFileProofStage("capture-initial-logical-file-index")
     let initialFileIndexSnapshot = try await controller.page.callJavaScript(
@@ -363,6 +363,7 @@ private func waitForHiddenFileQueryState(
 private func recordHiddenFileProofStage(_ stage: String) {
     let marker = "[hidden-file-ipc] \(stage)\n"
     FileHandle.standardError.write(Data(marker.utf8))
+    appendRealGitProofStageToHeldStepLog(marker)
     if let phaseFilePath = ProcessInfo.processInfo.environment["AGENTSTUDIO_B1_PHASE_FILE"] {
         let phaseFileURL = URL(fileURLWithPath: phaseFilePath)
         if FileManager.default.fileExists(atPath: phaseFileURL.path),
