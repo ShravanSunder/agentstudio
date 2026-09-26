@@ -238,12 +238,13 @@ flowchart TB
     |---|---|
     | Add a member | `added(effect: newItem \| newContribution)` · `alreadyPresent` (this contributor already exists; authorship never transfers) · `refusedUnknownWorktree` · `staleOwner` · `staleReceiver` · `unsupportedReceiver` |
     | Remove a member | `removed` · `alreadyAbsent` (no such item) · `refusedProtectedCurrentDirectory` · `refusedNotAuthor` (an agent with no own contribution on an existing item) · `staleOwner` · `staleReceiver` · `pendingDraftSettlement(operationId)` |
-    | Pending removal, terminal | Revalidated after the wait: `removed` · `alreadyAbsent` · `refusedProtectedCurrentDirectory` · `staleOwner` · `staleReceiver` · `draftKept(reason: refused \| saveFailed \| saveOutcomeUnknown)` (membership **known kept**) · `membershipOutcomeUnknown` (the membership commit was dispatched and its effect is uncertain) |
+    | Pending removal, terminal | Revalidated after the wait: `removed` · `alreadyAbsent` (no item at all) · `refusedProtectedCurrentDirectory` · `refusedNotAuthor` (agents only: the item now exists only through other authors) · `staleOwner` · `staleReceiver` · `draftKept(reason: refused \| saveFailed \| saveOutcomeUnknown)` (membership **known kept**) · `membershipOutcomeUnknown` (the membership commit was dispatched and its effect is uncertain) |
     | Add or remove a PR reference | The member cases, without `refusedUnknownWorktree`, CWD protection, or draft cases |
     | Reveal: admission | `admitted(operationId)` · `noLivePage` · `unsupportedTarget` · `staleOwner` · `staleReceiver` |
     | Reveal: settlement (exactly once) | `shown` · `hidden` (installed, not shown) · `superseded` · `unavailable` (retryable) · `notFound` (complete coverage only) · `draftKept(reason)` · `staleOwner` · `cancelled` (fenced before any effect) · `outcomeUnknown` |
 
     - A draft settlement happens only when the **effective** membership disappears, never when one of several contributions goes.
+    - **Precedence.** No other command supersedes a membership mutation. Each one settles by revalidating at its own effect point, after any draft wait, against the authoritative transaction state. The same state therefore maps to the same outcome for immediate and pending removals, for every caller.
     - `requestedBy` is stamped by the runtime. `reason` is bound to that request's selection generation, so a superseded request never relabels later content.
     - Reveal targets are a canonical file, with an optional line.
     - PR and artifact targets settle `unsupportedTarget`. A branch-name match cannot resolve a PR (forks, several matching worktrees, no local checkout, uncommitted work), and a local worktree's Review is not the PR diff. A PR target needs its own contract first, covering canonical PR and head-repository identity, ambiguity, and the Review comparison.
