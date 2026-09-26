@@ -130,6 +130,7 @@ flowchart TB
 - `setScope(scope, scopeRevision)` is latest-wins, with at most one in flight.
 - Native answers with a sealed **coverage batch** for the new scope: newly included keys at their current value whatever their revision (R9b), and evictions for keys that left it. Completion of that batch is the barrier.
 - If the coverage batch doesn't complete within the finite-progress deadline, W2 asks for a resnapshot at the latest desired scope. There is no committed-base rebase to reason about, because the resnapshot establishes the base.
+- **Operation versus view barrier (PR1 QUESTION-26).** `setScope` and `resnapshot` are E4 operations ('change interest'): they go through sequenced admission and each **settles exactly once when native accepts the desired scope or resnapshot**. That typed result says nothing about installation. The view barrier is separate: W4 installing the coverage or snapshot batch for that `scopeRevision`. At most one `setScope` per view is in flight, and it is latest-wins. A newer desired scope supersedes an unsettled one, which settles `cancelled`. A view **acknowledgement** (cumulative credits) is a slot-free escape control like result acknowledgement: it answers in its admission reply, is exactly replayable, and never waits behind an occupied result slot.
 
 **Batches, credits and acknowledgement (N3, N10, W4).**
 - A batch is `begin(batchId, handle, scope, base→target, parts)`, then `put(key, record, rev)` / `delete(key, rev)` / `evict(key)` parts, then `complete(coverage)`.
