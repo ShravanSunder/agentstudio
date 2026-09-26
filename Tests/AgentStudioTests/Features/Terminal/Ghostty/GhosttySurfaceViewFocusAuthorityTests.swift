@@ -4,14 +4,12 @@ import Testing
 
 @Suite
 struct GhosttySurfaceViewFocusAuthorityTests {
-    @Test("stale focused left surface rejects key equivalent owned by right first responder")
-    func staleFocusedLeftSurfaceRejectsRightResponderKeyEquivalent() {
+    @Test("key equivalent eligibility follows the live window first responder")
+    func keyEquivalentEligibilityFollowsLiveWindowFirstResponder() {
         let leftSurfaceAccepts = Ghostty.SurfaceView.shouldAcceptKeyEquivalent(
-            isFocused: true,
             isWindowFirstResponder: false
         )
         let rightSurfaceAccepts = Ghostty.SurfaceView.shouldAcceptKeyEquivalent(
-            isFocused: true,
             isWindowFirstResponder: true
         )
 

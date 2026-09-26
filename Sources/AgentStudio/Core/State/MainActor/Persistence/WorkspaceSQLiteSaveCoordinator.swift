@@ -17,6 +17,9 @@ struct WorkspaceSQLiteSaveCapture: Sendable {
     let workspaceName: String
     let paneStatesByID: [UUID: PaneGraphState]
     let expandedDrawerID: UUID?
+    let drawerPresentationPreferences: [UUID: DrawerPresentationPreference]
+    /// Preference revision this capture acknowledges once saved.
+    let drawerPresentationRevision: Int
     let tabShells: [TabShell]
     let tabGraphStates: [TabGraphState]
     let activeArrangementIDsByTabID: [UUID: UUID]
@@ -103,9 +106,11 @@ enum WorkspaceSQLiteSavePreparation {
                 sidebarWidth: capture.sidebarWidth,
                 windowFrame: capture.windowFrame,
                 createdAt: capture.createdAt,
-                updatedAt: capture.persistedAt
+                updatedAt: capture.persistedAt,
+                drawerPresentationPreferences: capture.drawerPresentationPreferences
             ),
-            captureRevision: capture.revision
+            captureRevision: capture.revision,
+            drawerPresentationRevision: capture.drawerPresentationRevision
         )
     }
 }
@@ -152,6 +157,8 @@ package final class WorkspaceSQLiteSaveCoordinator {
             workspaceName: identityAtom.workspaceName,
             paneStatesByID: workspacePaneAtom.graphAtom.paneStateSnapshot(),
             expandedDrawerID: workspacePaneAtom.drawerCursorAtom.expandedDrawerId,
+            drawerPresentationPreferences: workspacePaneAtom.drawerCursorAtom.presentationPreferencesByOwnerPaneId,
+            drawerPresentationRevision: workspacePaneAtom.drawerCursorAtom.presentationPreferenceRevision,
             tabShells: workspaceTabLayoutAtom.shellAtom.tabShells,
             tabGraphStates: arrangementAtom.graphAtom.tabStates,
             activeArrangementIDsByTabID: arrangementAtom.cursorAtom.activeArrangementIdsByTabId,

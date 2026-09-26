@@ -24,7 +24,7 @@ package actor WorkspaceSQLiteDatastoreActor {
         var database: PreparedLocalDatabase
         var diagnostic: WorkspaceSQLitePreparationTraceRecord?
     }
-    private var backend: WorkspaceSQLiteStoreBackend?
+    private(set) var backend: WorkspaceSQLiteStoreBackend?
     private var applicationLocalRepositoryBundle: ApplicationLocalRepositoryBundle?
     private let configuration: WorkspaceSQLiteDatastoreConfiguration?
     private let beforeFreshLocalDatabaseCreation: (@Sendable () throws -> Void)?
@@ -41,6 +41,7 @@ package actor WorkspaceSQLiteDatastoreActor {
     var retentionSurvivingIdentity: RepositoryRetentionSurvivingIdentity?
     var acceptedRepositoryTopologyCaptureRevision: UInt64?
     var acceptedWorkspaceCaptureRevisions: [UUID: WorkspaceCompositionRevision] = [:]
+    var acceptedDrawerPresentationRevisions: [UUID: Int] = [:]
     var failedStructuralWorkspaceIDs = Set<UUID>()
 
     init(
@@ -226,6 +227,7 @@ package actor WorkspaceSQLiteDatastoreActor {
                 database: .local
             )
             try backend.writeLocalSnapshot(snapshot, localRepository: localRepository)
+            recordAcceptedDrawerPresentationRevision(of: admittedBundle)
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .writeLocal,
@@ -760,6 +762,11 @@ extension WorkspaceSQLiteDatastoreActor {
                 recoveryAttempt: .notAttempted
             )
         }
+        // Fixed before any local recovery branch can return: a boot that leaves
+        // local storage unavailable still lets panes be created, and those must
+        // be newer than the cutoff a later successful import uses.
+        let legacyDrawerImportCutoff = configuration.legacyDrawerPresentationSource?
+            .establishPendingImportCutoff(now: Date())
 
         let mainDatabaseExists = FileManager.default.fileExists(
             atPath: configuration.localDatabaseURL.path
@@ -773,14 +780,19 @@ extension WorkspaceSQLiteDatastoreActor {
         if !mainDatabaseExists, walExists || shmExists {
             return replaceLocalDatabaseForBoot(
                 configuration: configuration,
-                reason: .incompleteFileSet
+                reason: .incompleteFileSet,
+                legacyDrawerImportCutoff: legacyDrawerImportCutoff
             )
         }
 
         do {
             let repository = try Self.openConfiguredLocalRepository(
                 workspaceId: Self.applicationLocalRepositoryScopeId,
-                configuration: configuration
+                configuration: configuration,
+                legacyDrawerPresentationCapture: captureLegacyDrawerPresentationImport(
+                    configuration: configuration,
+                    importCutoff: legacyDrawerImportCutoff
+                )
             )
             applicationLocalRepositoryBundle = .init(applicationRepository: repository)
             return .init(database: .available(recovery: nil), diagnostic: nil)
@@ -795,14 +807,16 @@ extension WorkspaceSQLiteDatastoreActor {
             }
             return replaceLocalDatabaseForBoot(
                 configuration: configuration,
-                reason: .corruptDatabase
+                reason: .corruptDatabase,
+                legacyDrawerImportCutoff: legacyDrawerImportCutoff
             )
         }
     }
 
     private func replaceLocalDatabaseForBoot(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
-        reason: LocalDatabaseRecoveryReason
+        reason: LocalDatabaseRecoveryReason,
+        legacyDrawerImportCutoff: Date?
     ) -> PreparedLocalDatabaseOutcome {
         let recoveredAt = Date()
         let quarantine = SQLiteSidecarQuarantine.quarantine(
@@ -825,7 +839,11 @@ extension WorkspaceSQLiteDatastoreActor {
             try beforeFreshLocalDatabaseCreation?()
             let repository = try Self.openConfiguredLocalRepository(
                 workspaceId: Self.applicationLocalRepositoryScopeId,
-                configuration: configuration
+                configuration: configuration,
+                legacyDrawerPresentationCapture: captureLegacyDrawerPresentationImport(
+                    configuration: configuration,
+                    importCutoff: legacyDrawerImportCutoff
+                )
             )
             try localDatabaseReplacementObserver?(
                 repository,
@@ -922,22 +940,6 @@ extension WorkspaceSQLiteDatastoreActor {
             },
             coreDatabaseStartupProvenance: coreDatabaseStartupProvenance
         )
-    }
-
-    private static func openConfiguredLocalRepository(
-        workspaceId: UUID,
-        configuration: WorkspaceSQLiteDatastoreConfiguration
-    ) throws -> WorkspaceLocalRepository {
-        let localDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
-            at: configuration.localDatabaseURL,
-            label: "AgentStudio.sqlite.local.\(workspaceId.uuidString)"
-        )
-        let localRepository = WorkspaceLocalRepository(
-            workspaceId: workspaceId,
-            databaseWriter: localDatabasePool
-        )
-        try localRepository.migrateBootRequired()
-        return localRepository
     }
 
     private func preparedLocalRepository(workspaceId: UUID) throws -> WorkspaceLocalRepository {

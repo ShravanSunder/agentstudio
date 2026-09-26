@@ -341,6 +341,7 @@ struct FlatTabStripContainer: View {
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
             tabId: tabId,
+            presentation: .normal,
             paneFrames: paneFrames,
             tabSize: tabSize,
             iconBarFrame: iconBarFrame,

@@ -39,6 +39,21 @@ func replyToApplicationTerminationAfterBoundedDrain(
     reply(await runWithTerminationDeadline(timeout: timeout, delay: delay, operation: drain))
 }
 
+/// AppKit exits the process inside a committed
+/// `replyToApplicationShouldTerminate(true)`, so a reply that returns means
+/// AppKit cancelled the quit after the drain had already shut subsystems
+/// down. On 2026-09-24 a modifier-key exception inside `_shouldTerminate` did
+/// exactly that and left a live app that nothing could drive or quit. Our
+/// delegate never cancels a quit itself, so the quit is finished instead.
+@MainActor
+func replyToTerminationFinishingIfCancelled(
+    reply: @MainActor () -> Void,
+    finishCancelledTermination: @MainActor () -> Void
+) {
+    reply()
+    finishCancelledTermination()
+}
+
 /// Races one termination stage against its deadline and reports which side won.
 /// Nothing here cancels the stage: a stage that overruns keeps running, it just
 /// stops being able to hold up what follows.

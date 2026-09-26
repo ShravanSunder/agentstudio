@@ -116,7 +116,7 @@ struct SurfaceErrorOverlay: View {
     private var actionButtons: some View {
         HStack(spacing: 12) {
             if let onDismiss {
-                Button("Close Tab") {
+                Button(AppCommand.closePane.definition.label) {
                     onDismiss()
                 }
                 .buttonStyle(.bordered)

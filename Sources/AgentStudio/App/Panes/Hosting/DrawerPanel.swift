@@ -1,41 +1,83 @@
 import AgentStudioCore
 import AgentStudioEditorChooser
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
 // MARK: - DrawerResizeHandle
 
-/// Draggable resize handle at the top of the drawer panel.
-/// Reports vertical drag deltas so the parent can adjust the panel height.
+/// Callbacks for the normal-mode top-edge resize gesture.
+///
+/// Pointer positions are reported in the fixed `"tabContainer"` space, never
+/// the handle's own moving bounds. `onTerminated` runs after every gesture,
+/// including cancellations that never reach `onEnded`.
+struct DrawerResizeInteraction {
+    let onChanged: (_ gestureID: DrawerResizeGestureID, _ pointerYInTabContainer: CGFloat) -> Void
+    let onEnded: (_ gestureID: DrawerResizeGestureID) -> Void
+    let onTerminated: (_ gestureID: DrawerResizeGestureID?) -> Void
+}
+
+/// Draggable resize handle at the top of a normal-mode drawer panel.
 struct DrawerResizeHandle: View {
-    let onDrag: (CGFloat) -> Void
-    @State private var isDragging = false
-    @State private var lastTranslation: CGFloat = 0
+    static let accessibilityIdentifier = "drawerPanel.resizeHandle"
+
+    let interaction: DrawerResizeInteraction
+    @GestureState private var isGestureActive = false
+    /// Identity of the gesture in progress, minted at its first sample.
+    @State private var activeGestureID: DrawerResizeGestureID?
 
     var body: some View {
         Rectangle()
             .fill(Color.clear)
             .frame(height: DrawerLayout.resizeHandleHeight)
             .contentShape(Rectangle())
+            .background {
+                AccessibilityLabelBridge(
+                    identifier: Self.accessibilityIdentifier,
+                    label: "Resize drawer",
+                    exposesAccessibility: false
+                )
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(isDragging ? 0.4 : 0.2))
+                    .fill(Color.white.opacity(isGestureActive ? 0.4 : 0.2))
                     .frame(width: DrawerLayout.resizeHandlePillWidth, height: DrawerLayout.resizeHandlePillHeight)
             )
             .gesture(
-                DragGesture()
+                DragGesture(coordinateSpace: .named("tabContainer"))
+                    .updating($isGestureActive) { _, isActive, _ in
+                        isActive = true
+                    }
                     .onChanged { value in
-                        isDragging = true
-                        let delta = value.translation.height - lastTranslation
-                        lastTranslation = value.translation.height
-                        onDrag(-delta)  // Negative: drag up = more height
+                        let gestureID = activeGestureID ?? .make()
+                        activeGestureID = gestureID
+                        interaction.onChanged(gestureID, value.location.y)
                     }
                     .onEnded { _ in
-                        isDragging = false
-                        lastTranslation = 0
+                        guard let activeGestureID else { return }
+                        interaction.onEnded(activeGestureID)
                     }
             )
+            // Gesture state resets on both completion and cancellation; the
+            // reset is observed after `onEnded` has already committed.
+            .onChange(of: isGestureActive) { _, isActive in
+                if !isActive {
+                    interaction.onTerminated(activeGestureID)
+                    activeGestureID = nil
+                }
+            }
+    }
+}
+
+/// Inert top band used where the drawer has no resize input (Pane Zoom).
+/// Keeps the border thickness without a gesture or accessibility target.
+struct DrawerInertTopBand: View {
+    var body: some View {
+        Color.clear
+            .frame(height: DrawerLayout.resizeHandleHeight)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -62,7 +104,8 @@ struct DrawerPanel: View {
     let viewRegistry: ViewRegistry
     let action: (WorkspaceActionCommand) -> Void
     let arrangementInlineRenameState: ArrangementInlineRenameState
-    let onResize: (CGFloat) -> Void
+    /// Normal-mode resize input. `nil` in Pane Zoom, which has no resize target.
+    let resizeInteraction: DrawerResizeInteraction?
     let onDismiss: () -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusParentPane: () -> Void
@@ -120,7 +163,7 @@ struct DrawerPanel: View {
         viewRegistry: ViewRegistry,
         action: @escaping (WorkspaceActionCommand) -> Void,
         arrangementInlineRenameState: ArrangementInlineRenameState,
-        onResize: @escaping (CGFloat) -> Void,
+        resizeInteraction: DrawerResizeInteraction?,
         onDismiss: @escaping () -> Void,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onFocusParentPane: @escaping () -> Void,
@@ -145,7 +188,7 @@ struct DrawerPanel: View {
         self.viewRegistry = viewRegistry
         self.action = action
         self.arrangementInlineRenameState = arrangementInlineRenameState
-        self.onResize = onResize
+        self.resizeInteraction = resizeInteraction
         self.onDismiss = onDismiss
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onFocusParentPane = onFocusParentPane
@@ -295,8 +338,11 @@ struct DrawerPanel: View {
             let containerBounds = CGRect(origin: .zero, size: geometry.size)
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
-                    // Resize handle at top
-                    DrawerResizeHandle(onDrag: onResize)
+                    if let resizeInteraction {
+                        DrawerResizeHandle(interaction: resizeInteraction)
+                    } else {
+                        DrawerInertTopBand()
+                    }
 
                     if !layout.isEmpty {
                         // Row-to-row spacing matches horizontal pane gap so the
@@ -426,7 +472,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     viewRegistry: ViewRegistry(),
                     action: { _ in },
                     arrangementInlineRenameState: ArrangementInlineRenameState(),
-                    onResize: { _ in },
+                    resizeInteraction: nil,
                     onDismiss: {},
                     onPaneFocusTrigger: { _ in },
                     onFocusParentPane: {},

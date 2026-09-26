@@ -3,6 +3,8 @@ import Foundation
 struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
     var coreDatabaseURL: URL
     var localDatabaseURL: URL
+    /// Retired global drawer height imported once by the local schema upgrade.
+    var legacyDrawerPresentationSource: LegacyDrawerPresentationSource?
 }
 
 package struct WorkspaceLocalDatabaseReplacement: Sendable, Equatable {

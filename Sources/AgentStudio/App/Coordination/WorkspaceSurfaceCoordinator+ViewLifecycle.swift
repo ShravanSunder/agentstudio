@@ -46,6 +46,9 @@ extension WorkspaceSurfaceCoordinator {
         mountedView: NSView & PaneMountedContent,
         for paneId: UUID
     ) -> PaneHostView {
+        if let terminalView = mountedView as? TerminalPaneMountView {
+            installClosePaneRequest(on: terminalView)
+        }
         let priorHost = viewRegistry.view(for: paneId)
         let host = PaneHostView(paneId: paneId)
         host.onAttachedToWindow = { [weak self] attachedPaneId in
@@ -757,29 +760,32 @@ extension WorkspaceSurfaceCoordinator {
 
     /// SPEC R5 retry, and the R1 clause that hidden, minimized, and collapsed
     /// panes hydrate once geometry becomes safe. Reevaluates canonical
-    /// geometry for exactly the terminal panes the prepared lane still holds
-    /// under `deferredGeometry` custody in the accepted generation, and
-    /// requeues only those whose placement is no longer ambiguous.
+    /// geometry for the terminal panes the prepared lane still holds before
+    /// mount in the accepted generation: `deferredGeometry` members are
+    /// requeued once their placement is no longer ambiguous, and `pending` or
+    /// claimed-not-activated members get their trusted frame refreshed so a
+    /// Zoom or drawer presentation change cannot leave them a stale size.
     /// Deliberately never filtered by presentation: a hidden, minimized,
     /// collapsed, or residency-backgrounded pane is included whenever its
     /// canonical frame is now safe. Called as a tail from every
-    /// canonical-layout-changing action (`+ActionExecution.swift`) and from
-    /// the trusted container-layout callback (`PaneTabViewController`, via
+    /// canonical-layout-changing action (`+ActionExecution.swift`), after
+    /// Zoom enter/retarget/exit and Viewer visibility changes, and from the
+    /// trusted container-layout callback (`PaneTabViewController`, via
     /// `WorkspaceActionExecutor`); adds no timer, poll, observer, or bus case
     /// of its own.
     func reevaluatePreparedTerminalGeometry() async {
         guard let generation = acceptedPreparedContentMountGeneration else { return }
-        let deferredPaneIDs = viewRegistry.deferredPreparedContentMountPaneIDs(
+        let candidatePaneIDs = viewRegistry.unmountedPreparedContentMountPaneIDs(
             owner: .terminal,
             generation: generation
         )
-        guard !deferredPaneIDs.isEmpty else { return }
+        guard !candidatePaneIDs.isEmpty else { return }
         let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
         guard !terminalContainerBounds.isEmpty else { return }
 
         let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
         var resolvedFramesByPaneID: [PaneId: NSRect] = [:]
-        for paneID in deferredPaneIDs {
+        for paneID in candidatePaneIDs {
             guard let pane = store.paneAtom.pane(paneID.uuid) else { continue }
             guard
                 let frame = initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId)
@@ -854,8 +860,10 @@ extension WorkspaceSurfaceCoordinator {
                 let ownedDrawerID = store.paneAtom.graphAtom.paneStructuralFacts(paneId)?.ownedDrawerID,
                 let drawerView = tab.activeArrangement.drawerViews[ownedDrawerID],
                 let drawerContentRect = resolvedDrawerContentRect(
+                    ownerPaneId: paneId,
                     parentPaneFrame: parentFrame,
-                    tabSize: terminalContainerBounds.size
+                    zoomPresentation: store.panePresentationAtom.zoomPresentation(forTab: tab.id),
+                    containerBounds: terminalContainerBounds
                 )
             else {
                 continue
@@ -890,45 +898,55 @@ extension WorkspaceSurfaceCoordinator {
             && rect.size.height > 0
     }
 
+    /// Drawer child content rect from the shared geometry resolver, using
+    /// only shared state: the committed owner preference, the committed Zoom
+    /// split ratio and Viewer presentation, and the bootstrap toolbar metric.
+    /// The Zoom source's drawer uses the Pane Zoom regions above the shared
+    /// toolbar; every other drawer uses its owner frame, which includes the
+    /// owner's own toolbar.
     private func resolvedDrawerContentRect(
+        ownerPaneId: UUID,
         parentPaneFrame: CGRect,
-        tabSize: CGSize
+        zoomPresentation: ZoomPresentation?,
+        containerBounds: CGRect
     ) -> CGRect? {
-        guard tabSize.width > 0, tabSize.height > 0 else { return nil }
-
-        let heightRatio = drawerHeightRatio()
-        let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
-        let panelHeight = max(
-            DrawerLayout.panelMinHeight,
-            min(tabSize.height * CGFloat(heightRatio), tabSize.height - DrawerLayout.panelBottomMargin)
-        )
-        let totalHeight = panelHeight + DrawerLayout.overlayConnectorHeight
-        let overlayBottomY = parentPaneFrame.maxY - DrawerLayout.iconBarFrameHeight
-        let centerY = overlayBottomY - totalHeight / 2
-        let halfPanel = panelWidth / 2
-        let edgeMargin = DrawerLayout.tabEdgeMargin
-        let centerX = max(
-            halfPanel + edgeMargin,
-            min(tabSize.width - halfPanel - edgeMargin, parentPaneFrame.midX)
-        )
-        let panelLeft = centerX - halfPanel
-        let panelTop = centerY - totalHeight / 2
-
-        let contentRect = CGRect(
-            x: panelLeft + DrawerLayout.panelContentPadding,
-            y: panelTop + DrawerLayout.resizeHandleHeight,
-            width: max(panelWidth - (DrawerLayout.panelContentPadding * 2), 1),
-            height: max(
-                panelHeight - DrawerLayout.resizeHandleHeight - DrawerLayout.panelContentPadding,
-                1
+        let containerBounds = CGRect(origin: .zero, size: containerBounds.size)
+        let placement: DrawerPresentationPlacement
+        if let zoomPresentation, zoomPresentation.sourcePaneId == ownerPaneId {
+            let companionLayout = ZoomCompanionRegionLayout.resolve(
+                viewerPresentation: zoomPresentation.viewerPresentation,
+                companionHostIsReady: { [viewRegistry] companionPaneId in
+                    viewRegistry.view(for: companionPaneId) != nil
+                }
             )
-        )
-        return contentRect.isEmpty ? nil : contentRect
-    }
-
-    private func drawerHeightRatio() -> Double {
-        let storedValue = UserDefaults.standard.object(forKey: "drawerHeightRatio") as? Double
-        return storedValue ?? DrawerLayout.heightRatioMax
+            let regions = DrawerPresentationGeometryResolver.zoomRegions(
+                splitArea: CGRect(
+                    x: 0,
+                    y: 0,
+                    width: containerBounds.width,
+                    height: containerBounds.height - DrawerLayout.iconBarFrameHeight
+                ),
+                sourceSplitRatio: CGFloat(
+                    zoomPresentation.transientSplitRatio ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
+                ),
+                reservesCompanionSpace: companionLayout.reservesCompanionSpace,
+                isCompanionVisible: companionLayout.isCompanionVisible
+            )
+            placement = .zoom(terminalRegion: regions.terminal, visibleBridgeRegion: regions.bridge)
+        } else {
+            placement = .normal(
+                ownerFrame: parentPaneFrame,
+                ownerToolbarHeight: DrawerLayout.iconBarFrameHeight,
+                liveHeight: nil
+            )
+        }
+        return DrawerPresentationGeometryResolver.resolve(
+            DrawerPresentationGeometryInput(
+                containerBounds: containerBounds,
+                preference: store.paneAtom.drawerPresentationPreference(forOwner: ownerPaneId),
+                placement: placement
+            )
+        )?.childContentFrame
     }
 
     private func getDefaultShell() -> String {

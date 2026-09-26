@@ -23,6 +23,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let controller: PaneTabViewController
         let coordinator: WorkspaceSurfaceCoordinator
         let executor: WorkspaceActionExecutor
+        let viewRegistry: ViewRegistry
+        let surfaceManager: MockTerminalExitSurfaceManager
         let appEventBus: EventBus<AppEvent>
         let tempDir: URL
 
@@ -33,6 +35,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
         }
     }
 
+    @MainActor
+    private struct ProcessExitEventHandlingResult {
+        let receivedEvents: [AppEvent]
+        let didHandleTermination: Bool
+    }
+
     private final class WeakControllerBox {
         weak var value: PaneTabViewController?
 
@@ -41,7 +49,10 @@ struct TerminalPaneMountViewExitBehaviorTests {
         }
     }
 
-    private func makePaneTabControllerHarness() -> PaneTabControllerHarness {
+    private func makePaneTabControllerHarness(
+        appEventBus: EventBus<AppEvent> = EventBus<AppEvent>(),
+        surfaceManager: MockTerminalExitSurfaceManager = MockTerminalExitSurfaceManager()
+    ) -> PaneTabControllerHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-terminal-exit-tests-\(UUID().uuidString)")
         let store: WorkspaceStore
@@ -52,17 +63,17 @@ struct TerminalPaneMountViewExitBehaviorTests {
         }
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let surfaceManager = MockTerminalExitSurfaceManager()
+        let appLifecycleStore = AppLifecycleAtom()
+        let windowLifecycleStore = WindowLifecycleAtom()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: RuntimeRegistry()
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: windowLifecycleStore
         )
         let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
-        let appLifecycleStore = AppLifecycleAtom()
-        let windowLifecycleStore = WindowLifecycleAtom()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -73,7 +84,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
             preferenceAtom: editorPreference,
             runtimeAtom: editorChooserRuntime
         )
-        let appEventBus = EventBus<AppEvent>()
         let controller = PaneTabViewController(
             store: store,
             octiconLoader: makeTerminalTestOcticonLoader(),
@@ -98,6 +108,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
             controller: controller,
             coordinator: coordinator,
             executor: executor,
+            viewRegistry: viewRegistry,
+            surfaceManager: surfaceManager,
             appEventBus: appEventBus,
             tempDir: tempDir
         )
@@ -145,18 +157,89 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     private func makeProcessExitMountView(
         paneId: UUID = UUID(),
+        surfaceId: UUID = UUIDv7.generate(),
         showsRestorePresentationDuringStartup: Bool = false,
         appEventBus: EventBus<AppEvent> = EventBus<AppEvent>(),
         terminationAcknowledgementClock: TestPushClock? = nil
     ) -> TerminalPaneMountView {
         TerminalPaneMountView(
-            restoredSurfaceId: UUID(),
+            restoredSurfaceId: surfaceId,
             paneId: paneId,
             title: "Terminal",
             showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup,
             appEventBus: appEventBus,
             terminationAcknowledgementClock: terminationAcknowledgementClock
         )
+    }
+
+    private func registerBareSurface(for pane: Pane, zmxSessionID: ZmxSessionID) throws -> UUID {
+        let surfaceId = UUIDv7.generate()
+        let bareSurface = Ghostty.SurfaceView(
+            managedSurfaceID: surfaceId,
+            appCommandDispatcher: AppCommandDispatcher.shared
+        )
+        _ = try SurfaceManager.shared.acceptCreatedSurface(
+            bareSurface,
+            metadata: SurfaceMetadata(paneId: pane.id, zmxSessionID: zmxSessionID)
+        ).get()
+        _ = SurfaceManager.shared.attach(surfaceId, to: pane.id)
+        return surfaceId
+    }
+
+    private func makeProcessExitEventHandlerTask(
+        paneId: UUID,
+        sentinelPaneId: UUID,
+        harness: PaneTabControllerHarness,
+        appEventBus: EventBus<AppEvent>,
+        eventStream: EventBusSubscription<AppEvent>
+    ) -> Task<ProcessExitEventHandlingResult, Never> {
+        Task { @MainActor in
+            var receivedEvents: [AppEvent] = []
+            var didHandleTermination = false
+            for await event in eventStream {
+                receivedEvents.append(event)
+                if case .terminalProcessTerminated(let terminatedPaneId) = event,
+                    terminatedPaneId == paneId
+                {
+                    didHandleTermination = harness.controller.handleTerminalProcessTerminated(paneId: paneId)
+                    await harness.executor.stopAcceptingCommandsAndDrain()
+                    await appEventBus.post(.terminalProcessTerminationHandled(paneId: paneId))
+                }
+                if case .worktreeBellRang(let observedSentinelPaneId) = event,
+                    observedSentinelPaneId == sentinelPaneId
+                {
+                    return ProcessExitEventHandlingResult(
+                        receivedEvents: receivedEvents,
+                        didHandleTermination: didHandleTermination
+                    )
+                }
+            }
+            return ProcessExitEventHandlingResult(
+                receivedEvents: receivedEvents,
+                didHandleTermination: didHandleTermination
+            )
+        }
+    }
+
+    private func events(
+        through sentinelPaneId: UUID,
+        from stream: EventBusSubscription<AppEvent>
+    ) async -> [AppEvent] {
+        var receivedEvents: [AppEvent] = []
+        for await event in stream {
+            receivedEvents.append(event)
+            if case .worktreeBellRang(let paneId) = event, paneId == sentinelPaneId {
+                return receivedEvents
+            }
+        }
+        return receivedEvents
+    }
+
+    private func simulateGhosttyCloseCallback(
+        processExited: Bool,
+        on mountView: TerminalPaneMountView
+    ) -> Task<Void, Never>? {
+        mountView.simulateSurfaceCloseForTesting(processExited: processExited)
     }
 
     private func makeSubscribedPaneId(in store: WorkspaceStore) -> UUID {
@@ -168,117 +251,186 @@ struct TerminalPaneMountViewExitBehaviorTests {
         return pane.id
     }
 
-    @Test("process termination without subscribers keeps a visible fallback")
-    func processTermination_withoutSubscribers_showsFallbackOverlay() async {
-        let clock = TestPushClock()
-        let mountView = makeProcessExitMountView(terminationAcknowledgementClock: clock)
-
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
-        #expect(mountView.isProcessRunning == false)
-
-        await terminationTask?.value
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
-
-        #expect(mountView.isShowingErrorOverlayForTesting)
-        #expect(clock.pendingSleepCount == 0)
-    }
-
-    @Test("process termination with subscribers suppresses a competing process-exited health update immediately")
-    func processTermination_withSubscribers_immediatelySuppressesCompetingProcessExitedOverlay() async {
-        let harness = await makeSubscribedPaneTabControllerHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let paneId = makeSubscribedPaneId(in: harness.store)
-
-        let mountView = makeProcessExitMountView(paneId: paneId, appEventBus: harness.appEventBus)
-
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
-
-        #expect(!mountView.isShowingErrorOverlayForTesting)
-        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
-
-        await terminationTask?.value
-        #expect(mountView.isProcessRunning == false)
-        #expect(!mountView.isShowingErrorOverlayForTesting)
-        await harness.shutdown()
-    }
-
-    @Test("process termination ignored by a subscribed controller restores visible fallback UI")
-    func processTermination_ignoredBySubscribedController_restoresFallbackOverlay() async {
-        let clock = TestPushClock()
-        let harness = await makeSubscribedPaneTabControllerHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let mountView = makeProcessExitMountView(
-            paneId: UUIDv7.generate(),
-            appEventBus: harness.appEventBus,
-            terminationAcknowledgementClock: clock
-        )
-
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
-
-        #expect(!mountView.isShowingErrorOverlayForTesting)
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: AppPolicies.TerminalProcessTermination.acknowledgementTimeout)
-        await terminationTask?.value
-        #expect(mountView.isShowingErrorOverlayForTesting)
-        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
-        await harness.shutdown()
-    }
-
-    @Test("process termination with dropped delivery restores visible fallback UI")
-    func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
-        let clock = TestPushClock()
-        let subscriberName = "TerminalPaneMountViewExitBehaviorTests.droppedDelivery"
+    @Test("Ghostty close callback while running does not dispatch pane close")
+    func ghosttyCloseCallbackWhileRunning_doesNotClosePane() async {
+        let store = WorkspaceStore()
+        let paneId = makeSubscribedPaneId(in: store)
+        let tabId = store.tabs[0].id
         let appEventBus = EventBus<AppEvent>()
-        var droppedDeliverySubscriber: EventBusSubscription<AppEvent>? = await appEventBus.subscribe(
-            policy: .lossyNewest(0),
-            subscriberName: subscriberName
+        let eventRecorder = await appEventBus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "TerminalPaneMountViewExitBehaviorTests.liveCloseRecorder"
         )
-        #expect(droppedDeliverySubscriber != nil)
-        await waitForAppEventBusSubscriber(named: subscriberName, on: appEventBus, isPresent: true)
-        let mountView = makeProcessExitMountView(appEventBus: appEventBus, terminationAcknowledgementClock: clock)
-
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
-
-        #expect(!mountView.isShowingErrorOverlayForTesting)
-        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
-
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: AppPolicies.TerminalProcessTermination.acknowledgementTimeout)
-        await terminationTask?.value
-        #expect(mountView.isShowingErrorOverlayForTesting)
-        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
-
-        droppedDeliverySubscriber = nil
-        await waitForAppEventBusSubscriber(named: subscriberName, on: appEventBus, isPresent: false)
-    }
-
-    @Test("startup restore close with subscribers auto-closes without showing process-exit UI")
-    func startupRestoreClose_withSubscribersAutoClosesWithoutProcessExitedUI() async {
-        let harness = await makeSubscribedPaneTabControllerHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let paneId = makeSubscribedPaneId(in: harness.store)
-
         let mountView = makeProcessExitMountView(
             paneId: paneId,
-            showsRestorePresentationDuringStartup: true,
-            appEventBus: harness.appEventBus
+            appEventBus: appEventBus
         )
 
-        mountView.beginRestorePresentationForTesting()
-        #expect(mountView.isShowingStartupOverlayForTesting)
+        // fire-and-forget: a running-process close callback starts no termination task.
+        _ = simulateGhosttyCloseCallback(processExited: false, on: mountView)
 
-        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        let sentinelPaneId = UUIDv7.generate()
+        await appEventBus.post(.worktreeBellRang(paneId: sentinelPaneId))
+        let receivedEvents = await events(through: sentinelPaneId, from: eventRecorder)
+
+        #expect(
+            !receivedEvents.contains { event in
+                if case .terminalProcessTerminated = event { return true }
+                return false
+            })
+        #expect(store.tabLayoutAtom.tab(tabId) != nil)
+        #expect(store.paneAtom.pane(paneId) != nil)
+        #expect(mountView.isProcessRunning)
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+
+    }
+
+    @Test(
+        "process exit closes the pane and Undo Close requests a fresh zmx surface",
+        arguments: [false, true]
+    )
+    func ghosttyProcessExitClosesTerminalPaneAndUndoRestoresIt(
+        showsRestorePresentationDuringStartup: Bool
+    ) async throws {
+        let controllerEventBus = EventBus<AppEvent>()
+        let surfaceManager = MockTerminalExitSurfaceManager(delegatingTo: SurfaceManager.shared)
+        let harness = makePaneTabControllerHarness(
+            appEventBus: controllerEventBus,
+            surfaceManager: surfaceManager
+        )
+        try FileManager.default.createDirectory(at: harness.tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            launchDirectory: harness.tempDir,
+            title: "Exited zmx terminal",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        let zmxSessionID = try #require(pane.terminalState?.zmxSessionID)
+        let surfaceId = try registerBareSurface(for: pane, zmxSessionID: zmxSessionID)
+        defer {
+            if SurfaceManager.shared.hasNativeAttachments(for: zmxSessionID) {
+                SurfaceManager.shared.destroy(surfaceId)
+            }
+        }
+
+        let appEventBus = EventBus<AppEvent>()
+        let eventStream = await appEventBus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "TerminalPaneMountViewExitBehaviorTests.processExitCloseHandler"
+        )
+        let sentinelPaneId = UUIDv7.generate()
+        let eventHandlerTask = makeProcessExitEventHandlerTask(
+            paneId: pane.id,
+            sentinelPaneId: sentinelPaneId,
+            harness: harness,
+            appEventBus: appEventBus,
+            eventStream: eventStream
+        )
+
+        let mountView = makeProcessExitMountView(
+            paneId: pane.id,
+            surfaceId: surfaceId,
+            showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup,
+            appEventBus: appEventBus
+        )
+        if showsRestorePresentationDuringStartup {
+            mountView.beginRestorePresentationForTesting()
+            #expect(mountView.isShowingStartupOverlayForTesting)
+        }
+
+        let terminationTask = simulateGhosttyCloseCallback(processExited: true, on: mountView)
+        guard let terminationTask else {
+            Issue.record("An exited process must start pane termination handling")
+            await harness.shutdown()
+            return
+        }
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+        await terminationTask.value
+        await appEventBus.post(.worktreeBellRang(paneId: sentinelPaneId))
+        let eventHandling = await eventHandlerTask.value
 
+        #expect(eventHandling.didHandleTermination)
+        #expect(
+            eventHandling.receivedEvents.contains { event in
+                if case .terminalProcessTerminated(let terminatedPaneId) = event {
+                    return terminatedPaneId == pane.id
+                }
+                return false
+            }
+        )
+        #expect(harness.store.tabLayoutAtom.tab(tab.id) == nil)
+        #expect(harness.store.paneAtom.pane(pane.id) == nil)
+        #expect(harness.executor.undoStack.count == 1)
+        #expect(SurfaceManager.shared.hasNativeAttachments(for: zmxSessionID))
+        #expect(!mountView.isProcessRunning)
+        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
         #expect(!mountView.isShowingErrorOverlayForTesting)
-
-        await terminationTask?.value
-        #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingStartupOverlayForTesting)
-        #expect(!mountView.isShowingErrorOverlayForTesting)
+
+        harness.coordinator.sessionConfig = SessionConfiguration(
+            isEnabled: true,
+            zmxPath: "/usr/bin/zmx",
+            zmxDir: harness.tempDir.path,
+            healthCheckInterval: 30,
+            maxCheckpointAge: 86_400
+        )
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1200, height: 800)
+        )
+        #expect(try await harness.coordinator.undoCloseTab())
+        let restoredPane = harness.store.paneAtom.pane(pane.id)
+        #expect(restoredPane?.terminalState?.zmxSessionID == zmxSessionID)
+        #expect(harness.viewRegistry.terminalView(for: pane.id) != nil)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id) != nil)
+        #expect(!SurfaceManager.shared.hasNativeAttachments(for: zmxSessionID))
+        let surfaceCreation = try #require(harness.surfaceManager.surfaceCreationRequests.last)
+        #expect(surfaceCreation.metadata.zmxSessionID == zmxSessionID)
+        #expect(
+            surfaceCreation.configuration.startupStrategy.startupCommandForSurface?.contains(zmxSessionID.rawValue)
+                == true
+        )
+        await harness.shutdown()
+    }
+
+    @Test("undelivered process termination shows the Process Exited fallback")
+    func ghosttyProcessExit_withoutHandler_showsProcessExitedFallback() async {
+        let mountView = makeProcessExitMountView()
+
+        let terminationTask = mountView.simulateSurfaceCloseForTesting(processExited: true)
+        guard let terminationTask else {
+            Issue.record("An exited process must start pane termination handling")
+            return
+        }
+        await terminationTask.value
+        #expect(mountView.isProcessRunning == false)
+        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+        #expect(!mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
+        #expect(mountView.isShowingErrorOverlayForTesting)
+    }
+
+    @Test("unhealthy overlay close dispatches closePane directly for its pane")
+    func unhealthyOverlayCloseDispatchesPaneClose() async throws {
+        let harness = makePaneTabControllerHarness()
+        let paneId = makeSubscribedPaneId(in: harness.store)
+        let tabId = try #require(harness.store.tabLayoutAtom.tabContaining(paneId: paneId)?.id)
+        var submittedActions: [WorkspaceActionCommand] = []
+        harness.coordinator.workspaceActionSubmission = { action in
+            submittedActions.append(action)
+        }
+
+        let mountView = TerminalPaneMountView(
+            paneId: paneId,
+            title: "Terminal",
+            appEventBus: EventBus<AppEvent>()
+        )
+        _ = harness.coordinator.registerHostedView(mountedView: mountView, for: paneId)
+        mountView.applyHealthUpdateForTesting(.dead)
+        try #require(mountView.errorOverlay).onDismiss?()
+
+        #expect(submittedActions == [.closePane(tabId: tabId, paneId: paneId)])
         await harness.shutdown()
     }
 
@@ -390,27 +542,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await harness.shutdown()
     }
 
-    @Test("requestClose immediately suppresses a competing process-exited health update")
-    func requestClose_immediatelySuppressesCompetingProcessExitedOverlay() async {
-        let harness = await makeSubscribedPaneTabControllerHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let paneId = makeSubscribedPaneId(in: harness.store)
-
-        let mountView = makeProcessExitMountView(paneId: paneId, appEventBus: harness.appEventBus)
-
-        let terminationTask = mountView.beginClose()
-        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
-
-        #expect(mountView.isProcessRunning == false)
-        #expect(!mountView.isShowingErrorOverlayForTesting)
-        #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
-
-        await terminationTask?.value
-        #expect(mountView.hasObservedEffectiveTerminationDeliveryForTesting)
-        await harness.shutdown()
-    }
-
-    @Test("termination waits for its matching acknowledgment and drains the timeout")
+    @Test("process exit waits for its matching acknowledgment and drains the timeout")
     func terminationWaitsForMatchingAcknowledgment() async {
         let clock = TestPushClock()
         let appEventBus = EventBus<AppEvent>()
@@ -423,24 +555,31 @@ struct TerminalPaneMountViewExitBehaviorTests {
             appEventBus: appEventBus,
             terminationAcknowledgementClock: clock
         )
-        let terminationTask = mountView.beginClose()
-        _ = await terminationEvents.next()
+        let terminationTask = mountView.simulateSurfaceCloseForTesting(processExited: true)
+        guard let terminationTask else {
+            Issue.record("An exited process must start pane termination handling")
+            return
+        }
+        let terminationEvent = await terminationEvents.next()
+        #expect(
+            terminationEvent.map { event in
+                if case .terminalProcessTerminated(let paneId) = event {
+                    return paneId == mountView.paneId
+                }
+                return false
+            } == true
+        )
         await clock.waitForPendingSleepCount(atLeast: 1)
         #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
         #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
 
         await appEventBus.post(.terminalProcessTerminationHandled(paneId: UUIDv7.generate()))
         await appEventBus.post(.terminalProcessTerminationHandled(paneId: mountView.paneId))
-        await terminationTask?.value
+        await terminationTask.value
 
         #expect(mountView.hasObservedEffectiveTerminationDeliveryForTesting)
         #expect(!mountView.isShowingErrorOverlayForTesting)
         #expect(clock.pendingSleepCount == 0)
-        await waitForAppEventBusSubscriber(
-            named: "TerminalPaneMountView.terminationAcknowledgement",
-            on: appEventBus,
-            isPresent: false
-        )
     }
 
     @Test("controller subscribes before view load and unregisters on teardown")
@@ -472,34 +611,55 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
 @MainActor
 private final class MockTerminalExitSurfaceManager: WorkspaceSurfaceManaging {
-    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
-    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+    private let delegatedSurfaceManager: SurfaceManager?
+    private(set) var surfaceCreationRequests:
+        [(
+            configuration: Ghostty.SurfaceConfiguration,
+            metadata: SurfaceMetadata
+        )] = []
 
-    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
+    init(delegatingTo surfaceManager: SurfaceManager? = nil) {
+        delegatedSurfaceManager = surfaceManager
+    }
 
-    func syncFocus(activeSurfaceId _: UUID?) {}
+    func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {
+        delegatedSurfaceManager?.retainSurfacesForUndo(forPaneIDs: paneIDs)
+    }
+
+    func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {
+        delegatedSurfaceManager?.retireActiveAndHiddenSurfaces(forPaneIDs: paneIDs)
+    }
+
+    func releaseUndoSurfaces(forPaneIDs paneIDs: Set<UUID>) {
+        delegatedSurfaceManager?.releaseUndoSurfaces(forPaneIDs: paneIDs)
+    }
+
+    func syncFocus(activeSurfaceId surfaceId: UUID?) {
+        delegatedSurfaceManager?.syncFocus(activeSurfaceId: surfaceId)
+    }
 
     func createSurface(
-        config _: Ghostty.SurfaceConfiguration,
-        metadata _: SurfaceMetadata
+        config: Ghostty.SurfaceConfiguration,
+        metadata: SurfaceMetadata
     ) -> Result<ManagedSurface, SurfaceError> {
-        .failure(.ghosttyNotInitialized)
+        surfaceCreationRequests.append((configuration: config, metadata: metadata))
+        return .failure(.ghosttyNotInitialized)
     }
 
     @discardableResult
     func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
-        _ = surfaceId
-        _ = paneId
-        return nil
+        delegatedSurfaceManager?.attach(surfaceId, to: paneId)
     }
 
-    func detach(_ surfaceId: UUID, reason _: SurfaceDetachReason) {
-        _ = surfaceId
+    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
+        delegatedSurfaceManager?.detach(surfaceId, reason: reason)
     }
 
-    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
+    func undoClose(forPaneId paneId: UUID) -> ManagedSurface? {
+        delegatedSurfaceManager?.undoClose(forPaneId: paneId)
+    }
 
     func destroy(_ surfaceId: UUID) {
-        _ = surfaceId
+        delegatedSurfaceManager?.destroy(surfaceId)
     }
 }

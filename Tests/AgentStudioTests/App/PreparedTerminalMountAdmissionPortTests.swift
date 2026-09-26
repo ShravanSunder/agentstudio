@@ -864,7 +864,7 @@ struct PreparedTerminalMountAdmissionPortTests {
 }
 
 @MainActor
-private final class RecordingPreparedTerminalMountHandler: PreparedTerminalMountHandling {
+final class RecordingPreparedTerminalMountHandler: PreparedTerminalMountHandling {
     private var results: [TerminalActivationAttemptResult]
     private(set) var admissions: [TerminalActivationAdmission] = []
     private(set) var initialFrames: [NSRect?] = []
@@ -887,11 +887,11 @@ private final class RecordingPreparedTerminalMountHandler: PreparedTerminalMount
 }
 
 @MainActor
-private func makePreparedTerminalTestGeneration() throws -> WorkspaceContentMountGeneration {
+func makePreparedTerminalTestGeneration() throws -> WorkspaceContentMountGeneration {
     WorkspaceContentMountGeneration()
 }
 
-private func makePreparedTerminalTestPane() -> Pane {
+func makePreparedTerminalTestPane() -> Pane {
     Pane(
         id: UUIDv7.generate(),
         content: .terminal(
@@ -919,7 +919,7 @@ private func makePreparedTerminalTestDescriptor(pane: Pane) -> TerminalActivatio
     )
 }
 
-private func makePreparedTerminalTestDrawerDescriptor(pane: Pane) -> TerminalActivationDescriptor {
+func makePreparedTerminalTestDrawerDescriptor(pane: Pane) -> TerminalActivationDescriptor {
     guard case .terminal = pane.content else {
         preconditionFailure("prepared terminal test requires terminal content")
     }

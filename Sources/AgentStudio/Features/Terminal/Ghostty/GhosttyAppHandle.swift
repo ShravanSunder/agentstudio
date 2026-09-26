@@ -14,6 +14,50 @@ extension Ghostty {
         static let baseOverrideContents = """
             scroll-to-bottom = no-keystroke, no-output
             keybind = cmd+k=unbind
+            # Agent Studio owns workspace and window structure.
+            keybind = cmd+n=unbind
+            keybind = cmd+t=unbind
+            keybind = cmd+d=unbind
+            keybind = cmd+shift+d=unbind
+            keybind = cmd+w=unbind
+            keybind = cmd+alt+w=unbind
+            keybind = cmd+shift+w=unbind
+            keybind = cmd+alt+shift+w=unbind
+            keybind = cmd+shift+[=unbind
+            keybind = cmd+shift+]=unbind
+            keybind = cmd+[=unbind
+            keybind = cmd+]=unbind
+            keybind = cmd+alt+physical:up=unbind
+            keybind = cmd+alt+physical:down=unbind
+            keybind = cmd+alt+physical:left=unbind
+            keybind = cmd+alt+physical:right=unbind
+            keybind = cmd+ctrl+physical:up=unbind
+            keybind = cmd+ctrl+physical:down=unbind
+            keybind = cmd+ctrl+physical:left=unbind
+            keybind = cmd+ctrl+physical:right=unbind
+            keybind = cmd+ctrl+==unbind
+            keybind = cmd+shift+enter=unbind
+            keybind = cmd+enter=unbind
+            keybind = cmd+ctrl+f=unbind
+            keybind = cmd+physical:one=unbind
+            keybind = cmd+physical:two=unbind
+            keybind = cmd+physical:three=unbind
+            keybind = cmd+physical:four=unbind
+            keybind = cmd+physical:five=unbind
+            keybind = cmd+physical:six=unbind
+            keybind = cmd+physical:seven=unbind
+            keybind = cmd+physical:eight=unbind
+            keybind = cmd+1=unbind
+            keybind = cmd+2=unbind
+            keybind = cmd+3=unbind
+            keybind = cmd+4=unbind
+            keybind = cmd+5=unbind
+            keybind = cmd+6=unbind
+            keybind = cmd+7=unbind
+            keybind = cmd+8=unbind
+            keybind = cmd+9=unbind
+            keybind = ctrl+tab=unbind
+            keybind = ctrl+shift+tab=unbind
             """
 
         var app: ghostty_app_t {

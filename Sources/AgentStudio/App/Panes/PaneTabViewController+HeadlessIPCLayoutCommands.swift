@@ -81,6 +81,11 @@ extension PaneTabViewController {
             return await applyWorkspaceAction(.addDrawerPane(parentPaneId: parentPaneId), for: command)
         case .toggleDrawer:
             return await applyWorkspaceAction(.toggleDrawer(paneId: parentPaneId), for: command)
+        case .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
+            guard let side = command.zoomDrawerTargetSide,
+                let action = zoomDrawerSideAction(side: side, ownerPaneId: parentPaneId)
+            else { return .unavailable(.noApplicableTarget) }
+            return await applyWorkspaceAction(action, for: command)
         case .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
             .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
             .focusDrawerPane9:

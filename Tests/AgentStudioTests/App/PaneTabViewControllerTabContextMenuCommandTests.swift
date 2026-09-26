@@ -228,8 +228,7 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         #expect(arrangementsMenu.items.map(\.title) == ["Show Arrangements", "Save Arrangement As..."])
 
         let closeItem = try #require(menu.item(withTitle: "Close Tab"))
-        #expect(closeItem.keyEquivalent == "w")
-        #expect(closeItem.keyEquivalentModifierMask == .command)
+        #expect(closeItem.keyEquivalent.isEmpty)
     }
 
     @Test("tab-pill close uses targeted inline presentation and rechecks capability")

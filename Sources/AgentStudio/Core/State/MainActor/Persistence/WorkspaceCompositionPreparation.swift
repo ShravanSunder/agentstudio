@@ -114,6 +114,7 @@ struct PreparedWorkspaceComposition: Equatable, Sendable {
     let activeTabID: UUID?
     let paneGraph: PreparedWorkspacePaneGraph
     let expandedDrawerID: UUID?
+    let drawerPresentationPreferences: [UUID: DrawerPresentationPreference]
     let tabShells: PreparedWorkspaceTabShells
     let tabGraph: PreparedWorkspaceTabGraph
     let arrangementCursors: PreparedWorkspaceArrangementCursors
@@ -128,6 +129,7 @@ struct PreparedWorkspaceComposition: Equatable, Sendable {
         activeTabID: UUID?,
         paneGraph: PreparedWorkspacePaneGraph,
         expandedDrawerID: UUID?,
+        drawerPresentationPreferences: [UUID: DrawerPresentationPreference],
         tabShells: PreparedWorkspaceTabShells,
         tabGraph: PreparedWorkspaceTabGraph,
         arrangementCursors: PreparedWorkspaceArrangementCursors,
@@ -141,6 +143,7 @@ struct PreparedWorkspaceComposition: Equatable, Sendable {
         self.activeTabID = activeTabID
         self.paneGraph = paneGraph
         self.expandedDrawerID = expandedDrawerID
+        self.drawerPresentationPreferences = drawerPresentationPreferences
         self.tabShells = tabShells
         self.tabGraph = tabGraph
         self.arrangementCursors = arrangementCursors
@@ -217,6 +220,7 @@ enum WorkspaceCompositionPreparer {
                 activeTabID: snapshot.activeTabId,
                 paneGraph: paneGraph,
                 expandedDrawerID: makeExpandedDrawerID(from: snapshot.panes),
+                drawerPresentationPreferences: snapshot.drawerPresentationPreferences,
                 tabShells: tabShells,
                 tabGraph: PreparedWorkspaceTabGraph(
                     states: tabGraphStates,

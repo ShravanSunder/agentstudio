@@ -81,14 +81,27 @@ package struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable
     package struct Iterator: AsyncIteratorProtocol {
         private var iterator: AsyncStream<Envelope>.Iterator
         private let recordConsumed: @Sendable () async -> Void
+        private let recordTerminated: @Sendable () async -> Void
+        private var hasRecordedTermination = false
 
-        init(iterator: AsyncStream<Envelope>.Iterator, recordConsumed: @escaping @Sendable () async -> Void) {
+        init(
+            iterator: AsyncStream<Envelope>.Iterator,
+            recordConsumed: @escaping @Sendable () async -> Void,
+            recordTerminated: @escaping @Sendable () async -> Void
+        ) {
             self.iterator = iterator
             self.recordConsumed = recordConsumed
+            self.recordTerminated = recordTerminated
         }
 
         package mutating func next() async -> Envelope? {
-            guard let envelope = await iterator.next() else { return nil }
+            guard let envelope = await iterator.next() else {
+                if !hasRecordedTermination {
+                    hasRecordedTermination = true
+                    await recordTerminated()
+                }
+                return nil
+            }
             await recordConsumed()
             return envelope
         }
@@ -100,23 +113,30 @@ package struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable
 
     private let stream: AsyncStream<Envelope>
     private let recordConsumed: @Sendable () async -> Void
+    private let recordTerminated: @Sendable () async -> Void
 
     init(
         subscriberName: String,
         policy: BusSubscriberPolicy,
         replayStatus: EventBusReplayStatus,
         stream: AsyncStream<Envelope>,
-        recordConsumed: @escaping @Sendable () async -> Void
+        recordConsumed: @escaping @Sendable () async -> Void,
+        recordTerminated: @escaping @Sendable () async -> Void
     ) {
         self.subscriberName = subscriberName
         self.policy = policy
         self.replayStatus = replayStatus
         self.stream = stream
         self.recordConsumed = recordConsumed
+        self.recordTerminated = recordTerminated
     }
 
     package func makeAsyncIterator() -> Iterator {
-        Iterator(iterator: stream.makeAsyncIterator(), recordConsumed: recordConsumed)
+        Iterator(
+            iterator: stream.makeAsyncIterator(),
+            recordConsumed: recordConsumed,
+            recordTerminated: recordTerminated
+        )
     }
 }
 
@@ -255,6 +275,9 @@ package actor EventBus<Envelope: Sendable> {
             stream: stream,
             recordConsumed: { [weak self] in
                 await self?.recordConsumed(subscriberID)
+            },
+            recordTerminated: { [weak self] in
+                await self?.removeSubscriber(subscriberID)
             }
         )
     }

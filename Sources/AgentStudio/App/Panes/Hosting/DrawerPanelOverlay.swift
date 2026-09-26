@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioEditorChooser
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
@@ -101,28 +102,13 @@ final class DrawerDismissMonitor {
     }
 }
 
-// MARK: - Preference Key for Drawer Dismiss Frame
-
-/// Reports the drawer panel + connector frame in tab-container coordinates for outside-click dismissal.
-///
-/// The reducer keeps the last non-zero value. SwiftUI publishes `.zero` during
-/// transitions and teardown; accepting those would erase the real frame and
-/// silently break the dismiss monitor's outside-click test.
-struct DrawerDismissFrameInTabKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
-    }
-}
-
 // MARK: - Preference Key for Drawer Panel Frame in Tab Space
 
 /// Reports the drawer panel frame in the `"tabContainer"` coordinate space.
 /// FlatTabStripContainer uses this to mount drawer drag capture at tab level.
 ///
-/// Same non-zero-only reducer as `DrawerDismissFrameInTabKey`: a transient
-/// zero update during a transition must not unmount the drawer capture.
+/// The reducer keeps the last non-zero value: a transient zero update during a
+/// transition must not unmount the drawer capture.
 struct DrawerPanelFrameInTabKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
@@ -133,16 +119,48 @@ struct DrawerPanelFrameInTabKey: PreferenceKey {
 
 // MARK: - DrawerPanelOverlay
 
+/// Which geometry the tab-level drawer overlay presents with.
+enum DrawerOverlayPresentation: Equatable {
+    /// Anchored to the owning pane's measured frame above its toolbar.
+    case normal
+    /// Fixed overlay over the Zoom source's selected region. Regions are in
+    /// `"tabContainer"` space and already exclude the shared bottom toolbar.
+    case zoom(sourcePaneId: UUID, terminalRegion: CGRect, bridgeRegion: CGRect?)
+
+    var isZoom: Bool {
+        if case .zoom = self { return true }
+        return false
+    }
+}
+
 /// Tab-level overlay that renders the expanded drawer panel on top of all panes.
 /// Positioned at the tab container level so it can extend beyond the originating
-/// pane's bounds, with an S-curve connector visually bridging the panel to the icon bar.
+/// pane's bounds, with an S-curve connector visually bridging the panel to its anchor.
 ///
-/// Outside-click dismissal is owned by `DrawerDismissMonitor` so dismissing clicks
-/// can be consumed before they refocus underlying AppKit content.
+/// Every rectangle comes from `DrawerPresentationGeometryResolver`, the same
+/// policy terminal bootstrap uses. Outside-click dismissal is owned by
+/// `DrawerDismissMonitor` so dismissing clicks can be consumed before they
+/// refocus underlying AppKit content.
 struct DrawerPanelOverlay: View {
+    static let outlineAccessibilityIdentifier = "drawerPanel.outline"
+    static let moveControlAccessibilityIdentifier = "drawerPanel.moveZoomSide"
+
+    private struct MoveControlResolutionKey: Equatable {
+        let command: AppCommand?
+        let ownerPaneId: UUID
+        let tabId: UUID
+        let workspaceWindowId: UUID?
+    }
+
+    private struct ResolvedMoveControlAction {
+        let key: MoveControlResolutionKey
+        let action: TargetedCommandControlAction
+    }
+
     private struct ExpandedPaneInfo {
         let paneId: UUID
-        let frame: CGRect
+        /// Measured owner frame; absent in Pane Zoom, which anchors to regions.
+        let frame: CGRect?
         let drawer: Drawer
         let drawerView: DrawerView
     }
@@ -155,6 +173,7 @@ struct DrawerPanelOverlay: View {
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let tabId: UUID
+    let presentation: DrawerOverlayPresentation
     let paneFrames: [UUID: CGRect]
     let tabSize: CGSize
     let iconBarFrame: CGRect
@@ -172,69 +191,106 @@ struct DrawerPanelOverlay: View {
     /// R8/R13a).
     let dragSourcePaneId: UUID?
 
-    @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
     @State private var dismissMonitor = DrawerDismissMonitor()
-    @State private var drawerDismissFrameInTab: CGRect = .zero
+    /// Local normal-mode resize session; per-sample state never leaves the overlay.
+    @State private var resizeSession: DrawerNormalResizeSession?
+    @State private var isMoveControlHovered = false
+    @State private var resolvedMoveControlAction: ResolvedMoveControlAction?
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
+    /// In Pane Zoom only the Zoom source's drawer presents.
     private var expandedPaneInfo: ExpandedPaneInfo? {
-        for (paneId, frame) in paneFrames {
-            if let drawer = store.paneAtom.pane(paneId)?.drawer,
-                drawer.isExpanded,
-                let drawerView = atom(\.arrangementView).drawerView(forParent: paneId)
-            {
-                return ExpandedPaneInfo(paneId: paneId, frame: frame, drawer: drawer, drawerView: drawerView)
+        switch presentation {
+        case .normal:
+            for (paneId, frame) in paneFrames {
+                if let info = expandedInfo(paneId: paneId, frame: frame) {
+                    return info
+                }
             }
+            return nil
+        case .zoom(let sourcePaneId, _, _):
+            return expandedInfo(paneId: sourcePaneId, frame: nil)
         }
-        return nil
     }
 
-    /// Whether a drawer is currently expanded.
-    private var isExpanded: Bool { expandedPaneInfo != nil }
+    private func expandedInfo(paneId: UUID, frame: CGRect?) -> ExpandedPaneInfo? {
+        guard let drawer = store.paneAtom.pane(paneId)?.drawer,
+            drawer.isExpanded,
+            let drawerView = atom(\.arrangementView).drawerView(forParent: paneId)
+        else { return nil }
+        return ExpandedPaneInfo(paneId: paneId, frame: frame, drawer: drawer, drawerView: drawerView)
+    }
+
+    private func geometryInput(
+        ownerPaneId: UUID,
+        ownerFrame: CGRect?,
+        liveHeight: CGFloat?
+    ) -> DrawerPresentationGeometryInput? {
+        let preference = store.paneAtom.drawerPresentationPreference(forOwner: ownerPaneId)
+        let placement: DrawerPresentationPlacement
+        switch presentation {
+        case .normal:
+            guard let ownerFrame else { return nil }
+            placement = .normal(
+                ownerFrame: ownerFrame,
+                ownerToolbarHeight: iconBarFrame.height,
+                liveHeight: liveHeight
+            )
+        case .zoom(_, let terminalRegion, let bridgeRegion):
+            placement = .zoom(terminalRegion: terminalRegion, visibleBridgeRegion: bridgeRegion)
+        }
+        return DrawerPresentationGeometryInput(
+            containerBounds: CGRect(origin: .zero, size: tabSize),
+            preference: preference,
+            placement: placement
+        )
+    }
+
+    private func liveResizeHeight(forOwner ownerPaneId: UUID) -> CGFloat? {
+        guard !presentation.isZoom,
+            let resizeSession,
+            !resizeSession.isCancelled,
+            resizeSession.applies(toOwner: ownerPaneId, containerHeight: tabSize.height)
+        else { return nil }
+        return resizeSession.liveHeight
+    }
 
     var body: some View {
-        if let info = expandedPaneInfo, tabSize.width > 0 {
-            let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
-            let panelHeight = max(
-                DrawerLayout.panelMinHeight,
-                min(tabSize.height * CGFloat(heightRatio), tabSize.height - DrawerLayout.panelBottomMargin)
-            )
-            let connectorHeight = DrawerLayout.overlayConnectorHeight
-            let totalHeight = panelHeight + connectorHeight
-
-            // Bottom of overlay aligns with top of pane's icon bar
-            let overlayBottomY = info.frame.maxY - iconBarFrame.height
-            let centerY = overlayBottomY - totalHeight / 2
-
-            // Centered on originating pane, clamped to tab bounds
-            let halfPanel = panelWidth / 2
-            let edgeMargin = DrawerLayout.tabEdgeMargin
-            let centerX = max(halfPanel + edgeMargin, min(tabSize.width - halfPanel - edgeMargin, info.frame.midX))
-
-            // Junction insets: panel edge to pane boundary
-            let panelLeft = centerX - halfPanel
-            let paneWidth = info.frame.width
-            let junctionLeftInset = max(0, info.frame.minX - panelLeft)
-            let junctionRightInset = max(0, (panelLeft + panelWidth) - info.frame.maxX)
-
-            // Bottom insets: junction + 1/6 pane width (bottom bar = center 2/3 of pane)
-            let bottomLeftInset = junctionLeftInset + paneWidth / 6
-            let bottomRightInset = junctionRightInset + paneWidth / 6
+        if let info = expandedPaneInfo,
+            let input = geometryInput(
+                ownerPaneId: info.paneId,
+                ownerFrame: info.frame,
+                liveHeight: liveResizeHeight(forOwner: info.paneId)
+            ),
+            let geometry = DrawerPresentationGeometryResolver.resolve(input)
+        {
+            let outlineFrame = geometry.outlineFrame
+            let connectorInsets = geometry.connectorInsets
+            let panelHeight = geometry.panelFrame.height
 
             // Unified outline: panel (rounded rect) + S-curve connector
             let outlineShape = DrawerOutlineShape(
                 panelHeight: panelHeight,
                 cornerRadius: DrawerLayout.panelCornerRadius,
-                junctionLeftInset: junctionLeftInset,
-                junctionRightInset: junctionRightInset,
-                bottomLeftInset: bottomLeftInset,
-                bottomRightInset: bottomRightInset,
+                junctionLeftInset: connectorInsets.junctionLeft,
+                junctionRightInset: connectorInsets.junctionRight,
+                bottomLeftInset: connectorInsets.bottomLeft,
+                bottomRightInset: connectorInsets.bottomRight,
                 bottomCornerRadius: DrawerLayout.connectorBottomCornerRadius
             )
-            let panelFraction = panelHeight / totalHeight
+            let panelFraction = outlineFrame.height > 0 ? panelHeight / outlineFrame.height : 1
 
             let paneId = info.paneId
+            let moveControlResolutionKey = MoveControlResolutionKey(
+                command: Self.moveControlCommand(
+                    mode: geometry.mode,
+                    isManagementLayerActive: atom(\.managementLayer).isActive
+                ),
+                ownerPaneId: paneId,
+                tabId: tabId,
+                workspaceWindowId: workspaceWindowId
+            )
             VStack(spacing: 0) {
                 DrawerPanel(
                     layout: info.drawerView.layout,
@@ -251,12 +307,9 @@ struct DrawerPanelOverlay: View {
                     viewRegistry: viewRegistry,
                     action: actionDispatcher.dispatch,
                     arrangementInlineRenameState: arrangementInlineRenameState,
-                    onResize: { delta in
-                        let newRatio = min(
-                            DrawerLayout.heightRatioMax,
-                            max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
-                        heightRatio = newRatio
-                    },
+                    resizeInteraction: geometry.resizeHandleFrame == nil
+                        ? nil
+                        : resizeInteraction(ownerPaneId: paneId, input: input, displayedHeight: panelHeight),
                     onDismiss: {
                         actionDispatcher.dispatch(.toggleDrawer(paneId: paneId))
                         onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
@@ -271,39 +324,46 @@ struct DrawerPanelOverlay: View {
                     workspaceWindowId: workspaceWindowId
                 )
                 .id(paneId)
-                .frame(width: panelWidth)
+                .frame(width: outlineFrame.width)
+                .overlay(alignment: .bottomTrailing) {
+                    moveControl(resolutionKey: moveControlResolutionKey)
+                        .padding(.trailing, Self.moveControlTrailingInset)
+                        .padding(.bottom, Self.moveControlBottomInset)
+                }
 
-                // Connector space (visual bridge from panel to icon bar)
+                // Connector space (visual bridge from panel to its anchor)
                 Color.clear
-                    .frame(width: panelWidth, height: connectorHeight)
+                    .frame(width: outlineFrame.width, height: geometry.connectorFrame.height)
             }
             .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
             .contentShape(outlineShape)
             .shadow(color: .black.opacity(AppStyles.General.Stroke.muted), radius: 4, y: 2)
             .shadow(color: .black.opacity(AppStyles.General.Stroke.hover), radius: 16, y: 8)
-            .background(
-                GeometryReader { geometry in
-                    Color.clear
-                        .preference(
-                            key: DrawerDismissFrameInTabKey.self,
-                            value: geometry.frame(in: .named("tabContainer"))
-                        )
-                }
-            )
-            .position(x: centerX, y: centerY)
-            .onPreferenceChange(DrawerDismissFrameInTabKey.self) { drawerDismissFrameInTab = $0 }
+            .background {
+                AccessibilityLabelBridge(
+                    identifier: Self.outlineAccessibilityIdentifier,
+                    label: "Drawer",
+                    exposesAccessibility: false
+                )
+                .allowsHitTesting(false)
+            }
+            .position(x: outlineFrame.midX, y: outlineFrame.midY)
+            .task(id: moveControlResolutionKey) {
+                resolveMoveControlAction(for: moveControlResolutionKey)
+            }
             .onAppear {
                 dismissMonitor.onDismiss = {
                     actionDispatcher.dispatch(.toggleDrawer(paneId: paneId))
                     onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
                 }
                 dismissMonitor.setCoordinateView(dismissCoordinateView)
-                dismissMonitor.drawerRectInTab = drawerDismissFrameInTab
+                dismissMonitor.drawerRectInTab = geometry.dismissalFrame
                 dismissMonitor.iconBarRectInTab = iconBarFrame
                 dismissMonitor.install()
             }
             .onDisappear {
                 dismissMonitor.remove()
+                applyResizeEvent(.cancelled)
             }
             .task(id: paneId) {
                 dismissMonitor.onDismiss = {
@@ -314,15 +374,142 @@ struct DrawerPanelOverlay: View {
             .task(id: dismissCoordinateView.map(ObjectIdentifier.init)) {
                 dismissMonitor.setCoordinateView(dismissCoordinateView)
             }
-            .onChange(of: drawerDismissFrameInTab) { _, frame in
+            .onChange(of: geometry.dismissalFrame) { _, frame in
                 dismissMonitor.drawerRectInTab = frame
             }
             .onChange(of: iconBarFrame) { _, frame in
                 dismissMonitor.iconBarRectInTab = frame
             }
+            // Resize-session cancellation: owner replaced, mode change,
+            // coordinate invalidation, or window deactivation discard the
+            // live height so no late sample or end commits elsewhere.
+            .onChange(of: paneId) { _, _ in applyResizeEvent(.cancelled) }
+            .onChange(of: presentation.isZoom) { _, _ in applyResizeEvent(.cancelled) }
+            .onChange(of: tabSize) { _, _ in applyResizeEvent(.cancelled) }
+            .onChange(of: appLifecycleStore.isActive) { _, isActive in
+                if !isActive { applyResizeEvent(.cancelled) }
+            }
+            .onChange(of: input.preference.normalHeightRatio) { _, _ in
+                applyResizeEvent(.committedPreferenceChanged)
+            }
         }
     }
 
+    /// Applies one session event; dispatches the single completed-drag commit.
+    private func applyResizeEvent(
+        _ event: DrawerResizeSessionEvent,
+        context: DrawerResizeSessionContext? = nil
+    ) {
+        let reduction = DrawerNormalResizeSession.reduce(resizeSession, event, context: context)
+        resizeSession = reduction.session
+        if let ratio = reduction.commitHeightRatio, let ownerPaneId = context?.ownerPaneId {
+            actionDispatcher.dispatch(.setDrawerNormalHeightRatio(parentPaneId: ownerPaneId, ratio: ratio))
+        }
+    }
+
+    private func resizeInteraction(
+        ownerPaneId: UUID,
+        input: DrawerPresentationGeometryInput,
+        displayedHeight: CGFloat
+    ) -> DrawerResizeInteraction {
+        let context = DrawerResizeSessionContext(
+            ownerPaneId: ownerPaneId,
+            containerHeight: tabSize.height,
+            displayedHeight: displayedHeight,
+            committedHeightRatio: input.preference.normalHeightRatio,
+            displayedHeightForRequest: { requestedHeight in
+                Self.displayedNormalHeight(for: input, requestedHeight: requestedHeight) ?? displayedHeight
+            }
+        )
+        return DrawerResizeInteraction(
+            onChanged: { gestureID, pointerY in
+                applyResizeEvent(.changed(gestureID: gestureID, pointerY: pointerY), context: context)
+            },
+            onEnded: { gestureID in
+                applyResizeEvent(.ended(gestureID: gestureID), context: context)
+            },
+            onTerminated: { gestureID in
+                applyResizeEvent(.terminated(gestureID: gestureID))
+            }
+        )
+    }
+
+    /// The on-drawer move control exists only in Pane Zoom while the
+    /// management layer is active; it offers the other region's side command,
+    /// so its icon points where the drawer will go.
+    static func moveControlCommand(
+        mode: DrawerPresentationGeometry.Mode,
+        isManagementLayerActive: Bool
+    ) -> AppCommand? {
+        guard isManagementLayerActive, case .zoom(let effectiveSide) = mode else { return nil }
+        return AppCommand.moveZoomDrawerCommand(awayFrom: effectiveSide)
+    }
+
+    /// The move tab stacks directly above the bottom-trailing child's detach
+    /// tab, on both sides: the panel's content inset plus the child pane gap
+    /// puts it in the detach column, and one tab height plus standard spacing
+    /// above the detach tab's own bottom spacing.
+    static let moveControlTrailingInset = DrawerLayout.panelContentPadding + AppStyles.General.Layout.paneGap
+    static let moveControlBottomInset =
+        DrawerLayout.panelContentPadding + AppStyles.General.Layout.paneGap
+        + AppStyles.General.Spacing.standard + AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
+        + AppStyles.General.Spacing.standard
+
+    /// Same edge tab as the child's detach control. Icon, label, and tooltip
+    /// project from the side command's catalog spec.
+    @MainActor
+    private func resolveMoveControlAction(for key: MoveControlResolutionKey) {
+        guard let command = key.command,
+            let action = TargetedCommandControlAction.resolve(
+                command: command,
+                surface: .inlineControl,
+                target: key.ownerPaneId,
+                targetType: .pane,
+                dispatcher: AppCommandDispatcher.shared
+            )
+        else {
+            resolvedMoveControlAction = nil
+            return
+        }
+        resolvedMoveControlAction = ResolvedMoveControlAction(key: key, action: action)
+    }
+
+    @ViewBuilder
+    private func moveControl(resolutionKey: MoveControlResolutionKey) -> some View {
+        if let resolvedMoveControlAction,
+            resolvedMoveControlAction.key == resolutionKey,
+            case .system(let symbol) = resolvedMoveControlAction.action.commandSpec.icon
+        {
+            ManagementTrailingEdgeTabButton(
+                systemName: symbol.rawValue,
+                isHovered: isMoveControlHovered,
+                isEnabled: resolvedMoveControlAction.action.isEnabled,
+                tooltip: resolvedMoveControlAction.action.commandSpec.controlTooltipRenderValue(),
+                accessibilityIdentifier: Self.moveControlAccessibilityIdentifier,
+                onAnchorViewChanged: nil,
+                action: resolvedMoveControlAction.action.perform
+            )
+            .onHover { isMoveControlHovered = $0 }
+        }
+    }
+
+    /// Height the resolver would display for a requested live height.
+    static func displayedNormalHeight(
+        for input: DrawerPresentationGeometryInput,
+        requestedHeight: CGFloat
+    ) -> CGFloat? {
+        guard case .normal(let ownerFrame, let ownerToolbarHeight, _) = input.placement else { return nil }
+        let liveInput = DrawerPresentationGeometryInput(
+            containerBounds: input.containerBounds,
+            preference: input.preference,
+            placement: .normal(
+                ownerFrame: ownerFrame,
+                ownerToolbarHeight: ownerToolbarHeight,
+                liveHeight: requestedHeight
+            )
+        )
+        return DrawerPresentationGeometryResolver.resolve(liveInput)?.panelFrame.height
+    }
 }
 
 // MARK: - Drawer Dismiss Coordinate Space Bridge

@@ -33,6 +33,34 @@ struct ZoomPresentationChild {
     let toolbarPresentation: PaneSurfaceToolbarPresentation
 }
 
+/// How a Zoom composition's companion (Bridge) region occupies the split:
+/// whether the divider space is reserved and whether the region is visible.
+/// Shared by the live container and drawer bootstrap geometry.
+struct ZoomCompanionRegionLayout: Equatable {
+    let reservesCompanionSpace: Bool
+    let isCompanionVisible: Bool
+
+    /// Mirrors `ZoomPresentationContainer.resolveRenderState`: a visible
+    /// unavailable Viewer still occupies its region; a retained companion
+    /// counts only once its host is registered.
+    static func resolve(
+        viewerPresentation: ZoomViewerPresentation,
+        companionHostIsReady: (UUID) -> Bool
+    ) -> Self {
+        switch viewerPresentation {
+        case .unavailable, .retryable:
+            return Self(reservesCompanionSpace: false, isCompanionVisible: false)
+        case .unavailableVisible:
+            return Self(reservesCompanionSpace: true, isCompanionVisible: true)
+        case .retainedHidden(let companionPaneId):
+            return Self(reservesCompanionSpace: companionHostIsReady(companionPaneId), isCompanionVisible: false)
+        case .retainedVisible(let companionPaneId):
+            let isReady = companionHostIsReady(companionPaneId)
+            return Self(reservesCompanionSpace: isReady, isCompanionVisible: isReady)
+        }
+    }
+}
+
 @MainActor
 struct ZoomPresentationRenderState {
     let layout: AgentStudioCore.Layout
@@ -77,6 +105,8 @@ struct ZoomPresentationContainer: View {
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
     @State private var drawerDismissCoordinateView: NSView?
+    /// Measured split area in `"tabContainer"` space; excludes the shared toolbar.
+    @State private var splitAreaFrame: CGRect = .zero
 
     init(
         tabId: UUID? = nil,
@@ -146,15 +176,25 @@ struct ZoomPresentationContainer: View {
                             companionContent
                         },
                         onEqualize: {
-                            splitRatio = 0.5
-                            persistSplitRatio(0.5)
+                            let defaultRatio = CGFloat(AppPolicies.PaneZoomSplit.defaultTerminalRatio)
+                            splitRatio = defaultRatio
+                            persistSplitRatio(defaultRatio)
                         },
                         showsDivider: isCompanionVisible,
                         reservesDividerSpace: companionContent != nil,
                         onResizeEnd: {
                             persistSplitRatio(splitRatio)
-                        }
+                        },
+                        splitRatioBounds: CGFloat(
+                            AppPolicies.PaneZoomSplit.minimumTerminalRatio)...CGFloat(
+                                AppPolicies.PaneZoomSplit.maximumTerminalRatio
+                            )
                     )
+                    .onGeometryChange(for: CGRect.self) { geometry in
+                        geometry.frame(in: .named("tabContainer"))
+                    } action: { frame in
+                        splitAreaFrame = frame
+                    }
                     .overlay(alignment: .bottom) {
                         if atom(\.managementLayer).isActive,
                             sourceManagementContext.showsIdentityBlock
@@ -198,12 +238,11 @@ struct ZoomPresentationContainer: View {
         }
     }
 
+    /// A finished divider drag commits through the workspace action route,
+    /// which writes the ratio and then re-evaluates queued drawer geometry.
     private func persistSplitRatio(_ splitRatio: CGFloat) {
         guard let tabId else { return }
-        store.panePresentationAtom.setZoomSplitRatio(
-            Double(splitRatio),
-            inTab: tabId
-        )
+        actionDispatcher.dispatch(.setZoomSplitRatio(tabId: tabId, ratio: Double(splitRatio)))
     }
 
     private var viewerPresentationSplit: Binding<CGFloat> {
@@ -403,6 +442,7 @@ struct ZoomPresentationContainer: View {
                 appLifecycleStore: appLifecycleStore,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 tabId: tabId,
+                presentation: drawerOverlayPresentation,
                 paneFrames: paneFrames,
                 tabSize: tabSize,
                 iconBarFrame: iconBarFrame,
@@ -418,6 +458,22 @@ struct ZoomPresentationContainer: View {
                 dragSourcePaneId: nil
             )
         }
+    }
+
+    /// Terminal and Bridge regions from the measured split area and the live
+    /// split ratio, so an unfinished divider drag moves the drawer with it.
+    private var drawerOverlayPresentation: DrawerOverlayPresentation {
+        let regions = DrawerPresentationGeometryResolver.zoomRegions(
+            splitArea: splitAreaFrame,
+            sourceSplitRatio: splitRatio,
+            reservesCompanionSpace: companionContent != nil,
+            isCompanionVisible: isCompanionVisible
+        )
+        return .zoom(
+            sourcePaneId: sourcePaneId,
+            terminalRegion: regions.terminal,
+            bridgeRegion: regions.bridge
+        )
     }
 
     private func managementCircleButton(
@@ -513,7 +569,8 @@ struct ZoomPresentationContainer: View {
                         toolbarPresentation: .hidden
                     )
                 )
-                let sourceRatio = presentation.transientSplitRatio ?? 0.5
+                let sourceRatio =
+                    presentation.transientSplitRatio ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
                 layout = AgentStudioCore.Layout(
                     panes: [
                         AgentStudioCore.Layout.PaneEntry(
