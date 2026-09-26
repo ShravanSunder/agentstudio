@@ -173,6 +173,45 @@ struct ArchitectureLintCommandTests {
         #expect(scopedLines == fullLinesForScopedFiles, Comment(rawValue: scopedResult.output))
     }
 
+    @Test("absolute scoped paths through a symlink use the canonical workspace root")
+    func scopedAbsolutePathsThroughSymlinkUseTheCanonicalRoot() throws {
+        let fixture = fixturePath("Bad")
+        let symlinkRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "agentstudio-architecture-lint-absolute-symlink-\(ProcessInfo.processInfo.processIdentifier)",
+                isDirectory: true
+            )
+        try FileManager.default.createSymbolicLink(atPath: symlinkRoot.path, withDestinationPath: fixture)
+        defer { try? FileManager.default.removeItem(at: symlinkRoot) }
+
+        let scopedRelativePaths = [
+            "Sources/AgentStudio/Core/State/MainActor/Atoms/BadFeatureAtomReference.swift",
+            "Sources/AgentStudio/Features/RepoExplorer/State/MainActor/Atoms/BadSiblingFeatureAtomReference.swift",
+            "Tests/AgentStudioTests/BadPollingWaitTest.swift",
+        ]
+        let scopedCanonicalPaths = scopedRelativePaths.map { "\(fixture)/\($0)" }
+        let scopedAbsolutePaths = scopedRelativePaths.map { "\(symlinkRoot.path)/\($0)" }
+
+        let fullResult = runCommand(
+            arguments: ["Sources", "Tests"],
+            workspaceRootPath: symlinkRoot.path
+        )
+        let scopedResult = runCommand(
+            arguments: ["Sources", "Tests"] + scopedAbsolutePaths.flatMap { ["--only", $0] },
+            workspaceRootPath: symlinkRoot.path
+        )
+
+        let fullLinesForScopedFiles = fullResult.output
+            .split(separator: "\n")
+            .filter { line in scopedCanonicalPaths.contains { line.hasPrefix("\($0):") } }
+        let scopedLines = scopedResult.output.split(separator: "\n")
+
+        #expect(fullResult.exitCode == 1)
+        #expect(scopedResult.exitCode == 1)
+        #expect(!fullLinesForScopedFiles.isEmpty)
+        #expect(scopedLines == fullLinesForScopedFiles, Comment(rawValue: scopedResult.output))
+    }
+
     @Test("timings print per stage and per rule without changing the exit code")
     func timingsPrintPerStageAndPerRuleWithoutChangingExitCode() throws {
         let fixture = fixturePath("Good")
