@@ -226,7 +226,7 @@ func makeServerCapableAppIPCTestHarness(
     appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
 
     let rootDirectory = FileManager.default.temporaryDirectory
-        .appending(path: "as-ipc-\(UUIDv7.generate().uuidString.prefix(8))")
+        .appending(path: "as-ipc-\(UUIDv7.generate().uuidString.suffix(8))")
     try FileManager.default.createDirectory(
         at: rootDirectory,
         withIntermediateDirectories: false,
