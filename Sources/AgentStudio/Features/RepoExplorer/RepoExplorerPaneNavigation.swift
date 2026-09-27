@@ -25,9 +25,18 @@ struct RepoExplorerPaneRow: View {
                 octiconLoader: octiconLoader,
                 shortcutDisplay: keyboardPresentation.shortcutDisplay,
                 showsExpandedChips: row.displayVariant == .expanded,
-                drawerRail: row.drawerRail,
-                ownerLineCount: row.variants?.compact.lines.count ?? 1
+                drawerRail: row.drawerRail
             )
+        }
+        .overlay(alignment: .topLeading) {
+            if row.drawerRail != .none {
+                DrawerRail(
+                    segment: row.drawerRail,
+                    ownerLineCount: row.variants?.compact.lines.count ?? 1
+                )
+                .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth)
+                .padding(.leading, AppStyles.Shell.Sidebar.rowHorizontalInset)
+            }
         }
         .onTapGesture(perform: onFocus)
         .accessibilityAddTraits(.isButton)
@@ -63,7 +72,6 @@ struct RepoExplorerPaneRowContent: View {
     var shortcutDisplay: ShortcutDisplayText?
     var showsExpandedChips = false
     var drawerRail: RepoExplorerDrawerRail = .none
-    var ownerLineCount = 1
 
     static func leadingContentInset(for drawerRail: RepoExplorerDrawerRail) -> CGFloat {
         switch drawerRail {
@@ -118,12 +126,6 @@ struct RepoExplorerPaneRowContent: View {
         .padding(.leading, Self.leadingContentInset(for: drawerRail))
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-        .overlay(alignment: .topLeading) {
-            if drawerRail != .none {
-                DrawerRail(segment: drawerRail, ownerLineCount: ownerLineCount)
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth)
-            }
-        }
     }
 
     @ViewBuilder
