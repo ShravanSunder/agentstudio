@@ -1,0 +1,150 @@
+import AgentStudioGit
+import Foundation
+
+package enum WorktreeOperationRequest: Sendable, Equatable {
+    case createFromDefault(start: URL, branch: String)
+    case fork(start: URL, branch: String)
+    case list(start: URL)
+}
+
+package enum WorktreeBranchNameProblem: Sendable, Equatable {
+    case local(WorktreeBranchNameRejection)
+    case rejectedByGit
+}
+
+package enum WorktreeOperationKind: String, Sendable, Equatable {
+    case new
+    case fork
+}
+
+package enum WorktreeOperationOutcome: Sendable, Equatable {
+    case created(WorktreeCreatedSummary)
+    case listed(WorktreeListingSummary)
+    case refused(WorktreeOperationRefusal)
+    case failed(WorktreeOperationFailure)
+}
+
+package struct WorktreeCreatedSummary: Sendable, Equatable {
+    package let operation: WorktreeOperationKind
+    package let branch: String
+    package let path: URL
+    package let repository: URL
+    package let materialization: GitWorktreeMaterializationReport?
+
+    package init(
+        operation: WorktreeOperationKind,
+        branch: String,
+        path: URL,
+        repository: URL,
+        materialization: GitWorktreeMaterializationReport?
+    ) {
+        self.operation = operation
+        self.branch = branch
+        self.path = path
+        self.repository = repository
+        self.materialization = materialization
+    }
+}
+
+package struct WorktreeListingSummary: Sendable, Equatable {
+    package let repository: URL
+    package let worktrees: [WorktreeListing]
+
+    package init(repository: URL, worktrees: [WorktreeListing]) {
+        self.repository = repository
+        self.worktrees = worktrees
+    }
+}
+
+package struct WorktreeListing: Sendable, Equatable {
+    package let path: URL
+    package let branch: String?
+    package let isMain: Bool
+
+    package init(path: URL, branch: String?, isMain: Bool) {
+        self.path = path
+        self.branch = branch
+        self.isMain = isMain
+    }
+}
+
+package enum WorktreeOperationRefusal: Sendable, Equatable {
+    case notInRepository(URL)
+    case notInWorktree(URL)
+    case noDefaultBranch
+    case invalidBranchName(WorktreeBranchNameProblem)
+    case emptyBranchSlug
+    case branchAlreadyExists(String)
+    case destinationExists(URL)
+    case destinationParentMissing(URL)
+    case unsupportedRepositoryLayout(URL)
+    case forkUnavailable(GitWorktreeForkRejectionReason)
+}
+
+package struct WorktreeOperationFailure: Sendable, Equatable {
+    package let failure: WorktreeFailureKind
+    package let leftovers: WorktreeLeftoverStatus
+
+    package init(failure: WorktreeFailureKind, leftovers: WorktreeLeftoverStatus) {
+        self.failure = failure
+        self.leftovers = leftovers
+    }
+}
+
+package enum WorktreeFailureKind: Sendable, Equatable {
+    case readFailed(WorktreeGitErrorKind)
+    case createFailed(WorktreeGitErrorKind)
+    case forkGitFailed(WorktreeGitErrorKind)
+    case sourceChanged(relativePath: String, reason: GitWorktreeForkSourceRaceReason)
+    case entryFailed(relativePath: String, reason: GitWorktreeForkEntryFailureReason, errno: Int32?)
+    case validationFailed(reason: GitWorktreeForkValidationFailureReason, relativePath: String?)
+    case cancelled
+}
+
+package enum WorktreeLeftoverStatus: Sendable, Equatable {
+    case notNeeded
+    case noLeftovers
+    case unverified
+    case incomplete([WorktreeCleanupLeftover])
+}
+
+package struct WorktreeCleanupLeftover: Sendable, Equatable {
+    package let kind: GitWorktreeForkResidueKind
+    package let location: String
+    package let base: WorktreeLeftoverBase
+
+    package init(kind: GitWorktreeForkResidueKind, location: String, base: WorktreeLeftoverBase) {
+        self.kind = kind
+        self.location = location
+        self.base = base
+    }
+}
+
+package enum WorktreeLeftoverBase: Sendable, Equatable {
+    case destination
+    case repositoryGitDirectory
+    case branchReference
+    case temporary
+}
+
+package enum WorktreeGitErrorKind: String, Sendable, Equatable {
+    case repositoryNotFound
+    case worktreeNotFound
+    case locked
+    case worktreeNotPrunable
+    case unsafeWorktreeRemoval
+    case contentTooLarge
+    case pathEscapesRepository
+    case revisionUnavailable
+    case headUnavailable
+    case requiredObjectNotFound
+    case noSharedHistory
+    case multipleBestMergeBases
+    case processFailed
+    case processTimedOut
+    case processCancelled
+    case processOutputTooLarge
+    case remoteRefTransactionIndeterminate
+    case libgit2Failure
+    case unsupported
+}
