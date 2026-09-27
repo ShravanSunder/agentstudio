@@ -40,8 +40,8 @@ struct FileMetadataPublicationOrderingTests {
         #expect(await observation.wasImmediatelyAuthorized == true)
     }
 
-    @Test("failed descriptor publication revokes its content read plan")
-    func failedDescriptorPublicationRevokesContentReadPlan() async throws {
+    @Test("failed descriptor emission keeps the index-accepted content read plan")
+    func failedDescriptorEmissionKeepsAcceptedContentReadPlan() async throws {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
@@ -78,11 +78,11 @@ struct FileMetadataPublicationOrderingTests {
             for: request,
             productAdmission: fixture.productAdmission.context
         )
-        #expect(readPlan == nil)
+        #expect(readPlan != nil)
     }
 
-    @Test("failed replacement publication restores the previously authorized descriptor")
-    func failedReplacementPublicationRestoresPreviousDescriptor() async throws {
+    @Test("failed replacement emission keeps the old lease and newly accepted descriptor")
+    func failedReplacementEmissionKeepsIssuedDescriptors() async throws {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
@@ -139,7 +139,7 @@ struct FileMetadataPublicationOrderingTests {
             await source.contentReadPlan(
                 for: replacementRequest,
                 productAdmission: fixture.productAdmission.context
-            ) == nil
+            ) != nil
         )
     }
 
@@ -193,12 +193,15 @@ struct FileMetadataPublicationOrderingTests {
         let newerDescriptor = try #require(await newerObservation.descriptor)
         let olderRequest = try fixture.contentRequest(descriptor: olderDescriptor)
         let newerRequest = try fixture.contentRequest(descriptor: newerDescriptor)
-        #expect(
+        let olderReadPlan = try #require(
             await source.contentReadPlan(
                 for: olderRequest,
                 productAdmission: fixture.productAdmission.context
-            ) == nil
+            )
         )
+        await #expect(throws: BridgePaneProductFileContentSourceError.self) {
+            _ = try await BridgePaneProductFileContentSource.openReadSession(olderReadPlan)
+        }
         #expect(
             await source.contentReadPlan(
                 for: newerRequest,

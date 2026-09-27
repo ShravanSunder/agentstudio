@@ -41,6 +41,18 @@ struct BridgeProductProducerRegistry {
         return Set(activeIds + pendingIds).map(BridgeProductProducerLease.init(id:))
     }
 
+    func pendingMetadataFrameTarget(
+        for lease: BridgeProductProducerLease
+    ) -> (stream: BridgeProductMetadataStreamCorrelation, nextSequence: Int)? {
+        guard let state = producersByLeaseId[lease.id],
+            case .metadata(let metadataKey) = state.key,
+            state.lifecycle == .running,
+            state.openingFrameState != .required,
+            !state.terminalFrameAdmitted
+        else { return nil }
+        return (metadataKey.request.correlation, nextSequence(for: state))
+    }
+
     mutating func registerMetadataProducer(
         request: BridgeProductMetadataStreamRequest,
         operation: @escaping ProducerOperation,

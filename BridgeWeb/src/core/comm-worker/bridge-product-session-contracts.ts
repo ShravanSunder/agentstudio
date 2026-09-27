@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
 import {
 	bridgeProductCallRequestSchema,
 	bridgeProductCallResultSchema,
@@ -31,6 +32,11 @@ import {
 import { bridgeProductMetadataApplicationKindSchema } from './bridge-product-metadata-application-protocol.js';
 import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 import { BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT } from './bridge-product-subscription-contracts.js';
+import {
+	bridgeProductViewAcceptedResponseSchema,
+	bridgeProductViewResnapshotRequestSchema,
+	bridgeProductViewScopeRequestSchema,
+} from './bridge-product-view-control-wire-contracts.js';
 
 export { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 
@@ -260,6 +266,8 @@ export const bridgeProductControlRequestSchema = z.discriminatedUnion('kind', [
 		})
 		.strict(),
 	bridgeProductSubscriptionUpdateBatchRequestSchema,
+	bridgeProductViewScopeRequestSchema,
+	bridgeProductViewResnapshotRequestSchema,
 	z
 		.object({
 			...bridgeProductSurfaceRequestIdentityShape,
@@ -292,6 +300,7 @@ export const bridgeProductControlRequestSchema = z.discriminatedUnion('kind', [
 ]);
 
 export const bridgeProductControlResponseSchema = z.discriminatedUnion('kind', [
+	...bridgeProductViewAcceptedResponseSchema.options,
 	z
 		.object({
 			...bridgeProductControlIdentityShape,
@@ -425,6 +434,7 @@ const bridgeProductSubscriptionDataFrameSchema = z
 	.strict();
 
 const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', [
+	...bridgeProductBatchFrameSchema.options,
 	z
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
@@ -592,6 +602,11 @@ export const bridgeProductBootstrapPolicySchema = z
 		terminalFrameReserve: z.literal(BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE),
 		telemetryPreReadyBufferMaxBytes: bridgeProductPositiveSequenceSchema,
 		telemetryPreReadyBufferMaxSamples: bridgeProductPositiveSequenceSchema,
+		viewAcknowledgementDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,
+		viewCreditBytes: bridgeProductPositiveSequenceSchema,
+		viewCreditParts: bridgeProductPositiveSequenceSchema,
+		viewMaximumConsecutiveResnapshots: bridgeProductPositiveSequenceSchema,
+		viewMaximumDirtyKeys: bridgeProductPositiveSequenceSchema,
 		workerSettlementDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,
 	})
 	.strict();

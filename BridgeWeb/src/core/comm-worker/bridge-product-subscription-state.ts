@@ -60,6 +60,9 @@ export type BridgeProductSubscriptionFrame = Exclude<
 	| { readonly kind: 'metadataStream.error' }
 	| { readonly kind: 'pane.presentation' }
 	| { readonly kind: 'pane.surfaceSelectionRequested' }
+	| { readonly kind: 'subscription.batchBegin' }
+	| { readonly kind: 'subscription.batchPart' }
+	| { readonly kind: 'subscription.batchComplete' }
 >;
 
 export interface BridgeProductSubscriptionFrameSink {

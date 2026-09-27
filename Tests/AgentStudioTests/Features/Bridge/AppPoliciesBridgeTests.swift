@@ -6,13 +6,24 @@ import Testing
 
 @Suite(.serialized)
 final class AppPoliciesBridgeTests {
-    @Test("Bridge bootstrap carries the admission replay and worker settlement policies")
+    @Test("Bridge bootstrap carries control and view delivery policies")
     func bridgeBootstrapCarriesOperationPolicies() {
         let bootstrapPolicy = BridgeProductBootstrapPolicy.productContract
         #expect(bootstrapPolicy.admissionRetryCount == AppPolicies.Bridge.productAdmissionRetryCount)
         #expect(
             bootstrapPolicy.workerSettlementDeadlineMilliseconds
                 == Int(AppPolicies.Bridge.productWorkerSettlementDeadline.components.seconds * 1000)
+        )
+        #expect(bootstrapPolicy.viewCreditParts == AppPolicies.Bridge.productViewCreditParts)
+        #expect(bootstrapPolicy.viewCreditBytes == AppPolicies.Bridge.productViewCreditBytes)
+        #expect(bootstrapPolicy.viewMaximumDirtyKeys == AppPolicies.Bridge.productViewMaximumDirtyKeys)
+        #expect(
+            bootstrapPolicy.viewAcknowledgementDeadlineMilliseconds
+                == Int(AppPolicies.Bridge.productViewAcknowledgementDeadline.components.seconds * 1000)
+        )
+        #expect(
+            bootstrapPolicy.viewMaximumConsecutiveResnapshots
+                == AppPolicies.Bridge.productViewMaximumConsecutiveResnapshots
         )
     }
 

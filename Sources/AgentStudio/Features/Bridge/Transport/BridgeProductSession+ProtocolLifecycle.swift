@@ -56,10 +56,10 @@ extension BridgeProductSession {
                 switch result {
                 case .enqueued:
                     terminateProtocolSubscription(subscriptionId: subscriptionId)
-                    resumeProducerFrameWaiterIfPossible(for: target.lease)
+                    resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
                 case .queueReset:
                     terminateAllProtocolSubscriptionsWithDeliveries()
-                    resumeProducerFrameWaiterIfPossible(for: target.lease)
+                    resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
                 case .rejected:
                     break
                 }
@@ -110,10 +110,10 @@ extension BridgeProductSession {
                     delivery.nextSequence += 1
                     delivery.lastEnqueuedStreamSequence = frame.sequence
                     protocolSubscriptionDeliveryById[subscriptionId] = delivery
-                    resumeProducerFrameWaiterIfPossible(for: target.lease)
+                    resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
                 case .queueReset:
                     terminateAllProtocolSubscriptionsWithDeliveries()
-                    resumeProducerFrameWaiterIfPossible(for: target.lease)
+                    resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
                 case .rejected:
                     break
                 }
@@ -171,10 +171,10 @@ extension BridgeProductSession {
             )
             switch result {
             case .enqueued?:
-                resumeProducerFrameWaiterIfPossible(for: target.lease)
+                resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
             case .queueReset?:
                 terminateAllProtocolSubscriptionsWithDeliveries()
-                resumeProducerFrameWaiterIfPossible(for: target.lease)
+                resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
                 return
             case .rejected?, nil:
                 continue
@@ -183,6 +183,7 @@ extension BridgeProductSession {
     }
 
     private func terminateProtocolSubscription(subscriptionId: String) {
+        closeViewDomains(subscriptionId: subscriptionId)
         protocolSubscriptionDeliveryById.removeValue(forKey: subscriptionId)
         subscriptionState.terminate(subscriptionId: subscriptionId)
     }
@@ -190,23 +191,29 @@ extension BridgeProductSession {
     private func terminateAllProtocolSubscriptionsWithDeliveries() {
         let subscriptionIds = protocolSubscriptionDeliveryById.keys
         for subscriptionId in subscriptionIds {
+            closeViewDomains(subscriptionId: subscriptionId)
             subscriptionState.terminate(subscriptionId: subscriptionId)
         }
         protocolSubscriptionDeliveryById.removeAll(keepingCapacity: false)
     }
 
     func admitRequiredProtocolLifecycleFrame(
-        for effect: BridgeProductSessionCompletionEffect
+        for effect: BridgeProductSessionCompletionEffect,
+        admissionAlreadyHeld: Bool = false
     ) throws {
         switch effect {
-        case .noEffect, .productCall, .resynced:
+        case .noEffect, .productCall, .resynced, .viewScopeAccepted, .viewResnapshotAccepted:
             return
         case .subscriptionOpened(let snapshot):
-            try admitSubscriptionOpenedFrame(snapshot)
+            try admitSubscriptionOpenedFrame(snapshot, admissionAlreadyHeld: admissionAlreadyHeld)
         case .subscriptionInterestsCommitted(let barrier, let snapshot):
-            try admitSubscriptionInterestsCommittedFrame(barrier: barrier, snapshot: snapshot)
+            try admitSubscriptionInterestsCommittedFrame(
+                barrier: barrier,
+                snapshot: snapshot,
+                admissionAlreadyHeld: admissionAlreadyHeld
+            )
         case .subscriptionCancelled(let snapshot):
-            try admitSubscriptionCancelledFrame(snapshot)
+            try admitSubscriptionCancelledFrame(snapshot, admissionAlreadyHeld: admissionAlreadyHeld)
         }
     }
 
@@ -214,11 +221,13 @@ extension BridgeProductSession {
         _ result: BridgeProductSubscriptionResyncResult
     ) {
         for subscriptionId in result.revokedNativeOnlySubscriptionIds {
+            closeViewDomains(subscriptionId: subscriptionId)
             protocolSubscriptionDeliveryById.removeValue(forKey: subscriptionId)
         }
         for outcome in result.reconciliation {
             switch outcome {
             case .cancelled, .reopenRequired:
+                closeViewDomains(subscriptionId: outcome.subscriptionId)
                 protocolSubscriptionDeliveryById.removeValue(forKey: outcome.subscriptionId)
             case .retained, .reset:
                 guard
@@ -235,12 +244,14 @@ extension BridgeProductSession {
     }
 
     private func admitSubscriptionOpenedFrame(
-        _ snapshot: BridgeProductSubscriptionSnapshot
+        _ snapshot: BridgeProductSubscriptionSnapshot,
+        admissionAlreadyHeld: Bool
     ) throws {
         let target = try activeMetadataFrameTarget()
         let correlation = try Self.subscriptionFrameCorrelation(for: snapshot)
         let streamSequence = try enqueueRequiredProtocolLifecycleFrame(
             target: target,
+            admissionAlreadyHeld: admissionAlreadyHeld,
             build: { streamSequence in
                 .metadata(
                     try .subscriptionAccepted(
@@ -260,7 +271,8 @@ extension BridgeProductSession {
 
     private func admitSubscriptionInterestsCommittedFrame(
         barrier: BridgeProductSubscriptionCommitBarrierIntent,
-        snapshot: BridgeProductSubscriptionSnapshot
+        snapshot: BridgeProductSubscriptionSnapshot,
+        admissionAlreadyHeld: Bool
     ) throws {
         let target = try activeMetadataFrameTarget()
         guard var delivery = protocolSubscriptionDeliveryById[snapshot.subscriptionId] else {
@@ -270,6 +282,7 @@ extension BridgeProductSession {
         let subscriptionSequence = delivery.nextSequence
         let streamSequence = try enqueueRequiredProtocolLifecycleFrame(
             target: target,
+            admissionAlreadyHeld: admissionAlreadyHeld,
             build: { streamSequence in
                 .metadata(
                     try .subscriptionInterestsCommitted(
@@ -289,7 +302,8 @@ extension BridgeProductSession {
     }
 
     private func admitSubscriptionCancelledFrame(
-        _ snapshot: BridgeProductSubscriptionSnapshot
+        _ snapshot: BridgeProductSubscriptionSnapshot,
+        admissionAlreadyHeld: Bool
     ) throws {
         let target = try activeMetadataFrameTarget()
         guard let delivery = protocolSubscriptionDeliveryById[snapshot.subscriptionId] else {
@@ -297,6 +311,7 @@ extension BridgeProductSession {
         }
         try enqueueRequiredProtocolLifecycleFrame(
             target: target,
+            admissionAlreadyHeld: admissionAlreadyHeld,
             build: { streamSequence in
                 .metadata(
                     try .subscriptionCancelled(
@@ -309,6 +324,7 @@ extension BridgeProductSession {
             }
         )
         protocolSubscriptionDeliveryById.removeValue(forKey: snapshot.subscriptionId)
+        closeViewDomains(subscriptionId: snapshot.subscriptionId)
     }
 
     private func activeMetadataFrameTarget() throws -> BridgeProductProtocolMetadataFrameTarget {
@@ -328,6 +344,7 @@ extension BridgeProductSession {
     @discardableResult
     private func enqueueRequiredProtocolLifecycleFrame(
         target: BridgeProductProtocolMetadataFrameTarget,
+        admissionAlreadyHeld: Bool,
         build: @Sendable (Int) throws -> BridgeProductProducerFrame
     ) throws -> Int {
         let result = try producerRegistry.enqueueNonterminalFrame(
@@ -338,7 +355,10 @@ extension BridgeProductSession {
         guard case .enqueued(let frame) = result else {
             throw BridgeProductSessionError.lifecycleFrameAdmissionFailed
         }
-        resumeProducerFrameWaiterIfPossible(for: target.lease)
+        resumeProducerFrameWaiterIfPossible(
+            for: target.lease,
+            admissionAlreadyHeld: admissionAlreadyHeld
+        )
         return frame.sequence
     }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import commentCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-comment-catalog-record-corpus.json' with { type: 'json' };
 import fileCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-file-batch-row-corpus.json' with { type: 'json' };
+import { BridgeProductBatchFrameRouter } from './bridge-product-batch-frame-router.js';
 import {
 	bridgeProductBatchFrameSchema,
 	type BridgeProductBatchFrame,
@@ -158,6 +159,94 @@ function complete(props: {
 }
 
 describe('Bridge product W4 per-domain batch receiver', () => {
+	it('routes a received part credit before the certified bank install', () => {
+		const router = new BridgeProductBatchFrameRouter();
+		const events: string[] = [];
+		router.setSinks({
+			install: (installation): void => {
+				events.push(`installed:${installation.domain}:${installation.records.length}`);
+			},
+			receipt: (_, through): void => {
+				events.push(`received:${through}`);
+			},
+			resnapshot: (): void => {
+				events.push('resnapshot');
+			},
+		});
+		router.accept(begin({ partCount: 1, target: 1 }));
+		router.accept(part({ key: 'a', revision: 1, value: 'A' }));
+		expect(events).toEqual(['received:1']);
+		router.accept(complete({}));
+		expect(events).toEqual(['received:1', 'installed:default:1']);
+	});
+
+	it('an application rejection resnapshots only its subscription while a sibling installs', () => {
+		const router = new BridgeProductBatchFrameRouter();
+		const resnapshots: string[] = [];
+		const installed: string[] = [];
+		router.setSinks({
+			install: (installation): void => {
+				if (installation.begin.subscriptionId === identity.subscriptionId) {
+					throw new Error('The typed application rejected this bank.');
+				}
+				installed.push(installation.begin.subscriptionId);
+			},
+			receipt: (): void => {},
+			resnapshot: (frame): void => {
+				resnapshots.push(frame.subscriptionId);
+			},
+		});
+		router.accept(begin({ partCount: 1, target: 1 }));
+		router.accept(part({ key: 'a', revision: 1, value: 'A' }));
+		router.accept(complete({}));
+		const siblingSubscriptionId = 'sibling-subscription';
+		router.accept(
+			bridgeProductBatchFrameSchema.parse({
+				...begin({ batchId: 'sibling-batch', partCount: 1, target: 1 }),
+				subscriptionId: siblingSubscriptionId,
+			}),
+		);
+		router.accept(
+			bridgeProductBatchFrameSchema.parse({
+				...part({ batchId: 'sibling-batch', key: 'b', revision: 1, value: 'B' }),
+				subscriptionId: siblingSubscriptionId,
+			}),
+		);
+		router.accept(
+			bridgeProductBatchFrameSchema.parse({
+				...complete({ batchId: 'sibling-batch' }),
+				subscriptionId: siblingSubscriptionId,
+			}),
+		);
+		expect(resnapshots).toEqual([identity.subscriptionId]);
+		expect(installed).toEqual([siblingSubscriptionId]);
+	});
+
+	it('an asynchronous typed install rejection resnapshots after receipt credit', async () => {
+		const router = new BridgeProductBatchFrameRouter();
+		const events: string[] = [];
+		let rejectInstallation: ((error: Error) => void) | undefined;
+		const installation = new Promise<void>((_resolve, reject): void => {
+			rejectInstallation = reject;
+		});
+		router.setSinks({
+			install: (): Promise<void> => installation,
+			receipt: (): void => {
+				events.push('receipt');
+			},
+			resnapshot: (): void => {
+				events.push('resnapshot');
+			},
+		});
+		router.accept(begin({ partCount: 1, target: 1 }));
+		router.accept(part({ key: 'a', revision: 1, value: 'A' }));
+		router.accept(complete({}));
+		expect(events).toEqual(['receipt']);
+		rejectInstallation?.(new Error('The Review installer rejected its certified bank.'));
+		await Promise.resolve();
+		expect(events).toEqual(['receipt', 'resnapshot']);
+	});
+
 	it('installs all four kinds through strict JSON and the batch wire contract', () => {
 		const cases = [
 			{
@@ -302,6 +391,11 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			).kind,
 		).toBe('installed');
 		expect(state.records('member-a')).toEqual([{ key: 'a', revision: 1, value: 'A' }]);
+		expect(state.takeInstallations().map((installation) => installation.domain)).toEqual([
+			'collection',
+			'member-a',
+		]);
+		expect(state.takeInstallations()).toEqual([]);
 	});
 
 	it('a deletion tombstone rejects a delayed write and an old incarnation', () => {
@@ -355,6 +449,25 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		expect(state.records('default')).toEqual([{ key: 'docs/b', revision: 2, value: 'B' }]);
 	});
 
+	it('ignores a late change against the cursor replaced by a complete snapshot', () => {
+		const state = receiver();
+		state.admitDomain('default', 'incarnation-1');
+		state.accept(begin({ batchId: 'initial', partCount: 1, target: 1 }));
+		state.accept(part({ batchId: 'initial', key: 'a', revision: 1, value: 'old' }));
+		state.accept(complete({ batchId: 'initial' }));
+		state.accept(begin({ batchId: 'recovered', base: 1, partCount: 1, target: 3 }));
+		state.accept(part({ batchId: 'recovered', key: 'a', revision: 3, value: 'current' }));
+		expect(state.accept(complete({ batchId: 'recovered' })).kind).toBe('installed');
+
+		expect(
+			state.accept(
+				begin({ batchId: 'late-change', base: 1, mode: 'change', partCount: 1, target: 4 }),
+			).kind,
+		).toBe('ignored');
+		expect(state.cursor('default')).toBe(3);
+		expect(state.records('default')).toEqual([{ key: 'a', revision: 3, value: 'current' }]);
+	});
+
 	it('scope comparison is independent of JSON member order', () => {
 		const state = new BridgeProductViewBatchReceiver({
 			handle: identity.handle,
@@ -389,6 +502,124 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			receivedThroughDeliverySequence: 3,
 		});
 		expect(state.accept(complete({})).kind).toBe('installed');
+	});
+
+	it('credits are contiguous within each domain when delivery sequences overlap', () => {
+		const state = receiver();
+		state.admitDomain('member-a', 'incarnation-a');
+		state.admitDomain('member-b', 'incarnation-b');
+		state.accept(
+			begin({
+				batchId: 'batch-a',
+				domain: 'member-a',
+				incarnation: 'incarnation-a',
+				partCount: 2,
+				target: 2,
+			}),
+		);
+		state.accept(
+			begin({
+				batchId: 'batch-b',
+				domain: 'member-b',
+				incarnation: 'incarnation-b',
+				partCount: 2,
+				target: 2,
+			}),
+		);
+		expect(
+			state.accept(
+				part({
+					batchId: 'batch-a',
+					domain: 'member-a',
+					incarnation: 'incarnation-a',
+					key: 'a-1',
+					partIndex: 0,
+					revision: 1,
+					value: 'A1',
+				}),
+			),
+		).toEqual({ kind: 'staged', receivedThroughDeliverySequence: 1 });
+		expect(
+			state.accept(
+				part({
+					batchId: 'batch-a',
+					domain: 'member-a',
+					incarnation: 'incarnation-a',
+					key: 'a-2',
+					partIndex: 1,
+					revision: 2,
+					value: 'A2',
+				}),
+			),
+		).toEqual({ kind: 'staged', receivedThroughDeliverySequence: 2 });
+		expect(
+			state.accept(
+				part({
+					batchId: 'batch-b',
+					domain: 'member-b',
+					incarnation: 'incarnation-b',
+					key: 'b-2',
+					partIndex: 1,
+					revision: 2,
+					value: 'B2',
+				}),
+			),
+		).toEqual({ kind: 'staged' });
+		expect(
+			state.accept(
+				part({
+					batchId: 'batch-b',
+					domain: 'member-b',
+					incarnation: 'incarnation-b',
+					key: 'b-1',
+					partIndex: 0,
+					revision: 1,
+					value: 'B1',
+				}),
+			),
+		).toEqual({ kind: 'staged', receivedThroughDeliverySequence: 2 });
+	});
+
+	it('a resnapshot establishes a new receipt base without acknowledging its missing first part', () => {
+		const state = receiver();
+		state.admitDomain('default', 'incarnation-1');
+		state.accept(begin({ batchId: 'old', partCount: 2, target: 2 }));
+		expect(
+			state.accept(part({ batchId: 'old', key: 'old-2', partIndex: 1, revision: 2, value: 'O2' })),
+		).toEqual({ kind: 'staged' });
+		expect(state.accept(complete({ batchId: 'old' })).kind).toBe('resnapshot');
+		state.accept(begin({ batchId: 'replacement', partCount: 2, target: 4 }));
+		expect(
+			state.accept(
+				part({ batchId: 'replacement', key: 'new-4', partIndex: 1, revision: 4, value: 'N4' }),
+			),
+		).toEqual({ kind: 'staged' });
+		expect(
+			state.accept(
+				part({ batchId: 'replacement', key: 'new-3', partIndex: 0, revision: 3, value: 'N3' }),
+			),
+		).toEqual({ kind: 'staged', receivedThroughDeliverySequence: 4 });
+	});
+
+	it('keeps the installed view readable and ignores an old change after a replacement snapshot', () => {
+		const state = receiver();
+		state.admitDomain('default', identity.incarnation);
+		state.accept(begin({ batchId: 'initial', partCount: 1, target: 1 }));
+		state.accept(part({ batchId: 'initial', key: 'item/a', revision: 1, value: 'A' }));
+		expect(state.accept(complete({ batchId: 'initial' })).kind).toBe('installed');
+
+		state.accept(begin({ batchId: 'replacement', partCount: 1, target: 3 }));
+		expect(state.records('default')).toEqual([{ key: 'item/a', revision: 1, value: 'A' }]);
+		state.accept(part({ batchId: 'replacement', key: 'item/a', revision: 3, value: 'C' }));
+		expect(state.accept(complete({ batchId: 'replacement' })).kind).toBe('installed');
+		expect(state.cursor('default')).toBe(3);
+
+		expect(
+			state.accept(
+				begin({ batchId: 'old-change', base: 1, mode: 'change', partCount: 1, target: 2 }),
+			),
+		).toEqual({ kind: 'ignored' });
+		expect(state.records('default')).toEqual([{ key: 'item/a', revision: 3, value: 'C' }]);
 	});
 
 	it('a new handle retains stale rows until its range is certified', () => {

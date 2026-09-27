@@ -97,6 +97,10 @@ struct BridgeProductViewSenderState {
         schedulingOrder.append(batch.viewDomain)
     }
 
+    func hasActiveEmission(for viewDomain: BridgeProductViewDomainKey) -> Bool {
+        emissionByViewDomain[viewDomain] != nil
+    }
+
     /// Returns one frame without materializing another batch-sized array.
     /// An out-of-credit domain yields its turn to a sibling.
     mutating func nextFrame(

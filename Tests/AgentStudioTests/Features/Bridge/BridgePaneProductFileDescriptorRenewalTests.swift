@@ -75,7 +75,10 @@ struct BridgePaneProductFileDescriptorRenewalTests {
         )
         let expectedSha256 = SHA256.hash(data: replacementBytes)
             .map { String(format: "%02x", $0) }.joined()
-        #expect(staleReadPlan == nil)
+        let retainedReadPlan = try #require(staleReadPlan)
+        await #expect(throws: BridgePaneProductFileContentSourceError.self) {
+            _ = try await BridgePaneProductFileContentSource.openReadSession(retainedReadPlan)
+        }
         #expect(renewedDescriptor != previousDescriptor)
         #expect(renewedDescriptor.expectedSha256 == expectedSha256)
         let replacementInInvalidation = published.compactMap { emission -> BridgeProductFileContentDescriptor? in

@@ -6,12 +6,15 @@ private struct BridgeProductMetadataFrameAcknowledgementReplay {
     let producerLease: BridgeProductProducerLease
 }
 
+// WIP checkpoint: move view-delivery state into its owner before the 1.4c cutover commit.
+// swiftlint:disable:next type_body_length
 actor BridgeProductSession {
     typealias ProducerLifecycleAcknowledger =
         @Sendable (BridgeProductProducerLifecycleAcknowledgement) async -> Bool
     typealias ProducerObservationPacingRegistrationObserver =
         @Sendable (BridgeProductProducerLease, Int) -> Void
     typealias ResultWaiterRegistrationObserver = @Sendable (String) -> Void
+    typealias ViewEmissionWaiterRegistrationObserver = @Sendable (BridgeProductViewDomainKey) -> Void
 
     nonisolated let capabilityAuthenticator: BridgeProductCapabilityAuthenticator
     private let maximumRequestOrResponseBytes: Int
@@ -20,6 +23,7 @@ actor BridgeProductSession {
     let paneSessionId: String
     let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
     let resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver?
+    let viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver?
     var producerRegistry: BridgeProductProducerRegistry {
         didSet { resumeProducerFrameQuiescenceWaitersIfReady() }
     }
@@ -44,6 +48,20 @@ actor BridgeProductSession {
     var lifecycle: BridgeProductSessionLifecycle = .awaitingOpen
     var activeLifecycleWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     var pendingControl: BridgeProductSessionPendingControl?
+    var pendingScopeOperationIdByView: [BridgeProductViewOperationKey: String] = [:]
+    var viewSenderState = BridgeProductViewSenderState(
+        maximumDirtyKeys: AppPolicies.Bridge.productViewMaximumDirtyKeys,
+        creditParts: AppPolicies.Bridge.productViewCreditParts,
+        creditBytes: AppPolicies.Bridge.productViewCreditBytes
+    )
+    var viewScopeByDomain:
+        [BridgeProductViewDomainKey: (handle: String, revision: Int, scope: BridgeProductJSONValue)] =
+            [:]
+    var viewAcknowledgementReplayByDomain: [BridgeProductViewDomainKey: (requestBytes: Data, responseBytes: Data)] =
+        [:]
+    var nextViewDeliverySequenceByDomain: [BridgeProductViewDomainKey: Int] = [:]
+    var pendingFileSnapshotByViewDomain: [BridgeProductViewDomainKey: BridgeWorktreeFileKeyedSnapshot] = [:]
+    var viewEmissionWaiterByDomain: [BridgeProductViewDomainKey: BridgeProductViewEmissionWaiter] = [:]
     var operationTable = BridgeProductOperationTable()
     var observationDeadlineTasksByWaiterId: [UUID: Task<Void, Never>] = [:]
     var activeEscapeEffectIds: Set<UUID> = []
@@ -65,7 +83,8 @@ actor BridgeProductSession {
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             ProducerObservationPacingRegistrationObserver? = nil,
-        resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver? = nil
+        resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver? = nil,
+        viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver? = nil
     ) throws {
         guard maximumRequestOrResponseBytes > 0,
             maximumRequestOrResponseBytes <= BridgeProductWireContract.maximumRequestBodyBytes
@@ -88,6 +107,7 @@ actor BridgeProductSession {
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
         self.resultWaiterRegistrationObserver = resultWaiterRegistrationObserver
+        self.viewEmissionWaiterRegistrationObserver = viewEmissionWaiterRegistrationObserver
         self.lastAcceptedMetadataFrameAcknowledgement = nil
         self.producerRegistry = BridgeProductProducerRegistry(
             limits: producerQueueLimits,
@@ -191,7 +211,7 @@ actor BridgeProductSession {
                 for: lease,
                 build: build
             )
-            resumeProducerFrameWaiterIfPossible(for: lease)
+            resumeProducerFrameWaiterIfPossible(for: lease, admissionAlreadyHeld: true)
             return result
         } ?? .rejected(.lifecycleClosed)
     }
@@ -226,7 +246,7 @@ actor BridgeProductSession {
                 build: build,
                 overflowReset: overflowReset
             )
-            resumeProducerFrameWaiterIfPossible(for: lease)
+            resumeProducerFrameWaiterIfPossible(for: lease, admissionAlreadyHeld: true)
             return result
         } ?? .rejected(.lifecycleClosed)
     }
@@ -258,7 +278,7 @@ actor BridgeProductSession {
                 return .rejected(.unknownLease)
             }
             let result = try producerRegistry.enqueueTerminalFrame(for: lease, build: build)
-            resumeProducerFrameWaiterIfPossible(for: lease)
+            resumeProducerFrameWaiterIfPossible(for: lease, admissionAlreadyHeld: true)
             return result
         } ?? .rejected(.lifecycleClosed)
     }
@@ -524,6 +544,13 @@ actor BridgeProductSession {
                 )
             )
         case .execute(let token):
+            if let viewSubscription = request.viewControlSubscription,
+                subscriptionState.snapshot(subscriptionId: viewSubscription.id)?.subscriptionKind
+                    != viewSubscription.kind
+            {
+                try? controlReplay.abandon(token: token)
+                return .rejected(.init(reason: .unknownSubscription, request: request))
+            }
             if case .subscriptionUpdateBatch(let updateRequest) = request,
                 subscriptionState.snapshot(subscriptionId: updateRequest.subscriptionId) == nil
             {
@@ -609,7 +636,10 @@ actor BridgeProductSession {
                     )
                 }
             }
-            try admitRequiredProtocolLifecycleFrame(for: transition.effect)
+            try admitRequiredProtocolLifecycleFrame(
+                for: transition.effect,
+                admissionAlreadyHeld: true
+            )
             subscriptionState = transition.subscriptionState
             if case .resynced(let resyncResult) = transition.effect {
                 reconcileProtocolSubscriptionDeliveries(resyncResult)
@@ -660,6 +690,7 @@ actor BridgeProductSession {
             return BridgeProductSessionRevocationBarrier(id: id, completedResult: true)
         }
         lifecycle = .revoked
+        finishAllViewEmissionWaiters()
         let controlIdleWaiters = Array(controlReplayIdleWaiters.values)
         controlReplayIdleWaiters.removeAll(keepingCapacity: false)
         for waiter in controlIdleWaiters { waiter.continuation.resume(returning: false) }
@@ -733,6 +764,14 @@ actor BridgeProductSession {
                 return nil
             }
             return preflightResyncEpochs(resyncRequest.activeSubscriptions)
+        case .viewScope, .viewResnapshot:
+            guard lifecycle == .active,
+                let viewSubscription = request.viewControlSubscription,
+                let subscription = subscriptionState.snapshot(subscriptionId: viewSubscription.id),
+                let surface = request.surface,
+                subscription.workerDerivationEpoch >= workerDerivationEpochBySurface[surface, default: 0]
+            else { return nil }
+            return [surface: subscription.workerDerivationEpoch]
         case .productCall, .subscriptionOpen, .subscriptionUpdateBatch, .subscriptionCancel:
             guard lifecycle == .active,
                 let surface = request.surface,
@@ -841,6 +880,9 @@ actor BridgeProductSession {
         )
     }
 
+}
+
+extension BridgeProductSession {
     private func applyCompletedLifecycle(
         request: BridgeProductControlRequest,
         response: BridgeProductControlResponse

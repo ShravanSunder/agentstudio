@@ -46,6 +46,10 @@ struct BridgeFileMetadataSourceDiagnostics: Equatable, Sendable {
 
 protocol BridgePaneProductFileMetadataProducing: Sendable {
     func currentSource() async -> BridgeProductFileSourceCurrentResult
+    func captureKeyedSnapshot(
+        subscriptionId: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot?
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
@@ -95,6 +99,11 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
 }
 
 extension BridgePaneProductFileMetadataProducing {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     func authoritativePath(
         for _: BridgeProductFileContentRequest,
         productAdmission _: BridgeProductAdmissionContext

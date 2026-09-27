@@ -70,6 +70,22 @@ extension BridgeProductSession {
             isMutation: isMutation,
             admission: pendingControl
         )
+        if case .viewScope(let scope) = pendingControl.request {
+            let view = BridgeProductViewOperationKey(
+                subscriptionId: scope.subscriptionId,
+                domain: scope.domain
+            )
+            if let priorOperationId = pendingScopeOperationIdByView[view],
+                let prior = operationTable.entriesById[priorOperationId],
+                prior.settlement == nil
+            {
+                _ = operationTable.settle(
+                    .init(operationId: priorOperationId, outcome: .cancelled)
+                )
+                prior.executionTask?.cancel()
+            }
+            pendingScopeOperationIdByView[view] = operationId
+        }
         // Provider work must start off this session actor's executor.
         // swiftlint:disable:next no_task_detached
         let executionTask = Task.detached { [self] in

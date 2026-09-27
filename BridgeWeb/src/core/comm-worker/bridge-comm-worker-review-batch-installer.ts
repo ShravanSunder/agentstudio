@@ -1,3 +1,5 @@
+import { bridgeCommWorkerReviewRuntimeSourceFromBatch } from './bridge-comm-worker-review-batch-runtime-source.js';
+import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeProductBatchFrame } from './bridge-product-batch-wire-contracts.js';
 import {
 	deriveBridgeProductReviewBatchOrder,
@@ -21,6 +23,7 @@ type ReviewBatchPublication = Extract<
 export interface BridgeCommWorkerReviewBatchPresentation {
 	readonly orderedItems: readonly ReviewBatchItem[];
 	readonly publication: ReviewBatchPublication;
+	readonly runtimeSource: BridgeCommWorkerReviewRuntimeSource;
 	readonly targetRevision: number;
 	readonly treeRows: readonly BridgeProductReviewBatchTreeRow[];
 }
@@ -109,11 +112,15 @@ export class BridgeCommWorkerReviewBatchInstaller {
 		for (const item of items) validateContentIdentity(item, publication);
 		const order = await this.#deriveOrder(items);
 		if (installEpoch !== this.#installEpoch || begin.handle !== this.#handle) return 'ignored';
-		this.#presentation = {
+		const candidate = {
 			orderedItems: order.orderedItems,
 			publication,
 			targetRevision: begin.targetRevision,
 			treeRows: order.treeRows,
+		};
+		this.#presentation = {
+			...candidate,
+			runtimeSource: bridgeCommWorkerReviewRuntimeSourceFromBatch(candidate),
 		};
 		return 'installed';
 	}

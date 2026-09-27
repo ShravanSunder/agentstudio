@@ -218,7 +218,7 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
                 )
             case .subscriptionCancel:
                 return try .subscriptionCancelAccepted(correlating: request)
-            case .productCall, .workerSessionResync:
+            case .productCall, .viewScope, .viewResnapshot, .workerSessionResync:
                 preconditionFailure("Unexpected transcript control request")
             }
         } catch {

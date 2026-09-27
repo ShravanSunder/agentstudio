@@ -15,7 +15,9 @@ struct BridgeProductSessionLifecycleHarness {
         deadlineClock: (any Clock<Duration> & Sendable)? = nil,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
-            BridgeProductSession.ProducerObservationPacingRegistrationObserver? = nil
+            BridgeProductSession.ProducerObservationPacingRegistrationObserver? = nil,
+        viewEmissionWaiterRegistrationObserver:
+            BridgeProductSession.ViewEmissionWaiterRegistrationObserver? = nil
     ) async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
@@ -27,7 +29,8 @@ struct BridgeProductSessionLifecycleHarness {
             deadlineClock: deadlineClock,
             producerQueueLimits: producerQueueLimits,
             producerObservationPacingRegistrationObserver:
-                producerObservationPacingRegistrationObserver
+                producerObservationPacingRegistrationObserver,
+            viewEmissionWaiterRegistrationObserver: viewEmissionWaiterRegistrationObserver
         )
         let harness = try Self(
             capabilityHeader: capabilityHeader,
@@ -58,19 +61,25 @@ struct BridgeProductSessionLifecycleHarness {
         let request = try bridgeProductLifecycleControlRequest(object)
         let token = try #require(lifecycleExecutionToken(try await begin(request)))
         let interestSha256: String
-        switch request.surface {
-        case .review:
-            interestSha256 =
-                try BridgeProductSubscriptionInterestState
-                .reviewMetadata(interests: [])
-                .sha256Hex()
-        case .file:
-            interestSha256 =
-                try BridgeProductSubscriptionInterestState
-                .fileMetadata(interests: [], pathScope: [])
-                .sha256Hex()
-        case nil:
+        guard case .subscriptionOpen(let subscriptionOpen) = request else {
             Issue.record("Expected a surface-scoped subscription request")
+            return
+        }
+        switch subscriptionOpen.subscription.subscriptionKind {
+        case .fileAnnotations:
+            interestSha256 = try BridgeProductSubscriptionInterestState.fileAnnotations.sha256Hex()
+        case .fileMetadata:
+            interestSha256 =
+                try BridgeProductSubscriptionInterestState
+                .fileMetadata(interests: [], pathScope: []).sha256Hex()
+        case .reviewAnnotations:
+            interestSha256 = try BridgeProductSubscriptionInterestState.reviewAnnotations.sha256Hex()
+        case .reviewMetadata:
+            interestSha256 =
+                try BridgeProductSubscriptionInterestState
+                .reviewMetadata(interests: []).sha256Hex()
+        default:
+            Issue.record("Unexpected subscription kind in lifecycle harness")
             return
         }
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(

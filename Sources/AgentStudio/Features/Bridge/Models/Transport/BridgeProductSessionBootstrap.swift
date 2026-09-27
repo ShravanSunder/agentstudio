@@ -12,6 +12,11 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         case terminalFrameReserve
         case telemetryPreReadyBufferMaxBytes
         case telemetryPreReadyBufferMaxSamples
+        case viewAcknowledgementDeadlineMilliseconds
+        case viewCreditBytes
+        case viewCreditParts
+        case viewMaximumConsecutiveResnapshots
+        case viewMaximumDirtyKeys
         case workerSettlementDeadlineMilliseconds
     }
 
@@ -24,6 +29,11 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     let terminalFrameReserve: Int
     let telemetryPreReadyBufferMaxBytes: Int
     let telemetryPreReadyBufferMaxSamples: Int
+    let viewAcknowledgementDeadlineMilliseconds: Int
+    let viewCreditBytes: Int
+    let viewCreditParts: Int
+    let viewMaximumConsecutiveResnapshots: Int
+    let viewMaximumDirtyKeys: Int
     let workerSettlementDeadlineMilliseconds: Int
 
     static let productContract = Self(
@@ -36,6 +46,13 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve,
         telemetryPreReadyBufferMaxBytes: BridgeTelemetryWorkerPolicy.live.producerPreReadyBufferMaxBytes,
         telemetryPreReadyBufferMaxSamples: BridgeTelemetryWorkerPolicy.live.producerPreReadyBufferMaxSamples,
+        viewAcknowledgementDeadlineMilliseconds: Int(
+            AppPolicies.Bridge.productViewAcknowledgementDeadline.components.seconds * 1000
+        ),
+        viewCreditBytes: AppPolicies.Bridge.productViewCreditBytes,
+        viewCreditParts: AppPolicies.Bridge.productViewCreditParts,
+        viewMaximumConsecutiveResnapshots: AppPolicies.Bridge.productViewMaximumConsecutiveResnapshots,
+        viewMaximumDirtyKeys: AppPolicies.Bridge.productViewMaximumDirtyKeys,
         workerSettlementDeadlineMilliseconds: Int(
             AppPolicies.Bridge.productWorkerSettlementDeadline.components.seconds * 1000
         )
@@ -51,6 +68,11 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         terminalFrameReserve: Int,
         telemetryPreReadyBufferMaxBytes: Int,
         telemetryPreReadyBufferMaxSamples: Int,
+        viewAcknowledgementDeadlineMilliseconds: Int,
+        viewCreditBytes: Int,
+        viewCreditParts: Int,
+        viewMaximumConsecutiveResnapshots: Int,
+        viewMaximumDirtyKeys: Int,
         workerSettlementDeadlineMilliseconds: Int
     ) {
         self.admissionRetryCount = admissionRetryCount
@@ -62,6 +84,11 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         self.terminalFrameReserve = terminalFrameReserve
         self.telemetryPreReadyBufferMaxBytes = telemetryPreReadyBufferMaxBytes
         self.telemetryPreReadyBufferMaxSamples = telemetryPreReadyBufferMaxSamples
+        self.viewAcknowledgementDeadlineMilliseconds = viewAcknowledgementDeadlineMilliseconds
+        self.viewCreditBytes = viewCreditBytes
+        self.viewCreditParts = viewCreditParts
+        self.viewMaximumConsecutiveResnapshots = viewMaximumConsecutiveResnapshots
+        self.viewMaximumDirtyKeys = viewMaximumDirtyKeys
         self.workerSettlementDeadlineMilliseconds = workerSettlementDeadlineMilliseconds
     }
 
@@ -87,6 +114,15 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
             Int.self,
             forKey: .telemetryPreReadyBufferMaxSamples
         )
+        self.viewAcknowledgementDeadlineMilliseconds = try container.decode(
+            Int.self, forKey: .viewAcknowledgementDeadlineMilliseconds
+        )
+        self.viewCreditBytes = try container.decode(Int.self, forKey: .viewCreditBytes)
+        self.viewCreditParts = try container.decode(Int.self, forKey: .viewCreditParts)
+        self.viewMaximumConsecutiveResnapshots = try container.decode(
+            Int.self, forKey: .viewMaximumConsecutiveResnapshots
+        )
+        self.viewMaximumDirtyKeys = try container.decode(Int.self, forKey: .viewMaximumDirtyKeys)
         self.workerSettlementDeadlineMilliseconds = try container.decode(
             Int.self,
             forKey: .workerSettlementDeadlineMilliseconds
@@ -112,6 +148,15 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
             name: "telemetryPreReadyBufferMaxSamples",
             codingPath: decoder.codingPath
         )
+        for (name, value) in [
+            ("viewAcknowledgementDeadlineMilliseconds", viewAcknowledgementDeadlineMilliseconds),
+            ("viewCreditBytes", viewCreditBytes),
+            ("viewCreditParts", viewCreditParts),
+            ("viewMaximumConsecutiveResnapshots", viewMaximumConsecutiveResnapshots),
+            ("viewMaximumDirtyKeys", viewMaximumDirtyKeys),
+        ] {
+            try BridgeProductContractDecoding.validatePositive(value, name: name, codingPath: decoder.codingPath)
+        }
 
         try validate(
             maximumContentBytes,

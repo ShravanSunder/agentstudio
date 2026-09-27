@@ -257,6 +257,15 @@ struct BridgeProductSchemeAdapter: Sendable {
                 continuation: continuation
             )
             return
+        case .viewAcknowledgement(let acknowledgement):
+            try await routeViewAcknowledgement(
+                acknowledgement,
+                exactRequestBytes: request.exactBodyBytes,
+                responseURL: request.url,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
         case .operationObservation(let observation):
             try await routeOperationObservation(
                 observation,
@@ -386,6 +395,35 @@ struct BridgeProductSchemeAdapter: Sendable {
     ) async throws {
         guard
             let responseBytes = await session.acknowledgeOperationResult(
+                acknowledgement,
+                exactRequestBytes: exactRequestBytes,
+                productAdmission: productAdmission
+            )
+        else {
+            try await sendRejectedBody(
+                url: responseURL,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        }
+        try await sendOperationResponse(
+            responseBytes,
+            responseURL: responseURL,
+            productAdmission: productAdmission,
+            continuation: continuation
+        )
+    }
+
+    private func routeViewAcknowledgement(
+        _ acknowledgement: BridgeProductViewAcknowledgementRequest,
+        exactRequestBytes: Data,
+        responseURL: URL,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
+        guard
+            let responseBytes = await session.acknowledgeViewReceipt(
                 acknowledgement,
                 exactRequestBytes: exactRequestBytes,
                 productAdmission: productAdmission
@@ -790,6 +828,9 @@ struct BridgeProductSchemeAdapter: Sendable {
         }
     }
 
+}
+
+extension BridgeProductSchemeAdapter {
     static func response(
         statusCode: Int,
         url: URL,
@@ -820,7 +861,7 @@ struct BridgeProductSchemeAdapter: Sendable {
             )
     }
 
-    private static func statusCode(
+    fileprivate static func statusCode(
         for rejection: BridgeProductSessionControlRejection
     ) -> Int {
         switch rejection {

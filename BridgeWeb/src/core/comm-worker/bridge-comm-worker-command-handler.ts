@@ -24,7 +24,7 @@ import {
 	isBridgeWorkerReviewContentMetadata,
 	publishBridgeCommWorkerFileMetadataDemand,
 } from './bridge-comm-worker-demand-command-handlers.js';
-import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
+import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-view-runtime-mutation.js';
 import {
 	applyFileViewRuntimeMutationTrackingSelectedRequest,
 	didSelectedFileViewContentRequestChange,

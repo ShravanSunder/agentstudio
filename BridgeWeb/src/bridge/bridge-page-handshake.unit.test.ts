@@ -681,6 +681,7 @@ function makeProductBootstrapDetail(
 			kind: 'productSession.bootstrap',
 			paneSessionId: 'pane-session-1',
 			policy: {
+				...validProductSessionCorpus.bootstrap.policy,
 				admissionRetryCount: validProductSessionCorpus.bootstrap.policy.admissionRetryCount,
 				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,

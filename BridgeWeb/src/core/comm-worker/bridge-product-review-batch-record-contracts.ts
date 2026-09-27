@@ -50,7 +50,7 @@ const reviewRoleExtentsSchema = z
 	.strict();
 
 const reviewBatchItemSchema = bridgeProductReviewItemMetadataSchema
-	.omit({ contentDescriptorIdsByRole: true, contentHashesByRole: true, contentRoles: true })
+	.omit({ contentDescriptorIdsByRole: true, contentRoles: true })
 	.safeExtend({
 		contentByRole: reviewRoleValuesSchema,
 		extentByRole: reviewRoleExtentsSchema,

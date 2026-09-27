@@ -886,6 +886,9 @@ function requireSubscriptionFrame(
 		case 'metadataStream.error':
 		case 'pane.presentation':
 		case 'pane.surfaceSelectionRequested':
+		case 'subscription.batchBegin':
+		case 'subscription.batchPart':
+		case 'subscription.batchComplete':
 			throw new Error(`Expected a subscription frame, received ${frame.kind}.`);
 	}
 	throw new Error('Unsupported Bridge product metadata frame.');

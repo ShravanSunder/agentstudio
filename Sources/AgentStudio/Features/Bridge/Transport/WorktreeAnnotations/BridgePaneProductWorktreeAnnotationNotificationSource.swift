@@ -1,6 +1,21 @@
 import AgentStudioInfrastructure
 import Foundation
 
+private enum BridgePaneCommentBatchNotification: Sendable {
+    case invalidation(Set<WorktreeAnnotationCatalogRange>)
+    case resnapshot
+    case unavailable
+
+    func merging(displaced: Self) -> Self {
+        switch (self, displaced) {
+        case (.unavailable, _), (_, .unavailable): .unavailable
+        case (.resnapshot, _), (_, .resnapshot): .resnapshot
+        case (.invalidation(let newest), .invalidation(let older)):
+            .invalidation(newest.union(older))
+        }
+    }
+}
+
 struct BridgePaneAnnotationNotificationDelivery: Sendable {
     typealias Enqueue =
         @Sendable (BridgeProductWorktreeAnnotationEvent, String) async throws ->
@@ -26,6 +41,8 @@ actor BridgePaneAnnotationNotificationSource {
     private let service: WorktreeAnnotationServiceActor?
     private let worktreeID: String
     private let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
+    private var batchNotificationByHandle: [String: AsyncStream<BridgePaneCommentBatchNotification>.Continuation] = [:]
+    private var pendingResnapshotHandles: Set<String> = []
 
     static let unavailable = BridgePaneAnnotationNotificationSource(
         service: nil,
@@ -41,6 +58,101 @@ actor BridgePaneAnnotationNotificationSource {
         self.service = service
         self.worktreeID = worktreeID
         self.lifecycleTraceRecorder = lifecycleTraceRecorder
+    }
+
+    func admittedWorktreeID() -> String? {
+        service == nil ? nil : worktreeID
+    }
+
+    func requestBatchResnapshot(handle: String) {
+        guard let continuation = batchNotificationByHandle[handle] else {
+            pendingResnapshotHandles.insert(handle)
+            return
+        }
+        enqueueBatchNotification(.resnapshot, into: continuation)
+    }
+
+    /// N10 observes invalidations before its first current-row capture. Each
+    /// complete range read installs through one publisher before the next read.
+    func openBatch(
+        handle: String,
+        deliver: @Sendable (BridgeProductCommentCatalogBatch, BridgeProductBatchMode) async throws -> Void
+    ) async throws {
+        guard let service else { throw WorktreeAnnotationServiceError.unavailable }
+        let capturedWorktreeID = worktreeID
+        let observer = await service.registerCatalogInvalidationObserver(worktreeID: capturedWorktreeID)
+        let (notifications, notificationContinuation) = AsyncStream.makeStream(
+            of: BridgePaneCommentBatchNotification.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        batchNotificationByHandle[handle] = notificationContinuation
+        if pendingResnapshotHandles.remove(handle) != nil {
+            enqueueBatchNotification(.resnapshot, into: notificationContinuation)
+        }
+        let forwarder = Task {
+            for await invalidation in observer.stream {
+                guard invalidation.worktreeID == capturedWorktreeID else {
+                    enqueueBatchNotification(.unavailable, into: notificationContinuation)
+                    break
+                }
+                enqueueBatchNotification(.invalidation(invalidation.ranges), into: notificationContinuation)
+            }
+        }
+        let publisher = BridgeProductCommentCatalogPublisher(
+            handle: handle,
+            readCurrent: { range in
+                try await service.captureCurrentCatalogRange(
+                    worktreeID: capturedWorktreeID,
+                    range: range
+                )
+            }
+        )
+        do {
+            if let snapshot = try await publisher.captureSnapshot() {
+                try await deliver(snapshot, .snapshot)
+            }
+            for await notification in notifications {
+                try Task.checkCancellation()
+                switch notification {
+                case .resnapshot:
+                    guard let snapshot = try await publisher.captureSnapshot() else {
+                        throw WorktreeAnnotationServiceError.staleSourceEpoch
+                    }
+                    try await deliver(snapshot, .snapshot)
+                case .invalidation(let ranges):
+                    for range in ranges { await publisher.invalidate(range) }
+                    while await publisher.pendingDirtyRangeCount() > 0 {
+                        guard let batch = try await publisher.captureDirty() else {
+                            throw WorktreeAnnotationServiceError.staleSourceEpoch
+                        }
+                        try await deliver(batch, .change)
+                    }
+                case .unavailable:
+                    throw WorktreeAnnotationServiceError.unavailable
+                }
+            }
+            batchNotificationByHandle.removeValue(forKey: handle)
+            notificationContinuation.finish()
+            await service.removeCatalogInvalidationObserver(token: observer.token)
+            forwarder.cancel()
+            await forwarder.value
+        } catch {
+            batchNotificationByHandle.removeValue(forKey: handle)
+            notificationContinuation.finish()
+            await service.removeCatalogInvalidationObserver(token: observer.token)
+            forwarder.cancel()
+            await forwarder.value
+            throw error
+        }
+    }
+
+    private func enqueueBatchNotification(
+        _ notification: BridgePaneCommentBatchNotification,
+        into continuation: AsyncStream<BridgePaneCommentBatchNotification>.Continuation
+    ) {
+        if case .dropped(let displaced) = continuation.yield(notification) {
+            _ = continuation.yield(notification.merging(displaced: displaced))
+        }
     }
 
     func open(

@@ -172,6 +172,7 @@ enum BridgeProductCommandPackage: Decodable, Sendable {
     case operationResultAcknowledgement(BridgeProductOperationResultAcknowledgement)
     case operationObservation(BridgeProductOperationObservationRequest)
     case lateOutcomeAcknowledgement(BridgeProductOperationLateOutcomeAcknowledgement)
+    case viewAcknowledgement(BridgeProductViewAcknowledgementRequest)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -192,6 +193,10 @@ enum BridgeProductCommandPackage: Decodable, Sendable {
         case "operation.lateOutcomeAcknowledgement":
             self = .lateOutcomeAcknowledgement(
                 try BridgeProductOperationLateOutcomeAcknowledgement(from: decoder)
+            )
+        case "subscription.acknowledge":
+            self = .viewAcknowledgement(
+                try BridgeProductViewAcknowledgementRequest(from: decoder)
             )
         case "stream.frameObserved":
             switch try container.decode(String.self, forKey: .streamKind) {

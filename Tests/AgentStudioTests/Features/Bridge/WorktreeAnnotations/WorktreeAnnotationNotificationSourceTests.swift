@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -5,6 +6,143 @@ import Testing
 
 @Suite("Worktree annotation notification source")
 struct WorktreeAnnotationNotificationSourceTests {
+    @Test("two committed edits while a Comment batch is held converge through one current range")
+    func heldCommentEmissionCoalescesCurrentRange() async throws {
+        let sourceHarness = try makeNotificationSourceHarness()
+        let nativeHarness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await nativeHarness.admitMetadataFrames(through: 0)
+        var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        open["subscription"] = ["subscriptionKind": "file.annotations"]
+        open["subscriptionId"] = "comment-subscription-coalesced"
+        try await nativeHarness.openSubscription(open)
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: nativeHarness.session,
+                productAdmission: nativeHarness.productAdmission.context
+            )
+        )
+        let view = try #require(
+            try await nativeHarness.session.openNativeCommentView(
+                subscriptionId: "comment-subscription-coalesced",
+                worktreeID: "worktree-1",
+                productAdmission: nativeHarness.productAdmission.context
+            )
+        )
+        let session = nativeHarness.session
+        let productAdmission = nativeHarness.productAdmission.context
+        let initialSealed = HeldStep<Void>("initialCommentBatchSealed")
+        let (batches, continuation) = AsyncStream.makeStream(
+            of: BridgeProductCommentCatalogBatch.self,
+            bufferingPolicy: .bufferingOldest(2)
+        )
+        let openTask = Task {
+            defer { continuation.finish() }
+            try await sourceHarness.source.openBatch(handle: view.handle) { batch, mode in
+                guard
+                    try await session.sealCommentCatalogBatch(
+                        subscriptionId: "comment-subscription-coalesced",
+                        catalogBatch: batch,
+                        mode: mode,
+                        productAdmission: productAdmission
+                    )
+                else { throw WorktreeAnnotationServiceError.staleSourceEpoch }
+                continuation.yield(batch)
+                if batch.baseRevision == 0 { try await initialSealed.arrive(()) }
+                guard
+                    await session.awaitViewEmissionCompletion(
+                        for: view.viewDomain,
+                        handle: view.handle
+                    ) == .completed
+                else { throw WorktreeAnnotationServiceError.staleSourceEpoch }
+            }
+        }
+        var iterator = batches.makeAsyncIterator()
+        #expect(try #require(await iterator.next()).baseRevision == 0)
+        _ = try await initialSealed.firstArrival()
+
+        let draft = try await sourceHarness.service.createRootDraft(makeCreateRootDraftProps())
+        let message = try #require(draft.threads.first?.messages.first)
+        _ = try await sourceHarness.service.saveDraft(
+            .init(
+                sessionID: draft.session.id,
+                messageID: message.id,
+                editToken: "editor-1",
+                expectedMessageRevision: message.semanticRevision,
+                expectedDraftRevision: try #require(message.draft?.draftRevision),
+                now: Date(timeIntervalSince1970: 3)
+            )
+        )
+        initialSealed.release()
+        for _ in 0..<2 {
+            _ = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease,
+                    from: session,
+                    productAdmission: productAdmission
+                )
+            )
+        }
+
+        let current = try #require(await iterator.next())
+        #expect(current.baseRevision == 1)
+        #expect(current.targetRevision == 2)
+        #expect(current.puts.count == 3)
+        #expect(current.deletes.isEmpty)
+        openTask.cancel()
+        _ = try? await openTask.value
+        continuation.finish()
+        try await nativeHarness.closeProducer(lease)
+        #expect(await sourceHarness.service.catalogInvalidationObserverCount() == 0)
+        #expect(await session.viewEmissionWaiterByDomain.isEmpty)
+    }
+
+    @Test("batch source observes committed ranges after its initial current-row snapshot")
+    func batchSourceObservesCommittedRanges() async throws {
+        let harness = try makeNotificationSourceHarness()
+        let (batches, continuation) = AsyncStream.makeStream(
+            of: RecordedCommentBatchDelivery.self,
+            bufferingPolicy: .bufferingOldest(2)
+        )
+        let openTask = Task {
+            defer { continuation.finish() }
+            try await harness.source.openBatch(handle: "comment-view-1") { batch, mode in
+                continuation.yield(.init(batch: batch, mode: mode))
+            }
+        }
+        var iterator = batches.makeAsyncIterator()
+        guard let initial = await iterator.next() else {
+            try await openTask.value
+            Issue.record("The initial comment batch did not arrive")
+            return
+        }
+        #expect(initial.mode == .snapshot)
+        #expect(initial.batch.baseRevision == 0)
+        #expect(initial.batch.targetRevision == 1)
+        #expect(initial.batch.puts.isEmpty)
+        #expect(initial.batch.deletes.isEmpty)
+
+        _ = try await harness.service.createRootDraft(makeCreateRootDraftProps())
+        let committed = try #require(await iterator.next())
+        #expect(committed.mode == .change)
+        #expect(committed.batch.baseRevision == 1)
+        #expect(committed.batch.targetRevision == 2)
+        #expect(committed.batch.puts.count == 3)
+        #expect(committed.batch.deletes.isEmpty)
+
+        await harness.source.requestBatchResnapshot(handle: "comment-view-1")
+        let replacement = try #require(await iterator.next())
+        #expect(replacement.mode == .snapshot)
+        #expect(replacement.batch.baseRevision == 2)
+        #expect(replacement.batch.targetRevision == 3)
+        #expect(replacement.batch.puts.count == 3)
+
+        openTask.cancel()
+        _ = try? await openTask.value
+        continuation.finish()
+        #expect(await harness.service.catalogInvalidationObserverCount() == 0)
+    }
+
     @Test("bootstrap emits an empty catalog and awaits observation of every phase")
     func bootstrapEmitsEmptyCatalogAndAwaitsEveryPhaseObservation() async throws {
         let harness = try makeNotificationSourceHarness(automaticallyObserve: false)
@@ -475,6 +613,11 @@ private actor NotificationDeliveryRecorder {
         observedSequences.append(sequence)
         observationWaiterBySequence.removeValue(forKey: sequence)?.resume(returning: true)
     }
+}
+
+private struct RecordedCommentBatchDelivery: Sendable {
+    let batch: BridgeProductCommentCatalogBatch
+    let mode: BridgeProductBatchMode
 }
 
 private func waitUntilNotificationState(

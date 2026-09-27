@@ -8,6 +8,7 @@ struct BridgeProductCommentCatalogBatch: Equatable, Sendable {
     }
 
     let handle: String
+    let baseRevision: Int
     let targetRevision: Int
     let puts: [BridgeProductCommentCatalogRecord]
     let deletes: [Delete]
@@ -120,7 +121,8 @@ actor BridgeProductCommentCatalogPublisher {
         guard nextWireRevision < BridgeProductWireContract.maximumSafeInteger else {
             throw WorktreeAnnotationServiceError.unavailable
         }
-        let revision = nextWireRevision + 1
+        let baseRevision = nextWireRevision
+        let revision = baseRevision + 1
         let membership = try sessionMembership(for: rows)
         if case .session(let sessionID) = range,
             membership.values.contains(where: { $0 != sessionID })
@@ -154,7 +156,13 @@ actor BridgeProductCommentCatalogPublisher {
             installedSessionByKey[key] = membership[key]
         }
         nextWireRevision = revision
-        return .init(handle: handle, targetRevision: revision, puts: puts, deletes: deletes)
+        return .init(
+            handle: handle,
+            baseRevision: baseRevision,
+            targetRevision: revision,
+            puts: puts,
+            deletes: deletes
+        )
     }
 
     private func sessionMembership(

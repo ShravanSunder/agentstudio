@@ -823,7 +823,8 @@ private actor BridgeProductCompletionEffectsRecordingProvider: BridgeProductSche
                 )
             case .subscriptionCancel:
                 return try .subscriptionCancelAccepted(correlating: request)
-            case .productCall, .subscriptionUpdateBatch, .workerSessionResync:
+            case .productCall, .subscriptionUpdateBatch, .viewScope, .viewResnapshot,
+                .workerSessionResync:
                 preconditionFailure("Unexpected completion-effects control request")
             }
         } catch {

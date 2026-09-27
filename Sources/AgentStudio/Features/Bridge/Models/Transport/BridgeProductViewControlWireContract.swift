@@ -11,6 +11,18 @@ enum BridgeProductViewScopeContract {
             )
         }
         try BridgeProductContractDecoding.validateNonemptyString(kind, codingPath: codingPath)
+        if kind == "comment" {
+            guard Set(members.keys) == ["kind", "worktreeId"],
+                case .string(let worktreeID)? = members["worktreeId"]
+            else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Comment scope requires a worktree id",
+                    codingPath: codingPath
+                )
+            }
+            try BridgeProductContractDecoding.validateIdentifier(worktreeID, codingPath: codingPath)
+            return
+        }
         guard kind == "file" else { return }
         guard let changeFilter = members["changeFilter"],
             case .object(let filterMembers) = changeFilter,

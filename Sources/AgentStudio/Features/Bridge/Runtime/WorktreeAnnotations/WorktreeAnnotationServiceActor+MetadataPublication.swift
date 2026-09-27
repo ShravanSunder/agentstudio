@@ -242,6 +242,21 @@ extension WorktreeAnnotationServiceActor {
         )
     }
 
+    /// N10 reads one coherent current range. A concurrent newer commit remains
+    /// dirty; it does not invalidate this successful read or turn it into absence.
+    func captureCurrentCatalogRange(
+        worktreeID: String,
+        range: WorktreeAnnotationCatalogRange
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] {
+        try requireAvailableForReads()
+        let entries = try await repositoryAccess.fetchCatalogRange(
+            worktreeID: worktreeID,
+            range: range
+        )
+        try requireAvailableForReads()
+        return entries
+    }
+
     func applyCommittedChange(
         _ committedChange: WorktreeAnnotationCommittedChange,
         operationCorrelationID: String

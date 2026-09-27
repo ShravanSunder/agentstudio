@@ -1,4 +1,4 @@
-import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-metadata-projection.js';
+import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-view-runtime-mutation.js';
 import type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
 import type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
 import type { BridgeWorkerRenderDispositionApplication } from './bridge-comm-worker-render-disposition-application.js';

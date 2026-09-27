@@ -151,6 +151,21 @@
             "kinds": ["modified", "deleted"]
           }
         }
+      },
+      {
+        "kind": "subscription.setScope",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "comment-scope-worktree-1",
+        "requestSequence": 23,
+        "subscriptionId": "comment-subscription-1",
+        "subscriptionKind": "file.annotations",
+        "domain": "default",
+        "handle": "comment-handle-1",
+        "incarnation": "comment-incarnation-1",
+        "scopeRevision": 1,
+        "scope": { "kind": "comment", "worktreeId": "worktree-1" }
       }
     ],
     "viewResnapshotRequests": [
@@ -425,6 +440,11 @@
       "maximumMetadataFrameBytes": 131072,
       "maximumQueuedStreamBytes": 4194304,
       "admissionRetryCount": 2,
+      "viewAcknowledgementDeadlineMilliseconds": 4000,
+      "viewCreditBytes": 524288,
+      "viewCreditParts": 8,
+      "viewMaximumConsecutiveResnapshots": 3,
+      "viewMaximumDirtyKeys": 4096,
       "workerSettlementDeadlineMilliseconds": 5000,
       "telemetryPreReadyBufferMaxBytes": 65536,
       "telemetryPreReadyBufferMaxSamples": 128,

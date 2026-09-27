@@ -37,7 +37,7 @@ actor BridgePaneProductMetadataCoordinator {
     let fileMetadataSource: any BridgePaneProductFileMetadataProducing
     let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     let nativeApplicationRegistry: BridgePaneProductMetadataNativeApplicationRegistry
-    private let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
+    let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     let isReviewPublicationCurrent: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     let reviewPublicationReplay:
         @MainActor @Sendable (BridgeProductAdmissionContext) -> BridgeReviewCommittedPublication?
@@ -284,6 +284,20 @@ actor BridgePaneProductMetadataCoordinator {
                 }
                 await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
                 removeSubscriptionLifecycleState(subscriptionId: subscriptionId)
+            }
+        case .viewScopeAccepted(let request):
+            if request.subscriptionKind == .fileMetadata {
+                _ = try? await publishFileViewSnapshot(
+                    subscriptionId: request.subscriptionId,
+                    productAdmission: productAdmission
+                )
+            }
+        case .viewResnapshotAccepted(let request):
+            if request.subscriptionKind == .fileMetadata {
+                _ = try? await publishFileViewSnapshot(
+                    subscriptionId: request.subscriptionId,
+                    productAdmission: productAdmission
+                )
             }
         case .noEffect, .productCall:
             break
@@ -767,6 +781,12 @@ extension BridgePaneProductMetadataCoordinator {
                     return .stale
                 }
             }
+            for subscriptionId in Set(emissions.map(\.subscriptionId)).sorted() {
+                _ = try await publishFileViewSnapshot(
+                    subscriptionId: subscriptionId,
+                    productAdmission: productAdmission
+                )
+            }
             return .applied
         } catch {
             return foregroundWorkAdmission.withValidAdmission({ true }) == nil
@@ -816,6 +836,12 @@ extension BridgePaneProductMetadataCoordinator {
                 guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
                     return .stale
                 }
+            }
+            for subscriptionId in Set(emissions.map(\.subscriptionId)).sorted() {
+                _ = try await publishFileViewSnapshot(
+                    subscriptionId: subscriptionId,
+                    productAdmission: productAdmission
+                )
             }
             return .applied
         } catch {

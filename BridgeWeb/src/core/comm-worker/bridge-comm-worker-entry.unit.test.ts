@@ -15,6 +15,7 @@ import {
 	createEntryProductRequestRecorder,
 	makeCompletedReviewContentStream,
 	makeFetchedReviewContentResource,
+	makeReviewContentDescriptor,
 	makeReviewPublicationIdentity,
 	makeRenderSemantics,
 } from './bridge-comm-worker-entry.test-support.js';
@@ -30,7 +31,6 @@ import {
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
-import type { BridgeProductReviewContentDescriptor } from './bridge-product-content-contracts.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
@@ -890,6 +890,11 @@ function makePaneWorkerInstall(
 				telemetryPreReadyBufferMaxBytes: 64 * 1024,
 				telemetryPreReadyBufferMaxSamples,
 				workerSettlementDeadlineMilliseconds: 5_000,
+				viewAcknowledgementDeadlineMilliseconds: 4_000,
+				viewCreditBytes: 524_288,
+				viewCreditParts: 8,
+				viewMaximumConsecutiveResnapshots: 3,
+				viewMaximumDirtyKeys: 4_096,
 				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
 				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
 			},
@@ -963,37 +968,5 @@ function makeReviewContentRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {
 		],
 		reviewPublicationIdentity: makeReviewPublicationIdentity(),
 		rows: [{ id: 'item-1', parentId: null, index: 0 }],
-	};
-}
-
-function makeReviewContentDescriptor(props: {
-	readonly role: BridgeProductReviewContentDescriptor['role'];
-	readonly text: string;
-}): BridgeProductReviewContentDescriptor {
-	const byteLength = new TextEncoder().encode(props.text).byteLength;
-	return {
-		contentDigest: {
-			algorithm: 'fixture-preview',
-			authority: 'provisional',
-			value: `item-1:${props.role}:generation-4`,
-		},
-		contentKind: 'review.content',
-		declaredByteLength: byteLength,
-		descriptorId: `descriptor-item-1-${props.role}`,
-		encoding: 'utf-8',
-		endpointId: `endpoint-${props.role}`,
-		expectedSha256: null,
-		handleId: `handle-item-1-${props.role}`,
-		isBinary: false,
-		itemId: 'item-1',
-		language: 'swift',
-		maximumBytes: byteLength,
-		mimeType: 'text/plain',
-		packageId: 'package-1',
-		reviewGeneration: 4,
-		role: props.role,
-		sourceIdentity: 'source-1',
-		wholeByteLength: byteLength,
-		window: { kind: 'byteRange', maximumBytes: byteLength, startByte: 0 },
 	};
 }

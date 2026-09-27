@@ -144,6 +144,26 @@ struct BridgeProductTransportV2ContractTests {
             let rowObject = try #require(entry["row"] as? [String: Any])
             let rows = try decodeAndVerifyRoundTrips(BridgeProductFileBatchRow.self, from: [rowObject])
             let row = try #require(rows.first)
+            if row.kind != .deleted {
+                let sourceRow = BridgeWorktreeTreeRowMetadata(
+                    rowId: row.rowId,
+                    path: row.displayKey,
+                    name: row.name,
+                    parentPath: row.parentDisplayKey,
+                    depth: row.depth,
+                    isDirectory: row.kind == .directory,
+                    fileId: row.fileId,
+                    fileClass: row.fileClass,
+                    sizeBytes: row.sizeBytes,
+                    lineCount: row.lineCount,
+                    changeStatus: row.changeStatus?.rawValue
+                )
+                #expect(
+                    try BridgeProductFileBatchRow(
+                        sourceRow: sourceRow,
+                        descriptorOutcome: row.descriptorOutcome
+                    ) == row)
+            }
             #expect(!row.rowId.isEmpty)
             #expect(!row.name.isEmpty)
             if row.kind == .file {
@@ -202,7 +222,7 @@ struct BridgeProductTransportV2ContractTests {
         )
         let transport = try #require(corpus["transportV2"] as? [String: Any])
         let requests = try fixtureArray(named: "viewScopeRequests", in: transport)
-        var request = try #require(requests.last)
+        var request = try #require(requests.first(where: { $0["requestId"] as? String == "file-scope-all-changes" }))
         var scope = try #require(request["scope"] as? [String: Any])
         var filter = try #require(scope["changeFilter"] as? [String: Any])
         filter["baseline"] = ["kind": "commit", "oid": "abc"]
@@ -214,6 +234,21 @@ struct BridgeProductTransportV2ContractTests {
         filter["kinds"] = ["added", "added"]
         scope["changeFilter"] = filter
         request["scope"] = scope
+        #expect(decodingFails(BridgeProductViewScopeRequest.self, object: request))
+    }
+
+    @Test("comment view scope requires the admitted worktree id")
+    func commentViewScopeRequiresWorktreeID() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        let transport = try #require(corpus["transportV2"] as? [String: Any])
+        let requests = try fixtureArray(named: "viewScopeRequests", in: transport)
+        var request = try #require(requests.first)
+        request["subscriptionKind"] = "file.annotations"
+        request["scope"] = ["kind": "comment", "worktreeId": "worktree-1"]
+        #expect(!decodingFails(BridgeProductViewScopeRequest.self, object: request))
+        request["scope"] = ["kind": "comment"]
         #expect(decodingFails(BridgeProductViewScopeRequest.self, object: request))
     }
 

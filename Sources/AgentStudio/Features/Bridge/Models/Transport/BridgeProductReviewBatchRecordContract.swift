@@ -113,7 +113,7 @@ struct BridgeProductReviewBatchExtentByRole: Codable, Equatable, Sendable {
 
 struct BridgeProductReviewBatchItemRecord: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case additions, basePath, changeKind, contentByRole, deletions, extentByRole
+        case additions, basePath, changeKind, contentByRole, contentHashesByRole, deletions, extentByRole
         case fileExtension = "extension"
         case fileClass, headPath, isHiddenByDefault, itemId, lane, language, loadedBy
         case mimeTypes, parentPath, provenance, recordKind, reviewPriority, reviewState, sortKey
@@ -123,6 +123,7 @@ struct BridgeProductReviewBatchItemRecord: Codable, Equatable, Sendable {
     let basePath: String?
     let changeKind: BridgeFileChangeKind
     let contentByRole: BridgeProductReviewBatchContentByRole
+    let contentHashesByRole: BridgeProductReviewContentHashesByRole
     let deletions: Int
     let extentByRole: BridgeProductReviewBatchExtentByRole
     let fileExtension: String?
@@ -151,6 +152,8 @@ struct BridgeProductReviewBatchItemRecord: Codable, Equatable, Sendable {
             String.self, forKey: .basePath, from: container, codingPath: decoder.codingPath)
         changeKind = try container.decode(BridgeFileChangeKind.self, forKey: .changeKind)
         contentByRole = try container.decode(BridgeProductReviewBatchContentByRole.self, forKey: .contentByRole)
+        contentHashesByRole = try container.decode(
+            BridgeProductReviewContentHashesByRole.self, forKey: .contentHashesByRole)
         deletions = try container.decode(Int.self, forKey: .deletions)
         extentByRole = try container.decode(BridgeProductReviewBatchExtentByRole.self, forKey: .extentByRole)
         fileExtension = try BridgeProductContractDecoding.decodeRequiredNullable(
@@ -200,6 +203,7 @@ struct BridgeProductReviewBatchItemRecord: Codable, Equatable, Sendable {
         try container.encode(basePath, forKey: .basePath)
         try container.encode(changeKind, forKey: .changeKind)
         try container.encode(contentByRole, forKey: .contentByRole)
+        try container.encode(contentHashesByRole, forKey: .contentHashesByRole)
         try container.encode(deletions, forKey: .deletions)
         try container.encode(extentByRole, forKey: .extentByRole)
         try container.encode(fileExtension, forKey: .fileExtension)

@@ -18,6 +18,7 @@ struct BridgeProductSealedViewBatch: Sendable {
     let baseRevision: Int
     let targetRevision: Int
     let mode: BridgeProductBatchMode
+    let publicationId: UUID?
     let scope: BridgeProductJSONValue
     let coveredScope: BridgeProductJSONValue
     let requiresCollection: Int?
@@ -33,6 +34,7 @@ struct BridgeProductSealedViewBatch: Sendable {
         baseRevision: Int,
         targetRevision: Int,
         mode: BridgeProductBatchMode,
+        publicationId: UUID? = nil,
         scope: BridgeProductJSONValue,
         coveredScope: BridgeProductJSONValue,
         requiresCollection: Int?,
@@ -85,6 +87,7 @@ struct BridgeProductSealedViewBatch: Sendable {
         self.baseRevision = baseRevision
         self.targetRevision = targetRevision
         self.mode = mode
+        self.publicationId = publicationId
         self.scope = scope
         self.coveredScope = coveredScope
         self.requiresCollection = requiresCollection
@@ -120,6 +123,7 @@ struct BridgeProductSealedViewBatch: Sendable {
                         baseRevision: baseRevision,
                         mode: mode,
                         partCount: parts.count,
+                        publicationId: publicationId,
                         requiresCollection: requiresCollection,
                         scope: scope,
                         targetRevision: targetRevision

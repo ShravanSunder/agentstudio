@@ -15,6 +15,7 @@ import {
 } from './bridge-product-command-post.js';
 import { BridgeProductControlAdmissionQueue } from './bridge-product-control-admission-queue.js';
 import { BridgeProductControlRequestError } from './bridge-product-control-request-error.js';
+import { assertBridgeProductResponseCorrelation } from './bridge-product-control-response-correlation.js';
 import {
 	defaultBridgeProductDeadlineClock,
 	type BridgeProductDeadlineClock,
@@ -44,6 +45,12 @@ import {
 	type BridgeProductSessionBootstrap,
 } from './bridge-product-session-contracts.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
+import {
+	viewResnapshotAdmission,
+	viewScopeAdmission,
+	type ViewResnapshotAdmissionProps,
+	type ViewScopeAdmissionProps,
+} from './bridge-product-view-control-admission.js';
 
 export interface BridgeProductSessionAuthorityInstallInput {
 	readonly bootstrap: BridgeProductSessionBootstrap;
@@ -96,7 +103,6 @@ interface BridgeProductControlAdmissionIdentity {
 	readonly wireVersion: BridgeProductSessionBootstrap['wireVersion'];
 	readonly workerInstanceId: string;
 }
-
 interface BridgeProductControlAdmissionProps<TResult> {
 	readonly acceptResponse: (
 		response: BridgeProductControlResponse,
@@ -294,6 +300,18 @@ export class BridgeProductControlMux {
 			},
 			...(props.signal === undefined ? {} : { signal: props.signal }),
 		});
+	}
+
+	setViewScope(
+		props: ViewScopeAdmissionProps,
+	): Promise<BridgeProductControlResponseForKind<'subscription.scopeAccepted'>> {
+		return this.#admit(viewScopeAdmission(props));
+	}
+
+	resnapshotView(
+		props: ViewResnapshotAdmissionProps,
+	): Promise<BridgeProductControlResponseForKind<'subscription.resnapshotAccepted'>> {
+		return this.#admit(viewResnapshotAdmission(props));
 	}
 
 	cancelSubscription<TSubscriptionKind extends string>(props: {
@@ -978,21 +996,4 @@ async function postBridgeProductResultAcknowledgement(props: {
 			}
 		},
 	});
-}
-
-function assertBridgeProductResponseCorrelation(props: {
-	readonly request: ReturnType<typeof bridgeProductControlRequestSchema.parse>;
-	readonly response:
-		| ReturnType<typeof bridgeProductControlResponseSchema.parse>
-		| ReturnType<typeof bridgeProductAdmissionResponseSchema.parse>;
-}): void {
-	if (
-		props.response.wireVersion !== props.request.wireVersion ||
-		props.response.paneSessionId !== props.request.paneSessionId ||
-		props.response.workerInstanceId !== props.request.workerInstanceId ||
-		props.response.requestId !== props.request.requestId ||
-		props.response.requestSequence !== props.request.requestSequence
-	) {
-		throw new Error('Bridge product response does not match its issued request.');
-	}
 }

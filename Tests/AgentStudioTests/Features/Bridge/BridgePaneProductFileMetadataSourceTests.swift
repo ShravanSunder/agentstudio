@@ -212,7 +212,7 @@ struct BridgePaneProductFileMetadataSourceTests {
         #expect(!upsertedRows.contains { $0.path == initialFirstPath })
     }
 
-    @Test("changeset emits bounded tree delta invalidation and revokes stale content")
+    @Test("changeset invalidates the row while an issued descriptor rejects changed bytes")
     func changesetEmitsDeltaInvalidationAndRevokesStaleContent() async throws {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
@@ -266,12 +266,15 @@ struct BridgePaneProductFileMetadataSourceTests {
         // Assert
         #expect(emissions.contains { if case .treeDelta = $0.event { true } else { false } })
         #expect(emissions.contains { if case .invalidated = $0.event { true } else { false } })
-        #expect(
+        let retainedPlan = try #require(
             await source.contentReadPlan(
                 for: contentRequest,
                 productAdmission: fixture.productAdmission.context
-            ) == nil
+            )
         )
+        await #expect(throws: BridgePaneProductFileContentSourceError.self) {
+            _ = try await BridgePaneProductFileContentSource.openReadSession(retainedPlan)
+        }
     }
 
     @Test("same-subscription source replacement excludes stale lineage and content")

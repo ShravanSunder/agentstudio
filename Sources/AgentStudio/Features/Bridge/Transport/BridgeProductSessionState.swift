@@ -7,6 +7,11 @@ enum BridgeProductSessionLifecycle: Equatable, Sendable {
     case revoked
 }
 
+struct BridgeProductViewOperationKey: Hashable, Sendable {
+    let subscriptionId: String
+    let domain: String
+}
+
 struct BridgeProductSessionPendingControl: Sendable {
     let deferredResyncEpochs: [BridgeProductSurface: Int]
     let productAdmission: BridgeProductAdmissionContext
@@ -136,6 +141,8 @@ enum BridgeProductSessionCompletionEffect: Equatable, Sendable {
         subscription: BridgeProductSubscriptionSnapshot
     )
     case subscriptionCancelled(BridgeProductSubscriptionSnapshot)
+    case viewScopeAccepted(BridgeProductViewScopeRequest)
+    case viewResnapshotAccepted(BridgeProductViewResnapshotRequest)
     case resynced(BridgeProductSubscriptionResyncResult)
 }
 

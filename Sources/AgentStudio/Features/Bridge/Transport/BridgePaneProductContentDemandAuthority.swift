@@ -40,7 +40,7 @@ actor BridgePaneProductContentDemandAuthority {
             for resetIntent in result.resetIntents {
                 committedSubscriptionById.removeValue(forKey: resetIntent.subscriptionId)
             }
-        case .noEffect, .productCall:
+        case .noEffect, .productCall, .viewScopeAccepted, .viewResnapshotAccepted:
             break
         }
     }

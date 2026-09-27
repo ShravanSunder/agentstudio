@@ -560,6 +560,13 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
         try repository.fetchCatalogCapture(worktreeID: worktreeID)
     }
 
+    func fetchCatalogRange(
+        worktreeID: String,
+        range: WorktreeAnnotationCatalogRange
+    ) async throws -> [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] {
+        try repository.fetchCatalogRange(worktreeID: worktreeID, range: range)
+    }
+
     func fetchSessionDetail(sessionID: WorktreeAnnotationSessionID) async throws
         -> WorktreeAnnotationSessionDetail
     {

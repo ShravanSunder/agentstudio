@@ -179,6 +179,16 @@ package enum AppPolicies {
         /// The worker allows the native settlement deadline to fire first.
         package static let productWorkerSettlementDeadline: Duration = .seconds(5)
         package static let productAdmissionRetryCount: Int = 2
+        /// N3 bounds in-transit metadata parts independently of the producer queue.
+        package static let productViewCreditParts: Int = 8
+        package static let productViewCreditBytes: Int = 512 * 1024
+        package static let productViewMaximumDirtyKeys: Int = 4096
+        package static let productViewAcknowledgementDeadline: Duration = .seconds(4)
+        package static let productViewMaximumConsecutiveResnapshots: Int = 3
+        /// PR1 interim: metadata budget for issued File descriptors that are no
+        /// longer newest. PR2's installed-selection lease replaces this cache.
+        package static let fileRetainedDescriptorMaximumCount: Int = 128
+        package static let fileRetainedDescriptorMaximumEncodedBytes: Int = 256 * 1024
         package static let fileRefreshMaximumAutomaticRetryCount: Int = 1
         /// Observability-only custody for pairing Bridge lifecycle starts and
         /// terminals. This never controls product work or retry behavior.

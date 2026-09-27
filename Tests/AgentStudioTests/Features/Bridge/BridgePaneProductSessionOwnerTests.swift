@@ -809,6 +809,7 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
                     result: .reviewMarkFileViewed
                 )
             case .subscriptionOpen, .subscriptionUpdateBatch, .subscriptionCancel,
+                .viewScope, .viewResnapshot,
                 .workerSessionResync:
                 preconditionFailure("Unexpected pane-owner control request")
             }

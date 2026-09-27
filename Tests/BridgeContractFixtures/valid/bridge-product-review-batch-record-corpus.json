@@ -61,6 +61,10 @@
             }
           }
         },
+        "contentHashesByRole": {
+          "diff": "diff-unavailable-hash-1",
+          "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
         "extentByRole": {
           "base": null,
           "diff": null,

@@ -176,6 +176,12 @@ extension BridgePaneProductMetadataCoordinator {
                     productAdmission: productAdmission,
                     foregroundWorkAdmission: foregroundWorkAdmission
                 )
+                if subscription.subscriptionKind == .fileMetadata {
+                    _ = try await self.publishFileViewSnapshot(
+                        subscriptionId: subscription.subscriptionId,
+                        productAdmission: productAdmission
+                    )
+                }
             }
         )
     }
@@ -183,44 +189,36 @@ extension BridgePaneProductMetadataCoordinator {
     private func openWorktreeAnnotationSubscription(
         _ request: BridgeWorktreeAnnotationSubscriptionOpenRequest
     ) async throws {
-        try await annotationSource.open(
-            subscription: request.subscription,
-            surface: request.surface,
-            delivery: .init(
-                enqueue: { event, operationCorrelationID in
-                    guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                        throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                    }
-                    return try await Self.enqueueAnnotationEvent(
-                        .init(
-                            event: event,
-                            foregroundWorkAdmission: request.foregroundWorkAdmission,
-                            operationCorrelationID: operationCorrelationID,
-                            productAdmission: request.productAdmission,
-                            session: request.activeStream.session,
-                            subscriptionID: request.subscription.subscriptionId,
-                            subscriptionKind: request.subscription.subscriptionKind
-                        )
-                    )
-                },
-                makeProspectiveMetadataFrame: { event, operationCorrelationID in
-                    try Self.makeProspectiveMetadataFrame(
-                        event: event,
-                        operationCorrelationID: operationCorrelationID,
-                        stream: request.activeStream.correlation,
-                        subscription: request.subscription
-                    )
-                },
-                waitUntilObserved: { sequence in
-                    await request.activeStream.session.waitUntilProducerFrameSequenceObserved(
-                        for: request.activeStream.lease,
-                        sequence: sequence,
-                        productAdmission: request.productAdmission,
-                        foregroundWorkAdmission: request.foregroundWorkAdmission
-                    )
-                }
+        guard let worktreeID = await annotationSource.admittedWorktreeID(),
+            let view = try await request.activeStream.session.openNativeCommentView(
+                subscriptionId: request.subscription.subscriptionId,
+                worktreeID: worktreeID,
+                productAdmission: request.productAdmission
             )
-        )
+        else { throw WorktreeAnnotationServiceError.unavailable }
+        let session = request.activeStream.session
+        let subscriptionID = request.subscription.subscriptionId
+        let productAdmission = request.productAdmission
+        let foregroundWorkAdmission = request.foregroundWorkAdmission
+        try await annotationSource.openBatch(handle: view.handle) { catalogBatch, mode in
+            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+                throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
+            }
+            guard
+                try await session.sealCommentCatalogBatch(
+                    subscriptionId: subscriptionID,
+                    catalogBatch: catalogBatch,
+                    mode: mode,
+                    productAdmission: productAdmission
+                )
+            else { throw WorktreeAnnotationServiceError.staleSourceEpoch }
+            switch await session.awaitViewEmissionCompletion(for: view.viewDomain, handle: view.handle) {
+            case .completed, .resnapshotRequired:
+                return
+            case .retired:
+                throw WorktreeAnnotationServiceError.staleSourceEpoch
+            }
+        }
     }
 
     private func openFileMetadataSubscription(
@@ -267,6 +265,10 @@ extension BridgePaneProductMetadataCoordinator {
                 traceContext: traceContext
             )
         }
+        _ = try await publishFileViewSnapshot(
+            subscriptionId: subscription.subscriptionId,
+            productAdmission: productAdmission
+        )
     }
 
     private func enqueueFileMetadataEvent(

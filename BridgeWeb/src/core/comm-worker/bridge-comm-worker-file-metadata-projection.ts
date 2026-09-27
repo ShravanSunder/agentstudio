@@ -1,5 +1,9 @@
+import type {
+	BridgeCommWorkerFileViewContentRequest,
+	BridgeCommWorkerFileViewRuntimeMutation,
+	BridgeCommWorkerFileViewRuntimePathUpsert,
+} from './bridge-comm-worker-file-view-runtime-mutation.js';
 import type { BridgeCommWorkerRow } from './bridge-comm-worker-store.js';
-import type { BridgeProductFileContentDescriptor } from './bridge-product-content-contracts.js';
 import type { BridgeProductFileSourceIdentity } from './bridge-product-file-contracts.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
 import {
@@ -31,46 +35,12 @@ type FileReadyStatusDisplayPayload = Extract<FileStatusDisplayPayload, { readonl
 
 const bridgeCommWorkerFileDisplayOperationChunkSize = 256;
 
-export interface BridgeCommWorkerFileViewContentRequest {
-	readonly contentDescriptor: BridgeProductFileContentDescriptor;
-	readonly itemId: string;
-	readonly language: string | null;
-	readonly path: string;
-	readonly sizeBytes: number;
-}
-
 export interface BridgeCommWorkerFileMetadataSnapshot {
 	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
 	readonly contentRequests: readonly BridgeCommWorkerFileViewContentRequest[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly treeRows: readonly FileTreeRow[];
 }
-
-export interface BridgeCommWorkerFileViewRuntimePathUpsert {
-	readonly itemId: string;
-	readonly path: string;
-}
-
-export type BridgeCommWorkerFileViewRuntimeMutation =
-	| {
-			readonly contentRequestUpserts: readonly BridgeCommWorkerFileViewContentRequest[];
-			readonly contentUpserts: readonly BridgeWorkerFileViewContentMetadata[];
-			readonly filePathUpserts: readonly BridgeCommWorkerFileViewRuntimePathUpsert[];
-			readonly kind: 'reset';
-			readonly rowUpserts: readonly BridgeCommWorkerRow[];
-	  }
-	| {
-			readonly contentRemovals: readonly string[];
-			readonly contentRequestRemovals: readonly string[];
-			readonly contentRequestUpserts: readonly BridgeCommWorkerFileViewContentRequest[];
-			readonly contentUpserts: readonly BridgeWorkerFileViewContentMetadata[];
-			readonly filePathRemovals: readonly string[];
-			readonly filePathUpserts: readonly BridgeCommWorkerFileViewRuntimePathUpsert[];
-			readonly kind: 'delta';
-			readonly resetContent?: true;
-			readonly rowRemovals: readonly string[];
-			readonly rowUpserts: readonly BridgeCommWorkerRow[];
-	  };
 
 export interface BridgeCommWorkerFileMetadataApplyResult {
 	readonly patches: readonly BridgeWorkerFileDisplayPatch[];

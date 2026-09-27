@@ -437,7 +437,7 @@ private actor S13HeldProductCallProvider: BridgeProductSchemeProvider {
                 )
             case .subscriptionCancel:
                 return try .subscriptionCancelAccepted(correlating: request)
-            case .subscriptionUpdateBatch, .workerSessionResync:
+            case .subscriptionUpdateBatch, .viewScope, .viewResnapshot, .workerSessionResync:
                 preconditionFailure("The S13 provider received an unconfigured control request")
             }
         } catch {

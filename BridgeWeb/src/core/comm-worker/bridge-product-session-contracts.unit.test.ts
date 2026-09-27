@@ -104,7 +104,7 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: '24588a44d901da0ddfa93f8e37c385e6b681ad7b84f235f29db9fd70d91d2cfb',
+				expectedHash: 'f8f173664aaa532b61a629c02a2eb8f0d64a8a3b902bbca824b43a6ff81d84f9',
 				kind: 'valid',
 			},
 			{
@@ -657,6 +657,23 @@ describe('Bridge product session contracts', () => {
 				hostileCase.name,
 			).toBe(true);
 		}
+	});
+
+	test('requires native worktree authority in every comment view scope', () => {
+		const reviewRequest = validProductSessionCorpus.transportV2.viewScopeRequests[0];
+		if (reviewRequest === undefined) throw new Error('View scope fixture missing.');
+		const commentRequest = {
+			...reviewRequest,
+			subscriptionKind: 'file.annotations',
+			scope: { kind: 'comment', worktreeId: 'worktree-1' },
+		};
+		expect(bridgeProductControlRequestSchema.safeParse(commentRequest).success).toBe(true);
+		expect(
+			bridgeProductControlRequestSchema.safeParse({
+				...commentRequest,
+				scope: { kind: 'comment' },
+			}).success,
+		).toBe(false);
 	});
 
 	test('rejects the obsolete generic payload and resource GET corridors', () => {

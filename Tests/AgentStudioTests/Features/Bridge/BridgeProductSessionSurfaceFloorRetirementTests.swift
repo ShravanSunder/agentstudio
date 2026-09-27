@@ -436,7 +436,8 @@ private actor FloorRetirementRecordingProvider: BridgeProductSchemeProvider {
                         .reviewMetadata(interests: [])
                         .sha256Hex()
                 )
-            case .productCall, .subscriptionCancel, .subscriptionUpdateBatch, .workerSessionResync:
+            case .productCall, .subscriptionCancel, .subscriptionUpdateBatch,
+                .viewScope, .viewResnapshot, .workerSessionResync:
                 preconditionFailure("Unexpected floor-retirement control request")
             }
         } catch {

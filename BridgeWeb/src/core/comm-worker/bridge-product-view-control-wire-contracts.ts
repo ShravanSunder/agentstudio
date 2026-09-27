@@ -53,6 +53,15 @@ export const bridgeProductViewScopeSchema = z
 	.object({ kind: z.string().min(1) })
 	.catchall(z.unknown())
 	.superRefine((scope, context): void => {
+		if (scope.kind === 'comment') {
+			if (
+				Object.keys(scope).length !== 2 ||
+				!bridgeProductIdentifierSchema.safeParse(scope['worktreeId']).success
+			) {
+				context.addIssue({ code: 'custom', message: 'Comment scope requires a worktree id.' });
+			}
+			return;
+		}
 		if (scope.kind !== 'file') return;
 		if (!fileChangeFilterSchema.safeParse(scope['changeFilter']).success) {
 			context.addIssue({ code: 'custom', message: 'Invalid File change filter.' });

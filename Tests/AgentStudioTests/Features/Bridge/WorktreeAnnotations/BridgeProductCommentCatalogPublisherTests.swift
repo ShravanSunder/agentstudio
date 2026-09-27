@@ -1,5 +1,6 @@
 import AgentStudioInfrastructure
 import AgentStudioTestHarness
+import Foundation
 import Testing
 
 @testable import AgentStudioBridge
@@ -155,11 +156,13 @@ struct BridgeProductCommentCatalogPublisherTests {
 
         let initial = try #require(await publisher.captureSnapshot())
         #expect(initial.handle == "comment-handle-1")
+        #expect(initial.baseRevision == 0)
         #expect(initial.targetRevision == 1)
         #expect(initial.puts.first?.revision == 1)
         #expect(initial.puts.first?.entry == entry)
         await publisher.invalidate(.session(sessionID))
         let unchangedSemantic = try #require(await publisher.captureDirty())
+        #expect(unchangedSemantic.baseRevision == 1)
         #expect(unchangedSemantic.targetRevision == 2)
         #expect(unchangedSemantic.puts.first?.revision == 2)
         #expect(unchangedSemantic.puts.first?.entry == entry)
@@ -167,9 +170,67 @@ struct BridgeProductCommentCatalogPublisherTests {
         await currentRows.remove(key)
         await publisher.invalidate(.session(sessionID))
         let deleted = try #require(await publisher.captureDirty())
+        #expect(deleted.baseRevision == 2)
         #expect(deleted.targetRevision == 3)
         #expect(deleted.puts.isEmpty)
         #expect(deleted.deletes == [.init(key: key, revision: 3)])
+    }
+
+    @Test("the current-row revision becomes one sealed comment batch")
+    func currentRowsSealAsOneViewBatch() async throws {
+        let sessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
+        let key = WorktreeAnnotationCatalogKey.session(sessionID)
+        let entry = WorktreeAnnotationCatalogEntry.session(
+            try .init(sessionID: sessionID, semanticRevision: 0)
+        )
+        let rows = CommentCurrentRowsGate([key: entry])
+        let publisher = BridgeProductCommentCatalogPublisher(
+            handle: "comment-handle-1",
+            readCurrent: { range in try await rows.read(range) }
+        )
+        let capture = try #require(await publisher.captureSnapshot())
+        let scope = try JSONDecoder().decode(
+            BridgeProductJSONValue.self,
+            from: Data("{\"kind\":\"comment\",\"worktreeId\":\"worktree-1\"}".utf8)
+        )
+        let sealed = try BridgeProductCommentViewBatchFactory.seal(
+            .init(
+                viewDomain: .init(
+                    viewId: "comment-subscription-1",
+                    domain: .singleDomain,
+                    incarnation: "comment-incarnation-1"
+                ),
+                scopeRevision: 1,
+                scope: scope,
+                firstDeliverySequence: 1,
+                mode: .snapshot,
+                batch: capture,
+                subscriptionKind: .fileAnnotations
+            )
+        )
+        #expect(sealed.subscriptionKind == .fileAnnotations)
+        #expect(sealed.baseRevision == 0)
+        #expect(sealed.targetRevision == 1)
+        #expect(sealed.parts.count == 1)
+        #expect(sealed.frameCount == 3)
+
+        await rows.remove(key)
+        await publisher.invalidate(.session(sessionID))
+        let deletionCapture = try #require(await publisher.captureDirty())
+        let deletion = try BridgeProductCommentViewBatchFactory.seal(
+            .init(
+                viewDomain: sealed.viewDomain,
+                scopeRevision: sealed.scopeRevision,
+                scope: scope,
+                firstDeliverySequence: 2,
+                mode: .change,
+                batch: deletionCapture,
+                subscriptionKind: .fileAnnotations
+            )
+        )
+        #expect(deletion.baseRevision == 1)
+        #expect(deletion.targetRevision == 2)
+        #expect(deletion.parts == [.delete(key: key.recordKey, revision: 2)])
     }
 
     @Test("a newer invalidation during a suspended read remains pending after that read installs")

@@ -33,6 +33,17 @@ struct BridgeProductFileMemberStatusRecord: Codable, Equatable, Sendable {
     let unstaged: Int?
     let untracked: Int?
 
+    init(source: BridgeProductFileSourceIdentity) {
+        self.source = source
+        status = .loading
+        branchName = nil
+        ahead = nil
+        behind = nil
+        staged = nil
+        unstaged = nil
+        untracked = nil
+    }
+
     init(
         source: BridgeProductFileSourceIdentity,
         status: BridgeProductFileMemberStatus,

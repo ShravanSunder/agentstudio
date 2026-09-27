@@ -13,6 +13,7 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
     case subscriptionOpenAccepted(BridgeProductSubscriptionOpenAcceptedResponse)
     case subscriptionUpdateBatchAccepted(BridgeProductSubscriptionBatchAcceptedResponse)
     case subscriptionCancelAccepted(BridgeProductSubscriptionCancelAcceptedResponse)
+    case viewAccepted(BridgeProductViewAcceptedResponse)
     case resyncAccepted(BridgeProductResyncAcceptedResponse)
     case requestError(BridgeProductRequestErrorResponse)
 
@@ -27,6 +28,7 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
         case .subscriptionOpenAccepted: "subscription.openAccepted"
         case .subscriptionUpdateBatchAccepted: "subscription.updateBatchAccepted"
         case .subscriptionCancelAccepted: "subscription.cancelAccepted"
+        case .viewAccepted(let response): response.kind.rawValue
         case .resyncAccepted: "resync.accepted"
         case .requestError: "request.error"
         }
@@ -39,6 +41,7 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
         case .subscriptionOpenAccepted(let response): response.correlation
         case .subscriptionUpdateBatchAccepted(let response): response.correlation
         case .subscriptionCancelAccepted(let response): response.correlation
+        case .viewAccepted(let response): response.correlation
         case .resyncAccepted(let response): response.correlation
         case .requestError(let response): response.correlation
         }
@@ -64,6 +67,8 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
             )
         case "subscription.cancelAccepted":
             self = .subscriptionCancelAccepted(try BridgeProductSubscriptionCancelAcceptedResponse(from: decoder))
+        case "subscription.scopeAccepted", "subscription.resnapshotAccepted":
+            self = .viewAccepted(try BridgeProductViewAcceptedResponse(from: decoder))
         case "resync.accepted":
             self = .resyncAccepted(try BridgeProductResyncAcceptedResponse(from: decoder))
         case "request.error":
@@ -84,6 +89,7 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
         case .subscriptionOpenAccepted(let response): try response.encode(to: encoder)
         case .subscriptionUpdateBatchAccepted(let response): try response.encode(to: encoder)
         case .subscriptionCancelAccepted(let response): try response.encode(to: encoder)
+        case .viewAccepted(let response): try response.encode(to: encoder)
         case .resyncAccepted(let response): try response.encode(to: encoder)
         case .requestError(let response): try response.encode(to: encoder)
         }
@@ -91,6 +97,17 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
 }
 
 extension BridgeProductControlResponse {
+    static func viewAccepted(correlating request: BridgeProductControlRequest) throws -> Self {
+        switch request {
+        case .viewScope(let scope):
+            .viewAccepted(.init(correlating: scope))
+        case .viewResnapshot(let resnapshot):
+            .viewAccepted(.init(correlating: resnapshot))
+        default:
+            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
+        }
+    }
+
     static func workerSessionAccepted(
         correlating request: BridgeProductControlRequest
     ) throws -> Self {

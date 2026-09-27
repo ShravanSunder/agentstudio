@@ -219,6 +219,34 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     return try metadataStreamRequiredError(for: request)
                 }
                 return try .subscriptionCancelAccepted(correlating: request)
+            case .viewScope(let scope):
+                guard await metadataCoordinator.hasActiveStream else {
+                    return try metadataStreamRequiredError(for: request)
+                }
+                guard let productAdmission else {
+                    return try viewControlRejectedError(for: request, code: .staleWorker)
+                }
+                if let rejection = await metadataCoordinator.acceptViewScope(
+                    scope,
+                    productAdmission: productAdmission
+                ) {
+                    return try viewControlRejectedError(for: request, code: rejection)
+                }
+                return try .viewAccepted(correlating: request)
+            case .viewResnapshot(let resnapshot):
+                guard await metadataCoordinator.hasActiveStream else {
+                    return try metadataStreamRequiredError(for: request)
+                }
+                guard let productAdmission else {
+                    return try viewControlRejectedError(for: request, code: .staleWorker)
+                }
+                if let rejection = await metadataCoordinator.acceptViewResnapshot(
+                    resnapshot,
+                    productAdmission: productAdmission
+                ) {
+                    return try viewControlRejectedError(for: request, code: rejection)
+                }
+                return try .viewAccepted(correlating: request)
             case .workerSessionResync(let resyncRequest):
                 return try .resyncAccepted(
                     correlating: request,
@@ -946,46 +974,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             .map { String(format: "%02x", $0) }
             .joined()
         return FileContentStreamDigest(byteCount: byteCount, sha256: sha256)
-    }
-
-    private func waitForExactWorkerObservation(
-        _ result: BridgeProductProducerEnqueueResult,
-        lease: BridgeProductProducerLease,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        session: BridgeProductSession
-    ) async -> Bool {
-        guard case .enqueued(let frame) = result else { return false }
-        return await session.waitUntilProducerFrameSequenceObserved(
-            for: lease,
-            sequence: frame.sequence,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
-        )
-    }
-
-    private func enqueueStaleSourceReset(
-        for lease: BridgeProductProducerLease,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        session: BridgeProductSession
-    ) async throws {
-        _ = try await session.enqueueTerminalContentFrame(
-            for: lease,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission,
-            build: { sequence in
-                .content(
-                    .init(
-                        header: try .reset(
-                            contentSequence: sequence,
-                            reason: .staleSource
-                        ),
-                        payload: Data()
-                    )
-                )
-            }
-        )
     }
 
     func closeAndDrain() async {

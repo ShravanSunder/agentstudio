@@ -149,6 +149,14 @@ extension BridgeProductSession {
                     continuation.resume(returning: .cancelled)
                     return
                 }
+                if producerAdmissionMatches(productAdmission, for: lease) {
+                    do {
+                        try enqueueNextViewFrameIfAvailable(for: lease)
+                    } catch {
+                        continuation.resume(returning: .rejected(.producerEndedWithoutTerminal))
+                        return
+                    }
+                }
                 let admitted =
                     productAdmission.withValidAdmission {
                         guard producerAdmissionMatches(productAdmission, for: lease) else {
@@ -332,8 +340,22 @@ extension BridgeProductSession {
     }
 
     func resumeProducerFrameWaiterIfPossible(
-        for lease: BridgeProductProducerLease
+        for lease: BridgeProductProducerLease,
+        admissionAlreadyHeld: Bool = false
     ) {
+        if let waiter = producerFrameWaitersByLease[lease] {
+            do {
+                try enqueueNextViewFrameIfAvailable(
+                    for: lease,
+                    admissionAlreadyHeld: admissionAlreadyHeld
+                )
+            } catch {
+                _ = producerRegistry.cancelFrameWaiter(for: lease, waiterToken: waiter.token)
+                producerFrameWaitersByLease.removeValue(forKey: lease)
+                waiter.continuation.resume(returning: .rejected(.producerEndedWithoutTerminal))
+                return
+            }
+        }
         guard let resolution = producerRegistry.resolveFrameWaiterIfPossible(for: lease),
             let waiter = producerFrameWaitersByLease[lease],
             waiter.token == resolution.waiterToken

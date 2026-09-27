@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -5,17 +7,387 @@ import Testing
 
 @Suite("Bridge product sealed native batch")
 struct BridgeProductSealedViewBatchTests {
+    @Test("native Comment view scope carries the admitted worktree before publication")
+    func nativeCommentViewCarriesAdmittedWorktree() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        open["subscription"] = ["subscriptionKind": "file.annotations"]
+        open["subscriptionId"] = "comment-subscription-1"
+        try await harness.openSubscription(open)
+
+        let view = try #require(
+            try await harness.session.openNativeCommentView(
+                subscriptionId: "comment-subscription-1",
+                worktreeID: "worktree-1",
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        #expect(view.viewDomain.viewId == "comment-subscription-1")
+        #expect(view.scope == .object(["kind": .string("comment"), "worktreeId": .string("worktree-1")]))
+        #expect(!view.handle.isEmpty)
+        let second = try await harness.session.openNativeCommentView(
+            subscriptionId: "unknown-subscription",
+            worktreeID: "worktree-2",
+            productAdmission: harness.productAdmission.context
+        )
+        #expect(second?.handle == nil)
+        let replacement = try #require(
+            try await harness.session.openNativeCommentView(
+                subscriptionId: "comment-subscription-1",
+                worktreeID: "worktree-1",
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        #expect(replacement.handle != view.handle)
+        #expect(
+            await harness.session.viewScopeByDomain.keys.filter {
+                $0.viewId == "comment-subscription-1"
+            }.count == 1
+        )
+        try await harness.closeProducer(lease)
+    }
+
+    @Test("an empty native Comment snapshot reaches the metadata producer")
+    func emptyCommentSnapshotReachesProducer() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        open["subscription"] = ["subscriptionKind": "file.annotations"]
+        open["subscriptionId"] = "comment-subscription-snapshot"
+        try await harness.openSubscription(open)
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let view = try #require(
+            try await harness.session.openNativeCommentView(
+                subscriptionId: "comment-subscription-snapshot",
+                worktreeID: "worktree-1",
+                productAdmission: harness.productAdmission.context
+            )
+        )
+
+        #expect(
+            try await harness.session.sealCommentCatalogBatch(
+                subscriptionId: "comment-subscription-snapshot",
+                catalogBatch: .init(
+                    handle: view.handle,
+                    baseRevision: 0,
+                    targetRevision: 1,
+                    puts: [],
+                    deletes: []
+                ),
+                mode: .snapshot,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        var frameKinds: [String] = []
+        for _ in 0..<2 {
+            let frame = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease,
+                    from: harness.session,
+                    productAdmission: harness.productAdmission.context
+                )
+            )
+            frameKinds.append(try #require(BridgeProductMetadataFrameDecoder().append(frame.data).first).kind)
+        }
+        #expect(frameKinds == ["subscription.batchBegin", "subscription.batchComplete"])
+        try await harness.closeProducer(lease)
+    }
+
+    @Test("retiring a Comment view releases its suspended emission wait")
+    func retiredCommentViewReleasesEmissionWaiter() async throws {
+        let registered = HeldStep<BridgeProductViewDomainKey>("commentEmissionWaitRegistered")
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            viewEmissionWaiterRegistrationObserver: { viewDomain in
+                Task { try? await registered.arrive(viewDomain) }
+            }
+        )
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        open["subscription"] = ["subscriptionKind": "file.annotations"]
+        open["subscriptionId"] = "comment-subscription-retire"
+        try await harness.openSubscription(open)
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let view = try #require(
+            try await harness.session.openNativeCommentView(
+                subscriptionId: "comment-subscription-retire",
+                worktreeID: "worktree-1",
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        try #require(
+            try await harness.session.sealCommentCatalogBatch(
+                subscriptionId: "comment-subscription-retire",
+                catalogBatch: .init(
+                    handle: view.handle,
+                    baseRevision: 0,
+                    targetRevision: 1,
+                    puts: [],
+                    deletes: []
+                ),
+                mode: .snapshot,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let waiting = Task {
+            await harness.session.awaitViewEmissionCompletion(
+                for: view.viewDomain,
+                handle: view.handle
+            )
+        }
+        #expect(try await registered.firstArrival() == view.viewDomain)
+
+        await harness.session.closeViewDomains(subscriptionId: "comment-subscription-retire")
+        #expect(await waiting.value == .retired)
+        #expect(await harness.session.viewEmissionWaiterByDomain.isEmpty)
+        registered.release()
+        try await harness.closeProducer(lease)
+    }
+
+    @Test("a same-handle resnapshot releases Comment emission without retiring its view")
+    func commentResnapshotReleasesEmissionWaiter() async throws {
+        let registered = HeldStep<BridgeProductViewDomainKey>("commentResnapshotWaitRegistered")
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            viewEmissionWaiterRegistrationObserver: { viewDomain in
+                Task { try? await registered.arrive(viewDomain) }
+            }
+        )
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        open["subscription"] = ["subscriptionKind": "file.annotations"]
+        open["subscriptionId"] = "comment-subscription-resnapshot"
+        try await harness.openSubscription(open)
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let view = try #require(
+            try await harness.session.openNativeCommentView(
+                subscriptionId: "comment-subscription-resnapshot",
+                worktreeID: "worktree-1",
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        try #require(
+            try await harness.session.sealCommentCatalogBatch(
+                subscriptionId: "comment-subscription-resnapshot",
+                catalogBatch: .init(handle: view.handle, baseRevision: 0, targetRevision: 1, puts: [], deletes: []),
+                mode: .snapshot,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let waiting = Task {
+            await harness.session.awaitViewEmissionCompletion(for: view.viewDomain, handle: view.handle)
+        }
+        #expect(try await registered.firstArrival() == view.viewDomain)
+
+        let requestBytes = try JSONSerialization.data(withJSONObject: [
+            "kind": "subscription.resnapshot",
+            "wireVersion": 2,
+            "paneSessionId": "pane-session-1",
+            "workerInstanceId": "worker-instance-1",
+            "requestId": "resnapshot-comment-1",
+            "requestSequence": 3,
+            "subscriptionId": "comment-subscription-resnapshot",
+            "subscriptionKind": "file.annotations",
+            "domain": view.viewDomain.domain.rawValue,
+            "handle": view.handle,
+            "incarnation": view.viewDomain.incarnation,
+            "scopeRevision": 0,
+        ])
+        let request = try BridgeProductStrictJSON.decode(
+            BridgeProductViewResnapshotRequest.self,
+            from: requestBytes
+        )
+        #expect(
+            await harness.session.acceptViewResnapshot(
+                request,
+                productAdmission: harness.productAdmission.context
+            ) == nil
+        )
+        #expect(await waiting.value == .resnapshotRequired)
+        let currentViewScopes = await harness.session.viewScopeByDomain
+        let pendingEmissionWaiters = await harness.session.viewEmissionWaiterByDomain
+        #expect(currentViewScopes[view.viewDomain]?.handle == view.handle)
+        #expect(pendingEmissionWaiters.isEmpty)
+        registered.release()
+        try await harness.closeProducer(lease)
+    }
+
+    @Test("a sealed File batch reaches the live metadata producer without per-frame waiting")
+    func sealedFileBatchReachesProducerPump() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        try await harness.openSubscription(
+            bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2))
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let scopeRequest = try BridgeProductStrictJSON.decode(
+            BridgeProductViewScopeRequest.self,
+            from: Data(
+                """
+                {"kind":"subscription.setScope","wireVersion":2,"paneSessionId":"pane-session-1",\
+                "workerInstanceId":"worker-instance-1","requestId":"file-scope-test","requestSequence":3,\
+                "subscriptionId":"file-subscription-1","subscriptionKind":"file.metadata",\
+                "domain":"default","handle":"file-handle-1","incarnation":"file-incarnation-1",\
+                "scopeRevision":1,"scope":{"kind":"file","changeFilter":{"kind":"none"}}}
+                """.utf8
+            )
+        )
+        #expect(
+            await harness.session.acceptViewScope(
+                scopeRequest,
+                productAdmission: harness.productAdmission.context
+            ) == nil
+        )
+        let snapshot = try nineRowFileSnapshot()
+        try #require(
+            try await harness.session.sealFileSnapshot(
+                subscriptionId: scopeRequest.subscriptionId,
+                snapshot: snapshot,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        var deliveredKinds: [String] = []
+        for _ in 0..<9 {
+            let queued = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease,
+                    from: harness.session,
+                    productAdmission: harness.productAdmission.context
+                )
+            )
+            let frames = try BridgeProductMetadataFrameDecoder().append(queued.data)
+            deliveredKinds.append(try #require(frames.first).kind)
+        }
+        let acknowledgementBytes = Data(
+            """
+            {"kind":"subscription.acknowledge","wireVersion":2,"paneSessionId":"pane-session-1",\
+            "workerInstanceId":"worker-instance-1","subscriptionId":"file-subscription-1",\
+            "domain":"default","handle":"file-handle-1","incarnation":"file-incarnation-1",\
+            "receivedThroughDeliverySequence":8}
+            """.utf8
+        )
+        let acknowledgement = try BridgeProductStrictJSON.decode(
+            BridgeProductViewAcknowledgementRequest.self,
+            from: acknowledgementBytes
+        )
+        let acknowledged = await harness.session.acknowledgeViewReceipt(
+            acknowledgement,
+            exactRequestBytes: acknowledgementBytes,
+            productAdmission: harness.productAdmission.context
+        )
+        _ = try #require(acknowledged)
+        for _ in 0..<3 {
+            let queued = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease,
+                    from: harness.session,
+                    productAdmission: harness.productAdmission.context
+                )
+            )
+            let frames = try BridgeProductMetadataFrameDecoder().append(queued.data)
+            deliveredKinds.append(try #require(frames.first).kind)
+        }
+        #expect(deliveredKinds.first == "subscription.batchBegin")
+        #expect(deliveredKinds.dropFirst().dropLast().allSatisfy { $0 == "subscription.batchPart" })
+        #expect(deliveredKinds.last == "subscription.batchComplete")
+        #expect(deliveredKinds.count == snapshot.records.count + 3)
+        try await harness.closeProducer(lease)
+    }
+
+    @Test("File snapshot seals canonical rows and tombstones without changing their revisions")
+    func fileSnapshotPreservesIndexedRecords() throws {
+        let row = BridgeWorktreeTreeRowMetadata(
+            rowId: "row-source-1",
+            path: "Tests/File.swift",
+            name: "File.swift",
+            parentPath: "Tests",
+            depth: 1,
+            isDirectory: false,
+            fileId: "file-source-1",
+            fileClass: .test,
+            sizeBytes: 8,
+            lineCount: 2,
+            changeStatus: "modified"
+        )
+        let snapshot = BridgeWorktreeFileKeyedSnapshot(
+            memberStatus: try fileMemberStatusFixture(),
+            records: [.init(key: "/workspace/Tests/File.swift", revision: 2, row: row, descriptorOutcome: nil)],
+            targetRevision: 3,
+            tombstoneRevisionByKey: ["/workspace/Tests/Old.swift": 3],
+            absenceFloorRevisionByRange: [:]
+        )
+        let batch = try BridgeProductFileViewBatchFactory.sealSnapshot(
+            .init(
+                viewDomain: .init(viewId: "file-subscription-1", domain: .singleDomain, incarnation: "default"),
+                handle: "file-handle-1",
+                scopeRevision: 1,
+                scope: .object(["kind": .string("file"), "changeFilter": .object(["kind": .string("none")])]),
+                firstDeliverySequence: 1,
+                snapshot: snapshot
+            )
+        )
+        #expect(batch.targetRevision == 3)
+        #expect(batch.parts.count == 3)
+        guard case .put(let key, let revision, let value) = batch.parts[0] else {
+            Issue.record("Expected File row put")
+            return
+        }
+        #expect(key == "/workspace/Tests/File.swift")
+        #expect(revision == 2)
+        let decoded = try JSONDecoder().decode(BridgeProductFileBatchRow.self, from: JSONEncoder().encode(value))
+        #expect(decoded.fileClass == .test)
+        #expect(decoded.sizeBytes == 8)
+        #expect(decoded.lineCount == 2)
+        #expect(decoded.rowId == row.rowId)
+        guard case .delete(let deletedKey, let deletionRevision) = batch.parts[1] else {
+            Issue.record("Expected File tombstone")
+            return
+        }
+        #expect(deletedKey == "/workspace/Tests/Old.swift")
+        #expect(deletionRevision == 3)
+        guard case .put(let statusKey, let statusRevision, let statusValue) = batch.parts[2] else {
+            Issue.record("Expected File member status")
+            return
+        }
+        #expect(statusKey == BridgeProductFileMemberStatusRecord.recordKey)
+        #expect(statusRevision == 1)
+        #expect(
+            try JSONDecoder().decode(BridgeProductFileMemberStatusRecord.self, from: JSONEncoder().encode(statusValue))
+                .status == .loading
+        )
+    }
+
     @Test("a frozen batch larger than the credit window emits in order as receipts arrive")
     func sealedBatchProgressesThroughReceiptCredits() throws {
         let viewDomain = BridgeProductViewDomainKey(
-            viewId: "file-subscription-1",
+            viewId: "review-subscription-1",
             domain: .singleDomain,
             incarnation: "review-incarnation-1"
         )
-        let scope: BridgeProductJSONValue = .object([
-            "kind": .string("file"),
-            "changeFilter": .object(["kind": .string("none")]),
-        ])
+        let scope: BridgeProductJSONValue = .object(["kind": .string("review")])
+        let publicationId = UUIDv7.generate()
         var producerParts: [BridgeProductBatchPart] = [
             .put(key: "item/a", revision: 4, value: .object(["itemId": .string("a")])),
             .delete(key: "item/old", revision: 4),
@@ -25,11 +397,12 @@ struct BridgeProductSealedViewBatchTests {
             viewDomain: viewDomain,
             producerScanGeneration: 1,
             handle: "review-handle-1",
-            subscriptionKind: .fileMetadata,
+            subscriptionKind: .reviewMetadata,
             scopeRevision: 2,
             baseRevision: 0,
             targetRevision: 4,
             mode: .snapshot,
+            publicationId: publicationId,
             scope: scope,
             coveredScope: scope,
             requiresCollection: nil,
@@ -53,6 +426,11 @@ struct BridgeProductSealedViewBatchTests {
         for frame in frames {
             #expect(try decoder.append(BridgeProductMetadataFrameCodec.encode(frame)) == [frame])
         }
+        guard case .batch(.begin(let begin)) = frames.first else {
+            Issue.record("Expected a Review batch begin frame")
+            return
+        }
+        #expect(begin.publicationId == publicationId)
         try decoder.finish()
 
         var credits = BridgeProductViewCreditWindow(maximumParts: 2, maximumBytes: 1_000_000)
@@ -65,4 +443,46 @@ struct BridgeProductSealedViewBatchTests {
         #expect(firstAdmitted && secondAdmitted && !thirdBeforeReceipt)
         #expect(firstReceived && thirdAfterReceipt)
     }
+}
+
+private func nineRowFileSnapshot() throws -> BridgeWorktreeFileKeyedSnapshot {
+    BridgeWorktreeFileKeyedSnapshot(
+        memberStatus: try fileMemberStatusFixture(),
+        records: (1...9).map { ordinal in
+            let path = "file-\(ordinal).swift"
+            return .init(
+                key: "/workspace/\(path)",
+                revision: 1,
+                row: .init(
+                    rowId: "row-\(ordinal)",
+                    path: path,
+                    name: path,
+                    parentPath: nil,
+                    depth: 0,
+                    isDirectory: false,
+                    fileId: "file-\(ordinal)",
+                    fileClass: .source,
+                    sizeBytes: 1,
+                    lineCount: nil,
+                    changeStatus: nil
+                ),
+                descriptorOutcome: nil
+            )
+        },
+        targetRevision: 1,
+        tombstoneRevisionByKey: [:],
+        absenceFloorRevisionByRange: [:]
+    )
+}
+
+private func fileMemberStatusFixture() throws -> BridgeWorktreeFileKeyedMemberStatus {
+    let source = try BridgeProductFileSourceIdentity(
+        repoId: "00000000-0000-4000-8000-000000000001",
+        rootRevisionToken: nil,
+        sourceCursor: "source-cursor-1",
+        sourceId: "source-1",
+        subscriptionGeneration: 1,
+        worktreeId: "00000000-0000-4000-8000-000000000002"
+    )
+    return .init(record: .init(source: source), revision: 1)
 }

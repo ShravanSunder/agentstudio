@@ -126,6 +126,10 @@ describe('Bridge comm worker typed Review batch installer', () => {
 			'src',
 			'src/New.swift',
 		]);
+		expect(installer.presentation?.runtimeSource.contentItems[0]?.itemId).toBe(fixtureItem.itemId);
+		expect(installer.presentation?.runtimeSource.reviewPublicationIdentity?.publicationId).toBe(
+			fixtureFailedPublication.displayed?.publicationId,
+		);
 	});
 
 	test('installs an empty publication and then a failed desired comparison with old displayed content', async () => {

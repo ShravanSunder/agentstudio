@@ -7,6 +7,30 @@ import Testing
 
 @Suite("Worktree annotation service metadata publication")
 struct WorktreeAnnotationServiceMetadataPublicationTests {
+    @Test("three unconsumed session invalidations coalesce as a union of ranges")
+    func invalidationBufferPreservesEveryRange() async throws {
+        let worktreeID = "worktree-invalidation-union"
+        let access = MetadataPublicationRepositoryAccess(
+            catalogCapture: .init(worktreeID: worktreeID, sessions: [], threads: [], messages: [])
+        )
+        let service = WorktreeAnnotationServiceActor(repositoryAccess: access)
+        let observer = await service.registerCatalogInvalidationObserver(worktreeID: worktreeID)
+        let sessionIDs = (0..<3).map { _ in WorktreeAnnotationSessionID.generate() }
+
+        for sessionID in sessionIDs {
+            await service.emitCommittedCatalogInvalidation(
+                .content(sessionChanges: [
+                    .init(worktreeID: worktreeID, sessionID: sessionID, semanticRevision: 0)
+                ])
+            )
+        }
+
+        var iterator = observer.stream.makeAsyncIterator()
+        let invalidation = try #require(await iterator.next())
+        #expect(invalidation.ranges == Set(sessionIDs.map(WorktreeAnnotationCatalogRange.session)))
+        await service.removeCatalogInvalidationObserver(token: observer.token)
+    }
+
     @Test("a committed session change emits its range before the caller returns")
     func committedChangeEmitsSessionRange() async throws {
         let detail = try makeCommittedDetail()

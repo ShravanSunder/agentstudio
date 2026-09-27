@@ -282,6 +282,7 @@ actor BridgeProductSchemeProviderSpy: BridgeProductSchemeProvider {
                     result: .reviewMarkFileViewed
                 )
             case .subscriptionOpen, .subscriptionUpdateBatch, .subscriptionCancel,
+                .viewScope, .viewResnapshot,
                 .workerSessionResync:
                 preconditionFailure("The adapter test provider received an unconfigured control request")
             }

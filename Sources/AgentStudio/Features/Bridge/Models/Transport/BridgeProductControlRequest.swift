@@ -9,6 +9,8 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
     case subscriptionOpen(BridgeProductSubscriptionOpenRequest)
     case subscriptionUpdateBatch(BridgeProductSubscriptionUpdateBatchRequest)
     case subscriptionCancel(BridgeProductSubscriptionCancelRequest)
+    case viewScope(BridgeProductViewScopeRequest)
+    case viewResnapshot(BridgeProductViewResnapshotRequest)
     case workerSessionResync(BridgeProductWorkerSessionResyncRequest)
 
     private enum CodingKeys: String, CodingKey {
@@ -22,6 +24,8 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
         case .subscriptionOpen: "subscription.open"
         case .subscriptionUpdateBatch: "subscription.updateBatch"
         case .subscriptionCancel: "subscription.cancel"
+        case .viewScope: "subscription.setScope"
+        case .viewResnapshot: "subscription.resnapshot"
         case .workerSessionResync: "workerSession.resync"
         }
     }
@@ -38,6 +42,8 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
         case .subscriptionOpen(let request): request.correlation
         case .subscriptionUpdateBatch(let request): request.correlation
         case .subscriptionCancel(let request): request.correlation
+        case .viewScope(let request): request.correlation
+        case .viewResnapshot(let request): request.correlation
         case .workerSessionResync(let request): request.correlation
         }
     }
@@ -46,6 +52,17 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
     var requestId: String { correlation.requestId }
     var requestSequence: Int { correlation.requestSequence }
     var workerInstanceId: String { correlation.workerInstanceId }
+
+    var viewControlSubscription: (id: String, kind: BridgeProductSubscriptionKind)? {
+        switch self {
+        case .viewScope(let request):
+            (request.subscriptionId, request.subscriptionKind)
+        case .viewResnapshot(let request):
+            (request.subscriptionId, request.subscriptionKind)
+        default:
+            nil
+        }
+    }
 
     var surface: BridgeProductSurface? {
         switch self {
@@ -59,6 +76,10 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
             request.surface
         case .subscriptionCancel(let request):
             request.surface
+        case .viewScope(let request):
+            request.subscriptionKind.surface
+        case .viewResnapshot(let request):
+            request.subscriptionKind.surface
         }
     }
 
@@ -74,6 +95,8 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
             request.workerDerivationEpoch
         case .subscriptionCancel(let request):
             request.workerDerivationEpoch
+        case .viewScope, .viewResnapshot:
+            nil
         }
     }
 
@@ -90,6 +113,10 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
             self = .subscriptionUpdateBatch(try BridgeProductSubscriptionUpdateBatchRequest(from: decoder))
         case "subscription.cancel":
             self = .subscriptionCancel(try BridgeProductSubscriptionCancelRequest(from: decoder))
+        case "subscription.setScope":
+            self = .viewScope(try BridgeProductViewScopeRequest(from: decoder))
+        case "subscription.resnapshot":
+            self = .viewResnapshot(try BridgeProductViewResnapshotRequest(from: decoder))
         case "workerSession.resync":
             self = .workerSessionResync(try BridgeProductWorkerSessionResyncRequest(from: decoder))
         default:
@@ -108,6 +135,8 @@ enum BridgeProductControlRequest: Codable, Equatable, Sendable {
         case .subscriptionOpen(let request): try request.encode(to: encoder)
         case .subscriptionUpdateBatch(let request): try request.encode(to: encoder)
         case .subscriptionCancel(let request): try request.encode(to: encoder)
+        case .viewScope(let request): try request.encode(to: encoder)
+        case .viewResnapshot(let request): try request.encode(to: encoder)
         case .workerSessionResync(let request): try request.encode(to: encoder)
         }
     }

@@ -3,6 +3,11 @@ import {
 	createBridgeProductDeferred,
 	type BridgeProductDeferred,
 } from './bridge-product-async-queue.js';
+import { installBridgeProductBatchDelivery } from './bridge-product-batch-delivery.js';
+import {
+	BridgeProductBatchFrameRouter,
+	type BridgeProductBatchFrameSinks,
+} from './bridge-product-batch-frame-router.js';
 import type {
 	BridgeProductCallKind,
 	BridgeProductCallRequest,
@@ -47,6 +52,11 @@ import type {
 	BridgeProductMetadataDataFrame,
 } from './bridge-product-metadata-application-protocol.js';
 import {
+	BridgeProductMetadataRouteFailure,
+	bridgeProductMetadataRouteFailure,
+	type BridgeProductMetadataRouteFailureCode,
+} from './bridge-product-metadata-route-failure.js';
+import {
 	BridgeProductMetadataStreamDecoder,
 	type BridgeProductMetadataStreamDecoderDiagnostics,
 	type BridgeProductMetadataStreamIdentityField,
@@ -65,7 +75,6 @@ import {
 import {
 	BridgeProductSubscriptionFrameFailure,
 	bridgeProductSubscriptionOperationFailureCode,
-	type BridgeProductSubscriptionFrameFailureCode,
 } from './bridge-product-subscription-frame-failure.js';
 import {
 	BridgeProductSubscriptionEpochRetiredError,
@@ -111,6 +120,7 @@ export interface CreateBridgeProductTransportProps {
 }
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
+	setBatchFrameSinks?(sinks: BridgeProductBatchFrameSinks): void;
 	/**
 	 * Advances the surface to a new worker derivation epoch and returns it. Every
 	 * subscription admitted on that surface at an older epoch ends for its consumer
@@ -183,12 +193,7 @@ export type BridgeProductMetadataStreamFailureStage =
 	| 'unexpectedEof';
 
 export type BridgeProductMetadataStreamLifecycleState = 'failed' | 'idle' | 'opening' | 'reading';
-
-export type BridgeProductMetadataRouteFailureCode =
-	| BridgeProductSubscriptionFrameFailureCode
-	| 'metadata_stream_error'
-	| 'subscription_frame_rejected'
-	| 'unknown_subscription';
+export type { BridgeProductMetadataRouteFailureCode } from './bridge-product-metadata-route-failure.js';
 
 export function createBridgeProductTransport(
 	props: CreateBridgeProductTransportProps,
@@ -244,6 +249,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		streamOpenCount: 0,
 	};
 	readonly #subscriptions = new Map<string, BridgeProductSubscriptionFrameSink>();
+	readonly #batchFrameRouter = new BridgeProductBatchFrameRouter();
 	#panePresentationFrameSink: (frame: BridgeProductPanePresentationFrame) => void =
 		ignoreBridgeProductPanePresentationFrame;
 	#paneSurfaceSelectionFrameSink: (frame: BridgeProductPaneSurfaceSelectionFrame) => void =
@@ -298,6 +304,16 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 
 	setPanePresentationFrameSink(sink: (frame: BridgeProductPanePresentationFrame) => void): void {
 		this.#panePresentationFrameSink = sink;
+	}
+
+	setBatchFrameSinks(sinks: BridgeProductBatchFrameSinks): void {
+		installBridgeProductBatchDelivery({
+			authority: this.#authority,
+			deadlineClock: this.#deadlineClock,
+			executeProductRequest: this.#executeProductRequest,
+			router: this.#batchFrameRouter,
+			sinks,
+		});
 	}
 
 	setPaneSurfaceSelectionFrameSink(
@@ -445,6 +461,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 					};
 				}
 				this.#subscriptions.delete(subscriptionId);
+				this.#batchFrameRouter.retireSubscription(subscriptionId);
 				if (drainUntilNativeTerminal === true) this.#drainingSubscriptionIds.add(subscriptionId);
 				if (this.#metadataStreamHealthDiagnostics.lifecycleState === 'reading') {
 					this.#metadataStreamHealthDiagnostics = {
@@ -800,6 +817,18 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				);
 			case 'content.cancelled':
 				return;
+			case 'subscription.batchBegin':
+			case 'subscription.batchPart':
+			case 'subscription.batchComplete':
+				if (!this.#subscriptions.has(frame.subscriptionId)) {
+					if (this.#drainingSubscriptionIds.has(frame.subscriptionId)) return;
+					throw new BridgeProductMetadataRouteFailure(
+						'unknown_subscription',
+						'Bridge product batch references an unknown subscription.',
+					);
+				}
+				this.#batchFrameRouter.accept(frame);
+				return;
 			case 'subscription.accepted':
 			case 'subscription.cancelled':
 			case 'subscription.data':
@@ -835,6 +864,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 							: 'Bridge product subscription rejected a metadata frame.',
 					);
 				}
+				if (
+					frame.kind === 'subscription.cancelled' ||
+					frame.kind === 'subscription.end' ||
+					frame.kind === 'subscription.reset'
+				)
+					this.#batchFrameRouter.retireSubscription(frame.subscriptionId);
 				return;
 			}
 		}
@@ -846,6 +881,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		}
 		this.#subscriptions.clear();
 		this.#drainingSubscriptionIds.clear();
+		this.#batchFrameRouter.clear();
 	}
 
 	#openValidatedContent<TContentKind extends BridgeProductContentKind>(
@@ -950,25 +986,6 @@ function ignoreBridgeProductPanePresentationFrame(
 function ignoreBridgeProductPaneSurfaceSelectionFrame(
 	_frame: BridgeProductPaneSurfaceSelectionFrame,
 ): void {}
-
-class BridgeProductMetadataRouteFailure extends Error {
-	readonly routeFailureCode: BridgeProductMetadataRouteFailureCode;
-
-	constructor(routeFailureCode: BridgeProductMetadataRouteFailureCode, message: string) {
-		super(message);
-		this.name = 'BridgeProductMetadataRouteFailure';
-		this.routeFailureCode = routeFailureCode;
-	}
-}
-
-function bridgeProductMetadataRouteFailure(error: unknown): BridgeProductMetadataRouteFailure {
-	return error instanceof BridgeProductMetadataRouteFailure
-		? error
-		: new BridgeProductMetadataRouteFailure(
-				'subscription_frame_rejected',
-				error instanceof Error ? error.message : 'Bridge product metadata frame routing failed.',
-			);
-}
 
 function encodeBridgeProductRequestBody(request: object): ArrayBuffer {
 	const body = new TextEncoder().encode(JSON.stringify(request));

@@ -145,6 +145,24 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         sourceAcceptedObserver = observer
     }
 
+    func captureKeyedSnapshot(
+        subscriptionId: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? {
+        guard let context = contextBySubscriptionId[subscriptionId],
+            context.productAdmission.matches(productAdmission),
+            productAdmission.withValidAdmission({ true }) == true,
+            await context.manifestIndex.isEnumerationComplete
+        else { return nil }
+        let snapshot = await context.manifestIndex.captureKeyedSnapshot()
+        guard let current = contextBySubscriptionId[subscriptionId],
+            current.productSource == context.productSource,
+            current.productAdmission.matches(productAdmission),
+            productAdmission.withValidAdmission({ true }) == true
+        else { return nil }
+        return snapshot
+    }
+
     func currentWorktreeAnnotationFingerprint(
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceFingerprint {
@@ -284,6 +302,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         )
     }
 
+    // WIP checkpoint: extract the window iteration before the 1.4c cutover commit.
+    // swiftlint:disable:next function_body_length
     private func enumerateInitialTree(
         _ request: InitialTreeEnumerationRequest,
         constructionLease: BridgeSharedFileSnapshotConsumerLease
@@ -378,10 +398,25 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 )
             )
         }
-        return await request.manifestIndex.markEnumerationComplete(
-            productAdmission: request.productAdmission,
-            foregroundWorkAdmission: request.foregroundWorkAdmission
-        )
+        guard
+            await request.manifestIndex.markEnumerationComplete(
+                productAdmission: request.productAdmission,
+                foregroundWorkAdmission: request.foregroundWorkAdmission
+            )
+        else { return false }
+        if await request.manifestIndex.captureKeyedSnapshot().memberStatus.record.status == .loading {
+            return try await request.manifestIndex.updateMemberStatus(
+                state: .ready,
+                branchName: nil,
+                ahead: nil,
+                behind: nil,
+                staged: nil,
+                unstaged: nil,
+                untracked: nil,
+                productAdmission: request.productAdmission
+            )
+        }
+        return true
     }
 
     // swiftlint:disable:next function_body_length
@@ -586,24 +621,37 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         status: GitWorkingTreeStatus,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) -> [BridgePaneProductFileMetadataEmission] {
-        foregroundWorkAdmission.withValidAdmission {
-            productAdmission.withValidAdmission {
-                contextBySubscriptionId.compactMap { subscriptionId, context in
-                    guard let sourceSpec = context.subscription.subscription.fileMetadataSource,
-                        context.productAdmission.matches(productAdmission),
-                        sourceSpec.includeStatuses
-                    else { return nil }
-                    return .init(
-                        event: BridgePaneProductFileMetadataEncoding.statusEvent(
-                            status,
-                            source: context.productSource
-                        ),
-                        subscriptionId: subscriptionId
-                    )
-                }
-            } ?? []
-        } ?? []
+    ) async -> [BridgePaneProductFileMetadataEmission] {
+        var emissions: [BridgePaneProductFileMetadataEmission] = []
+        for subscriptionId in contextBySubscriptionId.keys.sorted() {
+            guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                productAdmission.withValidAdmission({ true }) == true,
+                let context = contextBySubscriptionId[subscriptionId],
+                let sourceSpec = context.subscription.subscription.fileMetadataSource,
+                context.productAdmission.matches(productAdmission),
+                sourceSpec.includeStatuses,
+                (try? await context.manifestIndex.updateMemberStatus(
+                    state: .ready,
+                    branchName: status.branch,
+                    ahead: status.summary.aheadCount,
+                    behind: status.summary.behindCount,
+                    staged: status.summary.staged,
+                    unstaged: status.summary.changed,
+                    untracked: status.summary.untracked,
+                    productAdmission: productAdmission
+                )) == true
+            else { continue }
+            emissions.append(
+                .init(
+                    event: BridgePaneProductFileMetadataEncoding.statusEvent(
+                        status,
+                        source: context.productSource
+                    ),
+                    subscriptionId: subscriptionId
+                )
+            )
+        }
+        return emissions
     }
 
     private func isCurrent(
@@ -648,7 +696,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             manifestIndex: .init(
                 generation: sourceGeneration,
                 rootURL: authority.worktree.path,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                source: productSource
             ),
             openedSource: openedSource,
             constructionLease: nil,
@@ -745,6 +794,25 @@ extension BridgePaneProductFileMetadataSource {
     ) async throws -> Bool {
         guard reserveDescriptorInterest(for: row, request: request) else { return false }
         let subscription = request.subscription
+        guard let context = contextBySubscriptionId[subscription.subscriptionId],
+            context.productSource == request.productSource,
+            let attempt = await context.manifestIndex.reserveDescriptorAttempt(
+                for: row.path,
+                source: request.productSource,
+                memberIncarnation: BridgeProductViewDomain.singleDomain.rawValue,
+                interestRevision: subscription.interestRevision,
+                productAdmission: request.productAdmission,
+                foregroundWorkAdmission: request.foregroundWorkAdmission
+            )
+        else {
+            clearInFlightDescriptorInterest(
+                path: row.path,
+                revision: subscription.interestRevision,
+                subscriptionId: subscription.subscriptionId,
+                source: request.productSource
+            )
+            return false
+        }
         let materialized: BridgePaneProductFileDescriptorMaterialization
         do {
             materialized = try await descriptorMaterializer(
@@ -774,6 +842,16 @@ extension BridgePaneProductFileMetadataSource {
             throw CancellationError()
         }
         guard descriptorInterestIsAdmitted(for: row, request: request) else {
+            clearInFlightDescriptorInterest(
+                path: row.path,
+                revision: subscription.interestRevision,
+                subscriptionId: subscription.subscriptionId,
+                source: request.productSource
+            )
+            return false
+        }
+        guard await context.manifestIndex.acceptDescriptorOutcome(materialized.payload, for: attempt)
+        else {
             clearInFlightDescriptorInterest(
                 path: row.path,
                 revision: subscription.interestRevision,

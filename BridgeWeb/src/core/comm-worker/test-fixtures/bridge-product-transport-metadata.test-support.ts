@@ -81,6 +81,11 @@ export function createTransportHarness(
 				telemetryPreReadyBufferMaxBytes: 64 * 1024,
 				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,
+				viewAcknowledgementDeadlineMilliseconds: 4_000,
+				viewCreditBytes: 524_288,
+				viewCreditParts: 8,
+				viewMaximumConsecutiveResnapshots: 3,
+				viewMaximumDirtyKeys: 4_096,
 				maximumQueuedStreamFrames: 64,
 				maximumRequestBodyBytes: 256 * 1024,
 				terminalFrameReserve: 1,
@@ -393,6 +398,28 @@ export class TestProductServer {
 				return jsonResponse({
 					...identity,
 					kind: 'subscription.cancelAccepted',
+					subscriptionId: request.subscriptionId,
+					subscriptionKind: request.subscriptionKind,
+				});
+			case 'subscription.setScope':
+				return jsonResponse({
+					...identity,
+					domain: request.domain,
+					handle: request.handle,
+					incarnation: request.incarnation,
+					kind: 'subscription.scopeAccepted',
+					scopeRevision: request.scopeRevision,
+					subscriptionId: request.subscriptionId,
+					subscriptionKind: request.subscriptionKind,
+				});
+			case 'subscription.resnapshot':
+				return jsonResponse({
+					...identity,
+					domain: request.domain,
+					handle: request.handle,
+					incarnation: request.incarnation,
+					kind: 'subscription.resnapshotAccepted',
+					scopeRevision: request.scopeRevision,
 					subscriptionId: request.subscriptionId,
 					subscriptionKind: request.subscriptionKind,
 				});

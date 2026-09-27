@@ -370,7 +370,7 @@ func productTreeRows(
     return rows
 }
 
-private func productEndpoint(
+func productEndpoint(
     _ endpoint: BridgeSourceEndpoint
 ) throws -> BridgeProductReviewSourceEndpointValue {
     guard let createdAt = Int(exactly: endpoint.createdAtUnixMilliseconds) else {
@@ -400,7 +400,7 @@ func productSummary(
     )
 }
 
-private func productQuery(_ query: BridgeReviewQuery) throws -> BridgeProductReviewQueryValue {
+func productQuery(_ query: BridgeReviewQuery) throws -> BridgeProductReviewQueryValue {
     guard
         let createdAfter = query.provenanceFilter.createdAfterUnixMilliseconds.map(Int.init(exactly:)) ?? .some(nil),
         let createdBefore = query.provenanceFilter.createdBeforeUnixMilliseconds.map(Int.init(exactly:)) ?? .some(nil)

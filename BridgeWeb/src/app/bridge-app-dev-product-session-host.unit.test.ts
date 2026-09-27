@@ -616,6 +616,7 @@ function productBootstrapDelivery(sequence: number): BridgeProductDevBootstrapDe
 			kind: 'productSession.bootstrap',
 			paneSessionId: 'vite-dev-pane-session',
 			policy: {
+				...validProductSessionCorpus.bootstrap.policy,
 				admissionRetryCount: validProductSessionCorpus.bootstrap.policy.admissionRetryCount,
 				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,

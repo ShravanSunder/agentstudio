@@ -62,6 +62,14 @@ enum BridgeProductSessionControlTransitionBuilder {
             else {
                 throw BridgeProductSessionError.mismatchedControlResponse
             }
+        case (.viewScope(let scopeRequest), .viewAccepted(let accepted)):
+            guard accepted == BridgeProductViewAcceptedResponse(correlating: scopeRequest) else {
+                throw BridgeProductSessionError.mismatchedControlResponse
+            }
+        case (.viewResnapshot(let resnapshotRequest), .viewAccepted(let accepted)):
+            guard accepted == BridgeProductViewAcceptedResponse(correlating: resnapshotRequest) else {
+                throw BridgeProductSessionError.mismatchedControlResponse
+            }
         case (.workerSessionResync(let resyncRequest), .resyncAccepted(let resyncResponse)):
             let reconciliationMatchesActiveSubscriptions = zip(
                 resyncResponse.reconciliation,
@@ -157,6 +165,18 @@ enum BridgeProductSessionControlTransitionBuilder {
                 subscriptionState: candidateSubscriptions,
                 effect: cancelledSubscription.map(BridgeProductSessionCompletionEffect.subscriptionCancelled)
                     ?? .noEffect
+            )
+
+        case (.viewScope(let scopeRequest), .viewAccepted):
+            return .init(
+                subscriptionState: candidateSubscriptions,
+                effect: .viewScopeAccepted(scopeRequest)
+            )
+
+        case (.viewResnapshot(let resnapshotRequest), .viewAccepted):
+            return .init(
+                subscriptionState: candidateSubscriptions,
+                effect: .viewResnapshotAccepted(resnapshotRequest)
             )
 
         case (.workerSessionResync(let resyncRequest), .resyncAccepted(let resyncResponse)):

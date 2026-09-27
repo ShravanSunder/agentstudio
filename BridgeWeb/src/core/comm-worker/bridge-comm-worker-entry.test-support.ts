@@ -24,6 +24,38 @@ export interface MakeFetchedReviewContentResourceProps {
 	readonly text: string;
 }
 
+export function makeReviewContentDescriptor(props: {
+	readonly role: BridgeProductReviewContentDescriptor['role'];
+	readonly text: string;
+}): BridgeProductReviewContentDescriptor {
+	const byteLength = new TextEncoder().encode(props.text).byteLength;
+	return {
+		contentDigest: {
+			algorithm: 'fixture-preview',
+			authority: 'provisional',
+			value: `item-1:${props.role}:generation-4`,
+		},
+		contentKind: 'review.content',
+		declaredByteLength: byteLength,
+		descriptorId: `descriptor-item-1-${props.role}`,
+		encoding: 'utf-8',
+		endpointId: `endpoint-${props.role}`,
+		expectedSha256: null,
+		handleId: `handle-item-1-${props.role}`,
+		isBinary: false,
+		itemId: 'item-1',
+		language: 'swift',
+		maximumBytes: byteLength,
+		mimeType: 'text/plain',
+		packageId: 'package-1',
+		reviewGeneration: 4,
+		role: props.role,
+		sourceIdentity: 'source-1',
+		wholeByteLength: byteLength,
+		window: { kind: 'byteRange', maximumBytes: byteLength, startByte: 0 },
+	};
+}
+
 export function makeRenderSemantics(
 	overrides: Partial<BridgeWorkerReviewRenderSemantics> = {},
 ): BridgeWorkerReviewRenderSemantics {

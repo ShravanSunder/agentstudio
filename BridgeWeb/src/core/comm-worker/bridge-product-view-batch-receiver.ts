@@ -13,6 +13,12 @@ interface InstalledRecord {
 	readonly value: unknown;
 }
 
+export interface BridgeProductViewInstallation {
+	readonly begin: BatchBegin;
+	readonly domain: string;
+	readonly records: readonly InstalledRecord[];
+}
+
 interface StagedBatch {
 	readonly begin: BatchBegin;
 	readonly partsByIndex: Map<number, BatchPart>;
@@ -22,6 +28,9 @@ interface StagedBatch {
 interface DomainState {
 	readonly incarnation: string;
 	cursor: number;
+	readonly receivedPartSequences: Set<number>;
+	receivedThroughDeliverySequence: number;
+	receiptBaselinePending: boolean;
 	hasCertifiedSnapshot: boolean;
 	lastInstalledBatchId: string | null;
 	lastInstalledCompleteStreamSequence: number;
@@ -53,8 +62,7 @@ export class BridgeProductViewBatchReceiver {
 	readonly #coversKey: (coveredScope: BatchComplete['coveredScope'], key: string) => boolean;
 	readonly #domains = new Map<string, DomainState>();
 	readonly #staleRecordsByDomain = new Map<string, Map<string, InstalledRecord>>();
-	readonly #receivedPartSequences = new Set<number>();
-	#receivedThroughDeliverySequence = 0;
+	readonly #completedInstallations: BridgeProductViewInstallation[] = [];
 
 	constructor(props: {
 		readonly handle: string;
@@ -75,11 +83,19 @@ export class BridgeProductViewBatchReceiver {
 	admitDomain(domain: string, incarnation: string): void {
 		const existing = this.#domains.get(domain);
 		if (existing?.incarnation === incarnation) return;
+		this.#completedInstallations.splice(
+			0,
+			this.#completedInstallations.length,
+			...this.#completedInstallations.filter((installation) => installation.domain !== domain),
+		);
 		if (existing !== undefined && existing.recordsByKey.size > 0) {
 			this.#staleRecordsByDomain.set(domain, new Map(existing.recordsByKey));
 		}
 		this.#domains.set(domain, {
 			cursor: 0,
+			receivedPartSequences: new Set(),
+			receivedThroughDeliverySequence: 0,
+			receiptBaselinePending: true,
 			hasCertifiedSnapshot: false,
 			lastInstalledBatchId: null,
 			lastInstalledCompleteStreamSequence: 0,
@@ -93,9 +109,15 @@ export class BridgeProductViewBatchReceiver {
 
 	setScope(scope: BatchBegin['scope'], scopeRevision: number): void {
 		if (scopeRevision <= this.#scopeRevision) return;
+		this.#completedInstallations.length = 0;
 		this.#scope = scope;
 		this.#scopeRevision = scopeRevision;
-		for (const domain of this.#domains.values()) domain.stage = null;
+		for (const domain of this.#domains.values()) {
+			domain.stage = null;
+			domain.receivedPartSequences.clear();
+			domain.receivedThroughDeliverySequence = 0;
+			domain.receiptBaselinePending = true;
+		}
 	}
 
 	replaceHandle(handle: string, scope: BatchBegin['scope'], scopeRevision: number): void {
@@ -104,12 +126,11 @@ export class BridgeProductViewBatchReceiver {
 			return;
 		}
 		this.#staleRecordsByDomain.clear();
+		this.#completedInstallations.length = 0;
 		for (const [domain, state] of this.#domains) {
 			this.#staleRecordsByDomain.set(domain, new Map(state.recordsByKey));
 		}
 		this.#domains.clear();
-		this.#receivedPartSequences.clear();
-		this.#receivedThroughDeliverySequence = 0;
 		this.#handle = handle;
 		this.#scope = scope;
 		this.#scopeRevision = scopeRevision;
@@ -152,6 +173,11 @@ export class BridgeProductViewBatchReceiver {
 		);
 	}
 
+	/** Includes members whose collection dependency became ready in this turn. */
+	takeInstallations(): readonly BridgeProductViewInstallation[] {
+		return this.#completedInstallations.splice(0);
+	}
+
 	#begin(domainState: DomainState, frame: BatchBegin): BridgeProductBatchAcceptance {
 		if (domainState.lastInstalledBatchId === frame.batchId) return { kind: 'ignored' };
 		if (frame.streamSequence <= domainState.lastInstalledCompleteStreamSequence)
@@ -159,7 +185,9 @@ export class BridgeProductViewBatchReceiver {
 		if (!domainState.hasCertifiedSnapshot && frame.mode !== 'snapshot')
 			return { kind: 'resnapshot', domain: frame.domain };
 		if (frame.targetRevision < domainState.cursor) return { kind: 'ignored' };
-		if (frame.mode !== 'snapshot' && frame.baseRevision !== domainState.cursor) {
+		if (frame.mode !== 'snapshot' && frame.baseRevision < domainState.cursor)
+			return { kind: 'ignored' };
+		if (frame.mode !== 'snapshot' && frame.baseRevision > domainState.cursor) {
 			domainState.stage = null;
 			return { kind: 'resnapshot', domain: frame.domain };
 		}
@@ -178,6 +206,7 @@ export class BridgeProductViewBatchReceiver {
 			return { kind: 'resnapshot', domain: frame.domain };
 		}
 		domainState.stage = { begin: frame, complete: null, partsByIndex: new Map() };
+		if (frame.mode === 'snapshot') domainState.receiptBaselinePending = true;
 		return { kind: 'staged' };
 	}
 
@@ -205,15 +234,31 @@ export class BridgeProductViewBatchReceiver {
 			return { kind: 'resnapshot', domain: frame.domain };
 		}
 		stage.partsByIndex.set(frame.partIndex, frame);
-		this.#receivedPartSequences.add(frame.deliverySequence);
-		while (this.#receivedPartSequences.delete(this.#receivedThroughDeliverySequence + 1)) {
-			this.#receivedThroughDeliverySequence += 1;
+		if (domainState.receiptBaselinePending) {
+			// A resnapshot abandons native's older in-transit credits. The first
+			// received part establishes its sealed batch's sequence base even if
+			// an earlier part in this same batch was delayed or lost.
+			const baseline = frame.deliverySequence - frame.partIndex - 1;
+			if (baseline < domainState.receivedThroughDeliverySequence) {
+				domainState.stage = null;
+				return { kind: 'resnapshot', domain: frame.domain };
+			}
+			domainState.receivedPartSequences.clear();
+			domainState.receivedThroughDeliverySequence = baseline;
+			domainState.receiptBaselinePending = false;
+		}
+		const priorReceivedThrough = domainState.receivedThroughDeliverySequence;
+		domainState.receivedPartSequences.add(frame.deliverySequence);
+		while (
+			domainState.receivedPartSequences.delete(domainState.receivedThroughDeliverySequence + 1)
+		) {
+			domainState.receivedThroughDeliverySequence += 1;
 		}
 		return {
 			kind: 'staged',
-			...(this.#receivedThroughDeliverySequence === 0
+			...(domainState.receivedThroughDeliverySequence === priorReceivedThrough
 				? {}
-				: { receivedThroughDeliverySequence: this.#receivedThroughDeliverySequence }),
+				: { receivedThroughDeliverySequence: domainState.receivedThroughDeliverySequence }),
 		};
 	}
 
@@ -327,6 +372,11 @@ export class BridgeProductViewBatchReceiver {
 		state.lastInstalledBatchId = stage.begin.batchId;
 		state.lastInstalledCompleteStreamSequence = stage.complete?.streamSequence ?? 0;
 		state.stage = null;
+		this.#completedInstallations.push({
+			begin: stage.begin,
+			domain,
+			records: [...nextRecords.values()],
+		});
 		return { kind: 'installed', domain, targetRevision: state.cursor };
 	}
 }

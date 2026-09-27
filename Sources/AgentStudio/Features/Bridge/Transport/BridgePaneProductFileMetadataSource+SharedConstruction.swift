@@ -13,10 +13,11 @@ extension BridgePaneProductFileMetadataSource {
     }
 
     func cancel(subscriptionId: String) async {
-        guard let context = contextBySubscriptionId.removeValue(forKey: subscriptionId),
-            let constructionLease = context.constructionLease
-        else { return }
-        await sharedConstructionBinder.release(constructionLease)
+        guard let context = contextBySubscriptionId.removeValue(forKey: subscriptionId) else { return }
+        await context.manifestIndex.revokeRetainedDescriptors()
+        if let constructionLease = context.constructionLease {
+            await sharedConstructionBinder.release(constructionLease)
+        }
     }
 
     func diagnosticSnapshot() async -> BridgeFileMetadataSourceDiagnostics {
@@ -89,6 +90,7 @@ extension BridgePaneProductFileMetadataSource {
             context.productSource == expectedSource
         else { return }
         contextBySubscriptionId.removeValue(forKey: subscriptionId)
+        await context.manifestIndex.revokeRetainedDescriptors()
         if let constructionLease = context.constructionLease {
             await sharedConstructionBinder.release(constructionLease)
         }
@@ -111,10 +113,27 @@ extension BridgePaneProductFileMetadataSource {
         productSource: BridgeProductFileSourceIdentity,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws {
+        guard
+            let index = contextBySubscriptionId.values.first(where: {
+                $0.productSource == productSource && $0.productAdmission.matches(productAdmission)
+            })?.manifestIndex
+        else { return }
         switch statusResult {
         case .available(let status):
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 (productAdmission.withValidAdmission { true }) == true
+            else { return }
+            guard
+                try await index.updateMemberStatus(
+                    state: .ready,
+                    branchName: status.branch,
+                    ahead: status.summary.aheadCount,
+                    behind: status.summary.behindCount,
+                    staged: status.summary.staged,
+                    unstaged: status.summary.changed,
+                    untracked: status.summary.untracked,
+                    productAdmission: productAdmission
+                )
             else { return }
             try await emit(
                 BridgePaneProductFileMetadataEncoding.statusEvent(
@@ -125,6 +144,18 @@ extension BridgePaneProductFileMetadataSource {
         case .unavailable:
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 (productAdmission.withValidAdmission { true }) == true
+            else { return }
+            guard
+                try await index.updateMemberStatus(
+                    state: .stale,
+                    branchName: nil,
+                    ahead: nil,
+                    behind: nil,
+                    staged: nil,
+                    unstaged: nil,
+                    untracked: nil,
+                    productAdmission: productAdmission
+                )
             else { return }
             try await emit(
                 .statusPatch(.init(patch: .invalidated, source: productSource))

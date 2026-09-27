@@ -44,6 +44,36 @@ struct BridgeProductFileBatchRow: Codable, Equatable, Sendable {
     let sizeBytes: Int?
     let sortKey: String
 
+    init(
+        sourceRow: BridgeWorktreeTreeRowMetadata,
+        descriptorOutcome: BridgeProductFileDescriptorReadyPayload?
+    ) throws {
+        let parsedChangeStatus = sourceRow.changeStatus.flatMap(BridgeProductFileChangeStatus.init(rawValue:))
+        guard sourceRow.changeStatus == nil || parsedChangeStatus != nil else {
+            throw BridgeProductContractDecoding.invalidValue("Unknown File row change status", codingPath: [])
+        }
+        changeStatus = parsedChangeStatus
+        self.descriptorOutcome = descriptorOutcome
+        depth = sourceRow.depth
+        displayKey = sourceRow.path
+        fileClass = sourceRow.fileClass
+        fileId = sourceRow.fileId
+        kind = sourceRow.isDirectory ? .directory : .file
+        name = sourceRow.name
+        lineCount = sourceRow.lineCount
+        oldPath = nil
+        parentDisplayKey = sourceRow.parentPath
+        if let descriptorOutcome, case .available(let descriptor) = descriptorOutcome.availability {
+            readDescriptor = descriptor
+        } else {
+            readDescriptor = nil
+        }
+        rowId = sourceRow.rowId
+        sizeBytes = sourceRow.sizeBytes
+        sortKey = sourceRow.name
+        try validate(codingPath: [])
+    }
+
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,

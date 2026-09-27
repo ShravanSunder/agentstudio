@@ -238,6 +238,8 @@ export function parseBridgeProductRegisteredControlRequest(
 			break;
 		}
 		case 'subscription.cancel':
+		case 'subscription.setScope':
+		case 'subscription.resnapshot':
 			bridgeProductMetadataApplicationRegistry.lookup(request.subscriptionKind);
 			break;
 		case 'workerSession.resync': {

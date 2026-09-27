@@ -13,6 +13,8 @@ extension BridgePaneProductFileMetadataSource {
         let subscriptionId: String
     }
 
+    // WIP checkpoint: split per-subscription publication before the 1.4c cutover commit.
+    // swiftlint:disable:next function_body_length
     func publish(
         changeset: FileChangeset,
         productAdmission: BridgeProductAdmissionContext,
@@ -75,6 +77,34 @@ extension BridgePaneProductFileMetadataSource {
                 removedRows = rows
             case .rejected:
                 return []
+            }
+            if let gitStatusResult {
+                let acceptedStatus: Bool
+                switch gitStatusResult {
+                case .available(let status):
+                    acceptedStatus = try await currentContext.manifestIndex.updateMemberStatus(
+                        state: .ready,
+                        branchName: status.branch,
+                        ahead: status.summary.aheadCount,
+                        behind: status.summary.behindCount,
+                        staged: status.summary.staged,
+                        unstaged: status.summary.changed,
+                        untracked: status.summary.untracked,
+                        productAdmission: productAdmission
+                    )
+                case .unavailable:
+                    acceptedStatus = try await currentContext.manifestIndex.updateMemberStatus(
+                        state: .stale,
+                        branchName: nil,
+                        ahead: nil,
+                        behind: nil,
+                        staged: nil,
+                        unstaged: nil,
+                        untracked: nil,
+                        productAdmission: productAdmission
+                    )
+                }
+                guard acceptedStatus else { return [] }
             }
             guard
                 let subscriptionEmissions = try makeChangesetEmissions(
