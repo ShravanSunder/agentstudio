@@ -7,7 +7,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("Background fact apply governor", .serialized)
+@Suite("Background fact apply governor")
 struct BackgroundFactApplyGovernorTests {
     private final class AppliedFactsBox<Value: Sendable>: Sendable {
         private let storage = Mutex<[Value]>([])
