@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import CryptoKit
 import Foundation
