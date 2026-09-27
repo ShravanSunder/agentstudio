@@ -687,6 +687,18 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
     }
 
+    @Test("WebKit dispatch uses its serial policy")
+    func webkitDispatchUsesItsSerialPolicy() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let dispatcher = try shellFunction(named: "dispatch_isolated_suites", in: helperScript)
+        let webkitRunner = try shellFunction(named: "run_webkit_suites", in: helperScript)
+
+        #expect(helperScript.contains("SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY=1"))
+        #expect(dispatcher.contains("if [ \"$lane_kind\" = webkit ]; then"))
+        #expect(dispatcher.contains("concurrency=\"$(swift_test_webkit_process_concurrency)\""))
+        #expect(webkitRunner.contains("dispatch_isolated_suites webkit \"${selected_filters[@]}\""))
+    }
+
     @Test("large lane process-isolates suites that retain process-global runtimes")
     func largeLaneProcessIsolatesProcessGlobalRuntimeSuites() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)

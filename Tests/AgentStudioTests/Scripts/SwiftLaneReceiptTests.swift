@@ -291,16 +291,16 @@ struct SwiftLaneReceiptTests {
         )
     }
 
-    @Test("a crashed WebKit suite fails the lane once, named with its signal, and is never retried")
+    @Test("all crashed WebKit suites fail the lane, are tallied, and are never retried")
     func crashedWebKitSuiteFailsTheLaneWithoutRetry() async throws {
-        // The helper reports one crash while the other filter still runs.
+        // Two crashes must both be recorded while the healthy filter still runs.
         let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-webkit-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: workDirectory) }
 
         let laneOutput = try await laneBashAllowingFailure(
             "mkdir -p '\(workDirectory)/bin'; "
                 + "printf '#!/bin/bash\\necho started >> \"\(workDirectory)/invocations\"\\n"
-                + "if [[ \"$*\" == *CrashingSuite* ]]; then "
+                + "if [[ \"$*\" == *CrashingSuite* || \"$*\" == *SecondCrashingSuite* ]]; then "
                 + "echo \"error: Exited with unexpected signal code 11\"; exit 1; fi\\n"
                 + "echo HEALTHY_WEBKIT_RAN\\n' > '\(workDirectory)/bin/fake-helper'; "
                 + "chmod +x '\(workDirectory)/bin/fake-helper'; "
@@ -313,6 +313,7 @@ struct SwiftLaneReceiptTests {
                 + "swift_testing_helper_path() { echo '\(workDirectory)/bin/fake-helper'; }; "
                 + "swift_testing_framework_path() { echo '\(workDirectory)'; }; "
                 + "webkit_suite_filters() { printf 'WebKitSerializedTests/CrashingSuite\\n"
+                + "WebKitSerializedTests/SecondCrashingSuite\\n"
                 + "WebKitSerializedTests/HealthySuite\\n'; }; "
                 + "run_webkit_suites; echo \"LANE_STATUS=$?\"; "
                 + "echo \"INVOCATIONS=$(wc -l < '\(workDirectory)/invocations' | tr -d '[:space:]')\"; "
@@ -320,12 +321,17 @@ struct SwiftLaneReceiptTests {
         )
 
         #expect(laneOutput.contains("LANE_STATUS=1"))
-        #expect(laneOutput.contains("INVOCATIONS=2"))
+        #expect(laneOutput.contains("INVOCATIONS=3"))
+        #expect(laneOutput.contains("WebKit process-global concurrency: 1"))
         #expect(laneOutput.contains("HEALTHY_WEBKIT_RAN"))
         #expect(
             laneOutput.contains("WebKit suite failed: WebKitSerializedTests/CrashingSuite status=1 signal=SEGV")
         )
         #expect(laneOutput.contains("WebKitSerializedTests/CrashingSuite\t1\tSEGV"))
+        #expect(
+            laneOutput.contains("WebKit suite failed: WebKitSerializedTests/SecondCrashingSuite status=1 signal=SEGV")
+        )
+        #expect(laneOutput.contains("WebKitSerializedTests/SecondCrashingSuite\t1\tSEGV"))
         #expect(!laneOutput.contains("retrying"))
     }
 

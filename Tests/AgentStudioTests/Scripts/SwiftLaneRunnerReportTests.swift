@@ -756,6 +756,21 @@ struct SwiftLaneRunnerReportTests {
         #expect(concurrency >= 1)
     }
 
+    @Test("WebKit process fan-out stays at one for time-coupled Bridge waits")
+    func webkitProcessFanOutStaysAtOneForTimeCoupledBridgeWaits() async throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let concurrencyFunction = try shellFunction(
+            named: "swift_test_webkit_process_concurrency",
+            in: helperScript
+        )
+        let observedConcurrency = try await runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_webkit_process_concurrency"
+        )
+
+        #expect(concurrencyFunction.contains("SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY"))
+        #expect(observedConcurrency.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
+    }
+
     @Test("announced-test counter tracks posted start events, not the cap")
     func announcedTestCounterTracksPostedStartEvents() async throws {
         // a and b overlap (peak 2), a closes, then c opens (2 again). The

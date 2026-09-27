@@ -69,6 +69,16 @@ swift_test_isolated_process_concurrency() {
   fi
 }
 
+# Keep WebKit suites serial until the time-coupled Bridge waits are event-driven.
+# BridgeProductStreamWebKitFeasibilityWebKitTests.swift:21,26 use 30s/8s waits, and
+# BridgeProductRealGitFileAndReviewWebKitTests.swift:145 waits for foreground
+# catch-up; all three exceeded their budgets under three-process, three-core CI.
+SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY=1
+
+swift_test_webkit_process_concurrency() {
+  echo "$SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY"
+}
+
 # Largest number of tests whose START EVENT had been posted but whose result had
 # not, as an ordinal count over one captured console stream. These tests were
 # ANNOUNCED, not started or running, and the lane report labels them that way.
@@ -1465,8 +1475,13 @@ dispatch_isolated_suites() {
   local concurrency next_filter=0 active_count=0 dispatch_ordinal=0
   local slot suite_filter wrapper_pid completed_slot completed_pid completed_status waited_status
   local lane_status=0 timing_eligible_ms fifo_path
-  concurrency="$(swift_test_isolated_process_concurrency)"
-  echo "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
+  if [ "$lane_kind" = webkit ]; then
+    concurrency="$(swift_test_webkit_process_concurrency)"
+    echo "[$LOG_PREFIX] WebKit process-global concurrency: $concurrency"
+  else
+    concurrency="$(swift_test_isolated_process_concurrency)"
+    echo "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
+  fi
   timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
   fifo_path="$(mktemp "${TMPDIR:-/tmp}/agentstudio-isolated-completions.XXXXXX")"
   rm -f "$fifo_path"
