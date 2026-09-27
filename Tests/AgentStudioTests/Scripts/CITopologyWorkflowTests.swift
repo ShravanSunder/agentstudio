@@ -87,6 +87,37 @@ struct CITopologyWorkflowTests {
         #expect(lintInstaller.contains("echo \"PATH=$tool_bin:$swiftlint_bin:$PATH\" >> \"$GITHUB_ENV\""))
         #expect(lintInstaller.contains("swiftlint\" rules --enabled --config .swiftlint.yml"))
     }
+
+    @Test("release restores vendor caches without saving a Swift build cache")
+    func releaseRestoresVendorCachesWithoutSavingSwiftBuildCache() throws {
+        let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
+
+        #expect(!releaseWorkflow.contains("name: Cache Swift build"))
+        #expect(!releaseWorkflow.contains("path: .build-ci"))
+
+        for stepName in ["Cache Ghostty artifacts", "Cache zmx artifacts", "Cache Zig compilation"] {
+            let cacheStep = try topologyBlock(
+                startingWith: "      - name: \(stepName)\n",
+                endingBefore: "\n      - ",
+                in: releaseWorkflow
+            )
+            #expect(cacheStep.contains("uses: actions/cache/restore@v4"))
+        }
+    }
+
+    @Test("code-quality mise cache saves only on main pushes")
+    func codeQualityMiseCacheSavesOnlyOnMainPushes() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let qualityJob = try topologyJob(named: "code-quality", in: workflow)
+        let miseStep = try topologyBlock(
+            startingWith: "      - name: Setup mise\n",
+            endingBefore: "\n      - ",
+            in: qualityJob
+        )
+
+        #expect(miseStep.contains("uses: jdx/mise-action@v3"))
+        #expect(miseStep.contains("cache_save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"))
+    }
 }
 
 private enum CITopologyWorkflowError: Error {
