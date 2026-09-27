@@ -63,17 +63,23 @@ package struct SidebarGitStatusChips: View {
     package let octiconLoader: OcticonLoader
     package let usesPanesLoadingChip: Bool
     package let showsDetailedGitChips: Bool
+    package let showsDiffChip: Bool
+    package let showsSyncChip: Bool
 
     package init(
         branchStatus: GitBranchStatus,
         octiconLoader: OcticonLoader,
         usesPanesLoadingChip: Bool = false,
-        showsDetailedGitChips: Bool = true
+        showsDetailedGitChips: Bool = true,
+        showsDiffChip: Bool = true,
+        showsSyncChip: Bool = true
     ) {
         self.branchStatus = branchStatus
         self.octiconLoader = octiconLoader
         self.usesPanesLoadingChip = usesPanesLoadingChip
         self.showsDetailedGitChips = showsDetailedGitChips
+        self.showsDiffChip = showsDiffChip
+        self.showsSyncChip = showsSyncChip
     }
 
     package nonisolated static func diffDetail(
@@ -153,11 +159,13 @@ package struct SidebarGitStatusChips: View {
                 SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
             }
 
-            if showsDetailedGitChips, let diffDetail = Self.diffDetail(branchStatus: branchStatus) {
+            if showsDetailedGitChips, showsDiffChip,
+                let diffDetail = Self.diffDetail(branchStatus: branchStatus)
+            {
                 SidebarDiffChip(octiconLoader: octiconLoader, detail: diffDetail)
             }
 
-            if showsDetailedGitChips, Self.showsSync(branchStatus: branchStatus) {
+            if showsDetailedGitChips, showsSyncChip, Self.showsSync(branchStatus: branchStatus) {
                 SidebarStatusSyncChip(
                     octiconLoader: octiconLoader,
                     aheadText: syncCounts.ahead,

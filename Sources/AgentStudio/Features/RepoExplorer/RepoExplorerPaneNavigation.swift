@@ -3,6 +3,27 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
 
+enum RepoExplorerPaneChipDetailLevel {
+    case full
+    case withoutSync
+    case summaryOnly
+
+    var showsChanges: Bool { self != .summaryOnly }
+    var showsSync: Bool { self == .full }
+}
+
+struct RepoExplorerPaneChipOverflow<Content: View>: View {
+    @ViewBuilder let content: (RepoExplorerPaneChipDetailLevel) -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            content(.full).fixedSize(horizontal: true, vertical: true)
+            content(.withoutSync).fixedSize(horizontal: true, vertical: true)
+            content(.summaryOnly).fixedSize(horizontal: true, vertical: true)
+        }
+    }
+}
+
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader
@@ -134,41 +155,47 @@ struct RepoExplorerPaneRowContent: View {
         SidebarStatusChipRow(
             isPendingPullRequestFacts: false
         ) {
-            if isDrawerPane {
-                SidebarChip(
-                    icon: .system(.rectangleBottomhalfFilled),
-                    octiconLoader: octiconLoader,
-                    text: "Drawer",
-                    style: .neutral
-                )
-            }
-            if let branchStatus,
-                SidebarGitStatusChips.hasContent(
-                    branchStatus: branchStatus,
-                    usesPanesLoadingChip: true,
-                    showsDetailedGitChips: showsExpandedChips
-                )
-            {
-                SidebarGitStatusChips(
-                    branchStatus: branchStatus,
-                    octiconLoader: octiconLoader,
-                    usesPanesLoadingChip: true,
-                    showsDetailedGitChips: showsExpandedChips
-                )
-            }
-            SidebarChip(
-                icon: .system(.clock),
-                octiconLoader: octiconLoader,
-                text: recencyText,
-                style: recencyChipStyle
-            )
-            if isActive {
-                SidebarChip(
-                    icon: .system(.playCircleFill),
-                    octiconLoader: octiconLoader,
-                    text: nil,
-                    style: .accent(.accentColor)
-                )
+            RepoExplorerPaneChipOverflow { detailLevel in
+                HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                    if isDrawerPane {
+                        SidebarChip(
+                            icon: .system(.rectangleBottomhalfFilled),
+                            octiconLoader: octiconLoader,
+                            text: "Drawer",
+                            style: .neutral
+                        )
+                    }
+                    if let branchStatus,
+                        SidebarGitStatusChips.hasContent(
+                            branchStatus: branchStatus,
+                            usesPanesLoadingChip: true,
+                            showsDetailedGitChips: showsExpandedChips
+                        )
+                    {
+                        SidebarGitStatusChips(
+                            branchStatus: branchStatus,
+                            octiconLoader: octiconLoader,
+                            usesPanesLoadingChip: true,
+                            showsDetailedGitChips: showsExpandedChips,
+                            showsDiffChip: detailLevel.showsChanges,
+                            showsSyncChip: detailLevel.showsSync
+                        )
+                    }
+                    SidebarChip(
+                        icon: .system(.clock),
+                        octiconLoader: octiconLoader,
+                        text: recencyText,
+                        style: recencyChipStyle
+                    )
+                    if isActive {
+                        SidebarChip(
+                            icon: .system(.playCircleFill),
+                            octiconLoader: octiconLoader,
+                            text: nil,
+                            style: .accent(.accentColor)
+                        )
+                    }
+                }
             }
         }
     }
