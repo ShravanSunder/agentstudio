@@ -63,6 +63,9 @@ struct CITopologyWorkflowTests {
         #expect(swiftJob.contains("runs-on: macos-26"))
         #expect(qualityJob.contains("run: mise run lint:portable"))
         #expect(qualityJob.contains("run: mise run test:architecture"))
+        // Lint installs only its pinned tools; a blanket `mise install` pulled zig from a rate-limited mirror.
+        #expect(qualityJob.contains("install: false"))
+        #expect(qualityJob.contains("MISE_DISABLE_TOOLS: zig"))
         #expect(qualityJob.contains("check-ledger-ratchet.sh"))
         #expect(qualityJob.contains("architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-"))
         #expect(qualityJob.contains("github.ref == 'refs/heads/main'"))

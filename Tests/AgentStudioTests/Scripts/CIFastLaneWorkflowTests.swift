@@ -628,7 +628,6 @@ struct CIFastLaneWorkflowTests {
             "TabBarAffectedItemTelemetryTests",
             "MainSplitViewControllerSidebarStateTests",
             "FlatTabStripContainerAllMinimizedTests",
-            "BackgroundFactApplyGovernorTests",
             "TerminalPaneMountViewExitBehaviorTests",
             "TerminalActivityProjectorTests",
             "GitWorkingDirectoryProjectorTests",
