@@ -37,8 +37,9 @@ package struct BridgeRevealFileTarget: Hashable, Sendable, Codable {
     }
 }
 
-/// The caller chooses whether the file stays in Open files or requests human
-/// approval to take over the visible pane. Background is the default at IPC.
+/// The agent chooses whether the file stays in Open files or takes over the
+/// visible pane. Take-over needs human approval, which the IPC layer owns.
+/// Background is the default at IPC.
 package enum BridgeAgentShowMode: String, Hashable, Sendable, Codable {
     case background
     case takeOver
@@ -57,8 +58,9 @@ package enum BridgeAgentShowMode: String, Hashable, Sendable, Codable {
     }
 }
 
-/// Exactly one answer to one show request. A declined take-over leaves the
-/// already-opened file in the receiver's background inventory.
+/// Exactly one answer to one show request. `declined` comes only from the IPC
+/// approval gate, which then opens the file in the background. `opened` also
+/// answers an approved take-over that the human path didn't display.
 package enum BridgeAgentShowResult: String, Hashable, Sendable, Codable {
     case opened
     case shown
