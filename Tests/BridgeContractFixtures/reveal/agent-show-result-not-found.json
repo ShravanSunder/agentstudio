@@ -1,5 +1,5 @@
 {
-  "union": "BridgeAgentRevealSettlement",
+  "union": "BridgeAgentShowResult",
   "value": {
     "kind": "notFound"
   }

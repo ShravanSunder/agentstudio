@@ -1,0 +1,7 @@
+{
+  "union": "BridgeAgentShowMode",
+  "value": {
+    "kind": "takeOver",
+    "extra": true
+  }
+}

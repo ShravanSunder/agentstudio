@@ -1,5 +1,5 @@
 {
-  "union": "BridgeHumanOpenSettlement",
+  "union": "BridgeAgentShowResult",
   "value": {
     "kind": "shown"
   }

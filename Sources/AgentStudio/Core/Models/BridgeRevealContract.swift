@@ -37,147 +37,47 @@ package struct BridgeRevealFileTarget: Hashable, Sendable, Codable {
     }
 }
 
-package enum BridgeRevealAdmissionResult: Hashable, Sendable, Codable {
-    case admitted(operationId: UUID)
-    case unsupportedTarget
-    case staleOwner
-    case staleReceiver
+/// The caller chooses whether the file stays in Open files or requests human
+/// approval to take over the visible pane. Background is the default at IPC.
+package enum BridgeAgentShowMode: String, Hashable, Sendable, Codable {
+    case background
+    case takeOver
 
     package init(from decoder: Decoder) throws {
-        let wire = try BridgeOutcomeWire.decode(
-            decoder,
-            fieldsByKind: [
-                "admitted": ["operationId"], "unsupportedTarget": [],
-                "staleOwner": [], "staleReceiver": [],
-            ])
-        switch wire.kind {
-        case "admitted": self = .admitted(operationId: try BridgeOutcomeWire.require(wire.operationId, decoder))
-        case "unsupportedTarget": self = .unsupportedTarget
-        case "staleOwner": self = .staleOwner
-        case "staleReceiver": self = .staleReceiver
-        default: throw BridgeContractWire.invalidKind(decoder)
-        }
+        let container = try BridgeContractWire.decode(
+            decoder, fieldsByKind: ["background": [], "takeOver": []]
+        )
+        let kind = try container.decode(String.self, forKey: .kind)
+        guard let mode = Self(rawValue: kind) else { throw BridgeContractWire.invalidKind(decoder) }
+        self = mode
     }
 
-    package func encode(to encoder: Encoder) throws { try wire.encode(to: encoder) }
-
-    private var wire: BridgeOutcomeWire {
-        switch self {
-        case .admitted(let operationId): BridgeOutcomeWire("admitted", operationId: operationId)
-        case .unsupportedTarget: BridgeOutcomeWire("unsupportedTarget")
-        case .staleOwner: BridgeOutcomeWire("staleOwner")
-        case .staleReceiver: BridgeOutcomeWire("staleReceiver")
-        }
+    package func encode(to encoder: Encoder) throws {
+        try BridgeOutcomeWire(rawValue).encode(to: encoder)
     }
 }
 
-package enum BridgeAgentRevealSettlement: Hashable, Sendable, Codable {
+/// Exactly one answer to one show request. A declined take-over leaves the
+/// already-opened file in the receiver's background inventory.
+package enum BridgeAgentShowResult: String, Hashable, Sendable, Codable {
+    case opened
     case shown
-    case waitingInOpenView
-    case superseded
-    case unavailable
+    case declined
     case notFound
-    case staleOwner
-    case cancelled
-    case outcomeUnknown
+    case paneUnavailable
 
     package init(from decoder: Decoder) throws {
-        let wire = try BridgeOutcomeWire.decode(
+        let container = try BridgeContractWire.decode(
             decoder,
             fieldsByKind: [
-                "shown": [], "waitingInOpenView": [], "superseded": [], "unavailable": [],
-                "notFound": [], "staleOwner": [], "cancelled": [], "outcomeUnknown": [],
+                "opened": [], "shown": [], "declined": [], "notFound": [], "paneUnavailable": [],
             ])
-        switch wire.kind {
-        case "shown": self = .shown
-        case "waitingInOpenView": self = .waitingInOpenView
-        case "superseded": self = .superseded
-        case "unavailable": self = .unavailable
-        case "notFound": self = .notFound
-        case "staleOwner": self = .staleOwner
-        case "cancelled": self = .cancelled
-        case "outcomeUnknown": self = .outcomeUnknown
-        default: throw BridgeContractWire.invalidKind(decoder)
-        }
-    }
-
-    package func encode(to encoder: Encoder) throws { try BridgeOutcomeWire(kind).encode(to: encoder) }
-
-    private var kind: String {
-        switch self {
-        case .shown: "shown"
-        case .waitingInOpenView: "waitingInOpenView"
-        case .superseded: "superseded"
-        case .unavailable: "unavailable"
-        case .notFound: "notFound"
-        case .staleOwner: "staleOwner"
-        case .cancelled: "cancelled"
-        case .outcomeUnknown: "outcomeUnknown"
-        }
-    }
-}
-
-package enum BridgeHumanOpenSettlement: Hashable, Sendable, Codable {
-    case shown
-    case draftKept(reason: BridgeDraftKeptReason)
-    case superseded
-    case unavailable
-    case outcomeUnknown
-
-    package init(from decoder: Decoder) throws {
-        let wire = try BridgeOutcomeWire.decode(
-            decoder,
-            fieldsByKind: [
-                "shown": [], "draftKept": ["reason"], "superseded": [],
-                "unavailable": [], "outcomeUnknown": [],
-            ])
-        switch wire.kind {
-        case "shown": self = .shown
-        case "draftKept": self = .draftKept(reason: try BridgeOutcomeWire.require(wire.reason, decoder))
-        case "superseded": self = .superseded
-        case "unavailable": self = .unavailable
-        case "outcomeUnknown": self = .outcomeUnknown
-        default: throw BridgeContractWire.invalidKind(decoder)
-        }
+        let kind = try container.decode(String.self, forKey: .kind)
+        guard let result = Self(rawValue: kind) else { throw BridgeContractWire.invalidKind(decoder) }
+        self = result
     }
 
     package func encode(to encoder: Encoder) throws {
-        switch self {
-        case .shown: try BridgeOutcomeWire("shown").encode(to: encoder)
-        case .draftKept(let reason): try BridgeOutcomeWire("draftKept", reason: reason).encode(to: encoder)
-        case .superseded: try BridgeOutcomeWire("superseded").encode(to: encoder)
-        case .unavailable: try BridgeOutcomeWire("unavailable").encode(to: encoder)
-        case .outcomeUnknown: try BridgeOutcomeWire("outcomeUnknown").encode(to: encoder)
-        }
-    }
-}
-
-package struct BridgeRetainedOpenViewItem: Hashable, Sendable, Codable {
-    package let target: BridgeRevealFileTarget
-    package let requestedBy: BridgeLinkContributor
-    package let retainedAt: Date
-
-    package init(target: BridgeRevealFileTarget, requestedBy: BridgeLinkContributor, retainedAt: Date) {
-        self.target = target
-        self.requestedBy = requestedBy
-        self.retainedAt = retainedAt
-    }
-
-    package init(from decoder: Decoder) throws {
-        let container = try BridgeContractWire.decodeFields(
-            decoder, required: ["target", "requestedBy", "retainedAt"]
-        )
-        self.init(
-            target: try container.decode(BridgeRevealFileTarget.self, forKey: .target),
-            requestedBy: try container.decode(BridgeLinkContributor.self, forKey: .requestedBy),
-            retainedAt: try container.decode(Date.self, forKey: .retainedAt)
-        )
-    }
-
-    package func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: BridgeContractWire.Key.self)
-        try container.encode(target, forKey: .target)
-        try container.encode(requestedBy, forKey: .requestedBy)
-        try container.encode(retainedAt, forKey: .retainedAt)
+        try BridgeOutcomeWire(rawValue).encode(to: encoder)
     }
 }
