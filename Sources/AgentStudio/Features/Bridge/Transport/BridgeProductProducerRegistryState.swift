@@ -14,10 +14,6 @@ enum BridgeProductProducerKey: Equatable {
         return true
     }
 
-    var requiresWorkerObservation: Bool {
-        true
-    }
-
     var maximumAdmittedSequence: Int {
         switch self {
         case .metadata:
@@ -293,7 +289,7 @@ extension BridgeProductProducerRegistry {
     ) -> BridgeProductProducerFrameDelivery {
         let receipt = BridgeProductProducerFrameReceipt(
             producerLease: lease,
-            requiresWorkerObservation: state.key.requiresWorkerObservation,
+            requiresWorkerObservation: frame.requiresWorkerObservation,
             sequence: frame.sequence,
             nonce: UUID()
         )

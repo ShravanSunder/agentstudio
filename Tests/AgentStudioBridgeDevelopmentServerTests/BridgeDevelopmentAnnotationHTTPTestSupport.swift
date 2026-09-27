@@ -720,45 +720,6 @@ func waitForAcknowledgedSubscription(
     }
 }
 
-func waitForHTTPAnnotationCatalogCommit(
-    client: some TestClientProtocol,
-    connection: HTTPProductConnection,
-    recorder: HTTPMetadataFrameRecorder
-) async throws -> BridgeProductWorktreeAnnotationEvent.Catalog {
-    try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: recorder
-    ) { frame in
-        guard case .subscriptionData(let dataFrame) = frame,
-            let event = dataFrame.data.fileAnnotationsEvent,
-            case .catalog(let catalog) = event,
-            case .commit = catalog.transfer
-        else { return nil }
-        return catalog
-    }
-}
-
-func waitForHTTPAnnotationSessionChange(
-    client: some TestClientProtocol,
-    connection: HTTPProductConnection,
-    recorder: HTTPMetadataFrameRecorder,
-    expectedSessionID: UUID
-) async throws -> BridgeProductWorktreeAnnotationEvent.SessionChanged {
-    try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: recorder
-    ) { frame in
-        guard case .subscriptionData(let dataFrame) = frame,
-            let event = dataFrame.data.fileAnnotationsEvent,
-            case .sessionChanged(let sessionChanged) = event,
-            sessionChanged.sessionID.rawValue == expectedSessionID
-        else { return nil }
-        return sessionChanged
-    }
-}
-
 func waitForAcknowledgedMetadataFrame<MatchedValue: Sendable>(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
@@ -778,11 +739,17 @@ func waitForAcknowledgedMetadataFrame<MatchedValue: Sendable>(
     }
 }
 
-private func acknowledgeHTTPMetadataFrame(
+func acknowledgeHTTPMetadataFrame(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
     frame: BridgeProductMetadataFrame
 ) async throws {
+    if case .batch(let batch) = frame {
+        if case .part(let part) = batch {
+            try await acknowledgeHTTPViewPart(client: client, connection: connection, part: part)
+        }
+        return
+    }
     let identity = metadataFrameIdentity(frame)
     let capabilityHeader = try #require(
         HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)

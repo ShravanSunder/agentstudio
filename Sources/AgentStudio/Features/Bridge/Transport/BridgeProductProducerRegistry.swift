@@ -126,7 +126,7 @@ struct BridgeProductProducerRegistry {
         guard sequence < state.key.maximumAdmittedSequence else {
             return .rejected(.sequenceExhausted)
         }
-        let encodedFrame: Data
+        let encodedFrame: BridgeProductValidatedProducerFrame
         do {
             encodedFrame = try BridgeProductProducerFrameValidator.encode(
                 for: state.key,
@@ -137,17 +137,18 @@ struct BridgeProductProducerRegistry {
         } catch let validationError as BridgeProductProducerFrameValidationError {
             return .rejected(validationError.rejection)
         }
-        if let rejection = frameSizeRejection(for: encodedFrame) {
+        if let rejection = frameSizeRejection(for: encodedFrame.data) {
             return .rejected(rejection)
         }
         let frame = BridgeProductQueuedProducerFrame(
-            data: encodedFrame,
+            data: encodedFrame.data,
             sequence: sequence,
             terminal: false,
-            requiredOpening: true
+            requiredOpening: true,
+            requiresWorkerObservation: encodedFrame.requiresWorkerObservation
         )
         state.queuedFrames.append(frame)
-        state.queuedByteCount = encodedFrame.count
+        state.queuedByteCount = encodedFrame.data.count
         state.openingFrameState = .queued
         commitNextSequence(after: sequence, state: &state)
         producersByLeaseId[lease.id] = state
@@ -176,9 +177,9 @@ struct BridgeProductProducerRegistry {
         guard candidateSequence < state.key.maximumAdmittedSequence else {
             return .rejected(.sequenceExhausted)
         }
-        let candidateData: Data
+        let candidateFrame: BridgeProductValidatedProducerFrame
         do {
-            candidateData = try BridgeProductProducerFrameValidator.encode(
+            candidateFrame = try BridgeProductProducerFrameValidator.encode(
                 for: state.key,
                 sequence: candidateSequence,
                 intent: .nonterminal,
@@ -187,15 +188,15 @@ struct BridgeProductProducerRegistry {
         } catch let validationError as BridgeProductProducerFrameValidationError {
             return .rejected(validationError.rejection)
         }
-        if let rejection = frameSizeRejection(for: candidateData) {
+        if let rejection = frameSizeRejection(for: candidateFrame.data) {
             return .rejected(rejection)
         }
         let nonterminalFrameLimit = limits.maximumQueuedFrameCount - limits.terminalFrameReserve
         if state.queuedFrames.count < nonterminalFrameLimit,
-            state.queuedByteCount + candidateData.count <= limits.maximumQueuedByteCount
+            state.queuedByteCount + candidateFrame.data.count <= limits.maximumQueuedByteCount
         {
             return appendFrame(
-                data: candidateData,
+                validatedFrame: candidateFrame,
                 sequence: candidateSequence,
                 terminal: false,
                 lease: lease,
@@ -210,9 +211,9 @@ struct BridgeProductProducerRegistry {
         }
 
         let replacementSequence = state.queuedFrames.first?.sequence ?? candidateSequence
-        let resetData: Data
+        let resetFrame: BridgeProductValidatedProducerFrame
         do {
-            resetData = try BridgeProductProducerFrameValidator.encode(
+            resetFrame = try BridgeProductProducerFrameValidator.encode(
                 for: state.key,
                 sequence: replacementSequence,
                 intent: .terminal,
@@ -221,11 +222,11 @@ struct BridgeProductProducerRegistry {
         } catch let validationError as BridgeProductProducerFrameValidationError {
             return .rejected(validationError.rejection)
         }
-        if let rejection = frameSizeRejection(for: resetData) {
+        if let rejection = frameSizeRejection(for: resetFrame.data) {
             return .rejected(rejection)
         }
         return replaceQueueWithTerminal(
-            data: resetData,
+            validatedFrame: resetFrame,
             sequence: replacementSequence,
             lease: lease,
             state: &state
@@ -250,9 +251,9 @@ struct BridgeProductProducerRegistry {
         guard candidateSequence <= state.key.maximumAdmittedSequence else {
             return .rejected(.sequenceExhausted)
         }
-        let candidateData: Data
+        let candidateFrame: BridgeProductValidatedProducerFrame
         do {
-            candidateData = try BridgeProductProducerFrameValidator.encode(
+            candidateFrame = try BridgeProductProducerFrameValidator.encode(
                 for: state.key,
                 sequence: candidateSequence,
                 intent: .terminal,
@@ -261,14 +262,14 @@ struct BridgeProductProducerRegistry {
         } catch let validationError as BridgeProductProducerFrameValidationError {
             return .rejected(validationError.rejection)
         }
-        if let rejection = frameSizeRejection(for: candidateData) {
+        if let rejection = frameSizeRejection(for: candidateFrame.data) {
             return .rejected(rejection)
         }
         if state.queuedFrames.count < limits.maximumQueuedFrameCount,
-            state.queuedByteCount + candidateData.count <= limits.maximumQueuedByteCount
+            state.queuedByteCount + candidateFrame.data.count <= limits.maximumQueuedByteCount
         {
             return appendFrame(
-                data: candidateData,
+                validatedFrame: candidateFrame,
                 sequence: candidateSequence,
                 terminal: true,
                 lease: lease,
@@ -283,12 +284,12 @@ struct BridgeProductProducerRegistry {
         }
 
         let replacementSequence = state.queuedFrames.first?.sequence ?? candidateSequence
-        let replacementData: Data
+        let replacementFrame: BridgeProductValidatedProducerFrame
         if replacementSequence == candidateSequence {
-            replacementData = candidateData
+            replacementFrame = candidateFrame
         } else {
             do {
-                replacementData = try BridgeProductProducerFrameValidator.encode(
+                replacementFrame = try BridgeProductProducerFrameValidator.encode(
                     for: state.key,
                     sequence: replacementSequence,
                     intent: .terminal,
@@ -298,11 +299,11 @@ struct BridgeProductProducerRegistry {
                 return .rejected(validationError.rejection)
             }
         }
-        if let rejection = frameSizeRejection(for: replacementData) {
+        if let rejection = frameSizeRejection(for: replacementFrame.data) {
             return .rejected(rejection)
         }
         return replaceQueueWithTerminal(
-            data: replacementData,
+            validatedFrame: replacementFrame,
             sequence: replacementSequence,
             lease: lease,
             state: &state
@@ -531,20 +532,21 @@ struct BridgeProductProducerRegistry {
     }
 
     private mutating func appendFrame(
-        data: Data,
+        validatedFrame: BridgeProductValidatedProducerFrame,
         sequence: Int,
         terminal: Bool,
         lease: BridgeProductProducerLease,
         state: inout BridgeProductProducerState
     ) -> BridgeProductProducerEnqueueResult {
         let frame = BridgeProductQueuedProducerFrame(
-            data: data,
+            data: validatedFrame.data,
             sequence: sequence,
             terminal: terminal,
-            requiredOpening: false
+            requiredOpening: false,
+            requiresWorkerObservation: validatedFrame.requiresWorkerObservation
         )
         state.queuedFrames.append(frame)
-        state.queuedByteCount += data.count
+        state.queuedByteCount += validatedFrame.data.count
         state.terminalFrameAdmitted = terminal
         commitNextSequence(after: sequence, state: &state)
         producersByLeaseId[lease.id] = state
@@ -552,7 +554,7 @@ struct BridgeProductProducerRegistry {
     }
 
     private mutating func replaceQueueWithTerminal(
-        data: Data,
+        validatedFrame: BridgeProductValidatedProducerFrame,
         sequence: Int,
         lease: BridgeProductProducerLease,
         state: inout BridgeProductProducerState
@@ -560,13 +562,14 @@ struct BridgeProductProducerRegistry {
         let discardedFrameCount = state.queuedFrames.count
         let discardedByteCount = state.queuedByteCount
         let frame = BridgeProductQueuedProducerFrame(
-            data: data,
+            data: validatedFrame.data,
             sequence: sequence,
             terminal: true,
-            requiredOpening: false
+            requiredOpening: false,
+            requiresWorkerObservation: validatedFrame.requiresWorkerObservation
         )
         state.queuedFrames = [frame]
-        state.queuedByteCount = data.count
+        state.queuedByteCount = validatedFrame.data.count
         state.terminalFrameAdmitted = true
         commitReplacementSequence(after: sequence, state: &state)
         producersByLeaseId[lease.id] = state

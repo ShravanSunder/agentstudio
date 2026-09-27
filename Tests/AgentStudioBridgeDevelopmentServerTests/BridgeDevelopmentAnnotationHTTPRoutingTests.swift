@@ -195,10 +195,8 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                     requestSequence: 6
                 )
 
-                #expect(
-                    catalogA.authority.applicationSourceGeneration
-                        == catalogB.authority.applicationSourceGeneration
-                )
+                #expect(catalogA.targetRevision == catalogB.targetRevision)
+                #expect(catalogA.putRecordKeys == catalogB.putRecordKeys)
                 #expect(projectionA.header.projectionRevision == projectionB.header.projectionRevision)
                 #expect(projectionA.header.sessions == projectionB.header.sessions)
                 #expect(projectionA.messages == projectionB.messages)

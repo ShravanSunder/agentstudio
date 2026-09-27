@@ -61,6 +61,11 @@ enum BridgeProductProducerFrame: Equatable, Sendable {
         }
     }
 
+    var requiresWorkerObservation: Bool {
+        if case .metadata(.batch) = self { return false }
+        return true
+    }
+
     func encode() throws -> Data {
         switch self {
         case .metadata(let frame): try BridgeProductMetadataFrameCodec.encode(frame)
@@ -74,6 +79,21 @@ struct BridgeProductQueuedProducerFrame: Equatable, Sendable {
     let sequence: Int
     let terminal: Bool
     let requiredOpening: Bool
+    let requiresWorkerObservation: Bool
+
+    init(
+        data: Data,
+        sequence: Int,
+        terminal: Bool,
+        requiredOpening: Bool,
+        requiresWorkerObservation: Bool = true
+    ) {
+        self.data = data
+        self.sequence = sequence
+        self.terminal = terminal
+        self.requiredOpening = requiredOpening
+        self.requiresWorkerObservation = requiresWorkerObservation
+    }
 }
 
 struct BridgeProductProducerFrameReceipt: Hashable, Sendable {

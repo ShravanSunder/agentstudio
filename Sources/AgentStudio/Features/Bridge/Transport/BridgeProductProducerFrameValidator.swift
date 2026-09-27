@@ -10,13 +10,18 @@ enum BridgeProductProducerFrameValidationError: Error, Equatable {
     }
 }
 
+struct BridgeProductValidatedProducerFrame: Sendable {
+    let data: Data
+    let requiresWorkerObservation: Bool
+}
+
 enum BridgeProductProducerFrameValidator {
     static func encode(
         for producerKey: BridgeProductProducerKey,
         sequence: Int,
         intent: BridgeProductProducerEnqueueIntent,
         build: @Sendable (Int) throws -> BridgeProductProducerFrame
-    ) throws -> Data {
+    ) throws -> BridgeProductValidatedProducerFrame {
         let frame = try correlateContentFrame(
             try build(sequence),
             producerKey: producerKey
@@ -30,7 +35,10 @@ enum BridgeProductProducerFrameValidator {
         guard frameMatchesIntent(frame, intent: intent) else {
             throw BridgeProductProducerFrameValidationError.rejected(.frameLifecycleMismatch)
         }
-        return try frame.encode()
+        return try .init(
+            data: frame.encode(),
+            requiresWorkerObservation: frame.requiresWorkerObservation
+        )
     }
 
     private static func correlateContentFrame(
