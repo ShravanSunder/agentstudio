@@ -37,7 +37,12 @@ extension BridgePaneController {
     /// generation-matched displayed receipt. The page gates the selection
     /// behind its active editors, so a refused flush keeps the old document.
     /// A newer activation or a human selection supersedes this one.
-    package func activateFileDocument(_ location: BridgeDocumentLocation) async -> BridgeFileActivationArrival {
+    package func activateFileDocument(
+        _ location: BridgeDocumentLocation, line: Int? = nil
+    ) async -> BridgeFileActivationArrival {
+        // The current page selection protocol has no line target. The INST
+        // receipt and line application bind here during PR1 integration.
+        _ = line
         guard let fileCollectionSource else { return .notListed }
         // A membership update still being delivered may add the document's tree.
         await filesSourceUpdateTail?.value

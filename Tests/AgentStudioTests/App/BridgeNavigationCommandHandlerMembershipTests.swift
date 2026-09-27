@@ -584,7 +584,7 @@ private final class FlushThenMoveCWDPresentation: BridgeReceiverPresentation {
         return .prepared
     }
 
-    func activateFileDocument(_: BridgeDocumentLocation) async -> BridgeFileActivationArrival {
+    func activateFileDocument(_: BridgeDocumentLocation, line _: Int?) async -> BridgeFileActivationArrival {
         .cancelled
     }
 
@@ -622,7 +622,9 @@ private final class HoldingEditorPreparationPresentation: BridgeReceiverPresenta
         startedContinuation.finish()
     }
 
-    func activateFileDocument(_: BridgeDocumentLocation) async -> BridgeFileActivationArrival { .cancelled }
+    func activateFileDocument(_: BridgeDocumentLocation, line _: Int?) async -> BridgeFileActivationArrival {
+        .cancelled
+    }
 
     func searchFilesCollection(_: BridgeFilesSearchCriteria) async -> BridgeFilesSearchOutcome {
         .unavailable(.noLivePage)

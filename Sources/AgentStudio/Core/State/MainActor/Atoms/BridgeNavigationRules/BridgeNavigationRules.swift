@@ -100,6 +100,25 @@ package enum BridgeNavigationRules {
         return BridgeDocumentAdmissionTransition(record: updated, disposition: .appended)
     }
 
+    /// A background Open changes only this inventory entry's requested line.
+    /// Reusing a location keeps its ordinal and original source provenance.
+    package static func openingInBackground(
+        _ document: BridgeOpenedDocument,
+        in record: BridgeNavigationRecord
+    ) -> BridgeNavigationRecord {
+        var updated = record
+        if let index = updated.openedDocuments.firstIndex(where: { $0.location == document.location }) {
+            let existing = updated.openedDocuments[index]
+            updated.openedDocuments[index] = BridgeOpenedDocument(
+                location: existing.location, provenance: existing.provenance,
+                openedLine: document.openedLine
+            )
+        } else {
+            updated.openedDocuments.append(document)
+        }
+        return updated
+    }
+
     /// Select an inventory document in Files and display Files. The Review
     /// selection and comparison memory are untouched.
     package static func activatingFilesDocument(

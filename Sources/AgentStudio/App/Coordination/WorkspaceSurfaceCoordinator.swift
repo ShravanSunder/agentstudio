@@ -166,7 +166,18 @@ final class WorkspaceSurfaceCoordinator {
     /// Serializes catalog-unregistration propagation into receivers.
     var bridgeCatalogUnregistrationTail: Task<Void, Never>?
     var bridgePaneLinkMembershipActor: BridgePaneLinkMembershipActor?
-    var bridgePaneRevealActor: BridgePaneRevealActor?
+    /// Panes replaces this poster when its background-open inbox kind lands.
+    var bridgeBackgroundOpenNotificationPoster: any BridgeBackgroundOpenNotificationPosting =
+        BridgeUnavailableBackgroundOpenNotificationPoster()
+    lazy var bridgePaneAgentShowActor: BridgePaneAgentShowActor? = {
+        guard let preparationPort = store.bridgeLinkDatastore else { return nil }
+        return BridgePaneAgentShowActor(
+            workspaceID: store.identityAtom.workspaceId,
+            handler: bridgeNavigationCommandHandler,
+            preparationPort: preparationPort,
+            notificationPort: bridgeBackgroundOpenNotificationPoster
+        )
+    }()
     lazy var bridgeNavigationCommandHandler: BridgeNavigationCommandHandler = {
         let handler = BridgeNavigationCommandHandler(
             navigationAtom: store.bridgeNavigationAtom,
@@ -186,13 +197,6 @@ final class WorkspaceSurfaceCoordinator {
             )
             bridgePaneLinkMembershipActor = membershipActor
             handler.linkMembershipActor = membershipActor
-            let revealActor = BridgePaneRevealActor(
-                workspaceID: store.identityAtom.workspaceId,
-                handler: handler,
-                commitPort: commitPort
-            )
-            bridgePaneRevealActor = revealActor
-            handler.paneRevealActor = revealActor
         }
         return handler
     }()
@@ -363,9 +367,7 @@ final class WorkspaceSurfaceCoordinator {
         let filesystemSource = filesystemSource
         let filesystemProjectionIndex = filesystemProjectionIndex
         let paneLinkMembershipActor = bridgePaneLinkMembershipActor
-        let paneRevealActor = bridgePaneRevealActor
         Task {
-            await paneRevealActor?.shutdown()
             await paneLinkMembershipActor?.shutdown()
             await filesystemSource.setRepositoryFactDemand(.empty)
             await filesystemProjectionIndex.shutdown()
@@ -441,7 +443,6 @@ final class WorkspaceSurfaceCoordinator {
             await task.value
         }
 
-        await bridgePaneRevealActor?.shutdown()
         await bridgePaneLinkMembershipActor?.shutdown()
         await bridgeCatalogUnregistrationTail?.value
         await drainBridgePaneRetirements()

@@ -48,6 +48,7 @@ extension BridgeNavigationCommandHandler {
     func activateFile(
         _ location: BridgeDocumentLocation,
         in receiver: BridgeReceiver,
+        line: Int? = nil,
         generation capturedGeneration: Int? = nil
     ) async -> BridgeNavigationCommandOutcome {
         guard navigationAtom.record(for: receiver) != nil else {
@@ -58,7 +59,7 @@ extension BridgeNavigationCommandHandler {
         guard let presentation = presentationPorts?.mountedPresentation(receiver) else {
             return .failed(.notMounted)
         }
-        let arrival = await presentation.activateFileDocument(location)
+        let arrival = await presentation.activateFileDocument(location, line: line)
         guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
         switch arrival {
         case .displayed:
@@ -106,8 +107,6 @@ extension BridgeNavigationCommandHandler {
             return .failed(.notInInventory)
         case .closed(let updated, _):
             navigationAtom.setRecord(updated, for: receiver)
-            let closeTicket = writeSequencer.nextTicket().value
-            paneRevealActor?.documentClosed(location, in: receiver, ticket: closeTicket)
             presentationPorts?.refreshFilesSource(receiver)
             return await persistedOutcome()
         }

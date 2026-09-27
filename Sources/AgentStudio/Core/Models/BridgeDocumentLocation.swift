@@ -67,17 +67,18 @@ package struct BridgeKnownWorktreeProvenance: Hashable, Sendable {
 package struct BridgeOpenedDocument: Hashable, Sendable {
     package let location: BridgeDocumentLocation
     package let provenance: BridgeKnownWorktreeProvenance?
-    /// App-owned Open view memory. Human/app inventory entries have no item.
-    package let retainedOpenViewItem: BridgeRetainedOpenViewItem?
+    /// Optional one-based line to use when this Open files row is activated.
+    package let openedLine: Int?
 
     package init(
         location: BridgeDocumentLocation,
         provenance: BridgeKnownWorktreeProvenance?,
-        retainedOpenViewItem: BridgeRetainedOpenViewItem? = nil
+        openedLine: Int? = nil
     ) {
         self.location = location
         self.provenance = provenance
-        self.retainedOpenViewItem = retainedOpenViewItem
+        if let openedLine { precondition(openedLine > 0) }
+        self.openedLine = openedLine
     }
 }
 

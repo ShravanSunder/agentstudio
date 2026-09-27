@@ -8,7 +8,7 @@ import Foundation
 @MainActor
 protocol BridgeReceiverPresentation: AnyObject {
     func prepareActiveEditorsForNavigation() async -> BridgeEditorPreparationOutcome
-    func activateFileDocument(_ location: BridgeDocumentLocation) async -> BridgeFileActivationArrival
+    func activateFileDocument(_ location: BridgeDocumentLocation, line: Int?) async -> BridgeFileActivationArrival
     func searchFilesCollection(_ criteria: BridgeFilesSearchCriteria) async -> BridgeFilesSearchOutcome
     @discardableResult
     func requestViewerSurface(_ surface: BridgeProductSurface) -> Bool

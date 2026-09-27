@@ -81,6 +81,13 @@ extension BridgeReceiverTopologySnapshot {
 }
 
 extension WorkspaceLocalRepository {
+    func isBridgeReceiverRetired(_ receiver: BridgeReceiver) throws -> Bool {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.isRetired(
+                database, workspaceID: workspaceId, receiver: receiver)
+        }
+    }
+
     func readBridgeReceivers() throws -> BridgeReceiverReadback {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.readBridgeReceivers(database, workspaceID: workspaceId)
@@ -97,11 +104,7 @@ extension WorkspaceLocalRepository {
                 try Int.fetchOne(
                     database, sql: "SELECT MAX(generation) FROM bridge_receiver_item WHERE workspace_id = ?",
                     arguments: [workspaceId.uuidString]) ?? 0
-            let retained =
-                try Int.fetchOne(
-                    database, sql: "SELECT MAX(retained_generation) FROM bridge_receiver_state WHERE workspace_id = ?",
-                    arguments: [workspaceId.uuidString]) ?? 0
-            return max(state, item, retained)
+            return max(state, item)
         }
     }
 
@@ -485,12 +488,8 @@ extension WorkspaceLocalRepositoryStorage {
             ).map { ($0.kind + "\u{1f}" + $0.itemKey, $0) })
         for key in Set(currentStates.keys).union(desiredStates.keys) {
             let stored = storedStates[key]
-            let before = currentStates[key].map {
-                $0.kind == "openedDocument" ? $0.preservingRetainedMetadata(from: stored) : $0
-            }
-            let after = desiredStates[key].map {
-                $0.kind == "openedDocument" ? $0.preservingRetainedMetadata(from: stored) : $0
-            }
+            let before = currentStates[key]
+            let after = desiredStates[key]
             if !includeItems, (after ?? before)?.kind == "itemOrder" { continue }
             guard before != after || (stored == nil && after != nil) else { continue }
             let effectiveGeneration =
@@ -507,9 +506,7 @@ extension WorkspaceLocalRepositoryStorage {
             } else if let before {
                 try upsertState(
                     database, workspaceID: workspaceID,
-                    row: before.kind == "openedDocument"
-                        ? before.deletingDocument(at: effectiveGeneration)
-                        : before.withGeneration(effectiveGeneration, isDeleted: true))
+                    row: before.withGeneration(effectiveGeneration, isDeleted: true))
             }
         }
         guard includeItems else { return }
@@ -579,13 +576,10 @@ extension WorkspaceLocalRepositoryStorage {
                     workspace_id, receiver_pane_id, receiver_kind, kind, item_key, generation, is_deleted,
                     text_value, worktree_id, forge_host, forge_owner, forge_repository, forge_number,
                     document_path, provenance_repo_id, provenance_worktree_id,
-                    provenance_relative_path, retained_worktree_id, retained_relative_path,
-                    retained_line, retained_requester_key, retained_requester_kind,
-                    retained_requester_provider, retained_requester_session_ref,
-                    retained_at, retained_generation,
+                    provenance_relative_path, opened_line,
                     comparison_kind, comparison_basis, comparison_name,
                     comparison_branch, comparison_remote, comparison_oid, ordinal, imported_variant, imported_payload
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(workspace_id, receiver_pane_id, kind, item_key) DO UPDATE SET
                     receiver_kind=excluded.receiver_kind, generation=excluded.generation,
                     is_deleted=excluded.is_deleted, text_value=excluded.text_value,
@@ -595,15 +589,7 @@ extension WorkspaceLocalRepositoryStorage {
                     provenance_repo_id=excluded.provenance_repo_id,
                     provenance_worktree_id=excluded.provenance_worktree_id,
                     provenance_relative_path=excluded.provenance_relative_path,
-                    retained_worktree_id=excluded.retained_worktree_id,
-                    retained_relative_path=excluded.retained_relative_path,
-                    retained_line=excluded.retained_line,
-                    retained_requester_key=excluded.retained_requester_key,
-                    retained_requester_kind=excluded.retained_requester_kind,
-                    retained_requester_provider=excluded.retained_requester_provider,
-                    retained_requester_session_ref=excluded.retained_requester_session_ref,
-                    retained_at=excluded.retained_at,
-                    retained_generation=excluded.retained_generation,
+                    opened_line=excluded.opened_line,
                     comparison_kind=excluded.comparison_kind, comparison_basis=excluded.comparison_basis,
                     comparison_name=excluded.comparison_name, comparison_branch=excluded.comparison_branch,
                     comparison_remote=excluded.comparison_remote, comparison_oid=excluded.comparison_oid,
@@ -617,10 +603,7 @@ extension WorkspaceLocalRepositoryStorage {
                 row.worktreeID?.uuidString, row.forgeHost, row.forgeOwner,
                 row.forgeRepository, row.forgeNumber, row.documentPath, row.provenanceRepoID?.uuidString,
                 row.provenanceWorktreeID?.uuidString, row.provenanceRelativePath,
-                row.retainedWorktreeID?.uuidString, row.retainedRelativePath,
-                row.retainedLine, row.retainedRequesterKey, row.retainedRequesterKind,
-                row.retainedRequesterProvider, row.retainedRequesterSessionRef,
-                row.retainedAt?.timeIntervalSince1970, row.retainedGeneration,
+                row.openedLine,
                 row.comparisonKind,
                 row.comparisonBasis, row.comparisonName, row.comparisonBranch, row.comparisonRemote,
                 row.comparisonOID, row.ordinal, row.importedVariant, row.importedPayload,
@@ -674,16 +657,7 @@ extension WorkspaceLocalRepositoryStorage {
             row.provenanceRepoID = try optionalUUID(stored["provenance_repo_id"])
             row.provenanceWorktreeID = try optionalUUID(stored["provenance_worktree_id"])
             row.provenanceRelativePath = stored["provenance_relative_path"]
-            row.retainedWorktreeID = try optionalUUID(stored["retained_worktree_id"])
-            row.retainedRelativePath = stored["retained_relative_path"]
-            row.retainedLine = stored["retained_line"]
-            row.retainedRequesterKey = stored["retained_requester_key"]
-            row.retainedRequesterKind = stored["retained_requester_kind"]
-            row.retainedRequesterProvider = stored["retained_requester_provider"]
-            row.retainedRequesterSessionRef = stored["retained_requester_session_ref"]
-            let retainedAt: Double? = stored["retained_at"]
-            row.retainedAt = retainedAt.map(Date.init(timeIntervalSince1970:))
-            row.retainedGeneration = stored["retained_generation"]
+            row.openedLine = stored["opened_line"]
             row.comparisonKind = stored["comparison_kind"]
             row.comparisonBasis = stored["comparison_basis"]
             row.comparisonName = stored["comparison_name"]

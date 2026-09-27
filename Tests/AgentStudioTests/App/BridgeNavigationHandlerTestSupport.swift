@@ -167,6 +167,7 @@ final class RecordingReceiverPresentation: BridgeReceiverPresentation {
     var holdsNextArrival = false
     private(set) var preparationCount = 0
     private(set) var activatedLocations: [BridgeDocumentLocation] = []
+    private(set) var activatedLines: [Int?] = []
     private(set) var requestedSurfaces: [BridgeProductSurface] = []
     var searchOutcome: BridgeFilesSearchOutcome = .unavailable(.noLivePage)
     private(set) var searchedCriteria: [BridgeFilesSearchCriteria] = []
@@ -180,8 +181,9 @@ final class RecordingReceiverPresentation: BridgeReceiverPresentation {
         return preparationOutcome
     }
 
-    func activateFileDocument(_ location: BridgeDocumentLocation) async -> BridgeFileActivationArrival {
+    func activateFileDocument(_ location: BridgeDocumentLocation, line: Int?) async -> BridgeFileActivationArrival {
         activatedLocations.append(location)
+        activatedLines.append(line)
         guard holdsNextArrival else { return activationArrival }
         holdsNextArrival = false
         try? await heldActivationStep.arrive(activationArrival)

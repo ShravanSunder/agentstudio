@@ -104,22 +104,7 @@ enum BridgeReceiverRecordRows {
             opened.provenanceRepoID = document.provenance?.repoId
             opened.provenanceWorktreeID = document.provenance?.worktreeId
             opened.provenanceRelativePath = document.provenance?.relativePath
-            if let retained = document.retainedOpenViewItem {
-                opened.retainedWorktreeID = retained.target.worktree
-                opened.retainedRelativePath = retained.target.relativePath
-                opened.retainedLine = retained.target.line
-                opened.retainedRequesterKey = BridgeLinkContributorKeyCodec.encode(retained.requestedBy)
-                switch retained.requestedBy {
-                case .app: opened.retainedRequesterKind = "app"
-                case .person: opened.retainedRequesterKind = "person"
-                case .agent(let identity):
-                    opened.retainedRequesterKind = "agent"
-                    opened.retainedRequesterProvider = identity.provider.value
-                    opened.retainedRequesterSessionRef = identity.sessionRef.value
-                }
-                opened.retainedAt = retained.retainedAt
-                opened.retainedGeneration = generation
-            }
+            opened.openedLine = document.openedLine
             return opened
         }
     }
@@ -362,52 +347,10 @@ enum BridgeReceiverRecordRows {
         } else {
             throw BridgeReceiverStorageError.malformedRow("document provenance")
         }
-        let retained = try retainedOpenViewItem(state, provenance: provenance)
-        return (ordinal, .init(location: location, provenance: provenance, retainedOpenViewItem: retained))
-    }
-
-    private static func retainedOpenViewItem(
-        _ state: BridgeReceiverStateRow,
-        provenance: BridgeKnownWorktreeProvenance?
-    ) throws -> BridgeRetainedOpenViewItem? {
-        guard let targetWorktreeID = state.retainedWorktreeID else {
-            guard state.retainedRelativePath == nil, state.retainedLine == nil,
-                state.retainedRequesterKey == nil, state.retainedRequesterKind == nil,
-                state.retainedRequesterProvider == nil, state.retainedRequesterSessionRef == nil,
-                state.retainedAt == nil
-            else { throw BridgeReceiverStorageError.malformedRow("retained metadata columns") }
-            return nil
+        if let line = state.openedLine, line < 1 {
+            throw BridgeReceiverStorageError.malformedRow("opened document line")
         }
-        guard let relativePath = state.retainedRelativePath,
-            let requesterKey = state.retainedRequesterKey,
-            let requesterKind = state.retainedRequesterKind,
-            let retainedAt = state.retainedAt,
-            state.retainedGeneration != nil,
-            retainedAt.timeIntervalSince1970.isFinite
-        else { throw BridgeReceiverStorageError.malformedRow("retained metadata columns") }
-        let target = try BridgeRevealFileTarget(
-            worktree: targetWorktreeID, relativePath: relativePath, line: state.retainedLine)
-        let requester = try BridgeLinkContributorKeyCodec.decode(requesterKey)
-        switch requester {
-        case .app, .person:
-            guard requesterKind == requesterKey, state.retainedRequesterProvider == nil,
-                state.retainedRequesterSessionRef == nil
-            else {
-                throw BridgeReceiverStorageError.malformedRow("retained requester columns")
-            }
-        case .agent(let identity):
-            guard requesterKind == "agent", state.retainedRequesterProvider == identity.provider.value,
-                state.retainedRequesterSessionRef == identity.sessionRef.value
-            else {
-                throw BridgeReceiverStorageError.malformedRow("retained requester columns")
-            }
-        }
-        if let provenance,
-            provenance.worktreeId != target.worktree || provenance.relativePath != target.relativePath
-        {
-            throw BridgeReceiverStorageError.malformedRow("retained target provenance")
-        }
-        return BridgeRetainedOpenViewItem(target: target, requestedBy: requester, retainedAt: retainedAt)
+        return (ordinal, .init(location: location, provenance: provenance, openedLine: state.openedLine))
     }
 
     private static func requireSingleton(_ state: BridgeReceiverStateRow) throws {
@@ -429,15 +372,7 @@ enum BridgeReceiverRecordRows {
                 state.provenanceRepoID == nil ? nil : "provenanceRepoID",
                 state.provenanceWorktreeID == nil ? nil : "provenanceWorktreeID",
                 state.provenanceRelativePath == nil ? nil : "provenanceRelativePath",
-                state.retainedWorktreeID == nil ? nil : "retainedWorktreeID",
-                state.retainedRelativePath == nil ? nil : "retainedRelativePath",
-                state.retainedLine == nil ? nil : "retainedLine",
-                state.retainedRequesterKey == nil ? nil : "retainedRequesterKey",
-                state.retainedRequesterKind == nil ? nil : "retainedRequesterKind",
-                state.retainedRequesterProvider == nil ? nil : "retainedRequesterProvider",
-                state.retainedRequesterSessionRef == nil ? nil : "retainedRequesterSessionRef",
-                state.retainedAt == nil ? nil : "retainedAt",
-                state.retainedGeneration == nil ? nil : "retainedGeneration",
+                state.openedLine == nil ? nil : "openedLine",
                 state.comparisonKind == nil ? nil : "comparisonKind",
                 state.comparisonBasis == nil ? nil : "comparisonBasis",
                 state.comparisonName == nil ? nil : "comparisonName",
@@ -467,10 +402,7 @@ enum BridgeReceiverRecordRows {
         case "openedDocument":
             allowedColumns = [
                 "documentPath", "provenanceRepoID", "provenanceWorktreeID",
-                "provenanceRelativePath", "ordinal", "retainedWorktreeID",
-                "retainedRelativePath", "retainedLine", "retainedRequesterKey",
-                "retainedRequesterKind", "retainedRequesterProvider",
-                "retainedRequesterSessionRef", "retainedAt", "retainedGeneration",
+                "provenanceRelativePath", "ordinal", "openedLine",
             ]
         default: throw BridgeReceiverStorageError.malformedRow("state kind")
         }
