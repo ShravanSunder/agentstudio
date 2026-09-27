@@ -911,12 +911,19 @@ private func installDiffLoadMetadataProducer(
     guard case .execute(let workerOpenToken, _) = workerOpenAdmission else {
         throw DiffLoadWitnessError.expectedWorkerSessionExecution
     }
+    let admitted = try await installation.session.admitControlOperation(token: workerOpenToken) { _ in }
+    let workerOpenResponse = try BridgeProductControlResponse.workerSessionAccepted(
+        correlating: workerOpenRequest
+    )
     _ = try await installation.session.completeControl(
         token: workerOpenToken,
-        exactResponseBytes: try JSONEncoder().encode(
-            BridgeProductControlResponse.workerSessionAccepted(correlating: workerOpenRequest)
-        )
+        exactResponseBytes: try JSONEncoder().encode(workerOpenResponse)
     )
+    await installation.session.settleOperation(
+        operationId: admitted.operationId,
+        response: workerOpenResponse
+    )
+    await installation.session.waitForOperationExecution(operationId: admitted.operationId)
 
     let metadataRequest = try diffLoadWitnessMetadataRequest(installation: installation)
     let registration = await installation.session.registerMetadataProducer(

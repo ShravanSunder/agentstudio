@@ -80,14 +80,20 @@ struct RefreshAdmissionIntegrationFixture {
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
             productInstallation.capabilityBytes
         )
-        guard
-            case .response(let responseBytes) = try await dispatcher.dispatch(
+        let openResult = try await awaitRefreshAdmissionControlResult(
+            try await dispatcher.dispatch(
                 exactRequestBytes: try JSONEncoder().encode(request),
                 presentedCapability: capabilityHeader
             ),
+            session: productInstallation.session,
+            productAdmission: productAdmission
+        )
+        guard
+            openResult.outcome == .succeeded,
+            let response = openResult.result,
             case .subscriptionOpenAccepted = try BridgeProductStrictJSON.decode(
                 BridgeProductControlResponse.self,
-                from: responseBytes
+                from: JSONEncoder().encode(response)
             )
         else {
             throw RefreshAdmissionIntegrationError.fileSubscriptionDidNotOpen
@@ -109,14 +115,20 @@ struct RefreshAdmissionIntegrationFixture {
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
             productInstallation.capabilityBytes
         )
-        guard
-            case .response(let responseBytes) = try await dispatcher.dispatch(
+        let openResult = try await awaitRefreshAdmissionControlResult(
+            try await dispatcher.dispatch(
                 exactRequestBytes: try JSONEncoder().encode(request),
                 presentedCapability: capabilityHeader
             ),
+            session: productInstallation.session,
+            productAdmission: productAdmission
+        )
+        guard
+            openResult.outcome == .succeeded,
+            let response = openResult.result,
             case .subscriptionOpenAccepted = try BridgeProductStrictJSON.decode(
                 BridgeProductControlResponse.self,
-                from: responseBytes
+                from: JSONEncoder().encode(response)
             )
         else {
             throw RefreshAdmissionIntegrationError.reviewSubscriptionDidNotOpen
@@ -129,6 +141,33 @@ struct RefreshAdmissionIntegrationFixture {
     func finish() async {
         _ = await controller.beginTeardown().value
     }
+}
+
+private func awaitRefreshAdmissionControlResult(
+    _ dispatchResult: BridgeProductSchemeControlDispatchResult,
+    session: BridgeProductSession,
+    productAdmission: BridgeProductAdmissionContext
+) async throws -> BridgeProductOperationResultResponse {
+    guard case .response(let admissionBytes) = dispatchResult else {
+        throw RefreshAdmissionIntegrationError.expectedWorkerSessionExecution
+    }
+    let admitted = try BridgeProductStrictJSON.decode(
+        BridgeProductOperationAdmittedResponse.self,
+        from: admissionBytes
+    )
+    await session.waitForOperationExecution(operationId: admitted.operationId)
+    let resultRequestBytes = try JSONSerialization.data(withJSONObject: [
+        "kind": "operation.result",
+        "operationId": admitted.operationId,
+        "paneSessionId": admitted.correlation.paneSessionId,
+        "wireVersion": BridgeProductWireContract.version,
+        "workerInstanceId": admitted.correlation.workerInstanceId,
+    ])
+    let resultRequest = try BridgeProductStrictJSON.decode(
+        BridgeProductOperationResultRequest.self,
+        from: resultRequestBytes
+    )
+    return try #require(await session.readOperationResult(resultRequest, productAdmission: productAdmission))
 }
 
 @MainActor
