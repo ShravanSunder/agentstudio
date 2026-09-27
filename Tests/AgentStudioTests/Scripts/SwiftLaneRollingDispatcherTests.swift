@@ -3,6 +3,38 @@ import Testing
 
 @Suite("Swift lane rolling isolated dispatcher")
 struct SwiftLaneRollingDispatcherTests {
+    @Test("a killed worker reports KILL, finishes the lane, and leaves no children")
+    func killedWorkerCompletesDispatcher() async throws {
+        let command = #"""
+            set -euo pipefail
+            source scripts/swift-test-helpers.sh
+            LOG_PREFIX=killed-worker-probe
+            fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/killed-worker-probe.XXXXXX")"
+            trap 'rm -f "$fixture_dir"/*; rmdir "$fixture_dir"' EXIT
+            SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE="$fixture_dir/failures"
+            swift_test_isolated_process_concurrency() { echo 1; }
+            run_selected_isolated_suite() {
+              if [ "$2" = Killed ]; then
+                /bin/sh -c 'printf "%s\n" "$PPID"' >"$fixture_dir/worker-pid"
+                read -r worker_pid <"$fixture_dir/worker-pid"
+                kill -KILL "$worker_pid"
+              fi
+              printf 'COMPLETED %s\n' "$2"
+            }
+            status=0
+            dispatch_isolated_suites fast Killed After || status=$?
+            [ "$status" -eq 1 ] || exit 41
+            [ "$(swift_test_failed_isolated_suite_count)" -eq 1 ] || exit 42
+            grep -q $'Killed\t137\tKILL' "$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE"
+            [ -z "$(jobs -pr)" ] || exit 43
+            printf 'KILLED_WORKER_DRAINED\n'
+            """#
+        let result = try await runLaneScriptBash(command)
+        #expect(result.exitCode == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("COMPLETED After"))
+        #expect(result.output.contains("KILLED_WORKER_DRAINED"))
+    }
+
     @Test("a completed slot refills before the slow child finishes and every failure is tallied")
     func completionRefillsSlotAndTalliesFailures() async throws {
         let command = #"""

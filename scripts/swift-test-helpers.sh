@@ -1464,8 +1464,9 @@ swift_test_failed_isolated_suite_count() {
   /usr/bin/awk 'END { print NR + 0 }' "$tally_file"
 }
 
-# The parent owns the one completion channel and reaps by PID. A wrapper writes
-# one short line after its watchdog has reaped the test command; FIFO lines stay
+# The parent owns the one completion channel and reaps by PID. A wrapper waits
+# for its worker and writes one short line even when that worker is killed;
+# FIFO lines stay
 # atomic because they are shorter than PIPE_BUF. Bash 3.2 has no wait -n.
 dispatch_isolated_suites() {
   local lane_kind="$1"
@@ -1506,7 +1507,9 @@ dispatch_isolated_suites() {
         export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
         export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
         local child_status=0
-        run_selected_isolated_suite "$lane_kind" "$suite_filter" || child_status=$?
+        (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
+        local worker_pid=$!
+        wait "$worker_pid" || child_status=$?
         printf '%s %s %s\n' "$slot" "$child_pid" "$child_status" >&7
         exit "$child_status"
       ) &
