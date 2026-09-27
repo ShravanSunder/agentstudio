@@ -135,6 +135,9 @@ struct PaneActivityClockTests {
         await testClock.waitForPendingSleepCount(exactly: 1)
 
         let cancelledWaiter = Task { try await clock.settled() }
+        await clock.waitForSettledWaiterCount(1)
+        let survivingWaiter = Task { try await clock.settled() }
+        await clock.waitForSettledWaiterCount(2)
         cancelledWaiter.cancel()
         do {
             _ = try await cancelledWaiter.value
@@ -145,7 +148,7 @@ struct PaneActivityClockTests {
 
         now.withLock { $0 = base.advanced(by: .seconds(10)) }
         testClock.advance(by: .seconds(9))
-        #expect(try await clock.settled() == .quiescent)
+        #expect(try await survivingWaiter.value == .quiescent)
         #expect(await recorder.batches.count == 2)
         await clock.shutdown()
     }

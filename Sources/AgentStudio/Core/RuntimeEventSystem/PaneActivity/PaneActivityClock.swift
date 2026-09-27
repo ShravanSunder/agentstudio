@@ -56,6 +56,7 @@ package actor PaneActivityClock {
     private var pendingByPaneId: [UUID: PendingPublication] = [:]
     private var retiredPaneIds: Set<UUID> = []
     private var settledWaiters: [UUID: CheckedContinuation<PaneActivityClockQuiescence, Error>] = [:]
+    private var settledRegistrationWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var isApplying = false
     private var isShutDown = false
 
@@ -108,6 +109,13 @@ package actor PaneActivityClock {
         !pendingByPaneId.isEmpty
     }
 
+    func waitForSettledWaiterCount(_ count: Int) async {
+        guard settledWaiters.count < count, !isShutDown else { return }
+        await withCheckedContinuation { continuation in
+            settledRegistrationWaiters.append((count, continuation))
+        }
+    }
+
     package func settled() async throws -> PaneActivityClockQuiescence {
         if isShutDown { return .shutDown }
         start()
@@ -123,6 +131,7 @@ package actor PaneActivityClock {
                     continuation.resume(returning: .quiescent)
                 } else {
                     settledWaiters[waiterId] = continuation
+                    resumeSettledRegistrationWaiters()
                 }
             }
         } onCancel: {
@@ -147,6 +156,8 @@ package actor PaneActivityClock {
             waiter.resume(returning: .shutDown)
         }
         settledWaiters.removeAll()
+        for (_, waiter) in settledRegistrationWaiters { waiter.resume() }
+        settledRegistrationWaiters.removeAll()
         wakeContinuation.finish()
         drainTask?.cancel()
         await drainTask?.value
@@ -251,5 +262,11 @@ package actor PaneActivityClock {
 
     private func cancelSettledWaiter(_ waiterId: UUID) {
         settledWaiters.removeValue(forKey: waiterId)?.resume(throwing: CancellationError())
+    }
+
+    private func resumeSettledRegistrationWaiters() {
+        let ready = settledRegistrationWaiters.filter { $0.0 <= settledWaiters.count }
+        settledRegistrationWaiters.removeAll { $0.0 <= settledWaiters.count }
+        for (_, waiter) in ready { waiter.resume() }
     }
 }
