@@ -667,7 +667,8 @@ extension RepoExplorerTableMaterializerTests {
     func tableCandidate(
         baseline: RepoExplorerMaterializationBaseline,
         snapshot: RepoExplorerMaterializationSnapshot,
-        requestGeneration: UInt64
+        requestGeneration: UInt64,
+        selectedRowID: RepoExplorerRowID? = nil
     ) throws -> RepoExplorerMaterializationContentCandidate {
         let presentation = nativePlanContent(snapshot)
         let plan = try RepoExplorerNativeUpdatePlan.validating(
@@ -682,7 +683,7 @@ extension RepoExplorerTableMaterializerTests {
             visibleGeneration: requestGeneration,
             snapshot: snapshot,
             tableUpdatePlan: tablePlan,
-            selectedRowID: nil
+            selectedRowID: selectedRowID
         )
     }
 

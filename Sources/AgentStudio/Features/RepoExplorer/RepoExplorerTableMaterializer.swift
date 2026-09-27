@@ -313,11 +313,30 @@ final class RepoExplorerTableMaterializer: NSObject,
             completion(.rejected)
             return
         }
-        if priorSelectedVariantRowID != selectedVariantRowID,
-            let selectedVariantRowID,
-            let selectedIndex = candidate.snapshot.rowIndexByID[selectedVariantRowID]
-        {
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: selectedIndex))
+        if priorSelectedVariantRowID != selectedVariantRowID {
+            var affected = IndexSet()
+            if let priorSelectedVariantRowID {
+                heightByRowID.removeValue(forKey: priorSelectedVariantRowID)
+                if let priorIndex = candidate.snapshot.rowIndexByID[priorSelectedVariantRowID] {
+                    affected.insert(priorIndex)
+                }
+            }
+            if let selectedVariantRowID {
+                heightByRowID.removeValue(forKey: selectedVariantRowID)
+                if let selectedIndex = candidate.snapshot.rowIndexByID[selectedVariantRowID] {
+                    affected.insert(selectedIndex)
+                }
+            }
+            if !affected.isEmpty {
+                tableView.noteHeightOfRows(withIndexesChanged: affected)
+                let visibleAffected = affected.intersection(representedRowIndexes())
+                if !visibleAffected.isEmpty {
+                    tableView.reloadData(
+                        forRowIndexes: visibleAffected,
+                        columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+                    )
+                }
+            }
         }
         pendingApplicationRequiresGeometryUpdate = false
         precondition(
@@ -583,34 +602,6 @@ final class RepoExplorerTableMaterializer: NSObject,
     func displayedRow(_ row: RepoExplorerMaterializedRow) -> RepoExplorerMaterializedRow {
         guard row.id == selectedVariantRowID else { return row }
         return row.displayingPaneVariant(.expanded)
-    }
-
-    func applyPaneVariantSelection(from previousRowID: RepoExplorerRowID?, to rowID: RepoExplorerRowID?) {
-        guard previousRowID != rowID, let snapshot else { return }
-        let anchor = currentTopVisibleAnchor
-        selectedVariantRowID = rowID
-        if let previousRowID { heightByRowID.removeValue(forKey: previousRowID) }
-        if let rowID { heightByRowID.removeValue(forKey: rowID) }
-        updateTableFrame()
-        var affected = IndexSet()
-        if let previousRowID, let previousIndex = snapshot.rowIndexByID[previousRowID] {
-            affected.insert(previousIndex)
-        }
-        if let rowID, let selectedIndex = snapshot.rowIndexByID[rowID] {
-            affected.insert(selectedIndex)
-        }
-        if !affected.isEmpty {
-            tableView.noteHeightOfRows(withIndexesChanged: affected)
-            let visibleAffected = affected.intersection(representedRowIndexes())
-            if !visibleAffected.isEmpty {
-                tableView.reloadData(
-                    forRowIndexes: visibleAffected,
-                    columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
-                )
-            }
-        }
-        forceTableAndScrollLayout()
-        restore(anchor: anchor, priorSnapshot: snapshot)
     }
 
     private func scroll(toRowAt rowIndex: Int, offset: CGFloat) {
@@ -884,6 +875,36 @@ final class RepoExplorerTableMaterializer: NSObject,
                 - row.layout.metrics.leadingInset
                 - row.layout.metrics.trailingInset
         )
+    }
+}
+
+extension RepoExplorerTableMaterializer {
+    func applyPaneVariantSelection(from previousRowID: RepoExplorerRowID?, to rowID: RepoExplorerRowID?) {
+        guard previousRowID != rowID, let snapshot else { return }
+        let anchor = currentTopVisibleAnchor
+        selectedVariantRowID = rowID
+        if let previousRowID { heightByRowID.removeValue(forKey: previousRowID) }
+        if let rowID { heightByRowID.removeValue(forKey: rowID) }
+        updateTableFrame()
+        var affected = IndexSet()
+        if let previousRowID, let previousIndex = snapshot.rowIndexByID[previousRowID] {
+            affected.insert(previousIndex)
+        }
+        if let rowID, let selectedIndex = snapshot.rowIndexByID[rowID] {
+            affected.insert(selectedIndex)
+        }
+        if !affected.isEmpty {
+            tableView.noteHeightOfRows(withIndexesChanged: affected)
+            let visibleAffected = affected.intersection(representedRowIndexes())
+            if !visibleAffected.isEmpty {
+                tableView.reloadData(
+                    forRowIndexes: visibleAffected,
+                    columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+                )
+            }
+        }
+        forceTableAndScrollLayout()
+        restore(anchor: anchor, priorSnapshot: snapshot)
     }
 }
 

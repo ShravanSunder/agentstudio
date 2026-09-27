@@ -38,6 +38,48 @@ extension RepoExplorerTableMaterializerTests {
         #expect(materializer.resolvedHeight(forRowAt: 1) > compactSecondHeight)
     }
 
+    @Test("candidate selection change remeasures both the prior and new pane rows")
+    func candidateSelectionRemeasuresBothRows() throws {
+        let paneIDs = [UUIDv7.generate(), UUIDv7.generate()]
+        let snapshot = paneVariantMaterializerSnapshot(paneIDs)
+        let updated = paneVariantMaterializerSnapshot(paneIDs, title: "Updated")
+        let materializer = RepoExplorerTableMaterializer(
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            onVisibleWorktreeSnapshotChange: { _ in }
+        )
+        let window = makeMaterializerWindow(materializer, height: 180)
+        defer {
+            materializer.detach()
+            window.close()
+        }
+        let firstID = snapshot.rows[0].id
+        let secondID = snapshot.rows[1].id
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanRowlessBaseline(.noRepositories, revision: 0),
+                snapshot: snapshot,
+                requestGeneration: 1,
+                selectedRowID: firstID
+            )
+        ) { _ in }
+        let tableView = try #require((materializer.view as? NSScrollView)?.documentView as? NSTableView)
+        let compactFirstHeight = snapshot.rows[0].layout.metrics.fallbackHeight
+        let expandedFirstHeight = try #require(snapshot.rows[0].expandedPaneLayout?.metrics.fallbackHeight)
+        #expect(tableView.rect(ofRow: 0).height == expandedFirstHeight)
+
+        materializer.apply(
+            try tableCandidate(
+                baseline: nativePlanBaseline(snapshot: snapshot, revision: 1, visibleGeneration: 1),
+                snapshot: updated,
+                requestGeneration: 2,
+                selectedRowID: secondID
+            )
+        ) { _ in }
+
+        #expect(tableView.rect(ofRow: 0).height == compactFirstHeight)
+        #expect(tableView.rect(ofRow: 1).height == expandedFirstHeight)
+    }
+
     @Test("a partly visible pane remains anchored when its bucket row id changes")
     func paneBucketMovePreservesSemanticAnchor() throws {
         let paneIDs = (0..<8).map { _ in UUIDv7.generate() }
@@ -135,7 +177,8 @@ extension RepoExplorerTableMaterializerTests {
 
     private func paneVariantMaterializerSnapshot(
         _ paneIDs: [UUID],
-        groupID: String = "recent"
+        groupID: String = "recent",
+        title: String = "Pane"
     ) -> RepoExplorerMaterializationSnapshot {
         let rows = paneIDs.map { paneID in
             let destination = RepoExplorerUnassociatedPaneDestination(
@@ -149,14 +192,14 @@ extension RepoExplorerTableMaterializerTests {
                 groupId: groupID,
                 destination: destination,
                 rowId: paneID.uuidString,
-                primaryText: "Pane"
+                primaryText: title
             )
             pane.variants = RepoExplorerPaneRowVariants(
                 compact: RepoExplorerPaneRowVariant(
-                    lines: [.title("Pane")], chips: [.clock], fallbackLineCount: 2
+                    lines: [.title(title)], chips: [.clock], fallbackLineCount: 2
                 ),
                 expanded: RepoExplorerPaneRowVariant(
-                    lines: [.title("Pane"), .note("Note")], chips: [.clock], fallbackLineCount: 3
+                    lines: [.title(title), .note("Note")], chips: [.clock], fallbackLineCount: 3
                 )
             )
             pane.displayVariant = .expanded
