@@ -21,7 +21,6 @@ struct CommandBarPreparedSearch {
     let canOpenWorktreeInCurrentTab: Bool
     let focusedPane: WorkspaceFocusedPane?
     let commandContext: CommandContext
-    let topologyInvalidatedAtNanoseconds: UInt64?
 }
 
 struct CommandBarPublicationIdentity: Equatable {

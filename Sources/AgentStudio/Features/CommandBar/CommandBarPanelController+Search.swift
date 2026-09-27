@@ -6,7 +6,6 @@ struct CommandBarSearchMeasurement {
     let generation: SearchDocumentGeneration
     let inputAtNanoseconds: UInt64
     let submittedAtNanoseconds: UInt64
-    let topologyInvalidatedAtNanoseconds: UInt64?
     let queryCharacterCount: Int
     var applyFinishedAtNanoseconds: UInt64?
     var outcome: String?
@@ -45,7 +44,6 @@ extension CommandBarPanelController {
             generation: prepared.documentSet.generation,
             inputAtNanoseconds: inputAt,
             submittedAtNanoseconds: submittedAt,
-            topologyInvalidatedAtNanoseconds: prepared.topologyInvalidatedAtNanoseconds,
             queryCharacterCount: query.count
         )
         let request = SearchRequest(
@@ -209,9 +207,7 @@ extension CommandBarPanelController {
             queryCharacterCount: measurement.queryCharacterCount,
             resultCount: state.appliedSearchResult?.displayedItems.count
         )
-        if let invalidatedAt = measurement.topologyInvalidatedAtNanoseconds,
-            lastFreshnessMeasuredGeneration != generation
-        {
+        if let invalidatedAt = resultSession.consumeTopologyInvalidation(for: generation) {
             let freshnessStarted = max(invalidatedAt, measurement.submittedAtNanoseconds)
             recordSearchStage(
                 "freshness",
@@ -219,7 +215,6 @@ extension CommandBarPanelController {
                 generation: generation,
                 durationNanoseconds: elapsed(from: freshnessStarted, to: publishedAt)
             )
-            lastFreshnessMeasuredGeneration = generation
         }
         currentSearchMeasurement = nil
     }

@@ -95,17 +95,12 @@ struct CommandBarHotPathArchitectureTests {
     func commandBarHasNoSynchronousMatcher() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let sourceDirectory = projectRoot.appending(path: "Sources/AgentStudio/Features/CommandBar")
-        let sourceFiles = try FileManager.default.contentsOfDirectory(
-            at: sourceDirectory,
-            includingPropertiesForKeys: nil
+        let sourceFiles = try #require(
+            FileManager.default.enumerator(at: sourceDirectory, includingPropertiesForKeys: nil)
         )
-        #expect(!sourceFiles.contains { $0.lastPathComponent == "CommandBarItemSearch.swift" })
-
-        for relativePath in [
-            "CommandBarResultSession.swift",
-            "Views/CommandBarResultRow.swift",
-        ] {
-            let source = try String(contentsOf: sourceDirectory.appending(path: relativePath), encoding: .utf8)
+        for case let sourceFile as URL in sourceFiles where sourceFile.pathExtension == "swift" {
+            #expect(sourceFile.lastPathComponent != "CommandBarItemSearch.swift")
+            let source = try String(contentsOf: sourceFile, encoding: .utf8)
             #expect(!source.contains("FuzzySearch"))
             #expect(!source.contains("CommandBarSearch.filter"))
         }

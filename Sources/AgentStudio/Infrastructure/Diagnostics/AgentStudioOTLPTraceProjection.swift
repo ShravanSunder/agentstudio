@@ -409,6 +409,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.commandbar.result.count",
         "agentstudio.performance.commandbar.search.sequence",
         "agentstudio.performance.commandbar.search.generation",
+        "agentstudio.performance.commandbar.search.duplicate_item.count",
         "agentstudio.performance.commandbar.result_worktree_row.count",
         "agentstudio.performance.commandbar.worktree.count",
         "agentstudio.performance.elapsed_ms",

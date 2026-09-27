@@ -21,6 +21,7 @@ struct CommandBarSearchTraceProjectionTests {
                 "agentstudio.performance.commandbar.search.outcome": .string("answered"),
                 "agentstudio.performance.commandbar.search.sequence": .int(7),
                 "agentstudio.performance.commandbar.search.generation": .int(3),
+                "agentstudio.performance.commandbar.search.duplicate_item.count": .int(1),
                 "agentstudio.performance.elapsed_ms": .double(12.5),
                 "agentstudio.performance.commandbar.search.query_text": .string("private prompt"),
                 "agentstudio.performance.commandbar.search.raw_path": .string("/Users/private/repo"),
@@ -33,6 +34,7 @@ struct CommandBarSearchTraceProjectionTests {
         #expect(projected.attributes["agentstudio.performance.commandbar.search.outcome"] == .string("answered"))
         #expect(projected.attributes["agentstudio.performance.commandbar.search.sequence"] == .int(7))
         #expect(projected.attributes["agentstudio.performance.commandbar.search.generation"] == .int(3))
+        #expect(projected.attributes["agentstudio.performance.commandbar.search.duplicate_item.count"] == .int(1))
         #expect(projected.attributes["agentstudio.performance.elapsed_ms"] == .double(12.5))
         #expect(projected.attributes["agentstudio.performance.commandbar.search.query_text"] == nil)
         #expect(projected.attributes["agentstudio.performance.commandbar.search.raw_path"] == nil)

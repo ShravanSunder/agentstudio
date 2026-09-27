@@ -46,7 +46,6 @@ package final class CommandBarPanelController {
     var lastResubmittedGeneration: SearchDocumentGeneration?
     var currentSearchMeasurement: CommandBarSearchMeasurement?
     var lastAcknowledgedPublication: CommandBarPublicationIdentity?
-    var lastFreshnessMeasuredGeneration: SearchDocumentGeneration?
 
     /// The open-in-current-tab capability every worktree level is first built with, read
     /// directly: an async answer must not rebuild the result snapshot or move the selection.

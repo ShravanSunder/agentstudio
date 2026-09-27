@@ -34,11 +34,17 @@ final class CommandBarResultSession {
     @ObservationIgnored private var preparedSearch: CommandBarPreparedSearch?
     @ObservationIgnored private var preparedLevelVisitRevision: Int?
     @ObservationIgnored private var lastPresentationSnapshot: CommandBarResultSnapshot?
-    @ObservationIgnored private var lastTopologyInvalidatedAtNanoseconds: UInt64?
+    @ObservationIgnored private var topologyInvalidation: (generation: SearchDocumentGeneration, atNanoseconds: UInt64)?
     private(set) var rootItemSnapshotInvalidationRevision = 0
 
     var currentRowGeneration: SearchDocumentGeneration {
         SearchDocumentGeneration(rowGenerationValue)
+    }
+
+    func consumeTopologyInvalidation(for generation: SearchDocumentGeneration) -> UInt64? {
+        guard let topologyInvalidation, topologyInvalidation.generation == generation else { return nil }
+        self.topologyInvalidation = nil
+        return topologyInvalidation.atNanoseconds
     }
 
     func navigationChanged() {
@@ -256,8 +262,7 @@ final class CommandBarResultSession {
             rowsById: rowsById,
             canOpenWorktreeInCurrentTab: canOpenWorktreeInCurrentTab(),
             focusedPane: focusedPane,
-            commandContext: commandContext,
-            topologyInvalidatedAtNanoseconds: lastTopologyInvalidatedAtNanoseconds
+            commandContext: commandContext
         )
         preparedSearch = prepared
         return prepared
@@ -286,9 +291,12 @@ final class CommandBarResultSession {
         }
     }
 
-    private func advanceRowGeneration() {
+    private func advanceRowGeneration(topologyInvalidatedAtNanoseconds: UInt64? = nil) {
         rowGenerationValue += 1
         preparedSearch = nil
+        topologyInvalidation = topologyInvalidatedAtNanoseconds.map {
+            (generation: currentRowGeneration, atNanoseconds: $0)
+        }
     }
 
     private func buildItemSnapshot(
@@ -339,7 +347,8 @@ final class CommandBarResultSession {
             commandContext: commandContext
         )
         cachedRootItemSnapshot = CachedRootItemSnapshot(identity: identity, snapshot: snapshot)
-        advanceRowGeneration()
+        let topologyTimestamp = isRootItemSnapshotInvalidated ? topologyInvalidation?.atNanoseconds : nil
+        advanceRowGeneration(topologyInvalidatedAtNanoseconds: topologyTimestamp)
         isRootItemSnapshotInvalidated = false
         rootItemSnapshotBuildCount += 1
         performanceTraceRecorder?.record(
@@ -407,8 +416,7 @@ final class CommandBarResultSession {
     private func invalidateRootItemSnapshot(observationGeneration: Int) {
         guard rootItemSnapshotObservationGeneration == observationGeneration else { return }
         isRootItemSnapshotInvalidated = true
-        lastTopologyInvalidatedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
-        advanceRowGeneration()
+        advanceRowGeneration(topologyInvalidatedAtNanoseconds: DispatchTime.now().uptimeNanoseconds)
         rootItemSnapshotInvalidationRevision += 1
     }
 

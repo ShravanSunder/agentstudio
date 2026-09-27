@@ -299,15 +299,89 @@ struct CommandBarAsyncSearchTests {
         let repositoryId = "repo-\(repository.id.uuidString)"
 
         store.mutationCoordinator.markRepoUnavailable(repository.id)
+        #expect(controller.resultSession.currentRowGeneration > oldRequest.documentSet.generation)
         await service.release(answer(for: oldRequest, ids: [repositoryId]))
         await oldTask.value
-        if controller.searchSequence > oldRequest.sequence.value {
-            let refreshedRequest = await service.nextRequest()
-            let refreshedTask = try #require(controller.pendingSearchTask)
-            await service.release(answer(for: refreshedRequest, ids: [repositoryId]))
-            await refreshedTask.value
-        }
+        let refreshedRequest = await service.nextRequest()
+        #expect(refreshedRequest.documentSet.generation > oldRequest.documentSet.generation)
+        let refreshedTask = try #require(controller.pendingSearchTask)
+        await service.release(answer(for: refreshedRequest, ids: [repositoryId]))
+        await refreshedTask.value
         #expect(controller.state.appliedSearchResult?.displayedItems.contains { $0.id == repositoryId } != true)
+    }
+
+    @Test("navigation after topology publication does not emit another freshness stage")
+    func navigationDoesNotReuseTopologyFreshness() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "command-bar-freshness-\(UUIDv7.generate().uuidString)")
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "command-bar-freshness",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 733,
+            timeUnixNano: { 1 }
+        )
+        let traceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let store = WorkspaceStore()
+        let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-freshness"))
+        let service = ControlledCommandBarSearchService()
+        let controller = makeController(service: service, store: store, traceRecorder: traceRecorder)
+        controller.state.show(prefix: "#")
+        controller.state.rawInput = "# command"
+        controller.queryChanged(text: controller.state.rawInput)
+        let oldRequest = await service.nextRequest()
+        let oldTask = try #require(controller.pendingSearchTask)
+
+        try store.mutationCoordinator.setRepoTags(["topology-change"], repositoryID: repository.id)
+        await service.release(answer(for: oldRequest))
+        await oldTask.value
+        let topologyRequest = await service.nextRequest()
+        let topologyTask = try #require(controller.pendingSearchTask)
+        await service.release(answer(for: topologyRequest))
+        await topologyTask.value
+        controller.acknowledgeResultPublished(
+            sequence: topologyRequest.sequence, generation: topologyRequest.documentSet.generation
+        )
+
+        controller.state.pushLevel(CommandBarLevel(id: "nested", title: "Nested", items: []))
+        controller.state.rawInput = "nested"
+        controller.searchContextChanged()
+        let pushRequest = await service.nextRequest()
+        let pushTask = try #require(controller.pendingSearchTask)
+        await service.release(answer(for: pushRequest))
+        await pushTask.value
+        controller.acknowledgeResultPublished(
+            sequence: pushRequest.sequence, generation: pushRequest.documentSet.generation
+        )
+
+        controller.state.popLevel()
+        controller.state.rawInput = "# command"
+        controller.searchContextChanged()
+        let popRequest = await service.nextRequest()
+        let popTask = try #require(controller.pendingSearchTask)
+        await service.release(answer(for: popRequest))
+        await popTask.value
+        controller.acknowledgeResultPublished(
+            sequence: popRequest.sequence, generation: popRequest.documentSet.generation
+        )
+
+        try await traceRecorder.drain()
+        let outputURL = try #require(traceRuntime.outputFileURL)
+        let records = try String(contentsOf: outputURL, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { line -> [String: Any]? in
+                try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            }
+        let freshnessGenerations = records.compactMap { record -> Int? in
+            guard let attributes = record["attributes"] as? [String: Any],
+                attributes["agentstudio.performance.commandbar.search.stage"] as? String == "freshness"
+            else { return nil }
+            return attributes["agentstudio.performance.commandbar.search.generation"] as? Int
+        }
+        #expect(freshnessGenerations == [Int(topologyRequest.documentSet.generation.value)])
     }
 
     @Test("a changed row generation resubmits the current text once")

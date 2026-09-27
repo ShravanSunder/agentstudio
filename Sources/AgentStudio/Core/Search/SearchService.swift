@@ -68,8 +68,20 @@ package actor SearchService: SearchServicing {
         if index == nil {
             index = try SearchIndex(databaseQueue: makeDatabaseQueue())
         }
-        try index?.install(documentSet)
+        let duplicateCount = try index?.install(documentSet) ?? 0
         installedGeneration = documentSet.generation
+        if duplicateCount > 0 {
+            performanceTraceRecorder?.record(
+                .commandBarSearch,
+                attributes: [
+                    "agentstudio.performance.commandbar.search.stage": .string("install"),
+                    "agentstudio.performance.commandbar.search.generation": .int(
+                        Int(clamping: documentSet.generation.value)
+                    ),
+                    "agentstudio.performance.commandbar.search.duplicate_item.count": .int(duplicateCount),
+                ]
+            )
+        }
     }
 
     private func searchResult(_ request: SearchRequest) -> SearchResultSet {
@@ -245,9 +257,14 @@ private final class SearchIndex {
         }
     }
 
-    func install(_ documentSet: SearchDocumentSet) throws {
+    func install(_ documentSet: SearchDocumentSet) throws -> Int {
         var nextDocuments: [SearchItemId: SearchDocument] = [:]
-        for document in documentSet.documents where nextDocuments[document.itemId] == nil {
+        var duplicateCount = 0
+        for document in documentSet.documents {
+            guard nextDocuments[document.itemId] == nil else {
+                duplicateCount += 1
+                continue
+            }
             nextDocuments[document.itemId] = document
         }
         let removedOrChangedIds = installedDocuments.compactMap { itemId, old -> SearchItemId? in
@@ -302,6 +319,7 @@ private final class SearchIndex {
             }
         }
         installedDocuments = nextDocuments
+        return duplicateCount
     }
 
     private static func sameContent(_ lhs: SearchDocument, _ rhs: SearchDocument) -> Bool {

@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import Foundation
 import GRDB
 import Synchronization
 import Testing
@@ -99,6 +101,50 @@ struct SearchServiceTests {
         #expect(ids(in: again) == ["new"])
     }
 
+    @Test("duplicate document ids keep the first row and record a bounded count")
+    func duplicateIdsAreTraced() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "search-duplicate-trace-\(UUIDv7.generate().uuidString)")
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "search-duplicate-trace",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 734,
+            timeUnixNano: { 1 }
+        )
+        let traceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let service = SearchService(performanceTraceRecorder: traceRecorder)
+        let documentSet = set(
+            1,
+            documents: [
+                document("same", title: "first title"),
+                document("same", title: "second title"),
+            ]
+        )
+
+        let result = await service.search(request(1, text: "first", set: documentSet))
+        #expect(ids(in: result) == ["same"])
+        #expect(ids(in: await service.search(request(2, text: "second", set: documentSet))).isEmpty)
+
+        try await traceRecorder.drain()
+        let outputURL = try #require(traceRuntime.outputFileURL)
+        let records = try String(contentsOf: outputURL, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { line -> [String: Any]? in
+                try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            }
+        let duplicateCounts = records.compactMap { record -> Int? in
+            guard let attributes = record["attributes"] as? [String: Any],
+                attributes["agentstudio.performance.commandbar.search.stage"] as? String == "install"
+            else { return nil }
+            return attributes["agentstudio.performance.commandbar.search.duplicate_item.count"] as? Int
+        }
+        #expect(duplicateCounts == [1])
+    }
+
     @Test("a one-title generation change rewrites only that indexed row")
     func changedTitleInstallsAsDiff() async throws {
         let queue = try DatabaseQueue()
@@ -115,8 +161,12 @@ struct SearchServiceTests {
             return rowIds
         }
 
-        var changed = originals
-        changed[4] = document("row-4", title: "renamed-entry")
+        let firstInsertedId = try #require(originalRowIds.min { $0.value < $1.value }?.key)
+        let originalTitle = try #require(originals.first { $0.itemId.rawValue == firstInsertedId }?.title)
+        let changed = originals.map { existing in
+            existing.itemId.rawValue == firstInsertedId
+                ? document(firstInsertedId, title: "renamed-entry") : existing
+        }
         let secondSet = set(2, documents: changed)
         await service.install(secondSet)
         let updatedRowIds = try await queue.read { database in
@@ -129,9 +179,9 @@ struct SearchServiceTests {
         }
         #expect(updatedRowIds.count == 10)
         #expect(updatedRowIds.filter { originalRowIds[$0.key] != $0.value }.count == 1)
-        #expect(updatedRowIds["row-4"] != originalRowIds["row-4"])
-        #expect(ids(in: await service.search(request(1, text: "renamed", set: secondSet))) == ["row-4"])
-        #expect(ids(in: await service.search(request(2, text: "entry-4", set: secondSet))).isEmpty)
+        #expect(updatedRowIds[firstInsertedId] != originalRowIds[firstInsertedId])
+        #expect(ids(in: await service.search(request(1, text: "renamed", set: secondSet))) == [firstInsertedId])
+        #expect(ids(in: await service.search(request(2, text: originalTitle, set: secondSet))).isEmpty)
     }
 
     @Test("a cancelled first request for a generation cannot poison its next request")
