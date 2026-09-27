@@ -283,7 +283,13 @@ package final class RepoCacheStore {
         saveGeneration &+= 1
         let generation = saveGeneration
         let operation = Task { @MainActor [self] in
-            if let previous { _ = try? await previous.value }
+            if let previous {
+                await withTaskCancellationHandler {
+                    _ = try? await previous.value
+                } onCancel: {
+                    previous.cancel()
+                }
+            }
             try await persistCurrentCapture(for: workspaceId, force: force)
         }
         activeSaveTask = operation
