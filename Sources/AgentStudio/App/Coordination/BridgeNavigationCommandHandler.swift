@@ -19,6 +19,7 @@ final class BridgeNavigationCommandHandler {
     let linkCommitPort: (any BridgeLinkCommitPort)?
     let workspaceID: UUID?
     weak var linkMembershipActor: BridgePaneLinkMembershipActor?
+    weak var paneRevealActor: BridgePaneRevealActor?
     /// Supplied by the App composition once mounted Bridges can be reached.
     var presentationPorts: BridgeReceiverPresentationPorts?
     /// Advances per receiver for every navigation that awaits the page, so a

@@ -72,6 +72,15 @@ struct BridgeReceiverStateRow: Equatable, Sendable {
     var provenanceRepoID: UUID?
     var provenanceWorktreeID: UUID?
     var provenanceRelativePath: String?
+    var retainedWorktreeID: UUID?
+    var retainedRelativePath: String?
+    var retainedLine: Int?
+    var retainedRequesterKey: String?
+    var retainedRequesterKind: String?
+    var retainedRequesterProvider: String?
+    var retainedRequesterSessionRef: String?
+    var retainedAt: Date?
+    var retainedGeneration: Int?
     var comparisonKind: String?
     var comparisonBasis: String?
     var comparisonName: String?
@@ -102,6 +111,29 @@ struct BridgeReceiverItemRow: Equatable, Sendable {
 }
 
 extension BridgeReceiverStateRow {
+    /// Ordinary UI and membership writes never own Open view metadata. Copy
+    /// the durable metadata floor for a surviving opened-document key.
+    func preservingRetainedMetadata(from stored: Self?) -> Self {
+        var copy = self
+        let source = stored?.isDeleted == false ? stored : nil
+        copy.retainedWorktreeID = source?.retainedWorktreeID
+        copy.retainedRelativePath = source?.retainedRelativePath
+        copy.retainedLine = source?.retainedLine
+        copy.retainedRequesterKey = source?.retainedRequesterKey
+        copy.retainedRequesterKind = source?.retainedRequesterKind
+        copy.retainedRequesterProvider = source?.retainedRequesterProvider
+        copy.retainedRequesterSessionRef = source?.retainedRequesterSessionRef
+        copy.retainedAt = source?.retainedAt
+        copy.retainedGeneration = stored?.retainedGeneration
+        return copy
+    }
+
+    func deletingDocument(at generation: Int) -> Self {
+        var copy = preservingRetainedMetadata(from: nil).withGeneration(generation, isDeleted: true)
+        copy.retainedGeneration = max(retainedGeneration ?? -1, generation)
+        return copy
+    }
+
     func withGeneration(_ generation: Int, isDeleted: Bool = false) -> Self {
         var copy = Self(receiver: receiver, kind: kind, itemKey: itemKey, generation: generation, isDeleted: isDeleted)
         copy.textValue = textValue
@@ -114,6 +146,15 @@ extension BridgeReceiverStateRow {
         copy.provenanceRepoID = provenanceRepoID
         copy.provenanceWorktreeID = provenanceWorktreeID
         copy.provenanceRelativePath = provenanceRelativePath
+        copy.retainedWorktreeID = retainedWorktreeID
+        copy.retainedRelativePath = retainedRelativePath
+        copy.retainedLine = retainedLine
+        copy.retainedRequesterKey = retainedRequesterKey
+        copy.retainedRequesterKind = retainedRequesterKind
+        copy.retainedRequesterProvider = retainedRequesterProvider
+        copy.retainedRequesterSessionRef = retainedRequesterSessionRef
+        copy.retainedAt = retainedAt
+        copy.retainedGeneration = retainedGeneration
         copy.comparisonKind = comparisonKind
         copy.comparisonBasis = comparisonBasis
         copy.comparisonName = comparisonName

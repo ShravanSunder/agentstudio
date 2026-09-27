@@ -540,6 +540,208 @@ struct BridgeReceiverKeyedStorageTests {
         try fixture.repository.purgeRetiredBridgeReceivers(time: time)
         #expect(try fixture.rowCount(for: receiver) == 0)
     }
+
+    @Test("agent reveal metadata replaces in place, survives saves and restart, and clears without closing")
+    func retainedRevealLifecycle() throws {
+        let fixture = try ReceiverKeyedStorageFixture()
+        defer { fixture.remove() }
+        let receiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let worktree = UUIDv7.generate()
+        let topology = try receiverTopologySnapshot(
+            for: receiver, knownWorktreeRoots: [worktree: fixture.root.path])
+        _ = try fixture.repository.insertBridgeReceiversIfAbsent([receiver: .empty])
+        let firstAgent = BridgeLinkContributor.agent(
+            .init(
+                provider: try BridgeAgentProviderName("codex"),
+                sessionRef: try BridgeAgentSessionRef("reveal:first")))
+        let secondAgent = BridgeLinkContributor.agent(
+            .init(
+                provider: try BridgeAgentProviderName("codex"),
+                sessionRef: try BridgeAgentSessionRef("reveal:second")))
+        let firstTarget = try BridgeRevealFileTarget(worktree: worktree, relativePath: "notes.swift", line: 4)
+        let secondTarget = try BridgeRevealFileTarget(worktree: worktree, relativePath: "notes.swift", line: 8)
+        let first = try fixture.repository.retainAgentReveal(
+            receiver: receiver, target: firstTarget, requestedBy: firstAgent,
+            generation: 10, retainedAt: Date(timeIntervalSince1970: 100), topologySnapshot: topology)
+        guard case .retained = first.result else {
+            Issue.record("first reveal must retain")
+            return
+        }
+        let location = try #require(first.record.openedDocuments.first?.location)
+        #expect(first.record.openedDocuments.first?.provenance == nil)
+        let second = try fixture.repository.retainAgentReveal(
+            receiver: receiver, target: secondTarget, requestedBy: secondAgent,
+            generation: 12, retainedAt: Date(timeIntervalSince1970: 200), topologySnapshot: topology)
+        #expect(second.record.openedDocuments.count == 1)
+        #expect(second.record.openedDocuments.first?.retainedOpenViewItem?.target.line == 8)
+        #expect(second.record.openedDocuments.first?.retainedOpenViewItem?.requestedBy == secondAgent)
+        let stale = try fixture.repository.retainAgentReveal(
+            receiver: receiver, target: firstTarget, requestedBy: firstAgent,
+            generation: 11, retainedAt: Date(timeIntervalSince1970: 150), topologySnapshot: topology)
+        #expect(stale.result == .superseded)
+        let ordinarySave = BridgeNavigationRecord(
+            openedDocuments: [.init(location: location, provenance: nil)], surface: .review)
+        try fixture.repository.saveBridgeCurrentValues(
+            [receiver: ordinarySave], retainedPaneIDs: [receiver.paneId], generation: 13,
+            now: Date(timeIntervalSince1970: 300))
+        #expect(try fixture.repository.retainedOpenViewItems(receiver: receiver).first?.target.line == 8)
+        try fixture.withReopenedRepository { reopened in
+            let reopenedItems = try reopened.retainedOpenViewItems(receiver: receiver)
+            let reopenedRecord = try reopened.readBridgeReceivers().records[receiver]
+            #expect(reopenedItems.first?.requestedBy == secondAgent)
+            #expect(reopenedRecord?.openedDocuments.count == 1)
+        }
+        let cleared = try fixture.repository.clearRetainedOpenViewItem(
+            receiver: receiver, location: location, generation: 15, topologySnapshot: topology)
+        #expect(cleared.result == .cleared)
+        #expect(cleared.record.openedDocuments.count == 1)
+        #expect(try fixture.repository.retainedOpenViewItems(receiver: receiver).isEmpty)
+        let oldRetain = try fixture.repository.retainAgentReveal(
+            receiver: receiver, target: secondTarget, requestedBy: secondAgent,
+            generation: 14, retainedAt: Date(timeIntervalSince1970: 250), topologySnapshot: topology)
+        #expect(oldRetain.result == .superseded)
+        try fixture.repository.saveBridgeCurrentValues(
+            [receiver: .empty], retainedPaneIDs: [receiver.paneId], generation: 16,
+            now: Date(timeIntervalSince1970: 400))
+        #expect(try fixture.repository.readBridgeReceivers().records[receiver]?.openedDocuments.isEmpty == true)
+    }
+
+    @Test("absent clear fences an older reveal while a known unlinked target remains loose")
+    func absentClearAndLooseTarget() throws {
+        let fixture = try ReceiverKeyedStorageFixture()
+        defer { fixture.remove() }
+        let receiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let worktree = UUIDv7.generate()
+        let topology = try receiverTopologySnapshot(
+            for: receiver, knownWorktreeRoots: [worktree: fixture.root.path])
+        _ = try fixture.repository.insertBridgeReceiversIfAbsent([receiver: .empty])
+        let target = try BridgeRevealFileTarget(worktree: worktree, relativePath: "loose.swift")
+        let location = try #require(
+            BridgeDocumentLocation(
+                canonicalPath:
+                    DarwinFSEventPathCanonicalizer.canonicalURL(
+                        fixture.root.appendingPathComponent("loose.swift")
+                    ).path))
+        #expect(
+            try fixture.repository.previewAgentReveal(
+                receiver: receiver, target: target, topologySnapshot: topology) == .eligible(location: location))
+        let cleared = try fixture.repository.clearRetainedOpenViewItem(
+            receiver: receiver, location: location, generation: 8, topologySnapshot: topology)
+        #expect(cleared.result == .alreadyAbsent)
+        let stale = try fixture.repository.retainAgentReveal(
+            receiver: receiver, target: target,
+            requestedBy: .agent(
+                .init(
+                    provider: BridgeAgentProviderName("codex"),
+                    sessionRef: BridgeAgentSessionRef("reveal:stale"))),
+            generation: 7, retainedAt: Date(timeIntervalSince1970: 100), topologySnapshot: topology)
+        #expect(stale.result == .superseded)
+        #expect(stale.record.openedDocuments.isEmpty)
+        let unknown = try BridgeRevealFileTarget(worktree: UUIDv7.generate(), relativePath: "unknown.swift")
+        #expect(
+            try fixture.repository.previewAgentReveal(
+                receiver: receiver, target: unknown, topologySnapshot: topology) == .unsupportedTarget)
+    }
+
+    @Test("only a committed member gives reveal provenance; a later link groups the loose row")
+    func revealProvenanceRequiresCommittedMember() throws {
+        let fixture = try ReceiverKeyedStorageFixture()
+        defer { fixture.remove() }
+        let worktree = UUIDv7.generate()
+        let derivedReceiver = BridgeReceiver.terminal(UUIDv7.generate())
+        let derivedTopology = try receiverTopologySnapshot(
+            for: derivedReceiver, knownWorktreeRoots: [worktree: fixture.root.path],
+            currentCWDWorktreeID: worktree)
+        _ = try fixture.repository.insertBridgeReceiversIfAbsent([derivedReceiver: .empty])
+        let target = try BridgeRevealFileTarget(worktree: worktree, relativePath: "derived.swift")
+        let agent = BridgeLinkContributor.agent(
+            .init(
+                provider: try BridgeAgentProviderName("codex"),
+                sessionRef: try BridgeAgentSessionRef("reveal:derived")))
+        let loose = try fixture.repository.retainAgentReveal(
+            receiver: derivedReceiver, target: target, requestedBy: agent,
+            generation: 10, retainedAt: Date(timeIntervalSince1970: 100),
+            topologySnapshot: derivedTopology)
+        #expect(loose.record.openedDocuments.first?.provenance == nil)
+        #expect(loose.record.committedMemberWorktreeIds.isEmpty)
+        let location = try #require(loose.record.openedDocuments.first?.location)
+        let rowBeforeLink = try fixture.openedDocumentRow(receiver: derivedReceiver, location: location)
+        let (linked, _) = try fixture.repository.commitBridgeMemberAddition(
+            receiver: derivedReceiver, worktreeID: worktree, contributor: .app,
+            generation: 11, addedAt: Date(timeIntervalSince1970: 101),
+            topologySnapshot: derivedTopology)
+        #expect(linked.openedDocuments.first?.provenance == nil)
+        #expect(try fixture.openedDocumentRow(receiver: derivedReceiver, location: location) == rowBeforeLink)
+        #expect(
+            BridgeNavigationRules.grouping(
+                of: location, effectiveMemberWorktreeIds: linked.effectiveMemberWorktreeIds,
+                memberRootsByWorktreeId: derivedTopology.effectiveMemberRoots(in: linked))
+                == .member(worktreeId: worktree))
+
+        let failedReceiver = BridgeReceiver.terminal(UUIDv7.generate())
+        let pendingTopology = try receiverTopologySnapshot(
+            for: failedReceiver, knownWorktreeRoots: [worktree: fixture.root.path],
+            currentCWDWorktreeID: worktree)
+        _ = try fixture.repository.insertBridgeReceiversIfAbsent([failedReceiver: .empty])
+        let pending = try fixture.repository.retainAgentReveal(
+            receiver: failedReceiver, target: target, requestedBy: agent,
+            generation: 15, retainedAt: Date(timeIntervalSince1970: 150),
+            topologySnapshot: pendingTopology)
+        let movedTopology = try receiverTopologySnapshot(
+            for: failedReceiver, knownWorktreeRoots: [worktree: fixture.root.path])
+        let afterFailedCommit = try #require(fixture.repository.readBridgeReceivers().records[failedReceiver])
+        #expect(pending.record.openedDocuments.first?.provenance == nil)
+        #expect(afterFailedCommit.committedMemberWorktreeIds.isEmpty)
+        #expect(afterFailedCommit.openedDocuments.first?.provenance == nil)
+        #expect(
+            BridgeNavigationRules.grouping(
+                of: location, effectiveMemberWorktreeIds: afterFailedCommit.effectiveMemberWorktreeIds,
+                memberRootsByWorktreeId: movedTopology.effectiveMemberRoots(in: afterFailedCommit)) == .loose)
+
+        let committedReceiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let committedTopology = try receiverTopologySnapshot(
+            for: committedReceiver, knownWorktreeRoots: [worktree: fixture.root.path])
+        _ = try fixture.repository.commitBridgeMemberAddition(
+            receiver: committedReceiver, worktreeID: worktree, contributor: .person,
+            generation: 20, addedAt: Date(timeIntervalSince1970: 200),
+            topologySnapshot: committedTopology)
+        let committed = try fixture.repository.retainAgentReveal(
+            receiver: committedReceiver, target: target, requestedBy: agent,
+            generation: 21, retainedAt: Date(timeIntervalSince1970: 201),
+            topologySnapshot: committedTopology)
+        #expect(committed.record.openedDocuments.first?.provenance?.worktreeId == worktree)
+    }
+
+    @Test("malformed retained target columns reject only the affected receiver")
+    func malformedRetainedTarget() throws {
+        let fixture = try ReceiverKeyedStorageFixture()
+        defer { fixture.remove() }
+        let receiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let healthy = BridgeReceiver.standalone(UUIDv7.generate())
+        let worktree = UUIDv7.generate()
+        let topology = try receiverTopologySnapshot(
+            for: receiver, knownWorktreeRoots: [worktree: fixture.root.path])
+        _ = try fixture.repository.insertBridgeReceiversIfAbsent([receiver: .empty, healthy: .empty])
+        let target = try BridgeRevealFileTarget(worktree: worktree, relativePath: "valid.swift")
+        _ = try fixture.repository.retainAgentReveal(
+            receiver: receiver, target: target,
+            requestedBy: .agent(
+                .init(
+                    provider: BridgeAgentProviderName("codex"),
+                    sessionRef: BridgeAgentSessionRef("reveal:malformed"))),
+            generation: 10, retainedAt: Date(timeIntervalSince1970: 100), topologySnapshot: topology)
+        try fixture.pool.write { database in
+            try database.execute(
+                sql: """
+                    UPDATE bridge_receiver_state SET retained_relative_path = '../invalid.swift'
+                    WHERE workspace_id = ? AND receiver_pane_id = ? AND kind = 'openedDocument'
+                    """, arguments: [fixture.repository.workspaceId.uuidString, receiver.paneId.uuidString])
+        }
+        let readback = try fixture.repository.readBridgeReceivers()
+        #expect(readback.records[receiver] == nil)
+        #expect(readback.presentPaneIDs.contains(receiver.paneId))
+        #expect(readback.records[healthy] == .empty)
+    }
 }
 
 private struct ReceiverKeyedStorageFixture {
@@ -600,6 +802,28 @@ private struct ReceiverKeyedStorageFixture {
                     repository.workspaceId.uuidString, receiver.paneId.uuidString,
                     repository.workspaceId.uuidString, receiver.paneId.uuidString,
                 ]) ?? 0
+        }
+    }
+
+    func openedDocumentRow(receiver: BridgeReceiver, location: BridgeDocumentLocation) throws -> [String?] {
+        try pool.read { database in
+            let stored = try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT generation, provenance_worktree_id, retained_worktree_id, retained_relative_path
+                    FROM bridge_receiver_state
+                    WHERE workspace_id = ? AND receiver_pane_id = ? AND kind = 'openedDocument' AND item_key = ?
+                    """,
+                arguments: [
+                    repository.workspaceId.uuidString, receiver.paneId.uuidString,
+                    BridgeReceiverStateKeyCodec.document(location),
+                ])
+            let row = try #require(stored)
+            let generation: Int = row["generation"]
+            let provenance: String? = row["provenance_worktree_id"]
+            let worktree: String? = row["retained_worktree_id"]
+            let relativePath: String? = row["retained_relative_path"]
+            return [String(generation), provenance, worktree, relativePath]
         }
     }
 }

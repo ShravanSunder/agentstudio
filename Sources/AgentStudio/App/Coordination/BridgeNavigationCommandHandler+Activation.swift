@@ -102,6 +102,8 @@ extension BridgeNavigationCommandHandler {
             return .failed(.notInInventory)
         case .closed(let updated, _):
             navigationAtom.setRecord(updated, for: receiver)
+            let closeTicket = writeSequencer.nextTicket().value
+            paneRevealActor?.documentClosed(location, in: receiver, ticket: closeTicket)
             presentationPorts?.refreshFilesSource(receiver)
             return await persistedOutcome()
         }
