@@ -86,9 +86,9 @@ describe("topology node vocabulary on the home page", () => {
     const fromWorktree = result.ports.filter((port) => port.source !== "main");
     expect(fromWorktree.length).toBeGreaterThan(0);
     for (const port of result.ports) {
-      expect(port.strokeWidth).toBe(port.laneStrokeWidth);
+      expect(port.strokeWidth).toBe(port.terminal ? "2px" : port.laneStrokeWidth);
       expect(port.nodeCount).toBe(0);
-      expect(port.endpointOffset).toBeLessThanOrEqual(1);
+      expect(port.endpointOffset).toBeLessThanOrEqual(port.terminal ? 6.5 : 1);
     }
     for (const port of fromWorktree) {
       expect(port.stroke).toMatch(/^url\("?#topology-port-gradient-/u);

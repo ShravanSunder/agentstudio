@@ -24,7 +24,7 @@ export const verifySiteFooterResponsiveLayout = defineBrowserCommand(
     try {
       const readFooterLayout = async (width: number): Promise<FooterLayoutState> => {
         await applicationPage.setViewportSize({ height: 900, width });
-        const response = await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
+        const response = await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
         if (response === null || !response.ok()) {
           throw new Error(
             `Footer browser-test page failed to load: ${applicationPage.url()} (${String(response?.status())})`,

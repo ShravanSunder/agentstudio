@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
 import type { TestProject } from "vitest/node";
 
@@ -53,13 +52,9 @@ async function stopOwnedServer(childProcess: ChildProcess): Promise<void> {
   if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
     return;
   }
-  const exitPromise = once(childProcess, "exit").then((): true => true);
+  const exitPromise = once(childProcess, "exit");
   childProcess.kill("SIGTERM");
-  const exited = await Promise.race([exitPromise, delay(2_000).then((): false => false)]);
-  if (!exited && childProcess.exitCode === null && childProcess.signalCode === null) {
-    childProcess.kill("SIGKILL");
-    await exitPromise;
-  }
+  await exitPromise;
 }
 
 export default async function setupSiteHeaderBrowserServer(

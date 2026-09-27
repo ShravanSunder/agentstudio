@@ -31,7 +31,10 @@ export const verifyWebsiteQualityLayout = defineBrowserCommand(
       /* eslint-disable no-await-in-loop -- One page owns the viewport; each width must settle before it is read. */
       for (const width of [320, 360, 375, 390, 900, 1144, 1280, 1440, 1600, 1920]) {
         await applicationPage.setViewportSize({ width, height: width <= 375 ? 667 : 1000 });
-        await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
+        await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+        await applicationPage.evaluate(async (): Promise<void> => {
+          await document.fonts.ready;
+        });
         const settledObservation = await applicationPage.evaluate(
           (): Omit<WebsiteLayoutObservation, "introHorizontalOverflow"> => {
             const headings = [

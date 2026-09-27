@@ -123,9 +123,7 @@ describe("chapter step tabs", () => {
     // Assert
     expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     await page.viewport(1280, 800);
-    await vi.waitFor(() => {
-      expect(list.getAttribute("aria-orientation")).toBe("horizontal");
-    });
+    expect(list.getAttribute("aria-orientation")).toBe("horizontal");
 
     controller.destroy();
   });

@@ -31,6 +31,17 @@ function addFixture(markup: string): HTMLElement {
   return fixture;
 }
 
+function nextTextMutation(element: HTMLElement, expectedText: string): Promise<void> {
+  return new Promise((resolve): void => {
+    const observer = new MutationObserver((): void => {
+      if (element.textContent !== expectedText) return;
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(element, { childList: true, characterData: true, subtree: true });
+  });
+}
+
 interface ControllableVideoFixture {
   readonly finishPlayback: () => void;
   readonly pauseManually: () => void;
@@ -206,8 +217,10 @@ describe("interactive website controllers", () => {
       value: "hidden",
     });
     document.dispatchEvent(new Event("visibilitychange"));
-
-    await vi.waitFor(() => expect(fixture.pauseSpy).toHaveBeenCalledTimes(1));
+    await new Promise<void>((resolve): void => {
+      requestAnimationFrame((): void => resolve());
+    });
+    expect(fixture.pauseSpy).toHaveBeenCalledTimes(1);
     initializeScrollMaterialSurfaces();
     Reflect.deleteProperty(document, "visibilityState");
   });
@@ -226,17 +239,17 @@ describe("interactive website controllers", () => {
     const button = requiredButton(root, "[data-install-copy]");
     const status = requiredHtmlElement(root, "[data-install-status]");
 
+    const copiedStatus = nextTextMutation(status, marketingCopy.installation.copiedStatus);
     button.click();
-    await vi.waitFor(() =>
-      expect(status.textContent).toBe(marketingCopy.installation.copiedStatus),
-    );
+    await copiedStatus;
+    expect(status.textContent).toBe(marketingCopy.installation.copiedStatus);
     expect(writeText).toHaveBeenCalledWith("brew install --cask agent-studio");
 
     writeText.mockRejectedValueOnce(new Error("clipboard unavailable"));
+    const failedStatus = nextTextMutation(status, marketingCopy.installation.failedStatus);
     button.click();
-    await vi.waitFor(() =>
-      expect(status.textContent).toBe(marketingCopy.installation.failedStatus),
-    );
+    await failedStatus;
+    expect(status.textContent).toBe(marketingCopy.installation.failedStatus);
 
     dispose();
   });
@@ -257,9 +270,7 @@ describe("interactive website controllers", () => {
 
     button.click();
 
-    await vi.waitFor(() =>
-      expect(status.textContent).toBe(marketingCopy.installation.failedStatus),
-    );
+    expect(status.textContent).toBe(marketingCopy.installation.failedStatus);
     dispose();
     Reflect.deleteProperty(navigator, "clipboard");
   });

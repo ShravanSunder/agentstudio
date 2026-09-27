@@ -600,7 +600,7 @@ describe("stage-measured autoplay progress", () => {
 
     initializeScrollMaterialSurfaces();
 
-    await vi.waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1));
+    expect(playSpy).toHaveBeenCalledTimes(1);
     expect(surface.dataset["visualState"]).not.toBe("floating");
     initializeScrollMaterialSurfaces();
   });

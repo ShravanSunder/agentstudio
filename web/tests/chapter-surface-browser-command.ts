@@ -217,7 +217,7 @@ export const verifyChapterTitleAnchors = defineBrowserCommand(
       try {
         await applicationPage.emulateMedia({ reducedMotion: "reduce" });
         await applicationPage.setViewportSize({ width, height: 900 });
-        await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
+        await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
         await applicationPage.evaluate(async () => {
           await document.fonts.ready;
         });
@@ -419,7 +419,7 @@ function readStepSnapshot(chapterId: string): ChapterStepSnapshot {
 interface NavigablePage {
   emulateMedia(options: { readonly reducedMotion: "reduce" }): Promise<void>;
   setViewportSize(size: { readonly width: number; readonly height: number }): Promise<void>;
-  goto(url: string, options: { readonly waitUntil: "networkidle" }): Promise<unknown>;
+  goto(url: string, options: { readonly waitUntil: "domcontentloaded" }): Promise<unknown>;
 }
 
 async function openChapter(
@@ -430,7 +430,7 @@ async function openChapter(
   await applicationPage.setViewportSize({ width: request.width, height: request.height ?? 900 });
   const pageUrl = new URL(request.pageUrl);
   pageUrl.hash = request.chapterId;
-  await applicationPage.goto(pageUrl.href, { waitUntil: "networkidle" });
+  await applicationPage.goto(pageUrl.href, { waitUntil: "domcontentloaded" });
 }
 
 /**

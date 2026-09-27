@@ -27,6 +27,7 @@ export interface TopologyGlyphObservation {
 /** One port's line, read with its real styles. */
 export interface TopologyPortObservation {
   readonly source: string;
+  readonly terminal: boolean;
   readonly strokeWidth: string;
   readonly laneStrokeWidth: string;
   /** The computed `stroke`: a `url(#…)` gradient reference when the port leaves a worktree lane. */
@@ -84,6 +85,7 @@ function readPorts(): TopologyPortObservation[] {
     const sourceLane = laneCore(source);
     return {
       source,
+      terminal: group.hasAttribute("data-topology-terminal-route"),
       strokeWidth: getComputedStyle(core).strokeWidth,
       laneStrokeWidth: getComputedStyle(anyLane).strokeWidth,
       stroke: getComputedStyle(core).stroke,
@@ -146,7 +148,7 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
     const applicationPage = await context.newPage();
     try {
       await applicationPage.setViewportSize({ width: 1920, height: 1080 });
-      await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
+      await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
       await applicationPage.waitForSelector(
         "[data-full-page-topology][data-topology-reveal-edge-y]",
         {
@@ -162,10 +164,30 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
       await applicationPage.evaluate(() => {
         window.scrollTo(0, document.documentElement.scrollHeight);
       });
-      await applicationPage.waitForFunction(() =>
-        [...document.querySelectorAll("[data-full-page-topology] [data-node]")].every((node) =>
-          node.hasAttribute("data-topology-node-revealed"),
-        ),
+      await applicationPage.evaluate(
+        async (): Promise<void> =>
+          await new Promise((resolve): void => {
+            const artwork = document.querySelector("[data-full-page-topology]");
+            if (artwork === null) throw new Error("Topology artwork is missing");
+            const allNodesRevealed = (): boolean =>
+              [...artwork.querySelectorAll("[data-node]")].every((node) =>
+                node.hasAttribute("data-topology-node-revealed"),
+              );
+            const observer = new MutationObserver((): void => {
+              if (!allNodesRevealed()) return;
+              observer.disconnect();
+              resolve();
+            });
+            observer.observe(artwork, {
+              attributes: true,
+              attributeFilter: ["data-topology-node-revealed"],
+              subtree: true,
+            });
+            if (allNodesRevealed()) {
+              observer.disconnect();
+              resolve();
+            }
+          }),
       );
       // The final glyph state is independent of transition timing. Disable
       // motion after the scroll has revealed every node before reading paint.
