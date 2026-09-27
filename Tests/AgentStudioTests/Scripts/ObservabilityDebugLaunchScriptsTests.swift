@@ -5,10 +5,10 @@ import Testing
 @Suite("Observability debug launch scripts")
 struct ObservabilityDebugLaunchScriptsTests {
     @Test("debug launcher uses four-character worktree code for socket path headroom")
-    func debugLauncherUsesFourCharacterWorktreeCodeForSocketPathHeadroom() throws {
+    func debugLauncherUsesFourCharacterWorktreeCodeForSocketPathHeadroom() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--print-identity"],
             environment: [:]
@@ -23,12 +23,12 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher projects an explicit disposable data and zmx identity")
-    func debugLauncherProjectsExplicitDisposableDataIdentity() throws {
+    func debugLauncherProjectsExplicitDisposableDataIdentity() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let disposableDataRoot = fixture.url("disposable-proof-data")
         let disposableZmxRoot = disposableDataRoot.appending(path: "z")
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--print-identity"],
             environment: ["AGENTSTUDIO_DEBUG_DATA_DIR": disposableDataRoot.path]
@@ -87,7 +87,7 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher rejects unsafe trace names before launch")
-    func debugLauncherRejectsUnsafeTraceNamesBeforeLaunch() throws {
+    func debugLauncherRejectsUnsafeTraceNamesBeforeLaunch() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -98,7 +98,7 @@ struct ObservabilityDebugLaunchScriptsTests {
             sleep 30
             """
         )
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [
@@ -131,10 +131,10 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher refuses same worktree debug app outside default artifact root")
-    func debugLauncherRefusesSameWorktreeDebugRuntimeByBundleIdentifier() throws {
+    func debugLauncherRefusesSameWorktreeDebugRuntimeByBundleIdentifier() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-        let debugCode = try fixture.worktreeDebugCode()
+        let debugCode = try await fixture.worktreeDebugCode()
         let runningApp = try fixture.makeAppBundle(
             name: "External AgentStudio Debug \(debugCode).app",
             releaseChannel: "stable",
@@ -143,7 +143,7 @@ struct ObservabilityDebugLaunchScriptsTests {
         let openMarker = fixture.url("open-called")
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: [
                 "--build-path", fixture.url("unused-build").path,
@@ -185,12 +185,12 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher fails closed when running process attribution is unavailable")
-    func debugLauncherFailsClosedWhenRunningProcessAttributionIsUnavailable() throws {
+    func debugLauncherFailsClosedWhenRunningProcessAttributionIsUnavailable() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: [
                 "--build-path", fixture.url("unused-build").path,
@@ -222,7 +222,7 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher overwrites stale running state when collector health fails")
-    func debugLauncherOverwritesStaleRunningStateWhenCollectorHealthFails() throws {
+    func debugLauncherOverwritesStaleRunningStateWhenCollectorHealthFails() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -234,7 +234,7 @@ struct ObservabilityDebugLaunchScriptsTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: [
                 "--build-path", fixture.url("unused-build").path,
@@ -260,10 +260,10 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher ignores stale state PID when bundle identity does not match")
-    func debugLauncherIgnoresStaleStatePIDWhenBundleIdentityDoesNotMatch() throws {
+    func debugLauncherIgnoresStaleStatePIDWhenBundleIdentityDoesNotMatch() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-        let debugCode = try fixture.worktreeDebugCode()
+        let debugCode = try await fixture.worktreeDebugCode()
         let unrelatedApp = try fixture.makeAppBundle(
             name: "Unrelated AgentStudio.app",
             releaseChannel: "stable",
@@ -283,7 +283,7 @@ struct ObservabilityDebugLaunchScriptsTests {
             """
         )
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [
@@ -339,10 +339,10 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher refuses running direct executable from state file")
-    func debugLauncherRefusesRunningDirectExecutableFromStateFile() throws {
+    func debugLauncherRefusesRunningDirectExecutableFromStateFile() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-        let debugCode = try fixture.worktreeDebugCode()
+        let debugCode = try await fixture.worktreeDebugCode()
         let stateFile = fixture.url("latest.env")
         let openMarker = fixture.url("open-called")
         let buildPath = fixture.url("debug-build")
@@ -361,7 +361,7 @@ struct ObservabilityDebugLaunchScriptsTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [
@@ -392,10 +392,10 @@ struct ObservabilityDebugLaunchScriptsTests {
     }
 
     @Test("debug launcher ignores stale direct executable state when PID attribution differs")
-    func debugLauncherIgnoresStaleDirectExecutableStateWhenPIDAttributionDiffers() throws {
+    func debugLauncherIgnoresStaleDirectExecutableStateWhenPIDAttributionDiffers() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-        let debugCode = try fixture.worktreeDebugCode()
+        let debugCode = try await fixture.worktreeDebugCode()
         let stateFile = fixture.url("latest.env")
         let buildPath = try fixture.makeDebugBuildExecutable(
             """
@@ -413,7 +413,7 @@ struct ObservabilityDebugLaunchScriptsTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [
@@ -467,7 +467,7 @@ struct ObservabilityDebugLaunchScriptsTests {
 struct ObservabilityDebugLaunchScriptVerifierTests {
 
     @Test("debug launcher overwrites stale state when collector is unhealthy")
-    func debugLauncherOverwritesStaleStateWhenCollectorIsUnhealthy() throws {
+    func debugLauncherOverwritesStaleStateWhenCollectorIsUnhealthy() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -484,7 +484,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [
@@ -537,7 +537,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             """
         )
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [
@@ -604,7 +604,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 
     @Test("debug launcher forwards diagnostic env through LaunchServices")
-    func debugLauncherForwardsDiagnosticEnvironmentThroughLaunchServices() throws {
+    func debugLauncherForwardsDiagnosticEnvironmentThroughLaunchServices() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -617,7 +617,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             """
         )
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: try launchServicesDiagnosticEnvironment(
@@ -663,7 +663,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 
     @Test("debug launcher foreground activation is explicit opt in")
-    func debugLauncherForegroundActivationIsExplicitOptIn() throws {
+    func debugLauncherForegroundActivationIsExplicitOptIn() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -683,7 +683,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         )
         environment["AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE"] = "1"
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: environment
@@ -696,7 +696,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 
     @Test("debug observability verifier requires requested startup diagnostic telemetry")
-    func debugObservabilityVerifierRequiresRequestedStartupDiagnosticTelemetry() throws {
+    func debugObservabilityVerifierRequiresRequestedStartupDiagnosticTelemetry() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -715,7 +715,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -754,7 +754,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 
     @Test("debug observability verifier does not require render proof for command bar workload diagnostic")
-    func debugObservabilityVerifierDoesNotRequireRenderProofForCommandBarWorkloadDiagnostic() throws {
+    func debugObservabilityVerifierDoesNotRequireRenderProofForCommandBarWorkloadDiagnostic() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -774,7 +774,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         )
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -811,7 +811,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 
     @Test("debug observability verifier accepts completed startup diagnostic render proof")
-    func debugObservabilityVerifierAcceptsCompletedStartupDiagnosticRenderProof() throws {
+    func debugObservabilityVerifierAcceptsCompletedStartupDiagnosticRenderProof() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -831,7 +831,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         )
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -902,7 +902,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 
     @Test("debug launcher fails closed when LaunchServices accepts app but PID never appears")
-    func debugLauncherFailsClosedWhenLaunchServicesAcceptsAppButPidNeverAppears() throws {
+    func debugLauncherFailsClosedWhenLaunchServicesAcceptsAppButPidNeverAppears() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -915,7 +915,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             """
         )
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [

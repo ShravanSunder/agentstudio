@@ -54,6 +54,39 @@ struct WatchedFolderTopologyAdmissionTests {
                 == scenario.shouldScan)
     }
 
+    @Test("directory creation inside a held destination admits no scan; Git topology paths still admit")
+    func heldDestinationIsTreatedAsKnownCheckout() throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "topology-admission-held-\(UUIDv7.generate())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let registration = FSEventRegistrationToken(
+            sourceID: .init(kind: .watchedParentMembership, rootID: UUIDv7.generate()),
+            registrationGeneration: 1, rootGeneration: 1)
+        let descriptor = try FilesystemSourceConfiguration.registerRoot(
+            from: .hostAuthorized(
+                .init(registration: registration, authorizedBoundary: root, registeredRoot: root)))
+        let heldDestination = root.appending(path: "repo.feature")
+        let createdDirectory = heldDestination.appending(path: "Sources/Generated")
+        let directoryCreation = FSEventBatch(
+            worktreeId: UUIDv7.generate(), paths: [createdDirectory.path],
+            observations: [
+                .init(
+                    path: createdDirectory.path, eventID: 1,
+                    flags: UInt32(kFSEventStreamEventFlagItemIsDir | kFSEventStreamEventFlagItemCreated))
+            ])
+        let gitAdministration = FSEventBatch(
+            worktreeId: UUIDv7.generate(), paths: [heldDestination.appending(path: ".git").path])
+
+        #expect(
+            !WatchedFolderTopologyAdmission.shouldScan(
+                directoryCreation, root: descriptor, knownGroups: [], heldCheckoutPaths: [heldDestination.path]))
+        #expect(WatchedFolderTopologyAdmission.shouldScan(directoryCreation, root: descriptor, knownGroups: []))
+        #expect(
+            WatchedFolderTopologyAdmission.shouldScan(
+                gitAdministration, root: descriptor, knownGroups: [], heldCheckoutPaths: [heldDestination.path]))
+    }
+
     @Test("directory topology evidence survives ingress overflow with retained or discarded paths", arguments: [1, 4])
     func directoryEvidenceSurvivesOverflow(pathLimit: Int) {
         let buffer = DarwinFSEventIngressBuffer(capacity: 1, maximumRetainedOverflowPathsPerRegistration: pathLimit)

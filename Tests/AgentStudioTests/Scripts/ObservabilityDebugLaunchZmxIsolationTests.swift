@@ -4,7 +4,7 @@ import Testing
 @Suite("Observability debug zmx isolation")
 struct ObservabilityDebugLaunchZmxIsolationTests {
     @Test("debug launcher fails closed when bundled zmx is missing")
-    func debugLauncherFailsClosedWhenBundledZmxIsMissing() throws {
+    func debugLauncherFailsClosedWhenBundledZmxIsMissing() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -16,7 +16,7 @@ struct ObservabilityDebugLaunchZmxIsolationTests {
             """
         )
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
             environment: [

@@ -4,7 +4,7 @@ import Testing
 @Suite("Bridge worker fetch product stream feasibility verifier script")
 struct BridgeProductStreamFeasibilityScriptTests {
     @Test("product stream feasibility verifier declares the positive carrier proof")
-    func verifierDeclaresPositiveCarrierProof() throws {
+    func verifierDeclaresPositiveCarrierProof() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -19,7 +19,7 @@ struct BridgeProductStreamFeasibilityScriptTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/verify-bridge-product-stream-webkit-feasibility.sh",
             arguments: ["--dry-run"],
             environment: [
@@ -45,7 +45,7 @@ struct BridgeProductStreamFeasibilityScriptTests {
     }
 
     @Test("product stream feasibility verifier rejects a missing launch proof token")
-    func verifierRejectsMissingLaunchProofToken() throws {
+    func verifierRejectsMissingLaunchProofToken() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -59,7 +59,7 @@ struct BridgeProductStreamFeasibilityScriptTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/verify-bridge-product-stream-webkit-feasibility.sh",
             arguments: ["--dry-run"],
             environment: [

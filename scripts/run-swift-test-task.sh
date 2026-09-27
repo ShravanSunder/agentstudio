@@ -16,11 +16,8 @@ case "$mode" in
 esac
 
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire test "$mode"
 BUILD_PATH="$SWIFT_BUILD_DIR"
-# swift-build-slot.sh releases its claim from an EXIT trap, and this script needs
-# EXIT for its closing receipt. Installing ours would silently replace theirs and
-# leak the claim, so the release command is taken over here and run last.
-LANE_SLOT_RELEASE_COMMAND="$(eval "set -- $(trap -p EXIT)"; printf '%s' "${3:-}")"
 # Defaults match what every gated path already sets (CI lane env and the
 # aggregate `mise run test` task). A bare focused run used to inherit 60/90,
 # which kills a correct cold compile rather than a hung one.
@@ -88,7 +85,7 @@ begin_lane_accounting() {
 # Printed on every exit, including a failing one: a failing lane is the one we
 # most need to read load numbers from.
 print_closing_lane_report() {
-  local exit_status=$?
+  local exit_status="${1:-$?}"
   local wall_seconds=$((SECONDS - LANE_START_SECONDS))
   local cpu_seconds
   local closing_tree_dirty
@@ -159,14 +156,12 @@ trap_lane_termination_signals() {
   trap 'exit 143' TERM
 }
 
-# The invocation's EXIT trap: its closing receipt, then the build-slot release
-# this script took over from swift-build-slot.sh. `$?` is read by the receipt as
-# its first statement, so nothing may run before it.
+# The invocation's single EXIT handler owns the lane receipt and slot release.
 finish_lane_invocation() {
-  print_closing_lane_report
-  if [ -n "$LANE_SLOT_RELEASE_COMMAND" ]; then
-    eval "$LANE_SLOT_RELEASE_COMMAND"
-  fi
+  local exit_status=$?
+  print_closing_lane_report "$exit_status" || true
+  swift_build_slot_release || true
+  return "$exit_status"
 }
 
 # One half of a width comparison: the fast lane, at one width, reusing the bundle
@@ -319,7 +314,9 @@ case "$mode" in
       run_swift_with_timeout \
         "E2ESerializedTests" \
         "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test --skip-build \
+        --filter "$(swift_test_lane_filter_pattern e2e)" \
+        --skip "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH"
     else
       echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
     fi

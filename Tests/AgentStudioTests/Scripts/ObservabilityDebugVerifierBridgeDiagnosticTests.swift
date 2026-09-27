@@ -4,7 +4,7 @@ import Testing
 @Suite("Observability debug verifier Bridge diagnostics")
 struct ObservabilityDebugVerifierBridgeDiagnosticTests {
     @Test("debug observability verifier rejects Bridge Review proof without native lineage fields")
-    func debugObservabilityVerifierRejectsBridgeReviewProofWithoutNativeLineageFields() throws {
+    func debugObservabilityVerifierRejectsBridgeReviewProofWithoutNativeLineageFields() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -19,7 +19,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -54,7 +54,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
     }
 
     @Test("debug observability verifier can allow completed Bridge diagnostic after process exit")
-    func debugObservabilityVerifierAllowsCompletedBridgeDiagnosticAfterProcessExit() throws {
+    func debugObservabilityVerifierAllowsCompletedBridgeDiagnosticAfterProcessExit() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -71,7 +71,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         let curlMarker = fixture.url("curl-called")
         let queryLog = fixture.url("curl-query.log")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -132,7 +132,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
     }
 
     @Test("debug observability verifier accepts skipped Bridge Review diagnostic when frame is not live")
-    func debugObservabilityVerifierAcceptsSkippedBridgeReviewFrameNotLive() throws {
+    func debugObservabilityVerifierAcceptsSkippedBridgeReviewFrameNotLive() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -147,7 +147,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -190,7 +190,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
     }
 
     @Test("debug observability verifier rejects skipped Bridge Review diagnostic unless RAF is false")
-    func debugObservabilityVerifierRejectsSkippedBridgeReviewWithoutFrameNotLiveProof() throws {
+    func debugObservabilityVerifierRejectsSkippedBridgeReviewWithoutFrameNotLiveProof() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -205,7 +205,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -246,7 +246,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
     }
 
     @Test("debug observability verifier waits for Bridge diagnostic telemetry ingestion")
-    func debugObservabilityVerifierWaitsForBridgeDiagnosticTelemetryIngestion() throws {
+    func debugObservabilityVerifierWaitsForBridgeDiagnosticTelemetryIngestion() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -262,7 +262,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let commandQueryCount = fixture.url("command-query-count")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -320,7 +320,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
     )
     func debugObservabilityVerifierAcceptsBridgeFileViewDiagnosticRenderProof(
         diagnosticAction: String
-    ) throws {
+    ) async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -336,7 +336,7 @@ struct ObservabilityDebugVerifierBridgeDiagnosticTests {
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let queryLog = fixture.url("curl-query.log")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [

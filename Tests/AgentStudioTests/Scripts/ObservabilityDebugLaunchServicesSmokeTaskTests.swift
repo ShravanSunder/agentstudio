@@ -7,7 +7,7 @@ import Testing
 @Suite("Observability debug LaunchServices smoke task")
 struct ObservabilityDebugLaunchServicesSmokeTaskTests {
     @Test("debug verifier strict LaunchServices mode rejects direct executable fallback before logs")
-    func debugVerifierStrictLaunchServicesModeRejectsDirectExecutableFallbackBeforeLogs() throws {
+    func debugVerifierStrictLaunchServicesModeRejectsDirectExecutableFallbackBeforeLogs() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -22,7 +22,7 @@ struct ObservabilityDebugLaunchServicesSmokeTaskTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [

@@ -74,6 +74,7 @@ package actor FilesystemActor {
     let envelopeClock = ContinuousClock()
     let schedulingClock: SchedulingClock
     let watchedFolderScanScheduler: WatchedFolderScanScheduler
+    let watchedFolderScanSubmission: WatchedFolderScanSubmissionPort
     let debounceWindow: Duration
     let maxFlushLatency: Duration
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -106,6 +107,7 @@ package actor FilesystemActor {
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
         repositoryLocalActivityProjector: RepositoryLocalActivityProjector? = nil,
         watchedFolderScanScheduler: WatchedFolderScanScheduler = .production(),
+        watchedFolderScanSubmission: WatchedFolderScanSubmissionPort = .direct,
         debounceWindow: Duration = AppPolicies.GitRefresh.filesystemDebounceWindow,
         maxFlushLatency: Duration = AppPolicies.GitRefresh.filesystemMaxFlushLatency,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
@@ -118,6 +120,7 @@ package actor FilesystemActor {
         self.fseventStreamClient = fseventStreamClient
         self.repositoryLocalActivityProjector = repositoryLocalActivityProjector
         self.watchedFolderScanScheduler = watchedFolderScanScheduler
+        self.watchedFolderScanSubmission = watchedFolderScanSubmission
         schedulingClock = .continuous()
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -144,6 +147,7 @@ package actor FilesystemActor {
         self.fseventStreamClient = fseventStreamClient
         self.repositoryLocalActivityProjector = repositoryLocalActivityProjector
         self.watchedFolderScanScheduler = watchedFolderScanScheduler
+        self.watchedFolderScanSubmission = .direct
         schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
