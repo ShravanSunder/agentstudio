@@ -335,8 +335,9 @@ jobs:
       # No Swift test runs swift-format, so this job does not build it.
       - name: Verify SwiftLint on PATH
         run: |
-          test "$(command -v swiftlint)" = "$(mise where swiftlint@0.65.1)/swiftlint"
-          swiftlint version
+          echo "swiftlint resolves to: $(command -v swiftlint || echo missing)"
+          echo "mise pin installs at: $(mise where swiftlint@0.65.1)"
+          test "$(swiftlint version)" = "0.65.1"
 
       # --- Submodule SHAs for cache keys ---
 

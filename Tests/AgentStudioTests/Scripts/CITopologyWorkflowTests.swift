@@ -75,7 +75,7 @@ struct CITopologyWorkflowTests {
         // The Swift job runs no swift-format, so it must not pay to build it.
         #expect(!swiftJob.contains("install-ci-lint-tools.sh"))
         #expect(qualityJob.contains("bash scripts/install-ci-lint-tools.sh"))
-        #expect(swiftJob.contains("test \"$(command -v swiftlint)\" = \"$(mise where swiftlint@0.65.1)/swiftlint\""))
+        #expect(swiftJob.contains("test \"$(swiftlint version)\" = \"0.65.1\""))
         #expect(lintInstaller.contains("--branch 603.0.0"))
         #expect(lintInstaller.contains("supports only the Linux code-quality job"))
         #expect(lintInstaller.contains("swiftlint_linux_${swiftlint_arch}.zip"))
