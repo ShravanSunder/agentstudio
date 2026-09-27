@@ -21,8 +21,8 @@ flowchart LR
 
 **The change in ordinary words:**
 - **Matching leaves the main thread and becomes SQLite.** Today the command bar ranks every row synchronously inside SwiftUI's `body` with a fuzzy matcher. After this change the command bar sends each query to a `SearchService` actor, and the actor matches it with SQLite FTS5 (trigram), a case-insensitive substring match. The command bar applies the answer only if it is still the newest request.
-- **Every kind uses one path.** The command bar already builds every row (repos, worktrees, panes, tabs, commands, nested-menu rows) on the main thread and caches it per scope, open and topology change. Whenever that cached set changes, it turns the rows into plain `SearchDocument` values (id, kind, title, subtitle, keywords) and sends them with the next request. The service indexes them. No new feed from persistence, no second copy of repo or branch facts.
-- **Worktrees are found by name, folder and branch** because their rows carry those as keywords (S1 of the prototype). Repo rows stop carrying worktree names (R2).
+- **Every kind uses one path.** The command bar already builds every row (repos, worktrees, panes, tabs, commands, nested-menu rows) on the main thread and caches it per scope, open and topology change. Each rebuild of those rows gets a new **row generation**. The rows of a generation are turned once into an immutable `SearchDocumentSet` (id, group, searchable fields), and every request carries its generation's set; the service installs a generation once and skips it after. The service indexes, matches, ranks and **groups**. No new feed from persistence, no second copy of repo or branch facts.
+- **Searchable fields are declared separately from display text.** A worktree row is searched by name, folder name and branch; a repo row by name, folder name and tags; never a full path, never display counts like "3 worktrees" (R2, R3).
 - **What stays the same:**
   - how rows are built and cached;
   - the empty-query view (no search runs);
@@ -40,13 +40,14 @@ flowchart LR
 
 | Component | Owns (single source) | Consumers | Changes when |
 |---|---|---|---|
-| **`SearchService`** (actor, `Core/Search/`) | the current document set (values), request answering: short or indexed path (R5), ranking (R6), title match ranges | the command bar now; IPC or remote consumers later (C2) | ranking or matching rules change |
+| **`SearchService`** (actor, `Core/Search/`) | the installed document generation, request answering: short or indexed path (R5), ranking (R5, R6), grouping (R7), title match ranges | the command bar now; IPC or remote consumers later (C2) | ranking or matching rules change |
 | **`SearchIndex`** (private type in `SearchService.swift`) | the in-memory SQLite database: `search_document` and its FTS5 index; the only writer; rebuilt from the held document set | `SearchService` only | index layout changes |
-| **Search values** (`Core/Search/`, `package`, `Sendable`) | `SearchDocument`, `SearchDocumentSet`, `SearchRequest`, `SearchResultSet`, `SearchMatch`, `SearchKind`, typed ids | service and command bar | the contract changes |
-| **`CommandBarResultSession`** (existing, MainActor) | building and caching rows (unchanged); mapping the cached rows to a `SearchDocumentSet` when the cache identity changes; mapping result ids back to rows | the controller and views | row shapes change |
+| **Search values** (`Core/Search/`, `package`, `Sendable`) | `SearchDocument`, `SearchDocumentSet`, `SearchDocumentGeneration`, `SearchGroup`, `SearchRequest`, `SearchResultSet`, `SearchResultGroup`, `SearchMatch`, `SearchKind`, `SearchDegradedReason`, typed ids | service and command bar | the contract changes |
+| **`CommandBarResultSession`** (existing, MainActor) | building and caching rows (unchanged); the **row generation** (advances on every rebuild, invalidation and nested-level replacement); the generation's `SearchDocumentSet`; mapping result ids back to that generation's rows | the controller and views | row shapes change |
 | **`CommandBarPanelController`** (existing, MainActor) | the request sequence; submitting requests; the single apply entry with the currentness guard (R9) | the text field callback; views | bar lifecycle changes |
 | **`CommandBarState`** (existing, MainActor) | applied result rows, selection, retained root query (R12) | views | UI state changes |
 | **`CommandBarResultRow`** (existing view) | drawing the title with the match range it's given; no matching | — | row visuals change |
+| **Row builders** (`CommandBarDataSource*`, existing) | each row's **searchable fields**, declared separately from display (see *Searchable fields*) | result session | a kind's searchable fields change |
 | **App composition** (`AppDelegate+WorkspaceBoot.swift:516`) | creating one `SearchService` and passing it to `CommandBarPanelController` | — | wiring changes |
 
 **Forbidden edges:**
@@ -61,9 +62,9 @@ flowchart LR
 |---|---|---|
 | keystroke: text assignment, sequence bump, submit | MainActor | existing local `@Observable` state (`CommandBarState`); no atom |
 | building rows | MainActor, unchanged, cached per identity | existing `CommandBarResultSession` cache; no new observer |
-| rows → `SearchDocumentSet` | MainActor, only when the row cache identity changes (not per keystroke) | plain value copy of fields the rows already hold |
-| diff the set, write the index, match, rank, compute match ranges | `SearchService` actor | actor-private state and a private in-memory SQLite database; not an atom (no UI subscriber) |
-| apply: guard, map ids to rows, group, reconcile selection | MainActor | assign only, O(result rows) |
+| rows → `SearchDocumentSet` | MainActor, once per row generation (not per keystroke) | plain value copy of the rows' declared searchable fields plus case-folded copies |
+| install a new generation, write the index, match, rank, group, compute match ranges | `SearchService` actor | actor-private state and a private in-memory SQLite database; not an atom (no UI subscriber) |
+| apply: guard, keyed availability check, map ids to the generation's rows per returned group, reconcile selection | MainActor | assign only, O(result rows); no grouping or sorting |
 
 No new atom, bus event, observer or coordinator responsibility.
 
@@ -72,24 +73,55 @@ No new atom, bus event, observer or coordinator responsibility.
 **`SearchService` (actor), consumed by the command bar (C2)**
 
 - `search(_ request: SearchRequest) async -> SearchResultSet`
-  - **`SearchRequest`**: `sequence: SearchRequestSequence`, `text: String` (non-empty), `recentItemIds: [SearchItemId]`, `documentSet: SearchDocumentSet?`. The set is included only when the command bar's row cache identity changed since its last request.
-  - **Document set rule:** a set is installed only if its `setId` is newer than the held one (monotonic per controller). Installing diffs by `SearchItemId` against the held set and writes the index in one transaction. A request answers against the newest installed set.
+  - **`SearchRequest`**: `sequence: SearchRequestSequence`, `text: String` (non-empty), `recentItemIds: [SearchItemId]`, `documentSet: SearchDocumentSet`. **Every request carries its generation's set.** It is an immutable value built once per generation, so passing it on every request costs a reference copy, not a rebuild.
+  - **`SearchDocumentSet`**: `generation: SearchDocumentGeneration` (monotonic per controller), `groups: [SearchGroup]` (id and priority, in the command bar's group order), `documents: [SearchDocument]`. Item ids are unique within a set; the builder guarantees it, and the service keeps the first occurrence of a duplicate and records it in the trace.
+  - **Install rule:**
+    - if `documentSet.generation` equals the installed generation, nothing is written;
+    - if it is newer, the service replaces the index contents with this set in one transaction (keyed delete and insert by `SearchItemId`);
+    - if it is older, the request is answered `obsolete` without touching the index (its sequence is necessarily stale).
+    - Cancelling a request can therefore never lose a set: the next request carries the same set (N-01).
+  - **Case folding (one rule for both paths):** each searchable field is stored twice, as display text and as a folded copy (Foundation `folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)`; diacritics stay distinct). The query is folded the same way. Both paths match folded against folded, so `é` finds `École` at any query length (N-04).
   - **Path:**
-    - 1–2 characters: a `LIKE` scan (escaped, ASCII case folding) over title, subtitle and keywords of the current set, not using the trigram index (R5);
-    - 3+ characters: FTS5 `MATCH` with the text quoted as one FTS5 string (inner `"` doubled), so `.`, `/`, `-` and `"` match literally (R6).
-  - **Ranking (R6):** ranked by tier: title starts with the query → a word in the title starts with it → the title contains it → only the subtitle or keywords contain it. Within a tier, recent items come first in recents order. Remaining ties are free. The service does not group; the command bar groups the ranked rows with its existing stable grouping (R7).
-  - **Result:** `SearchResultSet { sequence, setId, matches: [SearchMatch], outcome }`, where `SearchMatch = { itemId, titleMatch: Range<Int>? }` (character offsets into the title, for highlighting) and `outcome ∈ { answered, degraded(reason) }`.
-  - **Errors:** none surface to callers. A SQLite error recreates the database from the held set and retries once. A second failure answers `degraded` with no matches and a trace attribute (F1).
-- The whole request (install, match, rank) runs synchronously inside one actor turn on the in-memory database. So no two requests interleave inside the actor. This is CPU work on memory, not blocking I/O.
+    - 1–2 characters: `LIKE '%'||?||'%' ESCAPE '\'` over the folded columns, with `%`, `_` and `\` in the query escaped; the trigram index isn't used (R5);
+    - 3+ characters: FTS5 `MATCH` over the folded columns, with the folded text quoted as one FTS5 string (inner `"` doubled), so `.`, `/`, `-` and `"` match literally (R6).
+  - **Ranking:**
+    - tiers: title starts with the query → a word in the title starts with it → the title contains it → only another searchable field contains it;
+    - **short queries (1–2 characters):** recent items first in recents order, then the rest by tier (R5 overrides R6 here, N-05);
+    - **indexed queries (3+):** by tier, then recents order within a tier (R6);
+    - remaining ties are free.
+  - **Grouping (R7, C3):** the service returns `groups: [SearchResultGroup]`, each `{ groupId, matches: [SearchMatch] }` in the set's group order, with empty groups omitted. The main thread only maps; it doesn't group or sort (N-06).
+  - **Result:** `SearchResultSet { sequence, generation, groups, outcome }`. Here `SearchMatch = { itemId, titleMatch: Range<Int>? }`: character offsets into that generation's display title, located on the actor by a case-insensitive `range(of:)` of the query in the display title (highlight only; admission is SQLite's). `outcome` is one of `answered`, `obsolete`, `degraded(SearchDegradedReason)`, where `SearchDegradedReason` is `databaseUnavailable` or `unreadableRow`.
+  - **Errors:** none surface to callers. A SQLite error recreates the database from the request's set and retries once. A second failure answers `degraded(.databaseUnavailable)` with no groups.
+- The whole request (install, match, rank, group) runs synchronously inside one actor turn on the in-memory database, so requests never interleave inside the actor. This is CPU work on memory, not blocking I/O.
 
-**`SearchDocument`**: `itemId: SearchItemId`, `kind: SearchKind`, `title: String`, `subtitle: String?`, `keywords: [String]`. `SearchItemId` wraps the row's existing stable `id`; its constructor rejects empty. `SearchKind` is a Swift enum (`repo`, `worktree`, `pane`, `tab`, `command`, `other`), mapped from `CommandBarItemKind` in the command bar.
+**`SearchDocument`**: `itemId: SearchItemId`, `kind: SearchKind`, `groupId`, `title: String`, `fields: [String]` (the row's declared extra searchable fields; see below). `SearchItemId` wraps the row's existing stable `id`; its constructor rejects empty. `SearchKind` is a Swift enum (`repo`, `worktree`, `pane`, `tab`, `command`, `other`), mapped from `CommandBarItemKind` in the command bar.
+
+**`CommandBarResultSession`: the row generation (N-02)**
+- The generation advances whenever the row snapshot changes: a rebuild for a new cache identity, the existing invalidation (`topology_observation`, including branch changes read through the keyed enrichment read), a level push or pop, and a nested level replaced in place (`CommandBarState.swift:317-320`).
+- An invalidation marks the generation stale at once. The next request rebuilds lazily, as today, and gets the new generation.
+- Each generation keeps its rows, and the document set built from them, together.
 
 **`CommandBarPanelController`**
-- `queryChanged(text:)`, called from the text field's input callback (`CommandBarTextField.swift:81-84`). It bumps the sequence. For empty text it applies the empty projection directly (R4). Otherwise it submits a request, with the document set when the row cache identity changed.
+- `queryChanged(text:)`, called from the text field's input callback (`CommandBarTextField.swift:81-84`). It bumps the sequence. For empty text it applies the empty projection directly (R4). Otherwise it submits a request carrying the current generation's set.
 - **Lifecycle bumps:** clearing the text, scope change, level push or pop, dismiss and open all bump the sequence, which invalidates any pending answer (R9).
-- `apply(_ result:)` is the only way results reach `CommandBarState`. It applies only when `result.sequence` equals the current sequence. It maps ids to the current cached rows and drops ids with no current row (R8), then groups, reconciles selection and assigns.
+- `apply(_ result:)` is the only way results reach `CommandBarState`. It applies only when `result.sequence` is current **and** `result.generation` is the current row generation. On a generation mismatch it resubmits the current text with the current generation instead of applying (once per generation, so it can't loop). It then checks repo and worktree availability for each matched row through the existing keyed check (`CommandBarDataSource+RepositoryAvailability.swift:12-17`), dropping unavailable ones (R8). Finally it maps ids to that generation's rows per returned group, reconciles selection and assigns. Title ranges always refer to the same generation's titles.
 
-**Adding a kind (C3, R14):** a kind that is a command-bar row needs a `SearchKind` case plus its row builder; the service is unchanged. A future large kind that isn't a row (sessions, history at 100k+) adds a **file-backed** index to the service, fed by its own repository with a commit sequence number. That is the extension point, recorded here and not built now.
+**Adding a kind (C3, R14):** a kind that is a command-bar row needs a `SearchKind` case plus its row builder, which declares its searchable fields; the service is unchanged. A future large kind that isn't a row (sessions, history at 100k+) adds a **file-backed** index to the service, fed by its own repository with a commit sequence number. That is the extension point, recorded here and not built now.
+
+## Searchable fields (N-03)
+
+Searchable fields are declared by each row builder, separately from what the row displays:
+
+| Row | Searchable (title + fields) | Never searchable |
+|---|---|---|
+| repo | name, folder name (last path component), tags | worktree names, subtitle counts ("3 worktrees"), the word "repo", full paths |
+| worktree | name, folder name, branch (when known) | full paths |
+| pane, tab | title plus today's keywords, with any path-valued keyword reduced to its last component | full paths |
+| command | title plus today's keywords | — |
+| nested action rows (copy path, reveal, open, …) | title only | paths shown in subtitles or keywords |
+| nested repo target rows | title, folder name | the full path shown as subtitle |
+
+The display subtitle is never searched unless the builder lists it as a field. Display text and execution targets are unchanged.
 
 ## Search index storage
 
@@ -104,10 +136,10 @@ No new atom, bus event, observer or coordinator responsibility.
 
 | Table | Write pattern | Columns | Keys and indexes |
 |---|---|---|---|
-| `search_document` | current values; installing a document set upserts changed ids and deletes missing ones in one transaction | implicit `rowid`, `item_id`, `kind`, `title`, `subtitle`, `keywords` (newline-joined) | a plain (non-unique) index on `item_id`; the writer keeps one row per id |
-| `search_document_fts` | FTS5 external-content index over `search_document`, kept in step by the writer (FTS5 `delete` command with the old values, then insert), no triggers | `title`, `subtitle`, `keywords`; `tokenize='trigram'` | `content_rowid = rowid` |
+| `search_document` | current values; installing a newer generation replaces the contents in one transaction | implicit `rowid`, `item_id`, `kind`, `group_id`, `title`, `folded_title`, `folded_fields` (newline-joined folded copies of `fields`) | a plain (non-unique) index on `item_id`; the writer keeps one row per id |
+| `search_document_fts` | FTS5 external-content index over `search_document`, kept in step by the writer (FTS5 `delete` command with the old values, then insert), no triggers | `folded_title`, `folded_fields`; `tokenize='trigram'` | `content_rowid = rowid` |
 
-**In memory, not a file.** The documents are rebuilt from rows at every bar open, so a file would only add stale state after restart (review F-04) with nothing to gain. The database is a GRDB in-memory queue owned by `SearchIndex`, created when the service starts, and recreated after any error. It has no file and no migration.
+**In memory, not a file.** The documents are rebuilt from rows for every generation, so a file would only add stale state after restart (review F-04) with nothing to gain. The database is a GRDB in-memory queue owned by `SearchIndex`, created when the service starts, and recreated after any error. It has no file and no migration.
 
 Validated on this Mac's SQLite 3.51 on 2026-09-27: quoted trigram queries match `vm.oa`, `feature/o` and `OAUTH`; `title : "oauth"` restricts to one column; manual external-content delete works without triggers; `agvmoa` and `oauht` match nothing, as intended.
 
@@ -142,14 +174,14 @@ sequenceDiagram
   participant ST as CommandBarState (Main)
   TF->>C: queryChanged(text) [added]
   C->>C: seq += 1 [added]
-  C->>RS: cached rows, document set if identity changed [changed]
+  C->>RS: current generation, rows and document set [changed]
   C->>S: await search(request) [added, async]
-  S->>S: install newer set (diff, one transaction) [added]
-  S->>S: LIKE (1–2 chars) or FTS5 MATCH (3+) [added]
-  S->>S: rank by tier + recents, title ranges [added]
-  S-->>C: SearchResultSet(seq)
-  C->>C: seq == current? else drop [added]
-  C->>ST: ids → current rows, group, select, assign [changed]
+  S->>S: install generation if newer (one transaction) [added]
+  S->>S: fold, LIKE (1–2 chars) or FTS5 MATCH (3+) [added]
+  S->>S: rank, group, title ranges [added]
+  S-->>C: SearchResultSet(seq, generation)
+  C->>C: seq and generation current? else drop or resubmit [added]
+  C->>ST: availability check, ids → rows per group, select, assign [changed]
 ```
 
 | Edge | Change |
@@ -158,27 +190,29 @@ sequenceDiagram
 | row → `FuzzySearch` | removed; the row draws `titleMatch` |
 | text field → controller | added (the input callback also calls the controller) |
 | controller → service | added, async, one call per request |
-| rows → documents | added, only on row cache identity change |
+| rows → documents | added, once per row generation |
 | empty-query projection | **intentionally unchanged** (R4) |
 | row building and cache | **intentionally unchanged** |
 
 ## When a worktree or branch changes
 
-The row cache already invalidates on topology observation (`CommandBarResultSession` `rootItemSnapshotInvalidationReason`: `topology_observation`). The prototype's worktree rows read branch through the keyed enrichment read, so a branch change invalidates the cache the same way. The next request carries the new document set. With the bar open, freshness is the next request after invalidation, far under R11's 1 s, and it doesn't depend on the persistence debounce (review F-01). With the bar closed, the set is rebuilt on open.
+The row cache already invalidates on topology observation (`CommandBarResultSession` `rootItemSnapshotInvalidationReason`: `topology_observation`). The prototype's worktree rows read branch through the keyed enrichment read, so a branch change invalidates the cache the same way. The invalidation advances the row generation at once. So an answer still pending for the old generation is resubmitted rather than applied, and the next request carries the rebuilt rows. Search freshness is therefore from the invalidation to the first answer on the new generation. It doesn't depend on the persistence debounce, and it doesn't include time the user spends not typing (see the measurement below).
 
 ## Request lifecycle
 
 ```mermaid
 stateDiagram-v2
   [*] --> Pending: keystroke (seq n)
-  Pending --> Applied: answer(seq n) and n == current
+  Pending --> Applied: answer(seq n, gen g) and both current
+  Pending --> Resubmitted: answer for an old generation (once per generation)
+  Resubmitted --> Pending
   Pending --> Superseded: keystroke, clear, scope change,<br/>level push/pop, dismiss (seq bumps)
   Superseded --> Dropped: answer(seq n) arrives
   Applied --> [*]
   Dropped --> [*]
 ```
 
-**Illegal:** applying an answer whose sequence isn't current. It is rejected at the single apply entry and checked by an automated test. An empty query never creates a request; it bumps the sequence and applies the empty projection, so a late answer can't overwrite it (review F-08).
+**Illegal:** applying an answer whose sequence or row generation isn't current. It is rejected at the single apply entry and checked by an automated test. An empty query never creates a request; it bumps the sequence and applies the empty projection, so a late answer can't overwrite it (review F-08).
 
 **Retained root query (E6, R12):** `CommandBarState` records the text on dismiss when the scope is root, no level is open and there is no prefix. `show(defaultScope:)` restores it and asks the field to select all, which then submits a request. `show(prefix:)` and `switchPrefix` ignore it. It is never persisted.
 
@@ -188,19 +222,20 @@ stateDiagram-v2
 |---|---|---|---|
 | F1: SQLite error | error from the in-memory database | recreate it from the held document set, retry once; on a second failure answer `degraded` with no rows and a trace attribute; typing never blocks | `SearchService` |
 | unknown `kind` text read back | parse failure at read | drop the row, mark the answer degraded; never default | `SearchService` |
-| F2: overlapping requests | sequence | the actor answers in order; the controller applies only the current sequence; a cancelled request returns early at actor entry | controller |
-| F3: an entity withdrawn while shown | ids with no current row at apply; the row cache invalidates on topology | dropped at apply; ↵ on a withdrawn entity follows today's handling | controller |
+| F2: overlapping or cancelled requests | sequence, generation | every request carries its generation's set, so a cancelled request never loses an install; an older generation answers `obsolete`; the controller applies only the current sequence and generation | controller + service |
+| F3: an entity withdrawn while shown or pending | the keyed availability check at apply; the generation advances on topology invalidation | dropped at apply; a pending answer from the old generation is resubmitted; ↵ on a withdrawn entity follows today's activation validation | controller |
 | F4: branch not known yet | the worktree row has no branch keyword | still found by name and folder; matched by branch after the enrichment read changes | row builder |
 | F5: restart | nothing is persisted | the first open builds rows from the restored inventory and sends them with the first request | controller |
-| an older document set arrives after a newer one | `setId` not newer | ignored | `SearchService` |
+| an older generation arrives after a newer one | generation older than installed | answered `obsolete`, index untouched | `SearchService` |
+| a duplicate item id in a set | install | first kept, trace records it | `SearchService` |
 
 ## Cross-cutting realization
 
 | Obligation | Realization | Proof seam |
 |---|---|---|
 | R13 off main by construction | the only search API is the actor's `async search`; SQL is inside a private type; the command bar's matcher file is deleted and the row stops matching | compile-time (no call path) plus an architecture test that CommandBar sources don't reference `FuzzySearch` |
-| R10 speed | MainActor: assign, bump, submit, and on apply O(result rows); the document set is copied only on cache change; SQLite work on the actor | one correlated trace from the input callback to apply, with stages: main submit, queue wait before the actor starts, actor work (install, match, rank), wait for main, main apply. Superseded and degraded requests are counted separately. Measured on the owner's real set (marker-scoped debug run) and on 10,000 synthetic documents in `test:swift:benchmark` |
-| R11 freshness | the row cache invalidates → the next request carries the new set | trace attribute on the first request after an invalidation: time from the invalidation to its answer being applied |
+| R10 speed | MainActor: assign, bump, submit, and on apply O(result rows) with no grouping or sorting; the row rebuild and document capture run only per generation; SQLite work on the actor | **end-to-end:** one correlated trace from the input callback to the command bar's existing results-publication acknowledgement (`CommandBarPanelController.swift:84-88,206-208`), with stages: main submit (including a cache-miss row rebuild and document capture when one happens), queue wait before the actor starts, actor work (install, match, rank, group), wait for main, main apply, publication. Superseded, obsolete and degraded requests are counted separately. Measured on the owner's real set (marker-scoped debug run). **Engine only:** 10,000 synthetic documents in `test:swift:benchmark`, labelled as the engine share, not the full R10 figure |
+| R11 freshness | the invalidation advances the generation; the next request carries the new set | trace attribute: time from the invalidation to the new generation's first answer being published, measured only for a request already pending or issued **after** the invalidation, minus the time no request existed (user idle time excluded). Proof: a test issues a controlled query after a topology or branch fact and checks it is answered from the new generation |
 | Privacy | local only; in memory; holds row text the app already shows | — |
 | Accessibility | row labels unchanged; the restored query is the field's value | manual VoiceOver spot check |
 
@@ -209,16 +244,15 @@ stateDiagram-v2
 | R | Entities | Owner | Interface or shape | Failure | Proof |
 |---|---|---|---|---|---|
 | R1 | E1 E3 E4 E5 E7 | row builder + `SearchService` | worktree row keywords (name, folder, branch) → documents; `search` | F4 | service test with real documents on a real in-memory database: name, folder, branch hits in root and `#` |
-| R2 | E1 E3 | row builder | repo row keywords exclude worktree names | — | data-source test |
-| R3 | E3 | row builder | keywords carry the last path component only | — | data-source test |
+| R2 R3 | E1 E3 | row builders | declared searchable fields (see *Searchable fields*) | — | data-source-to-real-service tests: repo not found by "worktrees", "repo" or a worktree name; no row found by an ancestor path in root, `#`, quick-open or nested scopes; name, folder and branch positives |
 | R4 | E4 E5 | controller | empty text applies the empty projection; no request | late answer dropped | existing `CommandBarResultSessionTests` unchanged, plus a clear-while-pending test |
-| R5 | E4 E5 | `SearchService` | `LIKE` path for 1–2 characters | — | service test: `wt`, `vm` answer; recents first |
-| R6 | E3 E4 | `SearchService` | quoted FTS5 `MATCH`, tier ranking | — | service test: `vm.oa`, `feature/o`, case, `agvmoa` → none, tier order |
-| R7 | E5 | command bar grouping (existing) | stable group of ranked rows | — | controller test: group order |
-| R8 | E1 E5 | controller | ids without a current row dropped at apply | F3 | controller test: withdraw between request and answer |
-| R9 | E4 E5 | controller | sequence guard; lifecycle bumps | F2 | controller test with a controlled service fake: out-of-order answers, clear, scope switch, push/pop, dismiss/reopen |
+| R5 | E4 E5 | `SearchService` | folded `LIKE` path; recency first | — | service test: `wt`, `vm` answer; a recent lower-tier item ranks above a non-recent title-prefix item; `é` finds `École`; `%`, `_`, `\` literal |
+| R6 | E3 E4 | `SearchService` | folded, quoted FTS5 `MATCH`, tier ranking | — | service test: `vm.oa`, `feature/o`, `OAUTH`, `ÉCOLE`, `"` literal, `agvmoa` → none, tier order with recents inside a tier |
+| R7 | E5 | `SearchService` | groups returned in the set's group order | — | real-service tests for root, prefixed and nested group order; apply has no grouping or sorting |
+| R8 | E1 E5 | controller | keyed availability check at apply; generation guard | F3 | controller tests: withdraw before apply (root and nested); same-key branch change; rename to a shorter title (ranges stay valid); nested level replaced without push or pop |
+| R9 | E4 E5 | controller + service | sequence and generation guard; lifecycle bumps; set carried on every request | F2 | controller tests with a controlled service fake: out-of-order answers, clear, scope switch, push/pop, dismiss/reopen; service test: the first request for generation B cancelled before install, a later B request still searches B; requests admitted in reverse order |
 | R10 | E4 E5 | controller + service | trace stages above | — | measurement |
-| R11 | E1 E3 | result session + controller | set on cache identity change | — | measurement plus an injected-clock test (no wall clock): invalidation → next request carries the new set |
+| R11 | E1 E3 | result session + controller | generation advances on invalidation | — | measurement (idle time excluded) plus a test: a controlled query after a topology or branch fact is answered from the new generation |
 | R12 | E6 E4 E7 | `CommandBarState` | retained query | — | controller tests (esc, ↵, prefix, nested, restart) |
 | R13 | E4 E5 | `SearchService` | private index, async only | — | compile-time + architecture test |
 | R14 | E2 E3 | `SearchKind` + row builder | a new kind = enum case + rows | — | service test: a test-only kind's documents are found; existing kinds' results for the same queries are unchanged |

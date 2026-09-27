@@ -37,7 +37,7 @@ The service is one opaque system here. How it is built is Program Design's job.
 | E2 | **Item kind** | the kind's name: repo, worktree, pane, tab, command (now); session, history, notification (future) | has many E1; declares its E3 fields and its result group | adding a kind never changes another kind's matches or order (U8) | — |
 | E3 | **Searchable field** | the same E1 plus the same field name | belongs to exactly one E1 | worktree: name, folder name, **branch**; repo: name, folder name, tags; existing kinds keep today's fields. **Never a full path** (U4); a repo never carries its worktrees' names (U2) | its value changes when the entity changes (for example a branch switch) |
 | E4 | **Query** | one bar session plus its sequence number; retyping the same text is a new query | answered by at most one E5; belongs to one E7 scope | *empty* (0 characters), *short* (1–2), *indexed* (3+) | *pending* → *answered* \| *superseded* (a newer query arrived first) |
-| E5 | **Result set** | the E4 it answers | answers exactly one E4; ordered E1s in groups | shows only offered items; groups in the order Repos · Worktrees · Panes · Tabs · Commands (U11) | *current* (answers the latest query) \| *stale* (never shown) |
+| E5 | **Result set** | the E4 it answers | answers exactly one E4; ordered E1s in groups | shows only offered items; groups in the order Repos · Worktrees · Panes · Tabs · Commands (U11) | *current* (answers the latest query) \| *stale* (never applied) |
 | E6 | **Retained root query** | at most one per app run | copies the text of one root-scope E4 | kept in memory only; gone after the app quits (U6) | *none* → *retained* → *restored (selected)* → *replaced* |
 | E7 | **Search scope** | today's command-bar scopes: root (everything), repos (`#`), panes (`$`), commands (`>`), quick open | covers a set of E2 kinds | worktree items are in the root and `#` scopes | — |
 
@@ -68,7 +68,7 @@ erDiagram
   }
   E5_RESULT_SET {
     identity the_query_it_answers
-    states current_or_stale_never_shown
+    states current_or_stale_never_applied
   }
   E6_RETAINED_ROOT_QUERY {
     identity one_per_app_run
@@ -89,7 +89,7 @@ The entity table is the normative home. The map only shows relationships.
 | R2 | A repo item **must** match only through its name, folder name or tags, never through the names of its worktrees | E1 E3 | U2 |
 | R3 | A query **must not** match a full path; only the last folder name of a repo or worktree is a searchable field | E3 | U4 |
 | R4 | While the query is **empty**, the result set **must** be the same as today's empty-query results (recent repos and up to 5 recent worktrees in `#`, today's root view) | E4 E5 | U11 |
-| R5 | When the query is **short** (1–2 characters), the result set **must** contain every current item with a field containing the text, recent items ranked first, without using the trigram index | E4 E5 | U5 |
+| R5 | When the query is **short** (1–2 characters), the result set **must** contain every current item with a searchable field containing the text, without using the trigram index. Within a group, **recent items come first** (in recents order), then the rest in R6's tier order; for short queries this precedence overrides R6's tiers | E4 E5 | U5 |
 | R6 | A query **must** match a field exactly when the field contains the query text, ignoring case, with punctuation matched literally (`vm.oa`, `feature/o`). Letters with gaps between them (`agvmoa`) **must not** match. Within a group, ranking **must** prefer title matches over other fields, then matches at the start of the title or of a word, with recent items boosted | E3 E4 | U10 |
 | R7 | Results **must** be grouped Repos · Worktrees · Panes · Tabs · Commands, with a group shown only when it has results | E5 | U11 |
 | R8 | A withdrawn (removed or unavailable) repo or worktree **must not** appear in any result set produced after the app knows it is withdrawn | E1 E5 | U12 |
@@ -115,7 +115,7 @@ The entity table is the normative home. The map only shows relationships.
 **C2: the search service's query contract (internal consumers: the command bar now, later agents and remote clients).**
 - **Input:** a query (scope, text, sequence).
 - **Output:** exactly one result set tagged with that query's sequence.
-- **Supersession:** a newer query from the same session supersedes older ones, and a superseded query may be answered or dropped, but never shown (R9).
+- **Supersession:** a newer query from the same session supersedes older ones, and a superseded query may be answered or dropped, but its answer is never applied (R9).
 - **Isolation:** the contract gives the caller no way to run search work on the main thread (R13).
 
 **C3: adding a kind (developer-facing).** A kind declares its searchable fields, its result group and its item source. The source must offer only available items (R8), and the service owns matching, ranking and grouping (R14).
@@ -125,7 +125,7 @@ The entity table is the normative home. The map only shows relationships.
 | Situation | Must happen |
 |---|---|
 | **F1:** the index is unavailable, corrupt or mid-rebuild | typing is never blocked; no error is shown; the query answers with no rows and the degraded answer is observable in traces; the index is rebuilt from the current items before the next query |
-| **F2:** a query arrives while an older one is still being answered | the older answer is never shown (R9) |
+| **F2:** a query arrives while an older one is still being answered | the older answer is never applied; the previously applied rows may stay visible until the newer answer is applied (R9) |
 | **F3:** an item is withdrawn while its row is on screen | the next result set omits it; ↵ on the stale row follows today's unavailable-entity handling (nothing opens for a withdrawn entity) |
 | **F4:** a branch is unknown yet (not computed) | the worktree is still found by name and folder name; branch matching starts once the branch is known (R11) |
 | **F5:** the app restarts | search works as soon as the app's restored inventory is loaded, before any folder scan completes; the retained query is gone (R12) |
