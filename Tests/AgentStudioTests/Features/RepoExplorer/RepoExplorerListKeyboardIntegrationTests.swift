@@ -8,6 +8,35 @@ import Testing
 @MainActor
 @Suite("RepoExplorerListKeyboardIntegrationTests", .serialized)
 struct RepoExplorerListKeyboardIntegrationTests {
+    @Test("native Escape leaves Panes list focus for the previous responder")
+    func nativeEscapeReturnsFocusFromPanesList() throws {
+        let fixture = RepoExplorerListKeyboardFixture()
+        defer { fixture.close() }
+        let paneID = UUIDv7.generate()
+        let tabID = UUIDv7.generate()
+        let snapshot = navigationSnapshot([
+            .unassociatedPane(paneID: paneID, tabID: tabID)
+        ])
+        _ = try fixture.apply(snapshot: snapshot, generation: 1)
+        var returnRequests = 0
+        fixture.interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onReturnFocusRequest: {
+                    returnRequests += 1
+                    _ = fixture.window.makeFirstResponder(fixture.textField)
+                }
+            )
+        )
+        #expect(fixture.window.firstResponder === fixture.host)
+
+        try fixture.send(.returnFocus, directlyToHost: false)
+
+        #expect(returnRequests == 1)
+        #expect(fixture.window.firstResponder === fixture.textField.currentEditor())
+        #expect(!fixture.interaction.isListKeyboardActive)
+    }
+
     @Test("local action descriptors resolve unmodified arrows Enter Escape and digits")
     func localActionDescriptorsOwnListTriggers() {
         let actions: [RepoExplorerListKeyboardAction] =
