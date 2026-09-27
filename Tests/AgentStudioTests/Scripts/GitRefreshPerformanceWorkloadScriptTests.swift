@@ -678,7 +678,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("read_already_in_flight"))
     }
 
-    private func runScript(
+    func runScript(
         arguments: [String],
         environment: [String: String] = [:]
     ) async throws -> ScriptRunResult {
