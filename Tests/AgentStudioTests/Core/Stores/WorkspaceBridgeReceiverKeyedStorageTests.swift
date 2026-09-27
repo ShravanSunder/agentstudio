@@ -128,6 +128,17 @@ struct BridgeReceiverKeyedStorageTests {
             Issue.record("Escaped file was accepted")
             return
         }
+
+        let retirementTime = BridgeReceiverRetirementTime(
+            clock: TestPushClock(), anchorDate: Date(timeIntervalSince1970: 1000))
+        try fixture.repository.retireBridgeReceiver(receiver, time: retirementTime)
+        let retiredOutcome = try await datastore.prepareAgentShow(
+            workspaceID: fixture.repository.workspaceId, receiver: receiver,
+            target: target, topologySnapshot: topology)
+        guard case .paneUnavailable = retiredOutcome else {
+            Issue.record("Retired receiver was accepted")
+            return
+        }
     }
 
     @Test("off-main prepared application keeps valid UI state and clears removed-member state")
