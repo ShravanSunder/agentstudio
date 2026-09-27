@@ -24,9 +24,7 @@ struct AppDelegateRepoSidebarCommandsTests {
         #expect(prefs.sortField == .activity)
         #expect(prefs.sortDirection == .descending)
         for command in [
-            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+            AppCommand.setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
         ] {
             #expect(!delegate.canExecute(command))
             #expect(!delegate.execute(command))

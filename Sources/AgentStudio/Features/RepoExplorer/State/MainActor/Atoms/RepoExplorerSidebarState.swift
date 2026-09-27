@@ -34,6 +34,10 @@ package final class RepoExplorerSidebarPrefsAtom {
         showsPinned(for: sidebarState.sidebarSurface)
     }
 
+    package var showsDrawerPanes: Bool {
+        sidebarState.showsDrawerPanes
+    }
+
     package init(sidebarState: WorkspaceSidebarState = .init()) {
         self.sidebarState = sidebarState
     }
@@ -131,6 +135,10 @@ package final class RepoExplorerSidebarPrefsAtom {
         case .repos, .inbox:
             sidebarState.setShowsPinnedRepos(showsPinned)
         }
+    }
+
+    package func setShowsDrawerPanes(_ showsDrawers: Bool) {
+        sidebarState.setShowsDrawerPanes(showsDrawers)
     }
 
     package func hydrate(

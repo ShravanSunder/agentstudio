@@ -91,6 +91,7 @@ final class RepoExplorerProjectionInputCapture {
             subgroupMode: preferences.subgroupMode(for: surface),
             sortField: preferences.sortField(for: surface),
             showsPinned: preferences.showsPinned(for: surface),
+            showsDrawerPanes: preferences.showsDrawerPanes,
             referenceDate: referenceDate,
             referenceInstant: surface == .panes ? continuousNow() : nil,
             calendar: .current,
@@ -141,6 +142,7 @@ final class RepoExplorerProjectionInputCapture {
         let sortField = preferences.sortField(for: surface)
         let sortOrder = preferences.sortDirection(for: surface)
         let showsPinned = preferences.showsPinned(for: surface)
+        let showsDrawerPanes = preferences.showsDrawerPanes
         let presentationDemandChanged =
             surface != previous.snapshot.surface
             || groupingMode != previous.snapshot.groupingMode
@@ -164,6 +166,7 @@ final class RepoExplorerProjectionInputCapture {
             subgroupMode: subgroupMode,
             sortField: sortField,
             showsPinned: showsPinned,
+            showsDrawerPanes: showsDrawerPanes,
             referenceDate: referenceDate,
             referenceInstant: surface == .panes ? continuousNow() : nil,
             calendar: .current,
@@ -616,6 +619,7 @@ final class RepoExplorerProjectionInputCapture {
         subgroupMode: SidebarSubgroupMode = .ungrouped,
         sortField: SidebarSortField = .name,
         showsPinned: Bool = true,
+        showsDrawerPanes: Bool = true,
         referenceDate: Date = .distantPast,
         referenceInstant: ContinuousClock.Instant? = nil,
         calendar: Calendar = .current,
@@ -647,6 +651,7 @@ final class RepoExplorerProjectionInputCapture {
             subgroupMode: subgroupMode,
             sortField: sortField,
             showsPinned: showsPinned,
+            showsDrawerPanes: showsDrawerPanes,
             referenceDate: referenceDate,
             referenceInstant: referenceInstant,
             calendar: calendar,

@@ -7,6 +7,19 @@ import Testing
 
 extension RepoExplorerReadModelTests {
     @MainActor
+    @Test("drawer visibility forwards to the sidebar memory owner")
+    func drawerVisibilityForwardsToSidebarMemory() {
+        let sidebarState = WorkspaceSidebarState()
+        let preferences = RepoExplorerSidebarPrefsAtom(sidebarState: sidebarState)
+        #expect(preferences.showsDrawerPanes)
+
+        preferences.setShowsDrawerPanes(false)
+
+        #expect(!preferences.showsDrawerPanes)
+        #expect(!sidebarState.showsDrawerPanes)
+    }
+
+    @MainActor
     @Test("fixed Panes policy orders both pinned and ordinary panes by newest activity")
     func fixedPanesPolicyOrdersBothSectionsByNewestActivity() throws {
         let now = Date(timeIntervalSince1970: 1_788_804_000)

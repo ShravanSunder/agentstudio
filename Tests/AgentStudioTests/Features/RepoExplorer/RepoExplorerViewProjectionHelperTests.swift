@@ -33,13 +33,14 @@ func makeRepoExplorerTestOcticonLoader(from testFilePath: String = #filePath) ->
 private func makeProjectionInputCapture(
     store: WorkspaceStore,
     preferences: RepoExplorerSidebarPrefsAtom = RepoExplorerSidebarPrefsAtom(),
+    sidebarState: WorkspaceSidebarState = atom(\.workspaceSidebarState),
     bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot = { _ in nil }
 ) -> RepoExplorerProjectionInputCapture {
     RepoExplorerProjectionInputCapture(
         store: store,
         preferences: preferences,
         repoCache: atom(\.repoCache),
-        sidebarState: atom(\.workspaceSidebarState),
+        sidebarState: sidebarState,
         sidebarCache: atom(\.sidebarCache),
         coreAtoms: CoreAtomScope.store,
         bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
@@ -127,6 +128,44 @@ private func repoExplorerProjectionRequestKey(
 struct RepoExplorerViewProjectionHelperTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    @Test("drawer preference invalidates and changes the captured Panes snapshot")
+    func drawerVisibilityPreferenceReachesProjectionCapture() throws {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let sidebarState = WorkspaceSidebarState()
+            sidebarState.setSidebarSurface(.panes)
+            let preferences = RepoExplorerSidebarPrefsAtom(sidebarState: sidebarState)
+            preferences.setShowsDrawerPanes(false)
+            let capture = makeProjectionInputCapture(
+                store: store,
+                preferences: preferences,
+                sidebarState: sidebarState
+            )
+            let first = capture.captureRequest(
+                query: "", referenceDate: .distantPast, trigger: .dataRefresh
+            )
+            #expect(!first.snapshot.showsDrawerPanes)
+
+            let recorder = RepoProjectionInvalidationRecorder()
+            withObservationTracking {
+                capture.observe(.presentation, request: first)
+            } onChange: {
+                recorder.record()
+            }
+            preferences.setShowsDrawerPanes(true)
+            #expect(recorder.invalidationCount == 1)
+
+            let next = capture.capturePresentationRequest(
+                previous: first, query: "", referenceDate: .distantPast
+            )
+            #expect(next.snapshot.showsDrawerPanes)
+        }
     }
 
     @Test("activity and progress inputs are exhaustive in the admitted request key")

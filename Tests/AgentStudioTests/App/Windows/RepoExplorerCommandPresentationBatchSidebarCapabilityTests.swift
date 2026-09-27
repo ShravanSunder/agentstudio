@@ -151,9 +151,7 @@ extension RepoExplorerCommandPresentationBatchTests {
                         ) == true
                     }
                     for command in [
-                        AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-                        .setPanesSubgroupNone, .setPanesSubgroupActivity,
-                        .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+                        AppCommand.setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
                     ] {
                         #expect(toolbarCapability(command, in: batch.snapshot) == nil)
                     }

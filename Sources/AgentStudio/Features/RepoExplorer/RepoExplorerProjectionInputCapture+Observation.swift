@@ -62,6 +62,9 @@ extension RepoExplorerProjectionInputCapture {
             _ = preferences.sortField(for: surface)
             _ = preferences.sortDirection(for: surface)
             _ = preferences.showsPinned(for: surface)
+            if surface == .panes {
+                _ = preferences.showsDrawerPanes
+            }
             _ = sidebarCache.collapsedGroups
         case .membership:
             _ = store.repositoryTopologyAtom.repositoryIdsInOrder

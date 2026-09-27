@@ -9,6 +9,82 @@ import Testing
 @MainActor
 @Suite("Pinned raw snapshot projection", .serialized)
 struct RepoExplorerPinnedPaneProjectionTests {
+    @Test("pinned traversal follows displayed activity buckets, nil last, and UUID ties")
+    func traversalMatchesDisplayedPinnedRows() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+                paneAtom: atoms.workspacePane,
+                tabLayoutAtom: atoms.workspaceTabLayout,
+                mutationCoordinator: atoms.workspaceMutationCoordinator,
+                startsObserving: false
+            )
+            let panes = (0..<4).map { store.createPane(title: "Pinned \($0)") }
+            let tabIDsByPaneID = Dictionary(
+                uniqueKeysWithValues: panes.map { pane in
+                    let tab = Tab(paneId: pane.id)
+                    store.appendTab(tab)
+                    return (pane.id, tab.id)
+                })
+            let paneIDs = await PinnedPaneFixtureOrdering.byUUID(panes.map(\.id))
+            for paneID in paneIDs {
+                #expect(atoms.workspaceMutationCoordinator.setPanePinned(paneID, isPinned: true))
+            }
+            let referenceInstant = ContinuousClock.now
+            let recentTime = PaneActivityTime(
+                orderingInstant: referenceInstant.advanced(by: .seconds(-10)),
+                wallTime: Date(timeIntervalSince1970: 1), source: .terminal
+            )
+            let olderTime = PaneActivityTime(
+                orderingInstant: referenceInstant.advanced(by: .seconds(-120)),
+                wallTime: Date(timeIntervalSince1970: 2), source: .hook
+            )
+            let timesByPaneID: [UUID: PaneActivityTime] = [
+                paneIDs[1]: olderTime,
+                paneIDs[2]: recentTime,
+                paneIDs[3]: recentTime,
+            ]
+            atoms.paneActivityTime.apply(timesByPaneID.map { .set($0.key, $0.value) })
+            let request = RepoExplorerPinnedPaneProjectionRequest(coreAtoms: atoms)
+
+            let traversalOrder = try await RepoExplorerPinnedPaneProjector.project(request)
+            let snapshot = RepoExplorerSnapshot(
+                repos: [], repoEnrichmentByRepoId: [:], surface: .panes,
+                groupingMode: .activity, sortField: .activity,
+                referenceDate: Date(timeIntervalSince1970: 1_000_000),
+                referenceInstant: referenceInstant, sortOrder: .descending, query: "",
+                unassociatedPaneLocations: try paneIDs.enumerated().map { index, paneID in
+                    let tabID = try #require(tabIDsByPaneID[paneID])
+                    return WorkspacePaneLocation(
+                        paneId: paneID, tabId: tabID,
+                        tabIndex: index, paneIndexInTab: 0, isActiveInTab: true
+                    )
+                }
+            )
+            let rowFacts = Dictionary(
+                uniqueKeysWithValues: paneIDs.map { paneID in
+                    (
+                        paneID,
+                        RepoExplorerPaneRowFacts(
+                            terminalTitle: "Pinned", paneActivityTime: timesByPaneID[paneID], isPinned: true,
+                            latestMessageText: nil, recencyReferenceDate: snapshot.referenceDate,
+                            recencyText: "—", isActive: false
+                        )
+                    )
+                })
+            let display = RepoExplorerProjection.project(snapshot, paneRowFactsByPaneId: rowFacts)
+            let displayedOrder = display.sections
+                .filter { $0.kind == .pinnedPanes }
+                .flatMap(\.resolvedGroups)
+                .flatMap { display.paneRowsByGroupId[$0.id, default: []].map(\.destination.paneId) }
+
+            #expect(displayedOrder == [paneIDs[2], paneIDs[3], paneIDs[1], paneIDs[0]])
+            #expect(traversalOrder == displayedOrder)
+        }
+    }
+
     @Test("all pane content kinds and drawer children participate; inactive and unowned panes do not")
     func eligibleMembershipAndSnapshotIsolation() async throws {
         try await withAsyncTestCoreAtoms { atoms in
@@ -50,20 +126,13 @@ struct RepoExplorerPinnedPaneProjectionTests {
             }
             let drawer = try #require(store.addDrawerPane(to: terminal.id))
             #expect(atoms.workspaceMutationCoordinator.setPanePinned(drawer.id, isPinned: true))
-            let prefs = RepoExplorerSidebarPrefsAtom(sidebarState: atoms.workspaceSidebarState)
-            let captured = RepoExplorerPinnedPaneProjectionRequest(
-                coreAtoms: atoms, sidebarPreferences: prefs,
-                referenceDate: Date(timeIntervalSince1970: 1_000_000)
-            )
+            let captured = RepoExplorerPinnedPaneProjectionRequest(coreAtoms: atoms)
             let expected = Set([terminal.id, bridge.id, browser.id, code.id, drawer.id])
             #expect(Set(try await RepoExplorerPinnedPaneProjector.project(captured)) == expected)
 
             #expect(atoms.workspaceMutationCoordinator.setPanePinned(bridge.id, isPinned: false))
             #expect(atoms.workspaceMutationCoordinator.backgroundPane(browser.id))
-            let fresh = RepoExplorerPinnedPaneProjectionRequest(
-                coreAtoms: atoms, sidebarPreferences: prefs,
-                referenceDate: Date(timeIntervalSince1970: 1_000_000)
-            )
+            let fresh = RepoExplorerPinnedPaneProjectionRequest(coreAtoms: atoms)
             #expect(Set(try await RepoExplorerPinnedPaneProjector.project(captured)) == expected)
             #expect(
                 Set(try await RepoExplorerPinnedPaneProjector.project(fresh)) == Set([terminal.id, code.id, drawer.id]))
@@ -84,5 +153,11 @@ struct RepoExplorerPinnedPaneProjectionTests {
             RepoExplorerPaneTitleNormalizer.normalizedTitle(
                 liveTitle: " Review ", cwd: nil, shellExecutablePath: nil
             ) == "Review")
+    }
+}
+
+private enum PinnedPaneFixtureOrdering {
+    @concurrent nonisolated static func byUUID(_ paneIDs: [UUID]) async -> [UUID] {
+        paneIDs.sorted { $0.uuidString < $1.uuidString }
     }
 }

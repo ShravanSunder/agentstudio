@@ -8,6 +8,35 @@ import Testing
 @MainActor
 @Suite("RepoExplorerListKeyboardIntegrationTests", .serialized)
 struct RepoExplorerListKeyboardIntegrationTests {
+    @Test("native Escape leaves Panes list focus for the previous responder")
+    func nativeEscapeReturnsFocusFromPanesList() throws {
+        let fixture = RepoExplorerListKeyboardFixture()
+        defer { fixture.close() }
+        let paneID = UUIDv7.generate()
+        let tabID = UUIDv7.generate()
+        let snapshot = navigationSnapshot([
+            .unassociatedPane(paneID: paneID, tabID: tabID)
+        ])
+        _ = try fixture.apply(snapshot: snapshot, generation: 1)
+        var returnRequests = 0
+        fixture.interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onReturnFocusRequest: {
+                    returnRequests += 1
+                    _ = fixture.window.makeFirstResponder(fixture.textField)
+                }
+            )
+        )
+        #expect(fixture.window.firstResponder === fixture.host)
+
+        try fixture.send(.returnFocus, directlyToHost: false)
+
+        #expect(returnRequests == 1)
+        #expect(fixture.window.firstResponder === fixture.textField.currentEditor())
+        #expect(!fixture.interaction.isListKeyboardActive)
+    }
+
     @Test("local action descriptors resolve unmodified arrows Enter Escape and digits")
     func localActionDescriptorsOwnListTriggers() {
         let actions: [RepoExplorerListKeyboardAction] =
@@ -220,6 +249,59 @@ struct RepoExplorerListKeyboardIntegrationTests {
 
         #expect(fixture.host.selectedRowID == ownerRow.id)
         #expect(fixture.nativeSelectedRowID(in: hidden) == ownerRow.id)
+    }
+
+    @Test("bare D in the native list routes the drawer command and preserves owner selection")
+    func drawerShortcutRoutesThroughNativeList() throws {
+        let fixture = RepoExplorerListKeyboardFixture()
+        defer { fixture.close() }
+        let tabID = UUIDv7.generate()
+        let ownerID = UUIDv7.generate()
+        let drawerID = UUIDv7.generate()
+        let ownerRow = navigationTabPaneRow(groupID: "panes", paneID: ownerID, tabID: tabID)
+        let drawerRow = navigationDrawerPaneRow(
+            groupID: "panes", paneID: drawerID, tabID: tabID, ownerPaneID: ownerID
+        )
+        let preferences = RepoExplorerSidebarPrefsAtom()
+        var requestedCommands: [AppCommand] = []
+        fixture.interaction.configure(
+            RepoExplorerKeyboardCallbacks(
+                canInterpretListInput: { true },
+                onCommandRequest: { command in
+                    requestedCommands.append(command)
+                    if command == .togglePanesShowsDrawers {
+                        preferences.setShowsDrawerPanes(!preferences.showsDrawerPanes)
+                    }
+                    return true
+                }
+            )
+        )
+        let shown = RepoExplorerMaterializationSnapshot(rows: [ownerRow, drawerRow])
+        _ = try fixture.apply(snapshot: shown, generation: 1)
+        try fixture.send(.moveSelectionDown)
+        #expect(fixture.host.selectedRowID == drawerRow.id)
+
+        let keyEvent = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: fixture.window.windowNumber,
+                context: nil,
+                characters: "d",
+                charactersIgnoringModifiers: "d",
+                isARepeat: false,
+                keyCode: 2
+            )
+        )
+        fixture.host.keyDown(with: keyEvent)
+        #expect(requestedCommands == [.togglePanesShowsDrawers])
+        #expect(!preferences.showsDrawerPanes)
+
+        let hidden = RepoExplorerMaterializationSnapshot(rows: [ownerRow])
+        _ = try fixture.apply(snapshot: hidden, generation: 2)
+        #expect(fixture.host.selectedRowID == ownerRow.id)
     }
 
     @Test("Left and Right traverse group relationships and repeated Right requests expansion")
