@@ -1,11 +1,14 @@
 import AgentStudioCore
-import AgentStudioTestSupport
+import AgentStudioInfrastructure
+import AppKit
 import Foundation
+import GhosttyKit
 import Testing
 
 @testable import AgentStudioTerminal
 
-@Suite("TerminalPaneMountView displaySurface")
+@MainActor
+@Suite("TerminalPaneMountView displaySurface", .serialized)
 struct TerminalPaneMountViewDisplaySurfaceTests {
     @Test("same-surface display skips rewrap only when the current scroll wrapper is mounted")
     func sameSurfaceDisplaySkipsRewrapOnlyForMountedCurrentWrapper() {
@@ -106,32 +109,42 @@ struct TerminalPaneMountViewDisplaySurfaceTests {
         #expect(TerminalPaneMountView.geometryVerificationMode(for: .explicitGeometrySync) == .syncThenVerify)
     }
 
-    @Test("same-surface display branch returns before unmounting or rewrapping")
-    func sameSurfaceDisplayBranchReturnsBeforeUnmountingOrRewrapping() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let sourceURL = projectRoot.appending(
-            path: "Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    @Test("redisplaying the same surface preserves its mounted wrapper and host")
+    func redisplayingSameSurfacePreservesMountedWrapperAndHost() throws {
+        let surfaceID = UUIDv7.generate()
+        let mountView = TerminalPaneMountView(
+            restoredSurfaceId: surfaceID,
+            paneId: UUIDv7.generate(),
+            title: "Mount reuse"
+        )
+        let surface = Ghostty.SurfaceView(
+            managedSurfaceID: surfaceID,
+            appCommandDispatcher: NoOpTerminalMountTestDispatcher()
+        )
+        defer {
+            mountView.removeSurface()
+            SurfaceManager.shared.removeHealthDelegate(mountView)
+        }
 
-        let reuseBranchStart = try #require(source.range(of: "if displayPlan.reusesMountedWrapper {"))
-        let rewrapBranchStart = try #require(source.range(of: "// Remove existing surface if any"))
-        let reuseBranch = String(source[reuseBranchStart.lowerBound..<rewrapBranchStart.lowerBound])
+        mountView.displaySurface(surface)
+        let capturedWrapper = try #require(mountView.surfaceScrollView)
+        let capturedHost = try #require(capturedWrapper.superview)
 
-        #expect(reuseBranch.contains("finishSurfaceDisplay("))
-        #expect(reuseBranch.contains("surfaceView,"))
-        #expect(reuseBranch.contains("displayPlan: displayPlan"))
-        #expect(reuseBranch.contains("geometryVerificationReason: geometryVerificationReason"))
-        #expect(reuseBranch.contains("return"))
-        #expect(!reuseBranch.contains("ghosttyMountView.unmountCurrentView()"))
-        #expect(!reuseBranch.contains("TerminalSurfaceScrollView("))
+        mountView.displaySurface(surface)
 
-        let finishStart = try #require(source.range(of: "private func finishSurfaceDisplay("))
-        let removeSurfaceStart = try #require(source.range(of: "func removeSurface()"))
-        let finishBody = String(source[finishStart.lowerBound..<removeSurfaceStart.lowerBound])
-
-        #expect(finishBody.contains("if displayPlan.beginsRestorePresentation"))
-        #expect(finishBody.contains("applyRuntimeStateSnapshot(boundRuntime)"))
-        #expect(finishBody.contains("surfaceView.bindRuntime(boundRuntime)"))
-        #expect(finishBody.contains("surfaceView.onCloseRequested"))
+        #expect(mountView.ghosttySurface === surface)
+        #expect(mountView.surfaceScrollView === capturedWrapper)
+        #expect(capturedWrapper.superview === capturedHost)
+        #expect(surface.superview === capturedWrapper.documentView)
     }
+}
+
+@MainActor
+private final class NoOpTerminalMountTestDispatcher: AppCommandDispatching {
+    func dispatch(_: AppCommand) -> Bool { false }
+    func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+    func canDispatch(_: AppCommand) -> Bool { false }
+    func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { false }
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? { nil }
+    func dispatchMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }
