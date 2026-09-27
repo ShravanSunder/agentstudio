@@ -284,8 +284,8 @@ extension WebKitSerializedTests {
             #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
         }
 
-        @Test("product bootstrap publishes a successor before old retirement cleanup completes")
-        func productBootstrapRotatesAuthorityBeforeReplacementPublication() async throws {
+        @Test("retired worker command is refused while successor serves and cleanup is held")
+        func retiredWorkerCommandIsRefusedWhileSuccessorServes() async throws {
             // Arrange
             let paneId = UUIDv7.generate()
             let provider = BridgePaneProductSessionProviderGate()
@@ -350,6 +350,10 @@ extension WebKitSerializedTests {
                     == replacementInstallation.bootstrap.workerInstanceId
             )
 
+            let staleReply = try await assertRetiredPaneProductCommandRefusal(
+                installation: initialInstallation
+            )
+
             await provider.releaseLifecycleAcknowledgements(result: true)
             _ = try? await metadataReply.value
 
@@ -359,28 +363,11 @@ extension WebKitSerializedTests {
             )
             #expect(replacementInstallation.capabilityBytes != initialInstallation.capabilityBytes)
             #expect((await initialInstallation.session.producerSnapshot()).hasZeroResidue)
-
-            let staleCapability = try BridgeProductCapabilityHeaderEncoding.encode(
-                initialInstallation.capabilityBytes
+            let afterCleanupReply = try await assertRetiredPaneProductCommandRefusal(
+                installation: initialInstallation
             )
-            let staleRequestBody = try JSONSerialization.data(withJSONObject: [
-                "kind": "workerSession.open",
-                "paneSessionId": initialInstallation.bootstrap.paneSessionId,
-                "request": NSNull(),
-                "requestId": "request-open-retired-pane-owner",
-                "requestSequence": 2,
-                "wireVersion": BridgeProductWireContract.version,
-                "workerInstanceId": initialInstallation.bootstrap.workerInstanceId,
-            ])
-            let staleReply = try await collectBridgeProductSchemeReply(
-                adapter: initialInstallation.productAdapter,
-                request: bridgeProductSchemeRequest(
-                    route: BridgeProductWireContract.commandRoute,
-                    capability: staleCapability,
-                    body: staleRequestBody
-                )
-            )
-            #expect(staleReply.response?.statusCode == 403)
+            #expect(afterCleanupReply.response?.statusCode == 409)
+            #expect(afterCleanupReply.body == staleReply.body)
             try await openBridgePaneProductSession(replacementInstallation)
 
             #expect(await controller.beginTeardown().value)

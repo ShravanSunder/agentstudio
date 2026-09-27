@@ -33,6 +33,57 @@ func openBridgePaneProductSession(
     #expect(observation.response?.statusCode == 200)
 }
 
+func assertRetiredPaneProductCommandRefusal(
+    installation: BridgeProductSessionInstallation
+) async throws -> BridgeProductSchemeReplyObservation {
+    let capability = try BridgeProductCapabilityHeaderEncoding.encode(installation.capabilityBytes)
+    let requestBody = try JSONSerialization.data(withJSONObject: [
+        "kind": "workerSession.open",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "request": NSNull(),
+        "requestId": "request-open-retired-pane-owner",
+        "requestSequence": 2,
+        "wireVersion": BridgeProductWireContract.version,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+    ])
+    let controlBefore = await installation.session.snapshot.controlReplay
+    let operationsBefore = await installation.session.diagnosticSnapshot
+    let reply = try await collectBridgeProductSchemeReply(
+        adapter: installation.productAdapter,
+        request: bridgeProductSchemeRequest(
+            route: BridgeProductWireContract.commandRoute,
+            capability: capability,
+            body: requestBody
+        )
+    )
+    #expect(reply.response?.statusCode == 409)
+    let response = try BridgeProductStrictJSON.decode(
+        BridgeProductControlResponse.self,
+        from: reply.body
+    )
+    if case .requestError(let refusal) = response {
+        #expect(refusal.code == .staleWorker)
+        #expect(refusal.correlation.requestId == "request-open-retired-pane-owner")
+        #expect(refusal.correlation.requestSequence == 2)
+        #expect(refusal.correlation.workerInstanceId == installation.bootstrap.workerInstanceId)
+    } else {
+        Issue.record("Expected a typed retired-worker refusal")
+    }
+    #expect(
+        (try? BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: reply.body
+        )) == nil
+    )
+    let controlAfter = await installation.session.snapshot.controlReplay
+    let operationsAfter = await installation.session.diagnosticSnapshot
+    #expect(controlAfter.nextExpectedRequestSequence == controlBefore.nextExpectedRequestSequence)
+    #expect(controlAfter.inFlightRequestSequence == controlBefore.inFlightRequestSequence)
+    #expect(operationsAfter.retainedOperationResultCount == operationsBefore.retainedOperationResultCount)
+    #expect(operationsAfter.activeOperationExecutionCount == operationsBefore.activeOperationExecutionCount)
+    return reply
+}
+
 func startBridgePaneProductMetadataReply(
     installation: BridgeProductSessionInstallation,
     provider: BridgePaneProductSessionProviderGate,
