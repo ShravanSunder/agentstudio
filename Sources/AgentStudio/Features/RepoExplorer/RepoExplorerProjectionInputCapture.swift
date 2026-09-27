@@ -18,6 +18,7 @@ final class RepoExplorerProjectionInputCapture {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let latestPaneMessageSnapshot: LatestPaneMessageSnapshot
     let continuousNow: @Sendable () -> ContinuousClock.Instant
+    let wallNow: @Sendable () -> Date
 
     private var paneDisplayTitleCache = RepoExplorerPaneDisplayTitleCache()
     private(set) var fullCaptureCount = 0
@@ -38,7 +39,8 @@ final class RepoExplorerProjectionInputCapture {
         coreAtoms: CoreAtoms,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot,
-        continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
+        continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
+        wallNow: @escaping @Sendable () -> Date = Date.init
     ) {
         self.store = store
         self.preferences = preferences
@@ -49,6 +51,7 @@ final class RepoExplorerProjectionInputCapture {
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
         self.continuousNow = continuousNow
+        self.wallNow = wallNow
     }
 
     static func observeRepoEnrichmentInputs(
@@ -532,16 +535,18 @@ final class RepoExplorerProjectionInputCapture {
                 }
             }
         }
+        let referenceInstant = previous.snapshot.surface == .panes ? continuousNow() : nil
+        let captureReferenceDate = referenceInstant == nil ? referenceDate : wallNow()
         return RepoExplorerScopedCapture(
             request: previous.replacing(
                 snapshot: previous.snapshot.replacing(
-                    referenceDate: referenceDate,
-                    referenceInstant: previous.snapshot.surface == .panes ? continuousNow() : nil,
+                    referenceDate: captureReferenceDate,
+                    referenceInstant: referenceInstant,
                     calendar: .current,
                     bridgePaneCommandCandidatesByWorktreeId: bridgeCandidates
                 ),
                 paneRowFactsByPaneId: paneFacts,
-                activityReferenceDate: referenceDate
+                activityReferenceDate: captureReferenceDate
             ),
             changes: changes,
             requiresFullProjection: false
