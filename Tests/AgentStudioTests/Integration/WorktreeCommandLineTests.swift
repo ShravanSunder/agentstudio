@@ -57,6 +57,64 @@ struct WorktreeCommandLineTests {
                 ))
     }
 
+    @Test("path options reject another option as their value")
+    func pathOptionsRejectFollowingFlagsAsValues() throws {
+        let currentDirectory = URL(fileURLWithPath: "/tmp/worktree-cli", isDirectory: true)
+        let argumentCases: [(arguments: [String], option: String)] = [
+            (arguments: ["new", "feature/new", "--repo", "--json"], option: "--repo"),
+            (arguments: ["fork", "feature/fork", "--from", "--json"], option: "--from"),
+        ]
+
+        for argumentCase in argumentCases {
+            do {
+                _ = try WorktreeCommandLineArgumentParser.parse(
+                    argumentCase.arguments,
+                    currentDirectory: currentDirectory
+                )
+                Issue.record("expected \(argumentCase.option) to reject the following flag as a missing value")
+            } catch let error as WorktreeCommandLineArgumentError {
+                #expect(error == .missingOptionValue(argumentCase.option))
+            }
+        }
+    }
+
+    @Test("malformed arguments write one usage line to stderr and return 64")
+    func reportsMalformedArgumentsAsUsageErrors() async {
+        let malformedForms: [[String]] = [
+            [],
+            ["unknown"],
+            ["list", "--unknown"],
+            ["fork", "feature/fork", "--repo", "/tmp/repository"],
+            ["list", "--repo"],
+            ["new", "feature/new", "--repo", "--json"],
+            ["fork", "feature/fork", "--from", "--json"],
+            ["new"],
+            ["fork"],
+            ["list", "unexpected"],
+        ]
+        let currentDirectory = URL(fileURLWithPath: "/tmp/worktree-cli", isDirectory: true)
+
+        for malformedForm in malformedForms {
+            for includeJSONFlag in [false, true] {
+                let arguments = includeJSONFlag ? malformedForm + ["--json"] : malformedForm
+                let probe = WorktreeCommandLineTestProbe()
+                let exitCode = await WorktreeCommandLine.run(
+                    arguments: arguments,
+                    currentDirectory: currentDirectory,
+                    output: { probe.appendOutput($0) },
+                    errorOutput: { probe.appendErrorOutput($0) }
+                )
+
+                #expect(exitCode == 64)
+                #expect(probe.outputSnapshot().isEmpty)
+                let errorLines = probe.errorOutputSnapshot()
+                #expect(errorLines.count == 1)
+                #expect(errorLines.first?.isEmpty == false)
+                #expect(errorLines.first?.contains("\n") == false)
+            }
+        }
+    }
+
     @Test("human and JSON formatters cover created listed refused and failed outcomes")
     func formatsEveryOutcomeKind() throws {
         let repository = URL(fileURLWithPath: "/tmp/worktree-output/repository")
@@ -158,6 +216,7 @@ struct WorktreeCommandLineTests {
             arguments: ["worktree", "list", "--repo", repository.path],
             currentDirectory: outsideRepository,
             output: { dispatchProbe.appendOutput($0) },
+            errorOutput: { dispatchProbe.appendErrorOutput($0) },
             runIPCCommand: {
                 dispatchProbe.recordIPCClientFactoryCall()
                 dispatchProbe.recordCredentialReaderCall()
@@ -173,7 +232,8 @@ struct WorktreeCommandLineTests {
         let createExitCode = await WorktreeCommandLine.run(
             arguments: ["new", branch, "--repo", repository.path],
             currentDirectory: outsideRepository,
-            output: { createProbe.appendOutput($0) }
+            output: { createProbe.appendOutput($0) },
+            errorOutput: { createProbe.appendErrorOutput($0) }
         )
         #expect(createExitCode == 0)
         #expect(createProbe.outputSnapshot() == ["created \(branch) at \(destination.standardizedFileURL.path)"])
@@ -182,7 +242,8 @@ struct WorktreeCommandLineTests {
         let listAfterCreateExitCode = await WorktreeCommandLine.run(
             arguments: ["list", "--repo", repository.path],
             currentDirectory: outsideRepository,
-            output: { createdListingProbe.appendOutput($0) }
+            output: { createdListingProbe.appendOutput($0) },
+            errorOutput: { createdListingProbe.appendErrorOutput($0) }
         )
         #expect(listAfterCreateExitCode == 0)
         let createdListingOutput = createdListingProbe.outputSnapshot()
@@ -197,6 +258,7 @@ struct WorktreeCommandLineTests {
             arguments: ["command", "list"],
             currentDirectory: URL(fileURLWithPath: "/tmp", isDirectory: true),
             output: { dispatchProbe.appendOutput($0) },
+            errorOutput: { dispatchProbe.appendErrorOutput($0) },
             runIPCCommand: {
                 dispatchProbe.recordIPCCommandCall()
                 return 7
@@ -212,6 +274,7 @@ struct WorktreeCommandLineTests {
 private final class WorktreeCommandLineTestProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var outputs: [String] = []
+    private var errorOutputs: [String] = []
     private var ipcClientFactoryCalls = 0
     private var credentialReaderCalls = 0
     private var ipcCommandCalls = 0
@@ -219,6 +282,12 @@ private final class WorktreeCommandLineTestProbe: @unchecked Sendable {
     func appendOutput(_ output: String) {
         lock.lock()
         outputs.append(output)
+        lock.unlock()
+    }
+
+    func appendErrorOutput(_ output: String) {
+        lock.lock()
+        errorOutputs.append(output)
         lock.unlock()
     }
 
@@ -244,6 +313,12 @@ private final class WorktreeCommandLineTestProbe: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return outputs
+    }
+
+    func errorOutputSnapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return errorOutputs
     }
 
     func ipcClientFactoryCallCount() -> Int {

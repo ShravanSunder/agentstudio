@@ -98,6 +98,9 @@ package enum WorktreeCommandLineArgumentParser {
             guard !pathValue.isEmpty else {
                 throw WorktreeCommandLineArgumentError.emptyOptionValue(argument)
             }
+            guard !pathValue.hasPrefix("-") else {
+                throw WorktreeCommandLineArgumentError.missingOptionValue(argument)
+            }
 
             let path = URL(fileURLWithPath: pathValue, relativeTo: currentDirectory).standardizedFileURL
             if argument == "--repo" {

@@ -5,6 +5,7 @@ package enum WorktreeCommandLine {
         arguments: [String],
         currentDirectory: URL,
         output: @Sendable (String) -> Void,
+        errorOutput: @Sendable (String) -> Void,
         runIPCCommand: @Sendable () -> Int32
     ) async -> Int32 {
         guard arguments.first == "worktree" else {
@@ -14,14 +15,16 @@ package enum WorktreeCommandLine {
         return await run(
             arguments: Array(arguments.dropFirst()),
             currentDirectory: currentDirectory,
-            output: output
+            output: output,
+            errorOutput: errorOutput
         )
     }
 
     package static func run(
         arguments: [String],
         currentDirectory: URL,
-        output: @Sendable (String) -> Void
+        output: @Sendable (String) -> Void,
+        errorOutput: @Sendable (String) -> Void
     ) async -> Int32 {
         do {
             let invocation = try WorktreeCommandLineArgumentParser.parse(
@@ -36,8 +39,8 @@ package enum WorktreeCommandLine {
             output(response.text)
             return response.exitCode
         } catch let error as WorktreeCommandLineArgumentError {
-            output(error.message)
-            return 2
+            errorOutput(error.message)
+            return 64
         } catch {
             output("failed: outputEncodingFailed")
             return 2

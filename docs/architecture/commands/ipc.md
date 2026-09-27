@@ -527,6 +527,15 @@ agentstudio worktree list --repo /path/to/repository
 either option, the command starts from the current directory. `new` and `list`
 accept `--repo`; `fork` accepts `--from`.
 
+The worktree commands use these exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Worktree created or list returned. |
+| 1 | Operation refused before changing anything. |
+| 2 | Operation failed after preflight. |
+| 64 | Malformed arguments. One usage line goes to stderr; stdout stays empty, including with `--json`. |
+
 The IPC client remains a client surface. It cannot import `AgentStudioAppIPC`
 or the app executable target, so it cannot bypass authentication,
 authorization, grants, or app/runtime owner ports.

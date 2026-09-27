@@ -1,6 +1,6 @@
 # Worktree CLI: what must be true
 
-Date: 2026-09-27, revision 3 (supported layouts; leftovers instead of "change started"). Revision 2 (review: discovery from nested folders, a total
+Date: 2026-09-27, revision 3.1 (WR10 usage errors, decided at PR #388 review). Revision 3 (supported layouts; leftovers instead of "change started"). Revision 2 (review: discovery from nested folders, a total
 result contract, typed cleanup, no app-timing guarantee). Serves
 [the Requirements](2026-09-27-worktree-cli-requirements.md) (W1–W7).
 
@@ -40,6 +40,7 @@ worktree, like the current directory.
 | WR7 | No command opens the app's socket, reads a pane token, or needs the app to run. They behave the same from Terminal.app and from an Agent Studio pane. | W5 |
 | WR8 | A successful return means the worktree is complete on disk. It doesn't mean the app has shown it: a running app shows it through its normal discovery, some time after. The app may see a fork partway while it is being built; a rolled-back fork disappears through discovery the same way. | W6 |
 | WR9 | The commands are in the CLI bundled with stable and beta builds. | W7 |
+| WR10 | Malformed arguments (an unknown verb or flag, a missing value, `--repo` or `--from` followed by another flag, a missing branch) are a usage error, not an E4 outcome: one line of usage text on **stderr**, nothing on stdout (with or without `--json`), exit 64. A flag that takes a value never consumes the next flag as that value. | W3 |
 
 ## Proof
 
@@ -47,5 +48,6 @@ worktree, like the current directory.
 | --- | --- |
 | WR1, WR2 | Integration against temporary repositories: the repository root and a nested folder, in both the main and a linked worktree, plus explicit `--repo` / `--from`; a fork from a linked worktree copies that worktree's files, not the main checkout's |
 | WR3–WR6 | A contract table test for every reachable typed outcome (each refusal including `unsupportedRepositoryLayout`, a read failure → `notNeeded`, a fork cancellation or entry failure → `noLeftovers`, a fork cleanupIncomplete with each residue kind, a `new` failure → `unverified`); CLI golden output for human and `--json` shapes and exit codes of created, listed, refused and failed |
+| WR10 | CLI tests: each malformed form gives stderr only, empty stdout under `--json`, and exit 64 |
 | WR7 | A test through the real top-level dispatch that runs a successful `worktree` command and observes that the IPC client and credential reading are never entered |
 | WR8, WR9 | A packaged-app smoke: the bundled `agentstudio worktree fork` from a pane in a watched repository; the sidebar eventually shows the fork |

@@ -14,6 +14,7 @@ struct AgentStudioIPCClientMain {
             arguments: arguments,
             currentDirectory: currentDirectory,
             output: { print($0) },
+            errorOutput: { fputs("\($0)\n", stderr) },
             runIPCCommand: {
                 AgentStudioIPCClientCommandLineRunner.run(
                     props: AgentStudioIPCClientCommandLineRunner.Props(
