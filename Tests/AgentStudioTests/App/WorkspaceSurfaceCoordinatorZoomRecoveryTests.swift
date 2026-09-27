@@ -158,6 +158,8 @@ extension WebKitSerializedTests {
             )
             await harness.coordinator.drainBridgePaneRetirements()
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
+            let membershipActor = try #require(harness.coordinator.bridgePaneLinkMembershipActor)
+            await membershipActor.awaitReceiverIdle(.terminal(sourcePane.id))
 
             // Assert — CWD injects a Files member; only a Review change replaces the companion.
             #expect(recoveryPresentation.companionPaneId == companionPaneId)

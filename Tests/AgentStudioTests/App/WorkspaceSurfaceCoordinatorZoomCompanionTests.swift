@@ -418,6 +418,8 @@ extension WebKitSerializedTests {
                 sourcePaneId: sourcePane.id,
                 owningTabId: sourceTab.id
             )
+            let membershipActor = try #require(harness.coordinator.bridgePaneLinkMembershipActor)
+            await membershipActor.awaitReceiverIdle(.terminal(sourcePane.id))
 
             // Assert
             let companion = try #require(
