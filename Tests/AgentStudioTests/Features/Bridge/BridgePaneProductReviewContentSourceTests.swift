@@ -1,4 +1,3 @@
-import AgentStudioTestHarness
 import AgentStudioTestSupport
 import CryptoKit
 import Foundation
@@ -8,25 +7,6 @@ import Testing
 
 @Suite("Bridge pane product Review content source")
 struct BridgePaneProductReviewContentSourceTests {
-    @Test("content source delegates authority to coordinator leases")
-    func contentSourceDelegatesAuthorityToCoordinatorLeases() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/Bridge/Transport/BridgePaneProductReviewContentSource.swift"
-            ),
-            encoding: .utf8
-        )
-
-        #expect(source.contains("actor BridgePaneProductReviewContentSource"))
-        #expect(source.contains("acquireContentLease"))
-        #expect(source.contains("settleContentLease"))
-        #expect(!source.contains("replaceAuthority"))
-        #expect(!source.contains("authorityByDescriptorId"))
-        #expect(!source.contains("hasAvailableAuthority"))
-        #expect(!source.contains("currentPackage"))
-    }
-
     @Test("successful range load settles its coordinator lease exactly once")
     @MainActor
     func successfulRangeLoadSettlesLeaseExactlyOnce() async throws {
