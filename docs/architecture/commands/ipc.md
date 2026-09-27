@@ -139,20 +139,20 @@ AgentStudioIPCClientCore
             AgentStudio executable target.
 
 AgentStudioIPCClient
-  Owns:     Thin `agentstudio-cli` executable entrypoint.
-  Imports:  AgentStudioIPCClientCore, AgentStudioPrimitives and
-            AgentStudioProgrammaticControl.
+  Owns:     `agentstudio-cli` entrypoint and early worktree/IPC dispatch.
+  Imports:  AgentStudioIPCClientCore, AgentStudioPrimitives,
+            AgentStudioProgrammaticControl and AgentStudioWorktreeOperations.
   Must not: Import app/runtime owner targets, or AgentStudioInfrastructure.
 ```
 
-The bundled helper is a leaf-only binary by design. `AgentStudioInfrastructure`
-depends on GRDB, Logging, Metrics, Tracing, OTel, ServiceLifecycle and
-`AgentStudioGit` (libgit2), so one import of it from the CLI side relinks the
-app's entire base — AppKit, SwiftUI, WebKit, libsqlite3 — into a process that
-only speaks JSON-RPC over a Unix socket. Pure, Foundation-only helpers the app
-and the CLI both need live in `AgentStudioPrimitives`, which Infrastructure
-re-exports. `CommandLineClientLeafTargetArchitectureTests` pins the allowed
-imports of all four CLI-side targets.
+The executable remains a leaf target. `AgentStudioWorktreeOperations` depends
+on `AgentStudioGit` and `AgentStudioPrimitives` for local Git operations. Keep
+`AgentStudioInfrastructure` out of the CLI dependency graph: it also brings
+GRDB, Logging, Metrics, Tracing, OTel and ServiceLifecycle, along with the app's
+AppKit, SwiftUI, WebKit and SQLite dependencies. Shared Foundation-only helpers
+stay in `AgentStudioPrimitives`, which Infrastructure re-exports.
+`CommandLineClientLeafTargetArchitectureTests` pins the allowed imports of all
+four CLI-side targets.
 
 The target split is intentionally stricter than the folder split. A file in
 `AgentStudioProgrammaticControl` cannot accidentally call app code because the
@@ -490,37 +490,53 @@ so new clients cannot race shutdown.
 
 ## CLI Boundary
 
-The phase-1 CLI ships as the `agentstudio-cli` Swift executable product,
-bundled at `AgentStudio.app/Contents/Helpers/agentstudio`. The product name
-must stay distinct from `AgentStudio`: on a case-insensitive volume a product
-named `agentstudio` shares one build-directory file with the app executable,
-and `Contents/MacOS/agentstudio` is the same path as `Contents/MacOS/AgentStudio`.
-Its
-implementation is split so tests can prove the dependency boundary:
+The `agentstudio-cli` Swift executable is bundled at
+`AgentStudio.app/Contents/Helpers/agentstudio`. Its product name stays distinct
+from `AgentStudio`: on a case-insensitive volume, a product named `agentstudio`
+shares one build-directory file with the app executable, and
+`Contents/MacOS/agentstudio` is the same path as
+`Contents/MacOS/AgentStudio`. The entrypoint checks the first user argument
+before it constructs the IPC runner or reads the process environment:
 
 ```
 agentstudio-cli executable (bundled as Contents/Helpers/agentstudio)
-  -> AgentStudioIPCClientCore
-       discovers socket from --socket, AGENTSTUDIO_IPC_SOCKET,
-       AGENTSTUDIO_IPC_SOCKET_PATH, or --metadata runtime.json
-       maps CLI verbs to public method names and JSON params
-       sends auth.login and command requests on one Unix socket when auth is used
-       validates JSON-RPC response ids
-       keeps event subscription sockets open for events.notification frames
-  -> AgentStudioIPCTransport
-  -> AgentStudioProgrammaticControl
+  -> AgentStudioIPCClient (early dispatch)
+       argv[1] == "worktree" -> WorktreeCommandLine
+         -> AgentStudioWorktreeOperations
+           -> LibGit2AgentStudioGitLocalClient (in-process, libgit2)
+           -> AgentStudioPrimitives
+       other arguments -> AgentStudioIPCClientCommandLineRunner
+         -> local provider/package commands
+         -> AgentStudioIPCClientCore
+           -> AgentStudioIPCTransport and AgentStudioProgrammaticControl
 ```
 
-The CLI is a client/smoke surface, not an app-control owner. It cannot import
-`AgentStudioAppIPC` or the app executable target, so it cannot bypass auth,
+`agentstudio worktree new`, `fork`, and `list` use the local Git client inside
+the CLI process. They do not read IPC credentials, open the app socket, or use
+app permissions. Other arguments continue through the existing command-line
+runner, which handles local provider/package commands and sends app-backed
+methods through `AgentStudioIPCClientCore`.
+
+```sh
+agentstudio worktree new feature/cleanup --repo /path/to/repository
+agentstudio worktree fork feature/experiment --from /path/to/repository
+agentstudio worktree list --repo /path/to/repository
+```
+
+`--repo` and `--from` accept a folder inside the relevant worktree. Without
+either option, the command starts from the current directory. `new` and `list`
+accept `--repo`; `fork` accepts `--from`.
+
+The IPC client remains a client surface. It cannot import `AgentStudioAppIPC`
+or the app executable target, so it cannot bypass authentication,
 authorization, grants, or app/runtime owner ports.
 
-Bearer tokens must not be passed as argv. Explicit interactive or automation
-auth uses `--token-stdin`; app-spawned pane agents receive their pane-bound
-credential through an explicitly remapped bootstrap fd owned by
+IPC bearer tokens must not be passed as argv. Explicit interactive or
+automation auth uses `--token-stdin`; app-spawned pane agents receive their
+pane-bound credential through an explicitly remapped bootstrap fd owned by
 `PaneAgentLaunchOwner`.
 
-The current CLI client surface includes query/control verbs for debug proof:
+The current IPC client surface includes query/control verbs for debug proof:
 `auth-status`, `identify`, `capabilities`, `list-windows`, `list-workspaces`,
 `list-panes`, `pane-focus`, `pane-snapshot`, `terminal-status`, `terminal-snapshot`,
 `terminal-send`, `terminal-wait`, `command-list`, and `command-execute`.
