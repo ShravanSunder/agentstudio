@@ -168,6 +168,143 @@ struct BridgeTelemetryWireSchemaTests {
     }
 
     @Test
+    func workerFileQueryDiagnosticsAcceptOnlyBoundedPhasesAndCounts() {
+        let commonStringAttributes = [
+            "agentstudio.bridge.phase": "worker_task",
+            "agentstudio.bridge.plane": "data",
+            "agentstudio.bridge.priority": "hot",
+            "agentstudio.bridge.slice": "worker_task",
+            "agentstudio.bridge.transport": "worker",
+        ]
+        let phases: [(String, [String: Double])] = [
+            ("command_received", [:]),
+            ("chunk_started", ["agentstudio.bridge.worker.file_query.chunk.index": 1]),
+            (
+                "chunk_completed",
+                [
+                    "agentstudio.bridge.worker.file_query.chunk.index": 2,
+                    "agentstudio.bridge.worker.file_query.evaluated_row.count": 128,
+                ]
+            ),
+            ("outcome_published", [:]),
+            ("projection_published", [:]),
+        ]
+
+        for (phase, numericAttributes) in phases {
+            let result = BridgeTelemetryWireSchema.dropReason(
+                eventName: "performance.bridge.worker.task",
+                durationMilliseconds: nil,
+                stringAttributes: commonStringAttributes.merging([
+                    "agentstudio.bridge.worker.file_query.phase": phase
+                ]) { _, newValue in newValue },
+                numericAttributes: numericAttributes,
+                booleanAttributes: [:]
+            )
+            #expect(result == nil)
+        }
+
+        let rejectedPhase = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.worker.task",
+            durationMilliseconds: nil,
+            stringAttributes: commonStringAttributes.merging([
+                "agentstudio.bridge.worker.file_query.phase": "private-path"
+            ]) { _, newValue in newValue },
+            numericAttributes: [:],
+            booleanAttributes: [:]
+        )
+        let rejectedPath = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.worker.task",
+            durationMilliseconds: nil,
+            stringAttributes: commonStringAttributes.merging([
+                "agentstudio.bridge.worker.file_query.phase": "command_received",
+                "agentstudio.bridge.file.path": "tracked.txt",
+            ]) { _, newValue in newValue },
+            numericAttributes: [:],
+            booleanAttributes: [:]
+        )
+
+        #expect(rejectedPhase == .unsafeAttribute)
+        #expect(rejectedPath == .unsafeAttribute)
+    }
+
+    @Test
+    func pageFileQueryDiagnosticsAcceptOnlyBoundedPhasesAndCounts() {
+        let commonStringAttributes = [
+            "agentstudio.bridge.phase": "worker_task",
+            "agentstudio.bridge.plane": "data",
+            "agentstudio.bridge.priority": "hot",
+            "agentstudio.bridge.slice": "worker_task",
+            "agentstudio.bridge.transport": "worker",
+        ]
+        let batchAttributes = commonStringAttributes.merging([
+            "agentstudio.bridge.file_query.diagnostic.phase": "patch_received"
+        ]) { _, newValue in newValue }
+        let batchResult = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.web.file_query_diagnostic",
+            durationMilliseconds: nil,
+            stringAttributes: batchAttributes,
+            numericAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.batch.index": 2,
+                "agentstudio.bridge.file_query.diagnostic.batch.count": 2,
+            ],
+            booleanAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.page_hidden": true
+            ]
+        )
+        let snapshotAttributes = commonStringAttributes.merging([
+            "agentstudio.bridge.file_query.diagnostic.phase": "snapshot_published"
+        ]) { _, newValue in newValue }
+        let snapshotResult = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.web.file_query_diagnostic",
+            durationMilliseconds: nil,
+            stringAttributes: snapshotAttributes,
+            numericAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.display_item.count": 1,
+                "agentstudio.bridge.file_query.diagnostic.tree_row.count": 1,
+            ],
+            booleanAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.page_hidden": true
+            ]
+        )
+        let renderConsumerAttributes = commonStringAttributes.merging([
+            "agentstudio.bridge.file_query.diagnostic.phase": "render_consumer_committed"
+        ]) { _, newValue in newValue }
+        let renderConsumerResult = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.web.file_query_diagnostic",
+            durationMilliseconds: nil,
+            stringAttributes: renderConsumerAttributes,
+            numericAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.display_item.count": 1,
+                "agentstudio.bridge.file_query.diagnostic.tree_row.count": 1,
+            ],
+            booleanAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.page_hidden": true,
+                "agentstudio.bridge.file_query.diagnostic.query_key_matches_input": true,
+            ]
+        )
+        let rejectedPath = BridgeTelemetryWireSchema.dropReason(
+            eventName: "performance.bridge.web.file_query_diagnostic",
+            durationMilliseconds: nil,
+            stringAttributes: commonStringAttributes.merging([
+                "agentstudio.bridge.file_query.diagnostic.phase": "patch_received",
+                "agentstudio.bridge.file.path": "tracked.txt",
+            ]) { _, newValue in newValue },
+            numericAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.batch.index": 1,
+                "agentstudio.bridge.file_query.diagnostic.batch.count": 1,
+            ],
+            booleanAttributes: [
+                "agentstudio.bridge.file_query.diagnostic.page_hidden": true
+            ]
+        )
+
+        #expect(batchResult == nil)
+        #expect(snapshotResult == nil)
+        #expect(renderConsumerResult == nil)
+        #expect(rejectedPath == .unsafeAttribute)
+    }
+
+    @Test
     func renderDispositionAdmissionAcceptsExactTerminalContract() {
         let stringAttributes = [
             "agentstudio.bridge.phase": "render_disposition_batch_terminal",

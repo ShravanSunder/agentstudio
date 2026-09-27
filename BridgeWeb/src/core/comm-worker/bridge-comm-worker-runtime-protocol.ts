@@ -91,8 +91,10 @@ import {
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import {
 	bridgeCommWorkerComparisonTelemetryFacts,
+	recordBridgeCommWorkerFileQueryDiagnosticPhase,
 	recordBridgeCommWorkerPanePresentationTelemetry,
 	recordBridgeCommWorkerTaskTelemetry,
+	type BridgeCommWorkerFileQueryDiagnosticEvent,
 } from './bridge-comm-worker-telemetry.js';
 import { recordBridgeWorkerOutstandingPublicationTelemetry } from './bridge-render-disposition-telemetry.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
@@ -263,7 +265,17 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		);
 		reviewDisplayLifecyclePublisher.publish(publication);
 	};
-	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
+	const recordFileQueryDiagnosticPhase = (
+		event: BridgeCommWorkerFileQueryDiagnosticEvent,
+	): void => {
+		recordBridgeCommWorkerFileQueryDiagnosticPhase({
+			...event,
+			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
+		});
+	};
+	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection({
+		recordQueryPhase: recordFileQueryDiagnosticPhase,
+	});
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
 		null;
 	let currentFileMetadataSelectedPath: string | null | undefined;
@@ -537,6 +549,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 							eventAuthority: fileDisplayEventAuthority,
 							getWorkerDerivationEpoch: () => activeFileWorkerDerivationEpoch ?? 0,
 							projection: fileQueryProjection,
+							recordQueryPhase: recordFileQueryDiagnosticPhase,
 							publishMessages: (messages): void => {
 								for (const message of messages) port.postMessage(message);
 							},

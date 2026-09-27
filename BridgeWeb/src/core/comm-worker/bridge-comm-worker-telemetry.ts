@@ -65,6 +65,141 @@ export interface BridgeCommWorkerTelemetryRecorder {
 	readonly record: (sample: BridgeTelemetrySample) => void;
 }
 
+export type BridgeCommWorkerFileQueryDiagnosticEvent =
+	| {
+			readonly phase: 'command_received' | 'projection_published' | 'outcome_published';
+	  }
+	| { readonly phase: 'chunk_started'; readonly chunkIndex: number }
+	| {
+			readonly phase: 'chunk_completed';
+			readonly chunkIndex: number;
+			readonly evaluatedRowCount: number;
+	  };
+
+export type RecordBridgeCommWorkerFileQueryDiagnosticPhaseProps =
+	BridgeCommWorkerFileQueryDiagnosticEvent & {
+		readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder | undefined;
+	};
+
+export function recordBridgeCommWorkerFileQueryDiagnosticPhase(
+	props: RecordBridgeCommWorkerFileQueryDiagnosticPhaseProps,
+): void {
+	const numericAttributes: Record<string, number> = {};
+	if (props.phase === 'chunk_started' || props.phase === 'chunk_completed') {
+		numericAttributes['agentstudio.bridge.worker.file_query.chunk.index'] = props.chunkIndex;
+	}
+	if (props.phase === 'chunk_completed') {
+		numericAttributes['agentstudio.bridge.worker.file_query.evaluated_row.count'] =
+			props.evaluatedRowCount;
+	}
+	props.telemetryClient?.record({
+		scope: 'web',
+		name: 'performance.bridge.worker.task',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.phase': 'worker_task',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'hot',
+			'agentstudio.bridge.slice': 'worker_task',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.worker.file_query.phase': props.phase,
+		},
+		numericAttributes,
+		booleanAttributes: {},
+	});
+}
+
+export type BridgeMainFileQueryDiagnosticPhase =
+	| 'patch_received'
+	| 'applier_batch_accepted'
+	| 'applier_batch_rejected_stale'
+	| 'applier_batch_rejected_protocol'
+	| 'applier_batch_buffered_after_commit'
+	| 'transaction_committed'
+	| 'snapshot_published'
+	| 'tree_stream_received'
+	| 'tree_task_started'
+	| 'tree_turn_completed';
+
+export type BridgeMainFileQueryDiagnosticEvent =
+	| {
+			readonly phase:
+				| 'patch_received'
+				| 'applier_batch_accepted'
+				| 'applier_batch_rejected_stale'
+				| 'applier_batch_rejected_protocol'
+				| 'applier_batch_buffered_after_commit'
+				| 'transaction_committed';
+			readonly batchCount: number;
+			readonly batchIndex: number;
+	  }
+	| {
+			readonly phase: 'snapshot_published';
+			readonly displayItemCount: number;
+			readonly treeRowCount: number;
+	  }
+	| {
+			readonly phase: 'render_consumer_committed';
+			readonly displayItemCount: number;
+			readonly queryKeyMatchesInput: boolean;
+			readonly treeRowCount: number;
+	  }
+	| {
+			readonly phase: 'tree_stream_received' | 'tree_task_started' | 'tree_turn_completed';
+	  };
+
+export type RecordBridgeMainFileQueryDiagnosticPhaseProps = BridgeMainFileQueryDiagnosticEvent & {
+	readonly pageHidden: boolean;
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder | undefined;
+};
+
+export function recordBridgeMainFileQueryDiagnosticPhase(
+	props: RecordBridgeMainFileQueryDiagnosticPhaseProps,
+): void {
+	const numericAttributes: Record<string, number> = {};
+	if (
+		props.phase === 'patch_received' ||
+		props.phase === 'applier_batch_accepted' ||
+		props.phase === 'applier_batch_rejected_stale' ||
+		props.phase === 'applier_batch_rejected_protocol' ||
+		props.phase === 'applier_batch_buffered_after_commit' ||
+		props.phase === 'transaction_committed'
+	) {
+		numericAttributes['agentstudio.bridge.file_query.diagnostic.batch.index'] = props.batchIndex;
+		numericAttributes['agentstudio.bridge.file_query.diagnostic.batch.count'] = props.batchCount;
+	} else if (props.phase === 'snapshot_published' || props.phase === 'render_consumer_committed') {
+		numericAttributes['agentstudio.bridge.file_query.diagnostic.display_item.count'] =
+			props.displayItemCount;
+		numericAttributes['agentstudio.bridge.file_query.diagnostic.tree_row.count'] =
+			props.treeRowCount;
+	}
+	props.telemetryClient?.record({
+		scope: 'web',
+		name: 'performance.bridge.web.file_query_diagnostic',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.phase': 'worker_task',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'hot',
+			'agentstudio.bridge.slice': 'worker_task',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.file_query.diagnostic.phase': props.phase,
+		},
+		numericAttributes,
+		booleanAttributes: {
+			'agentstudio.bridge.file_query.diagnostic.page_hidden': props.pageHidden,
+			...(props.phase === 'render_consumer_committed'
+				? {
+						'agentstudio.bridge.file_query.diagnostic.query_key_matches_input':
+							props.queryKeyMatchesInput,
+					}
+				: {}),
+		},
+	});
+}
+
 type BridgeCommWorkerComparisonAttemptStatus =
 	| 'absent'
 	| 'pending'

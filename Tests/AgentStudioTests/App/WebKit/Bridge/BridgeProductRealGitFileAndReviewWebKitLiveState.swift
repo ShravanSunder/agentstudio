@@ -15,6 +15,7 @@ struct BridgeProductWebKitLiveFileState: CustomStringConvertible, Sendable {
     let initialTreeRowCount: Int
     let filteredDisplayItemCount: Int
     let filteredTreeRowCount: Int
+    let filteredTreeItemPaths: [String]
     let queryText: String
     let queryStatus: String
     let revealItemId: String?
@@ -24,6 +25,6 @@ struct BridgeProductWebKitLiveFileState: CustomStringConvertible, Sendable {
     let openFileState: String?
 
     var description: String {
-        "active=\(activated),path=\(displayPath),source=\(displaySourceId ?? "none"),visibility=\(documentVisibilityState ?? "unknown"),rows=\(initialTreeRowCount)->\(filteredTreeRowCount),items=\(initialDisplayItemCount)->\(filteredDisplayItemCount),query=\(queryStatus):\(queryText),reveal=\(revealPath ?? "none")/\(revealItemId ?? "none"),selected=\(selectedPath ?? "none"),open=\(openFilePath ?? "none")/\(openFileState ?? "idle")"
+        "active=\(activated),path=\(displayPath),source=\(displaySourceId ?? "none"),visibility=\(documentVisibilityState ?? "unknown"),rows=\(initialTreeRowCount)->\(filteredTreeRowCount),filteredPaths=\(filteredTreeItemPaths),items=\(initialDisplayItemCount)->\(filteredDisplayItemCount),query=\(queryStatus):\(queryText),reveal=\(revealPath ?? "none")/\(revealItemId ?? "none"),selected=\(selectedPath ?? "none"),open=\(openFilePath ?? "none")/\(openFileState ?? "idle")"
     }
 }

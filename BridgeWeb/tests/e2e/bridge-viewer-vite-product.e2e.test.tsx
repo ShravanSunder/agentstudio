@@ -24,6 +24,7 @@ import {
 	type BridgeViewerViteProductFixtureOracle,
 	type BridgeViewerViteProductReviewFileOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
+import { postMutationFileReadinessFailureSnapshot } from './bridge-viewer-vite-product-readiness-snapshot.ts';
 import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
@@ -309,7 +310,21 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			await waitForSelectedFileContentReady({ content: mutatedContent, oracle, page });
+			try {
+				await waitForSelectedFileContentReady({ content: mutatedContent, oracle, page });
+			} catch (error: unknown) {
+				const readinessSnapshot = await postMutationFileReadinessFailureSnapshot({
+					contentRequests,
+					expectedLineCount: mutatedContent.lineCount,
+					expectedSha256: mutatedContent.sha256,
+					page,
+					path: bridgeViewerViteFileCollectionPath(oracle.worktreeRoot, oracle.largeFilePath),
+				});
+				throw new Error(
+					`Post-mutation File readiness snapshot: ${JSON.stringify(readinessSnapshot)}`,
+					{ cause: error },
+				);
+			}
 			await scrollSelectedFileThroughMarkers({ content: mutatedContent, page });
 			const replacementObservation = await readFileDeepScrollObservation({
 				content: mutatedContent,

@@ -675,6 +675,12 @@ export function createBridgeMainRenderSnapshotStore(
 			publish({ ...snapshot, ...fileDisplayState });
 			const transaction = event.queryTransaction;
 			if (transaction?.phase === 'batch' && transaction.batchIndex + 1 === transaction.batchCount) {
+				storeProps.recordFileQueryDiagnostic?.({
+					displayItemCount: snapshot.fileItemById.size,
+					phase: 'snapshot_published',
+					treeRowCount:
+						snapshot.fileQuerySlice?.projectedRowCount ?? snapshot.fileTreeSlice.index.size,
+				});
 				onFileQueryTransactionPublished?.(transaction.transactionId);
 			}
 		},

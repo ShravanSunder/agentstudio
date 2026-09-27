@@ -106,6 +106,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.demand.lane',
 	'agentstudio.bridge.drop_reason',
 	'agentstudio.bridge.file_size_bucket',
+	'agentstudio.bridge.file_query.diagnostic.phase',
 	'agentstudio.bridge.fixture_class',
 	'agentstudio.bridge.frame_jank.kind',
 	'agentstudio.bridge.generation_relation',
@@ -153,6 +154,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.worker.review_select_dispatch',
 	'agentstudio.bridge.worker.semantic_class',
 	'agentstudio.bridge.worker.session_state',
+	'agentstudio.bridge.worker.file_query.phase',
 	'agentstudio.bridge.worker.task_kind',
 	'agentstudio.bridge.worker.work_kind',
 ]);
@@ -256,6 +258,32 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 			'released',
 			'settled',
 			'superseded',
+		]),
+	],
+	[
+		'agentstudio.bridge.file_query.diagnostic.phase',
+		new Set([
+			'applier_batch_accepted',
+			'applier_batch_buffered_after_commit',
+			'applier_batch_rejected_protocol',
+			'applier_batch_rejected_stale',
+			'patch_received',
+			'render_consumer_committed',
+			'snapshot_published',
+			'transaction_committed',
+			'tree_stream_received',
+			'tree_task_started',
+			'tree_turn_completed',
+		]),
+	],
+	[
+		'agentstudio.bridge.worker.file_query.phase',
+		new Set([
+			'chunk_completed',
+			'chunk_started',
+			'command_received',
+			'outcome_published',
+			'projection_published',
 		]),
 	],
 	[
@@ -389,6 +417,12 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.worker.derivation_epoch',
 	'agentstudio.bridge.worker.source_epoch',
 	'agentstudio.bridge.worker.touched_key_count',
+	'agentstudio.bridge.worker.file_query.chunk.index',
+	'agentstudio.bridge.worker.file_query.evaluated_row.count',
+	'agentstudio.bridge.file_query.diagnostic.batch.count',
+	'agentstudio.bridge.file_query.diagnostic.batch.index',
+	'agentstudio.bridge.file_query.diagnostic.display_item.count',
+	'agentstudio.bridge.file_query.diagnostic.tree_row.count',
 	'agentstudio.bridge.worktree.content_height_delta_px',
 	'agentstudio.bridge.worktree.content_total_size_px',
 	'agentstudio.bridge.worktree.descriptor_count',
@@ -409,6 +443,8 @@ const bridgeDevBooleanAttributeKeys = new Set<string>([
 	'agentstudio.bridge.selected',
 	'agentstudio.bridge.viewer.active',
 	'agentstudio.bridge.worker.file_metadata_selected_path_resolved',
+	'agentstudio.bridge.file_query.diagnostic.page_hidden',
+	'agentstudio.bridge.file_query.diagnostic.query_key_matches_input',
 ]);
 
 const bridgeDevTelemetryUnsafeValuePatterns = [

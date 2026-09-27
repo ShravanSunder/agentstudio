@@ -108,6 +108,12 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.bridge.worker.handler_duration_ms",
         "agentstudio.bridge.worker.native_bootstrap_install.count",
         "agentstudio.bridge.worker.derivation_epoch",
+        "agentstudio.bridge.worker.file_query.chunk.index",
+        "agentstudio.bridge.worker.file_query.evaluated_row.count",
+        "agentstudio.bridge.file_query.diagnostic.batch.count",
+        "agentstudio.bridge.file_query.diagnostic.batch.index",
+        "agentstudio.bridge.file_query.diagnostic.display_item.count",
+        "agentstudio.bridge.file_query.diagnostic.tree_row.count",
         "agentstudio.bridge.worker.patch_count",
         "agentstudio.bridge.worker.queued_command.count",
         "agentstudio.bridge.worker.queue_wait_ms",
@@ -138,5 +144,7 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.bridge.stream_id_matches",
         "agentstudio.bridge.viewer.active",
         "agentstudio.bridge.worker.file_metadata_selected_path_resolved",
+        "agentstudio.bridge.file_query.diagnostic.page_hidden",
+        "agentstudio.bridge.file_query.diagnostic.query_key_matches_input",
     ]).union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
 }

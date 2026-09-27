@@ -14,6 +14,7 @@ import {
 	type BridgePierreTreeScrollOwner,
 } from '../app/bridge-pierre-tree-adapter.js';
 import { bridgeViewerTreeUnsafeCSS } from '../app/bridge-viewer-tree-theme.js';
+import { recordBridgeMainFileQueryDiagnosticPhase } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
@@ -106,6 +107,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	patchCoordinatorRef.current ??= createBridgeFileViewerTreePatchCoordinator({
 		model,
 	});
+	const telemetryRecorder = props.telemetryRecorder;
 	const handleTreePatchStreamDrainRef = useRef<() => void>(() => {});
 	useBridgeFileTreePatchStream({
 		coordinator: patchCoordinatorRef.current,
@@ -114,11 +116,11 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			handleTreePatchStreamDrainRef.current();
 		},
 		stream: props.fileTreePatchStream,
+		telemetryRecorder,
 		treeRowByPath: props.treeRowByPath,
 	});
 
 	const onVisibleFileDemandChange = props.onVisibleFileDemandChange;
-	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
 	useLayoutEffect((): void => {
 		if (
@@ -270,6 +272,7 @@ function useBridgeFileTreePatchStream(props: {
 	readonly isActive: boolean;
 	readonly onDrain: () => void;
 	readonly stream: BridgeMainFileTreePatchStream;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 	readonly treeRowByPath: UseBridgeFileViewerPierreTreeRuntimeProps['treeRowByPath'];
 }): void {
 	const streamCursor = useSyncExternalStore(
@@ -288,6 +291,12 @@ function useBridgeFileTreePatchStream(props: {
 	treeRowByPathRef.current = props.treeRowByPath;
 	const taskKeyRef = useRef<object>({});
 	const scheduleTreePatchTurnRef = useRef<() => void>(() => {});
+	const queryTaskDiagnosticRef = useRef({
+		hasPendingQuery: false,
+		taskStarted: false,
+	});
+	const telemetryRecorderRef = useRef(props.telemetryRecorder);
+	telemetryRecorderRef.current = props.telemetryRecorder;
 
 	useEffect((): (() => void) => {
 		const scheduler = bridgeFileViewerTreePatchTaskSchedulerForDocument(document);
@@ -297,6 +306,17 @@ function useBridgeFileTreePatchStream(props: {
 			const priority =
 				document.visibilityState === 'visible' && isActiveRef.current ? 'visible' : 'background';
 			scheduler.schedule(taskKey, priority, (): boolean => {
+				if (
+					queryTaskDiagnosticRef.current.hasPendingQuery &&
+					!queryTaskDiagnosticRef.current.taskStarted
+				) {
+					queryTaskDiagnosticRef.current.taskStarted = true;
+					recordBridgeMainFileQueryDiagnosticPhase({
+						pageHidden: document.visibilityState === 'hidden',
+						phase: 'tree_task_started',
+						telemetryClient: telemetryRecorderRef.current,
+					});
+				}
 				const turn = coordinatorRef.current.advanceNextTurn(undefined, (path): boolean => {
 					const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
 					return (
@@ -306,6 +326,17 @@ function useBridgeFileTreePatchStream(props: {
 				});
 				if (turn.blockedOnProjection) return false;
 				if (turn.hasPendingWork) return true;
+				if (queryTaskDiagnosticRef.current.hasPendingQuery) {
+					recordBridgeMainFileQueryDiagnosticPhase({
+						pageHidden: document.visibilityState === 'hidden',
+						phase: 'tree_turn_completed',
+						telemetryClient: telemetryRecorderRef.current,
+					});
+					queryTaskDiagnosticRef.current = {
+						hasPendingQuery: false,
+						taskStarted: false,
+					};
+				}
 				onDrainRef.current();
 				return false;
 			});
@@ -324,6 +355,24 @@ function useBridgeFileTreePatchStream(props: {
 	useEffect((): void => {
 		const newEntries = props.stream.readAfter(queuedCursorRef.current);
 		if (newEntries.length > 0) {
+			const receivedQueryEntry = newEntries.some(
+				(entry): boolean =>
+					entry.kind === 'queryBegin' ||
+					entry.kind === 'queryBatch' ||
+					entry.kind === 'queryCommit' ||
+					entry.kind === 'queryAbort',
+			);
+			if (receivedQueryEntry) {
+				queryTaskDiagnosticRef.current = {
+					hasPendingQuery: true,
+					taskStarted: false,
+				};
+				recordBridgeMainFileQueryDiagnosticPhase({
+					pageHidden: document.visibilityState === 'hidden',
+					phase: 'tree_stream_received',
+					telemetryClient: telemetryRecorderRef.current,
+				});
+			}
 			for (const entry of newEntries) coordinatorRef.current.enqueueEntry(entry);
 			queuedCursorRef.current = newEntries.at(-1)?.cursor ?? queuedCursorRef.current;
 		}

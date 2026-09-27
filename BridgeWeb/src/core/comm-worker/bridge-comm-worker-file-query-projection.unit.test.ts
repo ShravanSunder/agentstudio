@@ -7,6 +7,7 @@ import {
 	type BridgeCommWorkerFileQueryProjectionResult,
 } from './bridge-comm-worker-file-query-projection.js';
 import { encodeBridgeWorkerFileQueryUpdateCommand } from './bridge-comm-worker-protocol.js';
+import type { BridgeCommWorkerFileQueryDiagnosticEvent } from './bridge-comm-worker-telemetry.js';
 import type {
 	BridgeWorkerFileDisplayPatch,
 	BridgeWorkerServerToMainWireMessage,
@@ -310,6 +311,51 @@ describe('Bridge comm worker File query projection', () => {
 			outcome: { kind: 'projected', transactionId: 'file-query-2' },
 			requestId: 'query-projected',
 		});
+	});
+
+	test('records query receipt, every bounded chunk, and outcome publication in order', () => {
+		const scheduler = new DeterministicFileQueryScheduler();
+		const recordedPhases: BridgeCommWorkerFileQueryDiagnosticEvent[] = [];
+		const recordQueryPhase = (event: BridgeCommWorkerFileQueryDiagnosticEvent): void => {
+			recordedPhases.push(event);
+		};
+		const projection = new BridgeCommWorkerFileQueryProjection({
+			maximumRowsPerQueryChunk: 1,
+			recordQueryPhase,
+			scheduleQueryChunk: scheduler.schedule,
+		});
+		projection.applyDisplayPatches(baseDisplayPatches());
+		const eventAuthority = new BridgeCommWorkerFileDisplayEventAuthority({
+			createSequence: () => 1,
+		});
+
+		applyBridgeCommWorkerFileQueryUpdateCommand({
+			command: encodeBridgeWorkerFileQueryUpdateCommand({
+				filterMode: 'all',
+				searchMode: 'text',
+				searchText: 'README',
+				epoch: 1,
+				requestId: 'query-diagnostic',
+			}),
+			eventAuthority,
+			getWorkerDerivationEpoch: (): number => 7,
+			projection,
+			recordQueryPhase,
+			publishMessages: (): void => {},
+		});
+		scheduler.runAll();
+
+		expect(recordedPhases).toEqual([
+			{ phase: 'command_received' },
+			{ chunkIndex: 1, phase: 'chunk_started' },
+			{ chunkIndex: 1, evaluatedRowCount: 1, phase: 'chunk_completed' },
+			{ chunkIndex: 2, phase: 'chunk_started' },
+			{ chunkIndex: 2, evaluatedRowCount: 1, phase: 'chunk_completed' },
+			{ chunkIndex: 3, phase: 'chunk_started' },
+			{ chunkIndex: 3, evaluatedRowCount: 1, phase: 'chunk_completed' },
+			{ phase: 'projection_published' },
+			{ phase: 'outcome_published' },
+		]);
 	});
 
 	test('rebuilds the complete published display state for fail-closed resync', () => {
