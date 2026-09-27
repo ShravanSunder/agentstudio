@@ -1,0 +1,6 @@
+{
+  "union": "BridgePullRequestReferenceRemoveResult",
+  "value": {
+    "kind": "refusedProtectedCurrentDirectory"
+  }
+}
