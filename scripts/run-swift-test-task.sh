@@ -151,14 +151,15 @@ print_closing_lane_report() {
 # last completed command's status, and a SIGTERMed lane printed
 # `exit_status=0 verdict=pass`.
 trap_lane_termination_signals() {
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+  trap 'swift_test_terminate_active_isolated_suites; exit 129' HUP
+  trap 'swift_test_terminate_active_isolated_suites; exit 130' INT
+  trap 'swift_test_terminate_active_isolated_suites; exit 143' TERM
 }
 
 # The invocation's single EXIT handler owns the lane receipt and slot release.
 finish_lane_invocation() {
   local exit_status=$?
+  swift_test_terminate_active_isolated_suites
   print_closing_lane_report "$exit_status" || true
   swift_build_slot_release || true
   return "$exit_status"
