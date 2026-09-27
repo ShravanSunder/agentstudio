@@ -399,8 +399,6 @@ func shutdownHTTPHostAndDrainMetadataStream(
         try await drain.value
     } catch is CancellationError {
         // Host shutdown cancels the active scheme response after closing its producer.
-    } catch BridgeProductSchemeAdapterError.routeCancelled {
-        // A pre-response scheme task now ends with a typed cancellation transport error.
     } catch {
         await shutdown
         throw HTTPAnnotationIntegrationError.metadataDrainFailed(String(describing: error))

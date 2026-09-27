@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import WebKit
 import os.log
 
@@ -8,8 +9,7 @@ private let bridgeProductSchemeAdapterLogger = Logger(
 )
 
 enum BridgeProductSchemeAdapterError: Error, Sendable {
-    case containedRouteFailure
-    case routeCancelled
+    case admissionInvalid
     case frameAcknowledgementRejected
     case frameDeliveryRejected
     case invalidRequestURL
@@ -19,6 +19,18 @@ enum BridgeProductSchemeAdapterError: Error, Sendable {
 
 typealias BridgeProductSchemeReplyContinuation =
     AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+
+private final class BridgeProductSchemeReplyState: Sendable {
+    private let hasResponse = Mutex(false)
+
+    var responseWasSent: Bool { hasResponse.withLock { $0 } }
+
+    func markResponseSent() { hasResponse.withLock { $0 = true } }
+}
+
+private enum BridgeProductSchemeReplyContext {
+    @TaskLocal static var state: BridgeProductSchemeReplyState?
+}
 
 struct BridgeProductSchemeAdapter: Sendable {
     let session: BridgeProductSession
@@ -43,12 +55,33 @@ struct BridgeProductSchemeAdapter: Sendable {
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
     ) async {
-        guard productAdmission.wasMinted(by: productAdmissionGate) else {
+        let responseState = BridgeProductSchemeReplyState()
+        await BridgeProductSchemeReplyContext.$state.withValue(responseState) {
+            await routeUnderReplyState(
+                request,
+                productAdmission: productAdmission,
+                continuation: continuation,
+                responseState: responseState
+            )
+        }
+    }
+
+    private func routeUnderReplyState(
+        _ request: URLRequest,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation,
+        responseState: BridgeProductSchemeReplyState
+    ) async {
+        guard !Task.isCancelled else {
             continuation.finish(throwing: CancellationError())
             return
         }
-        guard !Task.isCancelled else {
-            continuation.finish(throwing: BridgeProductSchemeAdapterError.routeCancelled)
+        guard productAdmission.wasMinted(by: productAdmissionGate) else {
+            sendTerminalFailure(
+                error: BridgeProductSchemeAdapterError.admissionInvalid,
+                request: request,
+                continuation: continuation
+            )
             return
         }
         do {
@@ -92,17 +125,30 @@ struct BridgeProductSchemeAdapter: Sendable {
                     continuation: continuation
                 )
             }
-        } catch is CancellationError {
-            bridgeProductSchemeAdapterLogger.debug("Product request routing cancelled")
-            // Keep pre-response cancellation a typed scheme-task failure.
-            continuation.finish(throwing: BridgeProductSchemeAdapterError.routeCancelled)
         } catch {
+            if error is CancellationError, Task.isCancelled {
+                bridgeProductSchemeAdapterLogger.debug("Product request routing cancelled")
+                continuation.finish(throwing: CancellationError())
+                return
+            }
             let failureReason = BridgeProductSchemeContainedFailureReason(error: error)
             bridgeProductSchemeAdapterLogger.error(
                 "Product request routing failed reason=\(failureReason.rawValue, privacy: .public)"
             )
+            if Task.isCancelled {
+                continuation.finish(throwing: CancellationError())
+            } else if responseState.responseWasSent {
+                // The page treats an incomplete metadata/content stream, or a
+                // short command body, as transport loss under its exact retry.
+                continuation.finish()
+            } else {
+                sendTerminalFailure(
+                    error: error,
+                    request: request,
+                    continuation: continuation
+                )
+            }
             await recordContainedFailure(reason: failureReason)
-            continuation.finish(throwing: BridgeProductSchemeAdapterError.containedRouteFailure)
         }
     }
 
@@ -660,7 +706,7 @@ struct BridgeProductSchemeAdapter: Sendable {
                     }
                 guard frameAccepted else {
                     if productAdmission.withValidAdmission({ true }) != true {
-                        throw CancellationError()
+                        throw BridgeProductSchemeAdapterError.admissionInvalid
                     }
                     throw BridgeProductSchemeAdapterError.frameAcknowledgementRejected
                 }
@@ -670,7 +716,8 @@ struct BridgeProductSchemeAdapter: Sendable {
                 return
             case .cancelled:
                 bridgeProductSchemeAdapterLogger.debug("Product producer pump cancelled")
-                throw CancellationError()
+                if Task.isCancelled { throw CancellationError() }
+                throw BridgeProductSchemeAdapterError.admissionInvalid
             case .rejected(let rejection):
                 bridgeProductSchemeAdapterLogger.error(
                     "Product producer pump rejected frame reason=\(String(describing: rejection), privacy: .public)"
@@ -716,6 +763,7 @@ struct BridgeProductSchemeAdapter: Sendable {
             productAdmission: productAdmission,
             continuation: continuation
         )
+        BridgeProductSchemeReplyContext.state?.markResponseSent()
     }
 
     private func emit(
@@ -728,7 +776,7 @@ struct BridgeProductSchemeAdapter: Sendable {
                 continuation.yield(result)
             })
         else {
-            throw CancellationError()
+            throw BridgeProductSchemeAdapterError.admissionInvalid
         }
         switch yieldResult {
         case .enqueued:
@@ -742,7 +790,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         }
     }
 
-    private static func response(
+    static func response(
         statusCode: Int,
         url: URL,
         contentType: String,
@@ -789,8 +837,7 @@ struct BridgeProductSchemeAdapter: Sendable {
 }
 
 private enum BridgeProductSchemeContainedFailureReason: String {
-    case containedRouteFailure = "contained_route_failure"
-    case routeCancelled = "route_cancelled"
+    case admissionInvalid = "admission_invalid"
     case frameAcknowledgementRejected = "frame_acknowledgement_rejected"
     case frameDeliveryRejected = "frame_delivery_rejected"
     case invalidRequestURL = "invalid_request_url"
@@ -800,10 +847,8 @@ private enum BridgeProductSchemeContainedFailureReason: String {
 
     init(error: any Error) {
         switch error as? BridgeProductSchemeAdapterError {
-        case .containedRouteFailure:
-            self = .containedRouteFailure
-        case .routeCancelled:
-            self = .routeCancelled
+        case .admissionInvalid:
+            self = .admissionInvalid
         case .frameAcknowledgementRejected:
             self = .frameAcknowledgementRejected
         case .frameDeliveryRejected:

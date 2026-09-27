@@ -11,6 +11,11 @@ export async function postBridgeProductCommandBody(props: {
 }): Promise<Uint8Array> {
 	const response = await executeBridgeProductCommand(props);
 	if (!response.ok) {
+		if (response.status < 400 || response.status >= 500) {
+			throw new BridgeProductRequestTransportError(
+				`Bridge product command reply was ambiguous: HTTP ${response.status}.`,
+			);
+		}
 		throw new Error(`Bridge product control request failed with status ${response.status}.`);
 	}
 	if (response.status === 204) return new Uint8Array();
@@ -92,6 +97,19 @@ async function readBridgeProductControlResponseBytes(response: Response): Promis
 		}
 	} finally {
 		reader.releaseLock();
+	}
+	const declaredLength = response.headers.get('Content-Length');
+	if (declaredLength !== null) {
+		const expectedLength = Number(declaredLength);
+		if (
+			!/^\d+$/.test(declaredLength) ||
+			!Number.isSafeInteger(expectedLength) ||
+			expectedLength !== responseByteLength
+		) {
+			throw new BridgeProductRequestTransportError(
+				'Bridge product control response length was not verified.',
+			);
+		}
 	}
 	return responseBytes.slice(0, responseByteLength);
 }

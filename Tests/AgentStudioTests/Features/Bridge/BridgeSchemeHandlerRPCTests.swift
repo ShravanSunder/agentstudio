@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -6,6 +7,26 @@ import Testing
 
 @Suite(.serialized)
 final class BridgeSchemeHandlerRPCTests {
+    @Test("missing product router returns a terminal HTTP response")
+    func missingProductRouterReturnsServiceUnavailable() async throws {
+        let handler = BridgeSchemeHandler(
+            paneId: UUIDv7.generate(),
+            appRootURL: testBridgeAppRootURL(),
+            productSessionRouter: nil
+        )
+        let reply = try await collectBridgeSchemeHandlerReply(
+            handler: handler,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: "unrouted-capability",
+                body: bridgeProductSchemeWorkerOpenBody()
+            )
+        )
+
+        #expect(reply.response?.statusCode == 503)
+        #expect(reply.body.isEmpty)
+    }
+
     @Test
     func productReplyUsesOnePhysicalResponseContinuationWithoutNestedRelay() throws {
         // Arrange

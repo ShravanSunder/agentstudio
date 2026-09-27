@@ -65,6 +65,88 @@ function jsonResponse(body: object): Response {
 }
 
 describe('Bridge product in-session late mutation outcome', () => {
+	test.each(['empty', 'truncated'] as const)(
+		'%s observation reply re-observes the same operation and then suspects the session',
+		async (replyKind) => {
+			const observedOperationIds: string[] = [];
+			const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
+				if (!(requestInit.body instanceof Uint8Array)) throw new Error('Missing command body.');
+				const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
+				if (command.kind === 'operation.observe') {
+					observedOperationIds.push(command.operationId);
+					return replyKind === 'empty'
+						? new Response('', { status: 200 })
+						: new Response('{', { headers: { 'Content-Length': '2' }, status: 200 });
+				}
+				if (command.kind === 'operation.result') {
+					return jsonResponse({
+						failureCode: null,
+						kind: 'operation.result',
+						operationId: command.operationId,
+						outcome: command.operationId === 'operation-open' ? 'succeeded' : 'outcomeUnknown',
+						result:
+							command.operationId === 'operation-open'
+								? {
+										kind: 'workerSession.accepted',
+										paneSessionId: bootstrap.paneSessionId,
+										requestId: 'worker-session-open-1',
+										requestSequence: 1,
+										result: null,
+										wireVersion: bootstrap.wireVersion,
+										workerInstanceId: bootstrap.workerInstanceId,
+									}
+								: null,
+					});
+				}
+				if (command.kind === 'operation.resultAcknowledgement') {
+					return jsonResponse({ ...command, kind: 'operation.resultAcknowledged' });
+				}
+				return jsonResponse({
+					kind: 'operation.admitted',
+					operationId: command.kind === 'workerSession.open' ? 'operation-open' : 'operation-save',
+					paneSessionId: command.paneSessionId,
+					requestId: command.requestId,
+					requestSequence: command.requestSequence,
+					waitKind: 'ordinary',
+					wireVersion: command.wireVersion,
+					workerInstanceId: command.workerInstanceId,
+				});
+			};
+			const authority = new BridgeProductSessionAuthorityStore(
+				executeProductRequest,
+				noDeadlineClock,
+			).install({
+				bootstrap,
+				productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+			});
+			await authority.open;
+			const mux = new BridgeProductControlMux({
+				authority,
+				deadlineClock: noDeadlineClock,
+				executeProductRequest,
+			});
+			let unknownError: unknown = null;
+			try {
+				await mux.call({
+					method: 'review.markFileViewed',
+					request: { itemId: 'item-save' },
+					workerDerivationEpoch: 1,
+				});
+			} catch (error: unknown) {
+				unknownError = error;
+			}
+			if (!(unknownError instanceof BridgeProductControlRequestError)) {
+				throw new Error('Expected an outcome-unknown mutation.');
+			}
+			const observe = unknownError.observeLateOutcome;
+			if (observe === undefined) throw new Error('Late outcome observation was not offered.');
+			await expect(observe()).rejects.toMatchObject({ phase: 'result' });
+			expect(observedOperationIds).toEqual(
+				Array.from({ length: bootstrap.policy.admissionRetryCount + 1 }, () => 'operation-save'),
+			);
+		},
+	);
+
 	test('stillUnknown can be observed again, and revision two is acknowledged without replay', async () => {
 		const secondObservationRequested = createBridgeProductDeferred<void>();
 		const lateResponse = createBridgeProductDeferred<Response>();
