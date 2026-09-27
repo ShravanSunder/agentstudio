@@ -1,6 +1,6 @@
 # Worktree CLI: how it is built
 
-Date: 2026-09-27, revision 3 (round 2: supported layouts, leftovers, local error kinds). Revision 2 answered F1–F5. Realizes
+Date: 2026-09-27, revision 3.1 (implementation stop: `WorktreeBranchNameProblem` and `WorktreeOperationRequest` added; no behavior change). Revision 3 (round 2: supported layouts, leftovers, local error kinds). Revision 2 answered F1–F5. Realizes
 [the Specification](2026-09-27-worktree-cli-specification.md) revision 2
 (WR1–WR9).
 
@@ -70,6 +70,18 @@ fork source    = current worktree root       → never the main checkout unless 
 ## The result contract (F2, F3)
 
 ```swift
+enum WorktreeOperationRequest: Sendable, Equatable {
+    case createFromDefault(start: URL, branch: String)    // start = --repo or the current directory
+    case fork(start: URL, branch: String)                 // start = --from or the current directory
+    case list(start: URL)
+}
+/// Why a branch name was refused. Local validation names its reason; agentstudio-git's
+/// fork rejection `.invalidBranchName` carries none (a Git ref rule stricter than the
+/// local check), so it is reported as `rejectedByGit` rather than inventing a detail.
+enum WorktreeBranchNameProblem: Sendable, Equatable {
+    case local(WorktreeBranchNameRejection)
+    case rejectedByGit
+}
 enum WorktreeOperationOutcome: Sendable, Equatable {
     case created(WorktreeCreatedSummary)                  // operation, branch, path, repository, materialization?
     case listed(WorktreeListingSummary)                   // repository, [WorktreeListing { path, branch?, isMain }]
@@ -78,7 +90,7 @@ enum WorktreeOperationOutcome: Sendable, Equatable {
 }
 enum WorktreeOperationRefusal: Sendable, Equatable {
     case notInRepository(URL); case notInWorktree(URL)
-    case noDefaultBranch; case invalidBranchName(WorktreeBranchNameRejection); case emptyBranchSlug
+    case noDefaultBranch; case invalidBranchName(WorktreeBranchNameProblem); case emptyBranchSlug
     case branchAlreadyExists(String); case destinationExists(URL); case destinationParentMissing(URL)
     case unsupportedRepositoryLayout(URL)
     case forkUnavailable(GitWorktreeForkRejectionReason)
@@ -121,7 +133,7 @@ struct WorktreeCleanupLeftover: Sendable, Equatable {
 
 **Preflight that refuses before any change** (in this order):
 1. Discovery (above).
-2. Branch name validation → `invalidBranchName`.
+2. Branch name validation → `invalidBranchName(.local(rejection))`.
 3. Slug → `emptyBranchSlug`.
 4. Sibling path exists → `destinationExists`; parent missing →
    `destinationParentMissing`.
@@ -134,7 +146,7 @@ A read error in any step is `failed(readFailed(kind), leftovers: .notNeeded)`.
 
 | SDK outcome | Result |
 | --- | --- |
-| `forkWorktree` → `.rejected(reason)` | `refused`: `.destinationExists` / `.destinationParentMissing` / `.invalidBranchName` / `.branchAlreadyExists` map to their named refusal; every other reason → `forkUnavailable(reason)` |
+| `forkWorktree` → `.rejected(reason)` | `refused`: `.destinationExists` / `.destinationParentMissing` / `.branchAlreadyExists` map to their named refusal; `.invalidBranchName` → `invalidBranchName(.rejectedByGit)`; every other reason → `forkUnavailable(reason)` |
 | `.cancelled`, `.gitFailure`, `.sourceChanged`, `.entryFailed`, `.validationFailed` | `failed(<kind with its typed detail>, leftovers: .noLeftovers)`. These can come before or after the first mutation, and the error carries no stage, so no stage is claimed. What holds either way is the writer's contract (`LibGit2WorktreeForkWriter.swift:8`): every failure after the first mutation is compensated through the journal, and an incomplete compensation surfaces as `cleanupIncomplete` instead |
 | `.cleanupIncomplete(primary, residue)` | `failed(<primary's kind>, leftovers: .incomplete(residue mapped kind → base))`; the primary failure is kept |
 | `createWorktree` throws `GitDataPlaneError` | `failed(createFailed(kind), leftovers: .unverified)`: the SDK ignores its own rollback errors, so nothing is claimed |
