@@ -26,6 +26,7 @@ struct CommandBarTextField: NSViewRepresentable {
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
+    var onInputChanged: @MainActor @Sendable (String) -> Void = { _ in }
     let onBackspaceOnEmpty: () -> Void
     let onTabForward: () -> Void
     let onShiftTabBack: () -> Void
@@ -90,6 +91,7 @@ struct CommandBarTextField: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             parent.text = field.stringValue
+            parent.onInputChanged(field.stringValue)
         }
 
         /// Called when the field editor is set up (field gains focus).

@@ -14,7 +14,7 @@ struct CommandBarWorktreeSearchTests {
     }
 
     @Test("meaningful root searches show worktrees by name, folder, and branch")
-    func meaningfulRootSearchesFindWorktrees() throws {
+    func meaningfulRootSearchesFindWorktrees() async throws {
         let store = WorkspaceStore()
         let repository = store.addRepo(at: URL(filePath: "/tmp/search-repository"))
         let worktree = Worktree(
@@ -46,9 +46,11 @@ struct CommandBarWorktreeSearchTests {
             #expect(worktreeRow.group == "Worktrees")
             #expect(worktreeRow.keywords.contains("feature/token-refresh"))
             for query in ["oauth-work", "checkout-folder", "token-refresh"] {
-                #expect(CommandBarSearch.filter(items: items, query: query).contains { $0.id == worktreeID })
+                let matchingIds = await searchCommandBarItemIds(items, query: query)
+                #expect(matchingIds.contains(worktreeID))
             }
-            #expect(!CommandBarSearch.filter(items: items, query: "oauth-work").contains { $0.id == repositoryID })
+            let matchingIds = await searchCommandBarItemIds(items, query: "oauth-work")
+            #expect(!matchingIds.contains(repositoryID))
             if case .worktreeAction(let presence) = worktreeRow.action {
                 #expect(presence.worktreeId == worktree.id)
             } else {

@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// Answers searches on its own actor executor from one replaceable in-memory index.
-package actor SearchService {
+package actor SearchService: SearchServicing {
     private var index: SearchIndex?
     private var installedGeneration: SearchDocumentGeneration?
     private let makeDatabaseQueue: @Sendable () throws -> DatabaseQueue

@@ -71,6 +71,7 @@ package final class CommandBarState {
 
     /// Currently highlighted row index within filtered results.
     var selectedIndex: Int = 0
+    var appliedSearchResult: CommandBarAppliedSearchResult?
 
     // MARK: - Recents
 

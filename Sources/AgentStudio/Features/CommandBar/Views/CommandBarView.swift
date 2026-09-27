@@ -15,6 +15,8 @@ struct CommandBarView: View {
     let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
     let onInitialResultsPublished: @MainActor @Sendable () -> Void
     let onInputFocusAcknowledged: @MainActor @Sendable () -> Void
+    let onInputChanged: @MainActor @Sendable (String) -> Void
+    let onSearchContextChanged: @MainActor @Sendable () -> Void
 
     var body: some View {
         let resultSnapshot = resultSession.snapshot(state: state)
@@ -34,9 +36,13 @@ struct CommandBarView: View {
                 onArrowDown: { state.moveSelectionDown(totalItems: resultSnapshot.totalItems) },
                 onEnter: { modifier in executeSelected(modifier: modifier) },
                 onShortcutTrigger: onShortcutTrigger,
+                onInputChanged: onInputChanged,
                 onBackspaceOnEmpty: { handleBackspace() },
                 onTabForward: { handleTabForward() },
-                onShiftTabBack: { state.popLevel() }
+                onShiftTabBack: {
+                    state.popLevel()
+                    onSearchContextChanged()
+                }
             )
 
             // Separator
@@ -48,7 +54,10 @@ struct CommandBarView: View {
                 CommandBarBreadcrumbRow(
                     items: state.breadcrumbItems,
                     octiconLoader: octiconLoader,
-                    onNavigate: { index in state.navigateToBreadcrumb(at: index) }
+                    onNavigate: { index in
+                        state.navigateToBreadcrumb(at: index)
+                        onSearchContextChanged()
+                    }
                 )
             }
 
@@ -57,7 +66,7 @@ struct CommandBarView: View {
                 groups: resultSnapshot.groups,
                 octiconLoader: octiconLoader,
                 selectedIndex: state.selectedIndex,
-                searchQuery: state.isNested ? state.searchQuery : state.normalizedRootQuery,
+                titleMatchesByItemId: resultSnapshot.titleMatchesByItemId,
                 dimmedItemIds: resultSnapshot.dimmedItemIds,
                 onSelect: { item in onExecuteItem(item, .plain) },
                 onShowActions: onShowActions
@@ -99,9 +108,11 @@ struct CommandBarView: View {
     private func handleBackspace() {
         if state.isNested {
             state.popLevel()
+            onSearchContextChanged()
         } else if state.activePrefix != nil {
             // Clear prefix → return to everything scope
             state.rawInput = ""
+            onSearchContextChanged()
         }
     }
 }

@@ -14,7 +14,7 @@ struct CommandBarSearchFieldPolicyTests {
     }
 
     @Test("repository counts and path ancestors are display only")
-    func repositoryDisplayTextDoesNotMatch() {
+    func repositoryDisplayTextDoesNotMatch() async {
         let repository = Repo(
             id: UUIDv7.generate(),
             name: "atlas",
@@ -27,15 +27,16 @@ struct CommandBarSearchFieldPolicyTests {
             groupPriority: CommandBarDataSource.Priority.repos
         )
 
-        #expect(CommandBarSearch.filter(items: [row], query: "atlas").map(\.id) == [row.id])
-        let repoLabelMatches = CommandBarSearch.filter(items: [row], query: "repo")
-        let ancestorMatches = CommandBarSearch.filter(items: [row], query: "ancestor-only")
+        let nameMatches = await searchCommandBarItemIds([row], query: "atlas")
+        let repoLabelMatches = await searchCommandBarItemIds([row], query: "repo")
+        let ancestorMatches = await searchCommandBarItemIds([row], query: "ancestor-only")
+        #expect(nameMatches == [row.id])
         #expect(repoLabelMatches.isEmpty)
         #expect(ancestorMatches.isEmpty)
     }
 
     @Test("subtitle and undeclared keywords do not make an action searchable")
-    func nestedActionSearchesTitleOnly() {
+    func nestedActionSearchesTitleOnly() async {
         let row = CommandBarItem(
             id: "copy-path",
             title: "Copy Path",
@@ -46,8 +47,9 @@ struct CommandBarSearchFieldPolicyTests {
             action: .custom({})
         )
 
-        #expect(CommandBarSearch.filter(items: [row], query: "copy").map(\.id) == [row.id])
-        let ancestorMatches = CommandBarSearch.filter(items: [row], query: "ancestor-only")
+        let titleMatches = await searchCommandBarItemIds([row], query: "copy")
+        let ancestorMatches = await searchCommandBarItemIds([row], query: "ancestor-only")
+        #expect(titleMatches == [row.id])
         #expect(ancestorMatches.isEmpty)
     }
 }

@@ -6,12 +6,12 @@ import SwiftUI
 // MARK: - CommandBarResultRow
 
 /// Single result row: icon, title, trailing metadata, drill-in affordance, shortcut badges.
-/// Supports fuzzy match highlighting and dimming for unavailable commands.
+/// Draws service-provided title highlighting and dims unavailable commands.
 struct CommandBarResultRow: View {
     let item: CommandBarItem
     let octiconLoader: OcticonLoader
     let isSelected: Bool
-    let searchQuery: String
+    let titleMatch: Range<Int>?
     let isDimmed: Bool
     let onShowActions: @MainActor @Sendable () -> Void
 
@@ -19,14 +19,14 @@ struct CommandBarResultRow: View {
         item: CommandBarItem,
         octiconLoader: OcticonLoader,
         isSelected: Bool,
-        searchQuery: String = "",
+        titleMatch: Range<Int>? = nil,
         isDimmed: Bool = false,
         onShowActions: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.item = item
         self.octiconLoader = octiconLoader
         self.isSelected = isSelected
-        self.searchQuery = searchQuery
+        self.titleMatch = titleMatch
         self.isDimmed = isDimmed
         self.onShowActions = onShowActions
     }
@@ -202,17 +202,14 @@ struct CommandBarResultRow: View {
     @ViewBuilder
     private var highlightedTitle: some View {
         let title = displayTitle
-        if searchQuery.isEmpty {
-            Text(title)
-                .font(
-                    .system(
-                        size: AppStyles.General.Typography.textBase,
-                        weight: isSelected ? .semibold : .medium
-                    )
-                )
-                .foregroundStyle(Color.primary.opacity(titleOpacity))
-        } else if let matchResult = FuzzySearch.fuzzyMatch(pattern: searchQuery, in: title) {
-            buildHighlightedText(title, ranges: matchResult.matchedRanges)
+        if let titleMatch,
+            titleMatch.lowerBound >= 0,
+            titleMatch.upperBound <= title.count,
+            titleMatch.lowerBound < titleMatch.upperBound
+        {
+            let lower = title.index(title.startIndex, offsetBy: titleMatch.lowerBound)
+            let upper = title.index(title.startIndex, offsetBy: titleMatch.upperBound)
+            buildHighlightedText(title, ranges: [lower..<upper])
         } else {
             Text(title)
                 .font(

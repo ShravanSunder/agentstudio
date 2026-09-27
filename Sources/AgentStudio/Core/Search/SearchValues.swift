@@ -148,3 +148,7 @@ package struct SearchResultSet: Sendable {
         self.outcome = outcome
     }
 }
+
+package protocol SearchServicing: Sendable {
+    func search(_ request: SearchRequest) async -> SearchResultSet
+}
