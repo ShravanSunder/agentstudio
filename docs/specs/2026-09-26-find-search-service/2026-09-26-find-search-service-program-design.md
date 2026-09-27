@@ -78,7 +78,7 @@ No new atom, bus event, observer or coordinator responsibility.
   - **`SearchDocumentSet`**: `generation: SearchDocumentGeneration` (monotonic per controller), `groups: [SearchGroup]` (id and priority, in the command bar's group order), `documents: [SearchDocument]`. Item ids are unique within a set; the builder guarantees it, and the service keeps the first occurrence of a duplicate and records it in the trace.
   - **Install rule:**
     - if `documentSet.generation` equals the installed generation, nothing is written;
-    - if it is newer, the service replaces the index contents with this set in one transaction (keyed delete and insert by `SearchItemId`);
+    - if it is newer, the service applies only the difference from the installed generation in one transaction: it deletes removed ids, rewrites ids whose fields changed and inserts new ids, keyed by `SearchItemId`. A small change to a large set costs a few rows, not a rebuild;
     - if it is older, the request is answered `obsolete` without touching the index (its sequence is necessarily stale).
     - Cancelling a request can therefore never lose a set: the next request carries the same set (N-01).
   - **Case folding (one rule for both paths, on the actor only):** the set carries original text. When the service installs a new generation it folds every searchable field once (Foundation `folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)`; diacritics stay distinct) and stores both the display and the folded copy. It folds each request's query the same way. Both paths match folded against folded, so `é` finds `École` at any query length (N-04).
@@ -101,6 +101,8 @@ No new atom, bus event, observer or coordinator responsibility.
 - The generation advances whenever the row snapshot changes: a rebuild for a new cache identity, the existing invalidation (`topology_observation`, including branch changes read through the keyed enrichment read), a level push or pop, and a nested level replaced in place (`CommandBarState.swift:317-320`).
 - An invalidation marks the generation stale at once. The next request rebuilds lazily, as today, and gets the new generation.
 - Each generation keeps its rows, and the document set built from them, together.
+
+- `install(_ documentSet: SearchDocumentSet) async`: the same install rule, with no query. The controller calls it as soon as a new row generation is captured while the bar is open (including on open), so the first keystroke after a change finds the generation already installed. Requests still carry their set, so a lost or late install changes nothing but speed.
 
 **`CommandBarPanelController`**
 - `queryChanged(text:)`, called from the text field's input callback (`CommandBarTextField.swift:81-84`). It bumps the sequence. For empty text it applies the empty projection directly (R4). Otherwise it submits a request carrying the current generation's set.
