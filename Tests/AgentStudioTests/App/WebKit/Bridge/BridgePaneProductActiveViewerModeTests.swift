@@ -669,12 +669,15 @@ private struct ProductActiveViewerReviewPublicationHarness {
         let workerOpenRequest = try productActiveViewerWorkerOpenRequest(
             installation: installation
         )
-        guard
-            case .response = try await controlDispatcher.dispatch(
+        let workerOpenResponse = try await readAdmittedBridgeProductControlResponse(
+            try await controlDispatcher.dispatch(
                 exactRequestBytes: try productActiveViewerControlRequestBytes(workerOpenRequest),
                 presentedCapability: capabilityHeader
-            )
-        else {
+            ),
+            installation: installation,
+            capabilityHeader: capabilityHeader
+        )
+        guard case .workerSessionAccepted = workerOpenResponse else {
             throw ProductActiveViewerReviewPublicationHarnessError.workerSessionRejected
         }
         let metadataRequest = try productActiveViewerMetadataRequest(
@@ -711,16 +714,15 @@ private struct ProductActiveViewerReviewPublicationHarness {
             await Task.yield()
         }
         #expect(metadataStreamIsReady)
-        guard
-            case .response(let reviewOpenResponseBytes) = try await controlDispatcher.dispatch(
+        let reviewOpenResponse = try await readAdmittedBridgeProductControlResponse(
+            try await controlDispatcher.dispatch(
                 exactRequestBytes: try productActiveViewerControlRequestBytes(reviewOpenRequest),
                 presentedCapability: capabilityHeader
             ),
-            case .subscriptionOpenAccepted = try BridgeProductStrictJSON.decode(
-                BridgeProductControlResponse.self,
-                from: reviewOpenResponseBytes
-            )
-        else {
+            installation: installation,
+            capabilityHeader: capabilityHeader
+        )
+        guard case .subscriptionOpenAccepted = reviewOpenResponse else {
             throw ProductActiveViewerReviewPublicationHarnessError.reviewSubscriptionRejected
         }
         return OpenedSubscription(

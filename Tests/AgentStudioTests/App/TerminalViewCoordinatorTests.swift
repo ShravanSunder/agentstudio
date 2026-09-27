@@ -284,7 +284,7 @@ extension WebKitSerializedTests {
             #expect(harness.coordinator.pendingBridgePaneRetirementCount == 0)
         }
 
-        @Test("product bootstrap rotates native authority before publishing a replacement")
+        @Test("product bootstrap publishes a successor before old retirement cleanup completes")
         func productBootstrapRotatesAuthorityBeforeReplacementPublication() async throws {
             // Arrange
             let paneId = UUIDv7.generate()
@@ -336,18 +336,23 @@ extension WebKitSerializedTests {
                 )
             }
             _ = await provider.waitForLifecycleAcknowledgement(count: 1)
+            await replacementTask.value
 
             // Assert
-            #expect(deliveredRequestIds == ["bootstrap-initial"])
-            #expect(await owner.activeInstallation == nil)
-            #expect(await owner.schemeRouter.activeInstallation == nil)
-
-            await provider.releaseLifecycleAcknowledgements(result: true)
-            await replacementTask.value
-            _ = try? await metadataReply.value
-
             let replacementInstallation = try #require(deliveredInstallations.last)
             #expect(deliveredRequestIds == ["bootstrap-initial", "bootstrap-replacement"])
+            #expect(
+                (await owner.activeInstallation)?.bootstrap.workerInstanceId
+                    == replacementInstallation.bootstrap.workerInstanceId
+            )
+            #expect(
+                (await owner.schemeRouter.activeInstallation)?.bootstrap.workerInstanceId
+                    == replacementInstallation.bootstrap.workerInstanceId
+            )
+
+            await provider.releaseLifecycleAcknowledgements(result: true)
+            _ = try? await metadataReply.value
+
             #expect(
                 replacementInstallation.bootstrap.workerInstanceId
                     != initialInstallation.bootstrap.workerInstanceId
@@ -358,12 +363,21 @@ extension WebKitSerializedTests {
             let staleCapability = try BridgeProductCapabilityHeaderEncoding.encode(
                 initialInstallation.capabilityBytes
             )
+            let staleRequestBody = try JSONSerialization.data(withJSONObject: [
+                "kind": "workerSession.open",
+                "paneSessionId": initialInstallation.bootstrap.paneSessionId,
+                "request": NSNull(),
+                "requestId": "request-open-retired-pane-owner",
+                "requestSequence": 2,
+                "wireVersion": BridgeProductWireContract.version,
+                "workerInstanceId": initialInstallation.bootstrap.workerInstanceId,
+            ])
             let staleReply = try await collectBridgeProductSchemeReply(
                 adapter: initialInstallation.productAdapter,
                 request: bridgeProductSchemeRequest(
                     route: BridgeProductWireContract.commandRoute,
                     capability: staleCapability,
-                    body: Data("{}".utf8)
+                    body: staleRequestBody
                 )
             )
             #expect(staleReply.response?.statusCode == 403)

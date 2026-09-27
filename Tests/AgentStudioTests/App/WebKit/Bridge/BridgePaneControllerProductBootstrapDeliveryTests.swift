@@ -760,12 +760,15 @@ private func openBootstrapReviewReplaySubscription(
         productAdmission: productAdmission
     )
     let workerOpenRequest = try bootstrapReviewWorkerOpenRequest(installation: installation)
-    guard
-        case .response = try await controlDispatcher.dispatch(
+    let workerOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
             exactRequestBytes: try bootstrapReviewControlRequestBytes(workerOpenRequest),
             presentedCapability: capabilityHeader
-        )
-    else {
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .workerSessionAccepted = workerOpenResponse else {
         throw BootstrapReviewReplayError.expectedWorkerSessionAccepted
     }
 
@@ -807,17 +810,13 @@ private func openBootstrapReviewReplaySubscription(
         await Task.yield()
     }
     #expect(metadataStreamIsReady)
-    let reviewOpenDispatch = try await controlDispatcher.dispatch(
-        exactRequestBytes: try bootstrapReviewControlRequestBytes(reviewOpenRequest),
-        presentedCapability: capabilityHeader
-    )
-    guard case .response(let reviewOpenResponseBytes) = reviewOpenDispatch else {
-        Issue.record("Expected Review open response, received \(String(describing: reviewOpenDispatch))")
-        throw BootstrapReviewReplayError.expectedReviewSubscriptionAccepted
-    }
-    let reviewOpenResponse = try BridgeProductStrictJSON.decode(
-        BridgeProductControlResponse.self,
-        from: reviewOpenResponseBytes
+    let reviewOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(reviewOpenRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
     )
     guard case .subscriptionOpenAccepted = reviewOpenResponse else {
         Issue.record("Expected Review open acceptance, received \(String(describing: reviewOpenResponse))")

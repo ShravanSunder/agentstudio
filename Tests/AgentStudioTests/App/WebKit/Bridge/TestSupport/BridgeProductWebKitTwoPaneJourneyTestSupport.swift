@@ -682,6 +682,8 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 return reviewShell?.getAttribute('data-selected-content-state') === 'ready' ? true : null;
                 """
         )
+        _ = await traceRecorder.waitForTrace(.fileBootstrap)
+        _ = await traceRecorder.waitForTrace(.reviewPublication)
         let trace = await traceRecorder.scrubbedTrace()
         guard trace.hasCanonicalEagerSubscriptions,
             trace.hasFileMetadataWindow,

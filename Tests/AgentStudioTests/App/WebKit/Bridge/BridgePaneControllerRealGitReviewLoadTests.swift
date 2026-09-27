@@ -413,12 +413,15 @@ private struct RealGitReviewLoadHarness {
 
     func openReviewMetadataSubscription() async throws -> BridgeProductProducerLease {
         let workerOpenRequest = try realGitReviewWorkerOpenRequest(installation: installation)
-        guard
-            case .response = try await controlDispatcher.dispatch(
+        let workerOpenResponse = try await readAdmittedBridgeProductControlResponse(
+            try await controlDispatcher.dispatch(
                 exactRequestBytes: try realGitReviewControlRequestBytes(workerOpenRequest),
                 presentedCapability: capabilityHeader
-            )
-        else {
+            ),
+            installation: installation,
+            capabilityHeader: capabilityHeader
+        )
+        guard case .workerSessionAccepted = workerOpenResponse else {
             throw RealGitReviewMetadataEventError.expectedWorkerSessionAccepted
         }
         let metadataRequest = try realGitReviewMetadataRequest(installation: installation)
@@ -458,16 +461,15 @@ private struct RealGitReviewLoadHarness {
             await Task.yield()
         }
         #expect(metadataStreamIsReady)
-        guard
-            case .response(let reviewOpenResponseBytes) = try await controlDispatcher.dispatch(
+        let reviewOpenResponse = try await readAdmittedBridgeProductControlResponse(
+            try await controlDispatcher.dispatch(
                 exactRequestBytes: try realGitReviewControlRequestBytes(reviewOpenRequest),
                 presentedCapability: capabilityHeader
             ),
-            case .subscriptionOpenAccepted = try BridgeProductStrictJSON.decode(
-                BridgeProductControlResponse.self,
-                from: reviewOpenResponseBytes
-            )
-        else {
+            installation: installation,
+            capabilityHeader: capabilityHeader
+        )
+        guard case .subscriptionOpenAccepted = reviewOpenResponse else {
             throw RealGitReviewMetadataEventError.expectedReviewSubscriptionControlAccepted
         }
         var observedSubscriptionAcceptance = false
