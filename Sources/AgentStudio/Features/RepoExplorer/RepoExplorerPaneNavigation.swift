@@ -28,6 +28,7 @@ struct RepoExplorerPaneRow: View {
                 drawerRail: row.drawerRail
             )
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .topLeading) {
             if row.drawerRail != .none {
                 DrawerRail(
