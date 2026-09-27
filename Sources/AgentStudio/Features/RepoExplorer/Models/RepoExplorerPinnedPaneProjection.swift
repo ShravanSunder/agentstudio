@@ -7,6 +7,10 @@ package struct RepoExplorerPinnedPaneProjectionRequest: Sendable {
     let tabStatesByID: [UUID: TabGraphState]
     let tabIDsInOrder: [UUID]
     let activityTimesByPaneID: [UUID: PaneActivityTime]
+    let showsDrawerPanes: Bool
+    let referenceInstant: ContinuousClock.Instant
+    let wallNow: Date
+    let calendar: Calendar
 
     @MainActor
     package init(
@@ -16,6 +20,10 @@ package struct RepoExplorerPinnedPaneProjectionRequest: Sendable {
         self.tabStatesByID = coreAtoms.workspaceTabGraph.tabStateSnapshot()
         self.tabIDsInOrder = coreAtoms.workspaceTabGraph.tabIDsInOrder
         self.activityTimesByPaneID = coreAtoms.paneActivityTime.snapshot()
+        self.showsDrawerPanes = coreAtoms.workspaceSidebarState.showsDrawerPanes
+        self.referenceInstant = ContinuousClock.now
+        self.wallNow = Date()
+        self.calendar = .current
     }
 }
 
@@ -41,7 +49,7 @@ package enum RepoExplorerPinnedPaneProjector {
         }
         try Task.checkCancellation()
 
-        var eligiblePaneIDs: [UUID] = []
+        var eligibleMembers: [RepoExplorerPinnedActivityMember] = []
         var seenPaneIDs = Set<UUID>()
         for tabID in request.tabIDsInOrder {
             guard let tabState = request.tabStatesByID[tabID] else { continue }
@@ -55,18 +63,24 @@ package enum RepoExplorerPinnedPaneProjector {
                 }
                 try Task.checkCancellation()
 
-                eligiblePaneIDs.append(paneID)
+                eligibleMembers.append(
+                    RepoExplorerPinnedActivityMember(
+                        paneID: paneID,
+                        activityTime: request.activityTimesByPaneID[paneID],
+                        isDrawer: paneState.isDrawerChild,
+                        ownerPaneID: paneState.parentPaneId
+                    )
+                )
             }
         }
 
-        return eligiblePaneIDs.sorted { lhsPaneID, rhsPaneID in
-            RepoExplorerProjection.activityPrecedes(
-                lhsPaneID: lhsPaneID,
-                lhsTime: request.activityTimesByPaneID[lhsPaneID],
-                rhsPaneID: rhsPaneID,
-                rhsTime: request.activityTimesByPaneID[rhsPaneID]
-            )
-        }
+        return RepoExplorerProjection.orderedPinnedPaneGroups(
+            eligibleMembers,
+            showsDrawers: request.showsDrawerPanes,
+            referenceInstant: request.referenceInstant,
+            wallNow: request.wallNow,
+            calendar: request.calendar
+        ).flatMap(\.paneIDs)
     }
 
     @concurrent nonisolated package static func targetPaneID(

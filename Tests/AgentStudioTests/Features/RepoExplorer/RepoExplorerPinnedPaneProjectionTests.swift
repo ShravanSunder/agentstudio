@@ -85,6 +85,93 @@ struct RepoExplorerPinnedPaneProjectionTests {
         }
     }
 
+    @Test("pinned drawer follows its Older owner and disappears from traversal when hidden")
+    func drawerTraversalMatchesDisplayedPinnedRows() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
+                repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+                paneAtom: atoms.workspacePane,
+                tabLayoutAtom: atoms.workspaceTabLayout,
+                mutationCoordinator: atoms.workspaceMutationCoordinator,
+                startsObserving: false
+            )
+            let owner = store.createPane(title: "Older owner")
+            let ownerTab = Tab(paneId: owner.id)
+            store.appendTab(ownerTab)
+            let drawer = try #require(store.addDrawerPane(to: owner.id))
+            let recent = store.createPane(title: "Recent pane")
+            let recentTab = Tab(paneId: recent.id)
+            store.appendTab(recentTab)
+            for paneID in [owner.id, drawer.id, recent.id] {
+                #expect(atoms.workspaceMutationCoordinator.setPanePinned(paneID, isPinned: true))
+            }
+            let referenceInstant = ContinuousClock.now
+            let timesByPaneID = [
+                owner.id: PaneActivityTime(
+                    orderingInstant: referenceInstant.advanced(by: .seconds(-10_800)),
+                    wallTime: .distantPast, source: .terminal
+                ),
+                drawer.id: PaneActivityTime(
+                    orderingInstant: referenceInstant.advanced(by: .seconds(-10)),
+                    wallTime: .distantPast, source: .terminal
+                ),
+                recent.id: PaneActivityTime(
+                    orderingInstant: referenceInstant.advanced(by: .seconds(-300)),
+                    wallTime: .distantPast, source: .terminal
+                ),
+            ]
+            atoms.paneActivityTime.apply(timesByPaneID.map { .set($0.key, $0.value) })
+            for showsDrawers in [true, false] {
+                atoms.workspaceSidebarState.setShowsDrawerPanes(showsDrawers)
+                let request = RepoExplorerPinnedPaneProjectionRequest(coreAtoms: atoms)
+                let traversal = try await RepoExplorerPinnedPaneProjector.project(request)
+                let snapshot = RepoExplorerSnapshot(
+                    repos: [], repoEnrichmentByRepoId: [:], surface: .panes,
+                    groupingMode: .activity, sortField: .activity,
+                    showsDrawerPanes: showsDrawers,
+                    referenceDate: Date(timeIntervalSince1970: 1_000_000),
+                    referenceInstant: referenceInstant, sortOrder: .descending, query: "",
+                    unassociatedPaneLocations: [
+                        WorkspacePaneLocation(
+                            paneId: owner.id, tabId: ownerTab.id, tabIndex: 0,
+                            paneIndexInTab: 0, isActiveInTab: true
+                        ),
+                        WorkspacePaneLocation(
+                            paneId: drawer.id, tabId: ownerTab.id, tabIndex: 0,
+                            paneIndexInTab: 1, isActiveInTab: false
+                        ),
+                        WorkspacePaneLocation(
+                            paneId: recent.id, tabId: recentTab.id, tabIndex: 1,
+                            paneIndexInTab: 0, isActiveInTab: true
+                        ),
+                    ]
+                )
+                let rowFacts = Dictionary(
+                    uniqueKeysWithValues: [owner.id, drawer.id, recent.id].map { paneID in
+                        (
+                            paneID,
+                            RepoExplorerPaneRowFacts(
+                                terminalTitle: "Pinned", paneActivityTime: timesByPaneID[paneID],
+                                isPinned: true, latestMessageText: nil,
+                                recencyReferenceDate: snapshot.referenceDate,
+                                recencyText: "—", isActive: false,
+                                isDrawerPane: paneID == drawer.id,
+                                drawerOwnerPaneID: paneID == drawer.id ? owner.id : nil
+                            )
+                        )
+                    })
+                let display = RepoExplorerProjection.project(snapshot, paneRowFactsByPaneId: rowFacts)
+                let displayed = display.sections.filter { $0.kind == .pinnedPanes }
+                    .flatMap(\.resolvedGroups)
+                    .flatMap { display.paneRowsByGroupId[$0.id, default: []].map(\.destination.paneId) }
+                #expect(displayed == (showsDrawers ? [recent.id, owner.id, drawer.id] : [recent.id, owner.id]))
+                #expect(traversal == displayed)
+            }
+        }
+    }
+
     @Test("all pane content kinds and drawer children participate; inactive and unowned panes do not")
     func eligibleMembershipAndSnapshotIsolation() async throws {
         try await withAsyncTestCoreAtoms { atoms in

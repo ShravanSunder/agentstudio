@@ -1,6 +1,20 @@
 import AgentStudioCore
 import Foundation
 
+struct RepoExplorerPinnedActivityMember: Sendable {
+    let paneID: UUID
+    let activityTime: PaneActivityTime?
+    let isDrawer: Bool
+    let ownerPaneID: UUID?
+}
+
+struct RepoExplorerActivityOrderedGroup {
+    let key: String
+    let title: String
+    let paneIDs: [UUID]
+    let railByPaneID: [UUID: RepoExplorerDrawerRail]
+}
+
 /// Panes has one fixed activity organization; Repos keeps its existing policy.
 extension RepoExplorerProjection {
     static func organizedPanesByActivity(
@@ -17,10 +31,10 @@ extension RepoExplorerProjection {
         var seenPaneIDs: Set<UUID> = []
         let destinations = (associated + input.unassociatedDestinations.map { .unassociated($0) })
             .filter { seenPaneIDs.insert($0.paneId).inserted }
-            .filter { input.snapshot.showsDrawerPanes || input.paneFacts[$0.paneId]?.isDrawerPane != true }
         let activityByPaneID = Dictionary(
             uniqueKeysWithValues: destinations.map { ($0.paneId, activity(for: $0, input: input)) }
         )
+        let destinationsByID = Dictionary(uniqueKeysWithValues: destinations.map { ($0.paneId, $0) })
         var organized = RepoExplorerOrganizedContent()
 
         for sectionKind in [RepoExplorerSidebarSectionKind.pinnedPanes, .panes] {
@@ -29,60 +43,45 @@ extension RepoExplorerProjection {
                 return isPinned == (sectionKind == .pinnedPanes)
             }
             guard !sectionDestinations.isEmpty else { continue }
-            let sectionPaneIDs = Set(sectionDestinations.map(\.paneId))
-            let groupingActivityByPaneID = sectionDestinations.reduce(
-                into: [UUID: RepoExplorerPaneActivityProjection]()
-            ) { result, destination in
-                let facts = input.paneFacts[destination.paneId]
-                let ownerPaneID = facts?.drawerOwnerPaneID
-                // A visible child keeps its own clock, but sits in its owner's display bucket.
-                let groupingPaneID =
-                    if facts?.isDrawerPane == true,
-                        let ownerPaneID,
-                        sectionPaneIDs.contains(ownerPaneID)
-                    {
-                        ownerPaneID
-                    } else {
-                        destination.paneId
-                    }
-                result[destination.paneId] = activityByPaneID[groupingPaneID]
-            }
-
-            let bucketTitles: [(key: String, title: String)] =
+            let orderedGroups: [RepoExplorerActivityOrderedGroup] =
                 if sectionKind == .pinnedPanes {
-                    RepoExplorerPinnedActivityBucket.allCases.map { (String($0.rawValue), $0.title) }
+                    orderedPinnedPaneGroups(
+                        sectionDestinations.map { destination in
+                            let facts = input.paneFacts[destination.paneId]
+                            return RepoExplorerPinnedActivityMember(
+                                paneID: destination.paneId,
+                                activityTime: facts?.paneActivityTime,
+                                isDrawer: facts?.isDrawerPane == true,
+                                ownerPaneID: facts?.drawerOwnerPaneID
+                            )
+                        },
+                        showsDrawers: input.snapshot.showsDrawerPanes,
+                        referenceInstant: input.snapshot.referenceInstant,
+                        wallNow: input.snapshot.referenceDate,
+                        calendar: input.snapshot.calendar
+                    )
                 } else {
-                    RepoExplorerActivityBucket.allCases.map { (String($0.rawValue), $0.title) }
-                }
-            var groups: [RepoPresentationGroup] = []
-            for bucket in bucketTitles {
-                let members = sectionDestinations.filter { destination in
-                    guard let activity = groupingActivityByPaneID[destination.paneId] else { return false }
-                    return sectionKind == .pinnedPanes
-                        ? String(activity.pinnedBucket.rawValue) == bucket.key
-                        : String(activity.unpinnedBucket.rawValue) == bucket.key
-                }
-                guard !members.isEmpty else { continue }
-                let sortedMembers = members.sorted { lhs, rhs in
-                    activityPrecedes(
-                        lhsPaneID: lhs.paneId,
-                        lhsTime: input.paneFacts[lhs.paneId]?.paneActivityTime,
-                        rhsPaneID: rhs.paneId,
-                        rhsTime: input.paneFacts[rhs.paneId]?.paneActivityTime
+                    orderedUnpinnedPaneGroups(
+                        sectionDestinations,
+                        facts: input.paneFacts,
+                        activityByPaneID: activityByPaneID,
+                        showsDrawers: input.snapshot.showsDrawerPanes
                     )
                 }
-                let arrangement = arrangeDrawerMembers(sortedMembers, facts: input.paneFacts)
-                let groupID = "panes:\(sectionKind.rawValue):activity:\(bucket.key)"
-                let repositoryIDs = Set(arrangement.members.compactMap(\.repoId))
+            var groups: [RepoPresentationGroup] = []
+            for orderedGroup in orderedGroups {
+                let groupID = "panes:\(sectionKind.rawValue):activity:\(orderedGroup.key)"
+                let repositoryIDs = Set(orderedGroup.paneIDs.compactMap { destinationsByID[$0]?.repoId })
                 groups.append(
                     RepoPresentationGroup(
                         id: groupID,
-                        repoTitle: bucket.title,
+                        repoTitle: orderedGroup.title,
                         organizationName: nil,
                         repos: input.eligibleRepositories.filter { repositoryIDs.contains($0.id) }
                     )
                 )
-                organized.paneRows[groupID] = arrangement.members.map { destination in
+                organized.paneRows[groupID] = orderedGroup.paneIDs.compactMap { paneID in
+                    guard let destination = destinationsByID[paneID] else { return nil }
                     var row = paneRow(
                         destination,
                         groupID: groupID,
@@ -90,11 +89,13 @@ extension RepoExplorerProjection {
                         facts: input.paneFacts[destination.paneId],
                         branchFacts: input.branchFacts
                     )
-                    row.drawerRail = arrangement.railByPaneID[destination.paneId] ?? .none
+                    row.drawerRail = orderedGroup.railByPaneID[paneID] ?? .none
                     return row
                 }
             }
-            organized.sections.append(.init(kind: sectionKind, resolvedGroups: groups, loadingRepos: []))
+            if !groups.isEmpty {
+                organized.sections.append(.init(kind: sectionKind, resolvedGroups: groups, loadingRepos: []))
+            }
         }
         return organized
     }
@@ -127,37 +128,115 @@ extension RepoExplorerProjection {
         return lhsPaneID.uuidString < rhsPaneID.uuidString
     }
 
+    static func orderedPinnedPaneGroups(
+        _ members: [RepoExplorerPinnedActivityMember],
+        showsDrawers: Bool,
+        referenceInstant: ContinuousClock.Instant?,
+        wallNow: Date,
+        calendar: Calendar
+    ) -> [RepoExplorerActivityOrderedGroup] {
+        let visible = members.filter { showsDrawers || !$0.isDrawer }
+        let memberByID = Dictionary(uniqueKeysWithValues: visible.map { ($0.paneID, $0) })
+        let visibleIDs = Set(memberByID.keys)
+        let bucketByID = Dictionary(
+            uniqueKeysWithValues: visible.map { member in
+                let groupingID =
+                    member.isDrawer && visibleIDs.contains(member.ownerPaneID ?? member.paneID)
+                    ? member.ownerPaneID ?? member.paneID : member.paneID
+                let time = memberByID[groupingID]?.activityTime
+                let activity = RepoExplorerPaneActivityProjection.make(
+                    time: referenceInstant == nil ? nil : time,
+                    referenceInstant: referenceInstant ?? time?.orderingInstant ?? ContinuousClock.now,
+                    wallNow: wallNow,
+                    calendar: calendar
+                )
+                return (member.paneID, activity.pinnedBucket)
+            })
+        return RepoExplorerPinnedActivityBucket.allCases.compactMap { bucket in
+            let sorted = visible.filter { bucketByID[$0.paneID] == bucket }.sorted { lhs, rhs in
+                activityPrecedes(
+                    lhsPaneID: lhs.paneID, lhsTime: lhs.activityTime,
+                    rhsPaneID: rhs.paneID, rhsTime: rhs.activityTime
+                )
+            }
+            guard !sorted.isEmpty else { return nil }
+            let arrangement = arrangeDrawerMembers(
+                sorted.map(\.paneID),
+                ownerByPaneID: Dictionary(
+                    uniqueKeysWithValues: sorted.compactMap { member in
+                        member.isDrawer ? member.ownerPaneID.map { (member.paneID, $0) } : nil
+                    })
+            )
+            return RepoExplorerActivityOrderedGroup(
+                key: String(bucket.rawValue), title: bucket.title,
+                paneIDs: arrangement.paneIDs, railByPaneID: arrangement.railByPaneID
+            )
+        }
+    }
+
+    private static func orderedUnpinnedPaneGroups(
+        _ destinations: [RepoExplorerProjectedPaneDestination],
+        facts: [UUID: RepoExplorerPaneRowFacts],
+        activityByPaneID: [UUID: RepoExplorerPaneActivityProjection],
+        showsDrawers: Bool
+    ) -> [RepoExplorerActivityOrderedGroup] {
+        let visible = destinations.filter { showsDrawers || facts[$0.paneId]?.isDrawerPane != true }
+        let visibleIDs = Set(visible.map(\.paneId))
+        return RepoExplorerActivityBucket.allCases.compactMap { bucket in
+            let sorted = visible.filter { destination in
+                let fact = facts[destination.paneId]
+                let groupingID =
+                    fact?.isDrawerPane == true && visibleIDs.contains(fact?.drawerOwnerPaneID ?? destination.paneId)
+                    ? fact?.drawerOwnerPaneID ?? destination.paneId : destination.paneId
+                return activityByPaneID[groupingID]?.unpinnedBucket == bucket
+            }.sorted { lhs, rhs in
+                activityPrecedes(
+                    lhsPaneID: lhs.paneId, lhsTime: facts[lhs.paneId]?.paneActivityTime,
+                    rhsPaneID: rhs.paneId, rhsTime: facts[rhs.paneId]?.paneActivityTime
+                )
+            }
+            guard !sorted.isEmpty else { return nil }
+            let arrangement = arrangeDrawerMembers(
+                sorted.map(\.paneId),
+                ownerByPaneID: Dictionary(
+                    uniqueKeysWithValues: sorted.compactMap { destination in
+                        let fact = facts[destination.paneId]
+                        return fact?.isDrawerPane == true
+                            ? fact?.drawerOwnerPaneID.map { (destination.paneId, $0) } : nil
+                    })
+            )
+            return RepoExplorerActivityOrderedGroup(
+                key: String(bucket.rawValue), title: bucket.title,
+                paneIDs: arrangement.paneIDs, railByPaneID: arrangement.railByPaneID
+            )
+        }
+    }
+
     private static func arrangeDrawerMembers(
-        _ sortedMembers: [RepoExplorerProjectedPaneDestination],
-        facts: [UUID: RepoExplorerPaneRowFacts]
-    ) -> (
-        members: [RepoExplorerProjectedPaneDestination],
-        railByPaneID: [UUID: RepoExplorerDrawerRail]
-    ) {
-        let memberIDs = Set(sortedMembers.map(\.paneId))
-        let attachedDrawers = sortedMembers.filter { destination in
-            guard let fact = facts[destination.paneId], fact.isDrawerPane,
-                let ownerID = fact.drawerOwnerPaneID
-            else { return false }
-            return memberIDs.contains(ownerID)
+        _ sortedPaneIDs: [UUID],
+        ownerByPaneID: [UUID: UUID]
+    ) -> (paneIDs: [UUID], railByPaneID: [UUID: RepoExplorerDrawerRail]) {
+        let memberIDs = Set(sortedPaneIDs)
+        let attachedDrawers = sortedPaneIDs.filter { paneID in
+            ownerByPaneID[paneID].map { memberIDs.contains($0) } == true
         }
-        var drawersByOwnerID: [UUID: [RepoExplorerProjectedPaneDestination]] = [:]
-        for drawer in attachedDrawers {
-            guard let ownerID = facts[drawer.paneId]?.drawerOwnerPaneID else { continue }
-            drawersByOwnerID[ownerID, default: []].append(drawer)
+        var drawersByOwnerID: [UUID: [UUID]] = [:]
+        for drawerID in attachedDrawers {
+            guard let ownerID = ownerByPaneID[drawerID] else { continue }
+            drawersByOwnerID[ownerID, default: []].append(drawerID)
         }
-        let attachedIDs = Set(attachedDrawers.map(\.paneId))
-        var arranged: [RepoExplorerProjectedPaneDestination] = []
+        let attachedIDs = Set(attachedDrawers)
+        var arranged: [UUID] = []
         var rails: [UUID: RepoExplorerDrawerRail] = [:]
-        arranged.reserveCapacity(sortedMembers.count)
-        for destination in sortedMembers where !attachedIDs.contains(destination.paneId) {
-            arranged.append(destination)
-            let drawers = drawersByOwnerID[destination.paneId, default: []]
+        arranged.reserveCapacity(sortedPaneIDs.count)
+        for paneID in sortedPaneIDs where !attachedIDs.contains(paneID) {
+            arranged.append(paneID)
+            let drawers = drawersByOwnerID[paneID, default: []]
             guard !drawers.isEmpty else { continue }
-            rails[destination.paneId] = .ownerWithDrawers
+            rails[paneID] = .ownerWithDrawers
             for (index, drawer) in drawers.enumerated() {
                 arranged.append(drawer)
-                rails[drawer.paneId] = .drawer(isLast: index == drawers.count - 1)
+                rails[drawer] = .drawer(isLast: index == drawers.count - 1)
             }
         }
         return (arranged, rails)
