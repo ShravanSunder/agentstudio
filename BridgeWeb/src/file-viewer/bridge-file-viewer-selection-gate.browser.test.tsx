@@ -239,6 +239,8 @@ describe('Bridge File selection editor gate', () => {
 			outcome: 'displayed',
 		});
 		await waitForVisibleCodeText('deepTarget');
+		// Let the resizable shell's frame-bound measurement commit before teardown.
+		await settleBridgeFileViewerBrowserInteraction();
 	});
 
 	test('a native navigation to a path the tree does not list settles as not listed', async () => {
