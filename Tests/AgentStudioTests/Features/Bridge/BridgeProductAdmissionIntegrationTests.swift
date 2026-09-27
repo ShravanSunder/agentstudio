@@ -169,8 +169,8 @@ struct BridgeProductAdmissionIntegrationTests {
         }
     }
 
-    @Test("close before the first control response suppresses every response and settles residue")
-    func closeBeforeControlResponseSuppressesProviderSuccess() async throws {
+    @Test("close after admission fences provider completion and settles residue")
+    func closeAfterAdmissionFencesProviderCompletion() async throws {
         // Arrange
         let harness = try await BridgeProductAdmissionIntegrationHarness.make(
             holdFirstControlResponse: true
@@ -180,39 +180,42 @@ struct BridgeProductAdmissionIntegrationTests {
             body: harness.workerOpenBody
         )
         let replyTask = Task {
-            do {
-                _ = try await bridgeProductAdmissionCollectReply(
-                    handler: harness.handler,
-                    request: request
-                )
-                return false
-            } catch is CancellationError {
-                return true
-            } catch {
-                Issue.record("Unexpected pre-response cancellation error: \(error)")
-                return false
-            }
+            try await bridgeProductAdmissionCollectReply(
+                handler: harness.handler,
+                request: request
+            )
         }
         await harness.provider.waitUntilControlStarted(1)
+        let admissionReply = try await replyTask.value
+        let admitted = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: admissionReply.body
+        )
 
         // Act
         harness.owner.productAdmissionGate.close()
         await harness.provider.releaseHeldControlResponse()
-        let cancellationObserved = await replyTask.value
+        await harness.provider.waitUntilControlCompleted(1)
+        await harness.installation.session.waitForOutstandingOperationExecutions()
         let sessionSnapshot = await harness.installation.session.snapshot
+        let operationSettlement = await harness.installation.session.operationTable
+            .entriesById[admitted.operationId]?.settlement?.outcome
         let providerSnapshot = await harness.provider.snapshot
         let routerSnapshot = await bridgeProductAdmissionDrainedRouterSnapshot(harness.router)
         let ownerSnapshot = await harness.owner.snapshot()
         _ = await harness.owner.retire(reason: .paneDisposal)
 
         // Assert
-        #expect(cancellationObserved)
+        #expect(admissionReply.response?.statusCode == 200)
+        #expect(admissionReply.events.first == .response)
+        #expect(operationSettlement == .failed)
         #expect(providerSnapshot.controlRequests.count == 1)
         #expect(providerSnapshot.controlCompletionCount == 1)
         #expect(sessionSnapshot.pendingRequestKind == nil)
         #expect((await harness.installation.session.diagnosticSnapshot).activeOperationExecutionCount == 0)
         #expect(sessionSnapshot.controlReplay.inFlightRequestSequence == nil)
-        #expect(sessionSnapshot.controlReplay.replayableRequestSequence == nil)
+        #expect(sessionSnapshot.controlReplay.replayableRequestSequence == 1)
+        #expect(sessionSnapshot.lifecycle == .awaitingOpen)
         #expect(routerSnapshot.hasZeroResidue)
         #expect(routerSnapshot.transportClaimMintCount == 1)
         #expect(ownerSnapshot.activeSchemeTaskCount == 0)
@@ -246,10 +249,11 @@ struct BridgeProductAdmissionIntegrationTests {
 
         // Act
         harness.owner.productAdmissionGate.close()
-        let completionEffect = try await session.completeAdmittedControl(
+        let completionEffect = try await session.completeControl(
             token: token,
             exactResponseBytes: exactResponseBytes
         )
+        await session.settleControlProviderDispatch(token: token)
         let sessionSnapshot = await session.snapshot
         _ = await harness.owner.retire(reason: .paneDisposal)
 
@@ -258,7 +262,7 @@ struct BridgeProductAdmissionIntegrationTests {
         #expect(sessionSnapshot.pendingRequestKind == nil)
         #expect((await session.diagnosticSnapshot).activeOperationExecutionCount == 0)
         #expect(sessionSnapshot.controlReplay.inFlightRequestSequence == nil)
-        #expect(sessionSnapshot.controlReplay.replayableRequestSequence == nil)
+        #expect(sessionSnapshot.controlReplay.replayableRequestSequence == 1)
         #expect(sessionSnapshot.lifecycle == .awaitingOpen)
     }
 }
