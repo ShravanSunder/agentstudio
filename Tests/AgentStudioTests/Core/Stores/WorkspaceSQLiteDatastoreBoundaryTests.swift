@@ -1,6 +1,10 @@
 import AgentStudioTestSupport
 import Foundation
+import GRDB
 import Testing
+
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite("WorkspaceSQLiteDatastoreBoundaryTests")
 struct WorkspaceSQLiteDatastoreBoundaryTests {
@@ -117,15 +121,29 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
     }
 
     @Test("configuration starts unprepared while injected capabilities start prepared")
-    func datastoreConstructionMakesPreparationHonest() throws {
-        let source = try projectSource("Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreActor.swift")
+    @MainActor
+    func datastoreConstructionMakesPreparationHonest() async throws {
+        let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let localDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(coreDatabaseQueue)
+        try WorkspaceLocalMigrations.migrate(localDatabaseQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+        let preparedApplicationLocalRepository = WorkspaceLocalRepository(
+            workspaceId: UUIDv7.generate(),
+            databaseWriter: localDatabaseQueue
+        )
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            preparedApplicationLocalRepository: preparedApplicationLocalRepository
+        )
 
-        #expect(source.contains("self.databasePreparationState = .unprepared"))
-        #expect(source.contains("self.databasePreparationState = .prepared(preparationReceipt)"))
-        #expect(source.contains("throw WorkspaceSQLiteDatastoreError.useDatastoreApplicationLocalRepositoryBundle"))
-        #expect(!source.contains("private let makePreparedLocalRepository"))
-        #expect(!source.contains("private let makeLocalRestoreRepository"))
-        #expect(!source.contains("func hasCompletedSnapshot(workspaceId: UUID) async"))
+        #expect(await datastore.loadAuthoritativeCoreSnapshot() == .uninitialized)
+
+        let preparation = await datastore.prepareDatabasesForBoot()
+        guard case .prepared = preparation else {
+            Issue.record("Expected prepared datastore, got \(preparation)")
+            return
+        }
     }
 
     private func projectSource(_ relativePath: String) throws -> String {
