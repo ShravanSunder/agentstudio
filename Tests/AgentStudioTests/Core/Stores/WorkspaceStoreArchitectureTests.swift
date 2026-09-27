@@ -1,6 +1,9 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
+
+@testable import AgentStudioCore
 
 @Suite("WorkspaceStoreArchitectureTests")
 struct WorkspaceStoreArchitectureTests {
@@ -35,17 +38,24 @@ struct WorkspaceStoreArchitectureTests {
         #expect(!source.contains("func appendTab("))
     }
 
-    @Test("WorkspaceStore observePersistedState does not observe repository topology")
-    func workspaceStore_doesNotObserveRepositoryTopologyForPersistence() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let storePath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
+    @Test("repository topology changes do not dirty workspace persistence")
+    @MainActor
+    func workspaceStore_doesNotObserveRepositoryTopologyForPersistence() {
+        let clock = TestPushClock()
+        let workspaceIdentity = WorkspaceIdentityAtom(workspaceId: UUIDv7.generate())
+        let store = WorkspaceStore(
+            identityAtom: workspaceIdentity,
+            clock: clock,
+            startsObserving: true
         )
-        let source = try String(contentsOf: storePath, encoding: .utf8)
-        let observerBody = source.components(separatedBy: "private func markDirtyObserved()").first ?? source
+        let repositoryPath = FileManager.default.temporaryDirectory.appending(
+            path: "workspace-store-repository-topology-observation"
+        )
 
-        #expect(!observerBody.contains("repositoryTopologyAtom.repos"))
-        #expect(!observerBody.contains("repositoryTopologyAtom.watchedPaths"))
-        #expect(!observerBody.contains("repositoryTopologyAtom.unavailableRepoIds"))
+        store.mutationCoordinator.addRepo(at: repositoryPath)
+
+        #expect(store.repositoryTopologyAtom.repos.map(\.repoPath) == [repositoryPath.standardizedFileURL])
+        #expect(store.isDirty == false)
+        #expect(clock.pendingSleepCount == 0)
     }
 }
