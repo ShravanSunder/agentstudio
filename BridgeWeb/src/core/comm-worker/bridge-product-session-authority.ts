@@ -8,6 +8,7 @@ import {
 } from './bridge-product-call-contracts.js';
 import { bridgeProductCallIsMutation } from './bridge-product-call-mutation-classification.js';
 import {
+	BridgeProductResponseSizeLimitError,
 	BridgeProductRequestTransportError,
 	postBridgeProductAdmissionBody,
 	postBridgeProductCommandBody,
@@ -846,11 +847,10 @@ async function postBridgeProductOperationObservation(props: {
 				return bridgeProductOperationObservationResponseSchema.parse(
 					parseBridgeProductStrictJSON(responseBytes),
 				);
-			} catch {
+			} catch (error: unknown) {
+				if (error instanceof BridgeProductResponseSizeLimitError) throw error;
 				signal.throwIfAborted();
-				throw new BridgeProductRequestTransportError(
-					'Bridge product observation reply was unreadable.',
-				);
+				throw new BridgeProductRequestTransportError('Bridge observation reply unreadable.');
 			}
 		},
 	});
@@ -898,7 +898,8 @@ async function postBridgeProductOperationResult(props: {
 				return bridgeProductOperationResultResponseSchema.parse(
 					parseBridgeProductStrictJSON(responseBytes),
 				);
-			} catch {
+			} catch (error: unknown) {
+				if (error instanceof BridgeProductResponseSizeLimitError) throw error;
 				signal.throwIfAborted();
 				throw new BridgeProductRequestTransportError('Bridge product result reply was unreadable.');
 			}
@@ -970,11 +971,10 @@ async function postBridgeProductResultAcknowledgement(props: {
 					throw new Error('Bridge product operation acknowledgement did not match its request.');
 				}
 				return response;
-			} catch {
+			} catch (error: unknown) {
+				if (error instanceof BridgeProductResponseSizeLimitError) throw error;
 				signal.throwIfAborted();
-				throw new BridgeProductRequestTransportError(
-					'Bridge product acknowledgement reply was ambiguous.',
-				);
+				throw new BridgeProductRequestTransportError('Bridge acknowledgement reply ambiguous.');
 			}
 		},
 	});

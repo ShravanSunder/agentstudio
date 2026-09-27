@@ -2,6 +2,7 @@ import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-cont
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 
 export class BridgeProductRequestTransportError extends Error {}
+export class BridgeProductResponseSizeLimitError extends Error {}
 
 export async function postBridgeProductCommandBody(props: {
 	readonly body: object;
@@ -40,7 +41,8 @@ export async function postBridgeProductAdmissionBody(props: {
 			bytes: await readBridgeProductControlResponseBytes(response),
 			status: response.status,
 		};
-	} catch {
+	} catch (error: unknown) {
+		if (error instanceof BridgeProductResponseSizeLimitError) throw error;
 		throw new BridgeProductRequestTransportError('Bridge product admission reply was unreadable.');
 	}
 }
@@ -90,7 +92,9 @@ async function readBridgeProductControlResponseBytes(response: Response): Promis
 			if (chunk.value.byteLength > BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES - responseByteLength) {
 				// oxlint-disable-next-line eslint/no-await-in-loop -- Cancel must settle before releasing the reader lock.
 				await reader.cancel().catch((): void => {});
-				throw new Error('Bridge product control response exceeds the encoded body limit.');
+				throw new BridgeProductResponseSizeLimitError(
+					'Bridge product control response exceeds the encoded body limit.',
+				);
 			}
 			responseBytes.set(chunk.value, responseByteLength);
 			responseByteLength += chunk.value.byteLength;
