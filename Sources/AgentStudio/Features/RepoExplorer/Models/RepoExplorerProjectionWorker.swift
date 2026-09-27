@@ -189,10 +189,28 @@ struct RepoExplorerPreparedPresentationDeadline: Equatable, Sendable {
     let deadline: Date
     let paneIDs: Set<UUID>
     let repositoryIDs: Set<UUID>
+    let referenceInstant: ContinuousClock.Instant?
+    let referenceDate: Date?
+
+    init(
+        deadline: Date,
+        paneIDs: Set<UUID>,
+        repositoryIDs: Set<UUID>,
+        referenceInstant: ContinuousClock.Instant? = nil,
+        referenceDate: Date? = nil
+    ) {
+        self.deadline = deadline
+        self.paneIDs = paneIDs
+        self.repositoryIDs = repositoryIDs
+        self.referenceInstant = referenceInstant
+        self.referenceDate = referenceDate
+    }
 
     static func prepare(
         sidebarTransitionsByPaneID: [UUID: Date],
-        repositoryTransitionsByRepositoryID: [UUID: Date]
+        repositoryTransitionsByRepositoryID: [UUID: Date],
+        referenceInstant: ContinuousClock.Instant? = nil,
+        referenceDate: Date? = nil
     ) -> Self? {
         guard
             let deadline = sidebarTransitionsByPaneID.values.min()
@@ -212,7 +230,9 @@ struct RepoExplorerPreparedPresentationDeadline: Equatable, Sendable {
                 repositoryTransitionsByRepositoryID.compactMap { repositoryID, transition in
                     transition == deadline ? repositoryID : nil
                 }
-            )
+            ),
+            referenceInstant: referenceInstant,
+            referenceDate: referenceDate
         )
     }
 }
@@ -287,6 +307,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
 actor RepoExplorerProjectionWorker {
     let presentationDeadlineDelay: AsyncDelay
     let presentationDeadlineNow: @Sendable () -> Date
+    let presentationDeadlineContinuousNow: @Sendable () -> ContinuousClock.Instant
     let onPresentationDeadline: @MainActor @Sendable (Int, RepoExplorerPreparedPresentationDeadline) -> Void
     var presentationDeadlineTask: Task<Void, Never>?
     var latestPresentationDeadlineGeneration = -1
@@ -294,10 +315,12 @@ actor RepoExplorerProjectionWorker {
     init(
         deadlineDelay: AsyncDelay = .taskSleep,
         deadlineNow: @escaping @Sendable () -> Date = Date.init,
+        continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
         onDeadline: @escaping @MainActor @Sendable (Int, RepoExplorerPreparedPresentationDeadline) -> Void = { _, _ in }
     ) {
         presentationDeadlineDelay = deadlineDelay
         presentationDeadlineNow = deadlineNow
+        presentationDeadlineContinuousNow = continuousNow
         onPresentationDeadline = onDeadline
     }
 
@@ -425,7 +448,9 @@ actor RepoExplorerProjectionWorker {
         )
         let preparedPresentationDeadline = RepoExplorerPreparedPresentationDeadline.prepare(
             sidebarTransitionsByPaneID: sidebarPresentationTransitionAtByPaneId,
-            repositoryTransitionsByRepositoryID: activity.transitionAtByRepositoryID
+            repositoryTransitionsByRepositoryID: activity.transitionAtByRepositoryID,
+            referenceInstant: request.snapshot.surface == .panes ? request.snapshot.referenceInstant : nil,
+            referenceDate: request.snapshot.surface == .panes ? request.snapshot.referenceDate : nil
         )
         let projectionStart = clock.now
         let projection = try RepoExplorerProjection.projectCancellable(

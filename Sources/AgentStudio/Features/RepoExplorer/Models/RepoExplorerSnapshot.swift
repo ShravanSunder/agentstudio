@@ -56,35 +56,41 @@ enum RepoExplorerPaneSecondaryLine: Equatable, Sendable {
 struct RepoExplorerPaneRowFacts: Equatable, Sendable {
     let terminalTitle: String
     let activityAt: Date?
+    let paneActivityTime: PaneActivityTime?
     let isPinned: Bool
     let noteText: String?
     let latestMessageText: String?
     let recencyReferenceDate: Date
     let recencyText: String
     let recencyTier: RepoExplorerPaneRecencyTier
+    let nextPresentationChangeDate: Date?
     let isActive: Bool
     let isDrawerPane: Bool
 
     init(
         terminalTitle: String,
         activityAt: Date? = nil,
+        paneActivityTime: PaneActivityTime? = nil,
         isPinned: Bool = false,
         noteText: String? = nil,
         latestMessageText: String?,
         recencyReferenceDate: Date,
         recencyText: String,
         recencyTier: RepoExplorerPaneRecencyTier = .strongBlue,
+        nextPresentationChangeDate: Date? = nil,
         isActive: Bool,
         isDrawerPane: Bool = false
     ) {
         self.terminalTitle = terminalTitle
         self.activityAt = activityAt
+        self.paneActivityTime = paneActivityTime
         self.isPinned = isPinned
         self.noteText = noteText
         self.latestMessageText = latestMessageText
         self.recencyReferenceDate = recencyReferenceDate
         self.recencyText = recencyText
         self.recencyTier = recencyTier
+        self.nextPresentationChangeDate = nextPresentationChangeDate
         self.isActive = isActive
         self.isDrawerPane = isDrawerPane
     }
@@ -185,6 +191,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     let sortField: SidebarSortField
     let showsPinned: Bool
     let referenceDate: Date
+    let referenceInstant: ContinuousClock.Instant?
     let calendar: Calendar
     let sortOrder: RepoExplorerSortOrder
     let query: String
@@ -201,6 +208,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         sortField: SidebarSortField = .name,
         showsPinned: Bool = true,
         referenceDate: Date = Date(timeIntervalSince1970: 0),
+        referenceInstant: ContinuousClock.Instant? = nil,
         calendar: Calendar = .current,
         sortOrder: RepoExplorerSortOrder = .default,
         query: String,
@@ -216,6 +224,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.sortField = sortField
         self.showsPinned = showsPinned
         self.referenceDate = referenceDate
+        self.referenceInstant = referenceInstant
         self.calendar = calendar
         self.sortOrder = sortOrder
         self.query = query
@@ -233,6 +242,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         sortField: SidebarSortField? = nil,
         showsPinned: Bool? = nil,
         referenceDate: Date? = nil,
+        referenceInstant: ContinuousClock.Instant? = nil,
         calendar: Calendar? = nil,
         sortOrder: RepoExplorerSortOrder? = nil,
         query: String? = nil,
@@ -247,6 +257,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
             sortField: sortField ?? self.sortField,
             showsPinned: showsPinned ?? self.showsPinned,
             referenceDate: referenceDate ?? self.referenceDate,
+            referenceInstant: referenceInstant ?? self.referenceInstant,
             calendar: calendar ?? self.calendar,
             sortOrder: sortOrder ?? self.sortOrder,
             query: query ?? self.query,

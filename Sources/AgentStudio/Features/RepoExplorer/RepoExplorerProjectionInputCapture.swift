@@ -17,6 +17,7 @@ final class RepoExplorerProjectionInputCapture {
     let coreAtoms: CoreAtoms
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let latestPaneMessageSnapshot: LatestPaneMessageSnapshot
+    let continuousNow: @Sendable () -> ContinuousClock.Instant
 
     private var paneDisplayTitleCache = RepoExplorerPaneDisplayTitleCache()
     private(set) var fullCaptureCount = 0
@@ -36,7 +37,8 @@ final class RepoExplorerProjectionInputCapture {
         sidebarCache: SidebarCacheState,
         coreAtoms: CoreAtoms,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
-        latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot
+        latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot,
+        continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
     ) {
         self.store = store
         self.preferences = preferences
@@ -46,6 +48,7 @@ final class RepoExplorerProjectionInputCapture {
         self.coreAtoms = coreAtoms
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
+        self.continuousNow = continuousNow
     }
 
     static func observeRepoEnrichmentInputs(
@@ -89,6 +92,7 @@ final class RepoExplorerProjectionInputCapture {
             sortField: preferences.sortField(for: surface),
             showsPinned: preferences.showsPinned(for: surface),
             referenceDate: referenceDate,
+            referenceInstant: surface == .panes ? continuousNow() : nil,
             calendar: .current,
             sortOrder: preferences.sortDirection(for: surface),
             query: query
@@ -161,6 +165,7 @@ final class RepoExplorerProjectionInputCapture {
             sortField: sortField,
             showsPinned: showsPinned,
             referenceDate: referenceDate,
+            referenceInstant: surface == .panes ? continuousNow() : nil,
             calendar: .current,
             sortOrder: sortOrder,
             query: query
@@ -528,6 +533,7 @@ final class RepoExplorerProjectionInputCapture {
             request: previous.replacing(
                 snapshot: previous.snapshot.replacing(
                     referenceDate: referenceDate,
+                    referenceInstant: previous.snapshot.surface == .panes ? continuousNow() : nil,
                     calendar: .current,
                     bridgePaneCommandCandidatesByWorktreeId: bridgeCandidates
                 ),
@@ -611,6 +617,7 @@ final class RepoExplorerProjectionInputCapture {
         sortField: SidebarSortField = .name,
         showsPinned: Bool = true,
         referenceDate: Date = .distantPast,
+        referenceInstant: ContinuousClock.Instant? = nil,
         calendar: Calendar = .current,
         sortOrder: RepoExplorerSortOrder,
         query: String
@@ -641,6 +648,7 @@ final class RepoExplorerProjectionInputCapture {
             sortField: sortField,
             showsPinned: showsPinned,
             referenceDate: referenceDate,
+            referenceInstant: referenceInstant,
             calendar: calendar,
             sortOrder: sortOrder,
             query: query,
@@ -758,20 +766,17 @@ final class RepoExplorerProjectionInputCapture {
                 ? SessionConfiguration.defaultShell()
                 : nil
         )
-        let referenceDate =
-            coreAtoms.workspaceEntityRecency
-            .recency(for: .pane(paneID: paneID))?.lastInteractedAt
-            ?? pane.metadata.createdAt
         return RepoExplorerPaneRowFacts(
             terminalTitle: terminalTitle,
-            activityAt: activityFact?.observedAt,
+            activityAt: nil,
+            paneActivityTime: coreAtoms.paneActivityTime.value(for: paneID),
             isPinned: pane.metadata.isPinned,
             noteText: pane.metadata.note,
             latestMessageText: activityFact?.lastOutputLine,
-            recencyReferenceDate: referenceDate,
+            recencyReferenceDate: .distantPast,
             recencyText: "",
             recencyTier: .grey,
-            isActive: paneID == focusedPaneID(),
+            isActive: false,
             isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true
         )
     }
