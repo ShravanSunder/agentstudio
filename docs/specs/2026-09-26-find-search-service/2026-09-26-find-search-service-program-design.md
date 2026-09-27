@@ -46,6 +46,7 @@ flowchart LR
 | **`CommandBarResultSession`** (existing, MainActor) | building and caching rows (unchanged); the **row generation** (advances on every rebuild, invalidation and nested-level replacement); the generation's `SearchDocumentSet`; mapping result ids back to that generation's rows | the controller and views | row shapes change |
 | **`CommandBarPanelController`** (existing, MainActor) | the request sequence; submitting requests; the single apply entry with the currentness guard (R9) | the text field callback; views | bar lifecycle changes |
 | **`CommandBarState`** (existing, MainActor) | applied result rows, selection, retained root query (R12) | views | UI state changes |
+| **`CommandBarView`** (existing view) | firing the per-result publication acknowledgement with the applied `(sequence, generation)` (R10 measurement) | controller | view lifecycle changes |
 | **`CommandBarResultRow`** (existing view) | drawing the title with the match range it's given; no matching | — | row visuals change |
 | **Row builders** (`CommandBarDataSource*`, existing) | each row's **searchable fields**, declared separately from display (see *Searchable fields*) | result session | a kind's searchable fields change |
 | **App composition** (`AppDelegate+WorkspaceBoot.swift:516`) | creating one `SearchService` and passing it to `CommandBarPanelController` | — | wiring changes |
@@ -62,8 +63,8 @@ flowchart LR
 |---|---|---|
 | keystroke: text assignment, sequence bump, submit | MainActor | existing local `@Observable` state (`CommandBarState`); no atom |
 | building rows | MainActor, unchanged, cached per identity | existing `CommandBarResultSession` cache; no new observer |
-| rows → `SearchDocumentSet` | MainActor, once per row generation (not per keystroke) | plain value copy of the rows' declared searchable fields plus case-folded copies |
-| install a new generation, write the index, match, rank, group, compute match ranges | `SearchService` actor | actor-private state and a private in-memory SQLite database; not an atom (no UI subscriber) |
+| rows → `SearchDocumentSet` | MainActor, once per row generation (not per keystroke) | plain value copy of the rows' declared searchable fields; no folding or other derivation |
+| install a new generation (fold every field once), write the index, fold the query, match, rank, group, compute match ranges | `SearchService` actor | actor-private state and a private in-memory SQLite database; not an atom (no UI subscriber) |
 | apply: guard, keyed availability check, map ids to the generation's rows per returned group, reconcile selection | MainActor | assign only, O(result rows); no grouping or sorting |
 
 No new atom, bus event, observer or coordinator responsibility.
@@ -80,7 +81,7 @@ No new atom, bus event, observer or coordinator responsibility.
     - if it is newer, the service replaces the index contents with this set in one transaction (keyed delete and insert by `SearchItemId`);
     - if it is older, the request is answered `obsolete` without touching the index (its sequence is necessarily stale).
     - Cancelling a request can therefore never lose a set: the next request carries the same set (N-01).
-  - **Case folding (one rule for both paths):** each searchable field is stored twice, as display text and as a folded copy (Foundation `folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)`; diacritics stay distinct). The query is folded the same way. Both paths match folded against folded, so `é` finds `École` at any query length (N-04).
+  - **Case folding (one rule for both paths, on the actor only):** the set carries original text. When the service installs a new generation it folds every searchable field once (Foundation `folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)`; diacritics stay distinct) and stores both the display and the folded copy. It folds each request's query the same way. Both paths match folded against folded, so `é` finds `École` at any query length (N-04).
   - **Path:**
     - 1–2 characters: `LIKE '%'||?||'%' ESCAPE '\'` over the folded columns, with `%`, `_` and `\` in the query escaped; the trigram index isn't used (R5);
     - 3+ characters: FTS5 `MATCH` over the folded columns, with the folded text quoted as one FTS5 string (inner `"` doubled), so `.`, `/`, `-` and `"` match literally (R6).
@@ -176,8 +177,8 @@ sequenceDiagram
   C->>C: seq += 1 [added]
   C->>RS: current generation, rows and document set [changed]
   C->>S: await search(request) [added, async]
-  S->>S: install generation if newer (one transaction) [added]
-  S->>S: fold, LIKE (1–2 chars) or FTS5 MATCH (3+) [added]
+  S->>S: install generation if newer, folding its fields (one transaction) [added]
+  S->>S: fold query, LIKE (1–2 chars) or FTS5 MATCH (3+) [added]
   S->>S: rank, group, title ranges [added]
   S-->>C: SearchResultSet(seq, generation)
   C->>C: seq and generation current? else drop or resubmit [added]
@@ -234,7 +235,7 @@ stateDiagram-v2
 | Obligation | Realization | Proof seam |
 |---|---|---|
 | R13 off main by construction | the only search API is the actor's `async search`; SQL is inside a private type; the command bar's matcher file is deleted and the row stops matching | compile-time (no call path) plus an architecture test that CommandBar sources don't reference `FuzzySearch` |
-| R10 speed | MainActor: assign, bump, submit, and on apply O(result rows) with no grouping or sorting; the row rebuild and document capture run only per generation; SQLite work on the actor | **end-to-end:** one correlated trace from the input callback to the command bar's existing results-publication acknowledgement (`CommandBarPanelController.swift:84-88,206-208`), with stages: main submit (including a cache-miss row rebuild and document capture when one happens), queue wait before the actor starts, actor work (install, match, rank, group), wait for main, main apply, publication. Superseded, obsolete and degraded requests are counted separately. Measured on the owner's real set (marker-scoped debug run). **Engine only:** 10,000 synthetic documents in `test:swift:benchmark`, labelled as the engine share, not the full R10 figure |
+| R10 speed | MainActor: assign, bump, submit, and on apply O(result rows) with no grouping or sorting; the row rebuild and document capture run only per generation; SQLite work on the actor | **end-to-end:** one correlated trace from the input callback to a **per-result publication acknowledgement**. That is a new callback on the existing view-to-controller boundary, alongside today's open-only `onInitialResultsPublished` (`CommandBarView.swift:76`, `CommandBarPanelController.swift:291-293,325-342`). `CommandBarView` fires it with the applied `(sequence, generation)` when it renders a newly applied result. It observes SwiftUI publication of the result rows, not a compositor-presented frame. Stages: main submit (including a cache-miss row rebuild and document capture when one happens), queue wait before the actor starts, actor work (install, match, rank, group), wait for main, main apply, publication. Superseded, obsolete and degraded requests are counted separately. Measured end to end twice: on the owner's real set (marker-scoped debug run), and on a **10,000-row fixture** in `test:swift:benchmark`, which drives the real controller, real service and a hosted `CommandBarView` from input to the per-result acknowledgement. **Engine only:** the same 10,000 documents against the service alone, labelled as the engine share, a diagnostic and not the R10 figure |
 | R11 freshness | the invalidation advances the generation; the next request carries the new set | trace attribute: time from the invalidation to the new generation's first answer being published, measured only for a request already pending or issued **after** the invalidation, minus the time no request existed (user idle time excluded). Proof: a test issues a controlled query after a topology or branch fact and checks it is answered from the new generation |
 | Privacy | local only; in memory; holds row text the app already shows | — |
 | Accessibility | row labels unchanged; the restored query is the field's value | manual VoiceOver spot check |
@@ -251,7 +252,7 @@ stateDiagram-v2
 | R7 | E5 | `SearchService` | groups returned in the set's group order | — | real-service tests for root, prefixed and nested group order; apply has no grouping or sorting |
 | R8 | E1 E5 | controller | keyed availability check at apply; generation guard | F3 | controller tests: withdraw before apply (root and nested); same-key branch change; rename to a shorter title (ranges stay valid); nested level replaced without push or pop |
 | R9 | E4 E5 | controller + service | sequence and generation guard; lifecycle bumps; set carried on every request | F2 | controller tests with a controlled service fake: out-of-order answers, clear, scope switch, push/pop, dismiss/reopen; service test: the first request for generation B cancelled before install, a later B request still searches B; requests admitted in reverse order |
-| R10 | E4 E5 | controller + service | trace stages above | — | measurement |
+| R10 | E4 E5 | controller + service + view | trace stages above; per-result publication acknowledgement | — | measurement (owner's set, 10k UI fixture); causal tests: open once and type two queries → two distinct acknowledgements carrying their sequences; holding the publication stage lengthens the measured interval (no elapsed-time assertions) |
 | R11 | E1 E3 | result session + controller | generation advances on invalidation | — | measurement (idle time excluded) plus a test: a controlled query after a topology or branch fact is answered from the new generation |
 | R12 | E6 E4 E7 | `CommandBarState` | retained query | — | controller tests (esc, ↵, prefix, nested, restart) |
 | R13 | E4 E5 | `SearchService` | private index, async only | — | compile-time + architecture test |
