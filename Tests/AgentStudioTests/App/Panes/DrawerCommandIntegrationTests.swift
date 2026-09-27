@@ -7,6 +7,37 @@ import Testing
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
+@Suite
+struct DrawerPanelCommandMappingTests {
+    @Test
+    func test_drawerPanelTranslatesVisiblePairResizeToDrawerOwnedCommand() {
+        let parentPaneId = UUID()
+        let tabId = UUID()
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+
+        let command = DrawerPanel.drawerCommand(
+            for: .resizeVisiblePanePair(
+                tabId: tabId,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: 0.4
+            ),
+            parentPaneId: parentPaneId
+        )
+
+        #expect(
+            command
+                == .resizeDrawerVisiblePanePair(
+                    parentPaneId: parentPaneId,
+                    leftPaneId: leftPaneId,
+                    rightPaneId: rightPaneId,
+                    ratio: 0.4
+                )
+        )
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 final class DrawerCommandIntegrationTests {
@@ -410,36 +441,6 @@ final class DrawerCommandIntegrationTests {
                 abs((after.ratioForPanePair(leftPaneId: drawerPane1.id, rightPaneId: drawerPane3.id) ?? 0) - 0.3)
                     < 0.001)
             #expect(abs((after.paneRatio(drawerPane2.id) ?? 0) - (before.paneRatio(drawerPane2.id) ?? 0)) < 1e-9)
-        }
-    }
-
-    @Test
-    func test_drawerPanelTranslatesVisiblePairResizeToDrawerOwnedCommand() async throws {
-        try await withDrawerCommandHarness {
-            let parentPaneId = UUID()
-            let tabId = UUID()
-            let leftPaneId = UUID()
-            let rightPaneId = UUID()
-
-            let command = DrawerPanel.drawerCommand(
-                for: .resizeVisiblePanePair(
-                    tabId: tabId,
-                    leftPaneId: leftPaneId,
-                    rightPaneId: rightPaneId,
-                    ratio: 0.4
-                ),
-                parentPaneId: parentPaneId
-            )
-
-            #expect(
-                command
-                    == .resizeDrawerVisiblePanePair(
-                        parentPaneId: parentPaneId,
-                        leftPaneId: leftPaneId,
-                        rightPaneId: rightPaneId,
-                        ratio: 0.4
-                    )
-            )
         }
     }
 
