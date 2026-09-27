@@ -229,7 +229,7 @@ actor BridgePaneRevealActor: PaneRevealPort {
                 workspaceID: workspaceID, receiver: resolved
             )
         } catch {
-            bridgePaneRevealLogger.error("Retained Open view read failed for pane \(receiver.uuid)")
+            bridgePaneRevealLogger.error("Bridge retained Open view read failed")
             return []
         }
     }

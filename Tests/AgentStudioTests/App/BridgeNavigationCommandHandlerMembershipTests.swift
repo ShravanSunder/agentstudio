@@ -142,7 +142,7 @@ struct BridgeNavigationCommandHandlerMembershipTests {
         let fixture = try makeFixture()
         _ = try await fixture.addMember()
         let presentation = RecordingReceiverPresentation()
-        presentation.preparationOutcome = .failed
+        presentation.preparationOutcome = .saveOutcomeUnknown
         fixture.install(presentation)
         let before = fixture.handler.record(for: fixture.receiver)
 
@@ -353,6 +353,37 @@ struct BridgeNavigationCommandHandlerMembershipTests {
             #expect(error as? BridgeLinkPortFailure == .unavailable)
         }
         await fixture.linkMembershipActor.shutdown()
+    }
+
+    @Test("pending removal keeps the draft with the precise native barrier reason")
+    func pendingRemovalReportsDraftReason() async throws {
+        let cases: [(BridgeEditorPreparationOutcome, BridgeDraftKeptReason)] = [
+            (.refused, .refused),
+            (.saveFailed, .saveFailed),
+            (.saveOutcomeUnknown, .saveOutcomeUnknown),
+        ]
+        for (preparation, expectedReason) in cases {
+            let fixture = try makeFixture()
+            let presentation = RecordingReceiverPresentation()
+            presentation.preparationOutcome = preparation
+            fixture.install(presentation)
+            let receiverID = PaneId(existingUUID: fixture.receiver.paneId)
+
+            let immediate = try await fixture.linkMembershipActor.removeMember(
+                receiver: receiverID, worktree: fixture.worktree.id, contributor: .person
+            )
+            guard case .pendingDraftSettlement(let operationID) = immediate else {
+                Issue.record("Expected a pending draft settlement")
+                await fixture.linkMembershipActor.shutdown()
+                continue
+            }
+            let settled = try await fixture.linkMembershipActor.awaitPendingMemberRemoval(
+                receiver: receiverID, operationId: operationID
+            )
+            #expect(settled == .draftKept(reason: expectedReason))
+            #expect(fixture.handler.record(for: fixture.receiver)?.containsMember(fixture.worktree.id) == true)
+            await fixture.linkMembershipActor.shutdown()
+        }
     }
 
     @Test("shutdown settles a pending draft wait once before any commit dispatch")

@@ -10,12 +10,18 @@ package enum BridgeEditorPreparationOutcome: Equatable, Sendable {
     /// The page has not completed its bridge handshake (or has no product
     /// session), so no page editor can hold unflushed text.
     case noLivePage
-    /// A flush failed, the page did not answer this request, or the page
-    /// session changed while waiting. The old content stays usable.
-    case failed
+    /// The page explicitly kept its draft. The old content stays usable.
+    case refused
+    /// The page explicitly reported a failed save. The old content stays usable.
+    case saveFailed
+    /// The save result could not be established. The old content stays usable.
+    case saveOutcomeUnknown
 
     package var allowsContentToLeave: Bool {
-        self != .failed
+        switch self {
+        case .prepared, .noLivePage: true
+        case .refused, .saveFailed, .saveOutcomeUnknown: false
+        }
     }
 }
 
@@ -42,7 +48,7 @@ extension BridgePaneController {
                 contentWorld: .page
             )
         } catch {
-            return .failed
+            return .saveOutcomeUnknown
         }
         guard !Task.isCancelled, isBridgeReady,
             let bootstrapAfter = await productSessionOwner.activeBootstrap(),
@@ -53,9 +59,11 @@ extension BridgePaneController {
             let probe = try? JSONDecoder().decode(BridgeEditorPreparationProbe.self, from: data),
             probe.requestId == requestId
         else {
-            return .failed
+            return .saveOutcomeUnknown
         }
-        return probe.status == "prepared" ? .prepared : .failed
+        // The current page collapses every unsuccessful flush into `failed`.
+        // Until PR1 gives native a precise page result, failure remains unknown.
+        return probe.status == "prepared" ? .prepared : .saveOutcomeUnknown
     }
 
     /// The request id is a UUID string, so it is embedded as a plain literal.

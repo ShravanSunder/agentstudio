@@ -26,25 +26,28 @@ extension BridgeNavigationCommandHandler {
     func perform(
         _ request: BridgeNavigationRequest,
         in receiver: BridgeReceiver,
-        sourcePaneID: UUID? = nil
+        sourcePaneID: UUID? = nil,
+        canonicalize: @Sendable (String) async -> BridgeDocumentLocation? = {
+            await BridgeDocumentLocationCanonicalizer.canonicalLocation(ofAbsolutePath: $0)
+        }
     ) async -> BridgeNavigationCommandOutcome {
         switch request {
         case .activateFile(let absolutePath):
-            guard
-                let location = await BridgeDocumentLocationCanonicalizer.canonicalLocation(
-                    ofAbsolutePath: absolutePath
-                )
-            else { return .failed(.notListed) }
-            return await activateFile(location, in: receiver)
+            guard navigationAtom.record(for: receiver) != nil else { return .failed(.receiverUnavailable) }
+            let generation = beginNavigation(for: receiver)
+            let location = await canonicalize(absolutePath)
+            guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
+            guard let location else { return .failed(.notListed) }
+            return await activateFile(location, in: receiver, generation: generation)
         case .showFiles:
             return await showFiles(in: receiver)
         case .closeFile(let absolutePath):
-            guard
-                let location = await BridgeDocumentLocationCanonicalizer.canonicalLocation(
-                    ofAbsolutePath: absolutePath
-                )
-            else { return .failed(.notInInventory) }
-            return await closeFile(location, in: receiver)
+            guard navigationAtom.record(for: receiver) != nil else { return .failed(.receiverUnavailable) }
+            let generation = beginNavigation(for: receiver)
+            let location = await canonicalize(absolutePath)
+            guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
+            guard let location else { return .failed(.notInInventory) }
+            return await closeFile(location, in: receiver, generation: generation)
         case .activateReview(let worktreeId):
             return await activateReview(of: worktreeId, in: receiver)
         case .addWorktree(let worktreeId):

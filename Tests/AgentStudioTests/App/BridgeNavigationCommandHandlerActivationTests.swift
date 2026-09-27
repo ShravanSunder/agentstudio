@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -73,6 +74,35 @@ struct BridgeNavigationCommandHandlerActivationTests {
         #expect(newer == .applied)
         #expect(older == .superseded)
         #expect(fixture.persistCount == 1, "only the current activation saves")
+    }
+
+    @Test("a newer navigation wins while an older path is still being canonicalized")
+    func newerActivationSupersedesDiscovery() async throws {
+        let fixture = try makeFixture()
+        let presentation = RecordingReceiverPresentation()
+        fixture.install(presentation)
+        let document = try #require(fixture.loosePlan)
+        let canonicalizer = HeldBridgeNavigationCanonicalizer()
+        let older = Task {
+            await fixture.handler.perform(
+                .activateFile(absolutePath: document.canonicalPath),
+                in: fixture.receiver,
+                canonicalize: { await canonicalizer.resolve($0) }
+            )
+        }
+        #expect(await canonicalizer.waitForFirstPath() == document.canonicalPath)
+
+        let newer = await fixture.handler.perform(
+            .activateFile(absolutePath: document.canonicalPath),
+            in: fixture.receiver,
+            canonicalize: { await canonicalizer.resolve($0) }
+        )
+        await canonicalizer.releaseFirst()
+
+        #expect(newer == .applied)
+        #expect(await older.value == .superseded)
+        #expect(presentation.activatedLocations == [document])
+        #expect(fixture.persistCount == 1)
     }
 
     @Test("activation without a mounted Bridge or a record fails without touching the record")
@@ -150,7 +180,7 @@ struct BridgeNavigationCommandHandlerActivationTests {
         // Arrange
         let fixture = try makeFixture()
         let presentation = RecordingReceiverPresentation()
-        presentation.preparationOutcome = .failed
+        presentation.preparationOutcome = .saveOutcomeUnknown
         fixture.install(presentation)
         let document = try #require(fixture.loosePlan)
         fixture.selectInFiles(document)
@@ -175,7 +205,7 @@ struct BridgeNavigationCommandHandlerActivationTests {
         // Arrange
         let fixture = try makeFixture()
         let presentation = RecordingReceiverPresentation()
-        presentation.preparationOutcome = .failed
+        presentation.preparationOutcome = .saveOutcomeUnknown
         fixture.install(presentation)
 
         // Act
@@ -217,7 +247,7 @@ struct BridgeNavigationCommandHandlerActivationTests {
         let fixture = try makeFixture()
         let otherWorktree = try await fixture.addMember()
         let presentation = RecordingReceiverPresentation()
-        presentation.preparationOutcome = .failed
+        presentation.preparationOutcome = .saveOutcomeUnknown
         fixture.install(presentation)
         let before = fixture.handler.record(for: fixture.receiver)
 
@@ -228,6 +258,42 @@ struct BridgeNavigationCommandHandlerActivationTests {
         #expect(outcome == .refusedUnsavedDraft)
         #expect(fixture.handler.record(for: fixture.receiver) == before)
         #expect(fixture.replacedReviewReceivers.isEmpty)
+    }
+
+    @Test("a full pool of pending draft barriers refuses unknown saves without replacing Review")
+    func fullPoolUnknownDraftBarriersKeepReview() async throws {
+        let activationCount = 16
+        var heldDrafts: [HeldStep<Int>] = []
+        var activations:
+            [(
+                fixture: BridgeNavigationHandlerFixture,
+                before: BridgeNavigationRecord?,
+                task: Task<BridgeNavigationCommandOutcome, Never>
+            )] = []
+        for index in 0..<activationCount {
+            let fixture = try makeFixture()
+            let otherWorktree = try await fixture.addMember()
+            let heldDraft = HeldStep<Int>("unknown draft barrier \(index)")
+            heldDrafts.append(heldDraft)
+            fixture.install(UnknownDraftActivationPresentation(heldDraft: heldDraft, index: index))
+            let before = fixture.handler.record(for: fixture.receiver)
+            let task = Task { @MainActor in
+                await fixture.handler.activateReview(of: otherWorktree.id, in: fixture.receiver)
+            }
+            activations.append((fixture: fixture, before: before, task: task))
+        }
+
+        for (index, heldDraft) in heldDrafts.enumerated() {
+            #expect(try await heldDraft.firstArrival() == index)
+        }
+        for heldDraft in heldDrafts { heldDraft.release() }
+
+        for activation in activations {
+            #expect(await activation.task.value == .refusedUnsavedDraft)
+            #expect(activation.fixture.handler.record(for: activation.fixture.receiver) == activation.before)
+            #expect(activation.fixture.replacedReviewReceivers.isEmpty)
+            await activation.fixture.linkMembershipActor.shutdown()
+        }
     }
 
     @Test("Review of the already selected member only shows Review")
@@ -268,4 +334,56 @@ struct BridgeNavigationCommandHandlerActivationTests {
             )
         )
     }
+}
+
+private actor HeldBridgeNavigationCanonicalizer {
+    private var holdsFirst = true
+    private var firstPath: String?
+    private var firstPathWaiter: CheckedContinuation<String, Never>?
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+    func resolve(_ path: String) async -> BridgeDocumentLocation? {
+        if holdsFirst {
+            holdsFirst = false
+            firstPath = path
+            firstPathWaiter?.resume(returning: path)
+            firstPathWaiter = nil
+            await withCheckedContinuation { releaseWaiter = $0 }
+        }
+        return BridgeDocumentLocation(canonicalPath: path)
+    }
+
+    func waitForFirstPath() async -> String {
+        if let firstPath { return firstPath }
+        return await withCheckedContinuation { firstPathWaiter = $0 }
+    }
+
+    func releaseFirst() {
+        releaseWaiter?.resume()
+        releaseWaiter = nil
+    }
+}
+
+@MainActor
+private final class UnknownDraftActivationPresentation: BridgeReceiverPresentation {
+    private let heldDraft: HeldStep<Int>
+    private let index: Int
+
+    init(heldDraft: HeldStep<Int>, index: Int) {
+        self.heldDraft = heldDraft
+        self.index = index
+    }
+
+    func prepareActiveEditorsForNavigation() async -> BridgeEditorPreparationOutcome {
+        try? await heldDraft.arrive(index)
+        return .saveOutcomeUnknown
+    }
+
+    func activateFileDocument(_: BridgeDocumentLocation) async -> BridgeFileActivationArrival { .cancelled }
+
+    func searchFilesCollection(_: BridgeFilesSearchCriteria) async -> BridgeFilesSearchOutcome {
+        .unavailable(.noLivePage)
+    }
+
+    func requestViewerSurface(_: BridgeProductSurface) -> Bool { true }
 }

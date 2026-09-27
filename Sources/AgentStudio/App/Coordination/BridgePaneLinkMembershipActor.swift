@@ -362,9 +362,18 @@ actor BridgePaneLinkMembershipActor: PaneLinkMembershipPort {
                     settlePending(operationID, .failure(BridgeLinkPortFailure.unavailable))
                     return
                 }
-                if let preparation, !preparation.allowsContentToLeave {
-                    settlePending(operationID, .success(.draftKept(reason: .saveOutcomeUnknown)))
-                    return
+                if let preparation {
+                    let reason: BridgeDraftKeptReason?
+                    switch preparation {
+                    case .prepared, .noLivePage: reason = nil
+                    case .refused: reason = .refused
+                    case .saveFailed: reason = .saveFailed
+                    case .saveOutcomeUnknown: reason = .saveOutcomeUnknown
+                    }
+                    if let reason {
+                        settlePending(operationID, .success(.draftKept(reason: reason)))
+                        return
+                    }
                 }
             }
             let effectTopology = await handler.captureLinkTopology(sourcePaneID: request.sourcePaneID)

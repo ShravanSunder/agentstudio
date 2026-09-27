@@ -47,15 +47,17 @@ extension BridgeNavigationCommandHandler {
     /// rules a human tree click uses.
     func activateFile(
         _ location: BridgeDocumentLocation,
-        in receiver: BridgeReceiver
+        in receiver: BridgeReceiver,
+        generation capturedGeneration: Int? = nil
     ) async -> BridgeNavigationCommandOutcome {
         guard navigationAtom.record(for: receiver) != nil else {
             return .failed(.receiverUnavailable)
         }
+        let generation = capturedGeneration ?? beginNavigation(for: receiver)
+        guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
         guard let presentation = presentationPorts?.mountedPresentation(receiver) else {
             return .failed(.notMounted)
         }
-        let generation = beginNavigation(for: receiver)
         let arrival = await presentation.activateFileDocument(location)
         guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
         switch arrival {
@@ -80,13 +82,15 @@ extension BridgeNavigationCommandHandler {
     /// never touched.
     func closeFile(
         _ location: BridgeDocumentLocation,
-        in receiver: BridgeReceiver
+        in receiver: BridgeReceiver,
+        generation capturedGeneration: Int? = nil
     ) async -> BridgeNavigationCommandOutcome {
         guard let record = navigationAtom.record(for: receiver) else {
             return .failed(.receiverUnavailable)
         }
         guard record.openedDocument(at: location) != nil else { return .failed(.notInInventory) }
-        let generation = beginNavigation(for: receiver)
+        let generation = capturedGeneration ?? beginNavigation(for: receiver)
+        guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
         if record.selectedFilesDocument == location,
             let presentation = presentationPorts?.mountedPresentation(receiver)
         {
