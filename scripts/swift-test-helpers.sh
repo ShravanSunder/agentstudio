@@ -2290,13 +2290,22 @@ run_webkit_suite() {
   # Preserve raw output so a signalled helper remains visible in the receipt.
   # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
   _XCB_BYPASS=1
-  # shellcheck disable=SC2086
-  output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
-    DYLD_FRAMEWORK_PATH="$testing_framework_path" \
-    "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-    --filter "$filter" "$swift_test_bundle" --testing-library swift-testing \
-    2>&1) || command_status=$?
+  if [ -n "${EXTRA_SWIFT_TEST_ARGS:-}" ]; then
+    # swiftpm-testing-helper has no coverage option. Let SwiftPM apply the
+    # requested flags to this suite rather than silently dropping them.
+    # shellcheck disable=SC2086
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      swift test ${EXTRA_SWIFT_TEST_ARGS} --skip-build --filter "$filter" --build-path "$BUILD_PATH" \
+      2>&1) || command_status=$?
+  else
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+      --filter "$filter" "$swift_test_bundle" --testing-library swift-testing \
+      2>&1) || command_status=$?
+  fi
   unset _XCB_BYPASS
   echo "$output"
 

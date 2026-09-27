@@ -35,6 +35,27 @@ struct SwiftLaneRollingDispatcherTests {
         #expect(result.output.contains("KILLED_WORKER_DRAINED"))
     }
 
+    @Test("WebKit coverage uses SwiftPM so the coverage flag reaches the test command")
+    func webkitCoverageForwardsFlag() async throws {
+        let command = #"""
+            set -euo pipefail
+            source scripts/swift-test-helpers.sh
+            LOG_PREFIX=coverage-probe
+            EXTRA_SWIFT_TEST_ARGS=--enable-code-coverage
+            BUILD_PATH=.build-coverage-probe
+            TIMEOUT_SECONDS=60
+            swift_testing_bundle_path() { printf '/fixture/TestBundle.xctest\n'; }
+            swift_testing_helper_path() { printf '/fixture/swiftpm-testing-helper\n'; }
+            swift_testing_framework_path() { printf '/fixture/frameworks\n'; }
+            run_swift_with_timeout() { printf 'ARG:%s\n' "$@"; }
+            run_webkit_suite WebKitSerializedTests/Fixture
+            """#
+        let result = try await runLaneScriptBash(command)
+        #expect(result.exitCode == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("ARG:swift\nARG:test\nARG:--enable-code-coverage"))
+        #expect(result.output.contains("ARG:--filter\nARG:WebKitSerializedTests/Fixture"))
+    }
+
     @Test("a completed slot refills before the slow child finishes and every failure is tallied")
     func completionRefillsSlotAndTalliesFailures() async throws {
         let command = #"""
