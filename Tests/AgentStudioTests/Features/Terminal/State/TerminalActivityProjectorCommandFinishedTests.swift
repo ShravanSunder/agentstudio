@@ -23,6 +23,15 @@ private final class TerminalViewportReadSequence {
 
 @MainActor
 struct TerminalActivityProjectorCommandFinishedTests {
+    @Test("last-output resolution has no unused prompt-learning argument")
+    func lastOutputResolutionHasNoDeadPromptArgument() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/Terminal/Routing/TerminalActivityProjector.swift",
+            encoding: .utf8
+        )
+        #expect(!source.contains("learnPromptSignature"))
+    }
+
     @Test("commandFinished publishes the literal trailing viewport line with zero scrollbar evidence")
     func commandFinishedPublishesLiteralTrailingLine() async {
         let projector = TerminalActivityProjector(nowMilliseconds: { 5000 })

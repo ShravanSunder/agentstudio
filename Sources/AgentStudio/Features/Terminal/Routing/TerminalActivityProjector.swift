@@ -224,8 +224,7 @@ package actor TerminalActivityProjector {
 
         let lastOutputLine = await resolveLastOutputLine(
             surfaceID: surfaceID,
-            paneID: paneID,
-            learnPromptSignature: true
+            paneID: paneID
         )
         guard closedWindow != nil || lastOutputLine != nil else { return [] }
 
@@ -691,8 +690,7 @@ package actor TerminalActivityProjector {
         let readStartedAt = ContinuousClock.now
         let lastOutputLine = await resolveLastOutputLine(
             surfaceID: target.surfaceID,
-            paneID: target.paneID,
-            learnPromptSignature: false
+            paneID: target.paneID
         )
         closeReadDurationSink?(readStartedAt.duration(to: .now))
         if let unseenWindow, unseenWindow.rowsAdded > 0 {
@@ -729,8 +727,7 @@ package actor TerminalActivityProjector {
         paneStates[target.paneID] = state
         let lastOutputLine = await resolveLastOutputLine(
             surfaceID: candidate.surfaceID,
-            paneID: target.paneID,
-            learnPromptSignature: false
+            paneID: target.paneID
         )
         await emit([
             .agentSettledActivityPromoted(
@@ -750,8 +747,7 @@ package actor TerminalActivityProjector {
     /// across that suspension point.
     private func resolveLastOutputLine(
         surfaceID: UUID,
-        paneID: UUID,
-        learnPromptSignature _: Bool
+        paneID: UUID
     ) async -> String? {
         guard let lastOutputLineReader else { return nil }
         let readResult = await lastOutputLineReader(surfaceID)
