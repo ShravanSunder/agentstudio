@@ -108,6 +108,7 @@ package enum AppCommand: String, CaseIterable {
     case togglePanesSortDirection
     case toggleReposShowsPinned
     case togglePanesShowsPinned
+    case togglePanesShowsDrawers
     case setInboxGroupingTab
     case setInboxGroupingRepo
     case setInboxGroupingPane

@@ -3677,7 +3677,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
@@ -5013,7 +5013,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         .setReposSortFieldName, .setReposSortFieldActivity,
         .setPanesSortFieldName, .setPanesSortFieldActivity,
         .toggleReposSortDirection, .togglePanesSortDirection,
-        .toggleReposShowsPinned, .togglePanesShowsPinned,
+        .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
         .signInGitHub, .signInGoogle,
     ]
 

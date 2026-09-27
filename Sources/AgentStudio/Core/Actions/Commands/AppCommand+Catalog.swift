@@ -787,6 +787,7 @@ extension AppCommand {
         case .toggleReposSortDirection: return toggleReposSortDirectionDefinition()
         case .toggleReposShowsPinned: return toggleReposShowsPinnedDefinition()
         case .togglePanesShowsPinned: return togglePanesShowsPinnedDefinition()
+        case .togglePanesShowsDrawers: return togglePanesShowsDrawersDefinition()
         case .setInboxGroupingTab: return setInboxGroupingTabDefinition()
         case .setInboxGroupingRepo: return setInboxGroupingRepoDefinition()
         case .setInboxGroupingPane: return setInboxGroupingPaneDefinition()

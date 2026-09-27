@@ -32,6 +32,7 @@ package struct WorkspaceLocalRepository: Sendable {
         var paneSubgroupMode: SidebarSubgroupMode = .activity
         var showsPinnedRepos: Bool = true
         var showsPinnedPanes: Bool = true
+        var showsDrawerPanes: Bool = true
     }
 
     struct WorkspaceMemoryRecord: Equatable, Sendable {

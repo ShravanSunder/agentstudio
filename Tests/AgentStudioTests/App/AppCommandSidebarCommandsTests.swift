@@ -30,6 +30,7 @@ struct AppCommandSidebarCommandsTests {
             (.toggleReposSortDirection, "Direction", .system(.arrowUpArrowDown)),
             (.toggleReposShowsPinned, "Show Pinned", .system(.pin)),
             (.togglePanesShowsPinned, "Show Pinned", .system(.pin)),
+            (.togglePanesShowsDrawers, "Show Drawers", .system(.rectangleSplit3x1)),
         ]
 
         for (command, label, icon) in expectedCommands {
@@ -39,6 +40,19 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.surfacePolicy.exposes(.inlineControl))
             #expect(definition.targeting == .contextual)
         }
+    }
+
+    @Test("drawer visibility is a scoped UI command with debug IPC classification")
+    func drawerVisibilityCommandClassification() {
+        let command = AppCommand.togglePanesShowsDrawers
+        let definition = AppCommandDispatcher.shared.definition(for: command)
+
+        #expect(definition.shortcut == .togglePanesShowsDrawers)
+        #expect(definition.helpText == "Show or hide drawer panes in the Panes sidebar")
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(command.ipcSpec.exposure == .debugTesting)
+        #expect(command.ipcSpec.argumentVariants == [.workspaceWindow])
+        #expect(command.ipcSpec.resultVariants == [.applied])
     }
 
     @Test("sidebar command specs own keyboard completion after accepted dispatch")
