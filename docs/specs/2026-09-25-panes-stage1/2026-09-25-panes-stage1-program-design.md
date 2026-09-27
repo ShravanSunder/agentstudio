@@ -59,7 +59,7 @@ This section is the contract implementers follow. It applies the repo rules in [
 | Work | Runs on | Owner | Why here |
 | --- | --- | --- | --- |
 | Decide whether a settle is pane activity and stamp its occurrence time | `TerminalActivityProjector` **actor** | Features/Terminal | It owns per-surface settle state and knows whether the readable line changed. |
-| Carry the settle to other owners | existing `TerminalActivityRouter` hop → `EventBus` | unchanged | No new hop. The router already posts every settle as `.terminalActivity(.unseenActivitySettled)` — despite the name, every settle (`TerminalActivityProjector.swift:213`, `TerminalActivityRouter.swift:282-289`). |
+| Carry terminal activity to the clock | projector → injected non-blocking `submit` (actor-to-actor mailbox write) | Features/Terminal → Core via App wiring | The bus settle fact excludes attended panes, so it isn't an activity source (see "Terminal activity source"). The router and bus are unchanged. |
 | Decide whether a hook is activity (first insert, matching-pane caller, qualified capability) and stamp its occurrence time | `SessionsIngestion` **actor** + `AgentStudioIPCSessionsAdapter` (non-isolated struct, off-main) | Sessions / App composition | Insert-vs-replay is known only by the repository; provenance only at registration. |
 | Order occurrences, coalesce per pane, retire panes, report quiescence | `PaneActivityClock` **actor** (NEW) | Core/RuntimeEventSystem/PaneActivity | One owner for the one clock. |
 | Publish changed times | one thin `@MainActor` apply per batch | App composition calls `PaneActivityTimeAtom.apply(_:)` | Final application of compact actor output ([Atom And Actor Placement](../../architecture/state/atom_persistence_boundaries.md#atom-and-actor-placement)). |
@@ -89,8 +89,7 @@ PaneActivityClock  (actor, Core/RuntimeEventSystem/PaneActivity/)
     Both write into a Mutex-guarded keyed mailbox: per pane, keep the occurrence with the newest
     orderingInstant; retirements are appended in order. Then they signal one wake
     (AsyncStream<Void>, bufferingNewest(1)). A dropped wake is harmless: the mailbox holds the data.
-    Terminal: the actor's own EventBus subscription (.criticalUnbounded, as settles are .critical and
-    source-contracted) folds each admitted settle into the same mailbox.
+    Terminal: the projector calls the same submit(_:) with each counted occurrence (see "Terminal activity source").
   drain loop (actor):  take mailbox → apply rules → emit batch → await sink (MainActor apply) → repeat
   rules:
     pane retired (tombstone)            → drop; late hook or settle can never recreate it
@@ -128,10 +127,10 @@ PaneActivityTimeAtom  (@MainActor @Observable, Core/State/MainActor/Atoms/)
 
 | Source | Counts as activity when | Does not count | Owner |
 | --- | --- | --- | --- |
-| Terminal settle | the settle has a **readable last line that differs** from the last line admitted for this surface. Ordinary bursts and command-finished settles both qualify (command-finished can have `rowsAdded == 0`, `TerminalActivityProjector.swift:158-213`). | the first readable line after a surface (re)attach (baseline); unchanged or unreadable line (`lastOutputLine == nil`, `PaneRuntimeEvent.swift:54`); row growth alone | projector sets `TerminalSettledActivity.paneActivity: .counts(occurrence) \| .surfaceBaseline \| .notActivity` |
+| Terminal settle | the settle has a **readable last line that differs** from the last line admitted for this surface. Ordinary bursts and command-finished settles both qualify (command-finished can have `rowsAdded == 0`, `TerminalActivityProjector.swift:158-213`). | the first readable line after a surface (re)attach (baseline); unchanged or unreadable line (`lastOutputLine == nil`, `PaneRuntimeEvent.swift:54`); row growth alone | projector decides at its activity-window close and submits `.counts` occurrences directly (no event-contract change) |
 | Hook | first-committed insert, from the pane's own credential, qualified capability (spec R1) | replayed correlation, late spool replay, another pane's or a foreign conversation, session start/end | adapter, after `SessionsIngestion` returns `inserted` |
 
-`paneActivity` replaces the approved `isSurfaceBaseline` boolean with the three-case disposition that carries it. The preview path (`recordSettledActivity`, Repos) is unchanged.
+The approved baseline flag became an internal projector disposition; no event payload changes. The preview path (`recordSettledActivity`, Repos) is unchanged.
 
 ### Why not the existing `PaneActivityStatusAtom`
 
@@ -213,6 +212,8 @@ Dependency rules (existing architecture lint): Features never import each other;
 
 ### Terminal output (U1, R2)
 
+> **Superseded for the clock path** by "Terminal activity source" below. The projector submits to the clock directly; the router and bus lines in this diagram show the unchanged notification lane only.
+
 ```mermaid
 sequenceDiagram
     participant G as Ghostty surface
@@ -231,6 +232,20 @@ sequenceDiagram
 ```
 
 - **Unchanged:** the preview write `recordSettledActivity` (Repos) and surface-replacement handling (explorer §1.7). A surface replacement is not retirement: the pane keeps its time, and the new surface's first line is a baseline.
+
+### Terminal activity source (rebind after implementation evidence, 2026-09-26)
+
+**What we assumed:** every terminal settle is posted to the bus as `.unseenActivitySettled`, so the clock could subscribe to it.
+**What the implementer found:** for an attended pane, `consumeAggregateState` cancels the unseen window (`TerminalActivityProjector.swift:252-255`). The unseen path deliberately excludes attended panes (`:158-167`). Ordinary output in the pane you are looking at therefore never settles; only `commandFinished` does.
+**What it means:** the bus fact is a notification-lane fact, not an activity fact. Terminal activity is admitted by the projector itself and submitted straight to the clock, the same way hooks are:
+
+- The projector keeps a per-pane **activity window**. It is merged for every aggregate with rows added, regardless of attention, and closed after the existing quiet duration by the existing close scheduler.
+- **One viewport read per burst.** `resolveLastOutputLine` updates `previousLastOutputLine`, so the activity close and the unseen close must share a single read. For an unattended pane, both windows close from the same read and the unseen path's outcomes stay exactly as today. For an attended pane, only the activity window exists. `commandFinished` uses the same shared read.
+- **Disposition** (unchanged rules): readable and changed → `.counts(occurrence)`; first readable line after a surface attach → baseline; unchanged or unreadable → not activity.
+- **Submission:** the projector calls an injected `@Sendable (PaneActivityOccurrence) -> Void`, which is the clock's nonisolated non-blocking `submit` wired by App composition. That's a mailbox write between actors. It posts no bus event, adds no MainActor hop, and doesn't change the `TerminalSettledActivity` contract.
+- **Removed from the design:** the clock's EventBus subscription and the `paneActivity` field on `TerminalSettledActivity`.
+- **MainActor cost added:** one viewport read (the existing `LastOutputLineReader` hop) per quiet-debounced burst in an **attended** pane. That's usually just the focused pane, so at most one read per quiet window. The existing `activity_projection.round_trip_ms` marker measures aggregate admission; the marker-scoped numeric `activity_projection.close_read_ms` measures the shared quiet-close read. PR A reports both.
+- **Proof:** existing `TerminalActivityProjectorTests`, `…CommandFinishedTests` and `TerminalActivityRouter*Tests` stay green **unchanged**, proving the unseen/notification path is preserved. New projector tests: an attended pane with changed output submits `.counts`; repeated identical output doesn't; each attach's first line is a baseline; exactly one reader call per burst when the pane is unattended.
 
 ### Agent hooks (U1, R1, R3)
 

@@ -531,6 +531,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.accumulator.scheduled_drain.count",
         "agentstudio.performance.terminal.activity_aggregate.count",
         "agentstudio.performance.terminal.activity_projection.round_trip_ms",
+        "agentstudio.performance.terminal.activity_projection.close_read_ms",
         "agentstudio.performance.terminal.equal_write_suppressed.count",
         "agentstudio.performance.terminal.equal_suppressed.count",
         "agentstudio.performance.terminal.geometry.visible_terminal.count",

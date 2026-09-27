@@ -31,6 +31,12 @@ extension AppDelegate {
             },
             clearPaneActivityStatus: { [weak self] paneId in
                 self?.atomStore.core.paneActivityStatus.clear(paneId: paneId)
+            },
+            activityOccurrenceSink: { occurrence in
+                paneActivityClock.submit(occurrence)
+            },
+            closeReadDurationSink: { [performanceTraceRecorder] duration in
+                performanceTraceRecorder?.recordTerminalActivityCloseRead(duration)
             }
         )
         Task { @MainActor [weak self] in
