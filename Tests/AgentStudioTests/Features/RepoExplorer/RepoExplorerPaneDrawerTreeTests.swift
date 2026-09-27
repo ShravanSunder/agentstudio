@@ -72,6 +72,37 @@ struct RepoExplorerPaneDrawerTreeTests {
         #expect(projection.paneRowsByGroupId[groupID]?.first?.primaryText == "Drawer")
     }
 
+    @Test("a drawer in an older activity bucket stays directly under its owner")
+    func drawerFollowsOwnerAcrossActivityBuckets() throws {
+        let referenceInstant = ContinuousClock.now
+        let ownerID = UUIDv7.generate()
+        let drawerID = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            paneIDs: [ownerID, drawerID],
+            referenceInstant: referenceInstant,
+            showsDrawers: true
+        )
+        let prepared = RepoExplorerProjectionWorker.preparedPaneRowFacts(
+            [
+                ownerID: makeFacts(title: "Owner", age: 15, referenceInstant: referenceInstant),
+                drawerID: makeFacts(
+                    title: "Older drawer", age: 7200,
+                    referenceInstant: referenceInstant, ownerID: ownerID
+                ),
+            ],
+            snapshot: snapshot
+        )
+
+        let projection = RepoExplorerProjection.project(snapshot, paneRowFactsByPaneId: prepared)
+        let groupID = try #require(projection.resolvedGroups.first?.id)
+        let rows = try #require(projection.paneRowsByGroupId[groupID])
+        try #require(rows.count == 2)
+
+        #expect(rows.map(\.destination.paneId) == [ownerID, drawerID])
+        #expect(rows.map(\.drawerRail) == [.ownerWithDrawers, .drawer(isLast: true)])
+        #expect(rows[0].recencyText != rows[1].recencyText)
+    }
+
     private func makeSnapshot(
         paneIDs: [UUID],
         referenceInstant: ContinuousClock.Instant,

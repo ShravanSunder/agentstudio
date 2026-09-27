@@ -29,6 +29,24 @@ extension RepoExplorerProjection {
                 return isPinned == (sectionKind == .pinnedPanes)
             }
             guard !sectionDestinations.isEmpty else { continue }
+            let sectionPaneIDs = Set(sectionDestinations.map(\.paneId))
+            let groupingActivityByPaneID = sectionDestinations.reduce(
+                into: [UUID: RepoExplorerPaneActivityProjection]()
+            ) { result, destination in
+                let facts = input.paneFacts[destination.paneId]
+                let ownerPaneID = facts?.drawerOwnerPaneID
+                // A visible child keeps its own clock, but sits in its owner's display bucket.
+                let groupingPaneID =
+                    if facts?.isDrawerPane == true,
+                        let ownerPaneID,
+                        sectionPaneIDs.contains(ownerPaneID)
+                    {
+                        ownerPaneID
+                    } else {
+                        destination.paneId
+                    }
+                result[destination.paneId] = activityByPaneID[groupingPaneID]
+            }
 
             let bucketTitles: [(key: String, title: String)] =
                 if sectionKind == .pinnedPanes {
@@ -39,7 +57,7 @@ extension RepoExplorerProjection {
             var groups: [RepoPresentationGroup] = []
             for bucket in bucketTitles {
                 let members = sectionDestinations.filter { destination in
-                    guard let activity = activityByPaneID[destination.paneId] else { return false }
+                    guard let activity = groupingActivityByPaneID[destination.paneId] else { return false }
                     return sectionKind == .pinnedPanes
                         ? String(activity.pinnedBucket.rawValue) == bucket.key
                         : String(activity.unpinnedBucket.rawValue) == bucket.key
