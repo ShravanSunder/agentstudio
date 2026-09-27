@@ -50,6 +50,7 @@ struct SwiftLaneHangEvidenceTests {
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
         printf 'arrived\\tstep-1\\tgate A\\n' \
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
+        touch "$LANE_WATCHDOG_ARM_PATH"
         while true; do sleep 1; done
 
         """.write(toFile: workDirectory + "/wedged-test.sh", atomically: true, encoding: .utf8)
@@ -62,7 +63,9 @@ struct SwiftLaneHangEvidenceTests {
 
         let laneOutput = try await laneBashAllowingFailure(
             "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
-                + "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)'; export PATH='\(workDirectory)/bin':$PATH; "
+                + "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)'; "
+                + "export LANE_WATCHDOG_ARM_PATH='\(workDirectory)/watchdog-armed'; "
+                + "export PATH='\(workDirectory)/bin':$PATH; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
                 + "run_swift_with_timeout 'evidence probe' 0 /bin/bash '\(workDirectory)/wedged-test.sh' "
                 + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\""
