@@ -90,8 +90,8 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(secondCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "2")
     }
 
-    @Test("pane and worktree rows omit Space while retaining trailing number stamps")
-    func paneAndWorktreeRowsOmitSpaceWhileRetainingTrailingNumberStamps() throws {
+    @Test("worktree rows publish their numbered shortcut only while keyboard hints show")
+    func worktreeRowsPublishNumberedShortcutOnlyWhileKeyboardHintsShow() throws {
         let fixture = RepoExplorerListKeyboardFixture()
         defer { fixture.close() }
         let repositoryID = UUIDv7.generate()

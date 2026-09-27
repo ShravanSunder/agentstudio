@@ -120,9 +120,33 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
     }
 
-    @Test("configuration starts unprepared while injected capabilities start prepared")
+    @Test("configuration-backed datastore refuses loads until it prepares its databases")
+    func configurationBackedDatastoreStartsUnprepared() async throws {
+        let rootDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-datastore-preparation-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+        let datastore = WorkspaceSQLiteDatastoreActor(
+            configuration: .init(
+                coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
+                localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
+            )
+        )
+
+        guard case .unavailable = await datastore.loadAuthoritativeCoreSnapshot() else {
+            Issue.record("Expected an unprepared datastore to refuse the core snapshot load")
+            return
+        }
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected the configuration-backed datastore to prepare its databases")
+            return
+        }
+        #expect(await datastore.loadAuthoritativeCoreSnapshot() == .uninitialized)
+    }
+
+    @Test("datastore built from injected prepared capabilities starts prepared")
     @MainActor
-    func datastoreConstructionMakesPreparationHonest() async throws {
+    func injectedCapabilitiesStartPrepared() async throws {
         let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         let localDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceCoreMigrations.migrate(coreDatabaseQueue)
