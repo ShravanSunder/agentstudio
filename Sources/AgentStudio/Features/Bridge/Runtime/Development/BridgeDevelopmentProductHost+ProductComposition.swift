@@ -7,6 +7,7 @@ struct BridgeDevelopmentProductProviderPreparationInput {
     // instead of sampling the host's diagnostic read.
     let didCommitReviewPublication: (@MainActor @Sendable (BridgeReviewCommittedPublication) -> Void)?
     let gitReadContext: BridgeGitReadContext
+    let operationDeadlineClock: (any Clock<Duration> & Sendable)?
     let reviewInitialization: BridgeDevelopmentProductReviewInitialization
     let reviewProvider: any BridgeReviewSourceProvider
     let schemeTaskCensus: BridgeProductSchemeTaskCensus
@@ -178,6 +179,7 @@ extension BridgeDevelopmentProductHost {
             paneSessionId: input.source.paneID.uuidString,
             provider: productProvider,
             productAdmissionGate: productAdmissionGate,
+            operationDeadlineClock: input.operationDeadlineClock,
             didRetireWorkerInstance: { workerInstanceId in
                 await reviewPublicationCoordinator.retireDisplayWorker(
                     workerInstanceId: workerInstanceId

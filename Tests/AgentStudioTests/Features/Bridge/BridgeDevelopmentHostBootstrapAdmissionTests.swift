@@ -23,6 +23,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            operationDeadlineClock: TestPushClock(),
             contributionTargetCommit: developmentContributionTargetCommit(
                 worktreeRoot: repositoryURL
             )
@@ -58,6 +59,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            operationDeadlineClock: TestPushClock(),
             contributionTargetCommit: developmentContributionTargetCommit(
                 worktreeRoot: repositoryURL
             )
@@ -102,6 +104,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         let terminationHold = BridgeSchemeTaskTerminationHold()
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            operationDeadlineClock: TestPushClock(),
             contributionTargetCommit: developmentContributionTargetCommit(
                 worktreeRoot: repositoryURL
             ),

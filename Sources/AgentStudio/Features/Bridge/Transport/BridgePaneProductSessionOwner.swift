@@ -151,6 +151,7 @@ package actor BridgePaneProductSessionOwner {
     private var isPaneDisposalRequested = false
     private var lifecycleTransitionTail: Task<Void, Never>?
     private let paneSessionId: String
+    private let operationDeadlineClock: (any Clock<Duration> & Sendable)?
     private var preparedInstallationsByWorkerInstanceId: [String: BridgeProductSessionInstallation] = [:]
     private let provider: any BridgeProductSchemeProvider
     private let retirementDelay: AsyncDelay
@@ -169,6 +170,7 @@ package actor BridgePaneProductSessionOwner {
         productAdmissionGate: BridgeProductAdmissionGate,
         activeInstallation: BridgeProductSessionInstallation? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
+        operationDeadlineClock: (any Clock<Duration> & Sendable)? = nil,
         didRetireWorkerInstance: @escaping @Sendable (String) async -> Void = { _ in },
         retirementClock: (any Clock<Duration> & Sendable)? = nil,
         schemeTaskCensus: BridgeProductSchemeTaskCensus = BridgeProductSchemeTaskCensus()
@@ -179,6 +181,7 @@ package actor BridgePaneProductSessionOwner {
                 || activeInstallation?.productAdmissionGate === productAdmissionGate
         )
         self.paneSessionId = paneSessionId
+        self.operationDeadlineClock = operationDeadlineClock
         self.provider = provider
         self.retirementDelay = retirementClock.map(AsyncDelay.clock) ?? .taskSleep
         self.telemetryRecorder = telemetryRecorder
@@ -204,7 +207,8 @@ package actor BridgePaneProductSessionOwner {
                     paneSessionId: paneSessionId,
                     provider: provider,
                     productAdmissionGate: productAdmissionGate,
-                    telemetryRecorder: telemetryRecorder
+                    telemetryRecorder: telemetryRecorder,
+                    deadlineClock: operationDeadlineClock
                 )
                 preparedInstallationsByWorkerInstanceId[candidate.bootstrap.workerInstanceId] = candidate
                 return candidate

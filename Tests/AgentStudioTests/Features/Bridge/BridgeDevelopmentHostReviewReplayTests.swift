@@ -24,6 +24,7 @@ struct BridgeDevelopmentHostReviewReplayTests {
         let provider = makeReviewReplayProvider(itemCount: expectedItemCount)
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            operationDeadlineClock: TestPushClock(),
             contributionTargetCommit: developmentContributionTargetCommit(
                 worktreeRoot: repositoryURL
             ),

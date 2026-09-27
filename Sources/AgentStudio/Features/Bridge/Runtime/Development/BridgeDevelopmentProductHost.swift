@@ -68,6 +68,7 @@ package actor BridgeDevelopmentProductHost {
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
         statusPhysicalGate: AgentStudioGitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate(),
+        operationDeadlineClock: (any Clock<Duration> & Sendable)? = nil,
         retirementClock: (any Clock<Duration> & Sendable)? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
@@ -77,6 +78,7 @@ package actor BridgeDevelopmentProductHost {
             source: source,
             worktreeAnnotationStore: worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
+            operationDeadlineClock: operationDeadlineClock,
             retirementClock: retirementClock,
             contributionTargetCommit: contributionTargetCommit,
             statusPhysicalGate: statusPhysicalGate,
@@ -94,6 +96,7 @@ package actor BridgeDevelopmentProductHost {
         source: BridgeDevelopmentProductSource,
         worktreeAnnotationStore: WorktreeAnnotationServiceActor? = nil,
         worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinatorActor? = nil,
+        operationDeadlineClock: (any Clock<Duration> & Sendable)? = nil,
         retirementClock: (any Clock<Duration> & Sendable)? = nil,
         contributionTargetCommit:
             @escaping @MainActor @Sendable (WorkspaceReviewContributionTarget) ->
@@ -138,6 +141,7 @@ package actor BridgeDevelopmentProductHost {
             .init(
                 didCommitReviewPublication: reviewCommitObservation,
                 gitReadContext: gitReadContext,
+                operationDeadlineClock: operationDeadlineClock,
                 reviewInitialization: reviewInitialization,
                 reviewProvider: reviewProvider,
                 schemeTaskCensus: schemeTaskCensus,
