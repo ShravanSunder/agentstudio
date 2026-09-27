@@ -109,6 +109,27 @@ final class BridgeSchemeHandlerRPCTests {
             handler: handler,
             request: request
         )
+        let admitted = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: activeReply.body
+        )
+        let resultBody = try JSONSerialization.data(
+            withJSONObject: [
+                "kind": "operation.result",
+                "operationId": admitted.operationId,
+                "paneSessionId": paneSessionId,
+                "wireVersion": BridgeProductWireContract.version,
+                "workerInstanceId": installation.bootstrap.workerInstanceId,
+            ]
+        )
+        let resultReply = try await collectBridgeSchemeHandlerReply(
+            handler: handler,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: capabilityHeader,
+                body: resultBody
+            )
+        )
         await router.clear()
         let inactiveReply = try await collectBridgeSchemeHandlerReply(
             handler: handler,
@@ -122,9 +143,14 @@ final class BridgeSchemeHandlerRPCTests {
             activeReply.response?.value(forHTTPHeaderField: "Access-Control-Allow-Methods")
                 == "OPTIONS, POST"
         )
+        let result = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationResultResponse.self,
+            from: resultReply.body
+        )
+        #expect(result.outcome == .succeeded)
         let response = try BridgeProductStrictJSON.decode(
             BridgeProductControlResponse.self,
-            from: activeReply.body
+            from: JSONEncoder().encode(try #require(result.result))
         )
         guard case .workerSessionAccepted(let accepted) = response else {
             Issue.record("Expected a typed workerSession.accepted response")

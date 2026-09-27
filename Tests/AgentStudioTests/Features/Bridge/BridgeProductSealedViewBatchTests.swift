@@ -8,11 +8,14 @@ struct BridgeProductSealedViewBatchTests {
     @Test("a frozen batch larger than the credit window emits in order as receipts arrive")
     func sealedBatchProgressesThroughReceiptCredits() throws {
         let viewDomain = BridgeProductViewDomainKey(
-            viewId: "review-subscription-1",
+            viewId: "file-subscription-1",
             domain: .singleDomain,
             incarnation: "review-incarnation-1"
         )
-        let scope: BridgeProductJSONValue = .object(["kind": .string("review")])
+        let scope: BridgeProductJSONValue = .object([
+            "kind": .string("file"),
+            "changeFilter": .object(["kind": .string("none")]),
+        ])
         var producerParts: [BridgeProductBatchPart] = [
             .put(key: "item/a", revision: 4, value: .object(["itemId": .string("a")])),
             .delete(key: "item/old", revision: 4),
@@ -22,7 +25,7 @@ struct BridgeProductSealedViewBatchTests {
             viewDomain: viewDomain,
             producerScanGeneration: 1,
             handle: "review-handle-1",
-            subscriptionKind: .reviewMetadata,
+            subscriptionKind: .fileMetadata,
             scopeRevision: 2,
             baseRevision: 0,
             targetRevision: 4,

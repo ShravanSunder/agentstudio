@@ -343,9 +343,35 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                 body: try fixture.transcriptValueData(named: requestName)
             )
         )
+        let admission = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: observation.body
+        )
+        let resultBody = try JSONSerialization.data(
+            withJSONObject: [
+                "kind": "operation.result",
+                "operationId": admission.operationId,
+                "paneSessionId": admission.correlation.paneSessionId,
+                "wireVersion": BridgeProductWireContract.version,
+                "workerInstanceId": admission.correlation.workerInstanceId,
+            ]
+        )
+        let resultReply = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: harness.request(
+                route: BridgeProductWireContract.commandRoute,
+                body: resultBody
+            )
+        )
+        #expect(resultReply.response?.statusCode == 200)
+        let result = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationResultResponse.self,
+            from: resultReply.body
+        )
+        #expect(result.outcome == .succeeded)
         let response = try BridgeProductStrictJSON.decode(
             BridgeProductControlResponse.self,
-            from: observation.body
+            from: JSONEncoder().encode(try #require(result.result))
         )
         let expectedResponse = try fixture.decodeTranscriptValue(
             BridgeProductControlResponse.self,

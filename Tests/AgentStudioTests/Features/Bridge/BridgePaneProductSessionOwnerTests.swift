@@ -586,35 +586,6 @@ func installFirstCandidate(
     return candidate
 }
 
-func openBridgePaneProductSession(
-    _ installation: BridgeProductSessionInstallation
-) async throws {
-    let requestBody = try JSONSerialization.data(
-        withJSONObject: [
-            "kind": "workerSession.open",
-            "paneSessionId": installation.bootstrap.paneSessionId,
-            "request": NSNull(),
-            "requestId": "request-open-pane-owner",
-            "requestSequence": 1,
-            "wireVersion": BridgeProductWireContract.version,
-            "workerInstanceId": installation.bootstrap.workerInstanceId,
-        ],
-        options: [.sortedKeys]
-    )
-    let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
-        installation.capabilityBytes
-    )
-    let observation = try await collectBridgeProductSchemeReply(
-        adapter: installation.productAdapter,
-        request: bridgeProductSchemeRequest(
-            route: BridgeProductWireContract.commandRoute,
-            capability: capabilityHeader,
-            body: requestBody
-        )
-    )
-    #expect(observation.response?.statusCode == 200)
-}
-
 func startBridgePaneProductMetadataReply(
     installation: BridgeProductSessionInstallation,
     provider: BridgePaneProductSessionProviderGate,

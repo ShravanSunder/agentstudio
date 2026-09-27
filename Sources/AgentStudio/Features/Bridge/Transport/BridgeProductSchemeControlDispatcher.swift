@@ -173,6 +173,10 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
                 provider: provider,
                 productAdmission: productAdmission
             )
+            guard productAdmission.withValidAdmission({ true }) == true else {
+                await session.settleControlProviderDispatch(token: token)
+                return
+            }
             await session.settleOperation(operationId: operationId, response: providerResponse)
         } catch {
             if await session.isOperationSettledUnknown(operationId) {

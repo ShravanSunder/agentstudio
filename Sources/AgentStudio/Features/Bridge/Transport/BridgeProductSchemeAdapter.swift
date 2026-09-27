@@ -659,6 +659,9 @@ struct BridgeProductSchemeAdapter: Sendable {
                         await pump.acknowledgeFrameConsumed(delivery.receipt)
                     }
                 guard frameAccepted else {
+                    if productAdmission.withValidAdmission({ true }) != true {
+                        throw CancellationError()
+                    }
                     throw BridgeProductSchemeAdapterError.frameAcknowledgementRejected
                 }
             case .finished:

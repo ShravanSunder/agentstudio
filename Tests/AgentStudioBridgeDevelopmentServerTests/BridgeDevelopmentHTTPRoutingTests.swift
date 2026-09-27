@@ -465,16 +465,12 @@ struct BridgeDevelopmentHTTPRoutingTests {
                     }
                     #expect(response.status == .ok)
                     #expect(response.headers[.contentType] == "application/json")
-                    let controlResponse = try BridgeProductStrictJSON.decode(
-                        BridgeProductControlResponse.self,
+                    let admission = try BridgeProductStrictJSON.decode(
+                        BridgeProductOperationAdmittedResponse.self,
                         from: Data(response.body.readableBytesView)
                     )
-                    guard case .workerSessionAccepted(let accepted) = controlResponse else {
-                        Issue.record("Expected workerSession.accepted through the HTTP carrier")
-                        return
-                    }
-                    #expect(accepted.correlation.paneSessionId == envelope.bootstrap.paneSessionId)
-                    #expect(accepted.correlation.workerInstanceId == envelope.bootstrap.workerInstanceId)
+                    #expect(admission.correlation.paneSessionId == envelope.bootstrap.paneSessionId)
+                    #expect(admission.correlation.workerInstanceId == envelope.bootstrap.workerInstanceId)
                 }
             }
         }

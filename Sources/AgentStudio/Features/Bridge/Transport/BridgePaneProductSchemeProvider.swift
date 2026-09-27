@@ -58,6 +58,20 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     let reviewComparisonTargetCatalogProducer: any BridgeReviewComparisonTargetCatalogProducing
     let comparisonTargetCatalogTraceRecorder: (any BridgeReviewComparisonTargetCatalogTraceRecording)?
     package var pendingComparisonTargetReservation: BridgeProductReviewComparisonTargetsReservation?
+    private var currentWorkerInstanceId: String?
+    private var hasSessionOwner = false
+
+    func activateWorkerIdentity(_ workerInstanceId: String) {
+        hasSessionOwner = true
+        currentWorkerInstanceId = workerInstanceId
+    }
+
+    func revokeWorkerIdentity(_ workerInstanceId: String) {
+        hasSessionOwner = true
+        if currentWorkerInstanceId == workerInstanceId || currentWorkerInstanceId == nil {
+            currentWorkerInstanceId = nil
+        }
+    }
 
     init(
         annotationSource: BridgePaneAnnotationNotificationSource = .unavailable,
@@ -269,7 +283,10 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         case .reviewComparisonUpdate:
             return try .callCompleted(correlating: request, result: .reviewComparisonUpdate)
         case .reviewComparisonTargetsQuery:
-            return try await reviewComparisonTargetsQueryResponse(for: request)
+            return try await reviewComparisonTargetsQueryResponse(
+                for: request,
+                productAdmission: productAdmission
+            )
         case .reviewMarkFileViewed:
             return try .callCompleted(correlating: request, result: .reviewMarkFileViewed)
         case .reviewIntakeReady:
@@ -314,7 +331,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     private func reviewComparisonTargetsQueryResponse(
-        for request: BridgeProductControlRequest
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext?
     ) async throws -> BridgeProductControlResponse {
         let authorizationStartedAt = ContinuousClock.now
         guard let authorization = await authorizeReviewComparisonTargets() else {
@@ -340,7 +358,21 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             )
             return try comparisonTargetsUnavailableError(for: request)
         }
-        pendingComparisonTargetReservation = reservation
+        guard !hasSessionOwner || currentWorkerInstanceId == reservation.workerInstanceId else {
+            return try comparisonTargetsUnavailableError(for: request)
+        }
+        if let productAdmission {
+            guard
+                productAdmission.withValidAdmission({
+                    pendingComparisonTargetReservation = reservation
+                    return true
+                }) == true
+            else {
+                return try comparisonTargetsUnavailableError(for: request)
+            }
+        } else {
+            pendingComparisonTargetReservation = reservation
+        }
         recordComparisonTargetCatalogTrace(
             stage: .authorization,
             outcome: .success,

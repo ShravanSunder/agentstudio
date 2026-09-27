@@ -518,19 +518,15 @@ struct BridgeDevelopmentProductHostTests {
                     Issue.record("Unexpected URL scheme response event")
                 }
             }
-            let controlResponse = try BridgeProductStrictJSON.decode(
-                BridgeProductControlResponse.self,
+            let admission = try BridgeProductStrictJSON.decode(
+                BridgeProductOperationAdmittedResponse.self,
                 from: responseBody
             )
 
             // Assert
             #expect(response?.statusCode == 200)
-            guard case .workerSessionAccepted(let accepted) = controlResponse else {
-                Issue.record("Expected the existing adapter to accept the worker session")
-                return
-            }
-            #expect(accepted.correlation.paneSessionId == delivery.bootstrap.paneSessionId)
-            #expect(accepted.correlation.workerInstanceId == delivery.bootstrap.workerInstanceId)
+            #expect(admission.correlation.paneSessionId == delivery.bootstrap.paneSessionId)
+            #expect(admission.correlation.workerInstanceId == delivery.bootstrap.workerInstanceId)
         }
     }
 }
