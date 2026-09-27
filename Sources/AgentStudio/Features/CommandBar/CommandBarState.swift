@@ -34,6 +34,9 @@ package final class CommandBarState {
     /// Full raw text including any visible prefix characters (e.g., "> close", "$ main").
     package var rawInput: String = "" {
         didSet {
+            if rawInput != oldValue {
+                shouldSelectRestoredRootQuery = false
+            }
             if let normalizedPrefix = Self.normalizedLeadingPrefix(for: rawInput, previousInput: oldValue),
                 rawInput != normalizedPrefix
             {
@@ -45,6 +48,8 @@ package final class CommandBarState {
             }
         }
     }
+    private(set) var lastRootQuery: String = ""
+    private(set) var shouldSelectRestoredRootQuery = false
 
     // MARK: - Navigation
 
@@ -239,8 +244,9 @@ package final class CommandBarState {
         if let prefix, !prefix.isEmpty, [">", "$", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
-            rawInput = prefix ?? ""
+            rawInput = prefix ?? lastRootQuery
         }
+        shouldSelectRestoredRootQuery = prefix == nil && !lastRootQuery.isEmpty
         pinnedScope = activeScope
         navigationStack = []
         forkEligibilityBySourceWorktreeId = [:]
@@ -253,6 +259,9 @@ package final class CommandBarState {
 
     /// Dismiss the command bar entirely.
     func dismiss() {
+        if !isNested && activePrefix == nil {
+            lastRootQuery = rawInput
+        }
         rootSessionGeneration += 1
         isVisible = false
         rawInput = ""
@@ -275,6 +284,7 @@ package final class CommandBarState {
         defaultStartPointQueryFailures = []
         defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
+        shouldSelectRestoredRootQuery = false
         pinnedScope = activeScope
         selectedIndex = 0
     }

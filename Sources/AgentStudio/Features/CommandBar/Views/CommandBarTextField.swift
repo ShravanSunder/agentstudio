@@ -21,6 +21,7 @@ struct CommandBarTextField: NSViewRepresentable {
     @Environment(\.commandBarInputFocusAcknowledgement) private var acknowledgeInputFocus
     @Binding var text: String
     let placeholder: String
+    var selectAllOnFocus = false
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
@@ -52,6 +53,13 @@ struct CommandBarTextField: NSViewRepresentable {
         Task { @MainActor [weak field] in
             guard let field else { return }
             if field.window?.makeFirstResponder(field) == true {
+                if let editor = field.currentEditor() as? NSTextView {
+                    editor.setSelectedRange(
+                        Coordinator.selectionRange(
+                            for: field.stringValue,
+                            selectAll: field.coordinator?.parent.selectAllOnFocus ?? false
+                        ))
+                }
                 acknowledgeInputFocus()
             }
         }
@@ -60,10 +68,11 @@ struct CommandBarTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: KeyInterceptingTextField, context: Context) {
+        context.coordinator.parent = self
         if nsView.stringValue != text {
             nsView.stringValue = text
             if let editor = nsView.currentEditor() as? NSTextView {
-                editor.setSelectedRange(NSRange(location: text.count, length: 0))
+                editor.setSelectedRange(Coordinator.selectionRange(for: text, selectAll: selectAllOnFocus))
             }
         }
         nsView.placeholderString = placeholder
@@ -84,13 +93,17 @@ struct CommandBarTextField: NSViewRepresentable {
         }
 
         /// Called when the field editor is set up (field gains focus).
-        /// Deselect all text and place cursor at end.
+        /// Restore selection only for a retained root query.
         func controlTextDidBeginEditing(_ obj: Notification) {
             guard let field = obj.object as? NSTextField,
                 let editor = field.currentEditor() as? NSTextView
             else { return }
-            let len = field.stringValue.count
-            editor.setSelectedRange(NSRange(location: len, length: 0))
+            editor.setSelectedRange(Self.selectionRange(for: field.stringValue, selectAll: parent.selectAllOnFocus))
+        }
+
+        static func selectionRange(for text: String, selectAll: Bool) -> NSRange {
+            let length = (text as NSString).length
+            return NSRange(location: selectAll ? 0 : length, length: selectAll ? length : 0)
         }
 
         /// Intercept special keys before the text field handles them.

@@ -46,6 +46,7 @@ package struct CommandBarSearchField: View {
             CommandBarTextField(
                 text: $state.rawInput,
                 placeholder: state.placeholder,
+                selectAllOnFocus: state.shouldSelectRestoredRootQuery,
                 onArrowUp: onArrowUp,
                 onArrowDown: onArrowDown,
                 onEnter: onEnter,

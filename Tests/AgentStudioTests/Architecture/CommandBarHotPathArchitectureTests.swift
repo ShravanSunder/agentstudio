@@ -15,20 +15,15 @@ struct CommandBarHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        let repoScopeItems = try #require(
+        let searchItems = try #require(
             source.slice(
-                from: "static func repoScopeItems(", to: "static func everythingWorktreeItems(")
-        )
-        let everythingWorktreeItems = try #require(
-            source.slice(
-                from: "static func everythingWorktreeItems(",
+                from: "static func searchableRepositoryAndWorktreeItems(",
                 to: "static func unifiedWorktreeItem(")
         )
 
-        #expect(repoScopeItems.contains("dispatcher: any AppCommandDispatching"))
-        #expect(repoScopeItems.contains("buildWorktreePresenceByWorktreeId(store: store)"))
-        #expect(everythingWorktreeItems.contains("buildWorktreePresenceByWorktreeId(store: store)"))
-        #expect(!everythingWorktreeItems.contains("buildWorktreePresence(worktree:"))
+        #expect(searchItems.contains("locationsByWorktreeId: worktreeLocationsByWorktreeId(store: store)"))
+        #expect(searchItems.contains("presenceByWorktreeId[worktree.id]"))
+        #expect(!searchItems.contains("buildWorktreePresence(worktree:"))
     }
 
     @Test("view and controller consume CommandBarResultSession instead of independent pipelines")

@@ -81,6 +81,12 @@ enum CommandBarSearch {
             attributes: [
                 "agentstudio.performance.commandbar.input.count": .int(items.count),
                 "agentstudio.performance.commandbar.result.count": .int(filteredItems.count),
+                "agentstudio.performance.commandbar.input_worktree_row.count": .int(
+                    items.filter { $0.id.hasPrefix("repo-wt-") }.count
+                ),
+                "agentstudio.performance.commandbar.result_worktree_row.count": .int(
+                    filteredItems.filter { $0.id.hasPrefix("repo-wt-") }.count
+                ),
                 "agentstudio.performance.commandbar.query_character.count": .int(query.count),
             ]
         )
