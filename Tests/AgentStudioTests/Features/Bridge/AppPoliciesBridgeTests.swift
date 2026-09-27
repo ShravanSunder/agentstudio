@@ -16,6 +16,14 @@ final class AppPoliciesBridgeTests {
         )
     }
 
+    @Test("product and telemetry bootstraps use the same native pre-ready bounds")
+    func bridgeBootstrapCarriesTelemetryPreReadyBounds() {
+        let productPolicy = BridgeProductBootstrapPolicy.productContract
+        let telemetryPolicy = BridgeTelemetryWorkerPolicy.live
+        #expect(productPolicy.telemetryPreReadyBufferMaxBytes == telemetryPolicy.producerPreReadyBufferMaxBytes)
+        #expect(productPolicy.telemetryPreReadyBufferMaxSamples == telemetryPolicy.producerPreReadyBufferMaxSamples)
+    }
+
     @Test("Bridge lifecycle diagnostics use a bounded observability-only window")
     func bridgeLifecycleDiagnosticsUseBoundedPolicy() {
         #expect(AppPolicies.Bridge.operationLifecycleTerminalWindow == .seconds(30))

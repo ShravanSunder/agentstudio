@@ -386,6 +386,8 @@ AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$ARTIFACT_ROOT/preflight.env" \
 
 # shellcheck disable=SC1091
 source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "verify-global-preferences-startup-performance"
+trap swift_build_slot_release EXIT
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "building debug AgentStudio once for launch comparison: $BUILD_PATH"
 bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify

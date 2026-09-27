@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import type { Page, Request, Response, Route } from 'playwright';
 
 import { bridgeProductContentRequestSchema } from '../../src/core/comm-worker/bridge-product-content-contracts.js';
+import {
+	bridgeProductAdmissionResponseSchema,
+	bridgeProductOperationResultResponseSchema,
+} from '../../src/core/comm-worker/bridge-product-operation-wire-contracts.js';
 import { bridgeProductControlRequestSchema } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
 import { bridgeProductWorktreeAnnotationCommandOutcomeSchema } from '../../src/core/comm-worker/bridge-product-worktree-annotation-contracts.js';
 import { waitForDemandedAnnotationProjectionContent } from './bridge-viewer-vite-annotation-projection-test-support.ts';
@@ -363,9 +367,18 @@ function observeChurnEvidence(page: Page): ChurnEvidenceObserver {
 		transportRequests: [],
 	};
 	const pendingOutcomeReads = new Set<Promise<void>>();
+	const operationKindById = new Map<string, string>();
+	const resultByOperationId = new Map<string, unknown>();
+	const recordedOperationIds = new Set<string>();
 	page.on('request', (request): void => recordTransportRequest(evidence, request));
 	page.on('response', (response): void => {
-		const read = recordAnnotationOutcome(evidence, response).finally((): void => {
+		const read = recordAnnotationOutcome({
+			evidence,
+			operationKindById,
+			recordedOperationIds,
+			response,
+			resultByOperationId,
+		}).finally((): void => {
 			pendingOutcomeReads.delete(read);
 		});
 		pendingOutcomeReads.add(read);
@@ -465,7 +478,15 @@ function isOutputScopeCommitRequest(request: Request): boolean {
 	);
 }
 
-async function recordAnnotationOutcome(evidence: ChurnEvidence, response: Response): Promise<void> {
+async function recordAnnotationOutcome(props: {
+	readonly evidence: ChurnEvidence;
+	readonly operationKindById: Map<string, string>;
+	readonly recordedOperationIds: Set<string>;
+	readonly response: Response;
+	readonly resultByOperationId: Map<string, unknown>;
+}): Promise<void> {
+	const { evidence, operationKindById, recordedOperationIds, response, resultByOperationId } =
+		props;
 	const request = response.request();
 	if (
 		request.method() !== 'POST' ||
@@ -473,17 +494,72 @@ async function recordAnnotationOutcome(evidence: ChurnEvidence, response: Respon
 	)
 		return;
 	const requestBody: unknown = request.postDataJSON();
-	if (!isRecord(requestBody) || !isRecord(requestBody['call'])) return;
-	const callRequest = requestBody['call']['request'];
-	if (!isRecord(callRequest) || !isRecord(callRequest['operation'])) return;
-	const operationKind = callRequest['operation']['kind'];
-	if (typeof operationKind !== 'string') return;
-	const responseBody: unknown = await response.json().catch((): null => null);
+	if (!isRecord(requestBody)) return;
+	if (requestBody['kind'] === 'product.call') {
+		const admission = bridgeProductAdmissionResponseSchema.safeParse(
+			await response.json().catch((): null => null),
+		);
+		if (!admission.success || admission.data.kind !== 'operation.admitted') return;
+		const call = requestBody['call'];
+		if (
+			!isRecord(call) ||
+			(call['method'] !== 'file.annotations.command' &&
+				call['method'] !== 'review.annotations.command') ||
+			!isRecord(call['request'])
+		)
+			return;
+		const operation = call['request']['operation'];
+		if (!isRecord(operation) || typeof operation['kind'] !== 'string') return;
+		operationKindById.set(admission.data.operationId, operation['kind']);
+		const priorResult = resultByOperationId.get(admission.data.operationId);
+		if (priorResult !== undefined) {
+			recordSettledAnnotationOutcome(
+				evidence,
+				operation['kind'],
+				priorResult,
+				admission.data.operationId,
+				recordedOperationIds,
+			);
+		}
+		return;
+	}
+	if (requestBody['kind'] !== 'operation.result') return;
+	const settlement = bridgeProductOperationResultResponseSchema.safeParse(
+		await response.json().catch((): null => null),
+	);
+	if (
+		!settlement.success ||
+		settlement.data.outcome !== 'succeeded' ||
+		settlement.data.operationId !== requestBody['operationId']
+	)
+		return;
+	resultByOperationId.set(settlement.data.operationId, settlement.data.result);
+	const operationKind = operationKindById.get(settlement.data.operationId);
+	if (operationKind !== undefined) {
+		recordSettledAnnotationOutcome(
+			evidence,
+			operationKind,
+			settlement.data.result,
+			settlement.data.operationId,
+			recordedOperationIds,
+		);
+	}
+}
+
+function recordSettledAnnotationOutcome(
+	evidence: ChurnEvidence,
+	operationKind: string,
+	responseBody: unknown,
+	operationId: string,
+	recordedOperationIds: Set<string>,
+): void {
+	if (recordedOperationIds.has(operationId)) return;
 	if (!isRecord(responseBody) || !isRecord(responseBody['call'])) return;
 	const result = responseBody['call']['result'];
 	if (!isRecord(result) || !isRecord(result['outcome'])) return;
 	const outcome = bridgeProductWorktreeAnnotationCommandOutcomeSchema.safeParse(result['outcome']);
 	if (!outcome.success) return;
+	recordedOperationIds.add(operationId);
 	evidence.annotationOutcomes.push({
 		operationKind,
 		status:

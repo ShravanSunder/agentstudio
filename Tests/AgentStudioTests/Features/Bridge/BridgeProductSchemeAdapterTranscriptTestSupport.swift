@@ -7,7 +7,7 @@ import Foundation
 
 struct BridgeProductSchemeTranscriptFixture {
     static let expectedSHA256 =
-        "a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3"
+        "ceff569ba2d4c78540fad3a6ec9d60d478c7e026763e941c363424a549f4998c"
 
     let bytes: Data
     let root: [String: Any]
@@ -117,7 +117,8 @@ struct BridgeProductSchemeAdapterTranscriptHarness {
         let session = try BridgeProductSession(
             paneSessionId: paneSessionId,
             workerInstanceId: workerInstanceId,
-            capabilityBytes: capabilityBytes
+            capabilityBytes: capabilityBytes,
+            deadlineClock: TestPushClock()
         )
         let provider = BridgeProductSchemeTranscriptProvider(
             reviewSourceData: reviewSourceData,

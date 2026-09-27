@@ -836,9 +836,12 @@ export class BridgeCommWorkerProductController {
 		};
 		if (command.params.mode === 'review') {
 			const result = await this.#productTransport.call('review.activeViewerMode.update', request);
-			if (requestOrdinal !== this.#latestActiveViewerModeRequestOrdinal) return result;
-			this.#onActiveViewerModeAdmitted('review');
+			if (requestOrdinal === this.#latestActiveViewerModeRequestOrdinal) {
+				this.#onActiveViewerModeAdmitted('review');
+			}
 			try {
+				// The visible-mode callback is latest-wins. The accepted Review
+				// control still owns a live subscription after File becomes visible.
 				this.ensureReviewMetadata();
 			} catch {
 				// Exact active-mode success remains independent of metadata-stream recovery.

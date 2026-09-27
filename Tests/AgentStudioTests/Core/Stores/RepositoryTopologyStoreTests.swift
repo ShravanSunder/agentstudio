@@ -109,9 +109,6 @@ struct RepositoryTopologyStoreTests {
             return
         }
         topologyAtom.replaceTopology(replacement)
-        for _ in 0..<20 where !topologyStore.isDirty {
-            await Task.yield()
-        }
         #expect(topologyStore.isDirty)
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             Issue.record("expected retry datastore preparation")

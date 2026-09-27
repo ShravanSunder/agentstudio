@@ -61,12 +61,18 @@ extension WebKitSerializedTests {
                 reason: .initial
             )
             let initialInstallation = try #require(deliveredInstallations.first)
-            let staleReply = try await collectStaleBootstrapReply(from: initialInstallation)
             await controller.enqueueProductSessionBootstrapRequest(
                 requestId: "retry-initial-bootstrap",
                 reason: .initial
             )
             let replacementInstallation = try #require(deliveredInstallations.last)
+            #expect(
+                (await controller.productSessionOwner.activeInstallation)?.bootstrap.workerInstanceId
+                    == replacementInstallation.bootstrap.workerInstanceId
+            )
+            _ = try await assertRetiredPaneProductCommandRefusal(
+                installation: initialInstallation
+            )
             let productProvider = try #require(controller.productSchemeProvider)
             let replaySubscription = try await openBootstrapReviewReplaySubscription(
                 controller: controller,
@@ -86,7 +92,6 @@ extension WebKitSerializedTests {
             )
 
             // Assert
-            #expect(staleReply.response?.statusCode == 403)
             #expect(deliveredInstallations.count == 2)
             #expect(
                 replacementInstallation.bootstrap.workerInstanceId
@@ -652,20 +657,6 @@ private func makeBootstrapCommittedReviewFixture() -> BootstrapCommittedReviewFi
     )
 }
 
-private func collectStaleBootstrapReply(
-    from installation: BridgeProductSessionInstallation
-) async throws -> BridgeProductSchemeReplyObservation {
-    let capability = try BridgeProductCapabilityHeaderEncoding.encode(installation.capabilityBytes)
-    return try await collectBridgeProductSchemeReply(
-        adapter: installation.productAdapter,
-        request: bridgeProductSchemeRequest(
-            route: BridgeProductWireContract.commandRoute,
-            capability: capability,
-            body: Data("{}".utf8)
-        )
-    )
-}
-
 private enum BootstrapSurfaceSelectionReplayError: Error {
     case expectedSurfaceSelectionFrame
 }
@@ -760,12 +751,15 @@ private func openBootstrapReviewReplaySubscription(
         productAdmission: productAdmission
     )
     let workerOpenRequest = try bootstrapReviewWorkerOpenRequest(installation: installation)
-    guard
-        case .response = try await controlDispatcher.dispatch(
+    let workerOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
             exactRequestBytes: try bootstrapReviewControlRequestBytes(workerOpenRequest),
             presentedCapability: capabilityHeader
-        )
-    else {
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .workerSessionAccepted = workerOpenResponse else {
         throw BootstrapReviewReplayError.expectedWorkerSessionAccepted
     }
 
@@ -807,17 +801,13 @@ private func openBootstrapReviewReplaySubscription(
         await Task.yield()
     }
     #expect(metadataStreamIsReady)
-    let reviewOpenDispatch = try await controlDispatcher.dispatch(
-        exactRequestBytes: try bootstrapReviewControlRequestBytes(reviewOpenRequest),
-        presentedCapability: capabilityHeader
-    )
-    guard case .response(let reviewOpenResponseBytes) = reviewOpenDispatch else {
-        Issue.record("Expected Review open response, received \(String(describing: reviewOpenDispatch))")
-        throw BootstrapReviewReplayError.expectedReviewSubscriptionAccepted
-    }
-    let reviewOpenResponse = try BridgeProductStrictJSON.decode(
-        BridgeProductControlResponse.self,
-        from: reviewOpenResponseBytes
+    let reviewOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(reviewOpenRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
     )
     guard case .subscriptionOpenAccepted = reviewOpenResponse else {
         Issue.record("Expected Review open acceptance, received \(String(describing: reviewOpenResponse))")

@@ -34,27 +34,39 @@ struct BridgeProductReviewComparisonContractTests {
             provider: provider,
             productAdmission: productAdmission
         )
-        _ = try await dispatcher.dispatch(
+        let openAdmission = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
+        let openResult = try await awaitBridgeProductAdmittedControlResult(
+            openAdmission,
+            session: session,
+            productAdmission: productAdmission
+        )
+        #expect(openResult.outcome == .succeeded)
 
         // Act
-        let result = try await dispatcher.dispatch(
+        let admission = try await dispatcher.dispatch(
             exactRequestBytes: reviewComparisonUpdateBody(),
             presentedCapability: capabilityHeader
         )
+        let result = try await awaitBridgeProductAdmittedControlResult(
+            admission,
+            session: session,
+            productAdmission: productAdmission
+        )
 
         // Assert
-        guard case .response(let responseBytes) = result,
+        guard let resultValue = result.result,
             case .callCompleted(let response) = try BridgeProductStrictJSON.decode(
                 BridgeProductControlResponse.self,
-                from: responseBytes
+                from: JSONEncoder().encode(resultValue)
             )
         else {
             Issue.record("Expected a committed comparison-update completion")
             return
         }
+        #expect(result.outcome == .succeeded)
         #expect(response.call == .reviewComparisonUpdate)
         #expect(await recorder.targets == [.branch(name: "stack/base")])
     }
@@ -87,19 +99,36 @@ struct BridgeProductReviewComparisonContractTests {
             provider: provider,
             productAdmission: productAdmission
         )
-        _ = try await dispatcher.dispatch(
+        let openAdmission = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
+        let openResult = try await awaitBridgeProductAdmittedControlResult(
+            openAdmission,
+            session: session,
+            productAdmission: productAdmission
+        )
+        #expect(openResult.outcome == .succeeded)
 
         // Act
-        let result = try await dispatcher.dispatch(
+        let admission = try await dispatcher.dispatch(
             exactRequestBytes: reviewComparisonUpdateBody(),
             presentedCapability: capabilityHeader
         )
 
         // Assert
-        #expect(result == .admissionClosed)
+        guard case .response(let admissionBytes) = admission else {
+            Issue.record("Expected operation admission before the target effect closed pane admission")
+            return
+        }
+        let admitted = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: admissionBytes
+        )
+        await session.waitForOperationExecution(operationId: admitted.operationId)
+        #expect(
+            await session.operationTable.entriesById[admitted.operationId]?.settlement?.outcome == .outcomeUnknown
+        )
     }
 
     @Test("target-only comparison update request and null result round trip")

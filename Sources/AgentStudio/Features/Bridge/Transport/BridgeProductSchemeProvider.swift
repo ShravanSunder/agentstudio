@@ -30,6 +30,10 @@ protocol BridgeProductSchemeProvider: Sendable {
 
     func invalidatePendingComparisonTargetReservation() async
 
+    func activateWorkerIdentity(_ workerInstanceId: String) async
+
+    func revokeWorkerIdentity(_ workerInstanceId: String) async
+
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
         for request: BridgeProductControlRequest,
@@ -47,6 +51,10 @@ protocol BridgeProductSchemeProvider: Sendable {
 
 extension BridgeProductSchemeProvider {
     func invalidatePendingComparisonTargetReservation() async {}
+
+    func activateWorkerIdentity(_ workerInstanceId: String) async {}
+
+    func revokeWorkerIdentity(_ workerInstanceId: String) async {}
 
     nonisolated func makeContentProducerOperation(
         request: BridgeProductContentRequest,

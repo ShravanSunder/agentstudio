@@ -13,7 +13,8 @@ package struct BridgeProductSessionInstallation: Sendable {
         paneSessionId: String,
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
+        deadlineClock: (any Clock<Duration> & Sendable)? = nil
     ) throws -> Self {
         var capabilityBytes = [UInt8](
             repeating: 0,
@@ -34,7 +35,8 @@ package struct BridgeProductSessionInstallation: Sendable {
         let session = try BridgeProductSession(
             paneSessionId: paneSessionId,
             workerInstanceId: bootstrap.workerInstanceId,
-            capabilityBytes: capabilityBytes
+            capabilityBytes: capabilityBytes,
+            deadlineClock: deadlineClock
         )
         return Self(
             bootstrap: bootstrap,
@@ -322,6 +324,9 @@ package actor BridgePaneProductSessionOwner {
         else {
             return await rejectPreparedCandidateAfterAdmissionClose(candidate)
         }
+        if let retiringInstallation {
+            await provider.revokeWorkerIdentity(retiringInstallation.bootstrap.workerInstanceId)
+        }
         await schemeRouter.clear()
 
         if let retiringInstallation,
@@ -349,6 +354,7 @@ package actor BridgePaneProductSessionOwner {
         else {
             return await rejectPreparedCandidateAfterAdmissionClose(candidate)
         }
+        await provider.activateWorkerIdentity(workerInstanceId)
         guard
             await schemeRouter.activate(
                 candidate,
@@ -356,6 +362,7 @@ package actor BridgePaneProductSessionOwner {
             )
         else {
             activeInstallation = nil
+            await provider.revokeWorkerIdentity(workerInstanceId)
             return await rejectPreparedCandidateAfterAdmissionClose(candidate)
         }
         return .activated
@@ -400,6 +407,9 @@ package actor BridgePaneProductSessionOwner {
     ) async -> BridgePaneProductSessionRetirementResult {
         let retiringInstallation = activeInstallation
         activeInstallation = nil
+        if let retiringInstallation {
+            await provider.revokeWorkerIdentity(retiringInstallation.bootstrap.workerInstanceId)
+        }
         await provider.invalidatePendingComparisonTargetReservation()
         await schemeRouter.clear()
         if let retiringInstallation {

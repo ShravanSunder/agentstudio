@@ -75,6 +75,11 @@ export async function waitForCompleteAnnotationLifecycleTelemetry(props: {
 					const operationLifecycle = Reflect.get(body, 'operationLifecycle');
 					if (!Array.isArray(recentSamples)) return false;
 					const observedStages = new Set<string>();
+					const observedStageResults: Array<{
+						readonly phase: string;
+						readonly result: string | null;
+						readonly reason: string | null;
+					}> = [];
 					for (const sample of recentSamples) {
 						if (typeof sample !== 'object' || sample === null || !('stringAttributes' in sample)) {
 							continue;
@@ -85,6 +90,13 @@ export async function waitForCompleteAnnotationLifecycleTelemetry(props: {
 						const phase = Reflect.get(attributes, 'agentstudio.bridge.phase');
 						if (operationId !== props.operationCorrelationId || typeof phase !== 'string') continue;
 						observedStages.add(phase);
+						const result = Reflect.get(attributes, 'agentstudio.bridge.result');
+						const reason = Reflect.get(attributes, 'agentstudio.bridge.result_reason');
+						observedStageResults.push({
+							phase,
+							result: typeof result === 'string' ? result : null,
+							reason: typeof reason === 'string' ? reason : null,
+						});
 					}
 					const completedOperationIds =
 						typeof operationLifecycle === 'object' && operationLifecycle !== null
@@ -116,6 +128,7 @@ export async function waitForCompleteAnnotationLifecycleTelemetry(props: {
 						matchingMalformed,
 						matchingMissingTerminals,
 						missingStages,
+						observedStageResults: observedStageResults.slice(-32),
 						observedStages: [...observedStages],
 						operationCorrelationId: props.operationCorrelationId,
 					};

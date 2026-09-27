@@ -325,6 +325,7 @@ enum HTTPAnnotationIntegrationError: Error {
     case invalidCompletedControl
     case controlRouteFailed
     case operationResultRouteFailed
+    case metadataDrainFailed(String)
     case metadataStreamEnded
     case unexpectedAnnotationCommandResponse(String)
     case unexpectedControlResponse
@@ -400,7 +401,7 @@ func shutdownHTTPHostAndDrainMetadataStream(
         // Host shutdown cancels the active scheme response after closing its producer.
     } catch {
         await shutdown
-        throw error
+        throw HTTPAnnotationIntegrationError.metadataDrainFailed(String(describing: error))
     }
     await shutdown
 }

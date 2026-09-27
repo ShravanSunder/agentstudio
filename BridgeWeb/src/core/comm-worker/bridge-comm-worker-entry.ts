@@ -1,11 +1,15 @@
 import { bridgeCommTelemetryProducerInstallSchema } from '../telemetry-worker/bridge-comm-telemetry-producer-install.js';
-import { createBridgeTelemetryWorkerEventProducer } from '../telemetry-worker/bridge-telemetry-worker-event-adapter.js';
+import {
+	createBridgeTelemetryWorkerEventProducer,
+	type BridgeTelemetryWorkerEventProducer,
+} from '../telemetry-worker/bridge-telemetry-worker-event-adapter.js';
 // oxlint-disable unicorn/require-post-message-target-origin -- WorkerGlobalScope.postMessage does not accept a targetOrigin argument.
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
 } from './bridge-comm-worker-runtime-protocol.js';
+import { BridgeCommWorkerStartupTelemetryBuffer } from './bridge-comm-worker-startup-telemetry.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 import { bridgeProductMetadataApplicationRegistry } from './bridge-product-metadata-application-registry.js';
@@ -131,9 +135,17 @@ export function bootstrapBridgeCommWorkerEntry(
 	dependencies: BridgeCommWorkerEntryDependencies,
 ): void {
 	let installedProductPort: MessagePort | null = null;
-	let installedTelemetryProducer: BridgeCommWorkerTelemetryRecorder | null = null;
+	let installedTelemetryProducer: BridgeTelemetryWorkerEventProducer | null = null;
+	const startupTelemetry = new BridgeCommWorkerStartupTelemetryBuffer();
+	let startupTelemetryLimits: {
+		readonly maximumBytes: number;
+		readonly maximumSamples: number;
+	} | null = null;
 	const telemetryRecorder: BridgeCommWorkerTelemetryRecorder = {
-		record: (sample): void => installedTelemetryProducer?.record(sample),
+		record: (sample): void => {
+			if (installedTelemetryProducer === null) startupTelemetry.record(sample);
+			else installedTelemetryProducer.record(sample);
+		},
 	};
 
 	port.addEventListener('message', (event: MessageEvent<unknown>): void => {
@@ -149,13 +161,22 @@ export function bootstrapBridgeCommWorkerEntry(
 				);
 				return;
 			}
+			const telemetryLimits = startupTelemetryLimits;
 			installedTelemetryProducer = createBridgeTelemetryWorkerEventProducer({
 				enabledScopes: new Set(parsedTelemetryInstall.data.enabledScopes),
 				port: parsedTelemetryInstall.data.producerPort,
-				preReadyRequiredSampleCapacity: parsedTelemetryInstall.data.preReadyRequiredSampleCapacity,
-				preReadyRequiredSampleMaxEncodedBytes:
+				preReadyRequiredSampleCapacity: Math.min(
+					telemetryLimits?.maximumSamples ??
+						parsedTelemetryInstall.data.preReadyRequiredSampleCapacity,
+					parsedTelemetryInstall.data.preReadyRequiredSampleCapacity,
+				),
+				preReadyRequiredSampleMaxEncodedBytes: Math.min(
+					telemetryLimits?.maximumBytes ??
+						parsedTelemetryInstall.data.preReadyRequiredSampleMaxEncodedBytes,
 					parsedTelemetryInstall.data.preReadyRequiredSampleMaxEncodedBytes,
+				),
 			});
+			startupTelemetry.drainInto(installedTelemetryProducer);
 			return;
 		}
 		const parsedInstall = bridgePaneCommWorkerInstallSchema.safeParse(event.data);
@@ -170,6 +191,11 @@ export function bootstrapBridgeCommWorkerEntry(
 				);
 				return;
 			}
+			startupTelemetryLimits = {
+				maximumBytes: parsedInstall.data.bootstrap.policy.telemetryPreReadyBufferMaxBytes,
+				maximumSamples: parsedInstall.data.bootstrap.policy.telemetryPreReadyBufferMaxSamples,
+			};
+			startupTelemetry.configure(startupTelemetryLimits);
 			const productSession = dependencies.installProductSession({
 				bootstrap: parsedInstall.data.bootstrap,
 				productCapability: parsedInstall.data.productCapability,

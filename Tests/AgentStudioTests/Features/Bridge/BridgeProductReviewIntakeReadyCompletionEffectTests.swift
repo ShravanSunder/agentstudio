@@ -42,17 +42,28 @@ struct BridgeReviewIntakeCompletionEffectTests {
         // Act
         _ = await provider.response(for: decodedCall)
         let countAfterProviderResponse = await recorder.count
-        _ = try await dispatcher.dispatch(
+        let openAdmission = try await dispatcher.dispatch(
             exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
             presentedCapability: capabilityHeader
         )
-        _ = try await dispatcher.dispatch(
+        let openResult = try await awaitBridgeProductAdmittedControlResult(
+            openAdmission,
+            session: session,
+            productAdmission: productAdmission
+        )
+        #expect(openResult.outcome == .succeeded)
+        let admitted = try await dispatcher.dispatch(
             exactRequestBytes: callBody,
             presentedCapability: capabilityHeader
         )
-        _ = try await dispatcher.dispatch(
+        let replay = try await dispatcher.dispatch(
             exactRequestBytes: callBody,
             presentedCapability: capabilityHeader
+        )
+        let result = try await awaitBridgeProductAdmittedControlResult(
+            admitted,
+            session: session,
+            productAdmission: productAdmission
         )
         let requestsAfterCommitAndReplay = await recorder.requests
         let revocation = await session.revoke(acknowledgeLifecycle: { _ in true })
@@ -64,6 +75,8 @@ struct BridgeReviewIntakeCompletionEffectTests {
 
         // Assert
         #expect(countAfterProviderResponse == 0)
+        #expect(replay == admitted)
+        #expect(result.outcome == .succeeded)
         #expect(
             requestsAfterCommitAndReplay == [
                 BridgeProductReviewIntakeReadyRequest(

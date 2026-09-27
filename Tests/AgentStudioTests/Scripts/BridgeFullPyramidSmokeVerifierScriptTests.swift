@@ -116,7 +116,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
     }
 
     @Test("review-journey verifier accepts frame-not-live skip without miss noise")
-    func reviewJourneyVerifierAcceptsFrameNotLiveSkipWithoutMissNoise() throws {
+    func reviewJourneyVerifierAcceptsFrameNotLiveSkipWithoutMissNoise() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = try writeStateFile(
@@ -124,7 +124,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
             action: "bridge-review-observability-smoke"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-bridge-review-journey-smoke.sh",
             stateFile: stateFile,
             environment: frameNotLiveSkipEnvironment(
@@ -142,7 +142,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
     }
 
     @Test("mode-idle verifier accepts frame-not-live skip without miss noise")
-    func modeIdleVerifierAcceptsFrameNotLiveSkipWithoutMissNoise() throws {
+    func modeIdleVerifierAcceptsFrameNotLiveSkipWithoutMissNoise() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = try writeStateFile(
@@ -150,7 +150,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
             action: "bridge-review-to-file-view-observability-smoke"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-bridge-mode-idle-smoke.sh",
             stateFile: stateFile,
             environment: frameNotLiveSkipEnvironment(
@@ -168,7 +168,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
     }
 
     @Test("review-journey verifier accepts one lossless correlated sidecar drain pair")
-    func reviewJourneyVerifierAcceptsLosslessCorrelatedSidecarDrainPair() throws {
+    func reviewJourneyVerifierAcceptsLosslessCorrelatedSidecarDrainPair() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = try writeStateFile(
@@ -176,7 +176,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
             action: "bridge-review-observability-smoke"
         )
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-bridge-review-journey-smoke.sh",
             stateFile: stateFile,
             environment: try reviewJourneyTelemetryEnvironment(fixture: fixture)
@@ -208,7 +208,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
     func reviewJourneyVerifierRejectsInvalidSidecarDrainProof(
         failureCase: String,
         expectedFailure: String
-    ) throws {
+    ) async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = try writeStateFile(
@@ -218,7 +218,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         var environment = try reviewJourneyTelemetryEnvironment(fixture: fixture)
         environment["TELEMETRY_FAILURE_CASE"] = failureCase
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-bridge-review-journey-smoke.sh",
             stateFile: stateFile,
             environment: environment
@@ -238,7 +238,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
             "scripts/verify-bridge-mode-idle-smoke.sh",
         ]
     )
-    func dryRunValidatesLogSQLWiringThroughHarmlessProbe(scriptPath: String) throws {
+    func dryRunValidatesLogSQLWiringThroughHarmlessProbe(scriptPath: String) async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let queryLog = fixture.url("curl-query.log")
@@ -255,7 +255,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         environment["AGENTSTUDIO_CURL_BIN"] = curl.path
         environment["AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL"] = "http://127.0.0.1:9428/select/logsql/query"
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             scriptPath,
             arguments: ["--dry-run"],
             environment: environment

@@ -314,6 +314,8 @@ jobs:
     env:
       SWIFT_BUILD_DIR: .build-ci
       XCB_EXTRA_ARGS: "--renderer github-actions"
+      LANE_EVENT_STREAM_RETAIN_ALWAYS: "1"
+      SWIFT_BUILD_STATS_DIR: ${{ github.workspace }}/tmp/plan-workflows/ci-runs/compiler-stats
 
     steps:
       - *first-attempt-gate
@@ -488,6 +490,23 @@ jobs:
             ~/Library/Logs/DiagnosticReports/*.ips
             ~/Library/Logs/DiagnosticReports/*.crash
           if-no-files-found: ignore
+
+      - name: Summarize CI timing
+        if: always()
+        run: /bin/bash scripts/summarize-ci-timing.sh
+
+      - name: Upload CI timing ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-timing-${{ github.run_id }}-swift
+          path: |
+            tmp/plan-workflows/ci-runs/lane-*.timing.json
+            tmp/plan-workflows/ci-runs/lane-*.events.jsonl
+            tmp/plan-workflows/ci-runs/compiler-stats/**
+            tmp/plan-workflows/ci-runs/timing-summary.md
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Upload wedged-lane event-stream ledgers
         if: failure()

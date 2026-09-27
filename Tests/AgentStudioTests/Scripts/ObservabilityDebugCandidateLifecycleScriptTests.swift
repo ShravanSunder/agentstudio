@@ -6,8 +6,8 @@ import Testing
 @Suite("Observability debug candidate lifecycle scripts")
 struct ObservabilityDebugCandidateLifecycleScriptTests {
     @Test("candidate retirement gracefully quits only the exact current debug launch identity")
-    func candidateRetirementGracefullyQuitsOnlyExactCurrentDebugIdentity() throws {
-        let outcome = try runCandidateRetirementContract(actualIdentityOverrides: [:])
+    func candidateRetirementGracefullyQuitsOnlyExactCurrentDebugIdentity() async throws {
+        let outcome = try await runCandidateRetirementContract(actualIdentityOverrides: [:])
 
         #expect(outcome.result.exitCode == 0, "stdout: \(outcome.result.stdout)\nstderr: \(outcome.result.stderr)")
         #expect(outcome.quitArguments.contains("4242"))
@@ -15,8 +15,8 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("candidate retirement validates an explicit disposable data and zmx identity")
-    func candidateRetirementValidatesExplicitDisposableDataIdentity() throws {
-        let outcome = try runCandidateRetirementContract(
+    func candidateRetirementValidatesExplicitDisposableDataIdentity() async throws {
+        let outcome = try await runCandidateRetirementContract(
             actualIdentityOverrides: [:],
             usesDisposableDataRoot: true
         )
@@ -27,8 +27,8 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("candidate retirement honors the configured debug artifact root")
-    func candidateRetirementHonorsConfiguredDebugArtifactRoot() throws {
-        let outcome = try runCandidateRetirementContract(
+    func candidateRetirementHonorsConfiguredDebugArtifactRoot() async throws {
+        let outcome = try await runCandidateRetirementContract(
             actualIdentityOverrides: [:],
             usesConfiguredArtifactRoot: true
         )
@@ -39,8 +39,8 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("candidate retirement quits a candidate whose artifact root is reached through a symlink")
-    func candidateRetirementQuitsThroughSymlinkedArtifactRoot() throws {
-        let outcome = try runCandidateRetirementContract(
+    func candidateRetirementQuitsThroughSymlinkedArtifactRoot() async throws {
+        let outcome = try await runCandidateRetirementContract(
             actualIdentityOverrides: [:],
             usesSymlinkedArtifactRoot: true
         )
@@ -78,8 +78,8 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("candidate retirement treats an absent process as already retired")
-    func candidateRetirementDoesNotSignalAbsentProcess() throws {
-        let outcome = try runCandidateRetirementContract(
+    func candidateRetirementDoesNotSignalAbsentProcess() async throws {
+        let outcome = try await runCandidateRetirementContract(
             actualIdentityOverrides: ["present": false]
         )
 
@@ -89,7 +89,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("candidate retirement refuses stale reused or mismatched identity")
-    func candidateRetirementRefusesEveryIdentityMismatch() throws {
+    func candidateRetirementRefusesEveryIdentityMismatch() async throws {
         let mismatches: [[String: Any]] = [
             ["pid": 5252],
             ["executable": "/tmp/unrelated/AgentStudio"],
@@ -101,7 +101,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         ]
 
         for mismatch in mismatches {
-            let outcome = try runCandidateRetirementContract(actualIdentityOverrides: mismatch)
+            let outcome = try await runCandidateRetirementContract(actualIdentityOverrides: mismatch)
             #expect(outcome.result.exitCode == 1, "stdout: \(outcome.result.stdout)")
             #expect(outcome.quitArguments.isEmpty)
             #expect(outcome.result.stderr.contains("candidate identity mismatch"))
@@ -109,8 +109,8 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("candidate retirement fails closed when graceful quit is rejected")
-    func candidateRetirementFailsClosedWhenGracefulQuitIsRejected() throws {
-        let outcome = try runCandidateRetirementContract(
+    func candidateRetirementFailsClosedWhenGracefulQuitIsRejected() async throws {
+        let outcome = try await runCandidateRetirementContract(
             actualIdentityOverrides: [:],
             quitExitCode: 73
         )
@@ -135,7 +135,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("debug zmx helper inventories only one validated exact debug root")
-    func debugZmxHelperInventoriesOnlyOneValidatedExactRoot() throws {
+    func debugZmxHelperInventoriesOnlyOneValidatedExactRoot() async throws {
         for listingKind in 0..<3 {
             let fixture = try LauncherScriptFixture()
             defer { fixture.cleanup() }
@@ -164,7 +164,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
                 """
             )
 
-            let result = try fixture.runScript(
+            let result = try await fixture.runScript(
                 "scripts/cleanup-debug-zmx-sessions.sh",
                 arguments: ["--inventory-exact-root", exactRoot.path, "--zmx-bin", zmx.path],
                 environment: [:]
@@ -177,7 +177,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("debug zmx helper accepts only an explicit temporary disposable proof root")
-    func debugZmxHelperAcceptsExplicitDisposableProofRoot() throws {
+    func debugZmxHelperAcceptsExplicitDisposableProofRoot() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let proofArtifact = URL(fileURLWithPath: "/tmp/as-sp")
@@ -204,7 +204,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         try FileManager.default.copyItem(at: zmx, to: zmxPath)
         chmod(zmxPath.path, 0o755)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/cleanup-debug-zmx-sessions.sh",
             arguments: ["--inventory-exact-root", zmxRoot.path, "--zmx-bin", zmxPath.path],
             environment: ["AGENTSTUDIO_ZMX_DISPOSABLE_PROOF_ROOT": dataRoot.path]
@@ -215,7 +215,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
     }
 
     @Test("debug zmx exact-root inventory fails closed on list error and protected roots")
-    func debugZmxExactRootInventoryRejectsListFailureAndProtectedRoots() throws {
+    func debugZmxExactRootInventoryRejectsListFailureAndProtectedRoots() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let zmx = try fixture.executable(
@@ -234,7 +234,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         )
         try FileManager.default.copyItem(at: zmx, to: exactZmxPath)
         chmod(exactZmxPath.path, 0o755)
-        let listFailure = try fixture.runScript(
+        let listFailure = try await fixture.runScript(
             "scripts/cleanup-debug-zmx-sessions.sh",
             arguments: ["--inventory-exact-root", exactRoot.path, "--zmx-bin", exactZmxPath.path],
             environment: [:]
@@ -244,7 +244,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
 
         for protectedRoot in [fixture.url(".agentstudio/z"), fixture.url(".agent-studio-b/z")] {
             try FileManager.default.createDirectory(at: protectedRoot, withIntermediateDirectories: true)
-            let result = try fixture.runScript(
+            let result = try await fixture.runScript(
                 "scripts/cleanup-debug-zmx-sessions.sh",
                 arguments: ["--inventory-exact-root", protectedRoot.path, "--zmx-bin", zmx.path],
                 environment: [:]
@@ -275,10 +275,10 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
         usesDisposableDataRoot: Bool = false,
         usesConfiguredArtifactRoot: Bool = false,
         usesSymlinkedArtifactRoot: Bool = false
-    ) throws -> (result: ScriptRunResult, quitArguments: String, canonicalAppPath: String?) {
+    ) async throws -> (result: ScriptRunResult, quitArguments: String, canonicalAppPath: String?) {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-        let debugCode = try fixture.worktreeDebugCode()
+        let debugCode = try await fixture.worktreeDebugCode()
         let artifactRelativeRoot =
             usesConfiguredArtifactRoot
             ? "debug-app-artifacts"
@@ -357,7 +357,7 @@ struct ObservabilityDebugCandidateLifecycleScriptTests {
             environment["AGENTSTUDIO_DEBUG_DATA_DIR"] = dataRoot.path
         }
         environment["AGENTSTUDIO_DEBUG_ARTIFACT_DIR"] = usesConfiguredArtifactRoot ? artifactRoot.path : ""
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--retire-candidate"],
             environment: environment

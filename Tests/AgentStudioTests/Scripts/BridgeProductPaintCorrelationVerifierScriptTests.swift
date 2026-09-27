@@ -4,7 +4,7 @@ import Testing
 @Suite("Bridge product paint correlation verifier script")
 struct BridgeProductPaintCorrelationVerifierScriptTests {
     @Test("paint correlation verifier dry-run states the complete launch-bound proof contract")
-    func verifierDryRunStatesCompleteProofContract() throws {
+    func verifierDryRunStatesCompleteProofContract() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -17,7 +17,7 @@ struct BridgeProductPaintCorrelationVerifierScriptTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/verify-bridge-product-paint-correlation.sh",
             arguments: ["--dry-run"],
             environment: [
@@ -39,7 +39,7 @@ struct BridgeProductPaintCorrelationVerifierScriptTests {
     }
 
     @Test("paint correlation verifier rejects a missing launch proof token")
-    func verifierRejectsMissingLaunchProofToken() throws {
+    func verifierRejectsMissingLaunchProofToken() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -51,7 +51,7 @@ struct BridgeProductPaintCorrelationVerifierScriptTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/verify-bridge-product-paint-correlation.sh",
             arguments: ["--dry-run"],
             environment: [

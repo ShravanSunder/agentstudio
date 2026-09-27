@@ -8,6 +8,7 @@ import {
 } from './bridge-product-call-contracts.js';
 import { bridgeProductCallIsMutation } from './bridge-product-call-mutation-classification.js';
 import {
+	BridgeProductResponseSizeLimitError,
 	BridgeProductRequestTransportError,
 	postBridgeProductAdmissionBody,
 	postBridgeProductCommandBody,
@@ -832,20 +833,27 @@ async function postBridgeProductOperationObservation(props: {
 		wireVersion: props.bootstrap.wireVersion,
 		workerInstanceId: props.bootstrap.workerInstanceId,
 	});
-	const responseBytes = await withBridgeProductDeadline({
-		clock: props.deadlineClock,
-		delayMilliseconds: props.bootstrap.policy.workerSettlementDeadlineMilliseconds,
-		run: (signal): Promise<Uint8Array> =>
-			postBridgeProductCommandBody({
-				body: request,
-				capabilityHeader: props.capabilityHeader,
-				executeProductRequest: props.executeProductRequest,
-				signal,
-			}),
+	const response = await postBridgeProductOutcomeReadWithRetry({
+		bootstrap: props.bootstrap,
+		deadlineClock: props.deadlineClock,
+		run: async (signal) => {
+			try {
+				const responseBytes = await postBridgeProductCommandBody({
+					body: request,
+					capabilityHeader: props.capabilityHeader,
+					executeProductRequest: props.executeProductRequest,
+					signal,
+				});
+				return bridgeProductOperationObservationResponseSchema.parse(
+					parseBridgeProductStrictJSON(responseBytes),
+				);
+			} catch (error: unknown) {
+				if (error instanceof BridgeProductResponseSizeLimitError) throw error;
+				signal.throwIfAborted();
+				throw new BridgeProductRequestTransportError('Bridge observation reply unreadable.');
+			}
+		},
 	});
-	const response = bridgeProductOperationObservationResponseSchema.parse(
-		parseBridgeProductStrictJSON(responseBytes),
-	);
 	if (response.operationId !== props.operationId) {
 		throw new Error('Bridge product observation did not match its admitted operation.');
 	}
@@ -874,37 +882,60 @@ async function postBridgeProductOperationResult(props: {
 		wireVersion: props.bootstrap.wireVersion,
 		workerInstanceId: props.bootstrap.workerInstanceId,
 	});
-	const readResponse = (signal: AbortSignal): Promise<Uint8Array> =>
-		postBridgeProductCommandBody({
-			body: request,
-			capabilityHeader: props.capabilityHeader,
-			executeProductRequest: props.executeProductRequest,
-			signal,
-		});
-	let responseBytes: Uint8Array;
-	try {
-		responseBytes =
-			props.waitKind === 'human'
-				? await readResponse(props.signal ?? new AbortController().signal)
-				: await withBridgeProductDeadline({
-						clock: props.deadlineClock,
-						delayMilliseconds: props.bootstrap.policy.workerSettlementDeadlineMilliseconds,
-						run: readResponse,
-						...(props.signal === undefined ? {} : { signal: props.signal }),
-					});
-	} catch (error: unknown) {
-		if (error instanceof BridgeProductRequestDeadlineError) {
-			throw new BridgeProductSessionSuspectError('result');
-		}
-		throw error;
-	}
-	const result = bridgeProductOperationResultResponseSchema.parse(
-		parseBridgeProductStrictJSON(responseBytes),
-	);
+	const result = await postBridgeProductOutcomeReadWithRetry({
+		bootstrap: props.bootstrap,
+		deadlineClock: props.deadlineClock,
+		...(props.signal === undefined ? {} : { signal: props.signal }),
+		waitKind: props.waitKind,
+		run: async (signal) => {
+			try {
+				const responseBytes = await postBridgeProductCommandBody({
+					body: request,
+					capabilityHeader: props.capabilityHeader,
+					executeProductRequest: props.executeProductRequest,
+					signal,
+				});
+				return bridgeProductOperationResultResponseSchema.parse(
+					parseBridgeProductStrictJSON(responseBytes),
+				);
+			} catch (error: unknown) {
+				if (error instanceof BridgeProductResponseSizeLimitError) throw error;
+				signal.throwIfAborted();
+				throw new BridgeProductRequestTransportError('Bridge product result reply was unreadable.');
+			}
+		},
+	});
 	if (result.operationId !== props.operationId) {
 		throw new Error('Bridge product operation result did not match its admission.');
 	}
 	return result;
+}
+
+async function postBridgeProductOutcomeReadWithRetry<TResult>(props: {
+	readonly bootstrap: BridgeProductSessionBootstrap;
+	readonly deadlineClock: BridgeProductDeadlineClock;
+	readonly run: (signal: AbortSignal) => Promise<TResult>;
+	readonly signal?: AbortSignal;
+	readonly waitKind?: BridgeProductOperationAdmittedResponse['waitKind'];
+}): Promise<TResult> {
+	for (let attempt = 0; attempt <= props.bootstrap.policy.admissionRetryCount; attempt += 1) {
+		try {
+			return props.waitKind === 'human'
+				? await props.run(props.signal ?? new AbortController().signal)
+				: await withBridgeProductDeadline({
+						clock: props.deadlineClock,
+						delayMilliseconds: props.bootstrap.policy.workerSettlementDeadlineMilliseconds,
+						run: props.run,
+						...(props.signal === undefined ? {} : { signal: props.signal }),
+					});
+		} catch (error: unknown) {
+			props.signal?.throwIfAborted();
+			if (error instanceof BridgeProductRequestDeadlineError) continue;
+			if (error instanceof BridgeProductRequestTransportError) continue;
+			throw error;
+		}
+	}
+	throw new BridgeProductSessionSuspectError('result');
 }
 
 async function postBridgeProductResultAcknowledgement(props: {
@@ -940,11 +971,10 @@ async function postBridgeProductResultAcknowledgement(props: {
 					throw new Error('Bridge product operation acknowledgement did not match its request.');
 				}
 				return response;
-			} catch {
+			} catch (error: unknown) {
+				if (error instanceof BridgeProductResponseSizeLimitError) throw error;
 				signal.throwIfAborted();
-				throw new BridgeProductRequestTransportError(
-					'Bridge product acknowledgement reply was ambiguous.',
-				);
+				throw new BridgeProductRequestTransportError('Bridge acknowledgement reply ambiguous.');
 			}
 		},
 	});

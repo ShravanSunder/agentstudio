@@ -40,6 +40,8 @@ const bootstrap: BridgeProductSessionBootstrap = {
 		maximumMetadataFrameBytes: 128 * 1024,
 		maximumQueuedStreamBytes: 4 * 1024 * 1024,
 		admissionRetryCount: 2,
+		telemetryPreReadyBufferMaxBytes: 64 * 1024,
+		telemetryPreReadyBufferMaxSamples: 128,
 		workerSettlementDeadlineMilliseconds: 5_000,
 		maximumQueuedStreamFrames: 64,
 		maximumRequestBodyBytes: 256 * 1024,
@@ -50,6 +52,40 @@ const bootstrap: BridgeProductSessionBootstrap = {
 };
 
 describe('Bridge product v2 control admission', () => {
+	test.each(['empty', 'truncated'] as const)(
+		'%s operation result reply retries the same operation id and then suspects the session',
+		async (replyKind) => {
+			const resultOperationIds: string[] = [];
+			const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
+				if (!(requestInit.body instanceof Uint8Array)) throw new Error('Missing command body.');
+				const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
+				if (command.kind === 'operation.result') {
+					resultOperationIds.push(command.operationId);
+					return replyKind === 'empty'
+						? new Response('', { status: 200 })
+						: new Response('{', { headers: { 'Content-Length': '2' }, status: 200 });
+				}
+				return jsonResponse({
+					...commandCorrelation(command),
+					kind: 'operation.admitted',
+					operationId: 'operation-open',
+					waitKind: 'ordinary',
+				});
+			};
+			const authority = new BridgeProductSessionAuthorityStore(
+				executeProductRequest,
+				noDeadlineClock,
+			).install({
+				bootstrap,
+				productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+			});
+			await expect(authority.open).rejects.toMatchObject({ phase: 'result' });
+			expect(resultOperationIds).toEqual(
+				Array.from({ length: bootstrap.policy.admissionRetryCount + 1 }, () => 'operation-open'),
+			);
+		},
+	);
+
 	test('a lost acknowledgement cannot replace a known succeeded mutation result', async () => {
 		const replayedAck = createBridgeProductDeferred<void>();
 		const acknowledgementBodies: string[] = [];
@@ -408,7 +444,11 @@ describe('Bridge product v2 control admission', () => {
 
 	test('a lost result reply settles as a typed session-suspect declaration', async () => {
 		const clock = new ManualDeadlineClock();
-		const resultReadStarted = createBridgeProductDeferred<void>();
+		const resultReadAttempts = Array.from(
+			{ length: bootstrap.policy.admissionRetryCount + 1 },
+			() => createBridgeProductDeferred<void>(),
+		);
+		let resultReadCount = 0;
 		const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
 			if (!(requestInit.body instanceof Uint8Array)) {
 				throw new Error('Bridge product command did not send encoded bytes.');
@@ -430,7 +470,8 @@ describe('Bridge product v2 control admission', () => {
 						},
 					});
 				}
-				resultReadStarted.resolve();
+				resultReadAttempts[resultReadCount]?.resolve();
+				resultReadCount += 1;
 				return await new Promise<Response>(() => {});
 			}
 			if (command.kind === 'operation.resultAcknowledgement') {
@@ -459,8 +500,10 @@ describe('Bridge product v2 control admission', () => {
 			request: { itemId: 'item-held-result' },
 			workerDerivationEpoch: 1,
 		});
-		await resultReadStarted.promise;
-		expect(clock.fireNext()).toBe(true);
+		for (const attempt of resultReadAttempts) {
+			await attempt.promise;
+			expect(clock.fireNext()).toBe(true);
+		}
 		await expect(call).rejects.toMatchObject({
 			name: 'BridgeProductSessionSuspectError',
 			phase: 'result',

@@ -276,10 +276,20 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 					timeout: annotationComposedConvergenceTimeoutMilliseconds,
 				});
 			const draftSaveCommitted = waitForCommittedAnnotationCommand(page, 'draft.save', 'review');
-			await Promise.all([
-				draftSaveCommitted,
-				page.getByRole('button', { name: 'Save annotation' }).click(),
-			]);
+			try {
+				await Promise.all([
+					draftSaveCommitted,
+					page.getByRole('button', { name: 'Save annotation' }).click(),
+				]);
+			} catch (error: unknown) {
+				throw new Error(
+					`Review draft save failed after apply: ${JSON.stringify({ annotationCommandTrace })}`,
+					{ cause: error },
+				);
+			}
+			expect(
+				new Set(annotationCommandTrace.filter((kind) => kind.startsWith('draft.save@'))).size,
+			).toBe(1);
 			await page.getByText(savedDuringHoldBody, { exact: true }).waitFor({
 				state: 'visible',
 				timeout: annotationComposedConvergenceTimeoutMilliseconds,
@@ -415,7 +425,7 @@ function observeReviewAnnotationCommandTrace(page: Page): string[] {
 		}
 		const operation = call['request']['operation'];
 		if (!isUnknownRecord(operation) || typeof operation['kind'] !== 'string') return;
-		operationKinds.push(operation['kind']);
+		operationKinds.push(`${operation['kind']}@${String(body['requestSequence'])}`);
 	});
 	return operationKinds;
 }

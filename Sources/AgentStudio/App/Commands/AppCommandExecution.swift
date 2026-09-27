@@ -32,6 +32,9 @@ protocol ShellCommandHandling: AnyObject {
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome
+    /// Argument-bearing interactive creation. Acceptance means the creation owner
+    /// took the request; publication in topology follows only after the SDK returns.
+    func executeWorktreeCreation(_ request: WorktreeCreationRequest) -> AppCommandExecutionOutcome
     func showRepoCommandBar()
     func refreshWorktrees()
     func refocusActivePane()
@@ -126,6 +129,11 @@ extension WorkspaceCommandHandling {
 @MainActor
 extension ShellCommandHandling {
     func ownsWorkspaceWindow(_: UUID) -> Bool { false }
+
+    /// Fail closed. Only an owner that installs a creation coordinator accepts.
+    func executeWorktreeCreation(_: WorktreeCreationRequest) -> AppCommandExecutionOutcome {
+        .unsupportedCommand
+    }
 
     func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
         canExecute(command)

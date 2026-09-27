@@ -20,13 +20,16 @@ struct BridgeProductViewSenderStateTests {
         )
         sender.open(first, handle: "handle-1", scanGeneration: 1)
         sender.open(second, handle: "handle-1", scanGeneration: 1)
-        let scope: BridgeProductJSONValue = .object(["kind": .string("review")])
+        let scope: BridgeProductJSONValue = .object([
+            "kind": .string("file"),
+            "changeFilter": .object(["kind": .string("none")]),
+        ])
         for (key, recordKey) in [(first, "a"), (second, "b")] {
             let batch = try BridgeProductSealedViewBatch(
                 viewDomain: key,
                 producerScanGeneration: 1,
                 handle: "handle-1",
-                subscriptionKind: .reviewMetadata,
+                subscriptionKind: .fileMetadata,
                 scopeRevision: 1,
                 baseRevision: 0,
                 targetRevision: 1,

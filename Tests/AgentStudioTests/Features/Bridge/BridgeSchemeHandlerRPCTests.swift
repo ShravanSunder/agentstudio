@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -6,6 +7,26 @@ import Testing
 
 @Suite(.serialized)
 final class BridgeSchemeHandlerRPCTests {
+    @Test("missing product router returns a terminal HTTP response")
+    func missingProductRouterReturnsServiceUnavailable() async throws {
+        let handler = BridgeSchemeHandler(
+            paneId: UUIDv7.generate(),
+            appRootURL: testBridgeAppRootURL(),
+            productSessionRouter: nil
+        )
+        let reply = try await collectBridgeSchemeHandlerReply(
+            handler: handler,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: "unrouted-capability",
+                body: bridgeProductSchemeWorkerOpenBody()
+            )
+        )
+
+        #expect(reply.response?.statusCode == 503)
+        #expect(reply.body.isEmpty)
+    }
+
     @Test
     func productReplyUsesOnePhysicalResponseContinuationWithoutNestedRelay() throws {
         // Arrange
@@ -109,6 +130,27 @@ final class BridgeSchemeHandlerRPCTests {
             handler: handler,
             request: request
         )
+        let admitted = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationAdmittedResponse.self,
+            from: activeReply.body
+        )
+        let resultBody = try JSONSerialization.data(
+            withJSONObject: [
+                "kind": "operation.result",
+                "operationId": admitted.operationId,
+                "paneSessionId": paneSessionId,
+                "wireVersion": BridgeProductWireContract.version,
+                "workerInstanceId": installation.bootstrap.workerInstanceId,
+            ]
+        )
+        let resultReply = try await collectBridgeSchemeHandlerReply(
+            handler: handler,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: capabilityHeader,
+                body: resultBody
+            )
+        )
         await router.clear()
         let inactiveReply = try await collectBridgeSchemeHandlerReply(
             handler: handler,
@@ -122,9 +164,14 @@ final class BridgeSchemeHandlerRPCTests {
             activeReply.response?.value(forHTTPHeaderField: "Access-Control-Allow-Methods")
                 == "OPTIONS, POST"
         )
+        let result = try BridgeProductStrictJSON.decode(
+            BridgeProductOperationResultResponse.self,
+            from: resultReply.body
+        )
+        #expect(result.outcome == .succeeded)
         let response = try BridgeProductStrictJSON.decode(
             BridgeProductControlResponse.self,
-            from: activeReply.body
+            from: JSONEncoder().encode(try #require(result.result))
         )
         guard case .workerSessionAccepted(let accepted) = response else {
             Issue.record("Expected a typed workerSession.accepted response")

@@ -1,4 +1,5 @@
 import AgentStudioTestHarness
+import AgentStudioTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -68,8 +69,8 @@ struct BridgeProductSchemeAdapterTests {
         #expect((await harness.provider.snapshot).controlRequests.count == 1)
     }
 
-    @Test("unexpected pre-response routing errors fail the real scheme stream")
-    func unexpectedPreResponseFailureDoesNotFinishNormally() async throws {
+    @Test("a URL-less scheme request terminates only as cancellation")
+    func missingURLCannotFinishWithoutResponse() async throws {
         let harness = try BridgeProductSchemeAdapterHarness.make()
         var request = URLRequest(url: try #require(URL(string: BridgeProductWireContract.commandRoute)))
         request.url = nil
@@ -84,11 +85,9 @@ struct BridgeProductSchemeAdapterTests {
                 if case .response = event { receivedResponse = true }
             }
             Issue.record("The scheme stream finished normally without a response")
-        } catch let error as BridgeProductSchemeAdapterError {
-            guard case .containedRouteFailure = error else {
-                Issue.record("The scheme stream failed with the wrong contained error")
-                return
-            }
+        } catch is CancellationError {
+            // WebKit always provides a URL; the impossible request has no legal
+            // response target, and must not hit WebKit's generic error catch.
         }
         await reply.routingTask.value
         #expect(!receivedResponse)
@@ -386,8 +385,8 @@ struct BridgeProductSchemeAdapterTests {
         #expect(controlRequestCount == 1, "observed \(controlRequestCount) provider dispatches")
     }
 
-    @Test("pre-response cancellation terminates as cancellation instead of a clean finish")
-    func preResponseCancellationDoesNotFinishWithoutResponse() async throws {
+    @Test("revoked admission before a response returns a typed terminal refusal")
+    func revokedAdmissionBeforeResponseReturnsTypedRefusal() async throws {
         // Arrange
         let harness = try BridgeProductSchemeAdapterHarness.make()
         let routingStartGate = HeldStep<Void>(
@@ -408,21 +407,34 @@ struct BridgeProductSchemeAdapterTests {
         // Act
         harness.adapter.productAdmissionGate.close()
         routingStartGate.release()
-        let terminatedWithCancellation: Bool
+        var responseBytes = Data()
+        var responseStatus: Int?
         var receivedResponse = false
-        do {
-            for try await event in routedReply.stream {
-                if case .response = event { receivedResponse = true }
+        for try await event in routedReply.stream {
+            switch event {
+            case .response(let response):
+                receivedResponse = true
+                responseStatus = (response as? HTTPURLResponse)?.statusCode
+            case .data(let data):
+                responseBytes.append(data)
+            @unknown default:
+                Issue.record("Unexpected scheme reply event")
             }
-            terminatedWithCancellation = false
-        } catch BridgeProductSchemeAdapterError.routeCancelled {
-            terminatedWithCancellation = true
         }
         await routedReply.routingTask.value
 
         // Assert
-        #expect(terminatedWithCancellation)
-        #expect(!receivedResponse)
+        #expect(receivedResponse)
+        #expect(responseStatus == 409)
+        let refusal = try BridgeProductStrictJSON.decode(
+            BridgeProductControlResponse.self,
+            from: responseBytes
+        )
+        guard case .requestError(let error) = refusal else {
+            Issue.record("Expected a typed stale-worker refusal")
+            return
+        }
+        #expect(error.code == .staleWorker)
         #expect((await harness.session.snapshot).pendingRequestKind == nil)
         #expect((await harness.provider.snapshot).controlRequests.isEmpty)
     }
@@ -653,21 +665,13 @@ struct BridgeProductSchemeAdapterTests {
                 )
             )
         )
-        let endedWithContainedFailure: Bool
-        do {
-            _ = try await iterator.next()
-            endedWithContainedFailure = false
-        } catch BridgeProductSchemeAdapterError.containedRouteFailure {
-            endedWithContainedFailure = true
-        } catch {
-            endedWithContainedFailure = false
-        }
+        let endedCleanlyAfterResponse = try await iterator.next() == nil
         await routedReply.routingTask.value
 
         // Assert
         #expect(openingObservation.response?.statusCode == 204)
         #expect(openingObservation.body.isEmpty)
-        #expect(endedWithContainedFailure)
+        #expect(endedCleanlyAfterResponse)
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
         let providerSnapshot = await harness.provider.snapshot
         #expect(providerSnapshot.contentRequestCount == 1)
@@ -687,7 +691,7 @@ struct BridgeProductSchemeAdapterTests {
 
 }
 
-private func contentFrameAcknowledgementBody(
+func contentFrameAcknowledgementBody(
     for admission: BridgeProductContentAdmission,
     contentSequence: Int
 ) throws -> Data {

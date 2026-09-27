@@ -2,6 +2,7 @@ import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-cont
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 
 export class BridgeProductRequestTransportError extends Error {}
+export class BridgeProductResponseSizeLimitError extends Error {}
 
 export async function postBridgeProductCommandBody(props: {
 	readonly body: object;
@@ -11,6 +12,11 @@ export async function postBridgeProductCommandBody(props: {
 }): Promise<Uint8Array> {
 	const response = await executeBridgeProductCommand(props);
 	if (!response.ok) {
+		if (response.status < 400 || response.status >= 500) {
+			throw new BridgeProductRequestTransportError(
+				`Bridge product command reply was ambiguous: HTTP ${response.status}.`,
+			);
+		}
 		throw new Error(`Bridge product control request failed with status ${response.status}.`);
 	}
 	if (response.status === 204) return new Uint8Array();
@@ -35,7 +41,8 @@ export async function postBridgeProductAdmissionBody(props: {
 			bytes: await readBridgeProductControlResponseBytes(response),
 			status: response.status,
 		};
-	} catch {
+	} catch (error: unknown) {
+		if (error instanceof BridgeProductResponseSizeLimitError) throw error;
 		throw new BridgeProductRequestTransportError('Bridge product admission reply was unreadable.');
 	}
 }
@@ -85,13 +92,28 @@ async function readBridgeProductControlResponseBytes(response: Response): Promis
 			if (chunk.value.byteLength > BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES - responseByteLength) {
 				// oxlint-disable-next-line eslint/no-await-in-loop -- Cancel must settle before releasing the reader lock.
 				await reader.cancel().catch((): void => {});
-				throw new Error('Bridge product control response exceeds the encoded body limit.');
+				throw new BridgeProductResponseSizeLimitError(
+					'Bridge product control response exceeds the encoded body limit.',
+				);
 			}
 			responseBytes.set(chunk.value, responseByteLength);
 			responseByteLength += chunk.value.byteLength;
 		}
 	} finally {
 		reader.releaseLock();
+	}
+	const declaredLength = response.headers.get('Content-Length');
+	if (declaredLength !== null) {
+		const expectedLength = Number(declaredLength);
+		if (
+			!/^\d+$/.test(declaredLength) ||
+			!Number.isSafeInteger(expectedLength) ||
+			expectedLength !== responseByteLength
+		) {
+			throw new BridgeProductRequestTransportError(
+				'Bridge product control response length was not verified.',
+			);
+		}
 	}
 	return responseBytes.slice(0, responseByteLength);
 }

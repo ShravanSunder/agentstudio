@@ -83,8 +83,9 @@ struct AgentStudioIPCCommandRealOwnerCoverageTests {
 
     /// The App shell's typed command families: window lifecycle, sidebar chrome
     /// and preferences, command-bar and authentication presentation, the
-    /// watch-folder owner, repository fact refresh, and the dormant Inbox and
-    /// retired Panes-organization surfaces.
+    /// watch-folder owner, repository fact refresh, worktree creation (typed IPC
+    /// reports unavailable until a parameterized contract exists), and the dormant
+    /// Inbox and retired Panes-organization surfaces.
     static let shellOwnedCommands: Set<AppCommand> = [
         .newWindow, .closeWindow,
         .toggleSidebar, .filterSidebar, .focusSidebar,
@@ -98,7 +99,7 @@ struct AgentStudioIPCCommandRealOwnerCoverageTests {
         .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
         .showCommandBarPanes, .showCommandBarRepos,
         .signInGitHub, .signInGoogle,
-        .watchFolder, .updateRepositoryFacts,
+        .watchFolder, .updateRepositoryFacts, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
         .showInboxNotifications, .toggleInboxNotificationSort,
         .clearReadInboxNotifications, .clearAllInboxNotifications,
         .showPaneInboxNotifications, .clearPaneInboxNotifications,
