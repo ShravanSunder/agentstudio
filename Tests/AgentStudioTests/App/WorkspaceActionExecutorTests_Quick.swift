@@ -65,7 +65,7 @@ private func assertFileViewPane(
         Issue.record("Expected Bridge file-viewer workspace source")
         return
     }
-    #expect(navigationRecord.memberWorktreeIds == [worktree.id])
+    #expect(navigationRecord.effectiveMemberWorktreeIds == [worktree.id])
     #expect(
         navigationRecord.selectedReviewComparison == nil
     )
@@ -177,7 +177,7 @@ extension WebKitSerializedTests {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
-            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
+            #expect(navigationRecord.effectiveMemberWorktreeIds == [worktree.id])
             #expect(
                 navigationRecord.selectedReviewComparison == nil
             )
@@ -217,7 +217,7 @@ extension WebKitSerializedTests {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
-            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
+            #expect(navigationRecord.effectiveMemberWorktreeIds == [worktree.id])
             #expect(
                 navigationRecord.selectedReviewComparison == nil
             )
@@ -292,7 +292,7 @@ extension WebKitSerializedTests {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
-            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
+            #expect(navigationRecord.effectiveMemberWorktreeIds == [worktree.id])
             #expect(
                 navigationRecord.selectedReviewComparison == nil
             )
@@ -336,7 +336,7 @@ extension WebKitSerializedTests {
                 Issue.record("Expected Bridge file-viewer workspace source")
                 return
             }
-            #expect(navigationRecord.memberWorktreeIds == [worktree.id])
+            #expect(navigationRecord.effectiveMemberWorktreeIds == [worktree.id])
             #expect(
                 navigationRecord.selectedReviewComparison == nil
             )

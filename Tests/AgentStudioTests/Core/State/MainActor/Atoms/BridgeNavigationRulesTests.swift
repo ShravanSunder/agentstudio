@@ -18,17 +18,28 @@ struct BridgeNavigationRulesTests {
         let empty = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: nil)
 
         // Assert
-        #expect(seeded.memberWorktreeIds == [backend])
+        #expect(seeded.effectiveMemberWorktreeIds == [backend])
+        #expect(seeded.committedMemberLinks.isEmpty)
         #expect(seeded.reviewSelection == .member(worktreeId: backend))
         #expect(seeded.surface == .files)
         #expect(empty == .empty)
         #expect(empty.reviewSelection == .unselected)
     }
 
-    @Test("R3: a known CWD change injects and protects the new member without changing selections")
+    @Test("R3: a committed old CWD stays while the new CWD is derived")
     func knownCWDChangeInjectsAndMovesProtection() {
         // Arrange
         var record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
+        record.committedMemberLinks = [
+            BridgeMemberLink(
+                worktreeId: backend,
+                contributions: [
+                    BridgeLinkContribution(
+                        addedBy: .app, addedAt: Date(timeIntervalSince1970: 1)
+                    )
+                ]
+            )
+        ]
         record = admitted(notes, into: record)
         record = activatedFiles(notes, in: record)
 
@@ -36,7 +47,7 @@ struct BridgeNavigationRulesTests {
         let moved = BridgeNavigationRules.injectingKnownCWDWorktree(frontend, into: record)
 
         // Assert
-        #expect(moved.memberWorktreeIds == [backend, frontend])
+        #expect(moved.effectiveMemberWorktreeIds == [backend, frontend])
         #expect(moved.selectedFilesDocument == notes)
         #expect(moved.reviewSelection == .member(worktreeId: backend))
         #expect(moved.surface == .files)
@@ -50,12 +61,56 @@ struct BridgeNavigationRulesTests {
         )
     }
 
-    @Test("R3: injection is idempotent and a CWD without a known worktree keeps every member")
+    @Test("R3: a derived CWD disappears on an unknown association without a committed row")
     func injectionIsIdempotentAndUnknownCWDKeepsMembers() {
         let record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
 
         #expect(BridgeNavigationRules.injectingKnownCWDWorktree(backend, into: record) == record)
-        #expect(BridgeNavigationRules.injectingKnownCWDWorktree(nil, into: record) == record)
+        #expect(BridgeNavigationRules.injectingKnownCWDWorktree(nil, into: record).effectiveMemberWorktreeIds.isEmpty)
+    }
+
+    @Test("a failed old CWD contribution leaves no member after the move and uses removal fallback")
+    func failedDerivedContributionMovesReviewSelection() throws {
+        let oldFile = try #require(BridgeDocumentLocation(canonicalPath: "/repos/backend/old.swift"))
+        var record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
+        record.openedDocuments = [BridgeOpenedDocument(location: oldFile, provenance: nil)]
+        record.selectedFilesDocument = oldFile
+        let moved = BridgeNavigationRules.injectingKnownCWDWorktree(frontend, into: record)
+
+        let reconciled = BridgeNavigationRules.reconcilingDepartedDerivedCWD(
+            previousDerivedWorktreeID: backend,
+            in: moved,
+            memberRootsByWorktreeId: [backend: "/repos/backend", frontend: "/repos/frontend"]
+        )
+
+        #expect(reconciled.committedMemberLinks.isEmpty)
+        #expect(reconciled.effectiveMemberWorktreeIds == [frontend])
+        #expect(reconciled.reviewSelection == .member(worktreeId: frontend))
+        #expect(reconciled.openedDocuments.isEmpty)
+        #expect(reconciled.selectedFilesDocument == nil)
+    }
+
+    @Test("a committed old CWD remains after the derived association moves")
+    func committedOldCWDRemainsAfterMove() {
+        var record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
+        record.committedMemberLinks = [
+            BridgeMemberLink(
+                worktreeId: backend,
+                contributions: [
+                    BridgeLinkContribution(
+                        addedBy: .app, addedAt: Date(timeIntervalSince1970: 1)
+                    )
+                ]
+            )
+        ]
+        let moved = BridgeNavigationRules.injectingKnownCWDWorktree(frontend, into: record)
+
+        let reconciled = BridgeNavigationRules.reconcilingDepartedDerivedCWD(
+            previousDerivedWorktreeID: backend, in: moved,
+            memberRootsByWorktreeId: [backend: "/repos/backend", frontend: "/repos/frontend"]
+        )
+        #expect(reconciled.effectiveMemberWorktreeIds == [backend, frontend])
+        #expect(reconciled.reviewSelection == .member(worktreeId: backend))
     }
 
     @Test("R15: re-admitting the same canonical location reuses one entry and keeps the displayed selection")
@@ -235,7 +290,7 @@ struct BridgeNavigationRulesTests {
         // Act
         let grouping = BridgeNavigationRules.grouping(
             of: location,
-            memberWorktreeIds: [app, nested, twinA, twinB],
+            effectiveMemberWorktreeIds: [app, nested, twinA, twinB],
             memberRootsByWorktreeId: roots
         )
 
@@ -316,9 +371,14 @@ extension BridgeNavigationRules {
         _ worktreeId: UUID,
         to record: BridgeNavigationRecord
     ) -> BridgeMemberScopedOutcome {
-        switch addingMember(worktreeId, to: record) {
-        case .added(let updated): .applied(updated)
-        case .alreadyMember: .notMember
+        let (updated, result) = addingMemberContribution(
+            worktreeId, contributor: .person,
+            addedAt: Date(timeIntervalSince1970: 1), to: record
+        )
+        return switch result {
+        case .added: .applied(updated)
+        case .alreadyPresent: .notMember
+        case .refusedUnknownWorktree, .staleOwner, .staleReceiver, .unsupportedReceiver: .notMember
         }
     }
 }

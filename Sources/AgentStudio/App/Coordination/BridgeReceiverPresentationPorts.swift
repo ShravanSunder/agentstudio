@@ -30,6 +30,9 @@ struct BridgeReceiverPresentationPorts {
     /// The member the receiver's owner terminal currently sits in, which is
     /// protected from removal; nil for standalone Bridges and unknown CWDs.
     let knownCWDWorktreeId: (BridgeReceiver) -> UUID?
+    /// Re-resolve the requesting pane at each effect point; a drawer may
+    /// have moved to a different owner while a draft barrier was pending.
+    let receiverForCommandPaneId: (UUID) -> BridgeReceiver?
     /// Push the receiver's current Files input to its mounted collection.
     let refreshFilesSource: (BridgeReceiver) -> Void
     /// Persist accepted navigation through the workspace save path; false when

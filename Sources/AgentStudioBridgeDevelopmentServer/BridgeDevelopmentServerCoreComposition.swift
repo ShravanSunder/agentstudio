@@ -81,44 +81,9 @@ final class BridgeDevelopmentServerCoreComposition {
         )
 
         if atoms.workspacePane.pane(configuration.paneID) == nil {
-            let worktree = atoms.workspaceMutationCoordinator.ensureMainWorktree(
-                at: configuration.seedWorktreeRoot
-            )
-            guard let repository = atoms.workspaceRepositoryTopology.repo(worktree.repoId) else {
-                throw BridgeDevelopmentServerCoreCompositionError.repositoryMissing
-            }
-            let paneState = BridgePaneState(panelKind: .diffViewer)
-            try seedNavigationRecord(atoms: atoms, worktreeID: worktree.id, configuration: configuration)
-            atoms.workspacePane.addPane(
-                Pane(
-                    id: configuration.paneID,
-                    content: .bridgePanel(paneState),
-                    metadata: PaneMetadata(
-                        paneId: PaneId(existingUUID: configuration.paneID),
-                        contentType: .diff,
-                        launchDirectory: worktree.path,
-                        title: "Bridge development review",
-                        facets: PaneContextFacets(
-                            repoId: repository.id,
-                            repoName: repository.name,
-                            worktreeId: worktree.id,
-                            worktreeName: worktree.name,
-                            cwd: worktree.path
-                        )
-                    )
-                )
-            )
-            atoms.workspaceTabLayout.appendTab(
-                Tab(paneId: configuration.paneID, name: "Bridge development review")
-            )
-            guard await workspaceStore.flushAsync() == .persisted else {
-                throw BridgeDevelopmentServerCoreCompositionError.workspaceFlushFailed
-            }
-            do {
-                try await repositoryTopologyStore.flushAsync()
-            } catch {
-                throw BridgeDevelopmentServerCoreCompositionError.topologyFlushFailed
-            }
+            try await seedDevelopmentPane(
+                configuration: configuration, atoms: atoms, workspaceStore: workspaceStore,
+                repositoryTopologyStore: repositoryTopologyStore, datastore: datastore)
         }
 
         let productSource = try restoredProductSource(
@@ -144,22 +109,101 @@ final class BridgeDevelopmentServerCoreComposition {
 
     /// The seeded pane is a standalone receiver reviewing the seed worktree
     /// against the configured comparison.
-    private static func seedNavigationRecord(
+    private static func seedDevelopmentPane(
+        configuration: BridgeDevelopmentServerConfiguration,
         atoms: CoreAtoms,
+        workspaceStore: WorkspaceStore,
+        repositoryTopologyStore: RepositoryTopologyStore,
+        datastore: WorkspaceSQLiteDatastoreActor
+    ) async throws {
+        let worktree = atoms.workspaceMutationCoordinator.ensureMainWorktree(
+            at: configuration.seedWorktreeRoot
+        )
+        guard let repository = atoms.workspaceRepositoryTopology.repo(worktree.repoId) else {
+            throw BridgeDevelopmentServerCoreCompositionError.repositoryMissing
+        }
+        let paneState = BridgePaneState(panelKind: .diffViewer)
+        atoms.workspacePane.addPane(
+            Pane(
+                id: configuration.paneID,
+                content: .bridgePanel(paneState),
+                metadata: PaneMetadata(
+                    paneId: PaneId(existingUUID: configuration.paneID),
+                    contentType: .diff,
+                    launchDirectory: worktree.path,
+                    title: "Bridge development review",
+                    facets: PaneContextFacets(
+                        repoId: repository.id,
+                        repoName: repository.name,
+                        worktreeId: worktree.id,
+                        worktreeName: worktree.name,
+                        cwd: worktree.path
+                    )
+                )
+            )
+        )
+        atoms.workspaceTabLayout.appendTab(
+            Tab(paneId: configuration.paneID, name: "Bridge development review")
+        )
+        // The pane graph must be durable before its receiver contribution
+        // can be admitted against an effect-point owner snapshot.
+        guard await workspaceStore.flushAsync() == .persisted else {
+            throw BridgeDevelopmentServerCoreCompositionError.workspaceFlushFailed
+        }
+        do {
+            try await repositoryTopologyStore.flushAsync()
+        } catch {
+            throw BridgeDevelopmentServerCoreCompositionError.topologyFlushFailed
+        }
+        let receiver = BridgeReceiver.standalone(configuration.paneID)
+        let topologySnapshot = BridgeReceiverTopologySnapshot(
+            sourcePaneId: configuration.paneID,
+            paneStatesByID: atoms.workspacePane.captureBridgeLinkPaneFacts(),
+            companionEntriesBySourceID: atoms.workspacePanePresentation.zoomCompanionsBySourcePaneId,
+            repositoryTopology: atoms.workspaceRepositoryTopology.captureReadSnapshot()
+        )
+        let committed = try await datastore.commitBridgeMemberAddition(
+            context: BridgeLinkMutationContext(
+                workspaceID: atoms.workspaceIdentity.workspaceId,
+                receiver: receiver,
+                generation: workspaceStore.bridgeWriteSequencer.nextTicket().value,
+                topologySnapshot: topologySnapshot
+            ),
+            worktreeID: worktree.id,
+            contributor: .app,
+            addedAt: Date()
+        )
+        switch committed.result {
+        case .added, .alreadyPresent: break
+        case .refusedUnknownWorktree, .staleOwner, .staleReceiver, .unsupportedReceiver:
+            throw BridgeDevelopmentServerCoreCompositionError.paneIsNotWorkspaceBacked
+        }
+        let navigationRecord = try await preparedReviewNavigationRecord(
+            committed.record,
+            worktreeID: worktree.id,
+            contributionTarget: configuration.seedContributionTarget
+        )
+        atoms.bridgeNavigation.setRecord(navigationRecord, for: receiver)
+        guard await workspaceStore.flushAsync() == .persisted else {
+            throw BridgeDevelopmentServerCoreCompositionError.workspaceFlushFailed
+        }
+    }
+
+    @concurrent nonisolated private static func preparedReviewNavigationRecord(
+        _ committed: BridgeNavigationRecord,
         worktreeID: UUID,
-        configuration: BridgeDevelopmentServerConfiguration
-    ) throws {
-        let seededRecord = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: worktreeID, surface: .review)
+        contributionTarget: WorkspaceReviewContributionTarget
+    ) async throws -> BridgeNavigationRecord {
         guard
-            case .applied(let navigationRecord) = BridgeNavigationRules.recordingReviewComparison(
-                WorkspaceBaseline(contributionTarget: configuration.seedContributionTarget),
-                for: worktreeID,
-                in: seededRecord
+            case .applied(let navigationRecord) = BridgeNavigationRules.activatingReview(
+                of: worktreeID,
+                comparison: WorkspaceBaseline(contributionTarget: contributionTarget),
+                in: committed
             )
         else {
             throw BridgeDevelopmentServerCoreCompositionError.paneIsNotWorkspaceBacked
         }
-        atoms.bridgeNavigation.setRecord(navigationRecord, for: .standalone(configuration.paneID))
+        return navigationRecord
     }
 
     private static func makeAnnotationOwners(

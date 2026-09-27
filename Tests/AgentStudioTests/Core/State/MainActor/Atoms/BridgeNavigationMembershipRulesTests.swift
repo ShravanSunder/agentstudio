@@ -20,15 +20,21 @@ struct BridgeNavigationMembershipRulesTests {
     func addingIsIdempotentAndSelectionFree() throws {
         let seeded = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
 
-        guard case .added(let added) = BridgeNavigationRules.addingMember(frontend, to: seeded) else {
-            Issue.record("expected addition")
-            return
-        }
+        let (committedSeed, _) = BridgeNavigationRules.addingMemberContribution(
+            backend, contributor: .app, addedAt: Date(timeIntervalSince1970: 1), to: seeded
+        )
+        let (added, firstResult) = BridgeNavigationRules.addingMemberContribution(
+            frontend, contributor: .app, addedAt: Date(timeIntervalSince1970: 2), to: committedSeed
+        )
+        #expect(firstResult == .added(effect: .newItem))
 
-        #expect(added.memberWorktreeIds == [backend, frontend])
+        #expect(added.effectiveMemberWorktreeIds == [backend, frontend])
         #expect(added.reviewSelection == seeded.reviewSelection)
         #expect(added.surface == seeded.surface)
-        #expect(BridgeNavigationRules.addingMember(frontend, to: added) == .alreadyMember)
+        #expect(
+            BridgeNavigationRules.addingMemberContribution(
+                frontend, contributor: .app, addedAt: Date(timeIntervalSince1970: 3), to: added
+            ).1 == .alreadyPresent)
     }
 
     @Test("removing the protected current-CWD member is refused with no mutation")
@@ -67,7 +73,7 @@ struct BridgeNavigationMembershipRulesTests {
         let (removed, effect) = try removal(frontend, from: record, protected: backend)
 
         // Assert
-        #expect(removed.memberWorktreeIds == [backend, docs])
+        #expect(removed.effectiveMemberWorktreeIds == [backend, docs])
         #expect(effect.removedDocuments == [frontendFile])
         #expect(!removed.openedDocuments.map(\.location).contains(frontendFile), "must not reappear as loose")
         #expect(removed.openedDocuments.map(\.location) == [backendFile, notes])
@@ -132,18 +138,21 @@ struct BridgeNavigationMembershipRulesTests {
     @Test("removing the last member empties Review and keeps unrelated loose documents")
     func lastMemberRemoval() throws {
         // Arrange
-        var record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
-        record.openedDocuments = [
-            BridgeOpenedDocument(location: backendFile, provenance: nil),
-            BridgeOpenedDocument(location: notes, provenance: nil),
-        ]
-        record.surface = .review
+        let record = BridgeNavigationRecord(
+            openedDocuments: [
+                BridgeOpenedDocument(location: backendFile, provenance: nil),
+                BridgeOpenedDocument(location: notes, provenance: nil),
+            ],
+            committedMemberLinks: [link(backend)],
+            reviewSelection: .member(worktreeId: backend),
+            surface: .review
+        )
 
         // Act
         let (removed, effect) = try removal(backend, from: record, protected: nil)
 
         // Assert
-        #expect(removed.memberWorktreeIds.isEmpty)
+        #expect(removed.effectiveMemberWorktreeIds.isEmpty)
         #expect(effect.reviewFallback == .emptied)
         #expect(removed.reviewSelection == .unselected)
         #expect(removed.openedDocuments.map(\.location) == [notes])
@@ -170,7 +179,7 @@ struct BridgeNavigationMembershipRulesTests {
         #expect(effect.removedDocuments == [backendFile])
         #expect(effect.clearedFilesSelection)
         #expect(effect.reviewFallback == .switched(toWorktreeId: frontend))
-        #expect(removed.memberWorktreeIds == [frontend, docs])
+        #expect(removed.effectiveMemberWorktreeIds == [frontend, docs])
     }
 
     @Test("an unresolvable member root falls back to admitted provenance, never a path guess")
@@ -223,7 +232,7 @@ struct BridgeNavigationMembershipRulesTests {
                 BridgeOpenedDocument(location: outerFile, provenance: nil),
                 BridgeOpenedDocument(location: nestedFile, provenance: nil),
             ],
-            memberWorktreeIds: [outer, nested]
+            committedMemberLinks: [link(outer), link(nested)]
         )
 
         // Act
@@ -245,6 +254,17 @@ struct BridgeNavigationMembershipRulesTests {
 
     // MARK: - Helpers
 
+    private func link(_ worktreeID: UUID) -> BridgeMemberLink {
+        BridgeMemberLink(
+            worktreeId: worktreeID,
+            contributions: [
+                BridgeLinkContribution(
+                    addedBy: .app, addedAt: Date(timeIntervalSince1970: 1)
+                )
+            ]
+        )
+    }
+
     private func collection() -> BridgeNavigationRecord {
         BridgeNavigationRecord(
             openedDocuments: [
@@ -252,7 +272,7 @@ struct BridgeNavigationMembershipRulesTests {
                 BridgeOpenedDocument(location: frontendFile, provenance: nil),
                 BridgeOpenedDocument(location: notes, provenance: nil),
             ],
-            memberWorktreeIds: [backend, frontend, docs],
+            committedMemberLinks: [link(backend), link(frontend), link(docs)],
             reviewSelection: .member(worktreeId: backend),
             reviewComparisonsByWorktreeId: [
                 backend: .branch(name: "main"),

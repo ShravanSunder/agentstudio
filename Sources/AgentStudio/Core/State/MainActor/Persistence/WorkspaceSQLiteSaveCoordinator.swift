@@ -120,6 +120,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
     private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     private let repositoryTopologyAtom: RepositoryTopologyAtom?
     private let bridgeNavigationAtom: BridgeNavigationAtom?
+    private let bridgeWriteSequencer: BridgeNavigationWriteSequencer
     private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
 
     package init(
@@ -129,6 +130,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         repositoryTopologyAtom: RepositoryTopologyAtom? = nil,
         bridgeNavigationAtom: BridgeNavigationAtom? = nil,
+        bridgeWriteSequencer: BridgeNavigationWriteSequencer,
         sqliteDatastore: WorkspaceSQLiteDatastoreActor
     ) {
         self.identityAtom = identityAtom
@@ -137,6 +139,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
         self.workspaceTabLayoutAtom = workspaceTabLayoutAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
         self.bridgeNavigationAtom = bridgeNavigationAtom
+        self.bridgeWriteSequencer = bridgeWriteSequencer
         self.sqliteDatastore = sqliteDatastore
     }
 
@@ -168,7 +171,9 @@ package final class WorkspaceSQLiteSaveCoordinator {
             createdAt: identityAtom.createdAt,
             persistedAt: persistedAt,
             bridgeNavigation: bridgeNavigationAtom.map { atom in
-                BridgeNavigationSaveSnapshot(records: atom.recordsSnapshot(), revision: atom.acceptedRevision)
+                BridgeNavigationSaveSnapshot(
+                    records: atom.recordsSnapshot(), revision: bridgeWriteSequencer.nextTicket().value
+                )
             }
         )
     }

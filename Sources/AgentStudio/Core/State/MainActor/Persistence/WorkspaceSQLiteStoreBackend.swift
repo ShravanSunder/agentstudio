@@ -108,13 +108,15 @@ struct WorkspaceSQLiteStoreBackend {
 
     func writeLocalSnapshot(
         _ snapshot: WorkspaceSQLiteSnapshot,
-        bridgeNavigationRows: [BridgeNavigationRow]? = nil,
+        bridgeNavigationRecords: [BridgeReceiver: BridgeNavigationRecord]? = nil,
+        bridgeNavigationGeneration: Int? = nil,
         localRepository: WorkspaceLocalRepository
     ) throws {
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: snapshot),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: snapshot),
-            bridgeNavigationRows: bridgeNavigationRows,
+            bridgeNavigationRecords: bridgeNavigationRecords,
+            bridgeNavigationGeneration: bridgeNavigationGeneration,
             completedAt: snapshot.updatedAt
         )
     }

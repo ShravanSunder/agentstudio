@@ -328,8 +328,8 @@ extension WebKitSerializedTests {
             let record = try #require(
                 harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))
             )
-            #expect(record.memberWorktreeIds.isEmpty)
-            #expect(!record.memberWorktreeIds.contains(onlyWorktree.id))
+            #expect(record.effectiveMemberWorktreeIds.isEmpty)
+            #expect(!record.effectiveMemberWorktreeIds.contains(onlyWorktree.id))
             let controller = try #require(harness.viewRegistry.allBridgeViews[companion.companionPaneId]?.controller)
             #expect(controller.reviewBinding == nil)
             #expect(controller.filesBinding?.members.isEmpty == true)
@@ -370,7 +370,7 @@ extension WebKitSerializedTests {
             )
             await eventually("the destination worktree should join the receiver's members") {
                 harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
-                    .memberWorktreeIds == [sourceWorktree.id, destinationWorktree.id]
+                    .effectiveMemberWorktreeIds == [sourceWorktree.id, destinationWorktree.id]
             }
             await controller.filesSourceUpdateTail?.value
 
@@ -427,7 +427,7 @@ extension WebKitSerializedTests {
             #expect(companion.reviewWorktreeId == sourceWorktree.id)
             #expect(
                 harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
-                    .memberWorktreeIds == [sourceWorktree.id]
+                    .effectiveMemberWorktreeIds == [sourceWorktree.id]
             )
             #expect(harness.viewRegistry.allBridgeViews[companionPaneId] != nil)
             #expect(
@@ -472,7 +472,7 @@ extension WebKitSerializedTests {
             )
             await eventually("the destination worktree should join the receiver's members") {
                 harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
-                    .memberWorktreeIds == [sourceWorktree.id, destinationWorktree.id]
+                    .effectiveMemberWorktreeIds == [sourceWorktree.id, destinationWorktree.id]
             }
 
             // Assert

@@ -165,12 +165,27 @@ final class WorkspaceSurfaceCoordinator {
     var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
     /// Serializes catalog-unregistration propagation into receivers.
     var bridgeCatalogUnregistrationTail: Task<Void, Never>?
+    var bridgePaneLinkMembershipActor: BridgePaneLinkMembershipActor?
     lazy var bridgeNavigationCommandHandler: BridgeNavigationCommandHandler = {
         let handler = BridgeNavigationCommandHandler(
             navigationAtom: store.bridgeNavigationAtom,
-            repositoryTopologyAtom: store.repositoryTopologyAtom
+            paneAtom: store.paneAtom,
+            panePresentationAtom: store.panePresentationAtom,
+            repositoryTopologyAtom: store.repositoryTopologyAtom,
+            writeSequencer: store.bridgeWriteSequencer,
+            linkCommitPort: store.bridgeLinkDatastore,
+            workspaceID: store.identityAtom.workspaceId
         )
         handler.presentationPorts = bridgeReceiverPresentationPorts()
+        if let commitPort = store.bridgeLinkDatastore {
+            let membershipActor = BridgePaneLinkMembershipActor(
+                workspaceID: store.identityAtom.workspaceId,
+                handler: handler,
+                commitPort: commitPort
+            )
+            bridgePaneLinkMembershipActor = membershipActor
+            handler.linkMembershipActor = membershipActor
+        }
         return handler
     }()
 
@@ -339,7 +354,9 @@ final class WorkspaceSurfaceCoordinator {
         pullRequestDemandDeliveryTask?.cancel()
         let filesystemSource = filesystemSource
         let filesystemProjectionIndex = filesystemProjectionIndex
+        let paneLinkMembershipActor = bridgePaneLinkMembershipActor
         Task {
+            await paneLinkMembershipActor?.shutdown()
             await filesystemSource.setRepositoryFactDemand(.empty)
             await filesystemProjectionIndex.shutdown()
             await filesystemSource.shutdown()
@@ -414,6 +431,8 @@ final class WorkspaceSurfaceCoordinator {
             await task.value
         }
 
+        await bridgePaneLinkMembershipActor?.shutdown()
+        await bridgeCatalogUnregistrationTail?.value
         await drainBridgePaneRetirements()
         await drainBridgeGitReadActivityPropagation()
         await worktreeProductConstructionCoordinator.shutdown()

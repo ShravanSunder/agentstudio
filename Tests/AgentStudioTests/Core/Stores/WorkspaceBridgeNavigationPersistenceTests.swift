@@ -45,7 +45,7 @@ struct WorkspaceBridgeNavigationPersistenceTests {
                 ),
                 BridgeOpenedDocument(location: notes, provenance: nil),
             ],
-            memberWorktreeIds: [backend, frontend],
+            committedMemberLinks: testCommittedMemberLinks([backend, frontend]),
             filesFilter: .member(worktreeId: frontend),
             selectedFilesDocument: notes,
             reviewSelection: .member(worktreeId: frontend),
@@ -57,13 +57,38 @@ struct WorkspaceBridgeNavigationPersistenceTests {
         )
         let terminalRecord = BridgeNavigationRecord(
             openedDocuments: [BridgeOpenedDocument(location: notes, provenance: nil)],
-            memberWorktreeIds: [backend],
+            committedMemberLinks: testCommittedMemberLinks([backend]),
             reviewSelection: .importedUnavailable(
                 BridgeImportedReviewQuery(variant: .commit, originalPayloadJSON: #"{"commit":{"sha":"abc"}}"#)
             )
         )
+        #expect(await first.store.flushAsync() == .persisted)
+        let workspaceID = first.store.identityAtom.workspaceId
+        let standaloneReceiver = BridgeReceiver.standalone(bridgePane.id)
+        let terminalReceiver = BridgeReceiver.terminal(terminalPane.id)
+        let standaloneTopology = try receiverTopologySnapshot(
+            for: standaloneReceiver, knownWorktreeRoots: [backend: "/tmp/backend", frontend: "/tmp/frontend"])
+        let terminalTopology = try receiverTopologySnapshot(
+            for: terminalReceiver, knownWorktreeRoots: [backend: "/tmp/backend"])
+        for worktreeID in [backend, frontend] {
+            _ = try await first.datastore.commitBridgeMemberAddition(
+                context: BridgeLinkMutationContext(
+                    workspaceID: workspaceID, receiver: standaloneReceiver,
+                    generation: first.store.bridgeWriteSequencer.nextTicket().value,
+                    topologySnapshot: standaloneTopology),
+                worktreeID: worktreeID, contributor: .app,
+                addedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        _ = try await first.datastore.commitBridgeMemberAddition(
+            context: BridgeLinkMutationContext(
+                workspaceID: workspaceID, receiver: terminalReceiver,
+                generation: first.store.bridgeWriteSequencer.nextTicket().value,
+                topologySnapshot: terminalTopology),
+            worktreeID: backend, contributor: .app,
+            addedAt: Date(timeIntervalSince1970: 1_700_000_000))
         first.store.bridgeNavigationAtom.setRecord(standaloneRecord, for: .standalone(bridgePane.id))
         first.store.bridgeNavigationAtom.setRecord(terminalRecord, for: .terminal(terminalPane.id))
+        _ = first.store.bridgeWriteSequencer.nextTicket()
 
         // Act
         #expect(await first.store.flushAsync() == .persisted)
@@ -76,6 +101,35 @@ struct WorkspaceBridgeNavigationPersistenceTests {
                 .terminal(terminalPane.id): terminalRecord,
             ]
         )
+    }
+
+    @Test("startup reconciliation save takes a generation above restored receiver rows")
+    func reconciliationSaveAdvancesRestoredGeneration() async throws {
+        let fixture = try BridgeNavigationPersistenceFixture()
+        defer { fixture.remove() }
+        let first = try await fixture.openStore(expectInitialization: true)
+        let repository = first.store.addRepo(at: fixture.root)
+        let worktree = try #require(first.store.repo(repository.id)?.worktrees.first)
+        let pane = first.store.createPane(
+            content: .bridgePanel(.init(panelKind: .fileViewer)),
+            metadata: PaneMetadata(
+                contentType: .diff, launchDirectory: fixture.root,
+                title: "Reconcile association",
+                facets: PaneContextFacets(cwd: fixture.root)))
+        first.store.appendTab(Tab(paneId: pane.id))
+        first.store.bridgeNavigationAtom.setRecord(.init(surface: .review), for: .standalone(pane.id))
+        #expect(await first.store.flushAsync() == .persisted)
+        try await RepositoryTopologyStore(
+            atom: first.store.repositoryTopologyAtom,
+            sqliteDatastore: first.datastore
+        ).flushAsync()
+        try fixture.executeLocal("UPDATE bridge_receiver_state SET generation = 100")
+
+        // The pane's known association is backfilled during load, which issues
+        // the startup reconciliation save after hydration seeds the floor.
+        let restored = try await fixture.openStore(expectInitialization: false)
+        #expect(restored.store.paneAtom.pane(pane.id)?.worktreeId == worktree.id)
+        #expect(restored.store.bridgeWriteSequencer.nextTicket().value >= 102)
     }
 
     @Test("close/undo retains the receiver row; expiry and permanent removal make it eligible cleanup")
@@ -99,7 +153,7 @@ struct WorkspaceBridgeNavigationPersistenceTests {
         let removedPane = first.store.createPane(launchDirectory: fixture.root)
         let removedTab = Tab(paneId: removedPane.id)
         first.store.appendTab(removedTab)
-        let record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: UUIDv7.generate())
+        let record = BridgeNavigationRecord(surface: .review)
         for receiver in [
             BridgeReceiver.standalone(closedPane.id), .standalone(livePane.id), .terminal(removedPane.id),
         ] {
@@ -156,7 +210,7 @@ struct WorkspaceBridgeNavigationPersistenceTests {
         let reviewRecord = try #require(
             converted.store.bridgeNavigationAtom.record(for: .standalone(seeded.reviewPaneID))
         )
-        #expect(reviewRecord.memberWorktreeIds == [seeded.worktreeID])
+        #expect(reviewRecord.committedMemberWorktreeIds == [seeded.worktreeID])
         #expect(reviewRecord.reviewSelection == .member(worktreeId: seeded.worktreeID))
         #expect(
             reviewRecord.reviewComparisonsByWorktreeId == [
@@ -168,7 +222,7 @@ struct WorkspaceBridgeNavigationPersistenceTests {
         let commitRecord = try #require(
             converted.store.bridgeNavigationAtom.record(for: .standalone(seeded.commitPaneID))
         )
-        #expect(commitRecord.memberWorktreeIds.isEmpty)
+        #expect(commitRecord.committedMemberWorktreeIds.isEmpty)
         #expect(
             commitRecord.reviewSelection
                 == .importedUnavailable(
@@ -207,7 +261,7 @@ struct WorkspaceBridgeNavigationPersistenceTests {
         try fixture.executeLocal(
             """
             CREATE TRIGGER block_bridge_navigation_import
-            BEFORE INSERT ON local_bridge_navigation
+            BEFORE INSERT ON bridge_receiver_state
             BEGIN SELECT RAISE(ABORT, 'import blocked'); END
             """
         )
@@ -230,7 +284,8 @@ struct WorkspaceBridgeNavigationPersistenceTests {
 
         // Assert
         #expect(
-            recovered.store.bridgeNavigationAtom.record(for: .standalone(seeded.reviewPaneID))?.memberWorktreeIds
+            recovered.store.bridgeNavigationAtom.record(for: .standalone(seeded.reviewPaneID))?
+                .committedMemberWorktreeIds
                 == [seeded.worktreeID]
         )
         #expect(try fixture.corePayloadState(paneID: seeded.reviewPaneID)["source"] == nil)
@@ -270,38 +325,67 @@ struct WorkspaceBridgeNavigationPersistenceTests {
     }
 }
 
-@Suite("Bridge navigation payload codec")
-struct BridgeNavigationPayloadCodecTests {
-    @Test("rows fail closed with field-tagged errors instead of guessing")
-    func malformedRowsFailClosed() throws {
+@Suite("Bridge receiver typed row codec")
+struct BridgeReceiverTypedRowCodecTests {
+    @Test("every state and contribution kind round trips through typed columns")
+    func typedRowsRoundTrip() throws {
         let receiver = BridgeReceiver.standalone(UUIDv7.generate())
-        let valid = try BridgeNavigationPayloadCodec.encodeRow(.empty, for: receiver)
-        #expect(try BridgeNavigationPayloadCodec.decodeRecord(from: valid) == .empty)
+        let member = UUIDv7.generate()
+        let document = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/typed-row.swift"))
+        let pullRequest = try ForgePullRequestIdentity(
+            host: "github.com", owner: "Team", repository: "Repo", number: 42)
+        var record = BridgeNavigationRecord(
+            openedDocuments: [
+                .init(
+                    location: document,
+                    provenance: .init(repoId: UUIDv7.generate(), worktreeId: member, relativePath: "typed-row.swift"))
+            ],
+            committedMemberLinks: [
+                .init(
+                    worktreeId: member,
+                    contributions: [.init(addedBy: .person, addedAt: Date(timeIntervalSince1970: 1_700_000_000))])
+            ],
+            pullRequestLinks: [
+                .init(
+                    identity: pullRequest,
+                    contributions: [.init(addedBy: .app, addedAt: Date(timeIntervalSince1970: 1_700_000_000))])
+            ],
+            filesFilter: .member(worktreeId: member), selectedFilesDocument: document,
+            reviewSelection: .member(worktreeId: member), surface: .review,
+            reviewComparisonsByWorktreeId: [member: .branch(name: "main", basis: .branchTip)]
+        )
+        let derivedOnlyMember = UUIDv7.generate()
+        record.derivedCurrentCWDWorktreeId = derivedOnlyMember
+        let states = BridgeReceiverRecordRows.states(record, receiver: receiver, generation: 7)
+        let items = BridgeReceiverRecordRows.items(record, receiver: receiver, generation: 7)
+        let decoded = try BridgeReceiverRecordRows.record(states: states, items: items)
+        #expect(decoded.committedMemberWorktreeIds == [member])
+        #expect(decoded.derivedCurrentCWDWorktreeId == nil)
+        #expect(record.effectiveMemberWorktreeIds == [member, derivedOnlyMember])
+        #expect(
+            Set(states.map(\.kind)) == [
+                "filesFilter", "selectedFilesDocument", "reviewSelection", "surface", "reviewComparison", "itemOrder",
+                "openedDocument",
+            ])
+        #expect(Set(items.map(\.kind)) == ["member", "prReference"])
+    }
 
-        let unsupported = BridgeNavigationRow(receiver: receiver, payloadVersion: 99, payloadJSON: valid.payloadJSON)
-        #expect(throws: BridgeNavigationPayloadCodecError.unsupportedPayloadVersion(99)) {
-            try BridgeNavigationPayloadCodec.decodeRecord(from: unsupported)
+    @Test("typed identity mismatch is rejected on read")
+    func malformedIdentityFailsClosed() throws {
+        let receiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let member = UUIDv7.generate()
+        let record = BridgeNavigationRecord(committedMemberLinks: testCommittedMemberLinks([member]))
+        var items = BridgeReceiverRecordRows.items(record, receiver: receiver, generation: 1)
+        items[0].worktreeID = UUIDv7.generate()
+        #expect(throws: BridgeReceiverStorageError.malformedRow("member identity")) {
+            try BridgeReceiverRecordRows.record(
+                states: BridgeReceiverRecordRows.states(record, receiver: receiver, generation: 1), items: items)
         }
-        let relative = valid.payloadJSON.replacingOccurrences(
-            of: #""openedDocuments":[]"#,
-            with: #""openedDocuments":[{"canonicalPath":"relative/file.md"}]"#
-        )
-        #expect(throws: BridgeNavigationPayloadCodecError.invalidDocumentLocation(field: "openedDocuments")) {
-            try BridgeNavigationPayloadCodec.decodeRecord(
-                from: BridgeNavigationRow(receiver: receiver, payloadVersion: 1, payloadJSON: relative)
-            )
-        }
-        var danglingObject = try #require(
-            JSONSerialization.jsonObject(with: Data(valid.payloadJSON.utf8)) as? [String: Any]
-        )
-        danglingObject["selectedFilesDocument"] = "/tmp/absent.md"
-        let dangling = try #require(
-            String(data: try JSONSerialization.data(withJSONObject: danglingObject), encoding: .utf8)
-        )
-        #expect(throws: BridgeNavigationPayloadCodecError.selectedDocumentNotInInventory) {
-            try BridgeNavigationPayloadCodec.decodeRecord(
-                from: BridgeNavigationRow(receiver: receiver, payloadVersion: 1, payloadJSON: dangling)
-            )
+        var states = BridgeReceiverRecordRows.states(.empty, receiver: receiver, generation: 1)
+        let surfaceIndex = try #require(states.firstIndex { $0.kind == "surface" })
+        states[surfaceIndex].worktreeID = member
+        #expect(throws: BridgeReceiverStorageError.malformedRow("state kind columns")) {
+            try BridgeReceiverRecordRows.record(states: states, items: [])
         }
     }
 }
@@ -424,7 +508,9 @@ private struct BridgeNavigationPersistenceFixture {
 
     func localNavigationRecordCount() throws -> Int {
         try withPool(database: "local.sqlite") { database in
-            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM local_bridge_navigation") ?? 0
+            try Int.fetchOne(
+                database, sql: "SELECT COUNT(DISTINCT receiver_pane_id) FROM bridge_receiver_state WHERE is_deleted = 0"
+            ) ?? 0
         }
     }
 
@@ -432,18 +518,18 @@ private struct BridgeNavigationPersistenceFixture {
         try withPool(database: "local.sqlite") { database in
             try Int.fetchOne(
                 database,
-                sql: "SELECT 1 FROM local_bridge_navigation WHERE receiver_pane_id = ? LIMIT 1",
+                sql: "SELECT 1 FROM bridge_receiver_state WHERE receiver_pane_id = ? AND is_deleted = 0 LIMIT 1",
                 arguments: [paneID.uuidString]
             ) != nil
         }
     }
 
     func replaceLocalRecord(_ record: BridgeNavigationRecord, receiver: BridgeReceiver) throws {
-        let row = try BridgeNavigationPayloadCodec.encodeRow(record, for: receiver)
         try withPool(database: "local.sqlite", write: true) { database in
             try database.execute(
-                sql: "UPDATE local_bridge_navigation SET payload_json = ? WHERE receiver_pane_id = ?",
-                arguments: [row.payloadJSON, receiver.paneId.uuidString]
+                sql:
+                    "UPDATE bridge_receiver_state SET text_value = ?, generation = generation + 1 WHERE receiver_pane_id = ? AND kind = 'surface'",
+                arguments: [record.surface.rawValue, receiver.paneId.uuidString]
             )
         }
     }

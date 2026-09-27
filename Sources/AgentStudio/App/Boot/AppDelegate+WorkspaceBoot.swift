@@ -166,6 +166,8 @@ extension AppDelegate {
         guard let sqliteDatastore = workspaceSQLiteDatastore else {
             preconditionFailure("Workspace databases were not prepared before canonical hydration")
         }
+        let bridgeWriteSequencer = BridgeNavigationWriteSequencer()
+        bridgeNavigationWriteSequencer = bridgeWriteSequencer
         let workspaceSQLiteSaveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: atomStore.core.workspaceIdentity,
             windowMemoryAtom: atomStore.core.workspaceWindowMemory,
@@ -173,6 +175,7 @@ extension AppDelegate {
             workspaceTabLayoutAtom: atomStore.core.workspaceTabLayout,
             repositoryTopologyAtom: atomStore.core.workspaceRepositoryTopology,
             bridgeNavigationAtom: atomStore.core.bridgeNavigation,
+            bridgeWriteSequencer: bridgeWriteSequencer,
             sqliteDatastore: sqliteDatastore
         )
         let topologyStore = RepositoryTopologyStore(
@@ -188,6 +191,7 @@ extension AppDelegate {
             tabLayoutAtom: atomStore.core.workspaceTabLayout,
             mutationCoordinator: atomStore.core.workspaceMutationCoordinator,
             bridgeNavigationAtom: atomStore.core.bridgeNavigation,
+            bridgeWriteSequencer: bridgeWriteSequencer,
             sqliteDatastore: sqliteDatastore,
             sqliteSaveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in

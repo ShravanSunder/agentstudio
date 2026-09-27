@@ -68,7 +68,9 @@ struct WorkspaceLocalMigrationTests {
             )
         }
         let expectedTableNames: Set<String> = [
-            "local_bridge_navigation",
+            "bridge_receiver_state",
+            "bridge_receiver_item",
+            "bridge_receiver_retirement",
             "local_workspace_cursor",
             "local_tab_cursor",
             "local_arrangement_cursor",
@@ -109,6 +111,7 @@ struct WorkspaceLocalMigrationTests {
         ]
 
         #expect(tableNames == expectedTableNames)
+        #expect(!tableNames.contains("local_bridge_navigation"))
         #expect(!tableNames.contains("local_persistence_lane_marker"))
         #expect(!tableNames.contains("local_workspace_sqlite_snapshot_status"))
         #expect(!tableNames.contains("cache_notification_count"))

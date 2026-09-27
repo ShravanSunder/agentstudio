@@ -179,14 +179,20 @@ package enum BridgeLegacySourceConversion {
     package static func importedRecord(
         for payload: BridgeLegacyPanePayload,
         knownWorktreeIdsByCanonicalRootPath: [String: UUID],
-        canonicalize: (String) -> String
+        canonicalize: (String) -> String,
+        importedAt: Date
     ) -> BridgeNavigationRecord {
         let surface: BridgeNavigationSurface = payload.panelKind == .diffViewer ? .review : .files
         if case .workspace(let rootPath, let baseline)? = payload.legacySource,
             let worktreeId = knownWorktreeIdsByCanonicalRootPath[canonicalize(rootPath)]
         {
             return BridgeNavigationRecord(
-                memberWorktreeIds: [worktreeId],
+                committedMemberLinks: [
+                    BridgeMemberLink(
+                        worktreeId: worktreeId,
+                        contributions: [BridgeLinkContribution(addedBy: .app, addedAt: importedAt)]
+                    )
+                ],
                 reviewSelection: .member(worktreeId: worktreeId),
                 surface: surface,
                 reviewComparisonsByWorktreeId: baseline.map { [worktreeId: $0] } ?? [:]

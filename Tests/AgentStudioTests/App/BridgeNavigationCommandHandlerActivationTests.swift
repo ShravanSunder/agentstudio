@@ -192,7 +192,7 @@ struct BridgeNavigationCommandHandlerActivationTests {
     func reviewOfAnotherMemberReplacesSource() async throws {
         // Arrange
         let fixture = try makeFixture()
-        let otherWorktree = try fixture.addMember()
+        let otherWorktree = try await fixture.addMember()
         let presentation = RecordingReceiverPresentation()
         fixture.install(presentation)
         let document = try #require(fixture.loosePlan)
@@ -215,7 +215,7 @@ struct BridgeNavigationCommandHandlerActivationTests {
     func refusedFlushBlocksReviewReplacement() async throws {
         // Arrange
         let fixture = try makeFixture()
-        let otherWorktree = try fixture.addMember()
+        let otherWorktree = try await fixture.addMember()
         let presentation = RecordingReceiverPresentation()
         presentation.preparationOutcome = .failed
         fixture.install(presentation)

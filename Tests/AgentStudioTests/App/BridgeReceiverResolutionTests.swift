@@ -88,6 +88,38 @@ struct BridgeReceiverResolutionTests {
         #expect(receiver == nil)
     }
 
+    @Test("an effect-point pane snapshot resolves the drawer owner at capture")
+    func rawFactsCaptureOwnerMovement() {
+        let firstOwner = Self.terminalPane()
+        let secondOwner = Self.terminalPane()
+        let drawer = Self.terminalPane(kind: .drawerChild(parentPaneId: firstOwner.id))
+        let firstFacts = [firstOwner, secondOwner, drawer].reduce(into: [UUID: PaneGraphState]()) {
+            $0[$1.id] = PaneGraphState(pane: $1)
+        }
+        let movedDrawer = Pane(
+            id: drawer.id,
+            content: drawer.content,
+            metadata: drawer.metadata,
+            kind: .drawerChild(parentPaneId: secondOwner.id)
+        )
+        let movedFacts = [firstOwner, secondOwner, movedDrawer].reduce(into: [UUID: PaneGraphState]()) {
+            $0[$1.id] = PaneGraphState(pane: $1)
+        }
+
+        #expect(
+            BridgeReceiverResolution.receiver(
+                forCommandPaneId: drawer.id,
+                companionEntriesBySourceID: [:],
+                paneStatesByID: firstFacts
+            ) == .terminal(firstOwner.id))
+        #expect(
+            BridgeReceiverResolution.receiver(
+                forCommandPaneId: drawer.id,
+                companionEntriesBySourceID: [:],
+                paneStatesByID: movedFacts
+            ) == .terminal(secondOwner.id))
+    }
+
     private static func terminalPane(kind: PaneKind? = nil) -> Pane {
         Pane(
             content: .terminal(

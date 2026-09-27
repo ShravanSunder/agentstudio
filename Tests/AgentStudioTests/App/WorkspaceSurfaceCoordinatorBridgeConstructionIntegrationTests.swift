@@ -223,7 +223,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(persistedBridgeState == BridgePaneState(panelKind: .diffViewer))
-            #expect(record.memberWorktreeIds == [worktree.id])
+            #expect(record.effectiveMemberWorktreeIds == [worktree.id])
             #expect(record.reviewSelection == .member(worktreeId: worktree.id))
             #expect(record.selectedReviewComparison == nil)
             #expect(record.surface == .review)
@@ -282,7 +282,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(persistedBridgeState == BridgePaneState(panelKind: .fileViewer))
-            #expect(record.memberWorktreeIds == [worktree.id])
+            #expect(record.effectiveMemberWorktreeIds == [worktree.id])
             #expect(record.selectedReviewComparison == nil)
             #expect(record.surface == .files)
             let controller = try #require(

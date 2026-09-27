@@ -195,7 +195,7 @@ extension BridgeNavigationCommandHandler {
     /// Start a navigation that awaits the page; any older one still waiting
     /// for the same receiver can no longer publish state.
     func beginNavigation(for receiver: BridgeReceiver) -> Int {
-        let generation = (navigationGenerationByReceiver[receiver] ?? 0) + 1
+        let generation = writeSequencer.nextTicket().value
         navigationGenerationByReceiver[receiver] = generation
         return generation
     }

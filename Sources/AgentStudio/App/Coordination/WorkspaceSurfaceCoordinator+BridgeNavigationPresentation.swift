@@ -16,6 +16,9 @@ extension WorkspaceSurfaceCoordinator {
             knownCWDWorktreeId: { [weak self] receiver in
                 self?.knownCWDWorktreeId(for: receiver)
             },
+            receiverForCommandPaneId: { [weak self] paneId in
+                self?.bridgeReceiver(forCommandPaneId: paneId)
+            },
             refreshFilesSource: { [weak self] receiver in
                 guard let self,
                     let controller = self.mountedBridgeController(for: receiver),
@@ -54,7 +57,7 @@ extension WorkspaceSurfaceCoordinator {
             bridgeNavigationCommandHandler.ensureRecord(for: receiver, seedingKnownWorktreeId: knownCWD)
             bridgeNavigationCommandHandler.applyKnownCWDAssociation(knownCWD, forTerminalPane: receiver.paneId)
         }
-        return await bridgeNavigationCommandHandler.perform(request, in: receiver)
+        return await bridgeNavigationCommandHandler.perform(request, in: receiver, sourcePaneID: paneId)
     }
 
     /// The controller that renders `receiver`: its Zoom companion for a

@@ -59,7 +59,8 @@ package final class BridgeNavigationAtom {
         let revisionBefore = acceptedCommitRevision.value
         recordFamily.setValue(record, for: receiver, mutation: mutation)
         mutation.commit()
-        return acceptedCommitRevision.value != revisionBefore
+        let changed = acceptedCommitRevision.value != revisionBefore
+        return changed
     }
 
     @discardableResult
@@ -68,7 +69,8 @@ package final class BridgeNavigationAtom {
         let revisionBefore = acceptedCommitRevision.value
         recordFamily.removeValue(for: receiver, mutation: mutation)
         mutation.commit()
-        return acceptedCommitRevision.value != revisionBefore
+        let changed = acceptedCommitRevision.value != revisionBefore
+        return changed
     }
 
     package func replaceConversionUnavailablePaneIds(_ paneIds: Set<UUID>) {

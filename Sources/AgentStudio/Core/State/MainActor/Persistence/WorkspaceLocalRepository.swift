@@ -228,17 +228,16 @@ package struct WorkspaceLocalRepository: Sendable {
     func replaceWorkspaceSnapshotLocalState(
         cursorState: CursorStateRecord,
         windowState: WindowStateRecord?,
-        bridgeNavigationRows: [BridgeNavigationRow]? = nil,
+        bridgeNavigationRecords: [BridgeReceiver: BridgeNavigationRecord]? = nil,
+        bridgeNavigationGeneration: Int? = nil,
         completedAt: Date
     ) throws {
         try databaseWriter.write { database in
-            if let bridgeNavigationRows {
-                try WorkspaceLocalRepositoryStorage.replaceBridgeNavigationRows(
-                    database,
-                    workspaceId: workspaceId,
-                    rows: bridgeNavigationRows,
-                    updatedAt: completedAt
-                )
+            if let bridgeNavigationRecords, let bridgeNavigationGeneration {
+                try WorkspaceLocalRepositoryStorage.saveBridgeCurrentValues(
+                    database, workspaceID: workspaceId, records: bridgeNavigationRecords,
+                    retainedPaneIDs: Set(bridgeNavigationRecords.keys.map(\.paneId)),
+                    generation: bridgeNavigationGeneration, now: completedAt)
             }
             try WorkspaceLocalRepositoryStorage.replaceWindowStateRows(
                 database,

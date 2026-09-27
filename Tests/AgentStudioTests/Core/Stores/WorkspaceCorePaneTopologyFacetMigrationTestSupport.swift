@@ -727,11 +727,13 @@ func makeMigration015WorkspaceStore(
     )
     let datastore = try await preparedWorkspaceSQLiteDatastore(from: backend)
     let coreAtoms = CoreAtoms()
+    let bridgeWriteSequencer = BridgeNavigationWriteSequencer()
     let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
         identityAtom: coreAtoms.workspaceIdentity,
         windowMemoryAtom: coreAtoms.workspaceWindowMemory,
         workspacePaneAtom: coreAtoms.workspacePane,
         workspaceTabLayoutAtom: coreAtoms.workspaceTabLayout,
+        bridgeWriteSequencer: bridgeWriteSequencer,
         sqliteDatastore: datastore
     )
     return WorkspaceStore(
@@ -741,6 +743,7 @@ func makeMigration015WorkspaceStore(
         paneAtom: coreAtoms.workspacePane,
         tabLayoutAtom: coreAtoms.workspaceTabLayout,
         mutationCoordinator: coreAtoms.workspaceMutationCoordinator,
+        bridgeWriteSequencer: bridgeWriteSequencer,
         sqliteDatastore: datastore,
         sqliteSaveCoordinator: saveCoordinator
     )

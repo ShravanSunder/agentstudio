@@ -75,6 +75,12 @@ package final class WorkspacePaneAtom {
         derived.paneSnapshot()
     }
 
+    /// A copy of the existing write-owner map for off-main Bridge link
+    /// authority checks. No pane projection runs on this publication owner.
+    package func captureBridgeLinkPaneFacts() -> [UUID: PaneGraphState] {
+        graphAtom.paneStateSnapshot()
+    }
+
     package func panes(for worktreeId: UUID) -> [Pane] {
         paneSnapshot().values.filter { $0.worktreeId == worktreeId }
     }

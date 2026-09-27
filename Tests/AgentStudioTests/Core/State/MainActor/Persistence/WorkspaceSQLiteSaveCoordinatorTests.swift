@@ -587,6 +587,7 @@ private func makeFixture(
             workspacePaneAtom: workspacePaneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
             repositoryTopologyAtom: repositoryTopologyAtom,
+            bridgeWriteSequencer: BridgeNavigationWriteSequencer(),
             sqliteDatastore: datastore
         ),
         probe: probe

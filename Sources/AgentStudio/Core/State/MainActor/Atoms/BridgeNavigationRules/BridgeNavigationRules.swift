@@ -20,7 +20,7 @@ package enum BridgeNavigationRules {
     ) -> BridgeNavigationRecord {
         guard let knownTerminalWorktreeId else { return BridgeNavigationRecord(surface: surface) }
         return BridgeNavigationRecord(
-            memberWorktreeIds: [knownTerminalWorktreeId],
+            derivedCurrentCWDWorktreeId: knownTerminalWorktreeId,
             reviewSelection: .member(worktreeId: knownTerminalWorktreeId),
             surface: surface
         )
@@ -32,11 +32,8 @@ package enum BridgeNavigationRules {
         _ knownCWDWorktreeId: UUID?,
         into record: BridgeNavigationRecord
     ) -> BridgeNavigationRecord {
-        guard let knownCWDWorktreeId, !record.containsMember(knownCWDWorktreeId) else {
-            return record
-        }
         var updated = record
-        updated.memberWorktreeIds.append(knownCWDWorktreeId)
+        updated.derivedCurrentCWDWorktreeId = knownCWDWorktreeId
         return updated
     }
 
@@ -59,12 +56,12 @@ package enum BridgeNavigationRules {
     /// ambiguous rather than guessed.
     package static func grouping(
         of location: BridgeDocumentLocation,
-        memberWorktreeIds: [UUID],
+        effectiveMemberWorktreeIds: [UUID],
         memberRootsByWorktreeId: [UUID: String]
     ) -> BridgeDocumentGrouping {
         var deepestRootLength = -1
         var deepestMembers: [UUID] = []
-        for worktreeId in memberWorktreeIds {
+        for worktreeId in effectiveMemberWorktreeIds {
             guard let root = memberRootsByWorktreeId[worktreeId],
                 location.isContained(inCanonicalRoot: root)
             else {

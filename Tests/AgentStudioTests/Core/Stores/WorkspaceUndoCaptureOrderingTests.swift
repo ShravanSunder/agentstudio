@@ -27,7 +27,8 @@ struct WorkspaceUndoCaptureOrderingTests {
         let coordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: WorkspaceIdentityAtom(workspaceId: workspaceID),
             windowMemoryAtom: WorkspaceWindowMemoryAtom(), workspacePaneAtom: panes,
-            workspaceTabLayoutAtom: tabs, sqliteDatastore: datastore
+            workspaceTabLayoutAtom: tabs, bridgeWriteSequencer: BridgeNavigationWriteSequencer(),
+            sqliteDatastore: datastore
         )
         _ = try await coordinator.save(persistedAt: Date(timeIntervalSince1970: 100))
         if rejectWrite {

@@ -15,18 +15,23 @@ extension BridgeNavigationCommandHandler {
     /// Add an already-known worktree to this receiver only. Unknown worktrees
     /// are refused without discovery or registration; a duplicate addition has
     /// no effect. Neither selection changes.
-    func addWorktree(_ worktreeId: UUID, to receiver: BridgeReceiver) async -> BridgeNavigationCommandOutcome {
-        guard let record = navigationAtom.record(for: receiver) else {
+    func addWorktree(
+        _ worktreeId: UUID,
+        to receiver: BridgeReceiver,
+        sourcePaneID: UUID? = nil
+    ) async -> BridgeNavigationCommandOutcome {
+        do {
+            let result = try await addMemberLink(
+                worktreeId, to: receiver, sourcePaneID: sourcePaneID ?? receiver.paneId,
+                contributor: .person
+            )
+            switch result {
+            case .added, .alreadyPresent: return .applied
+            case .refusedUnknownWorktree: return .failed(.worktreeUnavailable)
+            case .staleOwner, .staleReceiver, .unsupportedReceiver: return .failed(.receiverUnavailable)
+            }
+        } catch {
             return .failed(.receiverUnavailable)
-        }
-        guard knownWorktree(worktreeId) != nil else { return .failed(.worktreeUnavailable) }
-        switch BridgeNavigationRules.addingMember(worktreeId, to: record) {
-        case .alreadyMember:
-            return .applied
-        case .added(let updated):
-            navigationAtom.setRecord(updated, for: receiver)
-            presentationPorts?.refreshFilesSource(receiver)
-            return await persistedOutcome()
         }
     }
 
@@ -74,38 +79,24 @@ extension BridgeNavigationCommandHandler {
     /// annotations and the repository catalog are untouched.
     func removeWorktree(
         _ worktreeId: UUID,
-        from receiver: BridgeReceiver
+        from receiver: BridgeReceiver,
+        sourcePaneID: UUID? = nil
     ) async -> BridgeNavigationCommandOutcome {
-        guard let record = navigationAtom.record(for: receiver) else {
+        do {
+            let result = try await removeMemberLink(
+                worktreeId, from: receiver, sourcePaneID: sourcePaneID ?? receiver.paneId,
+                contributor: .person
+            )
+            switch result {
+            case .removed: return .applied
+            case .alreadyAbsent, .refusedNotAuthor: return .failed(.notMember)
+            case .refusedProtectedCurrentDirectory: return .refusedProtected
+            case .draftKept: return .refusedUnsavedDraft
+            case .staleOwner, .staleReceiver, .membershipOutcomeUnknown:
+                return .failed(.receiverUnavailable)
+            }
+        } catch {
             return .failed(.receiverUnavailable)
-        }
-        let planned = plannedExplicitRemoval(of: worktreeId, from: record, receiver: receiver)
-        let effect: BridgeMemberRemovalEffect
-        switch planned {
-        case .refusedProtected: return .refusedProtected
-        case .notMember: return .failed(.notMember)
-        case .removed(_, let plannedEffect): effect = plannedEffect
-        }
-        let generation = beginNavigation(for: receiver)
-        if Self.removalReplacesDisplayedContent(effect),
-            let presentation = presentationPorts?.mountedPresentation(receiver)
-        {
-            let preparation = await presentation.prepareActiveEditorsForNavigation()
-            guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
-            guard preparation.allowsContentToLeave else { return .refusedUnsavedDraft }
-        }
-        // The CWD and the membership may have changed while the page flushed.
-        guard let currentRecord = navigationAtom.record(for: receiver) else {
-            return .failed(.receiverUnavailable)
-        }
-        switch plannedExplicitRemoval(of: worktreeId, from: currentRecord, receiver: receiver) {
-        case .refusedProtected:
-            return .refusedProtected
-        case .notMember:
-            return .failed(.notMember)
-        case .removed(let updated, let committedEffect):
-            commitRemoval(updated, effect: committedEffect, for: receiver)
-            return await persistedOutcome()
         }
     }
 
@@ -143,43 +134,17 @@ extension BridgeNavigationCommandHandler {
         removedRoot: String,
         from receiver: BridgeReceiver
     ) async -> Bool {
-        guard let record = navigationAtom.record(for: receiver) else { return true }
-        var roots = memberRoots(of: record)
-        roots[worktreeId] = removedRoot
-        guard
-            case .removed(_, let effect) = BridgeNavigationRules.removingMember(
-                worktreeId,
-                from: record,
-                reason: .catalogUnregistration,
-                memberRootsByWorktreeId: roots
+        guard let linkMembershipActor else { return false }
+        let removed = await linkMembershipActor.removeCatalogMember(
+            receiver: receiver, worktreeID: worktreeId,
+            removedRoot: removedRoot, sourcePaneID: receiver.paneId
+        )
+        if !removed {
+            bridgeNavigationMembershipLogger.error(
+                "Unregistered worktree cleanup failed for receiver \(receiver.paneId)"
             )
-        else { return true }
-        let generation = beginNavigation(for: receiver)
-        if Self.removalReplacesDisplayedContent(effect),
-            let presentation = presentationPorts?.mountedPresentation(receiver)
-        {
-            let preparation = await presentation.prepareActiveEditorsForNavigation()
-            guard isCurrentNavigation(generation, for: receiver), preparation.allowsContentToLeave else {
-                bridgeNavigationMembershipLogger.info(
-                    "Unregistered worktree cleanup pending an unsaved draft in receiver \(receiver.paneId)"
-                )
-                return false
-            }
         }
-        guard let currentRecord = navigationAtom.record(for: receiver) else { return true }
-        var currentRoots = memberRoots(of: currentRecord)
-        currentRoots[worktreeId] = removedRoot
-        guard
-            case .removed(let updated, let committedEffect) = BridgeNavigationRules.removingMember(
-                worktreeId,
-                from: currentRecord,
-                reason: .catalogUnregistration,
-                memberRootsByWorktreeId: currentRoots
-            )
-        else { return true }
-        commitRemoval(updated, effect: committedEffect, for: receiver)
-        _ = await persistedOutcome()
-        return true
+        return removed
     }
 
     // MARK: - CWD
@@ -196,52 +161,6 @@ extension BridgeNavigationCommandHandler {
     }
 
     // MARK: - Shared
-
-    private func plannedExplicitRemoval(
-        of worktreeId: UUID,
-        from record: BridgeNavigationRecord,
-        receiver: BridgeReceiver
-    ) -> BridgeMemberRemovalOutcome {
-        BridgeNavigationRules.removingMember(
-            worktreeId,
-            from: record,
-            reason: .explicitCommand(
-                protectedWorktreeId: BridgeNavigationRules.protectedWorktreeId(
-                    in: record,
-                    currentKnownCWDWorktreeId: presentationPorts?.knownCWDWorktreeId(receiver)
-                )
-            ),
-            memberRootsByWorktreeId: memberRoots(of: record)
-        )
-    }
-
-    private func commitRemoval(
-        _ updated: BridgeNavigationRecord,
-        effect: BridgeMemberRemovalEffect,
-        for receiver: BridgeReceiver
-    ) {
-        navigationAtom.setRecord(updated, for: receiver)
-        presentationPorts?.refreshFilesSource(receiver)
-        if effect.reviewFallback != .unchanged {
-            _ = presentationPorts?.replaceReviewSource(receiver, Self.productSurface(for: updated.surface))
-        }
-    }
-
-    /// Canonical roots of the record's currently known members, the same
-    /// roots the Files collection groups by.
-    private func memberRoots(of record: BridgeNavigationRecord) -> [UUID: String] {
-        Dictionary(
-            uniqueKeysWithValues: record.memberWorktreeIds.compactMap { worktreeId in
-                knownWorktree(worktreeId).map {
-                    (worktreeId, DarwinFSEventPathCanonicalizer.canonicalURL($0.path).path)
-                }
-            }
-        )
-    }
-
-    private static func removalReplacesDisplayedContent(_ effect: BridgeMemberRemovalEffect) -> Bool {
-        effect.clearedFilesSelection || effect.reviewFallback != .unchanged
-    }
 
     static func productSurface(for surface: BridgeNavigationSurface) -> BridgeProductSurface {
         switch surface {

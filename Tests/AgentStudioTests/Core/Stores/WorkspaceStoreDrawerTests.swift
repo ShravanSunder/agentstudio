@@ -50,6 +50,7 @@ final class WorkspaceStoreDrawerTests {
             windowMemoryAtom: store.windowMemoryAtom,
             workspacePaneAtom: store.paneAtom,
             workspaceTabLayoutAtom: store.tabLayoutAtom,
+            bridgeWriteSequencer: store.bridgeWriteSequencer,
             sqliteDatastore: datastore
         )
         let bundle = await saveCoordinator.captureCurrentSaveBundle(

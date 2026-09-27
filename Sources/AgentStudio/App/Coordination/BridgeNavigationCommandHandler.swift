@@ -12,7 +12,13 @@ import Foundation
 @MainActor
 final class BridgeNavigationCommandHandler {
     let navigationAtom: BridgeNavigationAtom
+    let paneAtom: WorkspacePaneAtom?
+    let panePresentationAtom: WorkspacePanePresentationAtom?
     let repositoryTopologyAtom: RepositoryTopologyAtom
+    let writeSequencer: BridgeNavigationWriteSequencer
+    let linkCommitPort: (any BridgeLinkCommitPort)?
+    let workspaceID: UUID?
+    weak var linkMembershipActor: BridgePaneLinkMembershipActor?
     /// Supplied by the App composition once mounted Bridges can be reached.
     var presentationPorts: BridgeReceiverPresentationPorts?
     /// Advances per receiver for every navigation that awaits the page, so a
@@ -22,9 +28,22 @@ final class BridgeNavigationCommandHandler {
     /// some receiver, with the canonical root captured from the catalog delta.
     var pendingCatalogUnregistrationRootsById: [UUID: String] = [:]
 
-    init(navigationAtom: BridgeNavigationAtom, repositoryTopologyAtom: RepositoryTopologyAtom) {
+    init(
+        navigationAtom: BridgeNavigationAtom,
+        paneAtom: WorkspacePaneAtom? = nil,
+        panePresentationAtom: WorkspacePanePresentationAtom? = nil,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
+        writeSequencer: BridgeNavigationWriteSequencer = BridgeNavigationWriteSequencer(),
+        linkCommitPort: (any BridgeLinkCommitPort)? = nil,
+        workspaceID: UUID? = nil
+    ) {
         self.navigationAtom = navigationAtom
+        self.paneAtom = paneAtom
+        self.panePresentationAtom = panePresentationAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
+        self.writeSequencer = writeSequencer
+        self.linkCommitPort = linkCommitPort
+        self.workspaceID = workspaceID
     }
 
     func record(for receiver: BridgeReceiver) -> BridgeNavigationRecord? {
@@ -52,10 +71,15 @@ final class BridgeNavigationCommandHandler {
         }
         guard !isConversionUnavailable(receiver) else { return nil }
         let seeded = BridgeNavigationRules.seededRecord(
-            knownTerminalWorktreeId: knownWorktreeId.flatMap(knownWorktree)?.id,
+            knownTerminalWorktreeId: knownWorktreeId,
             surface: surface
         )
         navigationAtom.setRecord(seeded, for: receiver)
+        if let knownWorktreeId {
+            enqueueAppMemberContribution(
+                knownWorktreeId, previousDerivedWorktreeID: nil, for: receiver
+            )
+        }
         return seeded
     }
 
@@ -65,11 +89,16 @@ final class BridgeNavigationCommandHandler {
     func applyKnownCWDAssociation(_ knownWorktreeId: UUID?, forTerminalPane paneId: UUID) {
         let receiver = BridgeReceiver.terminal(paneId)
         guard let record = navigationAtom.record(for: receiver) else { return }
-        let known = knownWorktreeId.flatMap(knownWorktree)?.id
-        navigationAtom.setRecord(
-            BridgeNavigationRules.injectingKnownCWDWorktree(known, into: record),
-            for: receiver
-        )
+        var updated = record
+        updated.derivedCurrentCWDWorktreeId = knownWorktreeId
+        navigationAtom.setRecord(updated, for: receiver)
+        if knownWorktreeId != nil || record.derivedCurrentCWDWorktreeId != nil {
+            enqueueAppMemberContribution(
+                knownWorktreeId,
+                previousDerivedWorktreeID: record.derivedCurrentCWDWorktreeId,
+                for: receiver
+            )
+        }
     }
 
     /// The controller's Review input: the record's selected known member and
@@ -96,7 +125,7 @@ final class BridgeNavigationCommandHandler {
         guard let record = navigationAtom.record(for: receiver) else { return nil }
         return BridgeFilesSourceBinding(
             collectionToken: BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: receiver.paneId),
-            members: record.memberWorktreeIds.compactMap(knownWorktree),
+            members: record.effectiveMemberWorktreeIds.compactMap(knownWorktree),
             openedDocuments: record.openedDocuments.map(\.location)
         )
     }

@@ -16,13 +16,11 @@ struct DarwinCompositeFSEventContinuityTests {
 
         fixture.streamFactory.send(
             path: fixture.ancestorEventPath,
-            eventId: 280,
-            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+            eventId: 280
         )
 
-        let renewedAuthority = await waitForRenewedAuthority(
-            client: fixture.client,
-            authority: authority
+        let renewedAuthority = await fixture.waitForRenewedAuthority(
+            authority, afterActivityEventID: 280
         )
         let performance = fixture.client.snapshotAndResetIngressPerformance()
 
@@ -305,19 +303,6 @@ struct DarwinCompositeFSEventContinuityTests {
     }
 }
 
-private func waitForRenewedAuthority(
-    client: DarwinFSEventStreamClient,
-    authority: GitCleanContinuityAuthority
-) async -> GitCleanContinuityAuthority? {
-    for _ in 0..<1000 {
-        if case .authoritative(let renewedAuthority) = await client.renew(authority) {
-            return renewedAuthority
-        }
-        await Task.yield()
-    }
-    return nil
-}
-
 private func waitForSharedActivitySettlement(
     fixture: CompositeContinuityFixture,
     eventID: UInt64
@@ -361,6 +346,8 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
     private let fixtureRoot: URL
     private let activityObservationLock = NSLock()
     private var recordedActivityObservationBatches: [FSEventActivityObservationBatch] = []
+    private let activityObservationEvents: AsyncStream<FSEventActivityObservationBatch>
+    private let activityObservationContinuation: AsyncStream<FSEventActivityObservationBatch>.Continuation
     private let fullRefreshEvents: AsyncStream<FSEventBatch>
     private let fullRefreshContinuation: AsyncStream<FSEventBatch>.Continuation
     private var ingressTask: Task<Void, Never>?
@@ -375,6 +362,10 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         additionalSharedItemNames: [String] = [],
         regularFileOpened: @escaping CompositeRegularFileOpened = { _ in }
     ) throws {
+        (activityObservationEvents, activityObservationContinuation) = AsyncStream.makeStream(
+            of: FSEventActivityObservationBatch.self,
+            bufferingPolicy: .unbounded
+        )
         (fullRefreshEvents, fullRefreshContinuation) = AsyncStream.makeStream(
             of: FSEventBatch.self,
             bufferingPolicy: .unbounded
@@ -438,6 +429,7 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
                     self?.activityObservationLock.withLock {
                         self?.recordedActivityObservationBatches.append(batch)
                     }
+                    self?.activityObservationContinuation.yield(batch)
                 case .activityProcessingFence(let fenceID):
                     client.acknowledgeActivityProcessingFence(fenceID)
                 case .batch(let batch):
@@ -451,6 +443,7 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
 
     deinit {
         ingressTask?.cancel()
+        activityObservationContinuation.finish()
         fullRefreshContinuation.finish()
         streamFactory.allowBlockedFlush(result: false)
         client.shutdown()
@@ -475,6 +468,18 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
             return true
         }
         return false
+    }
+
+    func waitForRenewedAuthority(
+        _ authority: GitCleanContinuityAuthority,
+        afterActivityEventID eventID: UInt64
+    ) async -> GitCleanContinuityAuthority? {
+        for await batch in activityObservationEvents where batch.processedThroughEventID == eventID {
+            if case .authoritative(let renewed) = await client.renew(authority) {
+                return renewed
+            }
+        }
+        return nil
     }
 
     func sharedDeliveredEventID(in barrier: FSEventActivityBarrier) -> UInt64? {

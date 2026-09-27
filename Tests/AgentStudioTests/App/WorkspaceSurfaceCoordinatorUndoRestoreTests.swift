@@ -35,6 +35,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
             identityAtom: harness.store.identityAtom, windowMemoryAtom: harness.store.windowMemoryAtom,
             workspacePaneAtom: harness.store.paneAtom, workspaceTabLayoutAtom: harness.store.tabLayoutAtom,
+            bridgeWriteSequencer: harness.store.bridgeWriteSequencer,
             sqliteDatastore: harness.datastore
         )
         let bundle = await saveCoordinator.captureCurrentSaveBundle(persistedAt: time.utc)

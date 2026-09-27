@@ -41,6 +41,9 @@ package actor WorkspaceSQLiteDatastoreActor {
     var retentionSurvivingIdentity: RepositoryRetentionSurvivingIdentity?
     var acceptedRepositoryTopologyCaptureRevision: UInt64?
     var acceptedWorkspaceCaptureRevisions: [UUID: WorkspaceCompositionRevision] = [:]
+    /// Orders successful link transactions for MainActor publication. Request
+    /// generations may commit out of order; this sequence reflects commit order.
+    var bridgeCommitSequence: UInt64 = 0
     var failedStructuralWorkspaceIDs = Set<UUID>()
     /// Legacy `bridgePanel` core payloads whose local import is not yet
     /// acknowledged. Ordinary saves write these exact bytes back so the legacy

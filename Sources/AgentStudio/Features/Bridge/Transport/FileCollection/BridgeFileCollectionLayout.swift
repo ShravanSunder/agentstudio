@@ -97,7 +97,7 @@ struct BridgeFileCollectionLayout: Equatable, Sendable {
         let looseDocuments = documents.filter { location in
             switch BridgeNavigationRules.grouping(
                 of: location,
-                memberWorktreeIds: memberIds,
+                effectiveMemberWorktreeIds: memberIds,
                 memberRootsByWorktreeId: rootsById
             ) {
             case .member: false

@@ -48,7 +48,7 @@ extension BridgeFileCollectionSource {
         )
         switch BridgeNavigationRules.grouping(
             of: location,
-            memberWorktreeIds: layout.memberGroups.map(\.worktreeId),
+            effectiveMemberWorktreeIds: layout.memberGroups.map(\.worktreeId),
             memberRootsByWorktreeId: rootsById
         ) {
         case .member(let worktreeId):

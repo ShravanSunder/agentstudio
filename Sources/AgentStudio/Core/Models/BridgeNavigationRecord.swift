@@ -56,8 +56,24 @@ package enum BridgeReviewSelection: Hashable, Sendable {
 package struct BridgeNavigationRecord: Hashable, Sendable {
     /// Ordered opened-document inventory; one entry per canonical location.
     package var openedDocuments: [BridgeOpenedDocument]
-    /// Ordered known-worktree browsing membership; no duplicates.
-    package var memberWorktreeIds: [UUID]
+    /// Ordered effective membership. Each item owns order; contributors own
+    /// only authorship and insertion time.
+    package var committedMemberLinks: [BridgeMemberLink]
+    /// Current owner CWD admission, visible immediately but never stored as a
+    /// contribution row. A successful async app commit later owns its history.
+    package var derivedCurrentCWDWorktreeId: WorktreeId?
+    /// PR references are distinct from local known-worktree membership.
+    package var pullRequestLinks: [BridgePullRequestLink]
+    package var committedMemberWorktreeIds: [WorktreeId] {
+        committedMemberLinks.map(\.worktreeId)
+    }
+    package var effectiveMemberWorktreeIds: [WorktreeId] {
+        let committed = committedMemberWorktreeIds
+        guard let derivedCurrentCWDWorktreeId,
+            !committed.contains(derivedCurrentCWDWorktreeId)
+        else { return committed }
+        return committed + [derivedCurrentCWDWorktreeId]
+    }
     package var filesFilter: BridgeFilesFilter
     /// Last successfully activated Files document; always an inventory entry.
     package var selectedFilesDocument: BridgeDocumentLocation?
@@ -69,7 +85,9 @@ package struct BridgeNavigationRecord: Hashable, Sendable {
 
     package init(
         openedDocuments: [BridgeOpenedDocument] = [],
-        memberWorktreeIds: [UUID] = [],
+        committedMemberLinks: [BridgeMemberLink] = [],
+        derivedCurrentCWDWorktreeId: WorktreeId? = nil,
+        pullRequestLinks: [BridgePullRequestLink] = [],
         filesFilter: BridgeFilesFilter = .allMembers,
         selectedFilesDocument: BridgeDocumentLocation? = nil,
         reviewSelection: BridgeReviewSelection = .unselected,
@@ -77,7 +95,9 @@ package struct BridgeNavigationRecord: Hashable, Sendable {
         reviewComparisonsByWorktreeId: [UUID: WorkspaceBaseline] = [:]
     ) {
         self.openedDocuments = openedDocuments
-        self.memberWorktreeIds = memberWorktreeIds
+        self.committedMemberLinks = committedMemberLinks
+        self.derivedCurrentCWDWorktreeId = derivedCurrentCWDWorktreeId
+        self.pullRequestLinks = pullRequestLinks
         self.filesFilter = filesFilter
         self.selectedFilesDocument = selectedFilesDocument
         self.reviewSelection = reviewSelection
@@ -92,7 +112,7 @@ package struct BridgeNavigationRecord: Hashable, Sendable {
     }
 
     package func containsMember(_ worktreeId: UUID) -> Bool {
-        memberWorktreeIds.contains(worktreeId)
+        effectiveMemberWorktreeIds.contains(worktreeId)
     }
 
     /// The comparison Review uses for the selected member, if any.

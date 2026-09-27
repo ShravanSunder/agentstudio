@@ -14,6 +14,8 @@ import Testing
 final class BridgeNavigationHandlerFixture {
     let store: WorkspaceStore
     let handler: BridgeNavigationCommandHandler
+    let linkCommitPort: BridgePaneLinkCommitTestPort
+    let linkMembershipActor: BridgePaneLinkMembershipActor
     let repo: Repo
     let worktree: Worktree
     let receiver: BridgeReceiver
@@ -24,19 +26,55 @@ final class BridgeNavigationHandlerFixture {
     var refreshedFilesReceivers: [BridgeReceiver] = []
     var replacedReviewReceivers: [BridgeReceiver] = []
     var knownCWDWorktreeId: UUID?
+    var resolvedReceiverForSourcePane: BridgeReceiver?
 
-    init(root: URL) throws {
+    init(root: URL, terminalReceiver: Bool = false, failInitialAppCommit: Bool = false) throws {
         self.root = root
         store = WorkspaceStore(startsObserving: false)
         repo = store.addRepo(at: root.appending(path: "repo", directoryHint: .isDirectory))
         worktree = try #require(store.repo(repo.id)?.worktrees.first)
+        linkCommitPort = BridgePaneLinkCommitTestPort(
+            navigationAtom: store.bridgeNavigationAtom,
+            failInitialCommit: failInitialAppCommit
+        )
         handler = BridgeNavigationCommandHandler(
             navigationAtom: store.bridgeNavigationAtom,
-            repositoryTopologyAtom: store.repositoryTopologyAtom
+            paneAtom: store.paneAtom,
+            panePresentationAtom: store.panePresentationAtom,
+            repositoryTopologyAtom: store.repositoryTopologyAtom,
+            writeSequencer: store.bridgeWriteSequencer,
+            linkCommitPort: linkCommitPort,
+            workspaceID: store.identityAtom.workspaceId
         )
-        receiver = .standalone(UUIDv7.generate())
+        receiver = terminalReceiver ? .terminal(UUIDv7.generate()) : .standalone(UUIDv7.generate())
+        let receiverContent: PaneContent =
+            terminalReceiver
+            ? .terminal(
+                TerminalState(
+                    provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()
+                ))
+            : .bridgePanel(BridgePaneState(panelKind: .fileViewer))
+        store.paneAtom.addPane(
+            Pane(
+                id: receiver.paneId,
+                content: receiverContent,
+                metadata: PaneMetadata(title: "Receiver")
+            ))
+        resolvedReceiverForSourcePane = receiver
         loosePlan = BridgeDocumentLocation(canonicalPath: "/tmp/notes/plan.md")
-        handler.ensureRecord(for: receiver, seedingKnownWorktreeId: worktree.id)
+        linkMembershipActor = BridgePaneLinkMembershipActor(
+            workspaceID: store.identityAtom.workspaceId,
+            handler: handler,
+            commitPort: linkCommitPort
+        )
+        handler.linkMembershipActor = linkMembershipActor
+        if terminalReceiver {
+            handler.ensureRecord(for: receiver, seedingKnownWorktreeId: worktree.id)
+        } else {
+            // Standalone fixtures start with an already committed app member.
+            // Only terminal CWD membership may use the live derived overlay.
+            seedCommittedMember(worktree.id, for: receiver)
+        }
         if let loosePlan, let record = handler.record(for: receiver) {
             store.bridgeNavigationAtom.setRecord(
                 BridgeNavigationRules.admitting(
@@ -46,6 +84,35 @@ final class BridgeNavigationHandlerFixture {
                 for: receiver
             )
         }
+    }
+
+    func setCurrentCWDWorktree(_ worktree: Worktree) {
+        guard var pane = store.paneAtom.pane(receiver.paneId) else { return }
+        pane.metadata.updateFacets(
+            PaneContextFacets(
+                repoId: worktree.repoId, worktreeId: worktree.id, cwd: worktree.path
+            ))
+        store.paneAtom.addPane(pane)
+        knownCWDWorktreeId = worktree.id
+    }
+
+    func seedCommittedMember(_ worktreeID: UUID, for receiver: BridgeReceiver) {
+        store.bridgeNavigationAtom.setRecord(
+            BridgeNavigationRecord(
+                committedMemberLinks: [
+                    BridgeMemberLink(
+                        worktreeId: worktreeID,
+                        contributions: [
+                            BridgeLinkContribution(
+                                addedBy: .app, addedAt: Date(timeIntervalSince1970: 1_700_000_000)
+                            )
+                        ]
+                    )
+                ],
+                reviewSelection: .member(worktreeId: worktreeID)
+            ),
+            for: receiver
+        )
     }
 
     func install(_ presentation: any BridgeReceiverPresentation) {
@@ -58,6 +125,10 @@ final class BridgeNavigationHandlerFixture {
                 return true
             },
             knownCWDWorktreeId: { [weak self] _ in self?.knownCWDWorktreeId },
+            receiverForCommandPaneId: { [weak self] paneId in
+                guard let self, paneId == self.receiver.paneId else { return nil }
+                return self.resolvedReceiverForSourcePane
+            },
             refreshFilesSource: { [weak self] refreshed in
                 self?.refreshedFilesReceivers.append(refreshed)
             },
@@ -76,13 +147,13 @@ final class BridgeNavigationHandlerFixture {
         store.bridgeNavigationAtom.setRecord(selected, for: receiver)
     }
 
-    func addMember() throws -> Worktree {
+    func addMember() async throws -> Worktree {
         let otherRepo = store.addRepo(at: root.appending(path: "other", directoryHint: .isDirectory))
         let otherWorktree = try #require(store.repo(otherRepo.id)?.worktrees.first)
-        guard let record = handler.record(for: receiver),
-            case .added(let updated) = BridgeNavigationRules.addingMember(otherWorktree.id, to: record)
-        else { return otherWorktree }
-        store.bridgeNavigationAtom.setRecord(updated, for: receiver)
+        _ = try await linkMembershipActor.addMember(
+            receiver: PaneId(existingUUID: receiver.paneId),
+            worktree: otherWorktree.id, contributor: .person
+        )
         return otherWorktree
     }
 }

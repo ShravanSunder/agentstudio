@@ -75,7 +75,7 @@ struct BridgeNavigationCommandHandlerTests {
         fixture.store.mutationCoordinator.markRepoUnavailable(fixture.repo.id)
 
         #expect(fixture.handler.reviewBinding(for: receiver) == nil)
-        #expect(fixture.handler.record(for: receiver)?.memberWorktreeIds == [fixture.worktree.id])
+        #expect(fixture.handler.record(for: receiver)?.effectiveMemberWorktreeIds == [fixture.worktree.id])
     }
 
     @Test("a failed legacy conversion is never reseeded")
@@ -104,7 +104,8 @@ struct BridgeNavigationCommandHandlerTests {
         fixture.handler.applyKnownCWDAssociation(otherWorktree?.id, forTerminalPane: paneId)
 
         let record = fixture.handler.record(for: .terminal(paneId))
-        #expect(record?.memberWorktreeIds == [fixture.worktree.id, otherWorktree?.id].compactMap(\.self))
+        #expect(record?.effectiveMemberWorktreeIds == [otherWorktree?.id].compactMap(\.self))
+        #expect(record?.committedMemberLinks.isEmpty == true)
         #expect(record?.reviewSelection == .member(worktreeId: fixture.worktree.id))
     }
 

@@ -79,8 +79,11 @@ package final class WorkspaceStore {
     package let tabLayoutAtom: WorkspaceTabLayoutAtom
     package let mutationCoordinator: WorkspaceMutationCoordinator
     package let bridgeNavigationAtom: BridgeNavigationAtom
+    package let bridgeWriteSequencer: BridgeNavigationWriteSequencer
 
     private let sqliteDatastore: WorkspaceSQLiteDatastoreActor?
+    /// Existing local repository boundary used by commit-first pane links.
+    package var bridgeLinkDatastore: WorkspaceSQLiteDatastoreActor? { sqliteDatastore }
     private let sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator?
     private let preparedCompositionApplier: WorkspacePreparedCompositionApplier
     private let persistDebounceDuration: Duration
@@ -106,6 +109,7 @@ package final class WorkspaceStore {
         tabLayoutAtom: WorkspaceTabLayoutAtom,
         mutationCoordinator: WorkspaceMutationCoordinator,
         bridgeNavigationAtom: BridgeNavigationAtom = BridgeNavigationAtom(),
+        bridgeWriteSequencer: BridgeNavigationWriteSequencer = BridgeNavigationWriteSequencer(),
         sqliteDatastore: WorkspaceSQLiteDatastoreActor? = nil,
         sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
@@ -144,6 +148,7 @@ package final class WorkspaceStore {
         self.tabLayoutAtom = tabLayoutAtom
         self.mutationCoordinator = mutationCoordinator
         self.bridgeNavigationAtom = bridgeNavigationAtom
+        self.bridgeWriteSequencer = bridgeWriteSequencer
         let resolvedSQLiteSaveCoordinator =
             sqliteSaveCoordinator
             ?? sqliteDatastore.map { datastore in
@@ -154,6 +159,7 @@ package final class WorkspaceStore {
                     workspaceTabLayoutAtom: tabLayoutAtom,
                     repositoryTopologyAtom: repositoryTopologyAtom,
                     bridgeNavigationAtom: bridgeNavigationAtom,
+                    bridgeWriteSequencer: bridgeWriteSequencer,
                     sqliteDatastore: datastore
                 )
             }
@@ -408,6 +414,9 @@ package final class WorkspaceStore {
                 repositoryTopologyAtom: repositoryTopologyAtom
             )
             bridgeNavigationAtom.replaceAllRecords(navigationHydration.records)
+            bridgeWriteSequencer.restoreFloor(
+                BridgeWriteGeneration(value: navigationHydration.generationFloor)
+            )
             bridgeNavigationAtom.replaceConversionUnavailablePaneIds(navigationHydration.failedConversionPaneIDs)
             paneAssociationBootReconciliationReporter?(paneReconciliation.associationSummary)
             isDirty = false

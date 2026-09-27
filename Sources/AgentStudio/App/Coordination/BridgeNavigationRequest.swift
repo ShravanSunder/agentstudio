@@ -25,7 +25,8 @@ enum BridgeNavigationRequest: Equatable, Sendable {
 extension BridgeNavigationCommandHandler {
     func perform(
         _ request: BridgeNavigationRequest,
-        in receiver: BridgeReceiver
+        in receiver: BridgeReceiver,
+        sourcePaneID: UUID? = nil
     ) async -> BridgeNavigationCommandOutcome {
         switch request {
         case .activateFile(let absolutePath):
@@ -47,11 +48,11 @@ extension BridgeNavigationCommandHandler {
         case .activateReview(let worktreeId):
             return await activateReview(of: worktreeId, in: receiver)
         case .addWorktree(let worktreeId):
-            return await addWorktree(worktreeId, to: receiver)
+            return await addWorktree(worktreeId, to: receiver, sourcePaneID: sourcePaneID)
         case .selectReviewWorktree(let worktreeId):
             return await selectReviewWorktree(worktreeId, in: receiver)
         case .removeWorktree(let worktreeId):
-            return await removeWorktree(worktreeId, from: receiver)
+            return await removeWorktree(worktreeId, from: receiver, sourcePaneID: sourcePaneID)
         }
     }
 }

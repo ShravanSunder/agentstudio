@@ -168,7 +168,7 @@ extension WebKitSerializedTests {
             )
             #expect(
                 harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
-                    .memberWorktreeIds == [originalWorktree.id, replacementWorktree.id]
+                    .effectiveMemberWorktreeIds == [originalWorktree.id, replacementWorktree.id]
             )
             #expect(harness.viewRegistry.allBridgeViews[companionPaneId] != nil)
 
