@@ -276,6 +276,9 @@ enum CommandBarDataSource {
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
                 keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
+                searchFields: searchablePaneAndTabFields(
+                    keywordsForTab(tab, store: store, repoCache: repoCache)
+                ),
                 action: .dispatchTargeted(selectTabSpec.command, target: tab.id, targetType: .tab),
                 command: selectTabSpec.command
             )
@@ -327,6 +330,7 @@ enum CommandBarDataSource {
                         group: Group.panes,
                         groupPriority: Priority.panes,
                         keywords: stableUniqueKeywords(paneKeywords),
+                        searchFields: searchablePaneAndTabFields(paneKeywords),
                         action: .dispatchTargeted(
                             focusPaneSpec.command,
                             target: capturedPaneId,
@@ -426,6 +430,7 @@ enum CommandBarDataSource {
                 group: groupName,
                 groupPriority: groupPriority,
                 keywords: commandKeywords(for: def),
+                searchFields: commandKeywords(for: def),
                 hasChildren: true,
                 action: .navigate(level),
                 command: def.command
@@ -441,6 +446,7 @@ enum CommandBarDataSource {
             group: groupName,
             groupPriority: groupPriority,
             keywords: commandKeywords(for: def),
+            searchFields: commandKeywords(for: def),
             action: .dispatch(def.command),
             command: def.command
         )
@@ -534,6 +540,7 @@ enum CommandBarDataSource {
                         icon: .system(.folder),
                         group: "Repositories",
                         groupPriority: 2,
+                        searchFields: [repo.repoPath.lastPathComponent],
                         action: .dispatchTargeted(def.command, target: repo.id, targetType: .repo)
                     )
                 }

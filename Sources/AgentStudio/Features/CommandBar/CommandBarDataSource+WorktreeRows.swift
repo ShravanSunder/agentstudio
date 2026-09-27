@@ -86,8 +86,10 @@ extension CommandBarDataSource {
                     presenceByWorktreeId[worktree.id]
                     ?? emptyWorktreePresence(worktree: worktree, repo: repository)
                 var keywords = worktreeKeywords(worktree: worktree, repo: repository)
+                var searchFields = [worktree.name, worktree.path.lastPathComponent]
                 if let branch = repoCache.worktreeEnrichment(for: worktree.id)?.branch {
                     keywords.append(branch)
+                    searchFields.append(branch)
                 }
                 return CommandBarItem(
                     id: "repo-wt-\(worktree.id.uuidString)",
@@ -97,6 +99,7 @@ extension CommandBarDataSource {
                     group: Group.worktrees,
                     groupPriority: worktreePriority,
                     keywords: keywords,
+                    searchFields: searchFields,
                     hasChildren: true,
                     action: .worktreeAction(presence: presence),
                     command: .openWorktree
@@ -121,6 +124,7 @@ extension CommandBarDataSource {
             group: group,
             groupPriority: groupPriority,
             keywords: worktreeKeywords(worktree: worktree, repo: repo),
+            searchFields: [worktree.name, worktree.path.lastPathComponent],
             hasChildren: true,
             action: .worktreeAction(presence: presence),
             command: .openWorktree
@@ -155,6 +159,7 @@ extension CommandBarDataSource {
             group: group,
             groupPriority: groupPriority,
             keywords: repoRootKeywords(repo: repo),
+            searchFields: [repo.name, repo.repoPath.lastPathComponent] + repo.tags,
             hasChildren: true,
             action: .navigateRepo(repositoryID: repo.id)
         )
@@ -349,6 +354,7 @@ extension CommandBarDataSource {
                         group: "Worktrees",
                         groupPriority: 2,
                         keywords: worktreeKeywords(worktree: worktree, repo: repo, includeFullPath: true),
+                        searchFields: [worktree.name, worktree.path.lastPathComponent],
                         hasChildren: true,
                         action: .navigate(level),
                         command: .openWorktree

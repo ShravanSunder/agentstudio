@@ -19,16 +19,10 @@ enum CommandBarSearch {
             bestScore = min(bestScore, result.score)
         }
 
-        for keyword in item.keywords {
-            if let result = FuzzySearch.fuzzyMatch(pattern: query, in: keyword) {
+        for searchField in item.searchFields {
+            if let result = FuzzySearch.fuzzyMatch(pattern: query, in: searchField) {
                 bestScore = min(bestScore, result.score * 0.6 + 0.4)
             }
-        }
-
-        if let subtitle = item.subtitle,
-            let result = FuzzySearch.fuzzyMatch(pattern: query, in: subtitle)
-        {
-            bestScore = min(bestScore, result.score * 0.8 + 0.2)
         }
 
         guard bestScore < threshold else { return nil }
