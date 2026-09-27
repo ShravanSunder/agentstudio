@@ -78,6 +78,8 @@ Sources/AgentStudio/
 │   │                                 #   composition-cutting enums (SidebarSurface, KeyboardOwner)
 │   ├── PaneFocus/                    # Focus tracking helpers used by App composition
 │   ├── RuntimeEventSystem/           # Pane-runtime contracts, buses, projectors; AppEventBus
+│   ├── Search/                       # SearchService actor: private in-memory SQLite FTS5 index, matching,
+│   │                                 #   ranking, grouping; Sendable search values (off main by construction)
 │   ├── State/
 │   │   ├── SQLite/                   # Datastore actor, snapshot, recovery classifier
 │   │   └── MainActor/
