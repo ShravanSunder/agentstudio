@@ -22,8 +22,8 @@ struct RepoExplorerKeyboardChromeTests {
         let unassociatedBitmap: NSBitmapImageRep
     }
 
-    @Test("keyboard paint retains row bindings and native layout while updating selected rows")
-    func keyboardPaintPreservesContentAndLayout() throws {
+    @Test("keyboard selection expands the pane row without a new native transaction")
+    func keyboardSelectionExpandsPaneWithoutNativeTransaction() throws {
         let fixture = RepoExplorerListKeyboardFixture()
         defer { fixture.close() }
         let tabID = UUIDv7.generate()
@@ -55,8 +55,8 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(firstCell.currentBindingIdentity == firstBinding)
         #expect(secondCell.currentBindingIdentity == secondBinding)
         #expect(fixture.materializer.nativeTransactionApplyCount == nativeApplyCount)
-        #expect(fixture.materializer.forcedLayoutPassCount == layoutPassCount)
-        #expect(fixture.materializer.tableFrameUpdateCount == frameUpdateCount)
+        #expect(fixture.materializer.forcedLayoutPassCount == layoutPassCount + 1)
+        #expect(fixture.materializer.tableFrameUpdateCount == frameUpdateCount + 1)
         #expect(fixture.recorder.focusedPaneIDs.isEmpty)
         #expect(fixture.recorder.commandRequests.isEmpty)
 
