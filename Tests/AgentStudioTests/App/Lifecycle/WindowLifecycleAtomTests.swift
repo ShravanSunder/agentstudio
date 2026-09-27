@@ -233,16 +233,28 @@ struct WindowLifecycleAtomTests {
 
     @Test("occluded fallback releases every pending activation waiter")
     func occludedFallbackReleasesEveryPendingActivationWaiter() async {
-        let atom = WindowLifecycleAtom()
+        let delayEntries = AsyncStream<Void>.makeStream()
+        let delayReleases = AsyncStream<Void>.makeStream()
+        let atom = WindowLifecycleAtom(
+            deferralDelay: AsyncDelay { _ in
+                delayEntries.continuation.yield(())
+                var iterator = delayReleases.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+        )
         let firstWaiter = Task { @MainActor in
             await atom.waitUntilFirstInteractiveFramePublished() == .completed
         }
         let secondWaiter = Task { @MainActor in
             await atom.waitUntilFirstInteractiveFramePublished() == .completed
         }
-        await Task.yield()
+        var entryIterator = delayEntries.stream.makeAsyncIterator()
+        _ = await entryIterator.next()
+        _ = await entryIterator.next()
 
         let accepted = atom.recordFirstInteractiveFramePublished(source: .occludedFallback)
+        delayReleases.continuation.yield(())
+        delayReleases.continuation.yield(())
 
         #expect(accepted)
         #expect(await firstWaiter.value)
@@ -262,7 +274,6 @@ struct WindowLifecycleAtomTests {
         let waiter = Task { @MainActor in
             await atom.waitUntilFirstInteractiveFramePublished()
         }
-        await Task.yield()
 
         timeout.continuation.yield()
 
@@ -275,7 +286,6 @@ struct WindowLifecycleAtomTests {
         let waiter = Task { @MainActor in
             await atom.waitUntilFirstInteractiveFramePublished()
         }
-        await Task.yield()
 
         waiter.cancel()
 
