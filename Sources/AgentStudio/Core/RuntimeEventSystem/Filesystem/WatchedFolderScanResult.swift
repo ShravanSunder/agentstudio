@@ -6,17 +6,22 @@ struct WatchedFolderScanRequest: Equatable, Sendable {
     let cause: WatchedFolderScanCause
     let baselineMembershipRevision: UInt64
     let retainedCheckoutPaths: [URL]
+    /// Reserved on the FilesystemActor before the request is submitted, so publication
+    /// holds can tell which scans were requested before a hold was released.
+    let submissionSequence: UInt64
 
     init(
         canonicalRoot: RegisteredRootDescriptor,
         cause: WatchedFolderScanCause,
         baselineMembershipRevision: UInt64 = 0,
-        retainedCheckoutPaths: [URL] = []
+        retainedCheckoutPaths: [URL] = [],
+        submissionSequence: UInt64 = 0
     ) {
         self.canonicalRoot = canonicalRoot
         self.cause = cause
         self.baselineMembershipRevision = baselineMembershipRevision
         self.retainedCheckoutPaths = retainedCheckoutPaths
+        self.submissionSequence = submissionSequence
     }
 
     var sourceID: FilesystemSourceID { canonicalRoot.sourceID }

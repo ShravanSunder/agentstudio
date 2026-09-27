@@ -101,6 +101,98 @@ private let generatedLaneFilterBehaviorProbe = #"""
 
 @Suite("Swift lane runner load reporting")
 struct SwiftLaneRunnerReportTests {
+    @Test("timing sidecars preserve the command verdict and ordered boundaries")
+    func timingSidecarPreservesVerdictAndBoundaries() async throws {
+        let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-sidecar-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
+        let output = try await runBash(
+            "LOG_PREFIX=timing; export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' "
+                + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'fixture' 60 /bin/bash -c 'exit 7' || status=$?; "
+                + "echo STATUS=${status:-0}"
+        )
+        let files = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory)
+        let sidecar = try #require(files.first { $0.hasSuffix(".timing.json") })
+        let data = try Data(contentsOf: URL(fileURLWithPath: evidenceDirectory + "/" + sidecar))
+        let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let dispatch = try #require(record["dispatch_ms"] as? Int)
+        let start = try #require(record["command_start_ms"] as? Int)
+        let exit = try #require(record["command_exit_ms"] as? Int)
+        let complete = try #require(record["wrapper_complete_ms"] as? Int)
+        #expect(output.contains("STATUS=7"))
+        #expect(dispatch <= start && start <= exit && exit <= complete)
+        #expect(record["command_status"] as? Int == 7)
+        #expect(record["filter"] as? String == "FixtureSuite")
+        #expect(record["batch_id"] as? Int == 2)
+        #expect(record["slot"] as? Int == 3)
+        #expect(record["timed_out"] as? Bool == false)
+        #expect(record["event_stream_file"] is String)
+    }
+
+    @Test("prebuild flags are absent by default and appended when compiler statistics are enabled")
+    func prebuildCompilerStatisticsFlagsAreOptIn() async throws {
+        let statisticsDirectory = NSTemporaryDirectory() + "agentstudio-compiler-stats-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: statisticsDirectory) }
+        let output = try await runBash(
+            "LOG_PREFIX=timing; PREBUILD_TIMEOUT_SECONDS=60; BUILD_PATH=.build-probe; "
+                + "source scripts/swift-test-helpers.sh; "
+                + "run_swift_with_timeout() { printf 'ARG:%s\\n' \"\u{0024}@\"; }; "
+                + "unset SWIFT_BUILD_STATS_DIR; prebuild_swift_tests; echo ENABLED; "
+                + "export SWIFT_BUILD_STATS_DIR='\(statisticsDirectory)'; prebuild_swift_tests"
+        )
+        let halves = output.components(separatedBy: "ENABLED\n")
+        #expect(halves.count == 2)
+        #expect(
+            halves.first == "ARG:prebuild test bundles\nARG:60\nARG:swift\nARG:build\n"
+                + "ARG:--build-tests\nARG:--build-path\nARG:.build-probe\n")
+        #expect(
+            halves.last?.contains(
+                "ARG:-Xswiftc\nARG:-stats-output-dir\nARG:-Xswiftc\n"
+                    + "ARG:\(statisticsDirectory)\n") == true)
+    }
+
+    @Test("timing summary computes fixed scheduler replay and keeps missing spans unknown")
+    func timingSummaryComputesReplayAndUnknowns() async throws {
+        let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-summary-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
+        try FileManager.default.createDirectory(atPath: evidenceDirectory, withIntermediateDirectories: true)
+        let eventFile = evidenceDirectory + "/fixture.events.jsonl"
+        try "{\"kind\":\"event\",\"payload\":{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}}\n"
+            .appending(
+                "{\"kind\":\"event\",\"payload\":{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}}\n"
+            )
+            .write(toFile: eventFile, atomically: true, encoding: .utf8)
+        let fixture: [String: Any] = [
+            "lane": "fixture", "label": "prebuild test bundles", "dispatch_ms": 1_790_000_000_900,
+            "command_start_ms": 1_790_000_001_000, "command_exit_ms": 1_790_000_001_350,
+            "wrapper_complete_ms": 1_790_000_001_400,
+            "event_stream_file": eventFile,
+        ]
+        let fixtureData = try JSONSerialization.data(withJSONObject: fixture)
+        try fixtureData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-fixture.timing.json"))
+        for (index, duration) in [100, 400, 100, 400, 100, 100].enumerated() {
+            let dispatch = index < 3 ? 1000 : 1500
+            let item: [String: Any] = [
+                "lane": "isolated", "label": "isolated process-global non-WebKit suite: \(index)",
+                "filter": "Suite\(index)", "batch_id": index < 3 ? 1 : 2,
+                "slot": index % 3 + 1, "dispatch_ms": dispatch,
+                "wrapper_complete_ms": dispatch + duration,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-\(index).timing.json"))
+        }
+        _ = try await runBash("LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
+        let summary = try String(contentsOfFile: evidenceDirectory + "/timing-summary.md", encoding: .utf8)
+        #expect(summary.contains("| fixture | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
+        #expect(summary.contains("Total slot idle: 1.200 s; B: 0.800 s; R: 0.500 s."))
+        #expect(summary.contains("unknown"))
+        let emptyDirectory = evidenceDirectory + "/empty"
+        _ = try await runBash("LANE_EVENT_STREAM_DIR='\(emptyDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
+        let emptySummary = try String(contentsOfFile: emptyDirectory + "/timing-summary.md", encoding: .utf8)
+        #expect(emptySummary.contains("Unknown/null spans: unknown (no sidecars)."))
+    }
+
     @Test("every Swift test invocation takes its parallelization width from the one helper")
     func everySwiftTestInvocationTakesItsWidthFromTheOneHelper() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
@@ -428,15 +520,17 @@ struct SwiftLaneRunnerReportTests {
         let cleanDirectory = workDirectory + "/clean-runs"
         let cleanOutput = try await runBash(
             "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
-                + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)'; "
+                + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)' LANE_EVENT_STREAM_RETAIN_ALWAYS=0; "
                 + "source scripts/swift-test-helpers.sh; "
                 + "run_swift_with_timeout 'clean probe' 60 /bin/bash -c 'echo CLEAN_RUN_OK'; "
-                + "echo \"LEDGERS=$(ls -1 '\(cleanDirectory)' 2>/dev/null | wc -l | tr -d '[:space:]')\""
+                + "echo \"LEDGERS=$(find '\(cleanDirectory)' -name '*.events.jsonl' | wc -l | tr -d '[:space:]')\"; "
+                + "echo \"TIMINGS=$(find '\(cleanDirectory)' -name '*.timing.json' | wc -l | tr -d '[:space:]')\""
         )
 
         // A run that ended cleanly has nothing to explain, so it keeps nothing.
         #expect(cleanOutput.contains("CLEAN_RUN_OK"))
         #expect(cleanOutput.contains("LEDGERS=0"))
+        #expect(cleanOutput.contains("TIMINGS=1"))
     }
 
     @Test("an isolated suite filter matches its type, never a file named after it")
