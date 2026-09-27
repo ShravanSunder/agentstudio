@@ -4,6 +4,11 @@ import Testing
 @testable import AgentStudioInfrastructure
 
 extension GitRefreshPerformanceWorkloadScriptTests {
+    @Test("owned zmx cleanup verifies padded inventory through a bounded list call")
+    func ownedZmxCleanupVerifiesBoundedListCall() async throws {
+        try await verifyOwnedZmxCleanupWithPaddedInventory(listDeadline: "3600")
+    }
+
     @Test("owned zmx cleanup rejects a deadline with a numeric prefix and invalid suffix")
     func ownedZmxCleanupRejectsInvalidListDeadline() async throws {
         let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.invalid-deadline-\(UUIDv7.generate().uuidString)")

@@ -76,6 +76,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
 
     @Test("owned zmx cleanup recognizes padded inventory names and verifies exact IDs are absent")
     func ownedZmxCleanupRecognizesPaddedInventoryNames() async throws {
+        try await verifyOwnedZmxCleanupWithPaddedInventory(listDeadline: "none")
+    }
+
+    func verifyOwnedZmxCleanupWithPaddedInventory(listDeadline: String) async throws {
         let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.padded-\(UUIDv7.generate().uuidString)")
         let fakeZmx = fixtureRoot.appendingPathComponent("zmx")
         let inventory = fixtureRoot.appendingPathComponent("inventory")
@@ -108,7 +112,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             environment: [
                 "FAKE_ZMX_INVENTORY": inventory.path,
                 "FAKE_ZMX_CALLS": calls.path,
-                "OWNED_ZMX_LIST_DEADLINE_SECONDS": "none",
+                "OWNED_ZMX_LIST_DEADLINE_SECONDS": listDeadline,
             ]
         )
 
