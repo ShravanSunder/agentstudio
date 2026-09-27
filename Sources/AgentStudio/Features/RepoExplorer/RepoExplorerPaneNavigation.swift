@@ -23,7 +23,10 @@ struct RepoExplorerPaneRow: View {
                 isActive: row.isActive,
                 isDrawerPane: row.isDrawerPane,
                 octiconLoader: octiconLoader,
-                shortcutDisplay: keyboardPresentation.shortcutDisplay
+                shortcutDisplay: keyboardPresentation.shortcutDisplay,
+                showsExpandedChips: row.displayVariant == .expanded,
+                drawerRail: row.drawerRail,
+                ownerLineCount: row.variants?.compact.lines.count ?? 1
             )
         }
         .onTapGesture(perform: onFocus)
@@ -58,6 +61,9 @@ struct RepoExplorerPaneRowContent: View {
     let isDrawerPane: Bool
     let octiconLoader: OcticonLoader
     var shortcutDisplay: ShortcutDisplayText?
+    var showsExpandedChips = false
+    var drawerRail: RepoExplorerDrawerRail = .none
+    var ownerLineCount = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
@@ -102,6 +108,12 @@ struct RepoExplorerPaneRowContent: View {
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
+        .overlay(alignment: .topLeading) {
+            if drawerRail != .none {
+                DrawerRail(segment: drawerRail, ownerLineCount: ownerLineCount)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth)
+            }
+        }
     }
 
     @ViewBuilder
@@ -109,24 +121,26 @@ struct RepoExplorerPaneRowContent: View {
         SidebarStatusChipRow(
             isPendingPullRequestFacts: false
         ) {
+            if isDrawerPane {
+                SidebarChip(
+                    icon: .system(.rectangleBottomhalfFilled),
+                    octiconLoader: octiconLoader,
+                    text: "Drawer",
+                    style: .neutral
+                )
+            }
             if let branchStatus,
                 SidebarGitStatusChips.hasContent(
                     branchStatus: branchStatus,
-                    usesPanesLoadingChip: true
+                    usesPanesLoadingChip: true,
+                    showsDetailedGitChips: showsExpandedChips
                 )
             {
                 SidebarGitStatusChips(
                     branchStatus: branchStatus,
                     octiconLoader: octiconLoader,
-                    usesPanesLoadingChip: true
-                )
-            }
-            if isDrawerPane {
-                SidebarChip(
-                    icon: .system(.rectangleBottomhalfFilled),
-                    octiconLoader: octiconLoader,
-                    text: nil,
-                    style: .neutral
+                    usesPanesLoadingChip: true,
+                    showsDetailedGitChips: showsExpandedChips
                 )
             }
             SidebarChip(

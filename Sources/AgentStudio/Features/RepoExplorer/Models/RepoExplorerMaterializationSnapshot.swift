@@ -233,9 +233,12 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
                 primaryLineHeight: AppStyles.Shell.Sidebar.nativeInlineControlLineHeight
             )
             facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            let displayedVariant =
+                pane.displayVariant == .expanded
+                ? pane.variants?.expanded : pane.variants?.compact
             facts.metadataLineCount =
-                (pane.secondaryLine == nil ? 0 : 1)
-                + (pane.branchContextText == nil ? 0 : 1)
+                displayedVariant.map { CGFloat(max(0, $0.fallbackLineCount - 2)) }
+                ?? (pane.secondaryLine == nil ? 0 : 1) + (pane.branchContextText == nil ? 0 : 1)
             facts.chipLineCount = 1
             facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
             return facts
@@ -563,11 +566,9 @@ extension RepoExplorerMaterializationSnapshot {
             return .unassociatedPane(
                 RepoExplorerUnassociatedPanePresentation(
                     destination: destination,
-                    primaryText:
-                        "Pane \(destination.paneIndexInTab + 1) · "
-                        + (paneFacts?.sidebarTerminalTitle ?? "zsh"),
+                    primaryText: paneFacts?.sidebarTerminalTitle ?? "Pane \(destination.paneIndexInTab + 1)",
                     secondaryLine: paneFacts?.secondaryLine,
-                    recencyText: paneFacts?.recencyText ?? "Now",
+                    recencyText: paneFacts?.recencyText ?? "—",
                     recencyTier: paneFacts?.recencyTier ?? .strongBlue,
                     isActive: paneFacts?.isActive ?? false,
                     isDrawerPane: paneFacts?.isDrawerPane ?? false

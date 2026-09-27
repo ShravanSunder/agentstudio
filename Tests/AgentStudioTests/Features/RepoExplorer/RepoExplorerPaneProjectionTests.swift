@@ -31,8 +31,8 @@ struct RepoExplorerPaneProjectionTests {
         )
     }
 
-    @Test("pane note wins over terminal output and empty panes omit L2")
-    func paneSecondaryLineUsesNoteThenTerminalOutputThenNothing() {
+    @Test("pane row keeps a person note but never shows terminal output or a zsh drawer fallback")
+    func paneSecondaryLineUsesOnlyPersonNote() {
         let referenceDate = Date(timeIntervalSince1970: 10)
         let notedPane = RepoExplorerPaneRowFacts(
             terminalTitle: "zsh",
@@ -58,7 +58,7 @@ struct RepoExplorerPaneProjectionTests {
         )
 
         #expect(notedPane.secondaryLine == .note("Waiting on review"))
-        #expect(activePane.secondaryLine == .terminalOutput("Tests passed"))
+        #expect(activePane.secondaryLine == nil)
         #expect(quietPane.secondaryLine == nil)
 
         let drawerPane = RepoExplorerPaneRowFacts(
@@ -69,7 +69,7 @@ struct RepoExplorerPaneProjectionTests {
             isActive: false,
             isDrawerPane: true
         )
-        #expect(drawerPane.sidebarTerminalTitle == "zsh")
+        #expect(drawerPane.sidebarTerminalTitle == "Drawer")
     }
 
     @Test("Panes rows are sorted by the one activity time within an activity bucket")
@@ -146,7 +146,7 @@ struct RepoExplorerPaneProjectionTests {
         let group = try #require(projection.resolvedGroups.first)
         let rows = try #require(projection.paneRowsByGroupId[group.id])
         #expect(rows.map(\.destination.paneId) == [newerPaneId, olderPaneId])
-        #expect(rows[0].primaryText == "agent-studio.sidebar-grouping")
+        #expect(rows[0].primaryText == "tests running")
         #expect(rows[0].secondaryText == "Review ready")
         #expect(rows[0].recencyText == "Now")
         #expect(rows[0].isActive)

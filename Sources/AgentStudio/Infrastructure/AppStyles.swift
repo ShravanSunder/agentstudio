@@ -109,6 +109,9 @@ package enum AppStyles {
             package static let shadowOffsetX: CGFloat = 0
             package static let shadowOffsetY: CGFloat = 0
             package static let rowContentSpacing: CGFloat = 4
+            package static let drawerRailLineWidth: CGFloat = 1
+            package static let drawerRailElbowWidth: CGFloat = 5
+            package static let drawerRailOpacity: Double = 0.55
             package static let rowVerticalInset: CGFloat = 6
             package static let listRowLeadingInset: CGFloat = Header.contentPadding
             package static let groupIconSize: CGFloat = 14

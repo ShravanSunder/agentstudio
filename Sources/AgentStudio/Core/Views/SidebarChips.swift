@@ -62,15 +62,18 @@ package struct SidebarGitStatusChips: View {
     package let branchStatus: GitBranchStatus
     package let octiconLoader: OcticonLoader
     package let usesPanesLoadingChip: Bool
+    package let showsDetailedGitChips: Bool
 
     package init(
         branchStatus: GitBranchStatus,
         octiconLoader: OcticonLoader,
-        usesPanesLoadingChip: Bool = false
+        usesPanesLoadingChip: Bool = false,
+        showsDetailedGitChips: Bool = true
     ) {
         self.branchStatus = branchStatus
         self.octiconLoader = octiconLoader
         self.usesPanesLoadingChip = usesPanesLoadingChip
+        self.showsDetailedGitChips = showsDetailedGitChips
     }
 
     package nonisolated static func diffDetail(
@@ -94,12 +97,13 @@ package struct SidebarGitStatusChips: View {
 
     package nonisolated static func hasContent(
         branchStatus: GitBranchStatus,
-        usesPanesLoadingChip: Bool = false
+        usesPanesLoadingChip: Bool = false,
+        showsDetailedGitChips: Bool = true
     ) -> Bool {
         presentationHasContent(branchStatus: branchStatus, usesPanesLoadingChip: usesPanesLoadingChip)
             || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
-            || diffDetail(branchStatus: branchStatus) != nil
-            || showsSync(branchStatus: branchStatus)
+            || showsDetailedGitChips && diffDetail(branchStatus: branchStatus) != nil
+            || showsDetailedGitChips && showsSync(branchStatus: branchStatus)
     }
 
     private nonisolated static func presentationHasContent(
@@ -149,11 +153,11 @@ package struct SidebarGitStatusChips: View {
                 SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
             }
 
-            if let diffDetail = Self.diffDetail(branchStatus: branchStatus) {
+            if showsDetailedGitChips, let diffDetail = Self.diffDetail(branchStatus: branchStatus) {
                 SidebarDiffChip(octiconLoader: octiconLoader, detail: diffDetail)
             }
 
-            if Self.showsSync(branchStatus: branchStatus) {
+            if showsDetailedGitChips, Self.showsSync(branchStatus: branchStatus) {
                 SidebarStatusSyncChip(
                     octiconLoader: octiconLoader,
                     aheadText: syncCounts.ahead,

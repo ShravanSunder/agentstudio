@@ -66,6 +66,7 @@ struct RepoExplorerPaneRowFacts: Equatable, Sendable {
     let nextPresentationChangeDate: Date?
     let isActive: Bool
     let isDrawerPane: Bool
+    let drawerOwnerPaneID: UUID?
 
     init(
         terminalTitle: String,
@@ -79,7 +80,8 @@ struct RepoExplorerPaneRowFacts: Equatable, Sendable {
         recencyTier: RepoExplorerPaneRecencyTier = .strongBlue,
         nextPresentationChangeDate: Date? = nil,
         isActive: Bool,
-        isDrawerPane: Bool = false
+        isDrawerPane: Bool = false,
+        drawerOwnerPaneID: UUID? = nil
     ) {
         self.terminalTitle = terminalTitle
         self.activityAt = activityAt
@@ -93,21 +95,15 @@ struct RepoExplorerPaneRowFacts: Equatable, Sendable {
         self.nextPresentationChangeDate = nextPresentationChangeDate
         self.isActive = isActive
         self.isDrawerPane = isDrawerPane
+        self.drawerOwnerPaneID = drawerOwnerPaneID
     }
 
     var secondaryLine: RepoExplorerPaneSecondaryLine? {
-        if let noteText = normalizedSecondaryText(noteText) {
-            return .note(noteText)
-        }
-        return normalizedSecondaryText(latestMessageText).map(RepoExplorerPaneSecondaryLine.terminalOutput)
+        normalizedSecondaryText(noteText).map(RepoExplorerPaneSecondaryLine.note)
     }
 
     var sidebarTerminalTitle: String {
-        let normalizedTitle = terminalTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isDrawerPane, normalizedTitle.caseInsensitiveCompare("Drawer") == .orderedSame else {
-            return terminalTitle
-        }
-        return "zsh"
+        terminalTitle
     }
 
     private func normalizedSecondaryText(_ text: String?) -> String? {
@@ -190,6 +186,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     let subgroupMode: SidebarSubgroupMode
     let sortField: SidebarSortField
     let showsPinned: Bool
+    let showsDrawerPanes: Bool
     let referenceDate: Date
     let referenceInstant: ContinuousClock.Instant?
     let calendar: Calendar
@@ -207,6 +204,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         subgroupMode: SidebarSubgroupMode = .ungrouped,
         sortField: SidebarSortField = .name,
         showsPinned: Bool = true,
+        showsDrawerPanes: Bool = true,
         referenceDate: Date = Date(timeIntervalSince1970: 0),
         referenceInstant: ContinuousClock.Instant? = nil,
         calendar: Calendar = .current,
@@ -223,6 +221,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.subgroupMode = subgroupMode
         self.sortField = sortField
         self.showsPinned = showsPinned
+        self.showsDrawerPanes = showsDrawerPanes
         self.referenceDate = referenceDate
         self.referenceInstant = referenceInstant
         self.calendar = calendar
@@ -241,6 +240,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         subgroupMode: SidebarSubgroupMode? = nil,
         sortField: SidebarSortField? = nil,
         showsPinned: Bool? = nil,
+        showsDrawerPanes: Bool? = nil,
         referenceDate: Date? = nil,
         referenceInstant: ContinuousClock.Instant? = nil,
         calendar: Calendar? = nil,
@@ -256,6 +256,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
             subgroupMode: subgroupMode ?? self.subgroupMode,
             sortField: sortField ?? self.sortField,
             showsPinned: showsPinned ?? self.showsPinned,
+            showsDrawerPanes: showsDrawerPanes ?? self.showsDrawerPanes,
             referenceDate: referenceDate ?? self.referenceDate,
             referenceInstant: referenceInstant ?? self.referenceInstant,
             calendar: calendar ?? self.calendar,

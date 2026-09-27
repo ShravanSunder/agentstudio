@@ -345,8 +345,9 @@ enum RepoExplorerProjection {
         showsPaneNumber: Bool
     ) -> String {
         let normalizedTitle = terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = normalizedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "zsh"
-        let identity = destination.worktreeLabel ?? fallback
+        let identity =
+            normalizedTitle.flatMap { $0.isEmpty ? nil : $0 }
+            ?? "Pane \(destination.paneIndexInTab + 1)"
         return showsPaneNumber ? "\(identity) · Pane \(destination.paneIndexInTab + 1)" : identity
     }
 

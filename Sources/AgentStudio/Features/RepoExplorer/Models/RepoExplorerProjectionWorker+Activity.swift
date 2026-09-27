@@ -142,7 +142,8 @@ extension RepoExplorerProjectionWorker {
                 recencyTier: activity.recencyTier,
                 nextPresentationChangeDate: activity.nextPresentationChangeDate,
                 isActive: activity.isActive,
-                isDrawerPane: facts.isDrawerPane
+                isDrawerPane: facts.isDrawerPane,
+                drawerOwnerPaneID: facts.drawerOwnerPaneID
             )
         }
     }

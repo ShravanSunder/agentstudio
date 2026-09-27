@@ -17,6 +17,7 @@ extension RepoExplorerProjection {
         var seenPaneIDs: Set<UUID> = []
         let destinations = (associated + input.unassociatedDestinations.map { .unassociated($0) })
             .filter { seenPaneIDs.insert($0.paneId).inserted }
+            .filter { input.snapshot.showsDrawerPanes || input.paneFacts[$0.paneId]?.isDrawerPane != true }
         let activityByPaneID = Dictionary(
             uniqueKeysWithValues: destinations.map { ($0.paneId, activity(for: $0, input: input)) }
         )
@@ -47,8 +48,9 @@ extension RepoExplorerProjection {
                 let sortedMembers = members.sorted { lhs, rhs in
                     activityPrecedes(lhs, rhs, facts: input.paneFacts)
                 }
+                let arrangement = arrangeDrawerMembers(sortedMembers, facts: input.paneFacts)
                 let groupID = "panes:\(sectionKind.rawValue):activity:\(bucket.key)"
-                let repositoryIDs = Set(sortedMembers.compactMap(\.repoId))
+                let repositoryIDs = Set(arrangement.members.compactMap(\.repoId))
                 groups.append(
                     RepoPresentationGroup(
                         id: groupID,
@@ -57,14 +59,16 @@ extension RepoExplorerProjection {
                         repos: input.eligibleRepositories.filter { repositoryIDs.contains($0.id) }
                     )
                 )
-                organized.paneRows[groupID] = sortedMembers.map { destination in
-                    paneRow(
+                organized.paneRows[groupID] = arrangement.members.map { destination in
+                    var row = paneRow(
                         destination,
                         groupID: groupID,
                         repositoriesByID: repositoriesByID,
                         facts: input.paneFacts[destination.paneId],
                         branchFacts: input.branchFacts
                     )
+                    row.drawerRail = arrangement.railByPaneID[destination.paneId] ?? .none
+                    return row
                 }
             }
             organized.sections.append(.init(kind: sectionKind, resolvedGroups: groups, loadingRepos: []))
@@ -97,6 +101,42 @@ extension RepoExplorerProjection {
             return left != nil
         }
         return lhs.paneId.uuidString < rhs.paneId.uuidString
+    }
+
+    private static func arrangeDrawerMembers(
+        _ sortedMembers: [RepoExplorerProjectedPaneDestination],
+        facts: [UUID: RepoExplorerPaneRowFacts]
+    ) -> (
+        members: [RepoExplorerProjectedPaneDestination],
+        railByPaneID: [UUID: RepoExplorerDrawerRail]
+    ) {
+        let memberIDs = Set(sortedMembers.map(\.paneId))
+        let attachedDrawers = sortedMembers.filter { destination in
+            guard let fact = facts[destination.paneId], fact.isDrawerPane,
+                let ownerID = fact.drawerOwnerPaneID
+            else { return false }
+            return memberIDs.contains(ownerID)
+        }
+        var drawersByOwnerID: [UUID: [RepoExplorerProjectedPaneDestination]] = [:]
+        for drawer in attachedDrawers {
+            guard let ownerID = facts[drawer.paneId]?.drawerOwnerPaneID else { continue }
+            drawersByOwnerID[ownerID, default: []].append(drawer)
+        }
+        let attachedIDs = Set(attachedDrawers.map(\.paneId))
+        var arranged: [RepoExplorerProjectedPaneDestination] = []
+        var rails: [UUID: RepoExplorerDrawerRail] = [:]
+        arranged.reserveCapacity(sortedMembers.count)
+        for destination in sortedMembers where !attachedIDs.contains(destination.paneId) {
+            arranged.append(destination)
+            let drawers = drawersByOwnerID[destination.paneId, default: []]
+            guard !drawers.isEmpty else { continue }
+            rails[destination.paneId] = .ownerWithDrawers
+            for (index, drawer) in drawers.enumerated() {
+                arranged.append(drawer)
+                rails[drawer.paneId] = .drawer(isLast: index == drawers.count - 1)
+            }
+        }
+        return (arranged, rails)
     }
 
     private static func paneRow(
@@ -146,6 +186,17 @@ extension RepoExplorerProjection {
         }
         var pinnedRow = row
         pinnedRow.isPinned = facts?.isPinned ?? false
+        pinnedRow.drawerOwnerPaneID = facts?.drawerOwnerPaneID
+        let note: String? =
+            if case .note(let text)? = facts?.secondaryLine { text } else { nil }
+        pinnedRow.variants = RepoExplorerPaneRowVariants.make(
+            title: title,
+            branchContext: row.branchContextText,
+            note: note,
+            isDrawer: row.isDrawerPane,
+            branchStatus: row.branchStatus,
+            isActive: row.isActive
+        )
         return pinnedRow
     }
 }

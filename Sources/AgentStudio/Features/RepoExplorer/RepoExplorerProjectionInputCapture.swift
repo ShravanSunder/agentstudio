@@ -777,7 +777,8 @@ final class RepoExplorerProjectionInputCapture {
             recencyText: "",
             recencyTier: .grey,
             isActive: false,
-            isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true
+            isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true,
+            drawerOwnerPaneID: pane.parentPaneId
         )
     }
 
