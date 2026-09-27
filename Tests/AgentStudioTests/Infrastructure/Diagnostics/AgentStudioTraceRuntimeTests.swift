@@ -380,7 +380,7 @@ struct AgentStudioTraceRuntimeTests {
         }
         await recordingSinks.jsonl.waitForRecordAttempt()
 
-        let didRecordOTLP = await waitForBodyByYielding("runtime.concurrent-dispatch", in: recordingSinks.otlp)
+        let didRecordOTLP = await recordingSinks.otlp.waitForBody("runtime.concurrent-dispatch")
         await recordingSinks.jsonl.resumeRecords()
         await recordTask.value
 
@@ -435,16 +435,6 @@ struct AgentStudioTraceRuntimeTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
-    private func waitForBodyByYielding(_ body: String, in sink: RecordingTraceSink) async -> Bool {
-        for _ in 0..<100 {
-            if await sink.bodies().contains(body) {
-                return true
-            }
-            await Task.yield()
-        }
-        return false
-    }
-
     private final class AttributeEvaluationFlag: @unchecked Sendable {
         private(set) var didEvaluate = false
 
@@ -476,6 +466,7 @@ struct AgentStudioTraceRuntimeTests {
         private var suspendedRecordContinuations: [CheckedContinuation<Void, Never>] = []
         private var recordAttemptCount = 0
         private var recordAttemptContinuations: [CheckedContinuation<Void, Never>] = []
+        private var bodyContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
 
         func record(_ record: AgentStudioTraceRecord) async throws {
             recordAttemptCount += 1
@@ -495,6 +486,10 @@ struct AgentStudioTraceRuntimeTests {
                 throw recordError
             }
             records.append(record)
+            let waitingBodyContinuations = bodyContinuations.removeValue(forKey: record.body) ?? []
+            for continuation in waitingBodyContinuations {
+                continuation.resume()
+            }
         }
 
         func flush() throws {
@@ -534,6 +529,14 @@ struct AgentStudioTraceRuntimeTests {
             await withCheckedContinuation { continuation in
                 recordAttemptContinuations.append(continuation)
             }
+        }
+
+        func waitForBody(_ body: String) async -> Bool {
+            guard !records.contains(where: { $0.body == body }) else { return true }
+            await withCheckedContinuation { continuation in
+                bodyContinuations[body, default: []].append(continuation)
+            }
+            return true
         }
 
         func bodies() -> [String] {

@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AppKit
 import SwiftUI
 import Testing
 
@@ -6,22 +7,20 @@ import Testing
 
 @Suite("SidebarRowShell")
 struct SidebarRowShellTests {
-    @Test("row shell builds with selected hover and flashing states")
+    @Test("row shell renders clear and active background states")
     @MainActor
-    func rowShellBuildsWithAllVisualStates() {
-        let normal = SidebarRowShell(isSelected: false, isFlashing: false, isHovering: false) {
-            Text("Normal")
-        }
-        let selected = SidebarRowShell(isSelected: true, isFlashing: false, isHovering: false) {
-            Text("Selected")
-        }
-        let flashing = SidebarRowShell(isSelected: false, isFlashing: true, isHovering: false) {
-            Text("Flashing")
-        }
+    func rowShellRendersAllVisualStates() throws {
+        let normal = try renderRowBackgroundPixel(isSelected: false, isFlashing: false, isHovering: false)
+        let selected = try renderRowBackgroundPixel(isSelected: true, isFlashing: false, isHovering: false)
+        let flashing = try renderRowBackgroundPixel(isSelected: false, isFlashing: true, isHovering: false)
+        let hovering = try renderRowBackgroundPixel(isSelected: false, isFlashing: false, isHovering: true)
 
-        #expect(String(describing: type(of: normal)).contains("SidebarRowShell"))
-        #expect(String(describing: type(of: selected)).contains("SidebarRowShell"))
-        #expect(String(describing: type(of: flashing)).contains("SidebarRowShell"))
+        #expect(normal.redComponent < 0.02)
+        #expect(normal.greenComponent < 0.02)
+        #expect(normal.blueComponent < 0.02)
+        #expect(pixelDiffers(selected, from: normal))
+        #expect(pixelDiffers(flashing, from: normal))
+        #expect(pixelDiffers(hovering, from: normal))
     }
 
     @Test("selected and flashing fill use sidebar selected token")
@@ -63,5 +62,44 @@ struct SidebarRowShellTests {
         #expect(SidebarRowShell<Text>.contentVerticalInset == AppStyles.Shell.Sidebar.rowVerticalInset)
         #expect(SidebarRowShell<Text>.contentHorizontalInset == AppStyles.Shell.Sidebar.rowHorizontalInset)
         #expect(SidebarRowShell<Text>.rowCornerRadius == AppStyles.Shell.Sidebar.rowCornerRadius)
+    }
+
+    @MainActor
+    private func renderRowBackgroundPixel(
+        isSelected: Bool,
+        isFlashing: Bool,
+        isHovering: Bool
+    ) throws -> NSColor {
+        let size = CGSize(width: 320, height: 48)
+        let row = SidebarRowShell(
+            isSelected: isSelected,
+            isFlashing: isFlashing,
+            isHovering: isHovering
+        ) {
+            Text("Sidebar row").frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: size.width, height: size.height)
+        .background(Color.black)
+
+        let hostingView = NSHostingView(rootView: row)
+        hostingView.appearance = NSAppearance(named: .darkAqua)
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        hostingView.setFrameSize(size)
+        hostingView.layoutSubtreeIfNeeded()
+
+        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+
+        let scaleX = CGFloat(bitmap.pixelsWide) / size.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / size.height
+        let sampleX = Int((size.width - SidebarRowShell<Text>.contentHorizontalInset / 2) * scaleX)
+        let sampleY = Int((size.height / 2) * scaleY)
+        return try #require(bitmap.colorAt(x: sampleX, y: sampleY)?.usingColorSpace(.deviceRGB))
+    }
+
+    private func pixelDiffers(_ color: NSColor, from baseline: NSColor) -> Bool {
+        color.redComponent != baseline.redComponent
+            || color.greenComponent != baseline.greenComponent
+            || color.blueComponent != baseline.blueComponent
     }
 }

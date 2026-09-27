@@ -34,6 +34,15 @@ package actor GitWorkingDirectoryProjector {
     let pathExistenceProbe: @Sendable (URL) -> Bool
 
     private var subscriptionTask: Task<Void, Never>?
+    var subscriptionHandle: EventBusSubscription<RuntimeEnvelope>?
+    var subscriptionLifetime: UInt64 = 0
+    var handledEnvelopeCount: UInt64 = 0
+    var isStarting = false
+    var startCompletionWaiters: [CheckedContinuation<Void, Never>] = []
+    var shutdownInProgress = false
+    var idleWaiters: [UUID: GitProjectorIdleWaiter] = [:]
+    var outstandingDrainTasks: [UInt64: Task<Void, Never>] = [:]
+    var activeDeadlineHandlerCount = 0
     var deadlineTask: Task<Void, Never>?
     var deadlineTaskGeneration: UInt64 = 0
     var deadlineQueue = GitRefreshDeadlineQueue()
@@ -171,26 +180,45 @@ package actor GitWorkingDirectoryProjector {
     }
 
     package func start() async {
-        guard subscriptionTask == nil else { return }
+        guard subscriptionTask == nil, !isStarting, !shutdownInProgress else { return }
+        isStarting = true
         isShuttingDown = false
         let stream = await runtimeBus.subscribe(
             policy: .lossyNewest(subscriptionBufferLimit),
             subscriberName: "GitWorkingDirectoryProjector",
             factInterest: .matching([.systemTopology, .worktreeFilesystem])
         )
+        isStarting = false
+        let shouldCancelForShutdown = isShuttingDown
+        subscriptionLifetime &+= 1
+        let lifetime = subscriptionLifetime
+        subscriptionHandle = stream
+        handledEnvelopeCount = 0
         subscriptionTask = Task { [weak self] in
             for await runtimeEnvelope in stream {
                 guard !Task.isCancelled else { break }
                 guard let self else { return }
                 await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
+                await self.didHandleRuntimeEnvelope(lifetime: lifetime)
             }
+            await self?.subscriptionStreamDidEnd(lifetime: lifetime)
+        }
+
+        resumeShutdownsWaitingForSubscriptionStart()
+        if shouldCancelForShutdown {
+            subscriptionTask?.cancel()
+            return
         }
 
         rescheduleDeadlineTask()
     }
 
     package func shutdown() async {
+        guard !shutdownInProgress else { return }
+        shutdownInProgress = true
         isShuttingDown = true
+        resolveAllIdleWaiters(as: .shutdown)
+        await waitForSubscriptionStartBeforeShutdown()
         let subscription = subscriptionTask
         subscriptionTask?.cancel()
         subscriptionTask = nil
@@ -204,10 +232,9 @@ package actor GitWorkingDirectoryProjector {
         visibilityAdmissionTask?.cancel()
         visibilityAdmissionTask = nil
 
-        var tasksToAwait: [Task<Void, Never>] = []
-        for task in worktreeTasks.values {
+        let tasksToAwait = Array(outstandingDrainTasks.values)
+        for task in tasksToAwait {
             task.cancel()
-            tasksToAwait.append(task)
         }
         worktreeTasks.removeAll(keepingCapacity: false)
         worktreeTaskGenerationByWorktreeId.removeAll(keepingCapacity: false)
@@ -285,7 +312,9 @@ package actor GitWorkingDirectoryProjector {
         lastAcceptedStatusAtByWorktreeId.removeAll(keepingCapacity: false)
         consecutiveStatusFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         nextPeriodicBatchSeqByWorktreeId.removeAll(keepingCapacity: false)
-        nextWorktreeTaskGeneration = 0
+        subscriptionHandle = nil
+        handledEnvelopeCount = 0
+        shutdownInProgress = false
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
@@ -395,6 +424,7 @@ package actor GitWorkingDirectoryProjector {
                 forceRefresh: lifetimeChanged
             )
         }
+        resolveIdleWaitersIfPossible()
     }
 
     package func refreshRegisteredWorktreesImmediately() {
@@ -435,11 +465,17 @@ package actor GitWorkingDirectoryProjector {
         let taskGeneration = nextWorktreeTaskGeneration
         worktreeTaskGenerationByWorktreeId[worktreeId] = taskGeneration
         let lifetime = observationLifetimesByWorktreeID[worktreeId]
-        worktreeTasks[worktreeId] = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             await RepositoryObservationRequestContext.$worktree.withValue(lifetime) {
                 await self.drainWorktree(worktreeId: worktreeId, taskGeneration: taskGeneration)
             }
+        }
+        worktreeTasks[worktreeId] = task
+        outstandingDrainTasks[taskGeneration] = task
+        Task { [weak self] in
+            await task.value
+            await self?.drainTaskDidExit(taskGeneration: taskGeneration)
         }
         recordLogicalDebtSnapshotIfChanged()
     }

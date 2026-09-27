@@ -458,7 +458,14 @@ struct FilesystemActorTests {
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .milliseconds(60),
+            maxFlushLatency: .seconds(1)
+        )
 
         let sidebarOnlyWorktreeId = UUID()
         let activeWorktreeId = UUID()
@@ -476,6 +483,8 @@ struct FilesystemActorTests {
 
         await actor.enqueueRawPaths(worktreeId: sidebarOnlyWorktreeId, paths: ["README.md"])
         await actor.enqueueRawPaths(worktreeId: activeWorktreeId, paths: ["src/main.swift"])
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(60))
 
         let firstEnvelope = try #require(await iterator.next())
         let firstChangeset = try #require(filesChangedChangeset(from: firstEnvelope))

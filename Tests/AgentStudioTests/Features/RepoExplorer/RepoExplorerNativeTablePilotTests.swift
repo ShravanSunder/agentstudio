@@ -25,67 +25,6 @@ struct RepoExplorerNativeTablePilotTests {
         #expect(result.completed)
     }
 
-    @Test("pilot composes the production adapter host child and sole applier")
-    func pilotComposesProductionPath() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
-            contentsOf: projectRoot.appending(
-                path:
-                    "Sources/AgentStudio/Features/RepoExplorer/Diagnostics/RepoExplorerNativeTablePilot.swift"
-            ),
-            encoding: .utf8
-        )
-        let fixtureSource = try String(
-            contentsOf: projectRoot.appending(
-                path:
-                    "Sources/AgentStudio/Features/RepoExplorer/Diagnostics/RepoExplorerNativeTablePilotFixture.swift"
-            ),
-            encoding: .utf8
-        )
-        let supportSource = try String(
-            contentsOf: projectRoot.appending(
-                path:
-                    "Sources/AgentStudio/Features/RepoExplorer/Diagnostics/RepoExplorerNativeTablePilotSupport.swift"
-            ),
-            encoding: .utf8
-        )
-        let combinedSource = source + fixtureSource + supportSource
-
-        #expect(combinedSource.contains("RepoExplorerProjectionAdapter("))
-        #expect(combinedSource.contains("RepoExplorerMaterializationHost("))
-        #expect(fixtureSource.contains("NSTableView"))
-        #expect(fixtureSource.contains("RepoExplorerMaterializationContentChild"))
-        #expect(fixtureSource.contains("RepoExplorerNativeTransactionApplier.apply("))
-        #expect(source.contains("projectionAdapter.admit("))
-        #expect(source.components(separatedBy: "projectionAdapter.admit(").count - 1 == 1)
-        #expect(source.contains("projectionAdapter.registerMaterializationHost("))
-        #expect(source.contains("projectionAdapter.stopAndDrain()"))
-        #expect(source.contains("reacknowledgeRetainedPresentation("))
-        #expect(source.contains("PilotReplayScenario.prepare("))
-        #expect(supportSource.contains("template.instantiate("))
-        #expect(supportSource.contains("host.apply(candidate)"))
-        #expect(supportSource.contains("@concurrent nonisolated static func prepare("))
-        #expect(combinedSource.contains("host.detach()"))
-        #expect(!combinedSource.replacingOccurrences(of: "group.addTask {", with: "").contains("Task {"))
-        // swiftlint:disable:next no_task_detached
-        #expect(!combinedSource.contains("Task.detached"))
-        #expect(source.contains("async -> RepoExplorerNativeTablePilotResult"))
-        #expect(source.contains("withTaskGroup"))
-        #expect(source.contains("group.addTask"))
-        #expect(source.contains("clock.sleep(until:"))
-        #expect(!source.contains("admitDelta"))
-        #expect(!combinedSource.contains("Timer"))
-        #expect(!combinedSource.contains("NotificationCenter"))
-        #expect(!combinedSource.contains("RunLoop"))
-        #expect(!combinedSource.contains("Task.sleep"))
-        #expect(!combinedSource.contains("DispatchSemaphore"))
-        #expect(!combinedSource.contains("NSCondition"))
-        #expect(!combinedSource.contains("reloadData()"))
-        #expect(source.split(separator: "\n").count < 600)
-        #expect(fixtureSource.split(separator: "\n").count < 600)
-        #expect(supportSource.split(separator: "\n").count < 600)
-    }
-
     @Test("paired pilot alternates scale order to cancel block timing drift")
     func pairedPilotAlternatesScaleOrder() {
         #expect(

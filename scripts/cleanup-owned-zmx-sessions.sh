@@ -42,7 +42,11 @@ esac
 OWNED_ZMX_DIR="$PHYSICAL_OWNED_ZMX_DIR"
 
 INVENTORY_FILE="$CLEANUP_ARTIFACT.inventory"
-CLEANUP_DEADLINE=$((SECONDS + 5))
+LIST_DEADLINE_SECONDS="${OWNED_ZMX_LIST_DEADLINE_SECONDS:-5}"
+if ! [[ "$LIST_DEADLINE_SECONDS" =~ ^(none|0|[1-9][0-9]*)$ ]]; then
+  echo "invalid OWNED_ZMX_LIST_DEADLINE_SECONDS: $LIST_DEADLINE_SECONDS" >&2
+  exit 2
+fi
 CLEANUP_FAILED=0
 UNRESOLVED_SESSION_IDS=()
 remaining_session_ids=()
@@ -55,11 +59,19 @@ record_value() {
 }
 
 list_sessions_with_deadline() {
+  if [ "$LIST_DEADLINE_SECONDS" = none ]; then
+    if ! ZMX_DIR="$OWNED_ZMX_DIR" "$ZMX_EXECUTABLE" list >"$INVENTORY_FILE" 2>>"$CLEANUP_ARTIFACT"; then
+      record_value list_error command_failed
+      return 1
+    fi
+    return 0
+  fi
   local list_pid=""
+  local list_deadline=$((SECONDS + LIST_DEADLINE_SECONDS))
   ZMX_DIR="$OWNED_ZMX_DIR" "$ZMX_EXECUTABLE" list >"$INVENTORY_FILE" 2>>"$CLEANUP_ARTIFACT" &
   list_pid=$!
   while kill -0 "$list_pid" >/dev/null 2>&1; do
-    if [ "$SECONDS" -ge "$CLEANUP_DEADLINE" ]; then
+    if [ "$SECONDS" -ge "$list_deadline" ]; then
       kill "$list_pid" >/dev/null 2>&1 || true
       wait "$list_pid" >/dev/null 2>&1 || true
       record_value list_error timeout
@@ -107,7 +119,8 @@ else
   done
 fi
 
-while [ "$SECONDS" -lt "$CLEANUP_DEADLINE" ]; do
+SETTLE_DEADLINE=$((SECONDS + 5))
+while [ "$SECONDS" -lt "$SETTLE_DEADLINE" ]; do
   if ! list_sessions_with_deadline; then
     CLEANUP_FAILED=1
     break

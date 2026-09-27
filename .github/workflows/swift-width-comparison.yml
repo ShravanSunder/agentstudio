@@ -43,6 +43,10 @@ jobs:
             echo "::error::Re-run attempt $RUN_ATTEMPT of a $EVENT_NAME run is refused: only a pull request carrying the '$override_label' label may be re-run. Diagnose the red run and start a new one instead."
             exit 1
           fi
+          if [ "${CI_CONTAINER_TOOLS:-}" = "1" ] && ! command -v gh >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gh
+          fi
           if ! labels="$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --jq '.[].name' 2>&1)"; then
             echo "::error::Re-run attempt $RUN_ATTEMPT refused: the labels of PR #$PULL_REQUEST_NUMBER could not be read, and the gate fails closed. $labels"
             exit 1
