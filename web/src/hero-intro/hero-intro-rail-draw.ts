@@ -1,7 +1,7 @@
 import type { SceneTimeline } from "../motion-scenes/scene-contract";
 import { layoutFullPageTopology } from "../topology-lab/full-page-topology-layout";
 
-const railDrawStart = 5.85;
+const railDrawStart = 5.95;
 const maximumDrawDuration = 1.6;
 const preferredHopDuration = 0.1;
 const preferredHoldDuration = 0.09;
@@ -19,6 +19,11 @@ interface RailHopSchedule {
   readonly start: number;
   readonly end: number;
   readonly hops: readonly RailHop[];
+}
+
+export interface HeroRailDrawTiming {
+  readonly finalHopStart: number;
+  readonly end: number;
 }
 
 export function planHeroRailStaircase(hopCount: number): RailHopSchedule {
@@ -77,7 +82,7 @@ function paintPathFromStart(
 }
 
 /** Reveal existing rail geometry a row at a time; the hero attach is the last hop. */
-export function addHeroRailStaircase({ timeline, artwork }: RailDrawOptions): number {
+export function addHeroRailStaircase({ timeline, artwork }: RailDrawOptions): HeroRailDrawTiming {
   if (!layoutFullPageTopology(artwork)) {
     throw new Error("Hero rail draw could not lay out the topology");
   }
@@ -168,7 +173,7 @@ export function addHeroRailStaircase({ timeline, artwork }: RailDrawOptions): nu
     },
     branchStart,
   );
-  return branchStart;
+  return { finalHopStart: branchStart, end: schedule.end };
 }
 
 /** Playback completion returns every rail mark to its scroll-reveal owner. */

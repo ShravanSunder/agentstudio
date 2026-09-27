@@ -56,6 +56,7 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
       if (rail.getAttribute("style") === "") rail.removeAttribute("style");
     }
     root.querySelector<HTMLElement>("[data-hero-intro-typed-input]")?.replaceChildren();
+    root.querySelector<HTMLElement>("[data-hero-codex-typed-input]")?.replaceChildren();
     root.setAttribute(heroIntroStateAttribute, "settled");
     root.setAttribute("data-hero-intro-progress", "1");
     root.dispatchEvent(new CustomEvent("hero-intro-settled", { bubbles: true }));

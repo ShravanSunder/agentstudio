@@ -98,7 +98,6 @@ describe("hero intro scene contract", () => {
         .getChildren(false, true, false)
         .map((child) => child.startTime());
       expect(tweenStarts.filter((start) => start > 2.4 && start < 2.6)).toEqual([]);
-      expect(tweenStarts.filter((start) => start > 5.0 && start < 5.6)).toEqual([]);
       timeline.time(0.3);
       expect(
         fixture.querySelector("[data-hero-intro-eyebrow-typed], [data-hero-intro-eyebrow-cursor]"),
@@ -110,7 +109,7 @@ describe("hero intro scene contract", () => {
       expect(Number(getComputedStyle(headlineFirst).opacity)).toBeGreaterThan(0);
       timeline.time(5.8);
       expect(Number(getComputedStyle(payoffFirst).opacity)).toBe(0);
-      timeline.time(6.8);
+      timeline.time(8.0);
       for (const payoff of fixture.querySelectorAll<HTMLElement>(
         "[data-hero-intro-payoff-first], [data-hero-intro-payoff-second]",
       )) {
@@ -118,7 +117,7 @@ describe("hero intro scene contract", () => {
       }
       const fourth = fixture.querySelector<HTMLElement>("[data-hero-intro-fourth-plane]");
       if (fourth === null) throw new Error("Fourth plane missing");
-      const planeLefts = [1.45, 1.65, 1.9, 2.2].map((time) => {
+      const planeLefts = [1.72, 1.9, 2.1, 2.34].map((time) => {
         timeline.time(time);
         return fourth.getBoundingClientRect().left;
       });
@@ -137,12 +136,12 @@ describe("hero intro scene contract", () => {
       const glow = fixture.querySelector<HTMLElement>("[data-hero-intro-glow]");
       if (arrow === null || install === null || glow === null)
         throw new Error("Intro timing targets are missing");
-      timeline.time(4.55);
+      timeline.time(5.98);
       expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(0.35, 1);
       timeline.time(4.7);
       expect(Number(getComputedStyle(install).opacity)).toBeCloseTo(1, 1);
       expect(getComputedStyle(install).transform).toBe("none");
-      timeline.time(4.75);
+      timeline.time(6.4);
       expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(1, 1);
       timeline.time(5.3);
       const overlays = [...fixture.querySelectorAll<HTMLElement>("[data-install-decode-line]")];
@@ -150,7 +149,7 @@ describe("hero intro scene contract", () => {
       expect(overlays.map((line) => line.parentElement?.textContent).join(" ")).toContain(
         "brew tap ShravanSunder/agentstudio",
       );
-      for (const second of [0, 4.6, 4.9, 5.2, 5.3, 6.8]) {
+      for (const second of [0, 4.6, 4.9, 5.2, 5.3, 8.0]) {
         timeline.time(second);
         expect(install.textContent).toContain("brew tap ShravanSunder/agentstudio");
         expect(getComputedStyle(install).transform).toBe("none");

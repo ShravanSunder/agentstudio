@@ -13,6 +13,12 @@ interface FinaleSample {
   readonly installOpacity: number;
   readonly realCommandLines: readonly string[];
   readonly visibleDecodeLines: number;
+  readonly readyOpacity: number;
+  readonly claudeProgressOpacities: readonly number[];
+  readonly codexTypedText: string;
+  readonly codexWorkingOpacity: number;
+  readonly worktreeRowOpacities: readonly number[];
+  readonly worktreeResultOpacity: number;
   readonly copyOpacity: number;
   readonly railClip: string;
   readonly railRevealY: number;
@@ -128,13 +134,20 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         2.5,
         3.2,
         3.5,
+        3.75,
+        3.9,
+        4.15,
         4.3,
+        4.35,
+        4.5,
         4.9,
+        5.1,
         5.2,
         5.4,
         5.5,
         5.8,
         5.85,
+        5.9,
         5.99,
         6.1,
         6.25,
@@ -145,6 +158,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         6.8,
         7.0,
         7.4,
+        staircase.start,
         holdMiddle,
         finalHop.start,
         staircase.end,
@@ -232,6 +246,30 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             visibleDecodeLines: [
               ...install.querySelectorAll<HTMLElement>("[data-install-decode-line]"),
             ].filter((line) => Number(getComputedStyle(line).opacity) > 0.05).length,
+            readyOpacity: opacity("[data-hero-intro-ready]"),
+            claudeProgressOpacities: [
+              ...root.querySelectorAll<HTMLElement>("[data-hero-progress-row]"),
+            ]
+              .filter((row) => getComputedStyle(row).display !== "none")
+              .map((row) => Number(getComputedStyle(row).opacity)),
+            codexTypedText:
+              root.querySelector<HTMLElement>("[data-hero-codex-typed-input]")?.textContent ?? "",
+            codexWorkingOpacity: Number(
+              getComputedStyle(root.querySelector<HTMLElement>("[data-hero-codex-working]") ?? root)
+                .opacity,
+            ),
+            worktreeRowOpacities: [
+              ...root.querySelectorAll<HTMLElement>(
+                `.hero-terminal-pane--${pane} [data-hero-worktree-row]`,
+              ),
+            ].map((row) => Number(getComputedStyle(row).opacity)),
+            worktreeResultOpacity: Number(
+              getComputedStyle(
+                root.querySelector<HTMLElement>(
+                  `.hero-terminal-pane--${pane} [data-hero-worktree-result]`,
+                ) ?? root,
+              ).opacity,
+            ),
             copyOpacity: Number(getComputedStyle(target("[data-install-copy]")).opacity),
             railClip,
             heroNodeY: rail.getBoundingClientRect().top + heroNodeY,
@@ -260,9 +298,11 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                   rail.getBoundingClientRect().height * (1 - Number(bottomInset[1]) / 100),
             rowOpacity: [
               ...root.querySelectorAll<HTMLElement>(
-                `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]`,
+                `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]:not([data-hero-codex-working])`,
               ),
-            ].map((row) => Number(getComputedStyle(row).opacity)),
+            ]
+              .filter((row) => getComputedStyle(row).display !== "none")
+              .map((row) => Number(getComputedStyle(row).opacity)),
             appTop: app.getBoundingClientRect().top,
             windowHeight: windowNode.getBoundingClientRect().height,
             chapterNodeY: rail.getBoundingClientRect().top + Number(chapterNode.getAttribute("cy")),
@@ -325,7 +365,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           clip: getComputedStyle(rail).clipPath,
           rowOpacity: [
             ...document.querySelectorAll<HTMLElement>(
-              `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]`,
+              `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]:not([data-hero-codex-working])`,
             ),
           ].map((row) => Number(getComputedStyle(row).opacity)),
           sceneInlineStyles: document.querySelectorAll(
@@ -347,7 +387,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           clip: getComputedStyle(rail).clipPath,
           rowOpacity: [
             ...document.querySelectorAll<HTMLElement>(
-              `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]`,
+              `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]:not([data-hero-codex-working])`,
             ),
           ].map((row) => Number(getComputedStyle(row).opacity)),
           introMarkers: rail.querySelectorAll(

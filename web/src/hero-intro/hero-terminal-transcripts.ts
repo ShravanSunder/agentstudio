@@ -10,23 +10,39 @@ type TranscriptRowKind =
   | "diff-added"
   | "codex-action"
   | "codex-detail"
-  | "codex-prose"
-  | "cursor";
+  | "codex-prose";
 
 export type TranscriptRow = {
   readonly kind: TranscriptRowKind;
   readonly text: string;
   readonly tiers: readonly TranscriptTier[];
+  readonly beat?: "progress" | "working" | "prompt" | "command" | "worktree" | "result";
+  readonly earlierContext?: true;
 };
 
 const allTiers = ["full", "compact", "phone"] as const;
 const desktopTiers = ["full", "compact"] as const;
 
-export const claudeTranscript: readonly TranscriptRow[] = [
+export const claudePreludeTranscript: readonly TranscriptRow[] = [
   { kind: "blank", text: "", tiers: ["full"] },
-  { kind: "user-band", text: "› fix the sidebar filter ordering", tiers: ["full"] },
-  { kind: "tool-call", text: "● Update(src/sidebar/filter.ts)", tiers: ["full"] },
-  { kind: "tool-result", text: "  ⎿ Added 8 lines, removed 3 lines", tiers: ["full"] },
+  {
+    kind: "user-band",
+    text: "› fix the sidebar filter ordering",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "tool-call",
+    text: "● Update(src/sidebar/filter.ts)",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "tool-result",
+    text: "  ⎿ Added 8 lines, removed 3 lines",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
   { kind: "diff-removed", text: "45 - if (!query) return rows;", tiers: ["full"] },
   {
     kind: "diff-added",
@@ -34,16 +50,6 @@ export const claudeTranscript: readonly TranscriptRow[] = [
     tiers: ["full"],
   },
   { kind: "blank", text: "", tiers: ["full"] },
-  { kind: "user-band", text: "› set up Agent Studio for me", tiers: allTiers },
-  { kind: "assistant-text", text: "● I'll install it with Homebrew.", tiers: allTiers },
-  {
-    kind: "tool-call",
-    text: "● Bash(brew tap ShravanSunder/agentstudio && brew install --cask agent-studio)",
-    tiers: desktopTiers,
-  },
-  { kind: "tool-call", text: "● Bash(brew install --cask agent-studio)", tiers: ["phone"] },
-  { kind: "tool-result", text: "  ⎿ ✓ Ready. Copy it below ↓", tiers: allTiers },
-  { kind: "cursor", text: "▌", tiers: allTiers },
 ];
 
 export const codexTranscript: readonly TranscriptRow[] = [
@@ -66,16 +72,72 @@ export const codexTranscript: readonly TranscriptRow[] = [
 
 // The agents independently act in one workspace; this is not a cross-pane handoff.
 export const codexFinaleTranscript: readonly TranscriptRow[] = [
-  { kind: "user-band", text: "› map the worktrees → 3 worktrees", tiers: desktopTiers },
-  { kind: "codex-detail", text: "", tiers: desktopTiers },
-  { kind: "codex-detail", text: "", tiers: desktopTiers },
-  { kind: "codex-detail", text: "", tiers: desktopTiers },
-  { kind: "codex-detail", text: "", tiers: desktopTiers },
+  { kind: "user-band", text: "› map the worktrees", tiers: desktopTiers },
+  {
+    kind: "codex-action",
+    text: "• Working (2s • esc to interrupt)",
+    tiers: desktopTiers,
+    beat: "working",
+  },
+  { kind: "codex-detail", text: "  └ git worktree list", tiers: desktopTiers, beat: "command" },
+  { kind: "codex-detail", text: "  └ ~/agent-studio  main", tiers: desktopTiers, beat: "worktree" },
+  {
+    kind: "codex-detail",
+    text: "  └ ~/agent-studio.drawer  drawer-improvements",
+    tiers: desktopTiers,
+    beat: "worktree",
+  },
+  {
+    kind: "codex-detail",
+    text: "  └ ~/agent-studio.review  review-comments",
+    tiers: desktopTiers,
+    beat: "worktree",
+  },
+  {
+    kind: "codex-detail",
+    text: "  └ 3 worktrees · 5 branches",
+    tiers: desktopTiers,
+    beat: "result",
+  },
 ];
 
 export const claudeFinaleTranscript: readonly TranscriptRow[] = [
-  { kind: "user-band", text: "› map the worktrees → 3 worktrees", tiers: allTiers },
-  { kind: "tool-result", text: "", tiers: allTiers },
-  { kind: "tool-call", text: "● Bash(brew install --cask agent-studio)", tiers: allTiers },
-  { kind: "tool-result", text: "", tiers: allTiers },
+  { kind: "user-band", text: "› set up Agent Studio for me", tiers: allTiers },
+  { kind: "assistant-text", text: "● I'll install it with Homebrew.", tiers: allTiers },
+  {
+    kind: "tool-call",
+    text: "● Bash(brew tap ShravanSunder/agentstudio && brew install --cask agent-studio)",
+    tiers: desktopTiers,
+  },
+  { kind: "tool-call", text: "● Bash(brew install --cask agent-studio)", tiers: ["phone"] },
+  {
+    kind: "tool-result",
+    text: "  ⎿ ==> Tapping shravansunder/agentstudio",
+    tiers: desktopTiers,
+    beat: "progress",
+  },
+  {
+    kind: "tool-result",
+    text: "     ==> Downloading agent-studio",
+    tiers: desktopTiers,
+    beat: "progress",
+  },
+  {
+    kind: "tool-result",
+    text: "     ==> Installing Cask agent-studio",
+    tiers: desktopTiers,
+    beat: "progress",
+  },
+  { kind: "tool-result", text: "  ⎿ Installing agent-studio", tiers: ["phone"], beat: "progress" },
+  { kind: "tool-result", text: "  ⎿ ✓ Ready. Copy it below ↓", tiers: allTiers },
+  { kind: "user-band", text: "› map the worktrees", tiers: allTiers, beat: "prompt" },
+  { kind: "tool-result", text: "  ⎿ git worktree list", tiers: allTiers, beat: "command" },
+  { kind: "tool-result", text: "     main  ~/agent-studio", tiers: allTiers, beat: "worktree" },
+  {
+    kind: "tool-result",
+    text: "     drawer  ~/agent-studio.drawer",
+    tiers: allTiers,
+    beat: "worktree",
+  },
+  { kind: "tool-result", text: "  ⎿ 3 worktrees · 5 branches", tiers: allTiers, beat: "result" },
 ];

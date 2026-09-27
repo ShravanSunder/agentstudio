@@ -97,11 +97,26 @@ export const verifyHeroScrollCue = defineBrowserCommand(
   },
 );
 
+export interface HeroPhoneFlowObservation {
+  readonly promptBeforeWork: boolean;
+  readonly progressBeforeReady: boolean;
+  readonly readyAfterDecode: boolean;
+  readonly streamedBeforeResult: boolean;
+  readonly settledRows: readonly string[];
+  readonly largestTranscriptGap: number;
+  readonly clippedAtAnySample: boolean;
+}
+
 export const verifyHeroPhoneMidIntro = defineBrowserCommand(
-  async ({ context }, pageUrl: string): Promise<boolean> => {
+  async (
+    { context },
+    pageUrl: string,
+    width: number,
+    height: number,
+  ): Promise<HeroPhoneFlowObservation> => {
     const page = await context.newPage();
     try {
-      await page.setViewportSize({ width: 414, height: 896 });
+      await page.setViewportSize({ width, height });
       await page.addInitScript((): void => {
         Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
         Object.defineProperty(document, "visibilityState", {
@@ -112,7 +127,11 @@ export const verifyHeroPhoneMidIntro = defineBrowserCommand(
           (resolve) => {
             document.addEventListener("hero-intro-playback-ready", (event) => {
               if (!(event instanceof CustomEvent)) return;
-              const control = event.detail as { pause(): void; seek(seconds: number): void };
+              const control = event.detail as {
+                pause(): void;
+                seek(seconds: number): void;
+                finish(): void;
+              };
               control.pause();
               (window as Window & { phoneIntroControl?: typeof control }).phoneIntroControl =
                 control;
@@ -122,23 +141,85 @@ export const verifyHeroPhoneMidIntro = defineBrowserCommand(
         );
       });
       await page.goto(pageUrl, { waitUntil: "commit" });
-      return await page.evaluate(async (): Promise<boolean> => {
+      return await page.evaluate(async (): Promise<HeroPhoneFlowObservation> => {
         await (window as Window & { phoneIntroReady?: Promise<void> }).phoneIntroReady;
-        (
-          window as Window & { phoneIntroControl?: { seek(seconds: number): void } }
-        ).phoneIntroControl?.seek(3.2);
+        const control = (
+          window as Window & { phoneIntroControl?: { seek(seconds: number): void; finish(): void } }
+        ).phoneIntroControl;
+        if (control === undefined) throw new Error("Phone intro control is missing");
         const prompt = document.querySelector<HTMLElement>("[data-hero-intro-typed-input]");
         const ready = document.querySelector<HTMLElement>("[data-hero-intro-ready]");
         const install = document.querySelector<HTMLElement>("[data-hero-intro-install]");
         const windowNode = document.querySelector<HTMLElement>("[data-hero-terminal-window]");
-        if (prompt === null || ready === null || install === null || windowNode === null)
+        const pane = document.querySelector<HTMLElement>(".hero-terminal-pane--claude");
+        if (
+          prompt === null ||
+          ready === null ||
+          install === null ||
+          windowNode === null ||
+          pane === null
+        )
           throw new Error("Phone intro transcript is incomplete");
-        return (
+        const clipped = (): boolean => windowNode.scrollHeight > windowNode.clientHeight + 1;
+        control.seek(3.2);
+        const promptBeforeWork =
           (prompt.textContent?.length ?? 0) > 0 &&
           Number(getComputedStyle(ready).opacity) === 0 &&
-          Number(getComputedStyle(install).opacity) === 0 &&
-          windowNode.scrollHeight <= windowNode.clientHeight
+          Number(getComputedStyle(install).opacity) === 0;
+        let clippedAtAnySample = clipped();
+        control.seek(4.15);
+        const progressBeforeReady =
+          [...pane.querySelectorAll<HTMLElement>("[data-hero-progress-row]")].some(
+            (row) =>
+              getComputedStyle(row).display !== "none" && Number(getComputedStyle(row).opacity) > 0,
+          ) && Number(getComputedStyle(ready).opacity) === 0;
+        clippedAtAnySample ||= clipped();
+        control.seek(5.4);
+        const readyBeforeDecodeEnds = Number(getComputedStyle(ready).opacity) > 0;
+        control.seek(5.8);
+        const readyAfterDecode =
+          !readyBeforeDecodeEnds && Number(getComputedStyle(ready).opacity) > 0.99;
+        clippedAtAnySample ||= clipped();
+        control.seek(6.4);
+        const streamedBeforeResult =
+          [...pane.querySelectorAll<HTMLElement>("[data-hero-worktree-row]")].some(
+            (row) => Number(getComputedStyle(row).opacity) > 0,
+          ) &&
+          Number(
+            getComputedStyle(pane.querySelector<HTMLElement>("[data-hero-worktree-result]") ?? pane)
+              .opacity,
+          ) === 0;
+        clippedAtAnySample ||= clipped();
+        control.finish();
+        const visibleRows = [...pane.querySelectorAll<HTMLElement>(".hero-transcript-row")].filter(
+          (row) =>
+            getComputedStyle(row).display !== "none" &&
+            Number(getComputedStyle(row).opacity) > 0.99,
         );
+        const startupBottom = pane
+          .querySelector<HTMLElement>(".hero-claude-startup")
+          ?.getBoundingClientRect().bottom;
+        const footerTop = pane
+          .querySelector<HTMLElement>(".hero-claude-footer")
+          ?.getBoundingClientRect().top;
+        const rowRects = visibleRows.map((row) => row.getBoundingClientRect());
+        const edges = [startupBottom, ...rowRects.map((rect) => rect.bottom)];
+        const starts = [...rowRects.map((rect) => rect.top), footerTop];
+        const largestTranscriptGap = Math.max(
+          0,
+          ...starts.map((top, index) =>
+            top === undefined || edges[index] === undefined ? 0 : top - edges[index],
+          ),
+        );
+        return {
+          promptBeforeWork,
+          progressBeforeReady,
+          readyAfterDecode,
+          streamedBeforeResult,
+          settledRows: visibleRows.map((row) => row.textContent?.trim() ?? ""),
+          largestTranscriptGap,
+          clippedAtAnySample: clippedAtAnySample || clipped(),
+        };
       });
     } finally {
       await page.close();

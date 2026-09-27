@@ -55,7 +55,7 @@ const currentRows = codexTranscript.slice(6);
       <div class="hero-codex-finale-rows">
         {
           codexFinaleTranscript.map((row) => (
-            <div class={`hero-transcript-row hero-transcript-row--${row.kind}`} {...{ [heroTranscriptTierAttribute]: row.tiers.join(" "), [heroIntroFinaleRowAttribute]: "" }}>
+            <div class={`hero-transcript-row hero-transcript-row--${row.kind}`} {...{ [heroTranscriptTierAttribute]: row.tiers.join(" "), [heroIntroFinaleRowAttribute]: "" }} {...(row.beat === "working" ? { "data-hero-codex-working": "" } : {})} {...(row.beat === "command" ? { "data-hero-worktree-command": "" } : {})} {...(row.beat === "worktree" ? { "data-hero-worktree-row": "" } : {})} {...(row.beat === "result" ? { "data-hero-worktree-result": "" } : {})}>
               {row.kind === "codex-action" ? (
                 <><span class="hero-terminal-dim">•</span>{" "}<span class="hero-terminal-lavender">{row.text.slice(2)}</span></>
               ) : row.text}
@@ -66,7 +66,7 @@ const currentRows = codexTranscript.slice(6);
     </div>
   </div>
   <div class="hero-codex-footer">
-    <div class="hero-codex-input"><span>›</span><span>Ask Codex to do anything</span></div>
+    <div class="hero-codex-input"><span>›</span><span class="hero-codex-input-slot"><span data-hero-codex-placeholder>Ask Codex to do anything</span><span data-hero-codex-typed-input></span></span></div>
     <div class="hero-codex-status"><span class="hero-terminal-amber">GPT-6-Sol high</span> · <span class="hero-terminal-peach">Context 94% left</span> · <span class="hero-terminal-lavender">fix/lease-client</span></div>
   </div>
 </section>

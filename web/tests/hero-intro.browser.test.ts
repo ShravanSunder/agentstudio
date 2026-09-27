@@ -7,6 +7,7 @@ import type {
   HeroRefreshObservation,
   HeroShiftObservation,
   HeroScrollCueObservation,
+  HeroPhoneFlowObservation,
 } from "./hero-intro-browser-command";
 
 declare module "vitest/browser" {
@@ -23,7 +24,11 @@ declare module "vitest/browser" {
       height: number,
     ): Promise<HeroShiftObservation[]>;
     verifyHeroScrollCue(pageUrl: string): Promise<HeroScrollCueObservation>;
-    verifyHeroPhoneMidIntro(pageUrl: string): Promise<boolean>;
+    verifyHeroPhoneMidIntro(
+      pageUrl: string,
+      width: number,
+      height: number,
+    ): Promise<HeroPhoneFlowObservation>;
   }
 }
 
@@ -51,9 +56,45 @@ describe("hero intro", () => {
     expect(cue.hiddenAfterScroll).toBe(true);
     expect(cue.reachedFirstImage).toBe(true);
   });
-  it("keeps the 414px phone transcript in order during the intro", async () => {
-    expect(await commands.verifyHeroPhoneMidIntro(inject("siteHeaderBrowserTestUrl"))).toBe(true);
-  });
+  it.each([
+    [375, 667],
+    [390, 844],
+    [414, 896],
+    [430, 932],
+  ])(
+    "keeps the complete phone flow in order and fills the window at %ix%i",
+    async (width, height) => {
+      const flow = await commands.verifyHeroPhoneMidIntro(
+        inject("siteHeaderBrowserTestUrl"),
+        width,
+        height,
+      );
+      expect(flow.promptBeforeWork).toBe(true);
+      expect(flow.progressBeforeReady).toBe(true);
+      expect(flow.readyAfterDecode).toBe(true);
+      expect(flow.streamedBeforeResult).toBe(true);
+      expect(flow.clippedAtAnySample).toBe(false);
+      expect(flow.largestTranscriptGap, `${width}px`).toBeLessThanOrEqual(36);
+      const text = flow.settledRows.join("\n");
+      const orderedFragments = [
+        "set up Agent Studio for me",
+        "Bash(",
+        "Installing agent-studio",
+        "Ready. Copy it below",
+        "map the worktrees",
+        "git worktree list",
+        "main  ~/agent-studio",
+        "drawer  ~/agent-studio.drawer",
+        "3 worktrees · 5 branches",
+      ];
+      let lastIndex = -1;
+      for (const fragment of orderedFragments) {
+        const index = text.indexOf(fragment);
+        expect(index, `${width}px: ${fragment}`).toBeGreaterThan(lastIndex);
+        lastIndex = index;
+      }
+    },
+  );
   it("replays from the top on reload, settles for anchors, and skips on wheel", async () => {
     const observation = await commands.verifyHeroIntroRefresh(inject("siteHeaderBrowserTestUrl"));
     expect(observation.reloadState).toBe("playing");

@@ -28,6 +28,27 @@ for (const [width, height] of [
       if (sample === undefined) throw new Error(`Missing ${time}s sample`);
       return sample;
     };
+    expect(at(4.15).claudeProgressOpacities.length).toBeGreaterThan(0);
+    expect(at(4.15).claudeProgressOpacities[0]).toBeGreaterThan(0);
+    expect(at(4.15).readyOpacity).toBe(0);
+    expect(at(5.4).readyOpacity).toBe(0);
+    expect(at(5.8).readyOpacity).toBe(1);
+    if (width >= 1024) {
+      expect(at(3.75).codexTypedText.length).toBeGreaterThan(0);
+      expect(at(3.9).codexTypedText.length).toBeGreaterThan(0);
+      expect(at(3.9).codexTypedText.length).toBeLessThan("map the worktrees".length);
+      expect(at(4.35).codexWorkingOpacity).toBeGreaterThan(0);
+      expect(at(4.5).claudeProgressOpacities[0]).toBeGreaterThan(0.9);
+      expect(at(4.5).claudeProgressOpacities[1]).toBeGreaterThan(0);
+      expect(at(4.5).claudeProgressOpacities[2]).toBe(0);
+      expect(at("settled").codexWorkingOpacity).toBe(0);
+    }
+    expect(at(5.9).worktreeRowOpacities.length).toBeGreaterThan(0);
+    expect(at(5.9).worktreeRowOpacities[0]).toBeGreaterThan(0);
+    expect(at(5.9).worktreeResultOpacity).toBe(0);
+    expect(at(5.9).railClip).toContain("100%");
+    expect(at(6.1).railClip).not.toContain("100%");
+    expect(at("settled").worktreeResultOpacity).toBe(1);
     expect(at(0).firstLine).toBe(0);
     expect(at(0.3).firstLine).toBeGreaterThan(0);
     expect(at(0.8).firstLine).toBe(1);
@@ -64,7 +85,11 @@ for (const [width, height] of [
     expect(at(5.5).railClip).toContain("100%");
     expect(at(5.5).introDotOpacities.length).toBeGreaterThan(1);
     expect(at(5.5).introDotOpacities.every((opacity) => opacity === 0)).toBe(true);
-    expect(Math.abs(at(5.85).railRevealY - at(5.85).heroNodeY)).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(
+        at(observation.staircase.start).railRevealY - at(observation.staircase.start).heroNodeY,
+      ),
+    ).toBeLessThanOrEqual(2);
     const midDots = at(6.25).introDotOpacities;
     expect(midDots[0]).toBeGreaterThan(0.9);
     expect(midDots.at(-1)).toBe(0);
@@ -94,10 +119,12 @@ for (const [width, height] of [
     );
     expect(at(6.4).railClip).not.toBe(at(5.5).railClip);
     expect(at("settled").railClip).toBe("none");
-    expect(at(5.5).rowOpacity).toEqual(Array.from({ length: width < 1024 ? 4 : 5 }, () => 0));
-    expect(at(5.8).rowOpacity[0]).toBeCloseTo(1, 1);
-    expect(at(6.4).rowOpacity.slice(1)).toEqual(width < 1024 ? [0, 1, 0] : [0, 0, 0, 0]);
-    expect(at("settled").rowOpacity).toEqual(Array.from({ length: width < 1024 ? 4 : 5 }, () => 1));
+    expect(
+      at(0).rowOpacity.every((opacity) => opacity === 0),
+      JSON.stringify(at(0).rowOpacity),
+    ).toBe(true);
+    expect(at(5.5).rowOpacity.some((opacity) => opacity > 0)).toBe(true);
+    expect(at("settled").rowOpacity.every((opacity) => opacity === 1)).toBe(true);
     const baseline = at(0);
     for (const time of [
       3.5,
@@ -125,13 +152,9 @@ for (const [width, height] of [
     expect(observation.skipRailClip).toBe("none");
     expect(observation.skipSceneInlineStyles).toBe(0);
     expect(observation.skipRailIntroMarkers).toBe(0);
-    expect(observation.skipFinaleOpacity).toEqual(
-      Array.from({ length: width < 1024 ? 4 : 5 }, () => 1),
-    );
+    expect(observation.skipFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
     expect(observation.reducedRailClip).toBe("none");
     expect(observation.reducedRailIntroMarkers).toBe(0);
-    expect(observation.reducedFinaleOpacity).toEqual(
-      Array.from({ length: width < 1024 ? 4 : 5 }, () => 1),
-    );
+    expect(observation.reducedFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
   });
 }

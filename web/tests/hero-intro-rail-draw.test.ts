@@ -7,7 +7,7 @@ describe("hero rail staircase", () => {
     const schedule = planHeroRailStaircase(5);
     expect(schedule.hops).toHaveLength(5);
     expect(schedule.hops[0]?.drawDuration).toBeCloseTo(0.1);
-    expect(schedule.hops[1]?.start).toBeCloseTo(6.04);
+    expect(schedule.hops[1]?.start).toBeCloseTo(6.14);
     for (const [index, hop] of schedule.hops.entries()) {
       const dotArrival = index === 0 ? schedule.start : (schedule.hops[index - 1]?.arrival ?? 0);
       expect(hop.forkStart).toBeGreaterThanOrEqual(dotArrival + 0.18 + 0.06 - 0.001);

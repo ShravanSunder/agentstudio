@@ -50,6 +50,9 @@ export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
     requiredTarget(root, heroIntroReadyArrowAttribute),
     requiredTarget(root, heroIntroGlowAttribute),
     requiredTarget(root, heroIntroTypedInputAttribute),
+    ...root.querySelectorAll<HTMLElement>(
+      "[data-hero-codex-placeholder], [data-hero-codex-typed-input]",
+    ),
     requiredTarget(root, heroIntroSpinnerAttribute),
     ...root.querySelectorAll<HTMLElement>(".hero-codex-footer"),
     ...root.querySelectorAll<HTMLElement>(".hero-transcript-row"),
@@ -103,13 +106,39 @@ export function buildHeroIntroScene(
   const ready = requiredTarget(root, heroIntroReadyAttribute);
   const readyArrow = requiredTarget(root, heroIntroReadyArrowAttribute);
   const codexCurrentRows = root.querySelector<HTMLElement>(".hero-codex-current-rows");
-  const claudeCurrentRows = root.querySelector<HTMLElement>(".hero-claude-current-rows");
   const finalePane = options.width < 1024 ? "claude" : "codex";
-  const finaleRows = [
+  const finaleRows = [...root.querySelectorAll<HTMLElement>(`[${heroIntroFinaleRowAttribute}]`)];
+  const claudeRows = [
     ...root.querySelectorAll<HTMLElement>(
-      `.hero-terminal-pane--${finalePane} [${heroIntroFinaleRowAttribute}]`,
+      `.hero-terminal-pane--claude [${heroIntroFinaleRowAttribute}]`,
     ),
   ];
+  const codexRows = [
+    ...root.querySelectorAll<HTMLElement>(
+      `.hero-terminal-pane--codex [${heroIntroFinaleRowAttribute}]`,
+    ),
+  ];
+  const visibleRows = (rows: readonly HTMLElement[]): HTMLElement[] =>
+    rows.filter((row) => getComputedStyle(row).display !== "none");
+  const visibleClaudeRows = visibleRows(claudeRows);
+  const visibleCodexRows = visibleRows(codexRows);
+  const progressRows = visibleRows([
+    ...root.querySelectorAll<HTMLElement>("[data-hero-progress-row]"),
+  ]);
+  const worktreeRows = visibleRows([
+    ...root.querySelectorAll<HTMLElement>(
+      `.hero-terminal-pane--${finalePane} [data-hero-worktree-row]`,
+    ),
+  ]);
+  const worktreeResult = root.querySelector<HTMLElement>(
+    `.hero-terminal-pane--${finalePane} [data-hero-worktree-result]`,
+  );
+  const worktreeCommand = root.querySelector<HTMLElement>(
+    `.hero-terminal-pane--${finalePane} [data-hero-worktree-command]`,
+  );
+  const codexTypedInput = root.querySelector<HTMLElement>("[data-hero-codex-typed-input]");
+  const codexPlaceholder = root.querySelector<HTMLElement>("[data-hero-codex-placeholder]");
+  const codexWorking = root.querySelector<HTMLElement>("[data-hero-codex-working]");
   const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
 
   // All layout measurements are taken before the timeline moves any surface.
@@ -156,12 +185,11 @@ export function buildHeroIntroScene(
   );
 
   if (codexCurrentRows !== null) timeline.set(codexCurrentRows, { opacity: 1 }, 0);
-  if (claudeCurrentRows !== null && options.width < 1024)
-    timeline.set(claudeCurrentRows, { opacity: 1 }, 0);
   if (finaleRows.length > 0) timeline.set(finaleRows, { opacity: 0 }, 0);
   timeline.set(ready, { opacity: 0 }, 0);
   timeline.set(spinner, { opacity: 0 }, 0);
   timeline.set(typedInput, { textContent: "" }, 0);
+  if (codexTypedInput !== null) timeline.set(codexTypedInput, { textContent: "" }, 0);
   timeline.set(decodeLines, { opacity: 0 }, 0);
   if (copyButton !== null) timeline.set(copyButton, { opacity: 0 }, 0);
 
@@ -236,31 +264,85 @@ export function buildHeroIntroScene(
   timeline.set(iconStack, { zIndex: 1 }, 2.34);
   timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 2.66, ease: "sine.inOut" }, 2.34);
 
+  const revealRow = (row: HTMLElement | null | undefined, start: number): void => {
+    if (row !== null && row !== undefined)
+      timeline.fromTo(
+        row,
+        { opacity: 0 },
+        { opacity: 1, duration: 0.15, ease: "power2.out" },
+        start,
+      );
+  };
+
   timeline.addLabel("beat:prompt", 2.6);
-  const inputText = "set up Agent Studio for me";
-  const typing = { fraction: 0 };
+  const claudePrompt = "set up Agent Studio for me";
+  const claudeTyping = { fraction: 0 };
   timeline.to(
-    typing,
+    claudeTyping,
     {
       fraction: 1,
       duration: 1,
       ease: "none",
       onUpdate: () => {
-        typedInput.textContent = inputText.slice(0, Math.floor(typing.fraction * inputText.length));
+        typedInput.textContent = claudePrompt.slice(
+          0,
+          Math.floor(claudeTyping.fraction * claudePrompt.length),
+        );
       },
     },
     2.6,
   );
-  timeline.set(typedInput, { textContent: "" }, 3.7);
+  timeline.set(typedInput, { textContent: "" }, 3.62);
+  revealRow(
+    visibleClaudeRows.find((row) => row.textContent?.includes("set up Agent Studio")),
+    3.62,
+  );
+  revealRow(
+    visibleClaudeRows.find((row) => row.textContent?.includes("I'll install")),
+    3.72,
+  );
+  revealRow(
+    visibleClaudeRows.find((row) => row.textContent?.includes("Bash(")),
+    3.83,
+  );
+
+  if (codexTypedInput !== null && codexPlaceholder !== null && options.width >= 1024) {
+    const codexPrompt = "map the worktrees";
+    const codexTyping = { fraction: 0 };
+    timeline.set(codexPlaceholder, { opacity: 0 }, 3.65);
+    timeline.to(
+      codexTyping,
+      {
+        fraction: 1,
+        duration: 0.61,
+        ease: "none",
+        onUpdate: () => {
+          codexTypedInput.textContent = codexPrompt.slice(
+            0,
+            Math.floor(codexTyping.fraction * codexPrompt.length),
+          );
+        },
+      },
+      3.65,
+    );
+    timeline.set(codexTypedInput, { textContent: "" }, 4.28);
+    timeline.set(codexPlaceholder, { opacity: 1 }, 4.28);
+    if (codexCurrentRows !== null)
+      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 4.28);
+    revealRow(visibleCodexRows[0], 4.28);
+    revealRow(codexWorking, 4.3);
+    revealRow(worktreeCommand, 5.2);
+  }
+
   const spinnerGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
   const spinnerState = { fraction: 0 };
-  timeline.addLabel("beat:spinner", 3.7);
-  timeline.fromTo(spinner, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 3.7);
+  timeline.addLabel("beat:spinner", 3.85);
+  timeline.fromTo(spinner, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 3.85);
   timeline.to(
     spinnerState,
     {
       fraction: 1,
-      duration: 0.5,
+      duration: 1.7,
       ease: "none",
       onUpdate: () => {
         const glyphIndex = Math.min(
@@ -270,23 +352,11 @@ export function buildHeroIntroScene(
         spinner.textContent = `${spinnerGlyphs[glyphIndex]} Brewing… (esc to interrupt)`;
       },
     },
-    3.7,
+    3.85,
   );
-  timeline.to(spinner, { opacity: 0, duration: 0.01 }, 4.2);
+  progressRows.forEach((row, index) => revealRow(row, 4.05 + index * 0.3));
 
-  timeline.addLabel("beat:ready-and-install", 4.2);
-  timeline.fromTo(
-    ready,
-    { opacity: 0, x: -4 },
-    { opacity: 1, x: 0, duration: 0.2, ease: "power2.out" },
-    4.2,
-  );
-  timeline.fromTo(
-    readyArrow,
-    { opacity: 1 },
-    { opacity: 0.35, duration: 0.2, repeat: 1, yoyo: true, ease: "sine.inOut" },
-    4.35,
-  );
+  timeline.addLabel("beat:install-decode", 4.45);
   timeline.fromTo(
     install,
     { opacity: 0 },
@@ -326,27 +396,39 @@ export function buildHeroIntroScene(
     4.6,
   );
 
-  timeline.addLabel("beat:resolve", 5.6);
-  const currentFinaleRows = options.width < 1024 ? claudeCurrentRows : codexCurrentRows;
-  if (currentFinaleRows !== null)
-    timeline.to(currentFinaleRows, { opacity: 0, duration: 0.25, ease: "power2.out" }, 5.6);
-  if (finaleRows[0] !== undefined)
-    timeline.fromTo(
-      finaleRows[0],
-      { opacity: 0 },
-      { opacity: 1, duration: 0.25, ease: "power2.out" },
-      5.6,
-    );
-  if (options.width < 1024) {
-    const preservedBashRow = finaleRows.find((row) => row.textContent?.includes("Bash("));
-    if (preservedBashRow !== undefined) timeline.set(preservedBashRow, { opacity: 1 }, 5.6);
-  }
+  timeline.addLabel("beat:ready", 5.6);
+  timeline.to(spinner, { opacity: 0, duration: 0.1 }, 5.55);
+  revealRow(ready, 5.6);
+  timeline.fromTo(
+    readyArrow,
+    { opacity: 1 },
+    { opacity: 0.35, duration: 0.2, repeat: 1, yoyo: true, ease: "sine.inOut" },
+    5.78,
+  );
 
-  const payoffStart = rail === null ? 6.2 : addHeroRailStaircase({ timeline, artwork: rail });
+  if (options.width < 1024) {
+    revealRow(
+      visibleClaudeRows.find((row) => row.textContent?.includes("map the worktrees")),
+      5.7,
+    );
+    revealRow(worktreeCommand, 5.78);
+  }
+  worktreeRows.forEach((row, index) => revealRow(row, 5.82 + index * 0.45));
+  const railTiming =
+    rail === null
+      ? { finalHopStart: 7.3, end: 7.4 }
+      : addHeroRailStaircase({ timeline, artwork: rail });
+  revealRow(worktreeResult, railTiming.end + 0.1);
+  if (codexWorking !== null && options.width >= 1024)
+    timeline.to(
+      codexWorking,
+      { opacity: 0, duration: 0.15, ease: "power2.out" },
+      railTiming.end + 0.1,
+    );
   timeline.fromTo(
     [payoffFirst, payoffSecond],
     { y: 8, opacity: 0 },
     { y: 0, opacity: 1, duration: 0.6, ease: "expo.out" },
-    payoffStart,
+    railTiming.finalHopStart,
   );
 }

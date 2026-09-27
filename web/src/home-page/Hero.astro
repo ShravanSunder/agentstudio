@@ -190,6 +190,9 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
       padding-bottom: calc(42px + env(safe-area-inset-bottom));
     }
   }
+  @media (width < 38.75rem) and (height >= 44rem) and (height < 54rem) {
+    .hero-first-screen { gap: 52px; padding-bottom: calc(61px + env(safe-area-inset-bottom)); }
+  }
   @media (width >= 38.75rem) and (width < 64rem) {
     .hero-first-screen { gap: 102px; }
   }
@@ -237,6 +240,7 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
     .hero { padding-top: clamp(24px, 1.5vw + 3vh - 12px, 72px); }
     #hero-title { font-size: clamp(34px, 3.2vw, 54px); }
     #hero-title > span:last-child { font-size: clamp(24px, 2.6vw, 43px); }
+    .hero-intro-column { margin-top: 88px; }
   }
   .hero-intro-column { width: 100%; }
   .hero-glow { position: absolute; z-index: 0; top: -12%; bottom: 0; left: 0; right: 0; pointer-events: none; background: radial-gradient(ellipse 64% 65% at 54% 38%, #282c34 0%, rgb(40 44 52 / 75%) 34%, transparent 73%); }

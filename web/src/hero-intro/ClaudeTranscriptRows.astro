@@ -27,6 +27,12 @@ const { rows, finale = false } = Astro.props;
         class={`hero-transcript-row hero-transcript-row--${row.kind}`}
         {...{ [heroTranscriptTierAttribute]: row.tiers.join(" ") }}
         {...(finale ? { [heroIntroFinaleRowAttribute]: "" } : {})}
+        {...(row.beat === "progress" ? { "data-hero-progress-row": "" } : {})}
+        {...(row.beat === "command" ? { "data-hero-worktree-command": "" } : {})}
+        {...(row.beat === "worktree" ? { "data-hero-worktree-row": "" } : {})}
+        {...(row.beat === "result" ? { "data-hero-worktree-result": "" } : {})}
+        {...(row.earlierContext ? { "data-hero-earlier-context": "" } : {})}
+        {...(["prompt", "command", "worktree", "result"].includes(row.beat ?? "") ? { "data-hero-single-pane-row": "" } : {})}
         {...(row.text.includes("Ready. Copy it below") ? { [heroIntroReadyAttribute]: "" } : {})}
       >
         {toolCall === null ? (

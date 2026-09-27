@@ -1,11 +1,8 @@
 ---
-import { claudeFinaleTranscript, claudeTranscript } from "./hero-terminal-transcripts";
+import { claudeFinaleTranscript, claudePreludeTranscript } from "./hero-terminal-transcripts";
 import { heroIntroTypedInputAttribute } from "./hero-intro-dom-contract";
 import ClaudeTranscriptRows from "./ClaudeTranscriptRows.astro";
 
-const transcriptRows = claudeTranscript.filter((row) => row.kind !== "cursor");
-const preludeRows = transcriptRows.slice(0, 7);
-const currentRows = transcriptRows.slice(7);
 ---
 
 <section class="hero-terminal-pane hero-terminal-pane--claude" aria-hidden="true">
@@ -43,9 +40,8 @@ const currentRows = transcriptRows.slice(7);
         <div class="hero-terminal-muted hero-desktop-only">~/agent-studio</div>
       </div>
     </div>
-    <div class="hero-claude-prelude-rows"><ClaudeTranscriptRows rows={preludeRows} /></div>
+    <div class="hero-claude-prelude-rows"><ClaudeTranscriptRows rows={claudePreludeTranscript} /></div>
     <div class="hero-claude-swap-slot">
-      <div class="hero-claude-current-rows"><ClaudeTranscriptRows rows={currentRows} /></div>
       <div class="hero-claude-finale-rows"><ClaudeTranscriptRows rows={claudeFinaleTranscript} finale /></div>
     </div>
   </div>
