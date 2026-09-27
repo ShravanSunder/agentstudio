@@ -418,8 +418,8 @@ struct ArchitectureLintCommandTests {
         let outputURL = temporaryDirectory.appendingPathComponent("stdout.log")
         let errorURL = temporaryDirectory.appendingPathComponent("stderr.log")
         try? FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        FileManager.default.createFile(atPath: errorURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: errorURL.path, contents: nil)
         defer {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
