@@ -4146,6 +4146,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard let trigger = makePaneKeyboardFocusTrigger(for: command) else { return false }
             handlePaneFocusTrigger(.keyboard(trigger))
             return true
+        case .focusPreviousPinnedPane, .focusNextPinnedPane:
+            return focusPinnedPane(command: command)
         case .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9:
@@ -4155,6 +4157,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         default:
             return false
         }
+    }
+
+    private func focusPinnedPane(command: AppCommand) -> Bool {
+        guard pinnedPanePreferences != nil, let originPaneID = preferredVisibleFocusPaneId() else {
+            return false
+        }
+        // fire-and-forget: the executor owns the ordered focus outcome after shortcut admission.
+        _ = dispatchGesture { [self] execute in
+            let request = RepoExplorerPinnedPaneProjectionRequest(coreAtoms: CoreAtomScope.store)
+            guard
+                let targetPaneID = try? await RepoExplorerPinnedPaneProjector.targetPaneID(
+                    from: request,
+                    originPaneID: originPaneID,
+                    previous: command == .focusPreviousPinnedPane,
+                    performanceTraceRecorder: performanceTraceRecorder
+                )
+            else { return false }
+            return await prepareAndApplyTargetFocus(paneId: targetPaneID, execute: execute)
+        }
+        return true
     }
 
     private func makePaneKeyboardFocusTrigger(for command: AppCommand) -> PaneKeyboardFocusTrigger? {
@@ -4962,6 +4984,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func workspacePresentationCommandAvailability(_ command: AppCommand) -> Bool? {
         if Self.shellOwnedNoOpCommands.contains(command) { return false }
         switch command {
+        case .focusPreviousPinnedPane, .focusNextPinnedPane:
+            return pinnedPanePreferences != nil && preferredVisibleFocusPaneId() != nil
         case .toggleManagementLayer:
             return true
         case .zoomPane:

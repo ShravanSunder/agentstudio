@@ -45,7 +45,12 @@ extension RepoExplorerProjection {
                 }
                 guard !members.isEmpty else { continue }
                 let sortedMembers = members.sorted { lhs, rhs in
-                    activityPrecedes(lhs, rhs, facts: input.paneFacts)
+                    activityPrecedes(
+                        lhsPaneID: lhs.paneId,
+                        lhsTime: input.paneFacts[lhs.paneId]?.paneActivityTime,
+                        rhsPaneID: rhs.paneId,
+                        rhsTime: input.paneFacts[rhs.paneId]?.paneActivityTime
+                    )
                 }
                 let groupID = "panes:\(sectionKind.rawValue):activity:\(bucket.key)"
                 let repositoryIDs = Set(sortedMembers.compactMap(\.repoId))
@@ -85,18 +90,19 @@ extension RepoExplorerProjection {
         )
     }
 
-    private static func activityPrecedes(
-        _ lhs: RepoExplorerProjectedPaneDestination,
-        _ rhs: RepoExplorerProjectedPaneDestination,
-        facts: [UUID: RepoExplorerPaneRowFacts]
+    nonisolated package static func activityPrecedes(
+        lhsPaneID: UUID,
+        lhsTime: PaneActivityTime?,
+        rhsPaneID: UUID,
+        rhsTime: PaneActivityTime?
     ) -> Bool {
-        let left = facts[lhs.paneId]?.paneActivityTime?.orderingInstant
-        let right = facts[rhs.paneId]?.paneActivityTime?.orderingInstant
+        let left = lhsTime?.orderingInstant
+        let right = rhsTime?.orderingInstant
         if left != right {
             if let left, let right { return left > right }
             return left != nil
         }
-        return lhs.paneId.uuidString < rhs.paneId.uuidString
+        return lhsPaneID.uuidString < rhsPaneID.uuidString
     }
 
     private static func paneRow(
