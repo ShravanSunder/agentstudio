@@ -7,6 +7,16 @@ import Testing
 @MainActor
 @Suite("AppCommand sidebar commands", .serialized)
 struct AppCommandSidebarCommandsTests {
+    @Test("retired Panes grouping command identities are absent")
+    func retiredPanesGroupingCommandsAreAbsent() {
+        for identifier in [
+            "setPanesGroupingRepo", "setPanesGroupingTab", "setPanesGroupingActivity",
+            "setPanesSubgroupNone", "setPanesSubgroupActivity",
+        ] {
+            #expect(AppCommand(rawValue: identifier) == nil)
+        }
+    }
+
     @Test("focus sidebar is an interactive UI-presentation command")
     func focusSidebarIsInteractiveUIPresentationCommand() {
         let definition = AppCommandDispatcher.shared.definition(for: .focusSidebar)
@@ -74,9 +84,7 @@ struct AppCommandSidebarCommandsTests {
     @Test("fixed Panes organization has no interactive or IPC setting commands")
     func fixedPanesOrganizationHasNoSettingCommands() {
         for command in [
-            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+            AppCommand.setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
         ] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)

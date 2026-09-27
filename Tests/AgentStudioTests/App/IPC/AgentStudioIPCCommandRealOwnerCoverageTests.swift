@@ -93,8 +93,6 @@ struct AgentStudioIPCCommandRealOwnerCoverageTests {
         .setReposSortFieldName, .setReposSortFieldActivity,
         .toggleReposSortDirection, .toggleReposShowsPinned, .togglePanesShowsPinned,
         .togglePanesShowsDrawers,
-        .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-        .setPanesSubgroupNone, .setPanesSubgroupActivity,
         .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
         .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
         .showCommandBarPanes, .showCommandBarRepos,

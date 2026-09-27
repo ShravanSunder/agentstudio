@@ -778,9 +778,7 @@ extension AppCommand {
         case .showPanesSidebar: return showPanesSidebarDefinition()
         case .setReposGroupingRepo: return setReposGroupingRepoDefinition()
         case .setReposGroupingActivity: return setReposGroupingActivityDefinition()
-        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+        case .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
             return retiredPanesOrganizationDefinition()
         case .setReposSortFieldName: return setReposSortFieldNameDefinition()
         case .setReposSortFieldActivity: return setReposSortFieldActivityDefinition()

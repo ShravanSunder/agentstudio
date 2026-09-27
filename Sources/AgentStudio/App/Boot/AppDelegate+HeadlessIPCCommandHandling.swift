@@ -51,9 +51,7 @@ extension AppDelegate {
 
     private func executeWindowScopedShellCommand(_ command: AppCommand) -> AppCommandExecutionOutcome {
         switch command {
-        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+        case .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
             // Retired Panes-organization settings. No owner may be revived here.
             return .unavailable(.featureUnavailable)
         case .closeWindow:
