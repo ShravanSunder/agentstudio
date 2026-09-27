@@ -55,6 +55,14 @@ struct WorktreeAnnotationSubjectMigrationTests {
         let reviewDetail = try repository.fetchSessionDetail(sessionID: .init(rawValue: fixture.reviewSessionID))
         #expect(reviewDetail.session.subject == fixture.reviewFingerprint.subject)
         #expect(reviewDetail.threads.map(\.messages.count) == [1])
+
+        // A second boot must neither rebuild the migrated table nor rewrite
+        // its accepted fingerprints, session rows, or comment history.
+        let migratedSessions = try allRows(of: "annotation_session", in: databaseQueue)
+        let migratedHistory = try annotationHistoryRows(in: databaseQueue)
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        #expect(try allRows(of: "annotation_session", in: databaseQueue) == migratedSessions)
+        #expect(try annotationHistoryRows(in: databaseQueue) == migratedHistory)
     }
 
     @Test("a fingerprint that is not JSON is kept verbatim and still fails closed when read")
