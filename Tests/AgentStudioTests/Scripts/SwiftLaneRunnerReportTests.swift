@@ -128,6 +128,7 @@ struct SwiftLaneRunnerReportTests {
         #expect(record["batch_id"] as? Int == 2)
         #expect(record["slot"] as? Int == 3)
         #expect(record["slot_cap"] as? Int == 4)
+        #expect(record["phase"] == nil || record["phase"] is NSNull)
         #expect(record["timed_out"] as? Bool == false)
         #expect(record["event_stream_file"] is String)
     }
@@ -215,13 +216,24 @@ struct SwiftLaneRunnerReportTests {
             let data = try JSONSerialization.data(withJSONObject: item)
             try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-partial-\(slot).timing.json"))
         }
+        for (phase, dispatch) in [("fast", 4000), ("webkit", 9000)] {
+            let item: [String: Any] = [
+                "lane": "shared-lane", "phase": phase, "label": "isolated suite: \(phase)",
+                "filter": "Suite\(phase)", "batch_id": 1, "slot": 1, "slot_cap": 1,
+                "dispatch_ms": dispatch, "wrapper_complete_ms": dispatch + 100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-shared-\(phase).timing.json"))
+        }
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
         let summary = try String(contentsOfFile: evidenceDirectory + "/timing-summary.md", encoding: .utf8)
         #expect(summary.contains("| fixture | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
         #expect(summary.contains("| fixture-wrapped | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
-        #expect(summary.contains("| isolated | 6 | 3 | 0.600 | 0.600 |"))
-        #expect(summary.contains("| four-slot | 4 | 4 | 0.100 | 0.000 |"))
-        #expect(summary.contains("| partial-four-slot | 3 | 4 | 0.100 | 0.100 |"))
+        #expect(summary.contains("| isolated | unknown | 6 | 3 | 0.600 | 0.600 |"))
+        #expect(summary.contains("| four-slot | unknown | 4 | 4 | 0.100 | 0.000 |"))
+        #expect(summary.contains("| partial-four-slot | unknown | 3 | 4 | 0.100 | 0.100 |"))
+        #expect(summary.contains("| shared-lane | fast | 1 | 1 | 0.100 | 0.000 |"))
+        #expect(summary.contains("| shared-lane | webkit | 1 | 1 | 0.100 | 0.000 |"))
         #expect(summary.contains("unknown"))
         let emptyDirectory = evidenceDirectory + "/empty"
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(emptyDirectory)' /bin/bash scripts/summarize-ci-timing.sh")

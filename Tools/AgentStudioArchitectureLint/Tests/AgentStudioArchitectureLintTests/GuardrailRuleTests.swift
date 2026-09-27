@@ -8,7 +8,8 @@ import Testing
 /// The guardrail rules added with the debt ledger: the MainActor shapes, the
 /// test-hold and wait-helper freezes, blocking-wait owners, and agent-doc
 /// references. Each is proven on Good/Bad fixtures or inline sources.
-@Suite
+@MainActor
+@Suite(.serialized)
 struct GuardrailRuleTests {
     @Test(
         "MainActor shape rules flag every Bad fixture site and no Good fixture site",
