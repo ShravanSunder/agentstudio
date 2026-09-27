@@ -7,6 +7,16 @@ import Testing
 
 @Suite("Repo Explorer pane drawer tree")
 struct RepoExplorerPaneDrawerTreeTests {
+    @Test("attached drawer rows indent one icon column while owners and orphans stay aligned")
+    @MainActor
+    func drawerContentIndentFollowsTreeAttachment() {
+        let iconColumnWidth = AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+        #expect(RepoExplorerPaneRowContent.leadingContentInset(for: .none) == 0)
+        #expect(RepoExplorerPaneRowContent.leadingContentInset(for: .ownerWithDrawers) == 0)
+        #expect(RepoExplorerPaneRowContent.leadingContentInset(for: .drawer(isLast: false)) == iconColumnWidth)
+        #expect(RepoExplorerPaneRowContent.leadingContentInset(for: .drawer(isLast: true)) == iconColumnWidth)
+    }
+
     @Test("shown drawers follow their owner in activity order and hiding removes their rows")
     func ownerChildrenAndHiddenState() throws {
         let referenceInstant = ContinuousClock.now

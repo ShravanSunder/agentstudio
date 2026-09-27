@@ -65,6 +65,15 @@ struct RepoExplorerPaneRowContent: View {
     var drawerRail: RepoExplorerDrawerRail = .none
     var ownerLineCount = 1
 
+    static func leadingContentInset(for drawerRail: RepoExplorerDrawerRail) -> CGFloat {
+        switch drawerRail {
+        case .drawer:
+            AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+        case .none, .ownerWithDrawers:
+            0
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
@@ -106,6 +115,7 @@ struct RepoExplorerPaneRowContent: View {
             }
             chipRow
         }
+        .padding(.leading, Self.leadingContentInset(for: drawerRail))
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .overlay(alignment: .topLeading) {
