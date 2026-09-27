@@ -1,0 +1,13 @@
+{
+  "target": {
+    "worktree": "01911111-1111-7111-8111-111111111111",
+    "relativePath": "src/file.swift",
+    "line": 12
+  },
+  "requestedBy": {
+    "kind": "agent",
+    "provider": "codex",
+    "sessionRef": "session-1"
+  },
+  "retainedAt": "2026-09-26T17:00:00Z"
+}
