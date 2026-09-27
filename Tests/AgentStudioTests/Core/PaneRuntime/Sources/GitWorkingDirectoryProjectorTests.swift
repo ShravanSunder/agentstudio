@@ -100,12 +100,9 @@ struct GitWorkingDirectoryProjectorTests {
         let retryScheduled = clock.pendingSleepCount == 1
         #expect(retryScheduled)
         clock.advance(by: .milliseconds(50))
-        let reachedZeroDebt = await waitUntil {
-            let callCount = await calls.value()
-            let snapshot = await actor.logicalDebtSnapshot()
-            return callCount == 2 && snapshot.logicalDebtCount == 0
-        }
-        #expect(reachedZeroDebt)
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await calls.value() == 2)
+        #expect(await actor.logicalDebtSnapshot().logicalDebtCount == 0)
 
         await actor.shutdown()
         try await recorder.drain()
@@ -334,11 +331,13 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("provider nil status emits no git snapshot facts")
     func providerNilStatusEmitsNoGitSnapshotFacts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let provider = StubGitWorkingTreeStatusProvider { _ in nil }
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            sleepClock: clock
         )
 
         let observed = ObservedGitEvents()
@@ -349,10 +348,10 @@ struct GitWorkingDirectoryProjectorTests {
         let rootPath = URL(fileURLWithPath: "/tmp/provider-nil-\(UUID().uuidString)")
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
 
-        // Give the projector enough turns to process the request path.
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        // The unavailable outcome follows failure admission
+        // (GitWorkingDirectoryProjector.swift:828–840); the controlled clock holds its retry.
+        #expect((await observed.statusOutcomes(for: worktreeId, until: { $0.count == 1 })).count == 1)
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
 
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
         #expect(await observed.branchEventCount(for: worktreeId) == 0)
@@ -406,14 +405,14 @@ struct GitWorkingDirectoryProjectorTests {
             return
         }
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
-        let breakerOwnsOneClassifiedRetryDebt = await waitUntil {
-            let snapshot = await actor.logicalDebtSnapshot()
-            return snapshot.retryPendingCount == 1
-                && snapshot.logicalPendingCount == 1
-                && snapshot.logicalRunningCount == 0
-                && snapshot.logicalDebtCount == 1
-        }
-        #expect(breakerOwnsOneClassifiedRetryDebt)
+        // The unavailable outcome is emitted after backoff debt opens
+        // (GitWorkingDirectoryProjector.swift:828–840).
+        #expect((await observed.statusOutcomes(for: worktreeId, until: { $0.count == 1 })).count == 1)
+        let breakerDebt = await actor.logicalDebtSnapshot()
+        #expect(breakerDebt.retryPendingCount == 1)
+        #expect(breakerDebt.logicalPendingCount == 1)
+        #expect(breakerDebt.logicalRunningCount == 0)
+        #expect(breakerDebt.logicalDebtCount == 1)
         let failureSettlement = await actor.logicalDebtSnapshot()
         #expect(failureSettlement.futureFailureCount == 1)
         #expect(failureSettlement.readyPendingCount == 0)
@@ -429,10 +428,8 @@ struct GitWorkingDirectoryProjectorTests {
         let retriedAndEmittedSnapshot = await calls.value() == 2 && retrySnapshots.last?.branch == "retry-success"
         #expect(retriedAndEmittedSnapshot)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
-        let reachedZeroDebt = await waitUntil {
-            await actor.logicalDebtSnapshot().logicalDebtCount == 0
-        }
-        #expect(reachedZeroDebt)
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await actor.logicalDebtSnapshot().logicalDebtCount == 0)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -501,9 +498,8 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(newContextSnapshotArrived)
 
         clock.advance(by: .milliseconds(50))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         let labels = await callOrder.labels
         #expect(labels.filter { $0.contains("old-retry-root") }.count == 1)
 
@@ -545,8 +541,9 @@ struct GitWorkingDirectoryProjectorTests {
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
+        // Missing fact: replacement pending batch accepted while the provider is held.
         #expect(
-            await waitUntil {
+            await waitForHeldProjectorStateUntilTransitionFactExists {
                 await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 3
             }
         )
@@ -600,9 +597,8 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 0)
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
 
@@ -640,14 +636,9 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(firstSnapshotArrived)
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
-        // Blocked: needs GitWorkingDirectoryProjector quiescence (owner decision)
-        let secondProviderCallCompleted = await waitForSettledProjectorStateUntilQuiescenceSeamExists {
-            await calls.value() == 2
-        }
-        #expect(secondProviderCallCompleted)
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
+        #expect(await calls.value() == 2)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
         await actor.shutdown()
@@ -706,13 +697,10 @@ struct GitWorkingDirectoryProjectorTests {
                 containsGitInternalChanges: true
             )
         )
-        // Blocked: needs GitWorkingDirectoryProjector quiescence (owner decision)
-        #expect(await waitForSettledProjectorStateUntilQuiescenceSeamExists { await factCalls.value() == 2 })
-        // Blocked: needs GitWorkingDirectoryProjector quiescence (owner decision)
-        #expect(
-            await waitForSettledProjectorStateUntilQuiescenceSeamExists {
-                await actor.worktreeTasks[worktreeId] == nil
-            })
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
+        #expect(await factCalls.value() == 2)
+        #expect(await actor.worktreeTasks[worktreeId] == nil)
 
         #expect(await detailCalls.value() == 1)
         #expect(await legacyCalls.value() == 0)
@@ -726,6 +714,7 @@ struct GitWorkingDirectoryProjectorTests {
     @Test("fact success plus line detail failure retains the prior complete candidate")
     func detailFailureRetainsPriorCompleteCandidate() async throws {
         let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
         let factCalls = CallCounter()
         let detailCalls = CallCounter()
         let legacyCalls = CallCounter()
@@ -749,6 +738,7 @@ struct GitWorkingDirectoryProjectorTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .zero,
+            sleepClock: clock,
             refreshPolicy: AppPolicies.GitRefresh.Policy()
         )
         let observed = ObservedGitEvents()
@@ -779,13 +769,14 @@ struct GitWorkingDirectoryProjectorTests {
                 containsGitInternalChanges: true
             )
         )
-        // Blocked: needs GitWorkingDirectoryProjector quiescence (owner decision)
-        #expect(await waitForSettledProjectorStateUntilQuiescenceSeamExists { await detailCalls.value() == 2 })
-        // Blocked: needs GitWorkingDirectoryProjector quiescence (owner decision)
+        // The unavailable outcome follows failure admission
+        // (GitWorkingDirectoryProjector.swift:828–840); the controlled clock holds its retry.
         #expect(
-            await waitForSettledProjectorStateUntilQuiescenceSeamExists {
-                await actor.worktreeTasks[worktreeId] == nil
-            })
+            (await observed.statusOutcomes(for: worktreeId, until: { $0.count == 2 })).last == .unavailable
+        )
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
+        #expect(await detailCalls.value() == 2)
+        #expect(await actor.worktreeTasks[worktreeId] == nil)
 
         #expect(await legacyCalls.value() == 0)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
@@ -945,8 +936,9 @@ struct GitWorkingDirectoryProjectorTests {
                 paths: ["newer-two.txt"]
             )
         )
+        // Missing fact: replacement pending paths accepted while line detail is held.
         #expect(
-            await waitUntil {
+            await waitForHeldProjectorStateUntilTransitionFactExists {
                 await actor.pendingByWorktreeId[worktreeId].map { Set($0.paths) }
                     == ["newer-one.txt", "newer-two.txt"]
             }
@@ -1052,7 +1044,8 @@ struct GitWorkingDirectoryProjectorTests {
 
         clock.advance(by: .milliseconds(400))
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
-        let newerBatchWasAccepted = await waitUntil {
+        // Missing fact: newer batch accepted inside the coalescing window.
+        let newerBatchWasAccepted = await waitForHeldProjectorStateUntilTransitionFactExists {
             await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 2
         }
         #expect(newerBatchWasAccepted)
@@ -1099,10 +1092,8 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
         #expect((await recorder.recordedCalls(until: { $0.count == 1 })).count == 1)
-        #expect(
-            await waitUntil {
-                await actor.lastStatusEntriesByWorktreeId[worktreeId] != nil
-            })
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await actor.lastStatusEntriesByWorktreeId[worktreeId] != nil)
 
         let coalescingDeadline = clock.now.advanced(by: .milliseconds(500))
         await bus.post(
@@ -1114,8 +1105,9 @@ struct GitWorkingDirectoryProjectorTests {
                 paths: ["a.txt"]
             )
         )
+        // Missing fact: coalescing deadline armed for this worktree.
         #expect(
-            await waitUntilYielding {
+            await waitForHeldProjectorStateUntilTransitionFactExists {
                 clock.pendingSleepDeadlines.contains(coalescingDeadline)
             }
         )
@@ -1128,7 +1120,12 @@ struct GitWorkingDirectoryProjectorTests {
                 paths: ["b.txt"]
             )
         )
-        #expect(await waitUntil { await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 2 })
+        // Missing fact: replacement pending batch accepted before coalescing fires.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 2
+            }
+        )
 
         clock.advance(by: .milliseconds(500))
         #expect((await recorder.recordedCalls(until: { $0.count == 2 })).count == 2)
@@ -1279,9 +1276,12 @@ struct GitWorkingDirectoryProjectorTests {
         let automaticBudget = policy.maxConcurrentStatusComputes - policy.activePaneMaxConcurrent
         let admittedInitialBudget = (await calls.count(until: { $0 >= automaticBudget })) >= automaticBudget
         #expect(admittedInitialBudget)
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        // Missing fact: all six admitted inputs have reached held or queued work.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                await actor.logicalDebtSnapshot().logicalDebtCount == worktreeIds.count
+            }
+        )
         #expect(await calls.value() == automaticBudget)
         let boundedDebtSnapshot = await actor.logicalDebtSnapshot()
         #expect(boundedDebtSnapshot.logicalPendingCount == 5)
@@ -1300,13 +1300,11 @@ struct GitWorkingDirectoryProjectorTests {
             emittedAllSnapshots = emittedAllSnapshots && snapshots.count == 1
         }
         #expect(emittedAllSnapshots)
-        let reachedZeroDebt = await waitUntil {
-            let snapshot = await actor.logicalDebtSnapshot()
-            return snapshot.logicalPendingCount == 0
-                && snapshot.logicalRunningCount == 0
-                && snapshot.logicalDebtCount == 0
-        }
-        #expect(reachedZeroDebt)
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        let settledDebt = await actor.logicalDebtSnapshot()
+        #expect(settledDebt.logicalPendingCount == 0)
+        #expect(settledDebt.logicalRunningCount == 0)
+        #expect(settledDebt.logicalDebtCount == 0)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -1597,9 +1595,14 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        // Missing fact: both background changesets have entered the held queue.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                let pending = await actor.pendingByWorktreeId
+                return pending[olderBackgroundWorktreeId] != nil
+                    && pending[youngerBackgroundWorktreeId] != nil
+            }
+        )
         #expect(await callGate.labels.count == automaticBudget)
         #expect(await actor.pendingByWorktreeId[olderBackgroundWorktreeId] != nil)
         #expect(await actor.pendingByWorktreeId[youngerBackgroundWorktreeId] != nil)
@@ -1668,12 +1671,14 @@ struct GitWorkingDirectoryProjectorTests {
 
         let firstStripeDeadline = clock.now.advanced(by: .milliseconds(60))
         let secondStripeDeadline = clock.now.advanced(by: .milliseconds(120))
+        // Missing fact: both background stripe deadlines have been admitted.
         #expect(
-            await waitUntil {
+            await waitForHeldProjectorStateUntilTransitionFactExists {
                 let refreshDeadlines = await actor.automaticRefreshDeadlineByWorktreeId
                 return refreshDeadlines[firstStripeWorktreeId] == .milliseconds(60)
                     && refreshDeadlines[secondStripeWorktreeId] == .milliseconds(120)
-            })
+            }
+        )
         await clock.waitForPendingSleepCount(atLeast: 1)
         #expect(clock.pendingSleepDeadlines.contains(firstStripeDeadline))
         #expect(await observed.snapshotCount(for: firstStripeWorktreeId) == 0)
@@ -1686,10 +1691,7 @@ struct GitWorkingDirectoryProjectorTests {
         await clock.waitForPendingSleepCount(atLeast: 1)
         #expect(clock.pendingSleepDeadlines.contains(secondStripeDeadline))
         clock.advance(by: .milliseconds(60))
-        #expect(
-            await waitUntil(maxTurns: 100_000) {
-                await observed.snapshotCount(for: secondStripeWorktreeId) == 1
-            })
+        #expect((await observed.snapshots(for: secondStripeWorktreeId, until: { $0.count == 1 })).count == 1)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -1929,9 +1931,8 @@ struct GitWorkingDirectoryProjectorTests {
                 ]
             )
         )
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
@@ -2055,9 +2056,8 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
@@ -2103,9 +2103,8 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(firstSnapshotArrived)
 
         await actor.assertTopology(assertion)
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
@@ -2209,9 +2208,7 @@ struct GitWorkingDirectoryProjectorTests {
         gate.release()
         await shutdownTask.value
 
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
         #expect(await observed.branchEventCount(for: worktreeId) == 0)
 
@@ -2414,11 +2411,9 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        // Blocked: needs GitWorkingDirectoryProjector quiescence (owner decision)
-        let emittedSingleOriginEvent = await waitForSettledProjectorStateUntilQuiescenceSeamExists {
-            await observed.originEventCount(for: repoId) == 1
-        }
-        #expect(emittedSingleOriginEvent)
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
+        #expect(await observed.originEventCount(for: repoId) == 1)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -2472,13 +2467,9 @@ struct GitWorkingDirectoryProjectorTests {
                 paths: ["Sources/File.swift"]
             )
         )
-        // Blocked: needs GitWorkingDirectoryProjector quiescence (owner decision)
-        let nonConfigBatchProcessedWithoutOriginChange = await waitForSettledProjectorStateUntilQuiescenceSeamExists {
-            let callCount = await calls.value()
-            let originCount = await observed.originEventCount(for: repoId)
-            return callCount >= 2 && originCount == 1
-        }
-        #expect(nonConfigBatchProcessedWithoutOriginChange)
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
+        #expect(await calls.value() >= 2)
         #expect(await observed.originEventCount(for: repoId) == 1)
 
         await bus.post(
@@ -2694,18 +2685,18 @@ struct GitWorkingDirectoryProjectorTests {
         await clock.waitForPendingSleepCount(atLeast: 1)
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        // Missing fact: a newer batch joined the held capacity retry.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 2
+            }
+        )
         #expect(await calls.value() == 1)
         #expect(recorder.backoffEvents(open: true).isEmpty)
         #expect(await actor.statusBackoffFailureCountByWorktreeId[worktreeId] == nil)
         #expect(await actor.consecutiveStatusFailureCountByWorktreeId[worktreeId] == nil)
 
         clock.advance(by: .milliseconds(49))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
         #expect(await calls.value() == 1)
 
         clock.advance(by: .milliseconds(1))
@@ -2756,7 +2747,12 @@ struct GitWorkingDirectoryProjectorTests {
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/a3-capacity-wake-\(UUID().uuidString)")
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
-        #expect(await waitUntil { await actor.capacityRetryWorktreeIds.contains(worktreeId) })
+        // Missing fact: capacity retry admitted while the physical read is held.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                await actor.capacityRetryWorktreeIds.contains(worktreeId)
+            }
+        )
         #expect(await actor.statusBackoffFailureCountByWorktreeId[worktreeId] == nil)
 
         blockingReadGate.release()
@@ -2804,7 +2800,12 @@ struct GitWorkingDirectoryProjectorTests {
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/a3-shutdown-capacity-\(UUID().uuidString)")
         await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
-        #expect(await waitUntil { await actor.capacityRetryWorktreeIds.contains(worktreeId) })
+        // Missing fact: capacity retry admitted before shutdown cancels it.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                await actor.capacityRetryWorktreeIds.contains(worktreeId)
+            }
+        )
         #expect(await actor.capacityCompletionTask != nil)
 
         await actor.shutdown()
@@ -2813,9 +2814,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         blockingReadGate.release()
         _ = await blockedRead.value
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
         collectionTask.cancel()
     }
@@ -2912,9 +2911,6 @@ struct GitWorkingDirectoryProjectorTests {
         await timeoutClock.waitForPendingSleepCount(atLeast: 1)
 
         timeoutClock.advance(by: .milliseconds(50))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
         #expect(await timeoutCalls.value() == 2)
 
         timeoutClock.advance(by: .milliseconds(50))
@@ -2973,9 +2969,12 @@ struct GitWorkingDirectoryProjectorTests {
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
         await bus.post(makeFilesChangedEnvelope(seq: 4, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 4))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        // Missing fact: deferred backoff work coalesced the three held batches.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                await actor.deferredStatusBackoffChangesetByWorktreeId[worktreeId]?.batchSeq == 4
+            }
+        )
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
 
@@ -3022,9 +3021,12 @@ struct GitWorkingDirectoryProjectorTests {
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        // Missing fact: SDK backoff retained the latest deferred batch.
+        #expect(
+            await waitForHeldProjectorStateUntilTransitionFactExists {
+                await actor.deferredStatusBackoffChangesetByWorktreeId[worktreeId]?.batchSeq == 3
+            }
+        )
 
         #expect(await calls.value() == 1)
         #expect(recorder.backoffEvents(open: true).map(\.reason) == ["sdk_error"])
@@ -3073,9 +3075,6 @@ struct GitWorkingDirectoryProjectorTests {
 
         // Step 2 must be 100ms: advancing only the base 50ms leaves it closed.
         clock.advance(by: .milliseconds(50))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
         #expect(await calls.value() == 2)
 
         // The remaining 50ms (100ms total) expires step 2 and recomputes.
@@ -3817,9 +3816,8 @@ struct GitWorkingDirectoryProjectorTests {
             )
         }
 
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
 
         #expect(await calls.value() == 0)
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
@@ -3831,11 +3829,10 @@ struct GitWorkingDirectoryProjectorTests {
         await clock.waitForPendingSleepCount(exactly: 1)
 
         clock.advance(by: policy.backgroundCadence)
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
         #expect(
-            await waitUntil {
-                await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
-                    == policy.backgroundCadence + policy.backgroundCadence
-            }
+            await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
+                == policy.backgroundCadence + policy.backgroundCadence
         )
         await clock.waitForPendingSleepCount(exactly: 1)
         #expect(await calls.value() == 0)
@@ -4138,10 +4135,12 @@ struct GitWorkingDirectoryProjectorTests {
         observed: ObservedGitEvents
     ) async -> Task<Void, Never> {
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        await observed.setSubscription(stream)
         return Task {
             for await envelope in stream {
                 await observed.record(envelope)
             }
+            await observed.collectionDidEnd()
         }
     }
 
@@ -4264,36 +4263,17 @@ struct GitWorkingDirectoryProjectorTests {
         }
     }
 
-    private func waitUntil(
-        maxTurns: Int = 10_000,
+    /// Temporary proof debt for held transitions that emit no observable fact.
+    private func waitForHeldProjectorStateUntilTransitionFactExists(
         condition: @escaping @Sendable () async -> Bool
     ) async -> Bool {
-        for _ in 0..<maxTurns {
+        for _ in 0..<10_000 {
             if await condition() {
                 return true
             }
             await Task.yield()
         }
         return await condition()
-    }
-
-    private func waitForSettledProjectorStateUntilQuiescenceSeamExists(
-        condition: @escaping @Sendable () async -> Bool
-    ) async -> Bool {
-        await waitUntil(condition: condition)
-    }
-
-    private func waitUntilYielding(
-        maxTurns: Int = 10_000,
-        condition: @escaping @Sendable () -> Bool
-    ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if condition() {
-                return true
-            }
-            await Task.yield()
-        }
-        return condition()
     }
 
     private func worktreeId(
@@ -4409,7 +4389,18 @@ private struct A2StaleDetailProviderFixture {
     }
 }
 
+private enum CollectorCatchupOutcome: Equatable {
+    case caughtUp(droppedEnvelopes: UInt64)
+    case shutdown
+    case cancelled
+}
+
 private actor ObservedGitEvents {
+    private struct CatchupWaiter {
+        let target: EventBusDeliveryCheckpoint
+        let continuation: CheckedContinuation<CollectorCatchupOutcome, Never>
+    }
+
     private struct SnapshotWaiter {
         let worktreeId: UUID
         let predicate: @Sendable ([GitWorkingTreeSnapshot]) -> Bool
@@ -4428,6 +4419,12 @@ private actor ObservedGitEvents {
         let continuation: CheckedContinuation<[(String, String)], Never>
     }
 
+    private struct StatusOutcomeWaiter {
+        let worktreeId: UUID
+        let predicate: @Sendable ([GitStatusOutcome]) -> Bool
+        let continuation: CheckedContinuation<[GitStatusOutcome], Never>
+    }
+
     private var snapshotsByWorktreeId: [UUID: [GitWorkingTreeSnapshot]] = [:]
     private var snapshotWaiters: [SnapshotWaiter] = []
     private var branchEventsByWorktreeId: [UUID: [(String, String)]] = [:]
@@ -4435,8 +4432,71 @@ private actor ObservedGitEvents {
     private var originEventsByRepoId: [UUID: [(String, String)]] = [:]
     private var originWaiters: [OriginWaiter] = []
     private var statusOutcomesByWorktreeId: [UUID: [GitStatusOutcome]] = [:]
+    private var statusOutcomeWaiters: [StatusOutcomeWaiter] = []
+    private var subscriptionHandle: EventBusSubscription<RuntimeEnvelope>?
+    private var handledEnvelopeCount: UInt64 = 0
+    private var catchupWaiters: [UUID: CatchupWaiter] = [:]
+
+    func setSubscription(_ handle: EventBusSubscription<RuntimeEnvelope>) {
+        subscriptionHandle = handle
+    }
+
+    func waitUntilCaughtUp() async -> CollectorCatchupOutcome {
+        guard let subscriptionHandle else { return .shutdown }
+        let target = subscriptionHandle.deliveryCheckpoint()
+        let waiterID = UUIDv7.generate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: .cancelled)
+                    return
+                }
+                guard self.subscriptionHandle != nil else {
+                    continuation.resume(returning: .shutdown)
+                    return
+                }
+                catchupWaiters[waiterID] = CatchupWaiter(target: target, continuation: continuation)
+                resolveCaughtUpWaiters()
+            }
+        } onCancel: {
+            Task { [weak self] in
+                await self?.cancelCatchupWaiter(waiterID)
+            }
+        }
+    }
+
+    func collectionDidEnd() {
+        subscriptionHandle = nil
+        let waiters = Array(catchupWaiters.values)
+        catchupWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.continuation.resume(returning: .shutdown)
+        }
+    }
+
+    private func resolveCaughtUpWaiters() {
+        guard let subscriptionHandle, !catchupWaiters.isEmpty else { return }
+        let checkpoint = subscriptionHandle.deliveryCheckpoint()
+        guard handledEnvelopeCount >= checkpoint.enqueuedCount else { return }
+        let readyIDs = catchupWaiters.compactMap { waiterID, waiter in
+            handledEnvelopeCount >= waiter.target.enqueuedCount ? waiterID : nil
+        }
+        for waiterID in readyIDs {
+            catchupWaiters.removeValue(forKey: waiterID)?.continuation.resume(
+                returning: .caughtUp(droppedEnvelopes: checkpoint.droppedCount)
+            )
+        }
+    }
+
+    private func cancelCatchupWaiter(_ waiterID: UUID) {
+        catchupWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: .cancelled)
+    }
 
     func record(_ envelope: RuntimeEnvelope) {
+        defer {
+            handledEnvelopeCount &+= 1
+            resolveCaughtUpWaiters()
+        }
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard case .gitWorkingDirectory(let gitEvent) = worktreeEnvelope.event else { return }
         guard let worktreeId = worktreeEnvelope.worktreeId else { return }
@@ -4476,6 +4536,16 @@ private actor ObservedGitEvents {
         case .statusOutcome(let statusOutcome):
             guard statusOutcome.worktreeId == worktreeId else { return }
             statusOutcomesByWorktreeId[worktreeId, default: []].append(statusOutcome.outcome)
+            let outcomes = statusOutcomesByWorktreeId[worktreeId] ?? []
+            var remainingWaiters: [StatusOutcomeWaiter] = []
+            for waiter in statusOutcomeWaiters {
+                if waiter.worktreeId == worktreeId && waiter.predicate(outcomes) {
+                    waiter.continuation.resume(returning: outcomes)
+                } else {
+                    remainingWaiters.append(waiter)
+                }
+            }
+            statusOutcomeWaiters = remainingWaiters
         case .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }
@@ -4506,6 +4576,19 @@ private actor ObservedGitEvents {
 
     func statusOutcomeCount(for worktreeId: UUID) -> Int {
         statusOutcomesByWorktreeId[worktreeId]?.count ?? 0
+    }
+
+    func statusOutcomes(
+        for worktreeId: UUID,
+        until predicate: @escaping @Sendable ([GitStatusOutcome]) -> Bool
+    ) async -> [GitStatusOutcome] {
+        let currentOutcomes = statusOutcomesByWorktreeId[worktreeId] ?? []
+        if predicate(currentOutcomes) { return currentOutcomes }
+        return await withCheckedContinuation { continuation in
+            statusOutcomeWaiters.append(
+                StatusOutcomeWaiter(worktreeId: worktreeId, predicate: predicate, continuation: continuation)
+            )
+        }
     }
 
     func branchEventCount(for worktreeId: UUID) -> Int {
