@@ -6,6 +6,7 @@ import type {
   TopologyEndObservation,
   FinaleBookendObservation,
 } from "./topology-end-browser-command.ts";
+import { sharpCornerCount } from "./topology-path-corners";
 
 declare module "vitest/browser" {
   interface BrowserCommands {
@@ -56,6 +57,10 @@ describe("where the rail ends on the home page", () => {
       [390, 1280, 1920],
     );
     for (const observation of observations) {
+      expect(observation.pathData.length, String(observation.width)).toBeGreaterThan(0);
+      for (const path of observation.pathData) {
+        expect(sharpCornerCount(path.d), `${observation.width}px ${path.kind}: ${path.d}`).toBe(0);
+      }
       expect(observation.nodeRightX, String(observation.width)).toBeCloseTo(
         observation.pillLeft,
         0,
@@ -68,6 +73,7 @@ describe("where the rail ends on the home page", () => {
       expect(observation.terminalNodeCount).toBe(1);
       expect(observation.terminalRouteCount).toBe(1);
       expect(observation.branchViewportMaxFraction).toBeLessThan(0.75);
+      expect(observation.branchColumnSpan, String(observation.width)).toBeLessThanOrEqual(2);
       expect(observation.minimumTitleClearance).toBeGreaterThanOrEqual(12);
       expect(observation.ringRadius).toBe(6);
       expect(observation.coreRadius).toBe(2.5);

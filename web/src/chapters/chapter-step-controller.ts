@@ -1,4 +1,4 @@
-import { localForkPath } from "../topology-lab/full-page-topology-paths";
+import { localDropTurnPath } from "../topology-lab/full-page-topology-paths";
 import { isChapterStepId, type ChapterStepId } from "./chapter-ids";
 import {
   chapterStepRequestedEventName,
@@ -165,7 +165,9 @@ function renderSelectedStep(
       }
     }
 
-    label.textContent = selected?.getAttribute("aria-label") ?? "";
+    const labelText = label.querySelector<HTMLElement>("[data-chapter-step-active-label-text]");
+    if (labelText === null) throw new Error("Chapter step label text is missing");
+    labelText.textContent = selected?.getAttribute("aria-label") ?? "";
     const desiredLeft = currentCenter + 24;
     const maximumLeft = Math.max(0, stepLine.clientWidth - label.scrollWidth - 4);
     const labelLeft = Math.min(desiredLeft, maximumLeft);
@@ -178,7 +180,7 @@ function renderSelectedStep(
     branch.setAttribute(
       "d",
       [
-        ...localForkPath(currentCenter, labelLeft - 5, dotY, labelY),
+        ...localDropTurnPath(currentCenter, labelLeft - 5, dotY, labelY),
         `L ${labelLeft} ${labelY}`,
       ].join(" "),
     );

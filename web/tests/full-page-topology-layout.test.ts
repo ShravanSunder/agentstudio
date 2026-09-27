@@ -20,7 +20,7 @@ import {
   topologyMaximumLaneCount,
   topologyRowUnit,
 } from "../src/topology-lab/full-page-topology-model";
-import { localForkPath, localMergePath } from "../src/topology-lab/full-page-topology-paths";
+import { localDropTurnPath, localForkPath } from "../src/topology-lab/full-page-topology-paths";
 import { planWorktreeLanes } from "../src/topology-lab/topology-lane-planning";
 
 function rect(left: number, top: number, width: number, height: number): TopologyRect {
@@ -88,7 +88,13 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
   const lastAnchor = anchors.at(-1);
   const lastGlassBottom =
     lastAnchor?.surface === undefined ? 0 : lastAnchor.surface.top + lastAnchor.surface.height;
-  const starButton = rect(viewportWidth / 2 - 110, lastGlassBottom + 490, 220, 48);
+  const finalRailAlignmentShift = clamp((viewportWidth - 1600) * 0.3, 0, 192);
+  const starButton = rect(
+    contentLeft - finalRailAlignmentShift,
+    lastGlassBottom + 490,
+    phone ? 200 : 440,
+    48,
+  );
   anchors.push({
     id: "final-cta",
     rect: starButton,
@@ -385,7 +391,9 @@ describe("gutter columns", () => {
       }
       for (const route of composition.routes) {
         for (const point of samplePoints(route.pathData)) {
-          expect(point.x).toBeGreaterThanOrEqual(composition.mainlineX - 0.01);
+          expect(point.x, `${width}px ${route.id}: ${route.pathData}`).toBeGreaterThanOrEqual(
+            composition.mainlineX - 0.01,
+          );
         }
       }
     }
@@ -448,16 +456,18 @@ describe("composed topology", () => {
 
       it("moves every fork and merge exactly one column, with no longer horizontal run", () => {
         for (const route of composition.routes) {
-          expect(route.column).toBe(route.parentColumn + 1);
           if (route.terminal) {
             const commands = pathCommands(route.pathData);
-            const corner = commands[1]?.points.at(-1);
+            const start = commands[0]?.points.at(-1);
             const end = commands.at(-1)?.points.at(-1);
-            expect(corner).toBeDefined();
+            expect(start).toBeDefined();
             expect(end).toBeDefined();
-            expect((end?.x ?? 0) - (corner?.x ?? 0)).toBeCloseTo(composition.columnUnit, 6);
+            expect((end?.x ?? 0) - (start?.x ?? 0)).toBeLessThanOrEqual(composition.columnUnit * 2);
+            expect(commands.map((command) => command.command)).toEqual(["M", "C"]);
+            expect(route.column).toBeLessThanOrEqual(route.parentColumn + 2);
             continue;
           }
+          expect(route.column).toBe(route.parentColumn + 1);
           for (const command of pathCommands(route.pathData).slice(1)) {
             const end = command.points.at(-1) ?? command.from;
             const heroTopInset =
@@ -492,15 +502,11 @@ describe("composed topology", () => {
             expect(end.x - start.x).toBeCloseTo(composition.columnUnit + heroTopInset, 6);
           expect(end.y - start.y).toBeGreaterThan(0);
           expect(end.y - start.y).toBeLessThanOrEqual(topologyRowUnit * 1.25);
-          // Wide ports turn with the retired merge bend onto the target row and
-          // run into the left edge; stacked-glass ports drop with the fork bend.
+          // Wide ports drop and turn into the left edge; stacked ports keep their vertical entry.
           if (!attach.terminal)
             expect(attach.pathData).toBe(
               attach.targetEdge === "left"
-                ? [
-                    `M ${start.x} ${start.y}`,
-                    ...localMergePath(end.x, start.x, start.y, end.y),
-                  ].join(" ")
+                ? localDropTurnPath(start.x, end.x, start.y, end.y).join(" ")
                 : [
                     ...localForkPath(
                       start.x,
@@ -588,6 +594,10 @@ describe("composed topology", () => {
         x: button.left - 6,
         y: button.top + button.height / 2,
       });
+      expect(composition.rowYs.at(-1)).toBe(button.top + button.height / 2);
+      expect(
+        (button.left - 6 - composition.mainlineX) / composition.columnUnit,
+      ).toBeLessThanOrEqual(2);
       expect(endDot?.y).toBeLessThan(button.top + button.height / 2);
       expect(endDot?.kind).toBe("fork");
       const lastChapterRoute = composition.routes.find((route) => route.anchorId === "chapter-5");

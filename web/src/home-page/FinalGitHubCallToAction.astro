@@ -89,12 +89,12 @@ const terminalRailAttributes = {
   .final-cta[data-finale-state="ready"] .finale-star-icon, .final-cta[data-finale-state="ready"] .finale-border-trace { opacity: 0; }
   .final-cta[data-finale-state="settled"] .finale-plane, .final-cta[data-finale-state="settled"] .finale-terminal { opacity: 0; }
   .final-cta[data-finale-state="settled"] .finale-border-trace { opacity: 0.6; }
-  .finale-split-pill { width: max-content; margin-top: 19px; white-space: nowrap; }
+  .finale-split-pill { width: max-content; justify-self: start; margin-top: 19px; margin-left: calc(var(--spacing-rail-gutter) - clamp(0px, calc(30vw - 480px), 192px)); white-space: nowrap; }
   .final-cta > p { margin-top: 22px; }
   .final-star-button, .finale-copy-button { min-height: 48px; gap: 9px; padding: 0 22px; font-size: 14px; font-weight: 650; white-space: nowrap; }
-  .final-star-button { min-width: 190px; border-radius: 999px 0 0 999px; background: var(--color-primary); color: var(--color-canvas); }
+  .final-star-button { min-width: 260px; border-radius: 999px 0 0 999px; background: var(--color-primary); color: var(--color-canvas); }
   .final-star-button:hover { background: color-mix(in srgb, var(--color-primary) 86%, white); }
-  .finale-copy-button { min-width: 190px; cursor: pointer; border-left: 1px solid rgb(255 255 255 / 16%); border-radius: 0 999px 999px 0; color: var(--color-ink-secondary); }
+  .finale-copy-button { min-width: 180px; cursor: pointer; border-left: 1px solid rgb(255 255 255 / 16%); border-radius: 0 999px 999px 0; color: var(--color-ink-secondary); }
   .finale-copy-button:hover { background: rgb(255 255 255 / 7%); }
   .finale-star-icon { width: 18px; height: 18px; flex: none; }
   .finale-star-icon path { stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }

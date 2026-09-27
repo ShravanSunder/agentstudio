@@ -157,8 +157,10 @@ export function composeFullPageTopology(
   const stacked = page.viewportWidth < topologyStackedLayoutBreakpointWidth;
   // The gutter stays aligned to the glass even when a pill projects further
   // into the chapter. Its attach path can extend past the nearest lane column.
+  const chapterAnchors = page.anchors.filter((anchor) => !anchor.terminalTarget);
+  const gutterAnchors = chapterAnchors.length > 0 ? chapterAnchors : page.anchors;
   const contentX = Math.min(
-    ...page.anchors.map((anchor) =>
+    ...gutterAnchors.map((anchor) =>
       anchor.stepLine === undefined
         ? (attachXFor(anchor, stacked) ?? anchor.rect.left)
         : stacked

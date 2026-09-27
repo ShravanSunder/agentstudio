@@ -6,7 +6,7 @@ import type {
   TopologyRowDot,
 } from "./full-page-topology-composition";
 import { topologyMergeNodeRadius } from "./full-page-topology-model";
-import { localForkPath, localMergePath } from "./full-page-topology-paths";
+import { localDropTurnPath, localForkPath } from "./full-page-topology-paths";
 import { topologyRectBottom } from "./topology-end-geometry";
 import {
   mainlineOwnerId,
@@ -43,9 +43,9 @@ export function attachXFor(
     : surface.left;
 }
 
-/** A left-edge attach uses the retired merge bend. */
+/** A left-edge attach leaves its node vertically and lands horizontally. */
 function leftEdgePortPath(sourceX: number, edgeX: number, forkY: number, attachY: number): string {
-  return [`M ${sourceX} ${forkY}`, ...localMergePath(edgeX, sourceX, forkY, attachY)].join(" ");
+  return localDropTurnPath(sourceX, edgeX, forkY, attachY).join(" ");
 }
 
 /** A stacked attach uses the retired fork bend and a short vertical entry. */
@@ -104,17 +104,13 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       if (forkY === undefined) continue;
       const centerY = target.top + target.height / 2;
       const nodeX = target.left - topologyMergeNodeRadius;
-      const cornerX = Math.max(mainlineX, nodeX - columnUnit);
       attachRoutes.push({
         id: `attach-${anchor.id}`,
         kind: "attach",
         accent: "port",
-        pathData: [
-          `M ${mainlineX} ${forkY}`,
-          ...localMergePath(nodeX, cornerX, forkY, centerY),
-        ].join(" "),
+        pathData: localDropTurnPath(mainlineX, nodeX, forkY, centerY).join(" "),
         parentColumn: 0,
-        column: 1,
+        column: Math.max(1, Math.min(2, Math.round((nodeX - mainlineX) / columnUnit))),
         startY: forkY,
         endY: centerY,
         anchorId: anchor.id,

@@ -10,7 +10,7 @@ interface Props {
 const { chapterId, steps } = Astro.props;
 ---
 
-<div class="chapter-step-line relative h-[78px] w-[min(100%,480px)]" data-chapter-step-line>
+<div class="chapter-step-line floating-glass-material relative h-[78px] w-[min(100%,480px)]" data-chapter-step-line>
   <!-- The rail joins the bare line before its first commit dot. -->
   <span class="chapter-step-line__start absolute top-[11.5px] left-0 h-px w-px" {...{ [railStepLineTargetAttribute]: chapterId }} aria-hidden="true"></span>
   <span class="chapter-step-progress-track" aria-hidden="true"></span>
@@ -34,12 +34,22 @@ const { chapterId, steps } = Astro.props;
     }
   </div>
   <svg class="chapter-step-branch pointer-events-none absolute inset-0 h-[64px] w-full overflow-visible" aria-hidden="true">
-    <path class="chapter-step-active-branch" d="M 28 12 C 46 14.8 48 15.5 48 51 L 52 51" data-chapter-step-branch />
+    <path class="chapter-step-active-branch" d="M 28 12 C 28 47.1 29.9 51 47 51 L 52 51" data-chapter-step-branch />
   </svg>
-  <span class="chapter-step-active-label floating-glass-material absolute top-[37px] left-[52px] rounded-full border px-3 py-1 text-[13px] leading-[20px] whitespace-nowrap text-ink" data-chapter-step-active-label aria-hidden="true">{steps[0]?.label}</span>
+  <span class="chapter-step-active-label floating-glass-material absolute top-[37px] left-[52px] rounded-full border px-3 py-1 text-[13px] leading-[20px] whitespace-nowrap text-ink" data-chapter-step-active-label aria-hidden="true"><span class="chapter-step-active-label__dot" aria-hidden="true"></span><span data-chapter-step-active-label-text>{steps[0]?.label}</span></span>
 </div>
 
 <style>
+  /* TEMPORARY A/B: the owner compares the bare line (B) with one glass capsule (A). */
+  .chapter-step-line { border: 0; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
+  :global([data-step-control-variant="capsule"]) .chapter-step-line {
+    border: 1px solid rgb(255 255 255 / 12%);
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgb(255 255 255 / 8%), transparent 45%), rgb(40 44 52 / 72%);
+    backdrop-filter: blur(16px) saturate(120%);
+    -webkit-backdrop-filter: blur(16px) saturate(120%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%), 0 8px 24px rgb(8 9 14 / 18%);
+  }
   .chapter-step-progress-track,
   .chapter-step-progress-fill {
     position: absolute;
@@ -82,6 +92,18 @@ const { chapterId, steps } = Astro.props;
     stroke-linecap: round;
   }
   .chapter-step-active-label { max-width: calc(100% - var(--chapter-step-label-left, 52px)); overflow: hidden; text-overflow: ellipsis; }
+  .chapter-step-active-label__dot { display: none; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--color-primary); }
+  :global([data-step-control-variant="capsule"]) .chapter-step-active-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+  :global([data-step-control-variant="capsule"]) .chapter-step-active-label__dot { display: block; }
   @media (width < 38.75rem) {
     .chapter-step:nth-child(n + 2) { margin-left: -2px; }
   }

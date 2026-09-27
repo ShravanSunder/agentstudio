@@ -23,6 +23,8 @@ export interface TopologyEndObservation {
   readonly laneCount: number;
   readonly terminalNodeCount: number;
   readonly terminalRouteCount: number;
+  readonly branchColumnSpan: number;
+  readonly pathData: readonly { readonly kind: "rail" | "step"; readonly d: string }[];
 }
 
 export interface FinaleBookendObservation {
@@ -339,6 +341,19 @@ function observeEnd(width: number): TopologyEndObservation {
     laneCount: Number(artwork.dataset["laneCount"]),
     terminalNodeCount: artwork.querySelectorAll("[data-topology-terminal]").length,
     terminalRouteCount: artwork.querySelectorAll("[data-topology-terminal-route]").length,
+    branchColumnSpan: (end.x - start.x) / Number(artwork.dataset["columnUnit"]),
+    pathData: [
+      ...[...artwork.querySelectorAll<SVGPathElement>("path[d]")].map((path) => ({
+        kind: "rail" as const,
+        d: path.getAttribute("d") ?? "",
+      })),
+      ...[...document.querySelectorAll<SVGPathElement>("[data-chapter-step-branch]")].map(
+        (path) => ({
+          kind: "step" as const,
+          d: path.getAttribute("d") ?? "",
+        }),
+      ),
+    ],
   };
 }
 
