@@ -61,12 +61,18 @@ extension WebKitSerializedTests {
                 reason: .initial
             )
             let initialInstallation = try #require(deliveredInstallations.first)
-            let staleReply = try await collectStaleBootstrapReply(from: initialInstallation)
             await controller.enqueueProductSessionBootstrapRequest(
                 requestId: "retry-initial-bootstrap",
                 reason: .initial
             )
             let replacementInstallation = try #require(deliveredInstallations.last)
+            #expect(
+                (await controller.productSessionOwner.activeInstallation)?.bootstrap.workerInstanceId
+                    == replacementInstallation.bootstrap.workerInstanceId
+            )
+            _ = try await assertRetiredPaneProductCommandRefusal(
+                installation: initialInstallation
+            )
             let productProvider = try #require(controller.productSchemeProvider)
             let replaySubscription = try await openBootstrapReviewReplaySubscription(
                 controller: controller,
@@ -86,7 +92,6 @@ extension WebKitSerializedTests {
             )
 
             // Assert
-            #expect(staleReply.response?.statusCode == 403)
             #expect(deliveredInstallations.count == 2)
             #expect(
                 replacementInstallation.bootstrap.workerInstanceId
@@ -648,20 +653,6 @@ private func makeBootstrapCommittedReviewFixture() -> BootstrapCommittedReviewFi
                 changedFiles: [changedFile]
             ),
             contentByHandleId: [:]
-        )
-    )
-}
-
-private func collectStaleBootstrapReply(
-    from installation: BridgeProductSessionInstallation
-) async throws -> BridgeProductSchemeReplyObservation {
-    let capability = try BridgeProductCapabilityHeaderEncoding.encode(installation.capabilityBytes)
-    return try await collectBridgeProductSchemeReply(
-        adapter: installation.productAdapter,
-        request: bridgeProductSchemeRequest(
-            route: BridgeProductWireContract.commandRoute,
-            capability: capability,
-            body: Data("{}".utf8)
         )
     )
 }
