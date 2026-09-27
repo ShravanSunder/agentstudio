@@ -72,7 +72,23 @@ struct WorktreeOperationErrorMapperTests {
                 expectedRefusal = .invalidBranchName(.rejectedByGit)
             case .branchAlreadyExists:
                 expectedRefusal = .branchAlreadyExists(branch)
-            default:
+            case .clientCapabilityUnavailable,
+                .unsupportedOperatingSystem,
+                .sourceFilesystemNotAPFS,
+                .destinationFilesystemNotAPFS,
+                .crossDevice,
+                .cloneCapabilityUnavailable,
+                .administrativeStoreOnDifferentDevice,
+                .sourceNotWorktreeRoot,
+                .sourceHeadUnavailable,
+                .invalidDestinationPath,
+                .overlappingRoots,
+                .linkedWorktreeNameInUse,
+                .branchNotFound,
+                .branchNotAtCapturedHead,
+                .branchCheckedOut,
+                .fileProviderManagedLocation,
+                .datalessContent:
                 expectedRefusal = .forkUnavailable(reason)
             }
 
@@ -109,11 +125,15 @@ struct WorktreeOperationErrorMapperTests {
                 .validationFailed(reason: .entryCountMismatch, relativePath: "nested")
             ),
         ]
+        let destination = URL(fileURLWithPath: "/tmp/worktree-error-mapping/repo.feature")
 
         for (error, expectedFailure) in errors {
             #expect(
-                WorktreeOperationErrorMapper.forkFailure(error)
-                    == WorktreeOperationFailure(failure: expectedFailure, leftovers: .noLeftovers))
+                WorktreeOperationErrorMapper.forkOutcome(
+                    error,
+                    destinationPath: destination,
+                    branchName: "feature/example"
+                ) == .failed(WorktreeOperationFailure(failure: expectedFailure, leftovers: .noLeftovers)))
         }
     }
 
@@ -131,13 +151,74 @@ struct WorktreeOperationErrorMapperTests {
             let residue = GitWorktreeForkResidue(kind: kind, location: location)
             let error = GitWorktreeForkError.cleanupIncomplete(primary: .cancelled, residue: [residue])
             #expect(
-                WorktreeOperationErrorMapper.forkFailure(error)
-                    == WorktreeOperationFailure(
+                WorktreeOperationErrorMapper.forkOutcome(
+                    error,
+                    destinationPath: URL(fileURLWithPath: "/tmp/worktree-error-mapping/repo.feature"),
+                    branchName: "feature/example"
+                )
+                    == .failed(
+                        WorktreeOperationFailure(
+                            failure: .cancelled,
+                            leftovers: .incomplete([
+                                WorktreeCleanupLeftover(kind: kind, location: location, base: base)
+                            ])
+                        )))
+        }
+    }
+
+    @Test("nested cleanup flattens residues and rejected cleanup primaries remain failures")
+    func mapsNestedCleanupAndRejectedPrimary() {
+        let destination = URL(fileURLWithPath: "/tmp/worktree-error-mapping/repo.feature")
+        let branch = "feature/example"
+        let innerResidue = GitWorktreeForkResidue(kind: .destinationContent, location: "inner.txt")
+        let outerResidue = GitWorktreeForkResidue(kind: .createdBranch, location: "refs/heads/feature/example")
+        let nestedCleanup = GitWorktreeForkError.cleanupIncomplete(
+            primary: .cleanupIncomplete(primary: .cancelled, residue: [innerResidue]),
+            residue: [outerResidue]
+        )
+
+        #expect(
+            WorktreeOperationErrorMapper.forkOutcome(
+                nestedCleanup,
+                destinationPath: destination,
+                branchName: branch
+            )
+                == .failed(
+                    WorktreeOperationFailure(
                         failure: .cancelled,
                         leftovers: .incomplete([
-                            WorktreeCleanupLeftover(kind: kind, location: location, base: base)
+                            WorktreeCleanupLeftover(
+                                kind: .destinationContent, location: "inner.txt", base: .destination),
+                            WorktreeCleanupLeftover(
+                                kind: .createdBranch,
+                                location: "refs/heads/feature/example",
+                                base: .branchReference
+                            ),
                         ])
-                    ))
-        }
+                    )
+                ))
+
+        let rejectedPrimary = GitWorktreeForkError.cleanupIncomplete(
+            primary: .rejected(reason: .branchAlreadyExists),
+            residue: [outerResidue]
+        )
+        #expect(
+            WorktreeOperationErrorMapper.forkOutcome(
+                rejectedPrimary,
+                destinationPath: destination,
+                branchName: branch
+            )
+                == .failed(
+                    WorktreeOperationFailure(
+                        failure: .rejectedAfterChange(.branchAlreadyExists),
+                        leftovers: .incomplete([
+                            WorktreeCleanupLeftover(
+                                kind: .createdBranch,
+                                location: "refs/heads/feature/example",
+                                base: .branchReference
+                            )
+                        ])
+                    )
+                ))
     }
 }

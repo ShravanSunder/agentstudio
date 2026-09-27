@@ -1,6 +1,6 @@
 # Worktree CLI: how it is built
 
-Date: 2026-09-27, revision 3.1 (implementation stop: `WorktreeBranchNameProblem` and `WorktreeOperationRequest` added; no behavior change). Revision 3 (round 2: supported layouts, leftovers, local error kinds). Revision 2 answered F1–F5. Realizes
+Date: 2026-09-27, revision 3.2 (the mapper handles every representable SDK error without traps). Revision 3.1 (implementation stop: `WorktreeBranchNameProblem` and `WorktreeOperationRequest` added; no behavior change). Revision 3 (round 2: supported layouts, leftovers, local error kinds). Revision 2 answered F1–F5. Realizes
 [the Specification](2026-09-27-worktree-cli-specification.md) revision 2
 (WR1–WR9).
 
@@ -107,6 +107,7 @@ enum WorktreeFailureKind: Sendable, Equatable {
     case entryFailed(relativePath: String, reason: GitWorktreeForkEntryFailureReason, errno: Int32?)
     case validationFailed(reason: GitWorktreeForkValidationFailureReason, relativePath: String?)
     case cancelled
+    case rejectedAfterChange(GitWorktreeForkRejectionReason)   // only inside cleanupIncomplete; representable, so reported
 }
 enum WorktreeLeftoverStatus: Sendable, Equatable {
     case notNeeded                          // a read failed before anything was attempted
@@ -148,7 +149,7 @@ A read error in any step is `failed(readFailed(kind), leftovers: .notNeeded)`.
 | --- | --- |
 | `forkWorktree` → `.rejected(reason)` | `refused`: `.destinationExists` / `.destinationParentMissing` / `.branchAlreadyExists` map to their named refusal; `.invalidBranchName` → `invalidBranchName(.rejectedByGit)`; every other reason → `forkUnavailable(reason)` |
 | `.cancelled`, `.gitFailure`, `.sourceChanged`, `.entryFailed`, `.validationFailed` | `failed(<kind with its typed detail>, leftovers: .noLeftovers)`. These can come before or after the first mutation, and the error carries no stage, so no stage is claimed. What holds either way is the writer's contract (`LibGit2WorktreeForkWriter.swift:8`): every failure after the first mutation is compensated through the journal, and an incomplete compensation surfaces as `cleanupIncomplete` instead |
-| `.cleanupIncomplete(primary, residue)` | `failed(<primary's kind>, leftovers: .incomplete(residue mapped kind → base))`; the primary failure is kept |
+| `.cleanupIncomplete(primary, residue)` | `failed(<primary's kind>, leftovers: .incomplete(residue mapped kind → base))`; the primary failure is kept. A nested `cleanupIncomplete` primary unwraps to its innermost primary, with the residues concatenated. A `.rejected` primary (which the pin doesn't produce, but the type allows) becomes `rejectedAfterChange(reason)`. No case traps. |
 | `createWorktree` throws `GitDataPlaneError` | `failed(createFailed(kind), leftovers: .unverified)`: the SDK ignores its own rollback errors, so nothing is claimed |
 
 The residue base per kind follows the SDK's documentation

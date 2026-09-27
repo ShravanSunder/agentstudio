@@ -99,6 +99,7 @@ package enum WorktreeFailureKind: Sendable, Equatable {
     case entryFailed(relativePath: String, reason: GitWorktreeForkEntryFailureReason, errno: Int32?)
     case validationFailed(reason: GitWorktreeForkValidationFailureReason, relativePath: String?)
     case cancelled
+    case rejectedAfterChange(GitWorktreeForkRejectionReason)
 }
 
 package enum WorktreeLeftoverStatus: Sendable, Equatable {
