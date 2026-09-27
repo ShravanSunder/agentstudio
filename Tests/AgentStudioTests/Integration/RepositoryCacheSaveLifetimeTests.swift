@@ -165,8 +165,8 @@ struct RepositoryCacheSaveLifetimeTests {
                 if case .failure(let error) = heldSaveResult {
                     #expect(error is CancellationError)
                 }
-                await scenario.saveBarrier.waitForCorrectiveSaveSucceeded()
-                try #require(await scenario.saveBarrier.didObserveCorrectiveSaveSucceeded)
+                let correctiveSaveSucceeded = await scenario.saveBarrier.waitForCorrectiveSaveSucceeded()
+                try #require(correctiveSaveSucceeded)
 
                 let correctedState = try scenario.sqliteFixture.localRepository.fetchCacheState()
                 #expect(correctedState.repoEnrichmentByRepoId[scenario.repository.id] == baselineEnrichment)
@@ -471,7 +471,7 @@ private actor PostcommitRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
     private var isArmed = false
     private var matchingSucceededSaveCount = 0
     private var pausedSaveContinuation: CheckedContinuation<Void, Never>?
-    private var correctiveSaveSucceededContinuation: CheckedContinuation<Void, Never>?
+    private var correctiveSaveSucceededContinuation: CheckedContinuation<Bool, Never>?
     private var shouldReleasePausedSave = false
     private(set) var isSavePausedAfterCommit = false
     private(set) var didObserveCorrectiveSaveSucceeded = false
@@ -491,14 +491,14 @@ private actor PostcommitRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
             }
         } else {
             didObserveCorrectiveSaveSucceeded = true
-            correctiveSaveSucceededContinuation?.resume()
+            correctiveSaveSucceededContinuation?.resume(returning: didObserveCorrectiveSaveSucceeded)
             correctiveSaveSucceededContinuation = nil
         }
     }
 
-    func waitForCorrectiveSaveSucceeded() async {
-        guard !didObserveCorrectiveSaveSucceeded else { return }
-        await withCheckedContinuation { continuation in
+    func waitForCorrectiveSaveSucceeded() async -> Bool {
+        guard !didObserveCorrectiveSaveSucceeded else { return didObserveCorrectiveSaveSucceeded }
+        return await withCheckedContinuation { continuation in
             correctiveSaveSucceededContinuation = continuation
         }
     }
