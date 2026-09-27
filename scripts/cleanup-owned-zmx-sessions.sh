@@ -119,16 +119,23 @@ else
   done
 fi
 
-if list_sessions_with_deadline; then
+SETTLE_DEADLINE=$((SECONDS + 5))
+while [ "$SECONDS" -lt "$SETTLE_DEADLINE" ]; do
+  if ! list_sessions_with_deadline; then
+    CLEANUP_FAILED=1
+    break
+  fi
   remaining_session_ids=()
   for owned_session_id in "${OWNED_SESSION_IDS[@]}"; do
     if session_is_listed_exactly "$owned_session_id"; then
       remaining_session_ids+=("$owned_session_id")
     fi
   done
-else
-  CLEANUP_FAILED=1
-fi
+  if [ "${#remaining_session_ids[@]}" -eq 0 ]; then
+    break
+  fi
+  sleep 0.05
+done
 
 for owned_session_id in "${remaining_session_ids[@]:-}"; do
   [ -n "$owned_session_id" ] || continue
