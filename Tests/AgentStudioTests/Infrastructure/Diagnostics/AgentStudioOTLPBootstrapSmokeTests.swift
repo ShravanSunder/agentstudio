@@ -47,8 +47,8 @@ struct AgentStudioOTLPBootstrapSmokeTests {
     @Test
     func liveOTLPSinkPostsLogRecordToLoopbackHTTPCollector() async throws {
         let collector = try LoopbackOTLPHTTPCollector()
-        try await collector.start()
         defer { collector.cancel() }
+        try await collector.start()
         let worktreeId = UUID()
         let identityStore = AgentStudioTraceIdentityStore()
         await identityStore.update(
@@ -118,7 +118,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         try await runtime.shutdown()
 
         let request = try #require(
-            await collector.waitForRequest(containing: "worktree-hash-live", timeout: .seconds(5))
+            await collector.waitForRequest(containing: "worktree-hash-live")
         )
         #expect(request.method == "POST")
         #expect(request.path.hasSuffix("/v1/logs"))
@@ -130,7 +130,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         #expect(request.bodyContains("agentstudio.event.time_unix_nano"))
 
         let metricsRequest = try #require(
-            await collector.waitForRequest(containing: "agentstudio_performance_events_total", timeout: .seconds(5))
+            await collector.waitForRequest(containing: "agentstudio_performance_events_total")
         )
         #expect(metricsRequest.method == "POST")
         #expect(metricsRequest.path.hasSuffix("/v1/metrics"))
@@ -148,8 +148,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         let bridgeLogRequest = try #require(
             await collector.waitForRequest(
                 pathSuffix: "/v1/logs",
-                containing: "performance.bridge.webkit.push_envelope",
-                timeout: .seconds(5)
+                containing: "performance.bridge.webkit.push_envelope"
             )
         )
         #expect(bridgeLogRequest.bodyContains(hexEncodedBytes: "11111111111111111111111111111111"))
@@ -157,8 +156,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         let bridgeTraceRequest = try #require(
             await collector.waitForRequest(
                 pathSuffix: "/v1/traces",
-                containing: "performance.bridge.webkit.push_envelope",
-                timeout: .seconds(5)
+                containing: "performance.bridge.webkit.push_envelope"
             )
         )
         #expect(bridgeTraceRequest.method == "POST")
@@ -252,7 +250,7 @@ private final class LoopbackOTLPHTTPCollector: @unchecked Sendable {
         }
         listener.start(queue: queue)
 
-        guard await waitForReady(timeout: .seconds(5)) else {
+        guard await waitForReady() else {
             throw LoopbackOTLPHTTPCollectorError.notReady
         }
     }
@@ -263,135 +261,40 @@ private final class LoopbackOTLPHTTPCollector: @unchecked Sendable {
         readyContinuation.finish()
     }
 
-    func waitForFirstRequest(timeout: Duration) async -> LoopbackOTLPHTTPRequest? {
-        if let firstRequest = firstRecordedRequest() {
-            return firstRequest
-        }
-
-        let clock = ContinuousClock()
-        return await withTaskGroup(of: LoopbackOTLPHTTPRequest?.self) { group in
-            group.addTask { [requestStream] in
-                for await request in requestStream {
-                    return request
-                }
-                return nil
-            }
-            group.addTask {
-                do {
-                    try await clock.sleep(for: timeout)
-                } catch {
-                    return nil
-                }
-                return nil
-            }
-
-            let result = await group.next()
-            group.cancelAll()
-            switch result {
-            case .some(.some(let request)):
-                return request
-            case .some(.none), .none:
-                return nil
-            }
-        }
-    }
-
-    func waitForRequest(containing value: String, timeout: Duration) async -> LoopbackOTLPHTTPRequest? {
+    func waitForRequest(containing value: String) async -> LoopbackOTLPHTTPRequest? {
         if let request = firstRecordedRequest(containing: value) {
             return request
         }
 
-        let clock = ContinuousClock()
-        return await withTaskGroup(of: LoopbackOTLPHTTPRequest?.self) { group in
-            group.addTask { [requestStream] in
-                for await request in requestStream {
-                    if request.bodyContains(value) {
-                        return request
-                    }
-                }
-                return nil
-            }
-            group.addTask {
-                do {
-                    try await clock.sleep(for: timeout)
-                } catch {
-                    return nil
-                }
-                return nil
-            }
-
-            let result = await group.next()
-            group.cancelAll()
-            switch result {
-            case .some(.some(let request)):
+        for await request in requestStream {
+            if request.bodyContains(value) {
                 return request
-            case .some(.none), .none:
-                return nil
             }
         }
+        return nil
     }
 
     func waitForRequest(
         pathSuffix: String,
-        containing value: String,
-        timeout: Duration
+        containing value: String
     ) async -> LoopbackOTLPHTTPRequest? {
         if let request = firstRecordedRequest(pathSuffix: pathSuffix, containing: value) {
             return request
         }
 
-        let clock = ContinuousClock()
-        return await withTaskGroup(of: LoopbackOTLPHTTPRequest?.self) { group in
-            group.addTask { [requestStream] in
-                for await request in requestStream {
-                    if request.path.hasSuffix(pathSuffix), request.bodyContains(value) {
-                        return request
-                    }
-                }
-                return nil
-            }
-            group.addTask {
-                do {
-                    try await clock.sleep(for: timeout)
-                } catch {
-                    return nil
-                }
-                return nil
-            }
-
-            let result = await group.next()
-            group.cancelAll()
-            switch result {
-            case .some(.some(let request)):
+        for await request in requestStream {
+            if request.path.hasSuffix(pathSuffix), request.bodyContains(value) {
                 return request
-            case .some(.none), .none:
-                return nil
             }
         }
+        return nil
     }
 
-    private func waitForReady(timeout: Duration) async -> Bool {
-        let clock = ContinuousClock()
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask { [readyStream] in
-                for await _ in readyStream {
-                    return true
-                }
-                return false
-            }
-            group.addTask {
-                do {
-                    try await clock.sleep(for: timeout)
-                } catch {
-                    return false
-                }
-                return false
-            }
-
-            let result = await group.next() ?? false
-            group.cancelAll()
-            return result
+    private func waitForReady() async -> Bool {
+        for await _ in readyStream {
+            return true
         }
+        return false
     }
 
     private func handle(_ connection: NWConnection) {
@@ -451,12 +354,6 @@ private final class LoopbackOTLPHTTPCollector: @unchecked Sendable {
         recordedRequests.append(request)
         requestLock.unlock()
         requestContinuation.yield(request)
-    }
-
-    private func firstRecordedRequest() -> LoopbackOTLPHTTPRequest? {
-        requestLock.lock()
-        defer { requestLock.unlock() }
-        return recordedRequests.first
     }
 
     private func firstRecordedRequest(containing value: String) -> LoopbackOTLPHTTPRequest? {

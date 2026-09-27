@@ -46,7 +46,7 @@ struct DarwinFSEventStreamClientTests {
         )
 
         // Assert
-        let batch = try #require(await firstCompletedValue(from: batchTask, timeout: .seconds(5)))
+        let batch = try #require(await batchTask.value)
         #expect(batch.paths == [changedPath])
         #expect(batch.participant?.scopeKey == "local:\(worktreeId.uuidString)")
         #expect(batch.participant?.generation ?? 0 > 0)
@@ -107,7 +107,7 @@ struct DarwinFSEventStreamClientTests {
         }
         try Data("created".utf8).write(to: createdFile)
 
-        let batch = await firstCompletedValue(from: batchTask, timeout: .seconds(5))
+        let batch = await batchTask.value
 
         #expect(batch?.worktreeId == worktreeId)
         #expect(
@@ -800,7 +800,7 @@ extension DarwinFSEventStreamClientTests {
         }
         try Data("ready".utf8).write(to: readinessSentinelPath)
         _ = try #require(
-            await firstCompletedValue(from: readinessBatchTask, timeout: .seconds(5))
+            await readinessBatchTask.value
         )
         let observationPlan = AgentStudioGit.GitStatusObservationPlan(
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "local-root-change"),
@@ -847,7 +847,7 @@ extension DarwinFSEventStreamClientTests {
         )
 
         let ordinaryBatch = try #require(
-            await firstCompletedValue(from: eventTask, timeout: .seconds(5))
+            await eventTask.value
         )
         #expect(ordinaryBatch.worktreeId == worktreeId)
         #expect(ordinaryBatch.paths == [canonicalFixturePath])
@@ -888,23 +888,4 @@ extension DarwinFSEventStreamClientTests {
         client.unregister(worktreeId: UUID())
     }
 
-    private func firstCompletedValue<Value: Sendable>(
-        from task: Task<Value?, Never>,
-        timeout: Duration
-    ) async -> Value? {
-        await withTaskGroup(of: Value?.self) { group in
-            group.addTask { await task.value }
-            group.addTask {
-                try? await AsyncDelay.taskSleep.wait(timeout)
-                return nil
-            }
-            guard let value = await group.next() else {
-                task.cancel()
-                return nil
-            }
-            group.cancelAll()
-            task.cancel()
-            return value
-        }
-    }
 }
