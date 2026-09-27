@@ -107,14 +107,19 @@ struct RepoExplorerPaneRowContent: View {
     @ViewBuilder
     private var chipRow: some View {
         SidebarStatusChipRow(
-            isPendingPullRequestFacts: branchStatus.map {
-                SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
-            } ?? false
+            isPendingPullRequestFacts: false
         ) {
             if let branchStatus,
-                SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
+                SidebarGitStatusChips.hasContent(
+                    branchStatus: branchStatus,
+                    usesPanesLoadingChip: true
+                )
             {
-                SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)
+                SidebarGitStatusChips(
+                    branchStatus: branchStatus,
+                    octiconLoader: octiconLoader,
+                    usesPanesLoadingChip: true
+                )
             }
             if isDrawerPane {
                 SidebarChip(

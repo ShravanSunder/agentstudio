@@ -19,9 +19,19 @@ extension RepoExplorerProjectionWorker {
         else { return }
 
         let maximumDelaySeconds = Double(Int64.max / 1_000_000_000)
+        let remainingSeconds: Double
+        if let referenceInstant = preparedDeadline.referenceInstant,
+            let referenceDate = preparedDeadline.referenceDate
+        {
+            let elapsed = referenceInstant.duration(to: presentationDeadlineContinuousNow()).components
+            let elapsedSeconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1_000_000_000_000_000_000
+            remainingSeconds = preparedDeadline.deadline.timeIntervalSince(referenceDate) - elapsedSeconds
+        } else {
+            remainingSeconds = preparedDeadline.deadline.timeIntervalSince(presentationDeadlineNow())
+        }
         let delaySeconds = max(
             0,
-            min(preparedDeadline.deadline.timeIntervalSince(presentationDeadlineNow()), maximumDelaySeconds)
+            min(remainingSeconds, maximumDelaySeconds)
         )
         let duration = Duration.nanoseconds(Int64(delaySeconds * 1_000_000_000))
         let delay = presentationDeadlineDelay

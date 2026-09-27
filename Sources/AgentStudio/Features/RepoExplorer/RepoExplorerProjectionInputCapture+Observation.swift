@@ -92,7 +92,11 @@ extension RepoExplorerProjectionInputCapture {
             _ = store.paneAtom.pane(paneID)
             _ = latestPaneMessageSnapshot(paneID)
             _ = bridgeAttendanceSnapshot(paneID)
-            _ = coreAtoms.workspaceEntityRecency.recency(for: .pane(paneID: paneID))
+            if request?.snapshot.surface == .panes {
+                _ = coreAtoms.paneActivityTime.value(for: paneID)
+            } else {
+                _ = coreAtoms.workspaceEntityRecency.recency(for: .pane(paneID: paneID))
+            }
         case .tabStructure(let tabID):
             _ = store.tabArrangementAtom.arrangementState(tabID)
         case .tab(let tabID):

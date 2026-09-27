@@ -64,22 +64,25 @@ enum RepoExplorerProjection {
             namesByWorktreeId: branchNameByWorktreeId,
             statusesByWorktreeId: branchStatusByWorktreeId
         )
-        let organization = organizedContent(
-            .init(
-                snapshot: snapshot,
-                eligibleRepositories: snapshot.surface == .panes
-                    ? RepoExplorerFilter.filter(repos: snapshot.repos, query: query)
-                    : filteredResolvedRepos,
-                loadingRepos: filteredLoadingRepos,
-                metadataByRepoId: repoMetadataById,
-                checkoutColors: checkoutColorHexByRepoId,
-                destinationsByWorktreeId: paneDestinationsByWorktreeId,
-                destinationsByRepoId: paneDestinationsByRepoId,
-                unassociatedDestinations: unassociatedPaneDestinations,
-                paneFacts: paneRowFactsByPaneId,
-                tabFacts: tabGroupFactsByTabId,
-                branchFacts: paneBranchFacts
-            ))
+        let organizationInput = RepoExplorerOrganizationInput(
+            snapshot: snapshot,
+            eligibleRepositories: snapshot.surface == .panes
+                ? RepoExplorerFilter.filter(repos: snapshot.repos, query: query)
+                : filteredResolvedRepos,
+            loadingRepos: filteredLoadingRepos,
+            metadataByRepoId: repoMetadataById,
+            checkoutColors: checkoutColorHexByRepoId,
+            destinationsByWorktreeId: paneDestinationsByWorktreeId,
+            destinationsByRepoId: paneDestinationsByRepoId,
+            unassociatedDestinations: unassociatedPaneDestinations,
+            paneFacts: paneRowFactsByPaneId,
+            tabFacts: tabGroupFactsByTabId,
+            branchFacts: paneBranchFacts
+        )
+        let organization =
+            snapshot.surface == .panes
+            ? organizedPanesByActivity(organizationInput)
+            : organizedContent(organizationInput)
         let sections = organization.sections
         let orderedResolvedGroups = sections.flatMap(\.resolvedGroups)
         let orderedLoadingRepos = sections.flatMap(\.loadingRepos)
