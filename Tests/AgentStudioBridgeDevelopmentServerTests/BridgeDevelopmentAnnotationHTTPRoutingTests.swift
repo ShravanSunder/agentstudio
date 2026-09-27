@@ -321,6 +321,7 @@ private func makeSiblingHTTPDevelopmentProductRuntime(
             source: source,
             worktreeAnnotationStore: composition.worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
+            operationDeadlineClock: TestPushClock(),
             contributionTargetCommit: { target in
                 composition.applyContributionTarget(target)
             }

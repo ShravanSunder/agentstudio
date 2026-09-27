@@ -66,6 +66,9 @@ func makeHTTPDevelopmentProductRuntime(
             worktreeAnnotationStore: composition.worktreeAnnotationStore,
             worktreeAnnotationOutputCoordinator:
                 composition.worktreeAnnotationOutputCoordinator,
+            // HTTP routing tests exercise control and persistence, not elapsed
+            // operation deadlines. Deadline tests advance their own clock.
+            operationDeadlineClock: TestPushClock(),
             contributionTargetCommit: { target in
                 composition.applyContributionTarget(target)
             }
@@ -214,7 +217,10 @@ private func demandHTTPFileMetadataPath(
     guard case .subscriptionUpdateBatchAccepted(let accepted) = response,
         accepted.disposition == .committed
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
+            callSite: "demandHTTPFileMetadataPath",
+            receivedKind: String(reflecting: response)
+        )
     }
 }
 
@@ -328,7 +334,7 @@ enum HTTPAnnotationIntegrationError: Error {
     case metadataDrainFailed(String)
     case metadataStreamEnded
     case unexpectedAnnotationCommandResponse(String)
-    case unexpectedControlResponse
+    case unexpectedControlResponse(callSite: String, receivedKind: String)
     case unexpectedHTTPResponse(context: String, status: Int, contentType: String?, body: String)
 }
 
@@ -437,7 +443,10 @@ func openHTTPProductConnection(
         ).merging(["request": NSNull()]) { _, newValue in newValue }
     )
     guard case .workerSessionAccepted = response else {
-        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
+            callSite: "openHTTPProductConnection",
+            receivedKind: response.kind
+        )
     }
     return connection
 }
@@ -465,7 +474,10 @@ func queryHTTPFileSource(
     guard case .callCompleted(let completed) = response,
         case .fileSourceCurrent(.available(let source)) = completed.call
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
+            callSite: "queryHTTPFileSource",
+            receivedKind: String(reflecting: response)
+        )
     }
     return source
 }
@@ -493,7 +505,10 @@ func openHTTPSubscription(
     guard case .subscriptionOpenAccepted(let accepted) = response,
         accepted.subscriptionId == subscriptionID
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
+            callSite: "openHTTPSubscription",
+            receivedKind: String(reflecting: response)
+        )
     }
     return accepted
 }
@@ -621,11 +636,21 @@ func executeHTTPControl(
     } catch {
         throw HTTPAnnotationIntegrationError.invalidOperationResult
     }
+    return try requireCompletedHTTPControl(admission: admission, result: result)
+}
+
+private func requireCompletedHTTPControl(
+    admission: BridgeProductOperationAdmittedResponse,
+    result: BridgeProductOperationResultResponse
+) throws -> BridgeProductControlResponse {
     guard result.operationId == admission.operationId,
         result.outcome == .succeeded,
         let resultValue = result.result
     else {
-        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
+            callSite: "executeHTTPControl.operationResult",
+            receivedKind: "operation.result outcome=\(result.outcome) hasResult=\(result.result != nil)"
+        )
     }
     do {
         return try BridgeProductStrictJSON.decode(

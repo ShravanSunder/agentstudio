@@ -384,7 +384,10 @@ struct BridgeDevelopmentHTTPRoutingTests {
 
                     // Assert — the initial File context precedes the boundary without a source-bound target.
                     guard case .activateContext(let commandID, let bindingRevision, let surface) = firstSelection else {
-                        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+                        throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
+                            callSite: "initialFileSelection",
+                            receivedKind: String(reflecting: firstSelection)
+                        )
                     }
                     #expect(surface == .file)
                     #expect(bindingRevision == 1)
@@ -574,6 +577,7 @@ private func makeHTTPDevelopmentProductHost(
     )
     return try await BridgeDevelopmentProductHost(
         source: source,
+        operationDeadlineClock: TestPushClock(),
         contributionTargetCommit: { target in
             .unchanged(
                 BridgePaneState(
@@ -614,6 +618,7 @@ private func makeHTTPDevelopmentServerHarness(
         source: composition.productSource,
         worktreeAnnotationStore: composition.worktreeAnnotationStore,
         worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
+        operationDeadlineClock: TestPushClock(),
         contributionTargetCommit: { target in
             composition.applyContributionTarget(target)
         }
