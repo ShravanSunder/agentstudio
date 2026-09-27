@@ -146,25 +146,29 @@ describe("hero intro", () => {
         expect(observation.codexPassedColor, observation.viewport).toBe("rgb(155, 161, 173)");
       }
       if (observation.viewport === "1600x1000" || observation.viewport === "390x844") {
-        for (const [index, expectedAngle] of [-3, -6, -9].entries()) {
+        for (const [index, expectedAngle] of [0, 7, -12].entries()) {
           expect(observation.stackAngles[index], observation.viewport).toBeCloseTo(
             expectedAngle,
             1,
           );
         }
         const phone = observation.viewport === "390x844";
-        const positionStep = phone ? (4 * 170) / 260 : 4;
-        for (const [index, leftOffset] of observation.stackPlaneLeftOffsets.entries()) {
-          expect(leftOffset, observation.viewport).toBeCloseTo(-(index + 1) * positionStep, 1);
-          expect(observation.stackPlaneTopOffsets[index], observation.viewport).toBeCloseTo(
-            -(index + 1) * positionStep,
-            1,
-          );
-        }
-        for (const peeks of [observation.stackPlaneLeftPeeks, observation.stackPlaneTopPeeks]) {
-          expect(peeks[0], observation.viewport).toBeLessThan(peeks[1] ?? Number.NaN);
-          expect(peeks[1], observation.viewport).toBeLessThan(peeks[2] ?? Number.NaN);
-        }
+        expect(observation.stackPlaneLeftPeeks[0], observation.viewport).toBeGreaterThanOrEqual(
+          phone ? 5 : 10,
+        );
+        expect(observation.stackPlaneTopPeeks[0], observation.viewport).toBeGreaterThanOrEqual(
+          phone ? 5 : 10,
+        );
+        expect(observation.stackPlaneLeftPeeks[1], observation.viewport).toBeGreaterThan(
+          observation.stackPlaneLeftPeeks[0] ?? Number.NaN,
+        );
+        expect(observation.stackPlaneLeftPeeks[2], observation.viewport).toBeGreaterThan(
+          observation.stackPlaneLeftPeeks[1] ?? Number.NaN,
+        );
+        expect(observation.stackPeekLeft, observation.viewport).toBeLessThanOrEqual(
+          phone ? 20 : 52,
+        );
+        expect(observation.stackPeekTop, observation.viewport).toBeLessThanOrEqual(phone ? 20 : 52);
       }
       if (observation.viewport === "820x1180") {
         expect(observation.earlierExchangeVisible).toBe(true);
@@ -206,7 +210,7 @@ describe("hero intro", () => {
   it("settles once on resize or keydown and leaves CSS in charge of the final layout", async () => {
     const observation = await commands.verifyHeroIntroPlayback(inject("siteHeaderBrowserTestUrl"));
     expect(observation.midIntroWasPlaying).toBe(true);
-    for (const [index, expectedAngle] of [-3, -6, -9].entries()) {
+    for (const [index, expectedAngle] of [0, 7, -12].entries()) {
       expect(observation.fanAnglesAtEnd[index]).toBeCloseTo(expectedAngle, 1);
     }
     expect(observation.fourthAngleAtEnd).toBeCloseTo(0, 1);

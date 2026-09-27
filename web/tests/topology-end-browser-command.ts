@@ -26,6 +26,7 @@ export interface TopologyEndObservation {
 }
 
 export interface FinaleBookendObservation {
+  readonly transitionalFanAngles: readonly number[];
   readonly eventCount: number;
   readonly href: string;
   readonly finalState: string | undefined;
@@ -136,6 +137,16 @@ export const verifyFinaleBookend = defineBrowserCommand(
         )
           throw new Error("Finale proof markup or control is missing");
         proofWindow.finaleControl.seek(0);
+        const fanFront = root.querySelector<HTMLElement>(".finale-plane--front");
+        const fanRearTwo = root.querySelector<HTMLElement>(".finale-plane--rear-two");
+        const fanRearOne = root.querySelector<HTMLElement>(".finale-plane--rear-one");
+        if (fanFront === null || fanRearTwo === null || fanRearOne === null)
+          throw new Error("Finale fan is missing");
+        const fanPlanes = [fanFront, fanRearTwo, fanRearOne];
+        const transitionalFanAngles = fanPlanes.map((plane) => {
+          const transform = new DOMMatrixReadOnly(getComputedStyle(plane).transform);
+          return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
+        });
         const railStartFraction =
           Number.parseFloat(railPath.style.strokeDashoffset) / railPath.getTotalLength();
         const nodeStartOpacity = getComputedStyle(endNode).opacity;
@@ -162,6 +173,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
         await Promise.resolve();
         return {
           eventCount: proofWindow.topologyEndEventCount ?? 0,
+          transitionalFanAngles,
           href: button.href,
           finalState: root.dataset["finaleState"],
           logoOpacity: getComputedStyle(logo).opacity,

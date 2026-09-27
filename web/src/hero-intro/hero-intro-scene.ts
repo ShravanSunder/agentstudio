@@ -93,9 +93,6 @@ export function buildHeroIntroScene(
   if (rearOne === undefined || rearTwo === undefined) {
     throw new Error("Hero intro needs both rear icon planes");
   }
-  const fanPlanes = [iconFront, rearTwo, rearOne] as const;
-  const stackStep =
-    Number.parseFloat(getComputedStyle(root).getPropertyValue("--hero-stack-step")) || 3;
   const iconCursor = requiredTarget(root, heroIconCursorAttribute);
   const windowNode = requiredTarget(root, heroTerminalWindowAttribute);
   const windowContent = requiredTarget(root, heroIntroContentAttribute);
@@ -169,22 +166,23 @@ export function buildHeroIntroScene(
   if (copyButton !== null) timeline.set(copyButton, { opacity: 0 }, 0);
 
   timeline.addLabel("beat:icon", 0.9);
-  timeline.fromTo(
-    iconStack,
-    { scale: 0.86, opacity: 0 },
-    { scale: 1, opacity: 1, duration: 0.45, ease: "back.out(1.4)" },
-    0.9,
-  );
-  timeline.set(fanPlanes, { rotation: 0 }, 0);
-  fanPlanes.forEach((plane, index) => {
-    timeline.to(
+  timeline.set(iconStack, { opacity: 1 }, 0);
+  for (const [plane, start] of [
+    [rearOne, 0.9],
+    [rearTwo, 1.06],
+    [iconFront, 1.22],
+  ] as const) {
+    timeline.fromTo(
       plane,
-      { rotation: -stackStep * (index + 1), duration: 0.35, ease: "power3.out" },
-      1.2,
+      { opacity: 0, scale: 0.86, rotation: 0 },
+      { opacity: 1, scale: 1, duration: 0.13, ease: "back.out(1.4)" },
+      start,
     );
-  });
+  }
+  timeline.to(rearOne, { rotation: -12, duration: 0.35, ease: "power3.out" }, 1.36);
+  timeline.to(rearTwo, { rotation: 7, duration: 0.35, ease: "power3.out" }, 1.36);
   timeline.set(iconCursor, { opacity: 0 }, 0);
-  timeline.addLabel("beat:window", 1.45);
+  timeline.addLabel("beat:window", 1.72);
   timeline.fromTo(
     fourthPlane,
     {
@@ -202,10 +200,10 @@ export function buildHeroIntroScene(
       width: startWidth,
       height: startHeight,
       opacity: 1,
-      duration: 0.2,
+      duration: 0.18,
       ease: "power2.out",
     },
-    1.45,
+    1.72,
   );
   timeline.to(
     fourthPlane,
@@ -217,21 +215,26 @@ export function buildHeroIntroScene(
       borderWidth: 1,
       borderColor: "rgb(137 180 250 / 38%)",
       borderRadius: glassRadius,
-      duration: 0.55,
+      duration: 0.44,
       ease: "power3.inOut",
     },
-    1.65,
+    1.9,
   );
-  timeline.fromTo(windowNode, { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "sine.out" }, 2.2);
-  timeline.to(fourthPlane, { opacity: 0, duration: 0.2, ease: "sine.out" }, 2.2);
+  timeline.fromTo(
+    windowNode,
+    { opacity: 0 },
+    { opacity: 1, duration: 0.18, ease: "sine.out" },
+    2.34,
+  );
+  timeline.to(fourthPlane, { opacity: 0, duration: 0.18, ease: "sine.out" }, 2.34);
   timeline.fromTo(
     windowContent,
     { opacity: 0 },
-    { opacity: 1, duration: 0.2, ease: "sine.out" },
-    2.2,
+    { opacity: 1, duration: 0.18, ease: "sine.out" },
+    2.34,
   );
-  timeline.set(iconStack, { zIndex: 1 }, 2.2);
-  timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 2.8, ease: "sine.inOut" }, 2.2);
+  timeline.set(iconStack, { zIndex: 1 }, 2.34);
+  timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 2.66, ease: "sine.inOut" }, 2.34);
 
   timeline.addLabel("beat:prompt", 2.6);
   const inputText = "set up Agent Studio for me";

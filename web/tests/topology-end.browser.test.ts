@@ -21,6 +21,8 @@ describe("where the rail ends on the home page", () => {
   it("plays the finale once at the rail end and copies both install commands", async () => {
     const observation = await commands.verifyFinaleBookend(inject("siteHeaderBrowserTestUrl"));
     expect(observation.eventCount).toBe(1);
+    for (const [index, angle] of [0, 7, -12].entries())
+      expect(observation.transitionalFanAngles[index]).toBeCloseTo(angle, 1);
     expect(observation.href).toBe(marketingCopy.githubUrl);
     expect(observation.finalState).toBe("settled");
     expect(observation.logoOpacity).toBe("1");

@@ -42,6 +42,54 @@ describe("hero intro scene contract", () => {
       const settledStack = stack.getBoundingClientRect();
       const timeline = gsap.timeline({ paused: true });
       buildHeroIntroScene(fixture, timeline, { width: 1600, height: 1000, seed: 0 });
+      const iconFront = fixture.querySelector<HTMLElement>("[data-hero-icon-front]");
+      const iconRearTwo = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="two"]');
+      const iconRearOne = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="one"]');
+      if (iconFront === null || iconRearTwo === null || iconRearOne === null)
+        throw new Error("Icon planes missing");
+      const iconPlanes = [iconFront, iconRearTwo, iconRearOne];
+      const planeAngles = (): number[] =>
+        iconPlanes.map((plane) => {
+          const transform = new DOMMatrixReadOnly(getComputedStyle(plane).transform);
+          return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
+        });
+      timeline.time(1.0);
+      expect(Number(getComputedStyle(iconFront).opacity)).toBe(0);
+      expect(Number(getComputedStyle(iconRearTwo).opacity)).toBe(0);
+      expect(Number(getComputedStyle(iconRearOne).opacity)).toBeGreaterThan(0);
+      timeline.time(1.35);
+      expect(iconPlanes.every((plane) => Number(getComputedStyle(plane).opacity) > 0.99)).toBe(
+        true,
+      );
+      expect(planeAngles()).toEqual([0, 0, 0]);
+      timeline.time(1.8);
+      for (const [index, angle] of [0, 7, -12].entries())
+        expect(planeAngles()[index]).toBeCloseTo(angle, 1);
+      const planeAppearEnds = timeline
+        .getChildren(false, true, false)
+        .filter(
+          (child) =>
+            Object.keys(child.vars).includes("opacity") &&
+            child
+              .targets()
+              .some(
+                (target: unknown) => target instanceof HTMLElement && iconPlanes.includes(target),
+              ),
+        )
+        .map((child) => child.startTime() + child.duration());
+      const planeRotationStarts = timeline
+        .getChildren(false, true, false)
+        .filter(
+          (child) =>
+            Object.keys(child.vars).includes("rotation") &&
+            child
+              .targets()
+              .some(
+                (target: unknown) => target instanceof HTMLElement && iconPlanes.includes(target),
+              ),
+        )
+        .map((child) => child.startTime());
+      expect(Math.min(...planeRotationStarts)).toBeGreaterThanOrEqual(Math.max(...planeAppearEnds));
       expect(timeline.paused()).toBe(true);
       expect(
         Object.keys(timeline.labels).filter((label) => label.startsWith("beat:")).length,
