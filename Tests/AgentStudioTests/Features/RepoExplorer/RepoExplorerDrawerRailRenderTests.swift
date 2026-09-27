@@ -1,59 +1,97 @@
 import AgentStudioInfrastructure
-import AppKit
+import AgentStudioSharedComponents
 import SwiftUI
 import Testing
 
 @testable import AgentStudioRepoExplorer
 
 @MainActor
-@Suite("Repo Explorer drawer rail rendering", .serialized)
+@Suite("Repo Explorer drawer rail geometry", .serialized)
 struct RepoExplorerDrawerRailRenderTests {
-    @Test("owner and two drawer rails reach their allocated row edges")
+    @Test("owner, middle drawer, and last drawer join across their allocated row heights")
     func twoDrawersHaveContinuousRail() throws {
-        let rowHeight: CGFloat = 64
         let rows: [RepoExplorerProjectedPaneRow] = [
-            makePaneRow(rail: .ownerWithDrawers, isDrawer: false),
+            makePaneRow(rail: .ownerWithDrawers, isDrawer: false, note: "Owner context"),
             makePaneRow(rail: .drawer(isLast: false), isDrawer: true),
             makePaneRow(rail: .drawer(isLast: true), isDrawer: true),
         ]
-        let view = VStack(spacing: 0) {
-            ForEach(rows.indices, id: \.self) { index in
-                RepoExplorerPaneRow(
-                    row: rows[index],
-                    octiconLoader: makeRepoExplorerTestOcticonLoader(),
-                    onFocus: {}
-                )
-                .frame(height: rowHeight, alignment: .top)
-            }
+        let allocatedHeights = rows.map { row in
+            let layout = RepoExplorerRowLayout.make(for: .pane(row))
+            return max(layout.metrics.minimumHeight, layout.metrics.fallbackHeight)
         }
-        .frame(width: 300, height: rowHeight * CGFloat(rows.count), alignment: .topLeading)
-        .background(Color.black)
-
-        let hostingView = NSHostingView(rootView: view)
-        hostingView.appearance = NSAppearance(named: .darkAqua)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 300, height: rowHeight * CGFloat(rows.count))
-        hostingView.layoutSubtreeIfNeeded()
-        let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
-        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-
-        let railX =
-            AppStyles.Shell.Sidebar.rowHorizontalInset
-            + AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth / 2
-        let scaleX = CGFloat(bitmap.pixelsWide) / 300
-        let scaleY = CGFloat(bitmap.pixelsHigh) / (rowHeight * CGFloat(rows.count))
-        for boundary in [rowHeight, rowHeight * 2] {
-            for offset in [-2, -1, 1, 2] as [CGFloat] {
-                let pixel = try #require(
-                    bitmap.colorAt(
-                        x: Int(railX * scaleX),
-                        y: Int((boundary + offset) * scaleY)
-                    )?.usingColorSpace(.deviceRGB))
-                #expect(max(pixel.redComponent, pixel.greenComponent, pixel.blueComponent) > 0.06)
-            }
+        let rowInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
+        let railX = AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth / 2
+        let titleMidpoint = rowInset + AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight / 2
+        let ownerLineCount = try #require(rows[0].variants?.compact.lines.count)
+        let ownerLastGlyphBottom =
+            rowInset
+            + CGFloat(ownerLineCount) * AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
+            + CGFloat(ownerLineCount - 1) * AppStyles.Shell.Sidebar.rowContentSpacing
+        let railPoints = rows.enumerated().map { index, row in
+            points(
+                in: DrawerRail.path(
+                    segment: row.drawerRail,
+                    ownerLineCount: row.variants?.compact.lines.count ?? 1,
+                    rowVerticalInset: rowInset,
+                    size: CGSize(
+                        width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                        height: allocatedHeights[index]
+                    )
+                ))
         }
+        let owner = railPoints[0]
+        let middleDrawer = railPoints[1]
+        let lastDrawer = railPoints[2]
+
+        #expect(allocatedHeights[0] > allocatedHeights[1])
+        #expect(ownerLastGlyphBottom < allocatedHeights[0])
+        #expect(
+            owner == [
+                CGPoint(x: railX, y: ownerLastGlyphBottom),
+                CGPoint(x: railX, y: allocatedHeights[0]),
+            ])
+        #expect(
+            middleDrawer == [
+                CGPoint(x: railX, y: 0),
+                CGPoint(x: railX, y: allocatedHeights[1]),
+                CGPoint(x: railX, y: titleMidpoint),
+                CGPoint(x: railX + AppStyles.Shell.Sidebar.drawerRailElbowWidth, y: titleMidpoint),
+            ])
+        #expect(
+            lastDrawer == [
+                CGPoint(x: railX, y: 0),
+                CGPoint(x: railX, y: titleMidpoint),
+                CGPoint(x: railX, y: titleMidpoint),
+                CGPoint(x: railX + AppStyles.Shell.Sidebar.drawerRailElbowWidth, y: titleMidpoint),
+            ])
+        #expect(owner[1].y == allocatedHeights[0] + middleDrawer[0].y)
+        #expect(
+            allocatedHeights[0] + middleDrawer[1].y
+                == allocatedHeights[0] + allocatedHeights[1] + lastDrawer[0].y
+        )
     }
 
-    private func makePaneRow(rail: RepoExplorerDrawerRail, isDrawer: Bool) -> RepoExplorerProjectedPaneRow {
+    private func points(in path: Path) -> [CGPoint] {
+        var points: [CGPoint] = []
+        // Path exposes its elements through forEach; it is not a Sequence.
+        // swift-format-ignore: ReplaceForEachWithForLoop
+        path.forEach { element in
+            switch element {
+            case .move(to: let point), .line(to: let point):
+                points.append(point)
+            default:
+                break
+            }
+        }
+        return points
+    }
+
+    private func makePaneRow(
+        rail: RepoExplorerDrawerRail,
+        isDrawer: Bool,
+        note: String? = nil
+    ) -> RepoExplorerProjectedPaneRow {
+        let title = isDrawer ? "Drawer" : "Owner"
         var row = RepoExplorerProjectedPaneRow(
             groupId: "drawer-rail",
             destination: navigationUnassociatedDestination(
@@ -61,8 +99,17 @@ struct RepoExplorerDrawerRailRenderTests {
                 tabID: UUIDv7.generate()
             ),
             rowId: "rail-\(UUIDv7.generate())",
-            primaryText: isDrawer ? "Drawer" : "Owner",
+            primaryText: title,
+            secondaryLine: note.map(RepoExplorerPaneSecondaryLine.note),
             isDrawerPane: isDrawer
+        )
+        row.variants = RepoExplorerPaneRowVariants.make(
+            title: title,
+            branchContext: nil,
+            note: note,
+            isDrawer: isDrawer,
+            branchStatus: nil,
+            isActive: false
         )
         row.drawerRail = rail
         return row
