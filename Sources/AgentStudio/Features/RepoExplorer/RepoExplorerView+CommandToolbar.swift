@@ -254,9 +254,7 @@ extension RepoExplorerView {
                 label: presented.commandSpec.label,
                 accessibilityIdentifier: "sidebarOrganization.\(command.rawValue)",
                 tooltipValue: presented.commandSpec.controlTooltipRenderValue(
-                    shortcutTextOverride: command == .togglePanesShowsDrawers
-                        ? command.definition.shortcut?.spec.displayTrigger(in: .sidebarList)?.displayText
-                        : nil
+                    shortcutTextOverride: sidebarShortcutDisplay(for: command)
                 ),
                 icon: {
                     presented.commandSpec.icon.swiftUIImage(
