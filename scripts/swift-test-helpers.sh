@@ -1342,7 +1342,7 @@ run_fast_serial_process_swift_tests() {
 
   for fast_process_global_suite_filter in "${fast_process_global_suite_filters[@]}"; do
     timing_batch=$((timing_batch + 1))
-    LANE_TIMING_FILTER="$fast_process_global_suite_filter" \
+    LANE_TIMING_PHASE=fast-process-global LANE_TIMING_FILTER="$fast_process_global_suite_filter" \
       LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
       LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" run_swift_with_timeout \
       "isolated fast process-global suite: $fast_process_global_suite_filter" \
@@ -1503,7 +1503,7 @@ dispatch_isolated_suites() {
         /bin/sh -c 'printf "%s\n" "$PPID"' >"$fifo_path.pid$slot"
         read -r child_pid <"$fifo_path.pid$slot"
         rm -f "$fifo_path.pid$slot"
-        export LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
+        export LANE_TIMING_PHASE="$lane_kind" LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
         export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
         export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
         local child_status=0
@@ -1781,12 +1781,14 @@ write_lane_timing_sidecar() {
     LANE_TIMING_EXIT="$child_exit_ms" LANE_TIMING_STATUS="$child_status" \
     LANE_TIMING_COMPLETE="$wrapper_complete_ms" LANE_TIMING_TIMEOUT="$timed_out" \
     LANE_TIMING_CAP="${LANE_TIMING_CONCURRENCY:-}" \
+    LANE_TIMING_PHASE="${LANE_TIMING_PHASE:-}" \
     LANE_TIMING_EVENT_FILE="$event_stream_path" \
     /usr/bin/perl -MJSON::PP -e '
       sub nullable_number { defined $_[0] && $_[0] =~ /^[0-9]+$/ ? 0 + $_[0] : undef }
       sub nullable_text { defined $_[0] && length $_[0] ? $_[0] : undef }
       my $record = {
         schema_version => 1, lane => $ENV{LANE_TIMING_LANE}, label => $ENV{LANE_TIMING_LABEL},
+        phase => nullable_text($ENV{LANE_TIMING_PHASE}),
         filter => nullable_text($ENV{LANE_TIMING_FILTER}),
         batch_id => nullable_number($ENV{LANE_TIMING_BATCH}),
         slot => nullable_number($ENV{LANE_TIMING_SLOT}),
