@@ -2,7 +2,7 @@ import SwiftSyntax
 
 struct PerformanceConstantsInAppPoliciesRule: ArchitectureRule {
     let id = "agentstudio_performance_constants_in_app_policies"
-    let severity = ArchitectureSeverity.report
+    let severity = ArchitectureSeverity.error
     let message = "Performance thresholds and timing constants belong in AppPolicies"
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {

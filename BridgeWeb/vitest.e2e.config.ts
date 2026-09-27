@@ -1,5 +1,11 @@
 import { defineConfig } from 'vitest/config';
 
+import { reactActWarningGuardScope } from './tests/console-error-guard-scope.ts';
+import {
+	endToEndHookTimeoutMilliseconds,
+	endToEndTestTimeoutMilliseconds,
+} from './tests/vitest-hang-bounds.ts';
+
 export default defineConfig({
 	test: {
 		environment: 'node',
@@ -10,10 +16,11 @@ export default defineConfig({
 			'tests/e2e/**/*.e2e.test.ts',
 			'tests/e2e/**/*.e2e.test.tsx',
 		],
-		// The runner's hang bound, and the only clock these journeys are allowed. It is not a budget:
-		// a real-backend journey on a 3-vCPU runner may legitimately be slow, so tests wait on owner-
-		// published state rather than on time, and this only stops a wedged run from hanging forever.
-		testTimeout: 600_000,
-		hookTimeout: 60_000,
+		provide: reactActWarningGuardScope,
+		setupFiles: ['./tests/console-error-guard.ts'],
+		// The runner's hang bound, and the only clock these journeys are allowed; see
+		// tests/vitest-hang-bounds.ts.
+		testTimeout: endToEndTestTimeoutMilliseconds,
+		hookTimeout: endToEndHookTimeoutMilliseconds,
 	},
 });

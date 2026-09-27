@@ -37,12 +37,17 @@ export function selectChromeLaunchOptions(
   return chromeBin ? { executablePath: chromeBin } : { channel: "chrome" };
 }
 
+// A hang bound only fires on a real hang; it is set once per project and never raised for a failing test.
+// Waits inside tests are judged by the page's own events and DOM conditions.
+const webTestHangBoundMilliseconds = 120_000;
+
 export default defineConfig({
   test: {
     projects: [
       {
         test: {
           name: "unit",
+          testTimeout: webTestHangBoundMilliseconds,
           include: ["tests/**/*.test.ts"],
           exclude: ["tests/**/*.browser.test.ts"],
         },
@@ -53,6 +58,7 @@ export default defineConfig({
         optimizeDeps: { include: ["gsap"] },
         test: {
           name: "browser",
+          testTimeout: webTestHangBoundMilliseconds,
           include: ["tests/**/*.browser.test.ts"],
           browser: {
             commands: {

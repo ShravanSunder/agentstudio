@@ -212,7 +212,7 @@ struct SingleTabContentCompositionTests {
     func heldPreviewKeepsRenderedSurfaceUntilBranchDisappears() async throws {
         let coreAtoms = makeInstalledTestCoreAtoms()
 
-        try await withAsyncTestCoreAtoms(using: coreAtoms) { coreAtoms in
+        await withAsyncTestCoreAtoms(using: coreAtoms) { coreAtoms in
             let store = WorkspaceStore(
                 identityAtom: coreAtoms.workspaceIdentity,
                 windowMemoryAtom: coreAtoms.workspaceWindowMemory,

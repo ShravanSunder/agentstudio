@@ -369,7 +369,7 @@ extension WebKitSerializedTests {
             #expect(staleReply.response?.statusCode == 403)
             try await openBridgePaneProductSession(replacementInstallation)
 
-            #expect(await controller.teardown().value)
+            #expect(await controller.beginTeardown().value)
         }
 
         @Test("createViewForContent derives Bridge workspace identity from source root before bootstrap")

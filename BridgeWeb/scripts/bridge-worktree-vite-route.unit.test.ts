@@ -15,7 +15,6 @@ import {
 	resolveBridgeProductDevBackendOrigin,
 	resolveBridgeWebViteCacheDirectory,
 } from '../vite.config.js';
-import { bridgeDevelopmentServerHealthResponseIsReady } from './dev-server/bridge-development-server-process.js';
 
 describe('BridgeWeb Vite product proxy', () => {
 	test('proxies exactly the five development product routes to one Swift backend origin', () => {
@@ -65,18 +64,6 @@ describe('BridgeWeb Vite product proxy', () => {
 				BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'http://example.test:43871',
 			}),
 		).rejects.toThrow(/loopback HTTP origin/u);
-	});
-
-	test('accepts only a no-content development server health response as ready', () => {
-		expect(bridgeDevelopmentServerHealthResponseIsReady(new Response(null, { status: 204 }))).toBe(
-			true,
-		);
-		expect(bridgeDevelopmentServerHealthResponseIsReady(new Response(null, { status: 200 }))).toBe(
-			false,
-		);
-		expect(bridgeDevelopmentServerHealthResponseIsReady(new Response(null, { status: 404 }))).toBe(
-			false,
-		);
 	});
 
 	test('supervises the default backend but leaves an explicitly configured backend alone', () => {

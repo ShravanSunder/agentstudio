@@ -2,20 +2,16 @@ import AgentStudioTestSupport
 import Foundation
 import Testing
 
-/// The set of suites that need a process of their own is half discovered and
-/// half hand-kept: `aggregate_serial_non_webkit_suite_filters` unions a regex
-/// scan for `@MainActor` + `@Suite(.serialized)` types with an explicit list of
-/// `path:Suite` pairs. Test correctness depends on that list, and nothing stopped
-/// a member from silently falling out of it — a suite absent from the list beside
-/// its listed sibling is one of the diagnosed CI failure families.
+/// The exact lane inventory owns non-fast suite placement and execution mode.
+/// MainActor serialized suites are discovered independently and must map to a
+/// non-concurrent mode; cross-package aggregate entries remain explicitly kept.
 ///
-/// This suite is that gate (spec R13). It checks the hand-kept half still points
-/// at real declarations, and that every suite marked process-global lands in some
-/// isolated lane rather than in the concurrent fast inventory.
+/// This suite pins the old hand-kept selections across the inventory migration
+/// and catches serialized suites that would run alongside unrelated tests.
 @Suite("Swift lane isolation list gate")
 struct SwiftLaneIsolationListGateTests {
-    @Test("every hand-kept isolation entry points at a real suite declaration")
-    func everyHandKeptIsolationEntryPointsAtRealSuiteDeclaration() throws {
+    @Test("every former hand-kept suite remains in an isolated selector")
+    func everyFormerHandKeptSuiteRemainsInAnIsolatedSelector() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let aggregateFunction = try shellFunctionBody(
             named: "aggregate_serial_non_webkit_suite_filters",
@@ -25,11 +21,25 @@ struct SwiftLaneIsolationListGateTests {
             named: "large_process_global_suite_filters",
             in: helperScript
         )
-        let handKeptEntries =
-            explicitSuitePathPairs(in: aggregateFunction) + explicitSuitePathPairs(in: largeFunction)
+        let aggregateEntries = explicitSuitePathPairs(in: aggregateFunction)
+        let aggregateSuiteNames = Set(aggregateEntries.map(\.suiteName))
+        let formerAggregateSuiteNames: Set<String> = [
+            "TerminalActivityProjectorTests",
+            "GitWorkingDirectoryProjectorTests",
+            "BridgeDevelopmentSeededWorktreeObservationTests",
+            "AgentStudioAppIPCServiceTests",
+            "AgentStudioAppIPCServiceAuthModeTests",
+            "AgentStudioAppIPCServiceCommandTests",
+            "AgentStudioAppIPCServiceContributionTests",
+            "AgentStudioIPCBridgeServiceTests",
+            "AgentStudioAppIPCCommandExecuteContractTests",
+            "AppIPCDynamicCommandClientTests",
+            "AppIPCErrorCorrectionTests",
+        ]
+        #expect(aggregateSuiteNames == formerAggregateSuiteNames)
+        #expect(explicitSuitePathPairs(in: largeFunction).isEmpty)
 
-        #expect(handKeptEntries.count >= 20)
-        for entry in handKeptEntries {
+        for entry in aggregateEntries {
             #expect(
                 FileManager.default.fileExists(atPath: entry.sourcePath),
                 "Stale isolation entry: \(entry.sourcePath):\(entry.suiteName) names a file that no longer exists"
@@ -42,20 +52,53 @@ struct SwiftLaneIsolationListGateTests {
                 "Stale isolation entry: \(entry.sourcePath) no longer declares \(entry.suiteName)"
             )
         }
+
+        let aggregateIsolatedSuiteNames = try await shellHelperLines("aggregate_serial_non_webkit_suite_filters")
+        #expect(formerAggregateSuiteNames.isSubset(of: aggregateIsolatedSuiteNames))
+
+        // These nine explicit large process-global suites moved from the old
+        // hand-kept path list into the exact lane inventory in batch 2.
+        let formerLargeProcessGlobalSuiteNames: Set<String> = [
+            "AgentStudioOTLPBootstrapSmokeTests",
+            "DarwinSharedExactItemRealStreamIntegrationTests",
+            "DarwinCompositeFSEventContinuityTests",
+            "DarwinFSEventStreamClientTests",
+            "DarwinSharedLocalFSEventObserverFailureTests",
+            "DarwinSharedLocalFSEventObserverTests",
+            "DarwinSharedExactItemObserverTests",
+            "FilesystemActorActivityTests",
+            "WorkspaceStrictStartupSubprocessTests",
+        ]
+        let inventoryRows = try await laneInventoryRows()
+        for suiteName in formerLargeProcessGlobalSuiteNames {
+            let row = try #require(inventoryRows.first { $0.suiteTypePath == suiteName })
+            #expect(
+                row.mode == "process-global",
+                "Former hand-kept suite \(suiteName) must remain in a process-isolated lane"
+            )
+        }
     }
 
     @Test("every serialized MainActor suite runs in an isolated lane")
     func everySerializedMainActorSuiteRunsInAnIsolatedLane() async throws {
-        let isolatedSuiteNames = try await isolatedLaneSuiteNames()
+        let inventoryRows = try await laneInventoryRows()
+        let aggregateIsolatedSuiteNames = try await shellHelperLines("aggregate_serial_non_webkit_suite_filters")
 
         for suite in try discoveredSerializedMainActorSuites() {
-            guard !isolatedSuiteNames.contains(suite.name) else { continue }
+            let suiteTypePath = suite.suiteTypePath
+            guard let row = inventoryRows.first(where: { $0.suiteTypePath == suiteTypePath }) else {
+                #expect(
+                    suite.isRoutedOnDedicatedLane
+                        || (suite.enclosingTypeNames.isEmpty && aggregateIsolatedSuiteNames.contains(suite.name)),
+                    "Serialized MainActor suite \(suiteTypePath) has no inventory row or aggregate isolated selector"
+                )
+                continue
+            }
             #expect(
-                suite.isRoutedOnDedicatedLane,
+                row.mode != "concurrent",
                 """
-                \(suite.name) (\(suite.sourcePath)) is marked @MainActor + @Suite(.serialized) but appears in no \
-                isolated lane inventory. Add it to the lane it belongs to in scripts/swift-test-helpers.sh, or it \
-                runs inside the concurrent fast inventory beside the process-global state it shares.
+                \(suiteTypePath) (\(suite.sourcePath)) is marked @MainActor + @Suite(.serialized) but is routed to \
+                the concurrent \(row.lane) lane; keep it in a serial or process-global execution mode.
                 """
             )
         }
@@ -87,6 +130,18 @@ struct SwiftLaneIsolationListGateTests {
         )
         #expect(zmxChild.first?.isRoutedOnDedicatedLane == true)
 
+        let webkitChild = serializedMainActorSuites(
+            in: [
+                "extension WebKitSerializedTests {",
+                "@MainActor",
+                "@Suite(.serialized)",
+                "struct BridgePaneControllerIPCProjectionTests {}",
+                "}",
+            ].joined(separator: "\n")
+        )
+        #expect(webkitChild.first?.suiteTypePath == "WebKitSerializedTests/BridgePaneControllerIPCProjectionTests")
+        #expect(webkitChild.first?.isRoutedOnDedicatedLane == true)
+
         let standalone = serializedMainActorSuites(
             in: [
                 "@MainActor",
@@ -110,24 +165,14 @@ struct SwiftLaneIsolationListGateTests {
 
     // MARK: - Lane inventories
 
-    /// Every suite name some isolated lane claims: the aggregate process-global
-    /// phase, the large process-global phase, the serial large process phase, and
-    /// the WebKit lane. Read from the helper script's own functions so the gate
-    /// cannot drift from the runner.
-    private func isolatedLaneSuiteNames() async throws -> Set<String> {
-        var names: Set<String> = []
-        for helperFunction in [
-            "aggregate_serial_non_webkit_suite_filters",
-            "large_process_global_suite_filters",
-            "webkit_leaf_suite_filters",
-        ] {
-            names.formUnion(try await shellHelperLines(helperFunction))
+    private func laneInventoryRows() async throws -> [LaneInventoryRow] {
+        try await shellHelperLines("swift_test_suite_lane_inventory").map { line in
+            let fields = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 3 else {
+                throw SwiftLaneIsolationListGateError.malformedInventoryRow(line)
+            }
+            return LaneInventoryRow(lane: fields[0], suiteTypePath: fields[1], mode: fields[2])
         }
-        names.formUnion(
-            try await shellHelperLines("large_serial_non_webkit_filter_pattern")
-                .flatMap { $0.components(separatedBy: "|") }
-        )
-        return names
     }
 
     // MARK: - Independent discovery
@@ -137,15 +182,18 @@ struct SwiftLaneIsolationListGateTests {
         let sourcePath: String
         let enclosingTypeNames: [String]
 
-        /// The runner skips `E2ESerializedTests` and `ZmxE2ETests` by those exact
-        /// type names; nested children inherit that skip. A substring such as
-        /// `NewE2ETests` is not a dedicated lane.
+        var suiteTypePath: String {
+            (enclosingTypeNames + [name]).joined(separator: "/")
+        }
+
+        /// Nested children inherit their exact dedicated lane parent. A substring
+        /// such as `NewE2ETests` is not a dedicated lane.
         var isRoutedOnDedicatedLane: Bool {
             Self.isRoutedOnDedicatedLane(name: name, enclosingTypeNames: enclosingTypeNames)
         }
 
         static func isRoutedOnDedicatedLane(name: String, enclosingTypeNames: [String]) -> Bool {
-            let dedicatedLaneSuites: Set<String> = ["E2ESerializedTests", "ZmxE2ETests"]
+            let dedicatedLaneSuites: Set<String> = ["E2ESerializedTests", "ZmxE2ETests", "WebKitSerializedTests"]
             if dedicatedLaneSuites.contains(name) {
                 return true
             }
@@ -199,6 +247,10 @@ struct SwiftLaneIsolationListGateTests {
     private struct SerializedMainActorSuite {
         let name: String
         let enclosingTypeNames: [String]
+
+        var suiteTypePath: String {
+            (enclosingTypeNames + [name]).joined(separator: "/")
+        }
 
         var isRoutedOnDedicatedLane: Bool {
             DiscoveredSuite.isRoutedOnDedicatedLane(name: name, enclosingTypeNames: enclosingTypeNames)
@@ -343,6 +395,12 @@ struct SwiftLaneIsolationListGateTests {
         let suiteName: String
     }
 
+    private struct LaneInventoryRow {
+        let lane: String
+        let suiteTypePath: String
+        let mode: String
+    }
+
     /// The `printf '%s:%s\n' 'path' 'Suite'` pairs a helper function hand-maintains.
     private func explicitSuitePathPairs(in functionBody: String) -> [HandKeptIsolationEntry] {
         var entries: [HandKeptIsolationEntry] = []
@@ -421,4 +479,5 @@ struct SwiftLaneIsolationListGateTests {
 private enum SwiftLaneIsolationListGateError: Error {
     case missingShellFunction(String)
     case shellHelperFailed(String, String)
+    case malformedInventoryRow(String)
 }

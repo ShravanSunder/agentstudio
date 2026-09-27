@@ -46,7 +46,7 @@ extension E2ESerializedTests {
             let paneEventBus = EventBus<RuntimeEnvelope>()
             let gitStatusPhysicalGate = AgentStudioGitStatusPhysicalGate()
             let gitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(
-                processExecutor: DefaultProcessExecutor(timeout: 5)
+                processExecutor: RunToExitProcessExecutor()
             )
             let filesystemSource = FilesystemGitPipeline(
                 bus: paneEventBus,

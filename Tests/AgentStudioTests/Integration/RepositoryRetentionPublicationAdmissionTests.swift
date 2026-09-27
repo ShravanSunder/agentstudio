@@ -11,7 +11,7 @@ import Testing
 struct RepositoryRetentionPublicationAdmissionTests {
     @Test("boot reassociation waits for collection admission without changing canonical topology")
     func reassociationWaitsForCollectionReservation() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let originalPath = URL(fileURLWithPath: "/tmp/retention-boot-reassociation/original")
             let repository = store.addRepo(at: originalPath)

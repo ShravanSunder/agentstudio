@@ -21,6 +21,7 @@ extension BridgePaneController {
             return false
         }
 
+        // fire-and-forget: intent is retained synchronously; teardown awaits the selection tail
         _ = enqueueRetainedSurfaceSelectionTransition(
             commandId: retainedCommandId,
             productAdmission: productAdmission,

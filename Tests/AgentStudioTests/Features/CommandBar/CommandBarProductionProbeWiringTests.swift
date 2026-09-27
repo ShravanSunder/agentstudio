@@ -10,6 +10,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CommandBarProductionProbeWiringTests {
+    private let recentsDefaultsFixture = CommandBarRecentsDefaultsFixture()
+
     @Test("production recorder wiring emits command bar open and close interactions")
     func productionRecorderWiringEmitsOpenAndCloseInteractions() async throws {
         installTestCoreAtomsIfNeeded()
@@ -36,7 +38,8 @@ struct CommandBarProductionProbeWiringTests {
             dispatcher: FakeAppCommandDispatcher(),
             quickOpenDirectoryHandler: { _, _ in },
             commandBarSurface: CommandBarSurfaceAtom(),
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            recentsDefaults: recentsDefaultsFixture.makeDefaults()
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),

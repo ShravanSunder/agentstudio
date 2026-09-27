@@ -2222,6 +2222,8 @@ struct GitWorkingDirectoryProjectorTests {
         let shutdownTask = Task {
             await actor.shutdown()
         }
+        // Release the stale provider result only after shutdown has cancelled the in-flight call.
+        try await gate.cancellationObserved()
         gate.release()
         await shutdownTask.value
 

@@ -52,10 +52,11 @@ extension WebKitSerializedTests {
             #expect(controller.handleBridgeReady())
 
             // Act
-            controller.teardown()
+            let teardownRetirement = controller.beginTeardown()
 
             // Assert
             #expect(!controller.isBridgeReady)
+            _ = await teardownRetirement.value
             await WebPageTestHarness.settle()
         }
 
@@ -104,7 +105,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider(),
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
@@ -169,7 +170,7 @@ extension WebKitSerializedTests {
                 reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider(),
                 initialPaneActivity: .foreground
             )
-            defer { controller.teardown() }
+            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
@@ -229,6 +230,6 @@ private func pageErrorProbeDescription(_ page: WebPage) async -> String {
 
 @MainActor
 private func teardownBridgeControllerForTest(_ controller: BridgePaneController) async {
-    controller.teardown()
+    _ = await controller.beginTeardown().value
     await WebPageTestHarness.settle()
 }

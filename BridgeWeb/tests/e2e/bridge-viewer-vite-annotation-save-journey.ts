@@ -1,4 +1,4 @@
-import { chromium, type Page, type Response, type Route } from 'playwright';
+import type { Page, Response, Route } from 'playwright';
 import { expect, test } from 'vitest';
 
 import {
@@ -30,6 +30,7 @@ import {
 	reviewRangeSelectionDiagnostic,
 	type AnnotationRangeBounds,
 } from './bridge-viewer-vite-annotation-selection-diagnostic.ts';
+import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { observeInteractionProfileFailures } from './bridge-viewer-vite-interaction-profile-diagnostics.ts';
 import type {
 	BridgeViewerOwnedViteProductServer,
@@ -102,7 +103,7 @@ async function runReleasedDraftReloadJourney(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly server: BridgeViewerOwnedViteProductServer;
 }): Promise<ReleasedDraftReloadJourneyObservations> {
-	const browser = await chromium.launch({ channel: 'chrome', headless: true });
+	const browser = await launchBridgeViewerE2EChromium();
 	let page: Page | null = null;
 	try {
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
@@ -170,7 +171,7 @@ export async function runAnnotationSaveJourney(props: {
 	readonly server: BridgeViewerOwnedViteProductServer;
 	readonly surface: 'file' | 'review';
 }): Promise<AnnotationSaveJourneyObservations> {
-	const browser = await chromium.launch({ channel: 'chrome', headless: true });
+	const browser = await launchBridgeViewerE2EChromium();
 	const diagnostics: string[] = [];
 	let page: Page | null = null;
 	let expectedSavedBody: string | null = null;

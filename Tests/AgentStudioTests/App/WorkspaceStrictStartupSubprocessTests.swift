@@ -1,5 +1,4 @@
 import CryptoKit
-import Darwin
 import Foundation
 import GRDB
 import Testing
@@ -12,7 +11,7 @@ import Testing
 @Suite("Workspace strict startup subprocess integration", .serialized)
 struct WorkspaceStrictStartupSubprocessTests {
     @Test("strict SQLite failures terminate a real app process without changing durable inputs")
-    func strictSQLiteFailuresTerminateWithoutChangingDurableInputs() throws {
+    func strictSQLiteFailuresTerminateWithoutChangingDurableInputs() async throws {
         let executableURL = try Self.resolveAgentStudioExecutable()
 
         for scenario in StrictStartupFailureScenario.allCases {
@@ -22,9 +21,10 @@ struct WorkspaceStrictStartupSubprocessTests {
             let durableFilesBeforeLaunch = try fixture.durableFileDigests()
             let workspaceDirectoryBeforeLaunch = try fixture.workspaceDirectoryInventory()
 
-            let result = try Self.runAgentStudio(executableURL: executableURL, fixture: fixture)
+            // The run returns only once the app exits on its own: a scenario that never
+            // terminates is caught by the lane's hang bound, not by a per-test deadline.
+            let result = try await Self.runAgentStudio(executableURL: executableURL, fixture: fixture)
 
-            #expect(!result.timedOut, "\(scenario.rawValue) did not terminate within the subprocess bound")
             #expect(result.terminationStatus != 0, "\(scenario.rawValue) unexpectedly exited successfully")
             let diagnosticLine = try #require(
                 result.standardError.split(separator: "\n").first {
@@ -69,40 +69,22 @@ struct WorkspaceStrictStartupSubprocessTests {
     private static func runAgentStudio(
         executableURL: URL,
         fixture: StrictStartupSubprocessFixture
-    ) throws -> StrictStartupSubprocessResult {
-        let standardOutputURL = fixture.rootDirectory.appending(path: "subprocess.stdout")
-        let standardErrorURL = fixture.rootDirectory.appending(path: "subprocess.stderr")
-        FileManager.default.createFile(atPath: standardOutputURL.path, contents: nil)
-        FileManager.default.createFile(atPath: standardErrorURL.path, contents: nil)
-        let standardOutputHandle = try FileHandle(forWritingTo: standardOutputURL)
-        let standardErrorHandle = try FileHandle(forWritingTo: standardErrorURL)
-        let process = Process()
-        process.executableURL = executableURL
-        process.currentDirectoryURL = fixture.rootDirectory
-        process.environment = fixture.processEnvironment
-        process.standardOutput = standardOutputHandle
-        process.standardError = standardErrorHandle
-
-        let terminationSignal = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in terminationSignal.signal() }
-        try process.run()
-
-        let timedOut = terminationSignal.wait(timeout: .now() + 20) == .timedOut
-        if timedOut {
-            process.terminate()
-            if terminationSignal.wait(timeout: .now() + 2) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-            }
+    ) async throws -> StrictStartupSubprocessResult {
+        let output = try await runProcessToExit(
+            executableURL: executableURL,
+            arguments: [],
+            currentDirectoryURL: fixture.rootDirectory,
+            environment: fixture.processEnvironment
+        )
+        guard let standardOutput = String(bytes: output.standardOutput, encoding: .utf8),
+            let standardError = String(bytes: output.standardError, encoding: .utf8)
+        else {
+            throw StrictStartupSubprocessError.outputIsNotUTF8
         }
-        process.waitUntilExit()
-        try standardOutputHandle.close()
-        try standardErrorHandle.close()
-
         return StrictStartupSubprocessResult(
-            terminationStatus: process.terminationStatus,
-            timedOut: timedOut,
-            standardOutput: try String(contentsOf: standardOutputURL, encoding: .utf8),
-            standardError: try String(contentsOf: standardErrorURL, encoding: .utf8)
+            terminationStatus: output.terminationStatus,
+            standardOutput: standardOutput,
+            standardError: standardError
         )
     }
 }
@@ -124,7 +106,6 @@ private enum StrictStartupFailureScenario: String, CaseIterable {
 
 private struct StrictStartupSubprocessResult {
     let terminationStatus: Int32
-    let timedOut: Bool
     let standardOutput: String
     let standardError: String
 }
@@ -392,6 +373,7 @@ private enum StrictStartupFileDigest: Equatable {
 
 private enum StrictStartupSubprocessError: Error {
     case agentStudioExecutableNotFound(URL)
+    case outputIsNotUTF8
 }
 
 private final class StrictStartupTestBundleSentinel: NSObject {}

@@ -6,6 +6,11 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, type TestUserConfig } from 'vitest/config';
 
 import { bridgeViteOptimizedDependencies } from './bridge-vite-optimized-dependencies.js';
+import { everyConsoleErrorGuardScope } from './tests/console-error-guard-scope.ts';
+import {
+	browserBenchmarkTestTimeoutMilliseconds,
+	browserIntegrationTestTimeoutMilliseconds,
+} from './tests/vitest-hang-bounds.ts';
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryTemporaryRoot = resolve(bridgeWebPackageRoot, '..', 'tmp');
@@ -63,10 +68,15 @@ export default defineConfig({
 				},
 				test: {
 					name: 'integration-browser',
-					setupFiles: ['./tests/vitest-browser-setup.ts'],
+					provide: everyConsoleErrorGuardScope,
+					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: browserConfig,
-					testTimeout: 60_000,
-					include: ['src/**/*.browser.test.ts', 'src/**/*.browser.test.tsx'],
+					testTimeout: browserIntegrationTestTimeoutMilliseconds,
+					include: [
+						'src/**/*.browser.test.ts',
+						'src/**/*.browser.test.tsx',
+						'tests/**/*.browser.test.ts',
+					],
 					exclude: [
 						'**/node_modules/**',
 						'**/dist/**',
@@ -92,7 +102,9 @@ export default defineConfig({
 				},
 				test: {
 					name: 'benchmarks-browser',
-					setupFiles: ['./tests/vitest-browser-setup.ts'],
+					testTimeout: browserBenchmarkTestTimeoutMilliseconds,
+					provide: everyConsoleErrorGuardScope,
+					setupFiles: ['./tests/console-error-guard.ts', './tests/vitest-browser-setup.ts'],
 					browser: {
 						...browserConfig,
 						api: {

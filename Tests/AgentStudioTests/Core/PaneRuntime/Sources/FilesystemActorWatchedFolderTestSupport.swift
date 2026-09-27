@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 
 @testable import AgentStudioCore
@@ -91,4 +92,34 @@ actor TopologyEventRecorder {
 
     func reset() { events = TopologyEventSet() }
     func snapshot() -> TopologyEventSet { events }
+}
+
+/// Holds one armed submission's accepted result back from the FilesystemActor until opened,
+/// so actor work can be ordered between a scan starting and its acceptance returning.
+actor WatchedFolderScanAcceptanceGate {
+    private var isArmed = false
+    private var heldSubmission: HeldStep<Void>?
+
+    nonisolated var port: WatchedFolderScanSubmissionPort {
+        WatchedFolderScanSubmissionPort { scheduler, request, intent in
+            let result = await scheduler.submit(request, intent: intent)
+            await self.holdIfArmed()
+            return result
+        }
+    }
+
+    func arm() {
+        isArmed = true
+        heldSubmission = HeldStep<Void>("watchedFolderScanAcceptance", cancellation: .holdThroughCancellation)
+    }
+
+    func open() {
+        heldSubmission?.release()
+    }
+
+    private func holdIfArmed() async {
+        guard isArmed, let heldSubmission else { return }
+        isArmed = false
+        try? await heldSubmission.arrive(())
+    }
 }

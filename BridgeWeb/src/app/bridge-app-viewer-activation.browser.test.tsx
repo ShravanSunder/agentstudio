@@ -66,7 +66,7 @@ describe('BridgeApp viewer activation ingress', () => {
 			await render(
 				<BridgeAppProtocolRouter paneRuntime={runtimeFixture.runtime} protocol="review" />,
 			);
-			await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+			await runtimeFixture.workerPublicationInstalled;
 		});
 		const appRoot = requireAppRoot();
 
@@ -99,7 +99,7 @@ describe('BridgeApp viewer activation ingress', () => {
 			const result = await render(
 				<BridgeAppProtocolRouter paneRuntime={runtimeFixture.runtime} protocol="review" />,
 			);
-			await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+			await runtimeFixture.workerPublicationInstalled;
 			return result;
 		});
 		const appRoot = requireAppRoot();
@@ -124,14 +124,22 @@ describe('BridgeApp viewer activation ingress', () => {
 function makePaneRuntimeFixture(): {
 	readonly publish: (message: BridgeWorkerServerToMainMessage) => void;
 	readonly runtime: BridgePaneRuntime;
+	// Settles when the mounted app's pane runtime installs its worker dispatcher,
+	// the point from which the fixture can publish worker messages.
+	readonly workerPublicationInstalled: Promise<void>;
 } {
 	let publishWorkerMessages:
 		| ((messages: readonly BridgeWorkerServerToMainMessage[]) => void)
 		| null = null;
+	let resolveWorkerPublication: (() => void) | null = null;
+	const workerPublicationInstalled = new Promise<void>((resolve): void => {
+		resolveWorkerPublication = resolve;
+	});
 	const runtime = createBridgePaneRuntime({
 		sessionFactory: () => ({
 			createDispatcher: (props) => {
 				publishWorkerMessages = props.publishWorkerMessages;
+				resolveWorkerPublication?.();
 				return {
 					dispatch: (command): void => {
 						props.publishWorkerMessages([
@@ -161,6 +169,7 @@ function makePaneRuntimeFixture(): {
 			publishWorkerMessages([message]);
 		},
 		runtime,
+		workerPublicationInstalled,
 	};
 }
 

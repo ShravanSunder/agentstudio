@@ -11,7 +11,8 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         // Arrange
         let comparisonGate = BridgeComparisonGate()
         let fixture = try await makeRefreshAdmissionIntegrationFixture(comparisonGate: comparisonGate)
-        fixture.controller.applyBridgePaneActivity(.foreground)
+        // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
+        _ = fixture.controller.applyBridgePaneActivity(.foreground)
         let initialLoadStarted = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(2)) {
             await comparisonGate.hasStartedComparisonCount(1)
         }

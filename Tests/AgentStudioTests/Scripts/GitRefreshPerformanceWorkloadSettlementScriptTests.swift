@@ -51,7 +51,7 @@ struct GitRefreshPerformanceWorkloadSettlementScriptTests {
         environment["AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES"] = "1"
         environment["AGENTSTUDIO_PERF_TEST_COMMON_DEBT_SNAPSHOT"] = "1"
         environment["AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE"] = metricsResponse
-        return try await DefaultProcessExecutor(timeout: 10).execute(
+        return try await RunToExitProcessExecutor().execute(
             command: "/bin/bash",
             args: [scriptPath, "--prepare-only"],
             cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),

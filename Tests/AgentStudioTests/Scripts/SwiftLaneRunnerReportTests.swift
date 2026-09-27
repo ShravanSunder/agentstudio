@@ -3,8 +3,232 @@ import AgentStudioTestSupport
 import Foundation
 import Testing
 
+private let generatedLaneFilterBehaviorProbe = #"""
+    source scripts/swift-test-helpers.sh
+
+    assert_match_pair() {
+      local generator="$1"
+      local pattern="$2"
+      local expected_match="$3"
+      local expected_nonmatch="$4"
+
+      if [[ "$expected_match" =~ $pattern ]]; then
+        printf 'MATCH_OK %s\n' "$generator"
+      else
+        printf 'missing expected match generator=%s test_id=%s\n' \
+          "$generator" "$expected_match" >&2
+        return 1
+      fi
+      if [[ "$expected_nonmatch" =~ $pattern ]]; then
+        printf 'unexpected match generator=%s test_id=%s\n' \
+          "$generator" "$expected_nonmatch" >&2
+        return 1
+      fi
+      return 0
+    }
+
+    assert_single_escaped_entries() {
+      local generator="$1"
+      local pattern_list="$2"
+      local remainder anchor_count=0 closing_count=0
+      remainder="$pattern_list"
+      while [[ "$remainder" == *'\.'* ]]; do
+        anchor_count=$((anchor_count + 1))
+        remainder="${remainder#*'\.'}"
+      done
+      remainder="$pattern_list"
+      while [[ "$remainder" == *'(/|$)'* ]]; do
+        closing_count=$((closing_count + 1))
+        remainder="${remainder#*'(/|$)'}"
+      done
+      if [ "$anchor_count" -eq 0 ] || [ "$anchor_count" -ne "$closing_count" ]; then
+        printf 'invalid anchor count generator=%s anchors=%s closings=%s\n' \
+          "$generator" "$anchor_count" "$closing_count" >&2
+        return 1
+      fi
+      if [[ "$pattern_list" == *'\\.'* || "$pattern_list" == *'\\/'* \
+        || "$pattern_list" == *'\\('* || "$pattern_list" == *'\\$'* ]]; then
+        printf 'double-escaped entry generator=%s pattern=%s\n' \
+          "$generator" "$pattern_list" >&2
+        return 1
+      fi
+      printf 'SINGLE_ESCAPE_OK %s entries=%s\n' "$generator" "$anchor_count"
+    }
+
+    fast_concurrent_id='AgentStudioTests.AgentStudioFileViewStartupDiagnosticTests/smokeRenderProofRequiresStreamedTreeAndSelectedContent()'
+    fast_isolated_id='AgentStudioSharedComponentsTests.AccessibilityPressBridgeTests/disabledAccessibilityPressBridgeRejectsPress()'
+    large_concurrent_id='AgentStudioTests.AgentStudioGitDependencyTests/agentStudioGitUsesRemotePackageAndHostedArtifact()'
+    large_serial_id='AgentStudioTests.BridgePackagedProductJourneyScriptTests/runnerDryRunDeclaresStrictLaunchAndFixtureContract()'
+    large_process_global_id='AgentStudioInfrastructureTests.AgentStudioOTLPBootstrapSmokeTests/otelConfigurationAppliesExplicitLogBatchBackpressurePolicy()'
+    fast_process_global_id='AgentStudioInfrastructureTests.SQLiteDatabaseFactoryProcessTests/bytePreservingStartupReaderSeesCommittedWALWithoutChangingDatabaseFiles()'
+    webkit_id='AgentStudioTests.WebKitSerializedTests/BridgePaneControllerTests/handleBridgeReady_setsReadyAndTeardownResets()'
+
+    fast_skip_pattern="$(fast_non_webkit_skip_pattern)" || exit 2
+    fast_concurrent_pattern="$(swift_test_lane_filter_pattern fast concurrent)" || exit 2
+    fast_concurrent_skip_pattern="$(swift_test_lane_fast_concurrent_skip_pattern)" || exit 2
+    fast_process_global_pattern="$(fast_serial_process_filter_pattern)" || exit 2
+    large_concurrent_pattern="$(large_non_webkit_filter_pattern)" || exit 2
+    large_serial_pattern="$(large_serial_non_webkit_filter_pattern)" || exit 2
+    large_process_global_pattern="$(large_process_global_filter_pattern)" || exit 2
+    aggregate_serial_pattern="$(aggregate_serial_non_webkit_filter_pattern)" || exit 2
+    webkit_filters="$(webkit_suite_filters)" || exit 2
+    webkit_pattern='WebKitSerializedTests/BridgePaneControllerTests'
+
+    assert_match_pair fast-skip "$fast_skip_pattern" "$fast_isolated_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair fast-concurrent-filter "$fast_concurrent_pattern" "$fast_concurrent_id" "$fast_isolated_id" || exit 1
+    assert_match_pair fast-concurrent-skip "$fast_concurrent_skip_pattern" "$large_concurrent_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair fast-process-global "$fast_process_global_pattern" "$fast_process_global_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair large-concurrent "$large_concurrent_pattern" "$large_concurrent_id" "$fast_concurrent_id" || exit 1
+    assert_match_pair large-serial "$large_serial_pattern" "$large_serial_id" "$large_concurrent_id" || exit 1
+    assert_match_pair large-process-global "$large_process_global_pattern" "$large_process_global_id" "$large_concurrent_id" || exit 1
+    assert_match_pair aggregate-serial "$aggregate_serial_pattern" "$fast_isolated_id" "$fast_concurrent_id" || exit 1
+    if ! printf '%s\n' "$webkit_filters" | /usr/bin/grep -Fxq "$webkit_pattern"; then
+      printf 'missing WebKit selector from generated list: %s\n' "$webkit_pattern" >&2
+      exit 1
+    fi
+    assert_match_pair webkit-list "$webkit_pattern" "$webkit_id" "$fast_concurrent_id" || exit 1
+
+    assert_single_escaped_entries fast-skip "$fast_skip_pattern" || exit 1
+    assert_single_escaped_entries fast-concurrent-filter "$fast_concurrent_pattern" || exit 1
+    assert_single_escaped_entries fast-concurrent-skip "$fast_concurrent_skip_pattern" || exit 1
+    assert_single_escaped_entries fast-process-global "$fast_process_global_pattern" || exit 1
+    assert_single_escaped_entries large-concurrent "$large_concurrent_pattern" || exit 1
+    assert_single_escaped_entries large-serial "$large_serial_pattern" || exit 1
+    assert_single_escaped_entries large-process-global "$large_process_global_pattern" || exit 1
+    assert_single_escaped_entries aggregate-serial "$aggregate_serial_pattern" || exit 1
+    printf 'LANE_FILTER_BEHAVIOR_OK generators=9\n'
+    """#
+
 @Suite("Swift lane runner load reporting")
 struct SwiftLaneRunnerReportTests {
+    @Test("timing sidecars preserve the command verdict and ordered boundaries")
+    func timingSidecarPreservesVerdictAndBoundaries() async throws {
+        let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-sidecar-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
+        let output = try await runBash(
+            "LOG_PREFIX=timing; export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' "
+                + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3 "
+                + "LANE_TIMING_CONCURRENCY=4; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'fixture' 60 /bin/bash -c 'exit 7' || status=$?; "
+                + "echo STATUS=${status:-0}"
+        )
+        let files = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory)
+        let sidecar = try #require(files.first { $0.hasSuffix(".timing.json") })
+        let data = try Data(contentsOf: URL(fileURLWithPath: evidenceDirectory + "/" + sidecar))
+        let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let dispatch = try #require(record["dispatch_ms"] as? Int)
+        let start = try #require(record["command_start_ms"] as? Int)
+        let exit = try #require(record["command_exit_ms"] as? Int)
+        let complete = try #require(record["wrapper_complete_ms"] as? Int)
+        #expect(output.contains("STATUS=7"))
+        #expect(dispatch <= start && start <= exit && exit <= complete)
+        #expect(record["command_status"] as? Int == 7)
+        #expect(record["filter"] as? String == "FixtureSuite")
+        #expect(record["batch_id"] as? Int == 2)
+        #expect(record["slot"] as? Int == 3)
+        #expect(record["slot_cap"] as? Int == 4)
+        #expect(record["timed_out"] as? Bool == false)
+        #expect(record["event_stream_file"] is String)
+    }
+
+    @Test("prebuild flags are absent by default and appended when compiler statistics are enabled")
+    func prebuildCompilerStatisticsFlagsAreOptIn() async throws {
+        let statisticsDirectory = NSTemporaryDirectory() + "agentstudio-compiler-stats-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: statisticsDirectory) }
+        let output = try await runBash(
+            "LOG_PREFIX=timing; PREBUILD_TIMEOUT_SECONDS=60; BUILD_PATH=.build-probe; "
+                + "source scripts/swift-test-helpers.sh; "
+                + "run_swift_with_timeout() { printf 'ARG:%s\\n' \"\u{0024}@\"; }; "
+                + "unset SWIFT_BUILD_STATS_DIR; prebuild_swift_tests; echo ENABLED; "
+                + "export SWIFT_BUILD_STATS_DIR='\(statisticsDirectory)'; prebuild_swift_tests"
+        )
+        let halves = output.components(separatedBy: "ENABLED\n")
+        #expect(halves.count == 2)
+        #expect(
+            halves.first == "ARG:prebuild test bundles\nARG:60\nARG:swift\nARG:build\n"
+                + "ARG:--build-tests\nARG:--build-path\nARG:.build-probe\n")
+        #expect(
+            halves.last?.contains(
+                "ARG:-Xswiftc\nARG:-stats-output-dir\nARG:-Xswiftc\n"
+                    + "ARG:\(statisticsDirectory)\n") == true)
+    }
+
+    @Test("timing summary measures actual scheduler idle and keeps missing spans unknown")
+    func timingSummaryComputesActualIdleAndUnknowns() async throws {
+        let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-summary-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
+        try FileManager.default.createDirectory(atPath: evidenceDirectory, withIntermediateDirectories: true)
+        let eventFile = evidenceDirectory + "/fixture.events.jsonl"
+        try "{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}\n"
+            .appending(
+                "{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}\n"
+            )
+            .write(toFile: eventFile, atomically: true, encoding: .utf8)
+        let fixture: [String: Any] = [
+            "lane": "fixture", "label": "prebuild test bundles", "dispatch_ms": 1_790_000_000_900,
+            "command_start_ms": 1_790_000_001_000, "command_exit_ms": 1_790_000_001_350,
+            "wrapper_complete_ms": 1_790_000_001_400,
+            "event_stream_file": eventFile,
+        ]
+        let fixtureData = try JSONSerialization.data(withJSONObject: fixture)
+        try fixtureData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-fixture.timing.json"))
+        let wrappedEventFile = evidenceDirectory + "/wrapped.events.jsonl"
+        try "{\"kind\":\"event\",\"payload\":{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}}\n"
+            .appending(
+                "{\"kind\":\"event\",\"payload\":{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}}\n"
+            )
+            .write(toFile: wrappedEventFile, atomically: true, encoding: .utf8)
+        var wrappedFixture = fixture
+        wrappedFixture["lane"] = "fixture-wrapped"
+        wrappedFixture["event_stream_file"] = wrappedEventFile
+        let wrappedData = try JSONSerialization.data(withJSONObject: wrappedFixture)
+        try wrappedData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-wrapped.timing.json"))
+        for (index, duration) in [100, 400, 100, 400, 100, 100].enumerated() {
+            let dispatch = [1000, 1000, 1000, 1100, 1400, 1500][index]
+            let item: [String: Any] = [
+                "lane": "isolated", "label": "isolated process-global non-WebKit suite: \(index)",
+                "filter": "Suite\(index)", "batch_id": index + 1,
+                "slot": index % 3 + 1, "slot_cap": 3, "dispatch_ms": dispatch,
+                "wrapper_complete_ms": dispatch + duration,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-\(index).timing.json"))
+        }
+        for slot in 1...4 {
+            let item: [String: Any] = [
+                "lane": "four-slot", "label": "isolated process-global non-WebKit suite: \(slot)",
+                "filter": "FourSlotSuite\(slot)", "batch_id": slot,
+                "slot": slot, "slot_cap": 4, "dispatch_ms": 2000,
+                "wrapper_complete_ms": 2100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-four-\(slot).timing.json"))
+        }
+        for slot in 1...3 {
+            let item: [String: Any] = [
+                "lane": "partial-four-slot", "label": "isolated process-global non-WebKit suite: \(slot)",
+                "filter": "PartialFourSlotSuite\(slot)", "batch_id": slot,
+                "slot": slot, "slot_cap": 4, "dispatch_ms": 3000,
+                "wrapper_complete_ms": 3100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-partial-\(slot).timing.json"))
+        }
+        _ = try await runBash("LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
+        let summary = try String(contentsOfFile: evidenceDirectory + "/timing-summary.md", encoding: .utf8)
+        #expect(summary.contains("| fixture | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
+        #expect(summary.contains("| fixture-wrapped | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
+        #expect(summary.contains("| isolated | 6 | 3 | 0.600 | 0.600 |"))
+        #expect(summary.contains("| four-slot | 4 | 4 | 0.100 | 0.000 |"))
+        #expect(summary.contains("| partial-four-slot | 3 | 4 | 0.100 | 0.100 |"))
+        #expect(summary.contains("unknown"))
+        let emptyDirectory = evidenceDirectory + "/empty"
+        _ = try await runBash("LANE_EVENT_STREAM_DIR='\(emptyDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
+        let emptySummary = try String(contentsOfFile: emptyDirectory + "/timing-summary.md", encoding: .utf8)
+        #expect(emptySummary.contains("Unknown/null spans: unknown (no sidecars)."))
+    }
+
     @Test("every Swift test invocation takes its parallelization width from the one helper")
     func everySwiftTestInvocationTakesItsWidthFromTheOneHelper() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
@@ -17,7 +241,7 @@ struct SwiftLaneRunnerReportTests {
             !$0.contains("$(swift_test_parallelization_env_word)")
         }
 
-        #expect(invocationLines.count >= 10)
+        #expect(invocationLines.count >= 9)
         #expect(
             invocationsBypassingTheHelper.isEmpty,
             "Swift test invocations not routed through the width helper: \(invocationsBypassingTheHelper)"
@@ -85,6 +309,8 @@ struct SwiftLaneRunnerReportTests {
             "lane-report isolated_process_concurrency=",
             "lane-report xcode=",
             "lane-report swift=",
+            "lane-report head_sha=",
+            "lane-report tree_dirty=",
         ] {
             #expect(laneRunnerScript.contains(preflightLabel))
         }
@@ -93,16 +319,29 @@ struct SwiftLaneRunnerReportTests {
             "lane-report wall_seconds=",
             "lane-report cpu_seconds=",
             "lane-report cpu_utilization=",
-            "lane-report peak_started_tests=",
+            "lane-report peak_announced_tests=",
             "lane-report peak_running_parameterized_cases=",
             "lane-report failed_isolated_suites=",
+            "lane-report head_sha=",
+            "lane-report tree_dirty=",
+            "lane-report bundle_state=",
+            "lane-report bundle_identity=",
+            "lane-report build_receipt_head_sha=",
         ] {
             #expect(closingReport.contains(closingLabel))
         }
+        // Validity and verdict are decided by one helper, so the receipt cannot
+        // print a verdict that skipped the validity check.
+        #expect(closingReport.contains("print_lane_receipt_verdict \"$exit_status\""))
         // The whole point of a stable prefix is that a CI reader can grep it, so
         // the emitted label set is pinned rather than only spot-checked.
         #expect(
             laneReportLabels(in: helperScript + "\n" + laneRunnerScript) == [
+                // Which tree and bundle the lane tested, and whether that makes
+                // its verdict evidence at all.
+                "build_receipt_head_sha",
+                "bundle_identity",
+                "bundle_state",
                 "cpu_count",
                 "cpu_seconds",
                 "cpu_utilization",
@@ -112,21 +351,35 @@ struct SwiftLaneRunnerReportTests {
                 "exit_status",
                 "failed_isolated_suite",
                 "failed_isolated_suites",
+                "head_sha",
+                // The harness steps a hung lane was still waiting on.
+                "held_step_unarrived",
                 "isolated_process_concurrency",
                 "memory_bytes",
                 "parallelization_width",
+                // Tests whose start was posted: announced, never "started".
+                "peak_announced_tests",
                 "peak_running_parameterized_cases",
-                "peak_started_tests",
+                "receipt_valid",
                 "running_parameterized_cases_at_timeout",
+                "stack_sample",
                 "swift",
+                "task_dump",
                 "timeout_reap",
+                "tree_dirty",
+                "verdict",
                 "wall_seconds",
                 "xcode",
             ]
         )
         // A failing lane is the one whose load numbers matter most, so the
-        // closing block hangs off EXIT rather than the end of the happy path.
-        #expect(laneRunnerScript.contains("trap print_closing_lane_report EXIT"))
+        // closing block hangs off EXIT, and it also releases the caller's slot.
+        let invocationExit = try shellFunction(named: "finish_lane_invocation", in: laneRunnerScript)
+        #expect(laneRunnerScript.contains("trap finish_lane_invocation EXIT"))
+        #expect(invocationExit.contains("local exit_status=$?"))
+        #expect(invocationExit.contains("print_closing_lane_report \"$exit_status\" || true"))
+        #expect(invocationExit.contains("swift_build_slot_release || true"))
+        #expect(invocationExit.contains("return \"$exit_status\""))
     }
 
     @Test("a child that dies by signal is named instead of swallowed")
@@ -164,29 +417,28 @@ struct SwiftLaneRunnerReportTests {
 
     @Test("one crashed isolated suite does not hide the suites after it")
     func oneCrashedIsolatedSuiteDoesNotHideTheSuitesAfterIt() async throws {
-        // Two batched children: the first crashes, the second must still run and
-        // still be observable. Stopping at the first is what hid 324 of 336
-        // suites behind one crash.
+        // The rolling dispatcher must observe every child after one signal.
         let tallyPath = NSTemporaryDirectory() + "agentstudio-s2d-tally-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: tallyPath) }
         let laneOutput = try await runBashAllowingFailure(
             "LOG_PREFIX=lane; export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE='\(tallyPath)'; "
                 + ": >\"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\"; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "/bin/bash -c 'kill -SEGV $$' & first=$!; "
-                + "/bin/bash -c 'echo SECOND_BATCH_RAN; exit 0' & second=$!; "
-                + "batch=0; "
-                + "wait_for_process_global_suite_batch \"$first\" CrashingSuite \"$second\" HealthySuite "
-                + "|| batch=$?; echo \"BATCH=$batch\"; "
+                + "swift_test_isolated_process_concurrency() { echo 2; }; "
+                + "run_selected_isolated_suite() { "
+                + "if [ \"$2\" = CrashingSuite ]; then /bin/bash -c 'kill -SEGV $$'; "
+                + "else echo SECOND_SUITE_RAN; fi; }; "
+                + "lane_status=0; dispatch_isolated_suites fast CrashingSuite HealthySuite "
+                + "|| lane_status=$?; echo \"LANE_STATUS=$lane_status\"; "
                 + "echo \"COUNT=$(swift_test_failed_isolated_suite_count)\"; "
                 + "cat \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\""
         )
 
         // Both children ran; only the crashing one is recorded.
-        #expect(laneOutput.contains("SECOND_BATCH_RAN"))
+        #expect(laneOutput.contains("SECOND_SUITE_RAN"))
         #expect(laneOutput.contains("isolated suite failed: CrashingSuite"))
         #expect(!laneOutput.contains("isolated suite failed: HealthySuite"))
-        #expect(laneOutput.contains("BATCH=1"))
+        #expect(laneOutput.contains("LANE_STATUS=1"))
         #expect(laneOutput.contains("COUNT=1"))
         #expect(laneOutput.contains("CrashingSuite\t139\tSEGV"))
     }
@@ -303,15 +555,17 @@ struct SwiftLaneRunnerReportTests {
         let cleanDirectory = workDirectory + "/clean-runs"
         let cleanOutput = try await runBash(
             "LOG_PREFIX=lane; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
-                + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)'; "
+                + "export LANE_EVENT_STREAM_DIR='\(cleanDirectory)' LANE_EVENT_STREAM_RETAIN_ALWAYS=0; "
                 + "source scripts/swift-test-helpers.sh; "
                 + "run_swift_with_timeout 'clean probe' 60 /bin/bash -c 'echo CLEAN_RUN_OK'; "
-                + "echo \"LEDGERS=$(ls -1 '\(cleanDirectory)' 2>/dev/null | wc -l | tr -d '[:space:]')\""
+                + "echo \"LEDGERS=$(find '\(cleanDirectory)' -name '*.events.jsonl' | wc -l | tr -d '[:space:]')\"; "
+                + "echo \"TIMINGS=$(find '\(cleanDirectory)' -name '*.timing.json' | wc -l | tr -d '[:space:]')\""
         )
 
         // A run that ended cleanly has nothing to explain, so it keeps nothing.
         #expect(cleanOutput.contains("CLEAN_RUN_OK"))
         #expect(cleanOutput.contains("LEDGERS=0"))
+        #expect(cleanOutput.contains("TIMINGS=1"))
     }
 
     @Test("an isolated suite filter matches its type, never a file named after it")
@@ -351,27 +605,52 @@ struct SwiftLaneRunnerReportTests {
     func everyIsolatedPerProcessInvocationAnchorsItsSuiteFilter() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
 
-        // The three places that start one process for one suite must all go
-        // through the helper; a bare name at any of them reopens the crash.
+        // Fast and large isolated suites share one anchored invocation.
         #expect(
             helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$aggregate_serial_suite_filter\")\""
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$suite_filter\")\""
             ))
+        let fastProcessInvocation = try shellFunction(
+            named: "run_fast_serial_process_swift_tests",
+            in: helperScript
+        )
         #expect(
-            helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
+            fastProcessInvocation.contains(
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$fast_process_global_suite_filter\")\""
             ))
-        #expect(
-            helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$(fast_serial_process_filter_pattern)\")\""
-            ))
-        // The fast lane's skip is the mirror of the same defect.
-        #expect(helperScript.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
-        // Substring families must NOT be anchored: they match many suites by
-        // prefix, and anchoring them would drop whole suites out of their lane.
+        let webKitInvocation = try shellFunction(named: "run_webkit_suite", in: helperScript)
+        #expect(webKitInvocation.contains("--filter \"$filter\""))
+        // Fast skips are generated from exact lane ownership, with the
+        // aggregate isolated suites anchored by their own suite-type filters.
+        #expect(helperScript.contains("--skip \"$fast_lane_skip_pattern\""))
+        let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
+        #expect(fastRunner.contains("if ! fast_lane_skip_pattern=\"$(fast_non_webkit_skip_pattern)\"; then"))
         let skipBuilder = try shellFunction(named: "fast_non_webkit_skip_pattern", in: helperScript)
-        #expect(skipBuilder.contains("\"$(large_non_webkit_filter_pattern)\""))
-        #expect(!skipBuilder.contains("swift_test_isolated_suite_skip_pattern \"$(large_non_webkit_filter_pattern)\""))
+        #expect(skipBuilder.contains("$(swift_test_lane_fast_concurrent_skip_pattern)"))
+        #expect(
+            skipBuilder.contains(
+                "if ! aggregate_serial_skip_filters=\"$(aggregate_serial_non_webkit_filter_pattern)\"; then"))
+        #expect(
+            skipBuilder.contains(
+                "printf '%s|%s' \"$fast_lane_skip_filters\" \"$aggregate_serial_skip_filters\""
+            ))
+        #expect(!skipBuilder.contains("swift_test_isolated_suite_skip_pattern"))
+        #expect(!skipBuilder.contains("large_non_webkit_filter_pattern"))
+    }
+
+    @Test("generated lane filters match only real test IDs in their lane")
+    func generatedLaneFiltersMatchOnlyRealTestIds() async throws {
+        let output = try await runBash(generatedLaneFilterBehaviorProbe)
+
+        // The probe uses Swift Testing-shaped IDs from the real targets and Bash
+        // ERE matching, the same regex dialect the lane filters are consumed as.
+        guard output.contains("LANE_FILTER_BEHAVIOR_OK generators=9") else { return }
+        #expect(output.contains("MATCH_OK fast-skip"))
+        #expect(output.contains("MATCH_OK fast-concurrent-filter"))
+        #expect(output.contains("MATCH_OK large-process-global"))
+        #expect(output.contains("MATCH_OK aggregate-serial"))
+        #expect(output.contains("MATCH_OK webkit-list"))
+        #expect(output.contains("LANE_FILTER_BEHAVIOR_OK generators=9"))
     }
 
     @Test("a clean lane reports zero failed isolated suites")
@@ -477,12 +756,27 @@ struct SwiftLaneRunnerReportTests {
         #expect(concurrency >= 1)
     }
 
-    @Test("started-test counter tracks posted start events, not the cap")
-    func startedTestCounterTracksPostedStartEvents() async throws {
+    @Test("WebKit process fan-out stays at one for time-coupled Bridge waits")
+    func webkitProcessFanOutStaysAtOneForTimeCoupledBridgeWaits() async throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let concurrencyFunction = try shellFunction(
+            named: "swift_test_webkit_process_concurrency",
+            in: helperScript
+        )
+        let observedConcurrency = try await runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_webkit_process_concurrency"
+        )
+
+        #expect(concurrencyFunction.contains("SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY"))
+        #expect(observedConcurrency.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
+    }
+
+    @Test("announced-test counter tracks posted start events, not the cap")
+    func announcedTestCounterTracksPostedStartEvents() async throws {
         // a and b overlap (peak 2), a closes, then c opens (2 again). The
         // run-level and suite-level events are not tests.
         let observedPeak = try await runBash(
-            "source scripts/swift-test-helpers.sh; swift_test_peak_started_from_output "
+            "source scripts/swift-test-helpers.sh; swift_test_peak_announced_from_output "
                 + "<(printf '◇ Test run started.\\n"
                 + "◇ Suite \"S\" started.\\n"
                 + "◇ Test \"a\" started.\\n"
@@ -543,7 +837,9 @@ struct SwiftLaneRunnerReportTests {
     }
 }
 
-/// Every `lane-report <label>=` key the shell scripts can emit, sorted.
+/// Every `lane-report <label>=` key the shell scripts can emit, sorted. A label
+/// followed by fields (`held_step_unarrived name=… test=…`) counts too; prose
+/// such as "lane-report prefix as" does not.
 private func laneReportLabels(in script: String) -> [String] {
     let marker = "lane-report "
     var labels: Set<String> = []
@@ -551,7 +847,12 @@ private func laneReportLabels(in script: String) -> [String] {
     for line in script.split(separator: "\n") {
         guard let markerRange = line.range(of: marker) else { continue }
         let label = line[markerRange.upperBound...].prefix { $0.isLowercase || $0 == "_" }
-        guard !label.isEmpty, line[markerRange.upperBound...].dropFirst(label.count).first == "=" else { continue }
+        let afterLabel = line[markerRange.upperBound...].dropFirst(label.count)
+        let firstFieldName = afterLabel.dropFirst().prefix { $0.isLowercase || $0 == "_" }
+        let startsFields =
+            afterLabel.first == " " && !firstFieldName.isEmpty
+            && afterLabel.dropFirst(1 + firstFieldName.count).first == "="
+        guard !label.isEmpty, afterLabel.first == "=" || startsFields else { continue }
         labels.insert(String(label))
     }
     return labels.sorted()
@@ -588,7 +889,7 @@ private func namedBlock(startingWith marker: String, endingBefore terminator: St
 }
 
 private func runBash(_ command: String) async throws -> String {
-    let result = try await runBashCommand(command)
+    let result = try await runLaneScriptBash(command)
     #expect(result.exitCode == 0, Comment(rawValue: result.output))
     return result.output
 }
@@ -596,42 +897,11 @@ private func runBash(_ command: String) async throws -> String {
 /// Like `runBash`, but for scripts that deliberately fail: these tests drive
 /// crashing children, so a non-zero status is the expected outcome.
 private func runBashAllowingFailure(_ command: String) async throws -> String {
-    (try await runBashCommand(command)).output
+    (try await runLaneScriptBash(command)).output
 }
 
 private func runBashStatus(_ command: String) async throws -> Int32 {
-    (try await runBashCommand(command)).exitCode
-}
-
-private func runBashCommand(_ command: String) async throws -> BashCommandResult {
-    try await withoutBlockingCooperativePool {
-        let outputURL = FileManager.default.temporaryDirectory
-            .appending(path: "swift-lane-runner-output-\(UUIDv7.generate().uuidString).log")
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer {
-            try? outputHandle.close()
-            try? FileManager.default.removeItem(at: outputURL)
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", command]
-        process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.standardOutput = outputHandle
-        process.standardError = outputHandle
-        try process.run()
-        process.waitUntilExit()
-        try outputHandle.close()
-        return BashCommandResult(
-            exitCode: process.terminationStatus,
-            output: try String(contentsOf: outputURL, encoding: .utf8)
-        )
-    }
-}
-
-private struct BashCommandResult: Sendable {
-    let exitCode: Int32
-    let output: String
+    (try await runLaneScriptBash(command)).exitCode
 }
 
 private enum SwiftLaneRunnerReportError: Error {

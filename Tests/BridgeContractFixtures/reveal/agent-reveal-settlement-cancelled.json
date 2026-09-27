@@ -1,0 +1,6 @@
+{
+  "union": "BridgeAgentRevealSettlement",
+  "value": {
+    "kind": "cancelled"
+  }
+}

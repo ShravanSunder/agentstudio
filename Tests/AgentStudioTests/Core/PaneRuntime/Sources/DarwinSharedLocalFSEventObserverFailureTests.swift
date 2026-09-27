@@ -377,10 +377,10 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
         let client = DarwinFSEventStreamClient(localStreamFactory: streamFactory.makeStream)
         defer { client.shutdown() }
         let repositoryId = UUIDv7.generate()
-        client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: firstRoot)
+        _ = client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: firstRoot)
 
         // Act
-        client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: secondRoot)
+        _ = client.register(worktreeId: UUIDv7.generate(), repoId: repositoryId, rootPath: secondRoot)
 
         // Assert
         #expect(streamFactory.rootChangedCallbackCompletedDuringFlush)
@@ -460,8 +460,8 @@ struct DarwinSharedLocalFSEventObserverFailureTests {
         let repositoryId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
-        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
-        client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
+        _ = client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstRoot)
+        _ = client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondRoot)
         let fenceConsumer = Task {
             for await ingressItem in client.events() {
                 guard case .activityProcessingFence(let fenceID) = ingressItem else { continue }
@@ -638,11 +638,14 @@ private final class RootChangeDuringFlushLocalFSEventStreamFactory: @unchecked S
                     ])
                     callbackCompleted.signal()
                 }
-                let didComplete = callbackCompleted.wait(timeout: .now() + 1) == .success
+                // Untimed: if flush held a lock the event handler needs, this deadlocks and
+                // the lane's hang bound reports it; a deadline here would also fail correct
+                // code whenever the callback queue ran late.
+                callbackCompleted.wait()
                 self.lock.withLock {
-                    self.callbackCompletedDuringFlush = didComplete
+                    self.callbackCompletedDuringFlush = true
                 }
-                return didComplete
+                return true
             }
         )
     }

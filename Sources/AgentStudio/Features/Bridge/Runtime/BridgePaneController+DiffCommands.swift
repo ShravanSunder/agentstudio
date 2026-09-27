@@ -437,6 +437,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 activeTarget: activeTarget,
                 reviewGeneration: reset.reviewGeneration.rawValue
             )
+            // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
             _ = scheduleProductPresentationPublication()
         }
         return reset
@@ -803,6 +804,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 revision: package.revision
             )
         )
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
     }
 
@@ -816,6 +818,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             failureKind: failureKind,
             retryable: retryable
         )
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
     }
 

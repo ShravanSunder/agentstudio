@@ -4,7 +4,7 @@ import Testing
 @Suite("Observability beta launcher duplicate runtime scripts")
 struct ObservabilityBetaLauncherDuplicateRuntimeTests {
     @Test("beta launcher refuses running beta from a different bundle path")
-    func betaLauncherRefusesAnyRunningBetaRuntime() throws {
+    func betaLauncherRefusesAnyRunningBetaRuntime() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let selectedApp = try fixture.makeAppBundle(name: "Selected AgentStudio Beta.app", releaseChannel: "beta")
@@ -12,7 +12,7 @@ struct ObservabilityBetaLauncherDuplicateRuntimeTests {
         let openMarker = fixture.url("open-called")
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-observability.sh",
             arguments: ["--app", selectedApp.path, "--detach"],
             environment: [
@@ -50,13 +50,13 @@ struct ObservabilityBetaLauncherDuplicateRuntimeTests {
     }
 
     @Test("beta launcher fails closed when running process attribution is unavailable")
-    func betaLauncherFailsClosedWhenRunningProcessAttributionIsUnavailable() throws {
+    func betaLauncherFailsClosedWhenRunningProcessAttributionIsUnavailable() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let selectedApp = try fixture.makeAppBundle(name: "Selected AgentStudio Beta.app", releaseChannel: "beta")
         let stateFile = fixture.url("latest.env")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-observability.sh",
             arguments: ["--app", selectedApp.path, "--detach"],
             environment: [

@@ -16,6 +16,7 @@ package enum AppEntityIcon: Equatable {
         case tray
         case clock
         case pin
+        case house
     }
 
     enum OcticonSymbol: String, Equatable {
@@ -36,6 +37,7 @@ package enum AppEntityIcon: Equatable {
     case otherSources
     case activity
     case pin
+    case home
 
     var symbol: Symbol {
         switch self {
@@ -51,6 +53,8 @@ package enum AppEntityIcon: Equatable {
             return .system(.squareStackFill)
         case .workspace:
             return .system(.building2)
+        case .home:
+            return .system(.house)
         case .otherSources:
             return .system(.tray)
         case .activity:
@@ -72,6 +76,7 @@ package enum AppEntityIcon: Equatable {
     /// `foregroundOverride` wins over the icon's own baked style. SwiftUI resolves the innermost
     /// `foregroundStyle`, so callers that need a selection color (e.g. the grouping segmented
     /// control) cannot override from outside this view; the override must be applied here.
+    @MainActor
     @ViewBuilder
     package func swiftUIImage(
         loader: OcticonLoader,
@@ -79,7 +84,7 @@ package enum AppEntityIcon: Equatable {
         foregroundOverride: Color? = nil
     ) -> some View {
         switch self {
-        case .pane, .drawer, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity, .pin:
+        case .pane, .drawer, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity, .pin, .home:
             Image(systemName: symbolName)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(foregroundOverride ?? foregroundStyle)
@@ -92,6 +97,7 @@ package enum AppEntityIcon: Equatable {
 
     /// Font-sized SF Symbols have different intrinsic bounds. Group headers use
     /// the same bounded glyph box for both symbol and Octicon sources.
+    @MainActor
     @ViewBuilder
     func groupHeaderImage(loader: OcticonLoader) -> some View {
         let size = AppStyles.Shell.Sidebar.groupIconSize
@@ -115,7 +121,7 @@ package enum AppEntityIcon: Equatable {
             return Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
         case .tabGroup:
             return AppStyles.Shell.Sidebar.tabGroupIconColor
-        case .repo, .pane, .drawer, .paneGroup, .tab, .workspace, .otherSources, .activity, .pin:
+        case .repo, .pane, .drawer, .paneGroup, .tab, .workspace, .otherSources, .activity, .pin, .home:
             return .secondary
         }
     }
@@ -125,7 +131,7 @@ package enum AppEntityIcon: Equatable {
         case .checkout(_, let isMain):
             return isMain ? 0 : 180
         case .repo, .coloredRepo, .pane, .drawer, .paneGroup, .tab, .tabGroup, .workspace, .otherSources, .activity,
-            .pin:
+            .pin, .home:
             return 0
         }
     }

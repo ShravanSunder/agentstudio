@@ -1,0 +1,169 @@
+name: CI / Swift width comparison
+
+# An experiment, not a pull-request gate: one prebuild, then the fast lane at
+# width 3 (this runner's core count) and with the width unset, on that one bundle.
+# Both receipts and every event-stream ledger are kept whether each half passes or
+# fails. Neither result changes the default width, which stays unset.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The first-attempt gate reads a pull request's live labels.
+  issues: read
+
+jobs:
+  swift-width-comparison:
+    name: Swift width comparison
+    runs-on: macos-26
+    env:
+      SWIFT_BUILD_DIR: .build-ci
+      XCB_EXTRA_ARGS: "--renderer github-actions"
+
+    steps:
+      # The same first-attempt gate every ci.yml job starts with, copied because
+      # YAML anchors cannot cross files; CIFirstAttemptGateWorkflowTests pins the
+      # copy to the ci.yml step. A re-run of a dispatch has no pull request, so
+      # it fails here: a new comparison is a new dispatch.
+      - name: First-attempt gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          override_label=ci-rerun-approved
+          if [ "$RUN_ATTEMPT" -le 1 ]; then
+            echo "first-attempt gate: attempt $RUN_ATTEMPT, nothing to check"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" != "pull_request" ] || [ -z "${PULL_REQUEST_NUMBER:-}" ]; then
+            echo "::error::Re-run attempt $RUN_ATTEMPT of a $EVENT_NAME run is refused: only a pull request carrying the '$override_label' label may be re-run. Diagnose the red run and start a new one instead."
+            exit 1
+          fi
+          if ! labels="$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --jq '.[].name' 2>&1)"; then
+            echo "::error::Re-run attempt $RUN_ATTEMPT refused: the labels of PR #$PULL_REQUEST_NUMBER could not be read, and the gate fails closed. $labels"
+            exit 1
+          fi
+          if grep -Fxq -- "$override_label" <<<"$labels"; then
+            echo "first-attempt gate: re-run attempt $RUN_ATTEMPT allowed by the '$override_label' label on PR #$PULL_REQUEST_NUMBER"
+            exit 0
+          fi
+          echo "::error::Re-run attempt $RUN_ATTEMPT refused: a red run is diagnosed, not re-run. Add the '$override_label' label to PR #$PULL_REQUEST_NUMBER to allow this re-run."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        id: select-xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.6"
+
+      - name: Setup mise
+        uses: jdx/mise-action@v3
+        with:
+          cache_save: false
+
+      - name: Get submodule SHAs
+        id: submodules
+        run: |
+          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
+          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
+          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
+          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.14.0
+
+      - name: Setup Node for BridgeWeb
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+
+      - name: Install BridgeWeb dependencies
+        run: pnpm --dir BridgeWeb install --frozen-lockfile
+
+      - name: Cache Zig compilation
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/zig
+            vendor/ghostty/.zig-cache
+            vendor/zmx/.zig-cache
+          key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+          restore-keys: |
+            zig-compile-${{ runner.os }}-
+
+      - name: Cache Ghostty artifacts
+        id: cache-ghostty
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vendor/ghostty/macos/GhosttyKit.xcframework
+            vendor/ghostty/zig-out/share
+          key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
+
+      - name: Cache zmx artifacts
+        id: cache-zmx
+        uses: actions/cache/restore@v4
+        with:
+          path: vendor/zmx/zig-out
+          key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
+
+      - name: BridgeWeb packaged build
+        run: pnpm --dir BridgeWeb run build
+
+      - name: Build Ghostty XCFramework
+        if: steps.cache-ghostty.outputs.cache-hit != 'true'
+        run: |
+          cd vendor/ghostty
+          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
+
+      - name: Build zmx
+        if: steps.cache-zmx.outputs.cache-hit != 'true'
+        run: |
+          mise run --skip-deps build-zmx
+
+      - name: Copy XCFramework
+        run: |
+          mise run --skip-deps copy-xcframework
+
+      - name: Setup dev resources
+        run: |
+          SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+          SHELL_DST="Sources/AgentStudio/Resources/ghostty/shell-integration"
+          if [ ! -d "$SHELL_DST" ]; then
+            mkdir -p "$(dirname "$SHELL_DST")"
+            cp -R "$SHELL_SRC" "$SHELL_DST"
+          fi
+          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+          TERMINFO_DST="Sources/AgentStudio/Resources/terminfo"
+          if [ ! -d "$TERMINFO_DST/78" ]; then
+            mkdir -p "$TERMINFO_DST/78" "$TERMINFO_DST/67"
+            [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
+            [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
+          fi
+
+      - name: Run width comparison
+        env:
+          SWIFT_TEST_TIMEOUT_SECONDS: "600"
+          SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "1200"
+          _XCB_BYPASS: "1"
+        run: mise run --skip-deps --raw test:swift:width-comparison
+
+      - name: Upload width comparison receipts and ledgers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-width-comparison-${{ github.run_id }}
+          path: tmp/plan-workflows/ci-runs/width-comparison/
+          if-no-files-found: warn

@@ -28,12 +28,12 @@ extension WorkspaceSurfaceCoordinator {
             shouldUnregisterRuntime: shouldUnregisterRuntime
         )
         guard bridgePaneRetirementTasksByPaneId[paneId] == nil else { return }
-        let initialRetirementAttempt = controller.teardown()
+        let initialRetirementAttempt = controller.beginTeardown()
         let retirementTask = Task { @MainActor [self, controller] in
             var retirementAttempt = initialRetirementAttempt
             while !(await retirementAttempt.value) {
                 await Task.yield()
-                retirementAttempt = controller.teardown()
+                retirementAttempt = controller.beginTeardown()
             }
             let shouldUnregisterRuntime =
                 bridgePaneRetirementsRequiringRuntimeUnregister.contains(paneId)

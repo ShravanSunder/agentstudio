@@ -2,6 +2,7 @@ import AgentStudioGit
 import AgentStudioTestSupport
 import CoreServices
 import Foundation
+import Testing
 
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
@@ -16,7 +17,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
     let unrelatedSiblingPath: URL
     let nativeStreamRecorder: NativeSharedExactItemStreamRecorder
     let readRecorder = GitPhysicalReadRecorder()
-    let provider: AgentStudioGitWorkingTreeStatusProvider
 
     private let fixtureRoot: URL
     private let streamClient: DarwinFSEventStreamClient
@@ -75,12 +75,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             sharedExactItemStreamFactory: nativeStreamRecorder.makeStream
         )
         gitClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient()
-        provider = Self.makeProvider(
-            continuityWitness: streamClient,
-            readRecorder: readRecorder,
-            exactItemParent: exactItemParent,
-            gitClient: gitClient
-        )
 
         let (forwardedIngress, forwardedIngressContinuation) = AsyncStream.makeStream(
             of: FSEventIngressItem.self,
@@ -101,12 +95,12 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             forwardedIngressContinuation.finish()
         }
 
-        streamClient.register(
+        _ = streamClient.register(
             worktreeId: firstWorktreeId,
             repoId: UUIDv7.generate(),
             rootPath: firstRepositoryPath
         )
-        streamClient.register(
+        _ = streamClient.register(
             worktreeId: secondWorktreeId,
             repoId: UUIDv7.generate(),
             rootPath: secondRepositoryPath
@@ -116,51 +110,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         } catch {
             remove()
             throw error
-        }
-    }
-
-    func establishAuthority(
-        worktreeId: UUID,
-        repositoryPath: URL
-    ) async -> GitCleanContinuityAuthority? {
-        let worktreeLabel =
-            if worktreeId == firstWorktreeId {
-                "first"
-            } else if worktreeId == secondWorktreeId {
-                "second"
-            } else {
-                "unknown"
-            }
-        let result = await provider.exactCleanStatusFactsResult(
-            for: worktreeId,
-            rootPath: repositoryPath
-        )
-        switch result {
-        case .available(let facts):
-            guard let authority = facts.exactCleanAuthority else {
-                print(
-                    "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                        + "outcome=available_without_authority"
-                )
-                return nil
-            }
-            print(
-                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                    + "outcome=authoritative"
-            )
-            return authority
-        case .requiresExact(let reason):
-            print(
-                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                    + "outcome=requires_exact reason=\(reason.rawValue)"
-            )
-            return nil
-        case .unavailable(let unavailable):
-            print(
-                "[darwin-shared-exact-item] authority label=\(worktreeLabel) "
-                    + "outcome=unavailable reason=\(unavailable.reason.rawValue)"
-            )
-            return nil
         }
     }
 
@@ -185,26 +134,44 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         }
     }
 
-    /// Waits until everything the kernel had already queued has been delivered
-    /// AND recorded in the continuity ledger.
-    ///
-    /// This is the production drain fence six sibling suites already use, not a
-    /// test-local invention: it flushes every shared exact-item and local physical
-    /// stream, pushes an activity-processing fence through the ingress buffer, and
-    /// re-validates stream generations and the shared topology revision, returning
-    /// nil if anything moved underneath it. Because the ledger is written from the
-    /// raw callback, a returned barrier means no setup-generated event is still in
-    /// flight to bump `mutationEpoch` behind the test's back.
-    ///
-    /// `streamClient` stays private; the barrier is exposed as behaviour instead.
+    func armLocalSentinelCallback(
+        at sentinelPath: URL,
+        for worktreeId: UUID
+    ) -> Task<FSEventBatch?, Never> {
+        let expectedPath = DarwinFSEventPathCanonicalizer.canonicalURL(sentinelPath).path
+        let forwardedIngress = forwardedIngress
+        return Task {
+            for await ingressItem in forwardedIngress {
+                guard case .batch(let batch) = ingressItem,
+                    batch.worktreeId == worktreeId,
+                    batch.paths.contains(where: {
+                        DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath($0)
+                            == expectedPath
+                    })
+                else {
+                    continue
+                }
+                return batch
+            }
+            return nil
+        }
+    }
+
+    /// Captures the production activity fence for the currently installed streams.
+    /// It checks the bindings and activity already delivered through the fence; a
+    /// later callback can still report earlier filesystem activity.
     func awaitActivityBarrier() async -> Bool {
-        guard let barrier = await streamClient.captureActivityBarrier() else { return false }
+        await captureActivityBarrier() != nil
+    }
+
+    private func captureActivityBarrier() async -> FSEventActivityBarrier? {
+        guard let barrier = await streamClient.captureActivityBarrier() else { return nil }
 
         let expectedWorktreeIds: Set<UUID> = [firstWorktreeId, secondWorktreeId]
         let localBindings = barrier.bindings.filter {
             $0.participant.scopeKey == "local:\($0.worktreeId.uuidString)"
         }
-        guard Set(localBindings.map(\.worktreeId)) == expectedWorktreeIds else { return false }
+        guard Set(localBindings.map(\.worktreeId)) == expectedWorktreeIds else { return nil }
 
         let currentParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(
             exactItemParent.currentURL
@@ -213,13 +180,14 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             let volumeSystemNumber = DarwinFSEventBindingPlanner.volumeSystemNumber(
                 for: currentParentPath
             )
-        else { return false }
+        else { return nil }
         let expectedSharedScopeKey = "shared:\(volumeSystemNumber):\(currentParentPath)"
         let sharedBindings = barrier.bindings.filter {
             $0.participant.scopeKey == expectedSharedScopeKey
         }
-        guard Set(sharedBindings.map(\.worktreeId)) == expectedWorktreeIds else { return false }
-        return Set(sharedBindings.map(\.participant)).count == 1
+        guard Set(sharedBindings.map(\.worktreeId)) == expectedWorktreeIds else { return nil }
+        guard Set(sharedBindings.map(\.participant)).count == 1 else { return nil }
+        return barrier
     }
 
     /// Drives real activity through each freshly bound stream and waits for it to
@@ -361,7 +329,7 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
             (secondWorktreeId, secondRepositoryPath),
         ] {
             streamClient.unregister(worktreeId: worktreeId)
-            streamClient.register(
+            _ = streamClient.register(
                 worktreeId: worktreeId,
                 repoId: UUIDv7.generate(),
                 rootPath: repositoryPath
@@ -387,11 +355,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         }
     }
 
-    func requiresExact(_ result: GitExactCleanRenewalResult) -> Bool {
-        guard case .requiresExact = result else { return false }
-        return true
-    }
-
     func remove() {
         streamClient.shutdown()
         ingressTask?.cancel()
@@ -415,63 +378,6 @@ final class SharedExactItemRealStreamFixture: @unchecked Sendable {
         try await git.run(["add", "README.md"])
         try await git.run(["commit", "-m", "initial"])
         try await git.run(["config", "core.excludesFile", excludesFilePath.path])
-    }
-
-    private static func makeProvider(
-        continuityWitness: DarwinFSEventStreamClient,
-        readRecorder: GitPhysicalReadRecorder,
-        exactItemParent: SharedExactItemParent,
-        gitClient: AgentStudioGit.LibGit2AgentStudioGitLocalClient
-    ) -> AgentStudioGitWorkingTreeStatusProvider {
-        AgentStudioGitWorkingTreeStatusProvider(
-            physicalGate: AgentStudioGitStatusPhysicalGate(),
-            continuityWitness: continuityWitness,
-            statusObservationPlanReader: { repositoryPath in
-                try await filteredObservationPlan(
-                    repositoryPath: repositoryPath,
-                    exactItemParent: exactItemParent,
-                    gitClient: gitClient,
-                    readRecorder: readRecorder
-                )
-            },
-            verifiedStatusFactsReader: { repositoryPath, options, observationPlan in
-                readRecorder.recordVerifiedFactsRead()
-                let resolvedPlan = try await gitClient.statusObservationPlan(for: repositoryPath)
-                let resolvedRead = try await gitClient.statusFacts(
-                    for: repositoryPath,
-                    options: options,
-                    observationPlan: resolvedPlan
-                )
-                return AgentStudioGit.GitStatusFactsRead(
-                    facts: resolvedRead.facts,
-                    exactCleanBaseline: resolvedRead.exactCleanBaseline.flatMap { _ in
-                        observationPlan.map {
-                            AgentStudioGit.GitExactCleanBaseline(
-                                observationIdentity: $0.identity
-                            )
-                        }
-                    }
-                )
-            },
-            statusFactsReader: { repositoryPath, options in
-                readRecorder.recordOrdinaryFactsRead()
-                return try await gitClient.statusFacts(
-                    for: repositoryPath,
-                    options: options
-                ).facts
-            },
-            lineDetailReader: { repositoryPath in
-                readRecorder.recordLineDetailRead()
-                return try await gitClient.exactLineCountDetail(for: repositoryPath)
-            },
-            statusReader: { repositoryPath, options in
-                readRecorder.recordCompleteStatusRead()
-                return try await gitClient.completeStatus(
-                    for: repositoryPath,
-                    options: options
-                )
-            }
-        )
     }
 
     private func installIntendedObservationBindings() async throws {
@@ -603,72 +509,6 @@ final class SharedExactItemParent: @unchecked Sendable {
     }
 }
 
-final class NativeSharedExactItemStreamRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let nativeSharedStreamIsEnabled: Bool
-    private let callbackEvents: AsyncStream<DarwinSharedExactItemRawEvent>
-    private let callbackEventsContinuation: AsyncStream<DarwinSharedExactItemRawEvent>.Continuation
-    private var startCountByParentPath: [String: Int] = [:]
-
-    init(nativeSharedStreamIsEnabled: Bool) {
-        self.nativeSharedStreamIsEnabled = nativeSharedStreamIsEnabled
-        (callbackEvents, callbackEventsContinuation) = AsyncStream.makeStream(
-            of: DarwinSharedExactItemRawEvent.self,
-            bufferingPolicy: .bufferingNewest(32)
-        )
-    }
-
-    func startCount(forParentPath parentPath: String) -> Int {
-        lock.withLock { startCountByParentPath[parentPath, default: 0] }
-    }
-
-    func makeStream(
-        parentKey: DarwinSharedExactItemParentKey,
-        streamGeneration: UInt64,
-        eventHandler: @escaping @Sendable ([DarwinSharedExactItemRawEvent]) -> Void
-    ) -> (any DarwinSharedExactItemStreamLifetime)? {
-        lock.withLock {
-            startCountByParentPath[parentKey.parentPath, default: 0] += 1
-        }
-        guard nativeSharedStreamIsEnabled else { return nil }
-        return DarwinSharedExactItemNativeStream.start(
-            parentKey: parentKey,
-            streamGeneration: streamGeneration,
-            eventHandler: { [weak self] rawEvents in
-                eventHandler(rawEvents)
-                for rawEvent in rawEvents {
-                    self?.callbackEventsContinuation.yield(rawEvent)
-                }
-            }
-        )
-    }
-
-    func waitForCallback(at expectedPath: String) async {
-        for await event in callbackEvents
-        where DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path) == expectedPath {
-            return
-        }
-    }
-
-    func waitForCallback(under parentPath: String) async {
-        for await event in callbackEvents {
-            let normalizedPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(
-                event.path
-            )
-            if normalizedPath == parentPath || normalizedPath.hasPrefix(parentPath + "/") {
-                return
-            }
-        }
-    }
-
-    func waitForRootChangedCallback() async {
-        for await event in callbackEvents
-        where event.flags & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0 {
-            return
-        }
-    }
-}
-
 struct GitPhysicalReadSnapshot: Sendable, Equatable {
     let observationPlanReadCount: Int
     let verifiedFactsReadCount: Int
@@ -777,4 +617,41 @@ private struct IsolatedGitProcessError: Error {
     let arguments: [String]
     let exitCode: Int32
     let errorText: String
+}
+
+extension NativeSharedExactItemStreamRecorder {
+    func waitForCallback(at expectedPath: String) async {
+        _ = await waitForCallbackEvent(at: expectedPath)
+    }
+
+    func waitForCallbackEvent(at expectedPath: String) async -> UInt64? {
+        for await event in callbackEvents {
+            guard
+                DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(event.path)
+                    == expectedPath
+            else {
+                continue
+            }
+            return UInt64(event.eventId)
+        }
+        return nil
+    }
+
+    func waitForCallback(under parentPath: String) async {
+        for await event in callbackEvents {
+            let normalizedPath = DarwinFSEventPathNormalizer.lexicallyNormalizedAbsolutePath(
+                event.path
+            )
+            if normalizedPath == parentPath || normalizedPath.hasPrefix(parentPath + "/") {
+                return
+            }
+        }
+    }
+
+    func waitForRootChangedCallback() async {
+        for await event in callbackEvents
+        where event.flags & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0 {
+            return
+        }
+    }
 }

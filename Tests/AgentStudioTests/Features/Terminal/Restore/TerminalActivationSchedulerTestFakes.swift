@@ -365,7 +365,7 @@ final class ReentrantAcceptGeometryAdmissionPort: FakeTerminalActivationAdmissio
             Task { [weak self] in
                 guard let self else { return }
                 let accepted = await scheduler.acceptLaterGeometry(for: [lateArrivingPaneID])
-                await self.recordAcceptedLateArrivals(accepted)
+                self.recordAcceptedLateArrivals(accepted)
             }
         }
         return .attempted(.ready(surfaceID: UUIDv7.generate()))

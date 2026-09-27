@@ -41,6 +41,9 @@ enum AgentStudioBridgeDevelopmentServerMain {
                     configuration: configuration.applicationConfiguration,
                     healthIsReady: {
                         await runtime.healthIsReady()
+                    },
+                    onServerRunning: { channel in
+                        BridgeDevelopmentServerReadinessAnnouncement.announce(boundTo: channel)
                     }
                 )
                 let serviceGroup = ServiceGroup(

@@ -27,12 +27,7 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
 	},
 });
 
-const allowedConsoleErrorSubstrings: readonly string[] = [
-	'flushSync was called from inside a lifecycle method',
-];
-
 let browserFailureMessages: string[] = [];
-let originalConsoleError: typeof console.error | null = null;
 let windowErrorListener: ((event: ErrorEvent) => void) | null = null;
 let unhandledRejectionListener: ((event: PromiseRejectionEvent) => void) | null = null;
 
@@ -57,15 +52,9 @@ afterEach(async (): Promise<void> => {
 	}
 });
 
+// console.error is guarded by ./console-error-guard.ts, which every BridgeWeb
+// suite loads first; this module adds the browser-only window error channels.
 function installBridgeViewerFailureGuards(): void {
-	originalConsoleError = console.error;
-	console.error = (...args: readonly unknown[]): void => {
-		const message = args.map((arg: unknown): string => stringifyGuardValue(arg)).join(' ');
-		if (!isAllowedConsoleError(message)) {
-			browserFailureMessages.push(`console.error: ${message}`);
-		}
-		originalConsoleError?.(...args);
-	};
 	windowErrorListener = (event: ErrorEvent): void => {
 		browserFailureMessages.push(`window.error: ${event.message}`);
 	};
@@ -77,10 +66,6 @@ function installBridgeViewerFailureGuards(): void {
 }
 
 function uninstallBridgeViewerFailureGuards(): void {
-	if (originalConsoleError !== null) {
-		console.error = originalConsoleError;
-		originalConsoleError = null;
-	}
 	if (windowErrorListener !== null) {
 		window.removeEventListener('error', windowErrorListener);
 		windowErrorListener = null;
@@ -89,12 +74,6 @@ function uninstallBridgeViewerFailureGuards(): void {
 		window.removeEventListener('unhandledrejection', unhandledRejectionListener);
 		unhandledRejectionListener = null;
 	}
-}
-
-function isAllowedConsoleError(message: string): boolean {
-	return allowedConsoleErrorSubstrings.some((allowedSubstring: string): boolean =>
-		message.includes(allowedSubstring),
-	);
 }
 
 function stringifyGuardValue(value: unknown): string {

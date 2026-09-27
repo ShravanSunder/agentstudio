@@ -24,9 +24,9 @@ struct DarwinSharedLocalFSEventObserverTests {
         let rootRegistrationId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
-        client.register(worktreeId: rootRegistrationId, repoId: repositoryId, rootPath: fixtureRoot)
-        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstWorktreeRoot)
-        client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondWorktreeRoot)
+        _ = client.register(worktreeId: rootRegistrationId, repoId: repositoryId, rootPath: fixtureRoot)
+        _ = client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstWorktreeRoot)
+        _ = client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondWorktreeRoot)
         let firstCreatedFile = firstWorktreeRoot.appending(path: "first.txt")
         let secondCreatedFile = secondWorktreeRoot.appending(path: "second.txt")
         let deliveryTask = Task<Set<UUID>?, Never> {
@@ -84,8 +84,8 @@ struct DarwinSharedLocalFSEventObserverTests {
         let repositoryId = UUIDv7.generate()
         let parentWorktreeId = UUIDv7.generate()
         let descendantWorktreeId = UUIDv7.generate()
-        client.register(worktreeId: parentWorktreeId, repoId: repositoryId, rootPath: fixtureRoot)
-        client.register(worktreeId: descendantWorktreeId, repoId: repositoryId, rootPath: descendantRoot)
+        _ = client.register(worktreeId: parentWorktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        _ = client.register(worktreeId: descendantWorktreeId, repoId: repositoryId, rootPath: descendantRoot)
         let readinessSentinel = descendantRoot.appending(path: "native-stream-ready.sentinel")
         let canonicalReadinessSentinel = DarwinFSEventPathCanonicalizer.canonicalURL(readinessSentinel).path
         let readinessTask = Task<FSEventBatch?, Never> {
@@ -161,13 +161,13 @@ struct DarwinSharedLocalFSEventObserverTests {
         let repositoryId = UUIDv7.generate()
 
         // Act
-        client.register(
+        _ = client.register(
             worktreeId: UUIDv7.generate(),
             repoId: repositoryId,
             rootPath: fixtureRoot
         )
         for index in 0..<100 {
-            client.register(
+            _ = client.register(
                 worktreeId: UUIDv7.generate(),
                 repoId: repositoryId,
                 rootPath: fixtureRoot.appending(path: "worktree-\(index)", directoryHint: .isDirectory)
@@ -195,7 +195,7 @@ struct DarwinSharedLocalFSEventObserverTests {
 
         // Act
         for index in 0..<32 {
-            client.register(
+            _ = client.register(
                 worktreeId: UUIDv7.generate(),
                 repoId: repositoryId,
                 rootPath: fixtureRoot.appending(path: "worktree-\(index)", directoryHint: .isDirectory)
@@ -223,8 +223,8 @@ struct DarwinSharedLocalFSEventObserverTests {
         let repositoryId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
-        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: fixtureRoot)
-        client.register(
+        _ = client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        _ = client.register(
             worktreeId: secondWorktreeId,
             repoId: repositoryId,
             rootPath: fixtureRoot.appending(path: "nested", directoryHint: .isDirectory)
@@ -254,13 +254,13 @@ struct DarwinSharedLocalFSEventObserverTests {
         let client = DarwinFSEventStreamClient(localStreamFactory: streamFactory.makeStream)
         defer { client.shutdown() }
         let repositoryId = UUIDv7.generate()
-        client.register(
+        _ = client.register(
             worktreeId: UUIDv7.generate(),
             repoId: repositoryId,
             rootPath: fixtureRoot
         )
         for index in 0..<100 {
-            client.register(
+            _ = client.register(
                 worktreeId: UUIDv7.generate(),
                 repoId: repositoryId,
                 rootPath: fixtureRoot.appending(path: "worktree-\(index)", directoryHint: .isDirectory)
@@ -403,9 +403,9 @@ struct DarwinSharedLocalFSEventObserverTests {
         let secondWorktreeId = UUIDv7.generate()
         let firstWorktreeRoot = fixtureRoot.appending(path: "first", directoryHint: .isDirectory)
         let secondWorktreeRoot = fixtureRoot.appending(path: "second", directoryHint: .isDirectory)
-        client.register(worktreeId: rootRegistrationId, repoId: repositoryId, rootPath: fixtureRoot)
-        client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstWorktreeRoot)
-        client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondWorktreeRoot)
+        _ = client.register(worktreeId: rootRegistrationId, repoId: repositoryId, rootPath: fixtureRoot)
+        _ = client.register(worktreeId: firstWorktreeId, repoId: repositoryId, rootPath: firstWorktreeRoot)
+        _ = client.register(worktreeId: secondWorktreeId, repoId: repositoryId, rootPath: secondWorktreeRoot)
         let eventId: FSEventStreamEventId = 71
         let changedPath = DarwinFSEventPathCanonicalizer.canonicalURL(firstWorktreeRoot)
             .appending(path: "Changed.swift").path
@@ -459,7 +459,7 @@ struct DarwinSharedLocalFSEventObserverTests {
         let repositoryId = UUIDv7.generate()
         let worktreeIds = Set((0..<3).map { _ in UUIDv7.generate() })
         for (index, worktreeId) in worktreeIds.sorted(by: { $0.uuidString < $1.uuidString }).enumerated() {
-            client.register(
+            _ = client.register(
                 worktreeId: worktreeId,
                 repoId: repositoryId,
                 rootPath: fixtureRoot.appending(path: "worktree-\(index)", directoryHint: .isDirectory)

@@ -210,7 +210,8 @@ extension WebKitSerializedTests {
             )
 
             #expect(heldState.beginSpaceHold(requestedTarget: target))
-            harness.coordinator.prepareHeldPanePreview()
+            // fire-and-forget: the test asserts preview state; the deferred reevaluation handle is not its claim
+            _ = harness.coordinator.beginHeldPanePreviewPreparation()
 
             #expect(heldState.presentedTarget == target)
             #expect(harness.store.tabLayoutAtom.activeTabId == harness.tabId)

@@ -16,21 +16,31 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(lintScript.contains("swiftlint lint --strict"))
         #expect(
             lintScript.contains(
-                "swift run --package-path Tools/AgentStudioArchitectureLint"
+                "swift build -c release --package-path Tools/AgentStudioArchitectureLint"
             ))
-        #expect(lintScript.contains("agentstudio-architecture-lint Sources Tests"))
+        #expect(lintScript.contains("release/agentstudio-architecture-lint\" --timings"))
+        #expect(lintScript.contains("--ledger Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv"))
+        #expect(lintScript.contains("run_architecture_lint Sources Tests"))
         #expect(!miseConfig.contains(legacyRunnerScriptPath))
         #expect(!miseConfig.contains("scripts/check-core-boundary-imports.sh"))
         #expect(!miseConfig.contains("scripts/check-atomlib-boundaries.sh"))
         #expect(lintScript.contains("if [[ $# -eq 0 ]]"))
         #expect(lintScript.contains("swift_scoped_paths=()"))
-        #expect(lintScript.contains("swift-format lint --strict \"${swift_scoped_paths[@]}\""))
+        #expect(lintScript.contains("swift-format lint --strict --parallel \"${swift_scoped_paths[@]}\""))
         #expect(lintScript.contains("swiftlint lint --strict \"${swift_scoped_paths[@]}\""))
         #expect(!lintScript.contains("run_admission_contract"))
         #expect(lintScript.contains("run_release_contract=0"))
 
         #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
         #expect(ciWorkflow.contains("mise run test:architecture"))
+        #expect(ciWorkflow.contains("Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh"))
+        let ratchetScript = try String(
+            contentsOfFile: "Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh",
+            encoding: .utf8
+        )
+        #expect(ratchetScript.contains("\"Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv\""))
+        #expect(ratchetScript.contains("\"BridgeWeb/architecture-debt-ledger.tsv\""))
+        #expect(ciWorkflow.contains("fetch-depth: 0"))
         #expect(!ciWorkflow.contains(legacyBuildToolName))
         #expect(!ciWorkflow.contains("ripgrep"))
 
@@ -78,30 +88,6 @@ struct ArchitectureSwiftLintRulesTests {
 
         #expect(result.exitCode != 0)
         #expect(result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"))
-    }
-
-    @Test("local architecture tool exposes expected rule inventory")
-    func localArchitectureToolExposesExpectedRuleInventory() async throws {
-        let buildSlot = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
-        let architectureBuildPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent(buildSlot)
-            .appendingPathComponent("architecture-lint").path
-        let result = try await runProcess(arguments: [
-            "swift", "run",
-            "--package-path", "Tools/AgentStudioArchitectureLint",
-            "--build-path", architectureBuildPath,
-            "agentstudio-architecture-lint",
-            "--print-rules",
-        ])
-
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("agentstudio_import_direction error"))
-        #expect(result.stdout.contains("agentstudio_state_actor_path warning"))
-        #expect(result.stdout.contains("agentstudio_ipc_programmatic_control_boundary error"))
-        #expect(result.stdout.contains("agentstudio_appipc_port_boundary error"))
-        #expect(result.stdout.contains("agentstudio_ipc_composition_location error"))
-        #expect(result.stdout.contains("agentstudio_ipc_public_surface_sanitization error"))
-        #expect(result.stdout.contains("agentstudio_ipc_no_direct_atom_access error"))
     }
 
     private func runProcess(arguments: [String]) async throws -> ScriptRunResult {

@@ -8,7 +8,7 @@ struct EagerDerivedAtomDrainTests {
     @Test("stop and drain waits for detached completion bookkeeping")
     func stopAndDrainWaitsForDetachedCompletionBookkeeping() async {
         var gate: EagerDerivedAtomProjectionGate? = EagerDerivedAtomProjectionGate()
-        weak var retainedGate = gate
+        weak let retainedGate = gate
         let cancellationSignal = EagerDerivedAtomTestSignal()
         let drainCompleted = EagerDerivedAtomTestSignal()
         let completionRecorder = EagerDerivedAtomCompletionRecorder()

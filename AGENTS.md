@@ -82,9 +82,7 @@ not isolate that suite from other suites in the same process. Do not use SwiftPM
 `--parallel` or `--num-workers` as a substitute for process isolation: Xcode
 26.3 still runs Swift Testing through one helper process.
 
-Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A
-PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint
-automatically after every Edit/Write on `.swift` files.
+Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest.
 
 Identifiers: use the repo's UUIDv7 APIs for newly generated application and test
 identifiers (`UUIDv7.generate()` or the owning type's `generateUUIDv7()` helper).
@@ -112,6 +110,7 @@ organization, always load command specs and directory structure together.
 | Bootstrap, Vite loop, zig/Xcode, build slots | [First-Time Setup](docs/guides/agent_resources.md#first-time-setup), [BridgeWeb Fast UI Loop](docs/guides/agent_resources.md#bridgeweb-fast-ui-loop), [Xcode And Zig](docs/guides/agent_resources.md#xcode-and-zig-vendor-builds), [Swift Build-Slot Recovery](docs/guides/agent_resources.md#swift-build-slot-recovery) | You hydrate vendors by hand, rebuild the full app for Bridge UI, or collide on `.build`. |
 | Debug/beta proof launch | [Observability — Local proof launch](docs/architecture/observability/observability_and_traceability.md#local-proof-launch) | You inherit production identity, share zmx roots, or treat JSONL as proof. |
 | MainActor, debounce, Ghostty samples, sidebar rows | [Performance Lane](#performance-lane-directive) below | You infer hop shape from `@MainActor` and skip source admission. |
+| Designing or reviewing an atom, store, coordinator, actor, bus case, observer, timer, cache, projection, or MainActor hop | [MainActor And Atom Boundaries skill](.codex/skills/agentstudio-mainactor-atom-boundaries/SKILL.md) | You put gating, ordering, deadlines, retention, or I/O in an atom, or approve a lint-clean diff that still breaks the atom-method rule. |
 
 Do not infer hop shape from `@MainActor` annotations in this file.
 

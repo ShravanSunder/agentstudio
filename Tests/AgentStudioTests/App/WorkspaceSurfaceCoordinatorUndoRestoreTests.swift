@@ -340,7 +340,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let restoredStore = WorkspaceStore(
             sqliteDatastore: try preparedWorkspaceSQLiteDatastore(from: fixture.backend)
         )
-        await restoredStore.loadCanonicalComposition()
+        _ = await restoredStore.loadCanonicalComposition()
 
         let restoredTab = try #require(restoredStore.tab(tab.id))
         let restoredParent = try #require(restoredStore.pane(parentPane.id))

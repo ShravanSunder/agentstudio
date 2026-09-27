@@ -188,7 +188,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, GitCleanCont
         }
         if let displacedRegistration {
             lifecycleLock.withLock {
-                latestEventIDByParticipant.removeValue(forKey: displacedRegistration.participant)
+                _ = latestEventIDByParticipant.removeValue(forKey: displacedRegistration.participant)
             }
             continuityLedger.unregister(registrationId: worktreeId)
             sharedExactItemObserverRegistry.unbind(
