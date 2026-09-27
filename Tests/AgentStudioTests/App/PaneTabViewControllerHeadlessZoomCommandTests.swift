@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -48,7 +49,28 @@ struct PaneTabViewControllerHeadlessZoomCommandTests {
                 == targetActivePane.id
         )
         #expect(harness.store.activeTabId == targetTab.id)
-        #expect(window.firstResponder === targetHost)
+        let companionPaneId = harness.store.panePresentationAtom.zoomCompanion(
+            forSourcePane: targetActivePane.id
+        )?.companionPaneId
+        let companionWindowAttached =
+            companionPaneId.flatMap { harness.viewRegistry.view(for: $0)?.window }
+            === window
+        let zoomViewerPresentation = harness.store.panePresentationAtom
+            .zoomPresentation(forTab: targetTab.id)?.viewerPresentation
+        let focusSnapshot = [
+            "appActive=\(NSApplication.shared.isActive)",
+            "windowKey=\(window.isKeyWindow)",
+            "targetHostWindowMatches=\(targetHost.window === window)",
+            "targetHostHidden=\(targetHost.isHidden)",
+            "targetHostHasSuperview=\(targetHost.superview != nil)",
+            "responderType=\(String(describing: type(of: window.firstResponder)))",
+            "viewerPresentation=\(String(describing: zoomViewerPresentation))",
+            "companionWindowAttached=\(companionWindowAttached)",
+        ].joined(separator: ", ")
+        #expect(
+            window.firstResponder === targetHost,
+            "Zoom focus snapshot: \(focusSnapshot)"
+        )
     }
 
     @Test("headless Viewer applies after focusing and revealing an inactive target tab")
@@ -81,7 +103,22 @@ struct PaneTabViewControllerHeadlessZoomCommandTests {
             harness.store.panePresentationAtom.zoomPresentation(forTab: targetTab.id)?
                 .viewerPresentation == .retainedVisible(companionPaneId: companion.companionPaneId)
         )
-        #expect(window.firstResponder === targetHost)
+        let companionWindowAttached =
+            harness.viewRegistry.view(for: companion.companionPaneId)?.window
+            === window
+        let focusSnapshot = [
+            "appActive=\(NSApplication.shared.isActive)",
+            "windowKey=\(window.isKeyWindow)",
+            "targetHostWindowMatches=\(targetHost.window === window)",
+            "targetHostHidden=\(targetHost.isHidden)",
+            "targetHostHasSuperview=\(targetHost.superview != nil)",
+            "responderType=\(String(describing: type(of: window.firstResponder)))",
+            "companionWindowAttached=\(companionWindowAttached)",
+        ].joined(separator: ", ")
+        #expect(
+            window.firstResponder === targetHost,
+            "Viewer focus snapshot: \(focusSnapshot)"
+        )
     }
 
     @Test("headless Viewer applies only after toggling the existing Zoom viewer state")
