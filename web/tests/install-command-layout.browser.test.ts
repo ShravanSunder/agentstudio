@@ -14,16 +14,19 @@ it("keeps both install commands on one row and copies without a horizontal scrol
     inject("siteHeaderBrowserTestUrl"),
   );
   for (const { width, boxes } of observations) {
-    expect(boxes).toHaveLength(2);
+    expect(boxes).toHaveLength(1);
     for (const box of boxes) {
-      if (width >= 360) expect(box.codeOverflow, `${width}px`).toBeLessThanOrEqual(0);
+      expect(box.codeOverflow, `${width}px`).toBeLessThanOrEqual(0);
       expect(box.commandRowHeights, `${width}px`).toHaveLength(2);
       for (const rowHeight of box.commandRowHeights)
         expect(rowHeight, `${width}px`).toBeLessThanOrEqual(box.lineHeight + 1);
       expect(box.copied).toContain("brew tap ShravanSunder/agentstudio");
       if (width < 620) {
         expect(box.compact, `${width}px`).toBe(true);
-        expect(box.copyWidth, `${width}px`).toBeCloseTo(36, 0);
+        expect(box.copyTop, `${width}px`).toBeGreaterThanOrEqual(box.codeBottom);
+        expect(box.copyHeight, `${width}px`).toBeGreaterThanOrEqual(44);
+        expect(box.fontSize, `${width}px`).toBeGreaterThanOrEqual(11);
+        expect(box.copyWidth, `${width}px`).toBeGreaterThan(150);
       }
     }
   }

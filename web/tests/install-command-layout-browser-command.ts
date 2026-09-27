@@ -5,6 +5,10 @@ export interface InstallBoxObservation {
   readonly boxes: readonly {
     readonly codeOverflow: number;
     readonly copyWidth: number;
+    readonly copyTop: number;
+    readonly codeBottom: number;
+    readonly copyHeight: number;
+    readonly fontSize: number;
     readonly commandRowHeights: readonly number[];
     readonly lineHeight: number;
     readonly compact: boolean;
@@ -37,8 +41,9 @@ export const verifyInstallCommandLayout = defineBrowserCommand(
         await page.setViewportSize({ width, height: 844 });
         const measurements = await page.evaluate(async () => {
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-          const roots = [...document.querySelectorAll<HTMLElement>("[data-install-command-root]")];
-          if (roots.length !== 2) throw new Error("Expected hero and CTA install boxes");
+          const roots = [...document.querySelectorAll<HTMLElement>(".install-command")];
+          if (roots.length !== 1)
+            throw new Error(`Expected the hero install box, found ${roots.length}`);
           return roots.map((root) => {
             const code = root.querySelector<HTMLElement>("code");
             const button = root.querySelector<HTMLButtonElement>("[data-install-copy]");
@@ -47,6 +52,10 @@ export const verifyInstallCommandLayout = defineBrowserCommand(
             return {
               codeOverflow: code.scrollWidth - code.clientWidth,
               copyWidth: button.getBoundingClientRect().width,
+              copyTop: button.getBoundingClientRect().top,
+              codeBottom: code.getBoundingClientRect().bottom,
+              copyHeight: button.getBoundingClientRect().height,
+              fontSize: Number.parseFloat(getComputedStyle(code).fontSize),
               commandRowHeights: [
                 ...code.querySelectorAll<HTMLElement>(".install-command__line"),
               ].map((line) => line.getBoundingClientRect().height),
