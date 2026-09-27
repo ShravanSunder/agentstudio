@@ -36,10 +36,18 @@ for (const [width, height] of [
     expect(at(0.9).secondLine).toBe(1);
     expect(at(5.8).firstPayoff).toBe(0);
     expect(at(5.8).secondPayoff).toBe(0);
-    expect(at(6.5).firstPayoff).toBeGreaterThan(0);
-    expect(at(6.5).secondPayoff).toBeGreaterThan(0);
-    expect(at(6.8).firstPayoff).toBe(1);
-    expect(at(6.8).secondPayoff).toBe(1);
+    const finalHop = observation.staircase.hops.at(-1);
+    const firstHop = observation.staircase.hops[0];
+    const secondHop = observation.staircase.hops[1];
+    if (finalHop === undefined || firstHop === undefined || secondHop === undefined)
+      throw new Error("Rail hop schedule is missing");
+    const holdMiddle = (firstHop.arrival + secondHop.start) / 2;
+    expect(observation.staircase.end - observation.staircase.start).toBeLessThanOrEqual(1.600001);
+    expect(at(finalHop.start).firstPayoff).toBe(0);
+    expect(at(observation.staircase.end + 0.3).firstPayoff).toBeGreaterThan(0);
+    expect(at(observation.staircase.end + 0.3).secondPayoff).toBeGreaterThan(0);
+    expect(at(observation.staircase.end + 0.65).firstPayoff).toBe(1);
+    expect(at(observation.staircase.end + 0.65).secondPayoff).toBe(1);
     expect(at("settled").payoffOverflow).toBeLessThanOrEqual(0);
     for (const sample of observation.samples) {
       expect(sample.installTransform, `${sample.time}: install transform`).toBe("none");
@@ -67,15 +75,23 @@ for (const [width, height] of [
       if (firstHidden >= 0)
         expect(dots.slice(firstHidden).every((opacity) => opacity < 0.01)).toBe(true);
     }
-    if (width >= 1024) {
-      expect(at(6.25).forkDashOffsets.length).toBeGreaterThan(0);
-      expect(at(6.4).forkDashOffsets[0]).toBeLessThan(at(6.25).forkDashOffsets[0] ?? 0);
-      expect(at(6.63).forkDashOffsets[0]).toBeCloseTo(0, 1);
-    }
-    expect(at(6.63).heroBranchDashOffset).toBeGreaterThan(0);
-    expect(at(6.75).heroBranchDashOffset).toBeCloseTo(0, 1);
+    const hold = at(holdMiddle);
+    const secondRowY = [...new Set(hold.introDotYs)][1];
+    const firstRowY = hold.introDotYs[0];
+    if (secondRowY === undefined || firstRowY === undefined)
+      throw new Error("Rail dot rows are missing");
+    expect(
+      Math.abs(hold.railRevealY - (hold.heroNodeY + secondRowY - firstRowY)),
+    ).toBeLessThanOrEqual(2);
+    expect(hold.introDotScales.some((scale) => scale > 0.5 && Math.abs(scale - 1) > 0.05)).toBe(
+      true,
+    );
+    expect(at(finalHop.start).heroBranchDashOffset).toBeGreaterThan(0);
+    expect(at(observation.staircase.end).heroBranchDashOffset).toBeCloseTo(0, 1);
     expect(at("settled").heroBranchDashOffset).toBeCloseTo(0, 1);
-    expect(at(6.75).introDotOpacities.every((opacity) => opacity > 0.9)).toBe(true);
+    expect(at(observation.staircase.end).introDotOpacities.every((opacity) => opacity > 0.9)).toBe(
+      true,
+    );
     expect(at(6.4).railClip).not.toBe(at(5.5).railClip);
     expect(at("settled").railClip).toBe("none");
     expect(at(5.5).rowOpacity).toEqual(Array.from({ length: width < 1024 ? 4 : 5 }, () => 0));
@@ -83,7 +99,14 @@ for (const [width, height] of [
     expect(at(6.4).rowOpacity.slice(1)).toEqual(width < 1024 ? [0, 1, 0] : [0, 0, 0, 0]);
     expect(at("settled").rowOpacity).toEqual(Array.from({ length: width < 1024 ? 4 : 5 }, () => 1));
     const baseline = at(0);
-    for (const time of [3.5, 5.5, 6.5, 6.8, 7.0, "settled"] as const) {
+    for (const time of [
+      3.5,
+      5.5,
+      6.5,
+      observation.staircase.end,
+      observation.staircase.end + 0.65,
+      "settled",
+    ] as const) {
       const sample = at(time);
       expect(Math.abs(sample.appTop - baseline.appTop), `${time}: app`).toBeLessThanOrEqual(0.5);
       expect(

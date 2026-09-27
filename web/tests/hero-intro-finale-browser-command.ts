@@ -1,5 +1,7 @@
 import { defineBrowserCommand } from "@vitest/browser-playwright";
 
+import { planHeroRailStaircase } from "../src/hero-intro/hero-intro-rail-draw";
+
 interface FinaleSample {
   readonly time: number | "settled";
   readonly firstLine: number;
@@ -16,6 +18,8 @@ interface FinaleSample {
   readonly railRevealY: number;
   readonly heroNodeY: number;
   readonly introDotOpacities: readonly number[];
+  readonly introDotScales: readonly number[];
+  readonly introDotYs: readonly number[];
   readonly heroBranchDashOffset: number;
   readonly forkDashOffsets: readonly number[];
   readonly rowOpacity: readonly number[];
@@ -26,6 +30,7 @@ interface FinaleSample {
 
 export interface FinaleObservation {
   readonly samples: readonly FinaleSample[];
+  readonly staircase: ReturnType<typeof planHeroRailStaircase>;
   readonly resizeRailClip: string;
   readonly resizeRailStyle: string | null;
   readonly resizeSceneInlineStyles: number;
@@ -81,7 +86,72 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
       await page.waitForSelector('[data-topology-chapter-node="many-agents"] circle', {
         state: "attached",
       });
-      const samples = await page.evaluate(async (): Promise<FinaleSample[]> => {
+      const rowCount = await page.evaluate((): number => {
+        const rail = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+        const hero = rail?.querySelector<SVGGElement>('[data-topology-chapter-node="hero"]');
+        const branch = rail?.querySelector<SVGPathElement>(
+          '[data-route-anchor="hero"] [data-topology-path-role="core"]',
+        );
+        if (
+          rail === null ||
+          hero === null ||
+          branch === null ||
+          hero === undefined ||
+          branch === undefined
+        )
+          throw new Error("Hero rail rows are missing");
+        const firstY = Number(hero.querySelector("circle")?.getAttribute("cy"));
+        const lastY = branch.getPointAtLength(0).y;
+        const ys = [...rail.querySelectorAll<SVGGElement>("[data-topology-node-progress]")]
+          .map((node) => Number(node.querySelector("circle")?.getAttribute("cy")))
+          .filter((y) => y >= firstY - 0.5 && y <= lastY + 0.5)
+          .sort((left, right) => left - right);
+        return ys.filter((y, index) => index === 0 || Math.abs(y - (ys[index - 1] ?? y)) > 0.5)
+          .length;
+      });
+      const staircase = planHeroRailStaircase(rowCount);
+      const firstHop = staircase.hops[0];
+      const secondHop = staircase.hops[1];
+      const finalHop = staircase.hops.at(-1);
+      if (firstHop === undefined || secondHop === undefined || finalHop === undefined)
+        throw new Error("Hero rail timing schedule is incomplete");
+      const holdMiddle = (firstHop.arrival + secondHop.start) / 2;
+      const sampleTimes = [
+        0,
+        0.2,
+        0.3,
+        0.45,
+        0.8,
+        0.9,
+        1.5,
+        2.2,
+        2.5,
+        3.2,
+        3.5,
+        4.3,
+        4.9,
+        5.2,
+        5.4,
+        5.5,
+        5.8,
+        5.85,
+        5.99,
+        6.1,
+        6.25,
+        6.4,
+        6.5,
+        6.63,
+        6.75,
+        6.8,
+        7.0,
+        7.4,
+        holdMiddle,
+        finalHop.start,
+        staircase.end,
+        staircase.end + 0.3,
+        staircase.end + 0.65,
+      ];
+      const samples = await page.evaluate(async (sampleTimes): Promise<FinaleSample[]> => {
         await document.fonts.ready;
         const control = await (
           window as Window & {
@@ -166,6 +236,12 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             railClip,
             heroNodeY: rail.getBoundingClientRect().top + heroNodeY,
             introDotOpacities: introNodes.map((node) => Number(getComputedStyle(node).opacity)),
+            introDotScales: introNodes.map(
+              (node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
+            ),
+            introDotYs: introNodes.map((node) =>
+              Number(node.querySelector("circle")?.getAttribute("cy")),
+            ),
             heroBranchDashOffset:
               heroBranch === null
                 ? Number.NaN
@@ -193,17 +269,14 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           };
         };
         const observations: FinaleSample[] = [];
-        for (const second of [
-          0, 0.2, 0.3, 0.45, 0.8, 0.9, 1.5, 2.2, 2.5, 3.2, 3.5, 4.3, 4.9, 5.2, 5.4, 5.5, 5.8, 5.85,
-          6.1, 6.25, 6.4, 6.5, 6.63, 6.75, 6.8, 7.0,
-        ]) {
+        for (const second of sampleTimes) {
           control.seek(second);
           observations.push(observe(second));
         }
         control.finish();
         observations.push(observe("settled"));
         return observations;
-      });
+      }, sampleTimes);
       await page.reload({ waitUntil: "commit" });
       await page.evaluate(
         async () => await (window as Window & { finaleReady?: Promise<unknown> }).finaleReady,
@@ -284,6 +357,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
       });
       return {
         samples,
+        staircase,
         resizeRailClip: resize.clip,
         resizeRailStyle: resize.style,
         resizeSceneInlineStyles: resize.sceneInlineStyles,

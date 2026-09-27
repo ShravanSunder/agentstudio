@@ -157,12 +157,6 @@ export function buildHeroIntroScene(
     { y: 0, opacity: 1, duration: 0.55, ease: "expo.out" },
     0.37,
   );
-  timeline.fromTo(
-    [payoffFirst, payoffSecond],
-    { y: 8, opacity: 0 },
-    { y: 0, opacity: 1, duration: 0.6, ease: "expo.out" },
-    6.2,
-  );
 
   if (codexCurrentRows !== null) timeline.set(codexCurrentRows, { opacity: 1 }, 0);
   if (claudeCurrentRows !== null && options.width < 1024)
@@ -345,7 +339,11 @@ export function buildHeroIntroScene(
     if (preservedBashRow !== undefined) timeline.set(preservedBashRow, { opacity: 1 }, 5.6);
   }
 
-  if (rail !== null) {
-    addHeroRailStaircase({ timeline, artwork: rail });
-  }
+  const payoffStart = rail === null ? 6.2 : addHeroRailStaircase({ timeline, artwork: rail });
+  timeline.fromTo(
+    [payoffFirst, payoffSecond],
+    { y: 8, opacity: 0 },
+    { y: 0, opacity: 1, duration: 0.6, ease: "expo.out" },
+    payoffStart,
+  );
 }
