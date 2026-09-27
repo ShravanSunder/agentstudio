@@ -98,12 +98,19 @@ enum RepoCacheSavePreparer {
 
 @MainActor
 package final class RepoCacheStore {
+    private enum SaveMode {
+        case supersedeActive
+        case afterActive
+    }
+
     private let cacheAtom: RepoEnrichmentCacheAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastoreActor
     private let persistDebounceDuration: Duration
+    private let persistMaximumDelay: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
+    private var maximumDelaySaveTask: Task<Void, Never>?
     private var activeSaveTask: Task<Void, Error>?
     private var saveGeneration: UInt64 = 0
     private var isObservingCacheState = false
@@ -118,12 +125,14 @@ package final class RepoCacheStore {
         cacheAtom: RepoEnrichmentCacheAtom,
         sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
+        persistMaximumDelay: Duration = AppPolicies.WorkspacePersistence.autosaveMaximumDelay,
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.cacheAtom = cacheAtom
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
+        self.persistMaximumDelay = persistMaximumDelay
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
     }
@@ -132,6 +141,7 @@ package final class RepoCacheStore {
         atom: RepoCacheAtom,
         sqliteDatastore: WorkspaceSQLiteDatastoreActor,
         persistDebounceDuration: Duration = .milliseconds(500),
+        persistMaximumDelay: Duration = AppPolicies.WorkspacePersistence.autosaveMaximumDelay,
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
@@ -139,6 +149,7 @@ package final class RepoCacheStore {
             cacheAtom: atom.enrichmentCacheAtom,
             sqliteDatastore: sqliteDatastore,
             persistDebounceDuration: persistDebounceDuration,
+            persistMaximumDelay: persistMaximumDelay,
             clock: clock,
             recoveryReporter: recoveryReporter
         )
@@ -156,8 +167,10 @@ package final class RepoCacheStore {
 
     package func restoreAsync(for workspaceId: UUID) async {
         debouncedSaveTask?.cancel()
+        maximumDelaySaveTask?.cancel()
         activeSaveTask?.cancel()
         debouncedSaveTask = nil
+        maximumDelaySaveTask = nil
         activeWorkspaceId = workspaceId
         switch await sqliteDatastore.loadRepoCacheState() {
         case .loaded(let cacheState):
@@ -194,8 +207,10 @@ package final class RepoCacheStore {
     package func flushAsync(for workspaceId: UUID) async throws {
         activeWorkspaceId = workspaceId
         debouncedSaveTask?.cancel()
+        maximumDelaySaveTask?.cancel()
         debouncedSaveTask = nil
-        try await persistNow(for: workspaceId)
+        maximumDelaySaveTask = nil
+        try await persistNow(for: workspaceId, force: true, mode: .supersedeActive)
     }
 
     private func observeCacheState() {
@@ -219,29 +234,56 @@ package final class RepoCacheStore {
     private func schedulePersist() {
         guard let workspaceId = activeWorkspaceId else { return }
         debouncedSaveTask?.cancel()
-        activeSaveTask?.cancel()
         let delay = self.delay
         let persistDebounceDuration = self.persistDebounceDuration
         debouncedSaveTask = Task { @MainActor [weak self, delay, persistDebounceDuration, workspaceId] in
             try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            do {
-                try await self.persistNow(for: workspaceId, force: false)
-            } catch is CancellationError {
-                return
-            } catch {
-                repoCacheStoreLogger.warning("Repo cache autosave failed: \(error.localizedDescription)")
+            await self.autosave(for: workspaceId, fromMaximumDelay: false)
+        }
+        if maximumDelaySaveTask == nil, activeSaveTask == nil {
+            let persistMaximumDelay = self.persistMaximumDelay
+            maximumDelaySaveTask = Task { @MainActor [weak self, delay, persistMaximumDelay, workspaceId] in
+                try? await delay.wait(persistMaximumDelay)
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                await self.autosave(for: workspaceId, fromMaximumDelay: true)
             }
         }
     }
 
-    private func persistNow(for workspaceId: UUID, force: Bool = true) async throws {
+    private func autosave(for workspaceId: UUID, fromMaximumDelay: Bool) async {
+        if fromMaximumDelay {
+            debouncedSaveTask?.cancel()
+        } else {
+            maximumDelaySaveTask?.cancel()
+        }
+        debouncedSaveTask = nil
+        maximumDelaySaveTask = nil
+        do {
+            try await persistNow(for: workspaceId, force: false, mode: .afterActive)
+        } catch is CancellationError {
+            return
+        } catch {
+            repoCacheStoreLogger.warning("Repo cache autosave failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func persistNow(for workspaceId: UUID, force: Bool, mode: SaveMode) async throws {
         try Task.checkCancellation()
-        activeSaveTask?.cancel()
+        let previous: Task<Void, Error>?
+        switch mode {
+        case .supersedeActive:
+            activeSaveTask?.cancel()
+            previous = nil
+        case .afterActive:
+            previous = activeSaveTask
+        }
         saveGeneration &+= 1
         let generation = saveGeneration
         let operation = Task { @MainActor [self] in
+            if let previous { _ = try? await previous.value }
             try await persistCurrentCapture(for: workspaceId, force: force)
         }
         activeSaveTask = operation
@@ -255,7 +297,6 @@ package final class RepoCacheStore {
 
     private func persistCurrentCapture(for workspaceId: UUID, force: Bool) async throws {
         try Task.checkCancellation()
-        let captureRevision = cacheAtom.cacheRevision
         let capture = captureCurrentSaveState()
         let preparedSave = await RepoCacheSavePreparer.prepareOffMain(
             capture: capture,
@@ -263,7 +304,6 @@ package final class RepoCacheStore {
             force: force
         )
         try Task.checkCancellation()
-        guard cacheAtom.cacheRevision == captureRevision else { throw CancellationError() }
         guard preparedSave.shouldPersist else { return }
         do {
             // Cancellation may arrive after SQL commits but before its acknowledgement returns.
