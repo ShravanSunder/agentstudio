@@ -1,4 +1,3 @@
-import AgentStudioInfrastructure
 import Foundation
 
 /// Why typed text cannot name a new worktree branch. Mirrors the subset of
@@ -21,7 +20,7 @@ package struct WorktreeBranchName: Equatable, Hashable, Sendable {
 
     package static func validated(_ text: String) -> Result<Self, WorktreeBranchNameRejection> {
         guard !text.isEmpty else { return .failure(.empty) }
-        let maximumLength = AppPolicies.WorktreeCreation.maximumBranchNameLength
+        let maximumLength = WorktreeCreationPolicy.maximumBranchNameLength
         guard text.count <= maximumLength else { return .failure(.tooLong(maximumLength: maximumLength)) }
         let hasWhitespaceOrControl = text.unicodeScalars.contains {
             CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0)
