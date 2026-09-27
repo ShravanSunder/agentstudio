@@ -24,6 +24,8 @@ import {
 import { settleThreadMotion } from './worktree-annotation-thread.browser.test-support.js';
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
+const inlineShellSurfaces = new Set<RecordingAnnotationBrowserSurface>();
+
 describe('worktree annotation inline shell', () => {
 	test('marks the active conversation with an outline without washing out its text', async () => {
 		// Arrange
@@ -49,13 +51,18 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	afterEach(async (): Promise<void> => {
-		await cleanup();
+		try {
+			await cleanup();
+		} finally {
+			for (const surface of inlineShellSurfaces) surface.dispose();
+			inlineShellSurfaces.clear();
+		}
 	});
 
 	test('expands complete chronology on one inline timeline and moves following content', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishTwoMessageThread(surface);
+		await publishTwoMessageThread(surface, rendered);
 		const visibleLatestMessage = rendered
 			.getByTestId('worktree-annotation-thread')
 			.getByText('Latest message.');
@@ -166,9 +173,9 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	test('opens Reply as the next node on the inline timeline and preserves the first edit', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishTwoMessageThread(surface);
+		await publishTwoMessageThread(surface, rendered);
 
 		const replyButton = rendered
 			.getByRole('button', {
@@ -223,9 +230,9 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	test('keeps Reply and expanded chronology stable when the active thread background is clicked', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishTwoMessageThread(surface);
+		await publishTwoMessageThread(surface, rendered);
 
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Reply to annotation thread' }).click();
@@ -277,9 +284,9 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	test('reveals five-message history with one downward soft mask', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishFiveMessageThread(surface);
+		await publishFiveMessageThread(surface, rendered);
 		const summary = rendered.getByTestId('worktree-annotation-thread-summary').element();
 		expect(summary.textContent?.indexOf('5 pending')).toBeLessThan(
 			summary.textContent?.indexOf('5 comments') ?? -1,
@@ -344,9 +351,9 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	test('keeps focus inert and activates the saved range only on click', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishTwoMessageThread(surface);
+		await publishTwoMessageThread(surface, rendered);
 
 		const compactSurface = rendered.getByTestId('worktree-annotation-message');
 		await act(async (): Promise<void> => {
@@ -399,9 +406,9 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	test('keeps permanent local Edit and outlined thread actions at their exact owners', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishTwoMessageThread(surface);
+		await publishTwoMessageThread(surface, rendered);
 
 		const thread = rendered.getByTestId('worktree-annotation-thread');
 		const editButton = thread.getByRole('button', { name: 'Edit annotation' });
@@ -439,9 +446,9 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	test('offers direct Edit and supports Enter from message focus', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishTwoMessageThread(surface);
+		await publishTwoMessageThread(surface, rendered);
 
 		const latestMessage = rendered
 			.getByText('Latest message.')
@@ -545,9 +552,9 @@ describe('worktree annotation inline shell', () => {
 	});
 
 	test('preserves message links and selected text without entering edit mode', async () => {
-		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const surface = createInlineShellSurface();
 		const rendered = await renderInlineShell(surface);
-		await publishTwoMessageThread(surface);
+		await publishTwoMessageThread(surface, rendered);
 		const messageText = rendered.getByText('Latest message.').element();
 		const syntheticLink = document.createElement('a');
 		syntheticLink.href = 'https://example.com/';
@@ -577,9 +584,9 @@ describe('worktree annotation inline shell', () => {
 		const priorRootFontSize = document.documentElement.style.fontSize;
 		document.documentElement.style.fontSize = '32px';
 		try {
-			const surface = new RecordingAnnotationBrowserSurface('fileView');
+			const surface = createInlineShellSurface();
 			const rendered = await renderInlineShell(surface);
-			await publishTwoMessageThread(surface);
+			await publishTwoMessageThread(surface, rendered);
 			const thread = rendered.getByTestId('worktree-annotation-thread').element();
 			const host = thread.parentElement;
 			if (host === null) throw new Error('Expected the inline-shell host.');
@@ -623,6 +630,12 @@ async function renderInlineShell(
 	);
 }
 
+function createInlineShellSurface(): RecordingAnnotationBrowserSurface {
+	const surface = new RecordingAnnotationBrowserSurface('fileView');
+	inlineShellSurfaces.add(surface);
+	return surface;
+}
+
 function nextAnimationFrame(): Promise<void> {
 	return new Promise((resolve): void => {
 		requestAnimationFrame((): void => resolve());
@@ -638,7 +651,10 @@ async function performBrowserAction(action: () => Promise<void>): Promise<void> 
 	});
 }
 
-async function publishTwoMessageThread(surface: RecordingAnnotationBrowserSurface): Promise<void> {
+async function publishTwoMessageThread(
+	surface: RecordingAnnotationBrowserSurface,
+	rendered: Awaited<ReturnType<typeof render>>,
+): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
 			expectedThreadCount: 1,
@@ -654,9 +670,14 @@ async function publishTwoMessageThread(surface: RecordingAnnotationBrowserSurfac
 		});
 		await Promise.resolve();
 	});
+	await expect.element(rendered.getByTestId('worktree-annotation-thread')).toBeVisible();
+	await expect.element(rendered.getByText('Latest message.')).toBeVisible();
 }
 
-async function publishFiveMessageThread(surface: RecordingAnnotationBrowserSurface): Promise<void> {
+async function publishFiveMessageThread(
+	surface: RecordingAnnotationBrowserSurface,
+	rendered: Awaited<ReturnType<typeof render>>,
+): Promise<void> {
 	await act(async (): Promise<void> => {
 		surface.publishProjectionState({
 			expectedThreadCount: 1,
@@ -675,6 +696,8 @@ async function publishFiveMessageThread(surface: RecordingAnnotationBrowserSurfa
 		});
 		await Promise.resolve();
 	});
+	await expect.element(rendered.getByTestId('worktree-annotation-thread')).toBeVisible();
+	await expect.element(rendered.getByTestId('worktree-annotation-thread-summary')).toBeVisible();
 }
 
 function makeSavedMessage(props: {

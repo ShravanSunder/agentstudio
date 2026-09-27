@@ -191,6 +191,11 @@ export class RecordingAnnotationBrowserSurface {
 		};
 	}
 
+	dispose(): void {
+		this.#listeners.clear();
+		this.client.renderStore.dispose();
+	}
+
 	setReviewActiveIdentity(identity: BridgeMainReviewPublicationIdentity): void {
 		this.#reviewActiveIdentity = identity;
 	}
