@@ -8,38 +8,25 @@ import WebKit
 
 @Suite("Bridge product scheme adapter")
 struct BridgeProductSchemeAdapterTests {
-    @Test("unknown subscription update returns a typed refusal through the real adapter")
-    func unknownSubscriptionUpdateReturnsTypedRefusal() async throws {
+    @Test("unknown typed view scope returns a refusal through the real adapter")
+    func unknownSubscriptionScopeReturnsTypedRefusal() async throws {
         let harness = try BridgeProductSchemeAdapterHarness.make()
         #expect(try await harness.openSession().response?.statusCode == 200)
         await harness.provider.waitUntilControlCompleted(1)
-        let empty = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
-        let target = BridgeProductSubscriptionInterestState.reviewMetadata(
-            interests: [try .init(itemIds: ["review-item-1"], lane: .foreground)]
-        )
         let body = try JSONSerialization.data(
             withJSONObject: [
-                "baseInterestRevision": 0,
-                "baseInterestSha256": try empty.sha256Hex(),
-                "batchCount": 1,
-                "batchIndex": 0,
-                "delta": [
-                    "add": [["itemId": "review-item-1", "lane": "foreground"]],
-                    "removeItemIds": [],
-                    "subscriptionKind": "review.metadata",
-                ],
-                "kind": "subscription.updateBatch",
+                "kind": "subscription.setScope",
                 "paneSessionId": bridgeProductTestPaneSessionId,
-                "requestId": "request-unknown-subscription-update",
+                "requestId": "request-unknown-subscription-scope",
                 "requestSequence": 2,
                 "subscriptionId": "retired-review-subscription",
                 "subscriptionKind": "review.metadata",
-                "targetInterestRevision": 1,
-                "targetInterestSha256": try target.sha256Hex(),
-                "totalDeltaItemCount": 1,
-                "updateId": "unknown-subscription-update-1",
+                "domain": "default",
+                "handle": "review-handle-1",
+                "incarnation": "review-incarnation-1",
+                "scopeRevision": 1,
+                "scope": ["kind": "review", "interests": []],
                 "wireVersion": BridgeProductWireContract.version,
-                "workerDerivationEpoch": 1,
                 "workerInstanceId": bridgeProductTestWorkerInstanceId,
             ],
             options: [.sortedKeys]
@@ -538,9 +525,8 @@ struct BridgeProductSchemeAdapterTests {
         #expect(snapshot.producerFailureCount == 0)
     }
 
-    @Test("metadata frame remains resident until an exact worker observation is accepted")
-    func metadataFrameRequiresWorkerObservationBeforeRelease() async throws {
-        // Arrange
+    @Test("retired metadata frame observations are refused while the stream remains usable")
+    func metadataFrameObservationIsRejected() async throws {
         let harness = try BridgeProductSchemeAdapterHarness.make()
         #expect(try await harness.openSession().response?.statusCode == 200)
         #expect(await harness.session.waitUntilActive())
@@ -560,62 +546,31 @@ struct BridgeProductSchemeAdapterTests {
                     )
                 ) {
                     switch result {
-                    case .response:
-                        await recorder.record(.response)
-                    case .data:
-                        await recorder.record(.data)
-                    @unknown default:
-                        break
+                    case .response: await recorder.record(.response)
+                    case .data: await recorder.record(.data)
+                    @unknown default: break
                     }
                 }
             } catch {
-                // The stream is cancelled after the acknowledgement assertions.
+                // Cancellation ends the stream after the rejection assertion.
             }
         }
         await recorder.waitUntilCount(2)
-        let acknowledgement = try BridgeProductStrictJSON.decode(
-            BridgeProductMetadataFrameAcknowledgement.self,
-            from: Data(
-                """
-                {
-                  "kind": "stream.frameObserved",
-                  "metadataStreamId": "metadata-stream-worker-observation",
-                  "paneSessionId": "\(bridgeProductTestPaneSessionId)",
-                  "streamKind": "metadata",
-                  "streamSequence": 0,
-                  "wireVersion": 2,
-                  "workerInstanceId": "\(bridgeProductTestWorkerInstanceId)"
-                }
-                """.utf8
+        let retiredObservation = Data(
+            """
+            {"kind":"stream.frameObserved","metadataStreamId":"metadata-stream-worker-observation",            "paneSessionId":"\(bridgeProductTestPaneSessionId)","streamKind":"metadata",            "streamSequence":0,"wireVersion":2,"workerInstanceId":"\(bridgeProductTestWorkerInstanceId)"}
+            """.utf8
+        )
+        let refusal = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: bridgeProductSchemeRequest(
+                route: BridgeProductWireContract.commandRoute,
+                capability: harness.capabilityHeader,
+                body: retiredObservation
             )
         )
-        let acknowledgementRequest = bridgeProductSchemeRequest(
-            route: BridgeProductWireContract.commandRoute,
-            capability: harness.capabilityHeader,
-            body: try JSONEncoder().encode(acknowledgement)
-        )
-
-        // Act
-        let beforeAcknowledgement = await harness.session.producerSnapshot()
-        let accepted = try await collectBridgeProductSchemeReply(
-            adapter: harness.adapter,
-            request: acknowledgementRequest
-        )
-        let replay = try await collectBridgeProductSchemeReply(
-            adapter: harness.adapter,
-            request: acknowledgementRequest
-        )
-        let afterAcknowledgement = await harness.session.producerSnapshot()
-
-        // Assert
-        #expect(beforeAcknowledgement.queuedFrameCount == 1)
-        #expect(beforeAcknowledgement.inFlightFrameReceiptCount == 1)
-        #expect(accepted.response?.statusCode == 204)
-        #expect(replay.response?.statusCode == 204)
-        #expect(accepted.body.isEmpty)
-        #expect(replay.body.isEmpty)
-        #expect(afterAcknowledgement.queuedFrameCount == 0)
-        #expect(afterAcknowledgement.inFlightFrameReceiptCount == 0)
+        #expect(refusal.response?.statusCode == 400)
+        #expect(refusal.body.isEmpty)
 
         consumer.cancel()
         _ = await consumer.value

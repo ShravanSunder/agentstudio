@@ -683,6 +683,7 @@ function makeProductBootstrapDetail(
 			policy: {
 				...validProductSessionCorpus.bootstrap.policy,
 				admissionRetryCount: validProductSessionCorpus.bootstrap.policy.admissionRetryCount,
+				contentProgressDeadlineMilliseconds: 5_000,
 				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,

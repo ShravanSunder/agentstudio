@@ -79,16 +79,9 @@ extension WebKitSerializedTests {
                 installation: replacementInstallation,
                 productProvider: productProvider
             )
-            let replayEvent = try bootstrapReviewEvent(
-                from: try bootstrapReviewMetadataFrame(
-                    from: try #require(
-                        await consumeNextBridgeProductProducerFrame(
-                            for: replaySubscription.lease,
-                            from: replacementInstallation.session,
-                            productAdmission: replaySubscription.productAdmission
-                        )
-                    )
-                )
+            let replayPublication = try await consumeBootstrapReviewPublication(
+                subscription: replaySubscription,
+                installation: replacementInstallation
             )
 
             // Assert
@@ -106,13 +99,8 @@ extension WebKitSerializedTests {
                     reviewGeneration: reviewFixture.committedHandle.reviewGeneration.rawValue
                 )
             }
-            switch replayEvent {
-            case .sourceAccepted:
-                #expect(replayEvent.packageId == committedPackage.packageId)
-                #expect(replayEvent.generation == committedPackage.reviewGeneration.rawValue)
-            default:
-                Issue.record("Expected replacement worker replay to begin with Review sourceAccepted")
-            }
+            #expect(replayPublication.displayed?.packageId == committedPackage.packageId)
+            #expect(replayPublication.displayed?.generation == committedPackage.reviewGeneration.rawValue)
             try await closeBridgeProductSessionProducer(
                 replaySubscription.lease,
                 in: replacementInstallation.session
@@ -730,7 +718,7 @@ private struct BootstrapReviewReplaySubscription {
 private enum BootstrapReviewReplayError: Error {
     case expectedMetadataStreamAccepted
     case expectedReviewSubscriptionAccepted
-    case expectedReviewMetadataEvent
+    case expectedReviewBatchPublication
     case expectedSingleMetadataFrame
     case expectedWorkerSessionAccepted
 }
@@ -818,10 +806,47 @@ private func openBootstrapReviewReplaySubscription(
         installation: installation,
         productAdmission: productAdmission
     )
+    try await admitBootstrapReviewViewScope(
+        dispatcher: controlDispatcher, installation: installation, capabilityHeader: capabilityHeader
+    )
     return BootstrapReviewReplaySubscription(
         lease: metadataLease,
         productAdmission: productAdmission
     )
+}
+
+@MainActor
+private func admitBootstrapReviewViewScope(
+    dispatcher: BridgeProductSchemeControlDispatcher,
+    installation: BridgeProductSessionInstallation,
+    capabilityHeader: String
+) async throws {
+    let scopeRequest = try bootstrapReviewControlRequest([
+        "kind": "subscription.setScope",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+        "wireVersion": BridgeProductWireContract.version,
+        "requestId": "request-bootstrap-review-scope",
+        "requestSequence": 3,
+        "subscriptionId": "bootstrap-review-replay-subscription",
+        "subscriptionKind": "review.metadata",
+        "domain": "default",
+        "handle": "bootstrap-review-replay-handle",
+        "incarnation": "bootstrap-review-replay-incarnation",
+        "scopeRevision": 1,
+        "scope": ["kind": "review", "interests": []],
+    ])
+    let scopeResponse = try await readAdmittedBridgeProductControlResponse(
+        try await dispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(scopeRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .viewAccepted = scopeResponse else {
+        throw BootstrapReviewReplayError.expectedReviewBatchPublication
+    }
 }
 
 private func consumeBootstrapReviewSubscriptionAcceptance(
@@ -920,13 +945,40 @@ private func bootstrapReviewMetadataFrame(
     return frame
 }
 
-private func bootstrapReviewEvent(
-    from frame: BridgeProductMetadataFrame
-) throws -> BridgeProductReviewMetadataEvent {
-    guard case .subscriptionData(let dataFrame) = frame,
-        let event = dataFrame.data.reviewMetadataEvent
-    else {
-        throw BootstrapReviewReplayError.expectedReviewMetadataEvent
+private func consumeBootstrapReviewPublication(
+    subscription: BootstrapReviewReplaySubscription,
+    installation: BridgeProductSessionInstallation
+) async throws -> BridgeProductReviewBatchPublicationRecord {
+    var publication: BridgeProductReviewBatchPublicationRecord?
+    while true {
+        let frame = try bootstrapReviewMetadataFrame(
+            from: try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: subscription.lease,
+                    from: installation.session,
+                    productAdmission: subscription.productAdmission
+                )
+            )
+        )
+        switch frame {
+        case .batch(.begin(let begin)):
+            #expect(begin.mode == .snapshot)
+            #expect(begin.identity.subscriptionId == "bootstrap-review-replay-subscription")
+        case .batch(.part(let part)):
+            guard case .put(_, _, let value) = part.part else { continue }
+            let record = try JSONDecoder().decode(
+                BridgeProductReviewBatchRecord.self,
+                from: JSONEncoder().encode(value)
+            )
+            if case .publication(let receivedPublication) = record {
+                publication = receivedPublication
+            }
+        case .batch(.complete):
+            return try #require(publication)
+        case .panePresentation:
+            continue
+        default:
+            throw BootstrapReviewReplayError.expectedReviewBatchPublication
+        }
     }
-    return event
 }

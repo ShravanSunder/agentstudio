@@ -76,7 +76,7 @@ struct BridgeProductProducerObservationPacingTests {
             sourceByte: 0x61
         )
         let waitTask = fixture.startWaitingForOpeningObservation()
-        #expect(await waitForProducerPacingWaiterCount(1, session: fixture.harness.session))
+        #expect(await fixture.waitUntilObservationWaiterRegistered(sequence: fixture.opening.sequence))
         let wrongReceipt = BridgeProductProducerFrameReceipt(
             producerLease: fixture.lease,
             requiresWorkerObservation: fixture.delivery.receipt.requiresWorkerObservation,
@@ -108,15 +108,13 @@ struct BridgeProductProducerObservationPacingTests {
             sourceByte: 0x61
         )
         let waitTask = fixture.startWaitingForOpeningObservation()
-        #expect(await waitForProducerPacingWaiterCount(1, session: fixture.harness.session))
+        #expect(await fixture.waitUntilObservationWaiterRegistered(sequence: fixture.opening.sequence))
 
         // Act
         waitTask.cancel()
         let waitResult = await waitTask.value
-        let waiterCleared = await waitForProducerPacingWaiterCount(
-            0,
-            session: fixture.harness.session
-        )
+        let waiterCleared =
+            (await fixture.harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 0
 
         // Assert
         #expect(!waitResult)
@@ -139,11 +137,16 @@ struct BridgeProductProducerObservationPacingTests {
         let fixtureB = try await ProducerObservationPacingFixture.opened(
             identifier: "independent-b",
             sourceByte: 0x62,
-            harness: fixtureA.harness
+            harness: fixtureA.harness,
+            registrationRecorder: fixtureA.registrationRecorder
         )
         let waitTaskA = fixtureA.startWaitingForOpeningObservation()
         let waitTaskB = fixtureB.startWaitingForOpeningObservation()
-        #expect(await waitForProducerPacingWaiterCount(2, session: fixtureA.harness.session))
+        #expect(await fixtureA.waitUntilObservationWaiterRegistered(sequence: fixtureA.opening.sequence))
+        #expect(await fixtureB.waitUntilObservationWaiterRegistered(sequence: fixtureB.opening.sequence))
+        #expect(
+            (await fixtureA.harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 2
+        )
 
         // Act / Assert
         #expect(
@@ -292,12 +295,16 @@ struct BridgeProductProducerObservationPacingTests {
                 sequence: secondFrame.sequence
             )
         )
-        #expect(await waitForProducerPacingWaiterCount(2, session: fixture.harness.session))
+        #expect(
+            (await fixture.harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 2
+        )
 
         // Act
         cancelledWait.cancel()
         #expect(!(await cancelledWait.value))
-        #expect(await waitForProducerPacingWaiterCount(1, session: fixture.harness.session))
+        #expect(
+            (await fixture.harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 1
+        )
         #expect(
             await fixture.harness.session.acknowledgeProducerFrameObserved(
                 firstDelivery.receipt
@@ -346,7 +353,11 @@ struct BridgeProductProducerObservationPacingTests {
         )
         let firstWait = fixture.startWaitingForObservation(sequence: firstFrame.sequence)
         let secondWait = fixture.startWaitingForObservation(sequence: secondFrame.sequence)
-        #expect(await waitForProducerPacingWaiterCount(2, session: fixture.harness.session))
+        #expect(await fixture.waitUntilObservationWaiterRegistered(sequence: firstFrame.sequence))
+        #expect(await fixture.waitUntilObservationWaiterRegistered(sequence: secondFrame.sequence))
+        #expect(
+            (await fixture.harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 2
+        )
 
         // Act
         try await fixture.harness.closeProducer(fixture.lease)
@@ -365,21 +376,28 @@ private struct ProducerObservationPacingFixture {
     let lease: BridgeProductProducerLease
     let opening: BridgeProductQueuedProducerFrame
     let request: BridgeProductContentRequest
+    let registrationRecorder: ProducerObservationPacingRegistrationRecorder?
 
     static func opened(
         identifier: String,
         sourceByte: UInt8,
-        harness: BridgeProductSessionLifecycleHarness? = nil
+        harness: BridgeProductSessionLifecycleHarness? = nil,
+        registrationRecorder: ProducerObservationPacingRegistrationRecorder? = nil
     ) async throws -> Self {
         let request = try producerPacingContentRequest(
             identifier: identifier,
             sourceByte: sourceByte
         )
+        let recorder = registrationRecorder ?? (harness == nil ? ProducerObservationPacingRegistrationRecorder() : nil)
         let resolvedHarness: BridgeProductSessionLifecycleHarness
         if let harness {
             resolvedHarness = harness
         } else {
-            resolvedHarness = try await BridgeProductSessionLifecycleHarness.opened()
+            resolvedHarness = try await BridgeProductSessionLifecycleHarness.opened(
+                producerObservationPacingRegistrationObserver: { lease, sequence in
+                    recorder?.record(lease: lease, sequence: sequence)
+                }
+            )
         }
         let operationGate = HeldStep<BridgeProductProducerLease>("operationGate")
         let lease = try bridgeProductAcceptedLease(
@@ -408,12 +426,18 @@ private struct ProducerObservationPacingFixture {
             harness: resolvedHarness,
             lease: lease,
             opening: opening,
-            request: request
+            request: request,
+            registrationRecorder: recorder
         )
     }
 
     func startWaitingForOpeningObservation() -> Task<Bool, Never> {
         startWaitingForObservation(sequence: opening.sequence)
+    }
+
+    func waitUntilObservationWaiterRegistered(sequence: Int) async -> Bool {
+        guard let registrationRecorder else { return false }
+        return await registrationRecorder.waitUntilRecorded(lease: lease, sequence: sequence)
     }
 
     func startWaitingForObservation(sequence: Int) -> Task<Bool, Never> {
@@ -571,21 +595,6 @@ private func producerPacingContentFrameAcknowledgement(
     )
 }
 
-private func waitForProducerPacingWaiterCount(
-    _ expectedCount: Int,
-    session: BridgeProductSession
-) async -> Bool {
-    for _ in 0..<1000 {
-        if await session.producerSnapshot().pendingProducerObservationPacingWaiterCount
-            == expectedCount
-        {
-            return true
-        }
-        await Task.yield()
-    }
-    return false
-}
-
 private enum ProducerObservationPacingTestError: Error {
     case expectedEnqueuedFrame
     case expectedProducerFrame
@@ -599,11 +608,17 @@ private final class ProducerObservationPacingRegistrationRecorder: @unchecked Se
 
     private let lock = NSLock()
     private var registrations: [Registration] = []
+    private var waiters: [(Registration, CheckedContinuation<Void, Never>)] = []
 
     func record(lease: BridgeProductProducerLease, sequence: Int) {
-        lock.withLock {
-            registrations.append(.init(lease: lease, sequence: sequence))
+        let registration = Registration(lease: lease, sequence: sequence)
+        let ready = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            registrations.append(registration)
+            let ready = waiters.filter { $0.0 == registration }.map { $0.1 }
+            waiters.removeAll { $0.0 == registration }
+            return ready
         }
+        for waiter in ready { waiter.resume() }
     }
 
     func waitUntilRecorded(
@@ -611,12 +626,14 @@ private final class ProducerObservationPacingRegistrationRecorder: @unchecked Se
         sequence: Int
     ) async -> Bool {
         let expectedRegistration = Registration(lease: lease, sequence: sequence)
-        for _ in 0..<1000 {
-            if lock.withLock({ registrations.contains(expectedRegistration) }) {
-                return true
+        await withCheckedContinuation { continuation in
+            let alreadyRecorded = lock.withLock { () -> Bool in
+                if registrations.contains(expectedRegistration) { return true }
+                waiters.append((expectedRegistration, continuation))
+                return false
             }
-            await Task.yield()
+            if alreadyRecorded { continuation.resume() }
         }
-        return false
+        return true
     }
 }

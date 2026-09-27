@@ -500,10 +500,7 @@ extension BridgePaneController {
         let lifecycleTraceRecorder = input.telemetryRecorder.map(
             BridgeProductMetadataLifecycleTraceRecorder.init(recorder:)
         )
-        let annotationSource = makeWorktreeAnnotationSource(
-            input,
-            lifecycleTraceRecorder: lifecycleTraceRecorder
-        )
+        let annotationSource = makeWorktreeAnnotationSource(input)
         let annotationProjectionSource = makeWorktreeAnnotationProjectionSource(
             input,
             fileMetadataSource: fileMetadataSource
@@ -639,16 +636,14 @@ extension BridgePaneController {
     }
 
     private static func makeWorktreeAnnotationSource(
-        _ input: BridgeProductSessionDependencyInput,
-        lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
+        _ input: BridgeProductSessionDependencyInput
     ) -> BridgePaneAnnotationNotificationSource {
         guard let service = input.worktreeAnnotationStore,
             let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
         else { return .unavailable }
         return BridgePaneAnnotationNotificationSource(
             service: service,
-            worktreeID: worktreeID,
-            lifecycleTraceRecorder: lifecycleTraceRecorder
+            worktreeID: worktreeID
         )
     }
 

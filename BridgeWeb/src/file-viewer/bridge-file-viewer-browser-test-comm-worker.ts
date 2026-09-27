@@ -13,17 +13,13 @@ import type {
 	CreateBridgePaneRuntimeProps,
 } from '../core/comm-worker/bridge-pane-runtime.js';
 import { BridgeProductBoundedAsyncQueue } from '../core/comm-worker/bridge-product-async-queue.js';
+import type { BridgeProductBatchFrameSinks } from '../core/comm-worker/bridge-product-batch-frame-router.js';
 import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
 import {
 	bridgeProductFileContentDescriptorSchema,
 	type BridgeProductContentFrameFor,
 } from '../core/comm-worker/bridge-product-content-contracts.js';
-import type { BridgeProductMetadataDataFrame } from '../core/comm-worker/bridge-product-metadata-application-protocol.js';
 import { bridgeProductFileMetadataApplicationProtocol } from '../core/comm-worker/bridge-product-metadata-application-registry.js';
-import type {
-	BridgeProductSubscriptionEvent,
-	BridgeProductSubscriptionUpdateOptions,
-} from '../core/comm-worker/bridge-product-subscription-contracts.js';
 import type { BridgeProductMetadataApplicationSubscription } from '../core/comm-worker/bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from '../core/comm-worker/bridge-product-transport.js';
 import {
@@ -35,10 +31,11 @@ import {
 import { bridgeWorkerPierreRenderPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import type { BridgeFileViewerBrowserTestProductSession } from './bridge-file-viewer-browser-test-app.js';
-import {
-	fileContentSha256Hex,
-	type PublishFileMetadataEvents,
-} from './bridge-file-viewer-browser-test-fixtures.js';
+import type {
+	BrowserFileViewScope,
+	PublishBrowserFileBatch,
+} from './bridge-file-viewer-browser-test-batches.js';
+import { fileContentSha256Hex } from './bridge-file-viewer-browser-test-fixtures.js';
 
 export interface BridgeFileViewerBrowserTestPaneSessionFactory {
 	(): BridgePaneSessionPort;
@@ -236,8 +233,15 @@ export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 					for (const resolve of pendingFileDisplayPatchWaiters) resolve();
 					pendingFileDisplayPatchWaiters.clear();
 				},
-				onMetadataEventsPublished: (eventCount): void => {
-					pendingFileDisplayPatchCount += eventCount;
+				onFileBatchInstallStarted: (): void => {
+					pendingFileDisplayPatchCount += 1;
+				},
+				onFileBatchInstallSettled: (): void => {
+					pendingFileDisplayPatchCount -= 1;
+					if (pendingFileDisplayPatchCount === 0) {
+						for (const resolve of pendingFileDisplayPatchWaiters) resolve();
+						pendingFileDisplayPatchWaiters.clear();
+					}
 				},
 				onMetadataInterestUpdateSettled: (): void => {
 					void Promise.resolve()
@@ -269,13 +273,6 @@ export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 					workerDrainWaiters.get(message.requestId)?.();
 					workerDrainWaiters.delete(message.requestId);
 					return;
-				}
-				if (message.kind === 'fileDisplayPatch' && pendingFileDisplayPatchCount > 0) {
-					pendingFileDisplayPatchCount -= 1;
-					if (pendingFileDisplayPatchCount === 0) {
-						for (const resolve of pendingFileDisplayPatchWaiters) resolve();
-						pendingFileDisplayPatchWaiters.clear();
-					}
 				}
 				if (message.kind === 'filePierreRenderJob' && pendingSettledContentPierreJobCount > 0) {
 					pendingSettledContentPierreJobCount -= 1;
@@ -497,7 +494,8 @@ interface BridgeFileViewerBrowserQueryWaiter {
 function createBrowserTestProductTransport(props: {
 	readonly onContentTerminalSettled: (succeeded: boolean) => void;
 	readonly onFileSourceDiscoveryCompleted: () => void;
-	readonly onMetadataEventsPublished: (eventCount: number) => void;
+	readonly onFileBatchInstallStarted: () => void;
+	readonly onFileBatchInstallSettled: () => void;
 	readonly onMetadataInterestUpdateSettled: () => void;
 	readonly onMetadataInterestUpdateStarted: () => void;
 	readonly productSessionRef: {
@@ -505,6 +503,8 @@ function createBrowserTestProductTransport(props: {
 	};
 }): BridgeProductTransportSession {
 	let fileEpoch = 0;
+	let viewScopeRevision = 0;
+	let batchSinks: BridgeProductBatchFrameSinks | null = null;
 	return {
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
@@ -573,60 +573,60 @@ function createBrowserTestProductTransport(props: {
 				workerInstanceId: 'browser-file-test-worker-instance',
 			});
 		},
+		setBatchFrameSinks: (sinks): void => {
+			batchSinks = sinks;
+		},
+		setViewScopeForSubscription: async ({
+			scope,
+		}): Promise<{ readonly kind: 'accepted'; readonly scopeRevision: number }> => {
+			if (scope.kind !== 'file') throw new Error('Expected typed File view scope.');
+			props.onMetadataInterestUpdateStarted();
+			try {
+				await props.productSessionRef.current?.onFileScopeChange?.(scope as BrowserFileViewScope);
+				viewScopeRevision += 1;
+				return { kind: 'accepted', scopeRevision: viewScopeRevision };
+			} finally {
+				props.onMetadataInterestUpdateSettled();
+			}
+		},
 		subscribe: (...arguments_): never => {
 			const [protocol, options] = arguments_;
-			const subscriptionKind = protocol.kind;
-			if (subscriptionKind !== 'file.metadata') {
-				throw new Error(`Unexpected browser-test product subscription: ${subscriptionKind}.`);
+			if (protocol.kind !== 'file.metadata') {
+				throw new Error(`Unexpected browser-test product subscription: ${protocol.kind}.`);
 			}
 			const subscriptionId = 'browser-file-metadata-subscription';
-			let metadataStreamSequence = 0;
-			let subscriptionSequence = 0;
-			const events = new BridgeProductBoundedAsyncQueue<
-				BridgeProductMetadataDataFrame<BridgeProductSubscriptionEvent<'file.metadata'>>
-			>(256);
-			const publish: PublishFileMetadataEvents = (publishedEvents): void => {
-				props.onMetadataEventsPublished(publishedEvents.length);
-				for (const event of publishedEvents) {
-					metadataStreamSequence += 1;
-					subscriptionSequence += 1;
-					events.push({
-						data: event,
-						metadataStreamId: 'browser-file-test-metadata-stream',
-						operationCorrelationId: null,
-						sourceGeneration:
-							bridgeProductFileMetadataApplicationProtocol.readEventSourceGeneration(event),
-						streamSequence: metadataStreamSequence,
-						subscriptionId,
-						subscriptionKind: 'file.metadata',
-						subscriptionSequence,
-						workerDerivationEpoch: fileEpoch,
-					});
-				}
+			const events = new BridgeProductBoundedAsyncQueue<never>(1);
+			const publish: PublishBrowserFileBatch = (batch): void => {
+				const sink = batchSinks;
+				if (sink === null) throw new Error('File batch sink was not installed.');
+				props.onFileBatchInstallStarted();
+				// Subscribe returns before the controller records its subscription authority.
+				void Promise.resolve()
+					.then(() => sink.install(batch))
+					.then(
+						(): void => props.onFileBatchInstallSettled(),
+						(error: unknown): void => {
+							props.onFileBatchInstallSettled();
+							queueMicrotask((): void => {
+								throw error;
+							});
+						},
+					);
 			};
 			const session = props.productSessionRef.current;
 			session?.onMetadataSubscriptionOpen?.(options as never);
-			publish(session?.initialMetadataEvents ?? []);
-			session?.onMetadataSubscription?.(publish);
+			if (session?.initialFileBatch !== undefined) publish(session.initialFileBatch);
+			const disposePublisher = session?.onFileBatchPublisher?.(publish);
 			const subscription: BridgeProductMetadataApplicationSubscription<
 				typeof bridgeProductFileMetadataApplicationProtocol
 			> = {
 				cancel: async (): Promise<void> => {
+					disposePublisher?.();
 					events.close(true);
 				},
 				events,
 				subscriptionId,
 				subscriptionKind: 'file.metadata',
-				update: async (
-					updatedOptions: BridgeProductSubscriptionUpdateOptions<'file.metadata'>,
-				): Promise<void> => {
-					props.onMetadataInterestUpdateStarted();
-					try {
-						await props.productSessionRef.current?.onMetadataInterestUpdate?.(updatedOptions);
-					} finally {
-						props.onMetadataInterestUpdateSettled();
-					}
-				},
 			};
 			return subscription as never;
 		},

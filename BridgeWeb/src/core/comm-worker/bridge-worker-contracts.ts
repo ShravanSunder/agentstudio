@@ -548,7 +548,6 @@ const bridgeWorkerProductMetadataStreamDiagnosticSchema = z
 			.strict()
 			.nullable(),
 		routeFailureSubscriptionId: bridgeProductIdentifierSchema.nullable(),
-		acknowledgedFrameCount: z.number().int().nonnegative(),
 		activeSubscriptionCount: z.number().int().nonnegative(),
 		committedFrameCount: z.number().int().nonnegative(),
 		decoderState: z.enum(['open', 'terminal', 'finished', 'poisoned']),
@@ -586,7 +585,6 @@ const bridgeWorkerProductMetadataStreamDiagnosticSchema = z
 			.enum(['metadataStreamId', 'paneSessionId', 'wireVersion', 'workerInstanceId'])
 			.nullable(),
 		lastChunkByteCount: z.number().int().nonnegative(),
-		lastAcknowledgedStreamSequence: z.number().int().nonnegative().nullable(),
 		lastCommittedFrameKind: z.string().min(1).nullable(),
 		lastRoutedFrameKind: z.string().min(1).nullable(),
 		lifecycleState: z.enum(['failed', 'idle', 'opening', 'reading']),

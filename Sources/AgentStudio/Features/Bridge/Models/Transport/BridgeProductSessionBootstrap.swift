@@ -4,6 +4,7 @@ import Foundation
 struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case admissionRetryCount
+        case contentProgressDeadlineMilliseconds
         case maximumContentBytes
         case maximumRequestBodyBytes
         case maximumMetadataFrameBytes
@@ -21,6 +22,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     }
 
     let admissionRetryCount: Int
+    let contentProgressDeadlineMilliseconds: Int
     let maximumContentBytes: Int
     let maximumRequestBodyBytes: Int
     let maximumMetadataFrameBytes: Int
@@ -38,6 +40,9 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
 
     static let productContract = Self(
         admissionRetryCount: AppPolicies.Bridge.productAdmissionRetryCount,
+        contentProgressDeadlineMilliseconds: Int(
+            AppPolicies.Bridge.contentProgressDeadline.components.seconds * 1000
+        ),
         maximumContentBytes: BridgeProductWireContract.maximumContentStreamBytes,
         maximumRequestBodyBytes: BridgeProductWireContract.maximumRequestBodyBytes,
         maximumMetadataFrameBytes: BridgeProductWireContract.maximumMetadataFrameBytes,
@@ -60,6 +65,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
 
     init(
         admissionRetryCount: Int,
+        contentProgressDeadlineMilliseconds: Int,
         maximumContentBytes: Int,
         maximumRequestBodyBytes: Int,
         maximumMetadataFrameBytes: Int,
@@ -76,6 +82,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         workerSettlementDeadlineMilliseconds: Int
     ) {
         self.admissionRetryCount = admissionRetryCount
+        self.contentProgressDeadlineMilliseconds = contentProgressDeadlineMilliseconds
         self.maximumContentBytes = maximumContentBytes
         self.maximumRequestBodyBytes = maximumRequestBodyBytes
         self.maximumMetadataFrameBytes = maximumMetadataFrameBytes
@@ -100,6 +107,9 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.admissionRetryCount = try container.decode(Int.self, forKey: .admissionRetryCount)
+        self.contentProgressDeadlineMilliseconds = try container.decode(
+            Int.self, forKey: .contentProgressDeadlineMilliseconds
+        )
         self.maximumContentBytes = try container.decode(Int.self, forKey: .maximumContentBytes)
         self.maximumRequestBodyBytes = try container.decode(Int.self, forKey: .maximumRequestBodyBytes)
         self.maximumMetadataFrameBytes = try container.decode(Int.self, forKey: .maximumMetadataFrameBytes)
@@ -128,25 +138,34 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
             forKey: .workerSettlementDeadlineMilliseconds
         )
 
+        try validateDecodedPolicy(codingPath: decoder.codingPath)
+    }
+
+    private func validateDecodedPolicy(codingPath: [any CodingKey]) throws {
         try BridgeProductContractDecoding.validateNonnegative(
             admissionRetryCount,
             name: "admissionRetryCount",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validatePositive(
+            contentProgressDeadlineMilliseconds,
+            name: "contentProgressDeadlineMilliseconds",
+            codingPath: codingPath
         )
         try BridgeProductContractDecoding.validatePositive(
             workerSettlementDeadlineMilliseconds,
             name: "workerSettlementDeadlineMilliseconds",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try BridgeProductContractDecoding.validatePositive(
             telemetryPreReadyBufferMaxBytes,
             name: "telemetryPreReadyBufferMaxBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try BridgeProductContractDecoding.validatePositive(
             telemetryPreReadyBufferMaxSamples,
             name: "telemetryPreReadyBufferMaxSamples",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         for (name, value) in [
             ("viewAcknowledgementDeadlineMilliseconds", viewAcknowledgementDeadlineMilliseconds),
@@ -155,43 +174,43 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
             ("viewMaximumConsecutiveResnapshots", viewMaximumConsecutiveResnapshots),
             ("viewMaximumDirtyKeys", viewMaximumDirtyKeys),
         ] {
-            try BridgeProductContractDecoding.validatePositive(value, name: name, codingPath: decoder.codingPath)
+            try BridgeProductContractDecoding.validatePositive(value, name: name, codingPath: codingPath)
         }
 
         try validate(
             maximumContentBytes,
             maximum: BridgeProductWireContract.maximumContentStreamBytes,
             name: "maximumContentBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try validate(
             maximumRequestBodyBytes,
             maximum: BridgeProductWireContract.maximumRequestBodyBytes,
             name: "maximumRequestBodyBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try validate(
             maximumMetadataFrameBytes,
             maximum: BridgeProductWireContract.maximumMetadataFrameBytes,
             name: "maximumMetadataFrameBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try validate(
             maximumQueuedStreamBytes,
             maximum: BridgeProductWireContract.maximumQueuedStreamBytes,
             name: "maximumQueuedStreamBytes",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         try validate(
             maximumQueuedStreamFrames,
             maximum: BridgeProductWireContract.maximumQueuedStreamFrames,
             name: "maximumQueuedStreamFrames",
-            codingPath: decoder.codingPath
+            codingPath: codingPath
         )
         guard terminalFrameReserve == BridgeProductWireContract.terminalFrameReserve else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Bridge product policy must reserve exactly one terminal frame",
-                codingPath: decoder.codingPath
+                codingPath: codingPath
             )
         }
     }

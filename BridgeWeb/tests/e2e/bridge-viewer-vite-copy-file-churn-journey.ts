@@ -58,7 +58,7 @@ export interface ChurnEvidence {
 		readonly subscriptionKind: string;
 		readonly workerDerivationEpoch: number;
 	}>;
-	subscriptionUpdateCount: number;
+	fileScopeUpdateCount: number;
 	readonly transportRequests: Array<{
 		readonly kind: string;
 		readonly method: string | null;
@@ -253,7 +253,7 @@ export async function runCopyFileChurnReproduction(props: {
 				copyRefreshOverlap: null,
 				fileAnnotationOpens: [],
 				subscriptionRetirements: [],
-				subscriptionUpdateCount: 0,
+				fileScopeUpdateCount: 0,
 				transportRequests: [],
 			},
 		};
@@ -363,7 +363,7 @@ function observeChurnEvidence(page: Page): ChurnEvidenceObserver {
 		copyRefreshOverlap: null,
 		fileAnnotationOpens: [],
 		subscriptionRetirements: [],
-		subscriptionUpdateCount: 0,
+		fileScopeUpdateCount: 0,
 		transportRequests: [],
 	};
 	const pendingOutcomeReads = new Set<Promise<void>>();
@@ -412,7 +412,9 @@ function recordTransportRequest(evidence: ChurnEvidence, request: Request): void
 			workerInstanceId: control.workerInstanceId,
 		});
 	}
-	if (control.kind === 'subscription.updateBatch') evidence.subscriptionUpdateCount += 1;
+	if (control.kind === 'subscription.setScope' && control.subscriptionKind === 'file.metadata') {
+		evidence.fileScopeUpdateCount += 1;
+	}
 	if (control.kind === 'subscription.cancel') {
 		evidence.subscriptionRetirements.push({
 			subscriptionId: control.subscriptionId,

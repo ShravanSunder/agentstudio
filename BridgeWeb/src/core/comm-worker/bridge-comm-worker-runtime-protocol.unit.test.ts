@@ -26,7 +26,6 @@ import {
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { drainBridgeWorkerVisibleDemandRuntimeUntil } from './bridge-comm-worker-runtime-protocol.visible-demand.test-support.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
-import type { BridgeProductSubscriptionUpdateOptions } from './bridge-product-subscription-contracts.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 
 describe('Bridge comm worker runtime protocol', () => {
@@ -262,15 +261,20 @@ describe('Bridge comm worker runtime protocol', () => {
 		// Arrange
 		let clockMs = 0;
 		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const updates: BridgeProductSubscriptionUpdateOptions<'review.metadata'>[] = [];
 		const openedDescriptorIds: string[] = [];
 		const firstInterestCommit = createDeferredVoid();
 		const secondInterestCommit = createDeferredVoid();
+		let viewScopeCount = 0;
 		const reviewProductSource = createBridgeCommWorkerReviewProductTestSource({
-			updateReviewMetadata: async (options): Promise<void> => {
-				updates.push(options);
-				if (updates.length === 1) await firstInterestCommit.promise;
-				else if (updates.length === 2) await secondInterestCommit.promise;
+			setViewScopeForSubscription: async (): Promise<{
+				kind: 'accepted';
+				scopeRevision: number;
+			}> => {
+				viewScopeCount += 1;
+				const scopeCount = viewScopeCount;
+				if (scopeCount === 1) await firstInterestCommit.promise;
+				else if (scopeCount === 2) await secondInterestCommit.promise;
+				return { kind: 'accepted', scopeRevision: scopeCount };
 			},
 		});
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
@@ -308,7 +312,9 @@ describe('Bridge comm worker runtime protocol', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
 		await flushBridgeWorkerRuntimeContinuations();
-		expect(updates).toEqual([{ interests: [{ itemIds: ['item-1'], lane: 'idle' }] }]);
+		expect(reviewProductSource.viewScopes.map(({ scope }) => scope)).toEqual([
+			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'idle' }] },
+		]);
 
 		// Act: promote before the first snapshot commits, then start content work.
 		dispatch.message(
@@ -349,9 +355,9 @@ describe('Bridge comm worker runtime protocol', () => {
 		);
 		firstInterestCommit.resolve();
 		await flushBridgeWorkerRuntimeContinuations();
-		expect(updates).toEqual([
-			{ interests: [{ itemIds: ['item-1'], lane: 'idle' }] },
-			{ interests: [{ itemIds: ['item-1'], lane: 'visible' }] },
+		expect(reviewProductSource.viewScopes.map(({ scope }) => scope)).toEqual([
+			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'idle' }] },
+			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'visible' }] },
 		]);
 		expect(openedDescriptorIds).toEqual([]);
 		secondInterestCommit.resolve();
@@ -359,7 +365,9 @@ describe('Bridge comm worker runtime protocol', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(openedDescriptorIds).toHaveLength(2);
 		expect(
-			updates.flatMap(({ interests }) => interests.flatMap(({ itemIds }) => itemIds)),
+			reviewProductSource.viewScopes
+				.flatMap(({ scope }) => (scope.kind === 'review' ? scope.interests : []))
+				.flatMap(({ itemIds }) => itemIds),
 		).not.toContain('forged-caller-item');
 		expect(postedMessages.map(({ message }) => message)).toContainEqual(
 			expect.objectContaining({

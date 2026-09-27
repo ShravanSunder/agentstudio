@@ -7,7 +7,7 @@ import Foundation
 
 struct BridgeProductSchemeTranscriptFixture {
     static let expectedSHA256 =
-        "ceff569ba2d4c78540fad3a6ec9d60d478c7e026763e941c363424a549f4998c"
+        "cf00a51bddd35a7d9cfa682be944741eab07814887175d2c4378f61d99e96e90"
 
     let bytes: Data
     let root: [String: Any]
@@ -66,14 +66,6 @@ struct BridgeProductSchemeTranscriptFixture {
         try BridgeProductStrictJSON.decode(type, from: observationRequestData(named: name))
     }
 
-    func subscriptionData(named name: String) throws -> BridgeProductSubscriptionData {
-        let frame = try decodeTranscriptValue(BridgeProductMetadataFrame.self, named: name)
-        guard case .subscriptionData(let dataFrame) = frame else {
-            throw BridgeProductSchemeTranscriptFixtureError.unexpectedFrameKind(name)
-        }
-        return dataFrame.data
-    }
-
     private func namedEntry(
         _ name: String,
         collection: String
@@ -108,9 +100,7 @@ struct BridgeProductSchemeAdapterTranscriptHarness {
 
     static func make(
         paneSessionId: String,
-        workerInstanceId: String,
-        reviewSourceData: BridgeProductSubscriptionData,
-        fileSourceData: BridgeProductSubscriptionData
+        workerInstanceId: String
     ) throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
@@ -120,10 +110,7 @@ struct BridgeProductSchemeAdapterTranscriptHarness {
             capabilityBytes: capabilityBytes,
             deadlineClock: TestPushClock()
         )
-        let provider = BridgeProductSchemeTranscriptProvider(
-            reviewSourceData: reviewSourceData,
-            fileSourceData: fileSourceData
-        )
+        let provider = BridgeProductSchemeTranscriptProvider()
         let productAdmissionGate = BridgeProductAdmissionGate()
         return .init(
             adapter: .init(
@@ -179,20 +166,9 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
     private let contentOperationGate = HeldStep<BridgeProductProducerLease>("contentOperationGate")
     private var contentRequestCount = 0
     private var controlRequestKinds: [String] = []
-    private let fileSourceData: BridgeProductSubscriptionData
     private var metadataRequestCount = 0
     private let metadataOperationGate = HeldStep<BridgeProductProducerLease>("metadataOperationGate")
-    private var metadataSession: BridgeProductSession?
     private var producerFailures: [String] = []
-    private let reviewSourceData: BridgeProductSubscriptionData
-
-    init(
-        reviewSourceData: BridgeProductSubscriptionData,
-        fileSourceData: BridgeProductSubscriptionData
-    ) {
-        self.reviewSourceData = reviewSourceData
-        self.fileSourceData = fileSourceData
-    }
 
     func response(
         for request: BridgeProductControlRequest,
@@ -203,22 +179,16 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
             switch request {
             case .workerSessionOpen:
                 return try .workerSessionAccepted(correlating: request)
-            case .subscriptionOpen(let openRequest):
-                let emptyInterestState = try openRequest.subscription.initialInterestState()
+            case .subscriptionOpen:
                 return try .subscriptionOpenAccepted(
                     correlating: request,
-                    interestSha256: emptyInterestState.sha256Hex()
-                )
-            case .subscriptionUpdateBatch(let updateRequest):
-                let disposition: BridgeProductSubscriptionUpdateBatchDisposition =
-                    updateRequest.batchIndex + 1 == updateRequest.batchCount ? .committed : .staged
-                return try .subscriptionUpdateBatchAccepted(
-                    correlating: request,
-                    disposition: disposition
+                    worktreeId: nil
                 )
             case .subscriptionCancel:
                 return try .subscriptionCancelAccepted(correlating: request)
-            case .productCall, .viewScope, .viewResnapshot, .workerSessionResync:
+            case .viewScope:
+                return try .viewAccepted(correlating: request)
+            case .productCall, .viewResnapshot, .workerSessionResync:
                 preconditionFailure("Unexpected transcript control request")
             }
         } catch {
@@ -233,7 +203,6 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         session: BridgeProductSession
     ) async {
         metadataRequestCount += 1
-        metadataSession = session
         do {
             let result = try await session.enqueueRequiredProducerOpeningFrame(
                 for: lease,
@@ -292,37 +261,7 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         for request: BridgeProductControlRequest,
         productAdmission: BridgeProductAdmissionContext
     ) async {
-        _ = request
-        guard case .subscriptionOpened(let subscription) = effect,
-            let metadataSession
-        else { return }
-        let data: BridgeProductSubscriptionData
-        switch subscription.subscriptionKind {
-        case .fileAnnotations, .reviewAnnotations:
-            return
-        case .reviewMetadata:
-            data = reviewSourceData
-        case .fileMetadata:
-            data = fileSourceData
-        default:
-            return
-        }
-        do {
-            let foregroundWorkAdmission =
-                await BridgePaneRefreshWorkAdmissionTestContext.foreground().admission
-            let result = try await metadataSession.enqueueSubscriptionData(
-                subscriptionId: subscription.subscriptionId,
-                data: data,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission
-            )
-            guard case .enqueued = result else {
-                producerFailures.append("subscription source frame rejected")
-                return
-            }
-        } catch {
-            producerFailures.append("subscription source frame failed")
-        }
+        _ = (effect, request, productAdmission)
     }
 
     var snapshot: Snapshot {

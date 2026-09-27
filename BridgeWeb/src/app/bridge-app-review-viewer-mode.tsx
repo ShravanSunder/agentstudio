@@ -778,6 +778,9 @@ function reviewPresentationState(props: {
 	readonly onOpenFile?: (path: string) => void;
 }): BridgeReviewViewerPresentationState {
 	if (props.reviewSourceSlice === null) return { status: 'empty' };
+	if ('kind' in props.reviewSourceSlice && props.reviewSourceSlice.kind === 'readyEmpty') {
+		return { status: 'readyEmpty' };
+	}
 	if (props.reviewSourceSlice.status === 'failed') {
 		return { error: 'Review metadata is unavailable', status: 'metadataFailed' };
 	}

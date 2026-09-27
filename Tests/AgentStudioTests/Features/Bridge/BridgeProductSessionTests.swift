@@ -430,13 +430,9 @@ private func openFileSessionEpochSubscription(
         presentedCapability: capabilityHeader
     )
     let token = try #require(admission.executionToken)
-    let emptyInterestSha256 =
-        try BridgeProductSubscriptionInterestState
-        .fileMetadata(interests: [], pathScope: [])
-        .sha256Hex()
     let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
         correlating: request,
-        interestSha256: emptyInterestSha256
+        worktreeId: nil
     )
     let operation = try await session.admitControlOperation(token: token, execute: { _ in })
     _ = try await session.completeControl(

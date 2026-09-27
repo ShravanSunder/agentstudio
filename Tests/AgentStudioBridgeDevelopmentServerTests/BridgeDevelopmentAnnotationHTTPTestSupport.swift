@@ -31,6 +31,7 @@ struct HTTPDevelopmentProductRuntime {
 
 @MainActor
 struct HTTPAnnotationAuthoringContext {
+    let commentSubscription: BridgeProductSubscriptionOpenAcceptedResponse
     let descriptor: BridgeProductFileContentDescriptor
     let fileSourceGeneration: Int
     let metadataStream: HTTPMetadataStreamHandle
@@ -100,7 +101,7 @@ func prepareHTTPAnnotationAuthoring(
         connection: connection,
         requestSequence: 2
     )
-    let fileMetadataSubscription = try await openHTTPSubscription(
+    _ = try await openHTTPSubscription(
         client: client,
         connection: connection,
         requestSequence: 3,
@@ -116,40 +117,18 @@ func prepareHTTPAnnotationAuthoring(
         recorder: metadataStream.recorder,
         subscriptionID: "file-metadata-annotation-authoring"
     )
-    let acceptedFileSource: BridgeProductFileSourceIdentity =
-        try await waitForAcknowledgedMetadataFrame(
-            client: client,
-            connection: connection,
-            recorder: metadataStream.recorder
-        ) { frame in
-            guard case .subscriptionData(let dataFrame) = frame,
-                let fileEvent = dataFrame.data.fileMetadataEvent,
-                case .sourceAccepted(let event) = fileEvent
-            else { return nil }
-            return event.source
-        }
-    try await demandHTTPFileMetadataPath(
-        "tracked.txt",
+    try await acceptHTTPFileViewScope(
+        path: "tracked.txt",
         client: client,
         connection: connection,
-        openResponse: fileMetadataSubscription,
         requestSequence: 4,
         subscriptionID: "file-metadata-annotation-authoring"
     )
-    let descriptor: BridgeProductFileContentDescriptor =
-        try await waitForAcknowledgedMetadataFrame(
-            client: client,
-            connection: connection,
-            recorder: metadataStream.recorder
-        ) { frame in
-            guard case .subscriptionData(let dataFrame) = frame,
-                let fileEvent = dataFrame.data.fileMetadataEvent,
-                case .descriptorReady(let event) = fileEvent,
-                case .available(let descriptor) = event.payload.availability
-            else { return nil }
-            return descriptor
-        }
-    _ = try await openHTTPSubscription(
+    let descriptor = try await waitForHTTPFileContentDescriptor(
+        path: "tracked.txt", client: client, connection: connection,
+        recorder: metadataStream.recorder
+    )
+    let commentOpen = try await openHTTPSubscription(
         client: client,
         connection: connection,
         requestSequence: 5,
@@ -162,63 +141,191 @@ func prepareHTTPAnnotationAuthoring(
         recorder: metadataStream.recorder,
         subscriptionID: "file-annotations-authoring"
     )
+    try await acceptHTTPCommentViewScope(
+        client: client,
+        connection: connection,
+        openResponse: commentOpen,
+        requestSequence: 6
+    )
     _ = try await waitForHTTPAnnotationCatalogCommit(
         client: client,
         connection: connection,
         recorder: metadataStream.recorder
     )
     return .init(
+        commentSubscription: commentOpen,
         descriptor: descriptor,
-        fileSourceGeneration: acceptedFileSource.subscriptionGeneration,
+        fileSourceGeneration: descriptor.source.subscriptionGeneration,
         metadataStream: metadataStream
     )
 }
 
-private func demandHTTPFileMetadataPath(
-    _ path: String,
+func acceptHTTPFileViewScope(
+    path: String?,
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
-    openResponse: BridgeProductSubscriptionOpenAcceptedResponse,
     requestSequence: Int,
     subscriptionID: String
 ) async throws {
-    let targetInterestState = BridgeProductSubscriptionInterestState.fileMetadata(
-        interests: [try .init(lane: .foreground, paths: [path])],
-        pathScope: []
-    )
+    let interests: [[String: Any]] = path.map { [["lane": "foreground", "paths": [$0]]] } ?? []
     let response = try await executeHTTPControl(
         client: client,
         connection: connection,
         object: httpSurfaceControlIdentity(
             connection: connection,
-            kind: "subscription.updateBatch",
-            requestID: "subscription-update-\(subscriptionID)",
+            kind: "subscription.setScope",
+            requestID: "file-scope-\(subscriptionID)",
             requestSequence: requestSequence
         ).merging([
-            "baseInterestRevision": openResponse.interestRevision,
-            "baseInterestSha256": openResponse.interestSha256,
-            "batchCount": 1,
-            "batchIndex": 0,
-            "delta": [
-                "add": [["lane": "foreground", "path": path]],
-                "addPathScope": [],
-                "removePathScope": [],
-                "removePaths": [],
-                "subscriptionKind": "file.metadata",
+            "domain": "default",
+            "handle": "file-view-\(subscriptionID)",
+            "incarnation": "file-incarnation-\(subscriptionID)",
+            "scopeRevision": 1,
+            "scope": [
+                "kind": "file",
+                "changeFilter": ["kind": "none"],
+                "interests": interests,
+                "pathScope": [],
             ],
             "subscriptionId": subscriptionID,
             "subscriptionKind": "file.metadata",
-            "targetInterestRevision": openResponse.interestRevision + 1,
-            "targetInterestSha256": try targetInterestState.sha256Hex(),
-            "totalDeltaItemCount": 1,
-            "updateId": "file-interest-\(subscriptionID)",
         ]) { _, newValue in newValue }
     )
-    guard case .subscriptionUpdateBatchAccepted(let accepted) = response,
-        accepted.disposition == .committed
+    guard case .viewAccepted(let accepted) = response,
+        accepted.kind == .scope
     else {
         throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
-            callSite: "demandHTTPFileMetadataPath",
+            callSite: "acceptHTTPFileViewScope",
+            receivedKind: String(reflecting: response)
+        )
+    }
+}
+
+func waitForHTTPFileContentDescriptor(
+    path: String,
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    recorder: HTTPMetadataFrameRecorder
+) async throws -> BridgeProductFileContentDescriptor {
+    while true {
+        let snapshot = try await nextHTTPFileBatchSnapshot(
+            client: client, connection: connection, recorder: recorder
+        )
+        if let descriptor = snapshot.descriptorByPath[path] { return descriptor }
+    }
+}
+
+func waitForHTTPFileSourceIdentity(
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    recorder: HTTPMetadataFrameRecorder
+) async throws -> BridgeProductFileSourceIdentity {
+    try await nextHTTPFileBatchSnapshot(
+        client: client, connection: connection, recorder: recorder
+    ).source
+}
+
+private struct HTTPFileBatchSnapshot {
+    let source: BridgeProductFileSourceIdentity
+    let descriptorByPath: [String: BridgeProductFileContentDescriptor]
+}
+
+private func nextHTTPFileBatchSnapshot(
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    recorder: HTTPMetadataFrameRecorder
+) async throws -> HTTPFileBatchSnapshot {
+    var activeBegin: BridgeProductBatchBeginFrame?
+    var partsByIndex: [Int: BridgeProductBatchPart] = [:]
+    while true {
+        let frame = try await recorder.nextFrame()
+        try await acknowledgeHTTPMetadataFrame(client: client, connection: connection, frame: frame)
+        guard case .batch(let batch) = frame,
+            batch.identity.subscriptionKind == .fileMetadata
+        else { continue }
+        switch batch {
+        case .begin(let begin):
+            activeBegin = begin
+            partsByIndex.removeAll(keepingCapacity: true)
+        case .part(let part):
+            guard part.identity.batchId == activeBegin?.identity.batchId else {
+                throw HTTPAnnotationIntegrationError.incompleteFileBatch
+            }
+            partsByIndex[part.partIndex] = part.part
+        case .complete(let complete):
+            guard let begin = activeBegin,
+                complete.identity.batchId == begin.identity.batchId,
+                complete.coveredScope == begin.scope,
+                partsByIndex.count == begin.partCount
+            else { throw HTTPAnnotationIntegrationError.incompleteFileBatch }
+            var memberStatus: BridgeProductFileMemberStatusRecord?
+            var descriptorByPath: [String: BridgeProductFileContentDescriptor] = [:]
+            for index in 0..<begin.partCount {
+                guard let part = partsByIndex[index] else {
+                    throw HTTPAnnotationIntegrationError.incompleteFileBatch
+                }
+                guard case .put(let key, let revision, let value) = part else { continue }
+                guard revision <= begin.targetRevision else {
+                    throw HTTPAnnotationIntegrationError.invalidFileBatchRecord
+                }
+                let data = try JSONEncoder().encode(value)
+                if key == BridgeProductFileMemberStatusRecord.recordKey {
+                    memberStatus = try BridgeProductStrictJSON.decode(
+                        BridgeProductFileMemberStatusRecord.self, from: data
+                    )
+                    continue
+                }
+                let row = try BridgeProductStrictJSON.decode(BridgeProductFileBatchRow.self, from: data)
+                guard key == "/workspace/\(row.displayKey)" else {
+                    throw HTTPAnnotationIntegrationError.invalidFileBatchRecord
+                }
+                if let descriptor = row.readDescriptor {
+                    descriptorByPath[row.displayKey] = descriptor
+                }
+            }
+            guard let memberStatus else { throw HTTPAnnotationIntegrationError.incompleteFileBatch }
+            return .init(source: memberStatus.source, descriptorByPath: descriptorByPath)
+        }
+    }
+}
+
+func acceptHTTPCommentViewScope(
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    openResponse: BridgeProductSubscriptionOpenAcceptedResponse,
+    requestSequence: Int,
+    scopeRevision: Int = 1,
+    sessionIDs: [UUID] = []
+) async throws {
+    let worktreeID = try #require(openResponse.worktreeId)
+    let response = try await executeHTTPControl(
+        client: client,
+        connection: connection,
+        object: httpSurfaceControlIdentity(
+            connection: connection,
+            kind: "subscription.setScope",
+            requestID: "comment-scope-\(openResponse.subscriptionId)-\(scopeRevision)",
+            requestSequence: requestSequence
+        ).merging([
+            "domain": "default",
+            "handle": "comment-view-\(openResponse.subscriptionId)",
+            "incarnation": "comment-incarnation-\(openResponse.subscriptionId)",
+            "scopeRevision": scopeRevision,
+            "scope": [
+                "kind": "comment",
+                "sessionIds": sessionIDs.map { $0.uuidString.lowercased() },
+                "worktreeId": worktreeID,
+            ],
+            "subscriptionId": openResponse.subscriptionId,
+            "subscriptionKind": "file.annotations",
+        ]) { _, newValue in newValue }
+    )
+    guard case .viewAccepted(let accepted) = response,
+        accepted.kind == .scope,
+        accepted.subscriptionId == openResponse.subscriptionId
+    else {
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse(
+            callSite: "acceptHTTPCommentViewScope",
             receivedKind: String(reflecting: response)
         )
     }
@@ -238,7 +345,8 @@ func capturedErrorDescription(
 @MainActor
 func prepareHTTPAnnotationLocatedRestore(
     client: some TestClientProtocol,
-    runtime: HTTPDevelopmentProductRuntime
+    runtime: HTTPDevelopmentProductRuntime,
+    sessionID: UUID
 ) async throws -> HTTPAnnotationLocatedRestoreContext {
     let connection = try await openHTTPProductConnection(client: client)
     let metadataStream = try await startHTTPMetadataStream(
@@ -275,22 +383,20 @@ func prepareHTTPAnnotationLocatedRestore(
         recorder: metadataStream.recorder,
         subscriptionID: "file-metadata-located-restore"
     )
-    let acceptedFileSource: BridgeProductFileSourceIdentity =
-        try await waitForAcknowledgedMetadataFrame(
-            client: client,
-            connection: connection,
-            recorder: metadataStream.recorder
-        ) { frame in
-            guard case .subscriptionData(let dataFrame) = frame,
-                let fileEvent = dataFrame.data.fileMetadataEvent,
-                case .sourceAccepted(let event) = fileEvent
-            else { return nil }
-            return event.source
-        }
-    _ = try await openHTTPSubscription(
+    try await acceptHTTPFileViewScope(
+        path: nil,
         client: client,
         connection: connection,
         requestSequence: 4,
+        subscriptionID: "file-metadata-located-restore"
+    )
+    let acceptedFileSource = try await waitForHTTPFileSourceIdentity(
+        client: client, connection: connection, recorder: metadataStream.recorder
+    )
+    let commentOpen = try await openHTTPSubscription(
+        client: client,
+        connection: connection,
+        requestSequence: 5,
         subscription: ["subscriptionKind": "file.annotations"],
         subscriptionID: "file-annotations-located-restore"
     )
@@ -299,6 +405,13 @@ func prepareHTTPAnnotationLocatedRestore(
         connection: connection,
         recorder: metadataStream.recorder,
         subscriptionID: "file-annotations-located-restore"
+    )
+    try await acceptHTTPCommentViewScope(
+        client: client,
+        connection: connection,
+        openResponse: commentOpen,
+        requestSequence: 6,
+        sessionIDs: [sessionID]
     )
     _ = try await waitForHTTPAnnotationCatalogCommit(
         client: client,
@@ -329,6 +442,8 @@ enum HTTPAnnotationIntegrationError: Error {
     case invalidOperationAdmission
     case invalidOperationResult
     case invalidCompletedControl
+    case incompleteFileBatch
+    case invalidFileBatchRecord
     case controlRouteFailed
     case operationResultRouteFailed
     case metadataDrainFailed(String)
@@ -791,8 +906,6 @@ private func metadataFrameIdentity(
     case .panePresentation(let value): value.frameIdentity
     case .paneSurfaceSelectionRequested(let value): value.frameIdentity
     case .subscriptionAccepted(let value): value.frameIdentity
-    case .subscriptionInterestsCommitted(let value): value.identity.frameIdentity
-    case .subscriptionData(let value): value.frameIdentity
     case .batch(let value): value.identity.frame
     case .subscriptionReset(let value): value.identity.frameIdentity
     case .subscriptionEnd(let value): value.identity.frameIdentity

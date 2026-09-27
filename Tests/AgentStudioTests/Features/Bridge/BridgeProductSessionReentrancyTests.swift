@@ -26,7 +26,7 @@ struct BridgeProductSessionReentrancyTests {
         let newerLease = try #require(newerRegistration.lease)
         let openResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
-            interestSha256: emptyFileInterestSHA256()
+            worktreeId: nil
         )
 
         // Act
@@ -310,7 +310,7 @@ private struct ReentrancySessionHarness {
         let token = try #require(try await begin(request).executionToken)
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: request,
-            interestSha256: emptyFileInterestSHA256()
+            worktreeId: nil
         )
         _ = try await session.completeAdmittedControl(
             token: token,
@@ -451,8 +451,6 @@ private func fileResyncRequest(
         ).merging([
             "activeSubscriptions": [
                 [
-                    "interestRevision": 0,
-                    "interestSha256": try emptyFileInterestSHA256(),
                     "subscriptionId": ReentrancySessionHarness.fileSubscriptionId,
                     "subscriptionKind": "file.metadata",
                     "workerDerivationEpoch": workerDerivationEpoch,
@@ -477,12 +475,6 @@ private func metadataStreamRequest() throws -> BridgeProductMetadataStreamReques
         options: [.sortedKeys]
     )
     return try BridgeProductStrictJSON.decode(BridgeProductMetadataStreamRequest.self, from: data)
-}
-
-private func emptyFileInterestSHA256() throws -> String {
-    try BridgeProductSubscriptionInterestState
-        .fileMetadata(interests: [], pathScope: [])
-        .sha256Hex()
 }
 
 private func fileSourceIdentity() -> [String: Any] {

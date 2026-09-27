@@ -73,23 +73,6 @@ enum BridgeProductProducerObservationPacingPreparation {
 }
 
 extension BridgeProductProducerRegistry {
-    func inFlightMetadataFrameReceipt(
-        matching acknowledgement: BridgeProductMetadataFrameAcknowledgement
-    ) -> BridgeProductProducerFrameReceipt? {
-        producersByLeaseId.values.lazy.compactMap { state in
-            guard case .metadata(let metadataKey) = state.key,
-                metadataKey.request.metadataStreamId == acknowledgement.metadataStreamId,
-                metadataKey.request.paneSessionId == acknowledgement.paneSessionId,
-                metadataKey.request.workerInstanceId == acknowledgement.workerInstanceId,
-                let receipt = state.inFlightFrameReceipt,
-                receipt.sequence == acknowledgement.streamSequence
-            else {
-                return nil
-            }
-            return receipt
-        }.first
-    }
-
     func inFlightContentFrameReceipt(
         matching acknowledgement: BridgeProductContentFrameAcknowledgement
     ) -> BridgeProductProducerFrameReceipt? {

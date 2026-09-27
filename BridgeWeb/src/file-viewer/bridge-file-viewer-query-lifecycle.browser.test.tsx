@@ -10,12 +10,15 @@ import type { BridgeWorkerMainToServerMessage } from '../core/comm-worker/bridge
 import { waitForFileViewerMenuOptionContaining } from './bridge-file-viewer-app-startup.browser.test-support.js';
 import { BridgeFileViewerBrowserHarnessApp } from './bridge-file-viewer-browser-test-app.js';
 import {
+	makeBrowserFileBatch,
+	makeBrowserFileBatchWithDescriptors,
+	makeBrowserFileDescriptorOutcome,
+	makeBrowserFileDescriptorOutcomeForContent,
+	makeBrowserFileRow,
+} from './bridge-file-viewer-browser-test-batches.js';
+import {
 	fileNavigationCommandForPath,
 	makeFileContent,
-	makeFileDescriptorForContent,
-	makeFileMetadataEvents,
-	makeMixedFileClassTreeMetadataEvents,
-	makeTreeRowsOnlyMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actClick,
@@ -46,9 +49,9 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	test('does not reschedule the unchanged query when content publications update the snapshot', async () => {
 		// Arrange
 		const content = makeFileContent('export const queryLifecycle = "settled";\n');
-		const descriptor = await makeFileDescriptorForContent({
+		const descriptor = await makeBrowserFileDescriptorOutcomeForContent({
 			content,
-			contentHandle: 'query-lifecycle-content',
+			descriptorId: 'query-lifecycle-content',
 			fileId: 'file-query-lifecycle',
 			path: 'src/query-lifecycle.ts',
 		});
@@ -65,10 +68,10 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 					},
 					readContent: (): Promise<string> => deferredContent.promise,
 				}}
-				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
+				initialFileBatch={makeBrowserFileBatchWithDescriptors(descriptor)}
 			/>,
 		);
-		await waitForMetadataTreeRowCount(1);
+		await waitForMetadataTreeRowCount(2);
 		await waitForOpenFileState('loading');
 		await actUpdate((): void => {
 			deferredContent.resolve(content);
@@ -90,7 +93,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		// Arrange
 		await render(
 			<BridgeFileViewerBrowserHarnessApp
-				initialMetadataEvents={makeMixedFileClassTreeMetadataEvents()}
+				initialFileBatch={makeMixedFileClassBatch()}
 				navigationCommand={fileNavigationCommandForPath('Sources/App/TextFile.ts')}
 			/>,
 		);
@@ -129,9 +132,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	test('projects text and regex matches with required ancestors through the visible File search', async () => {
 		// Arrange
 		const renderResult = await render(
-			<BridgeFileViewerBrowserHarnessApp
-				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
-			/>,
+			<BridgeFileViewerBrowserHarnessApp initialFileBatch={makeTreeRowsOnlyBatch()} />,
 		);
 		await waitForMetadataTreeRowCount(6);
 		expect(document.querySelector('[data-testid="worktree-file-search-toggle"]')).not.toBeNull();
@@ -290,7 +291,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await render(
 			<BridgeFileViewerBrowserHarnessApp
 				controlTarget={controlTarget}
-				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
+				initialFileBatch={makeTreeRowsOnlyBatch()}
 			/>,
 		);
 		await waitForMetadataTreeRowCount(6);
@@ -319,9 +320,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	test('announces closed semantic rejection and clears it on the next admitted Search', async () => {
 		// Arrange
 		const renderResult = await render(
-			<BridgeFileViewerBrowserHarnessApp
-				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
-			/>,
+			<BridgeFileViewerBrowserHarnessApp initialFileBatch={makeTreeRowsOnlyBatch()} />,
 		);
 		await waitForMetadataTreeRowCount(6);
 		const fileTree = requireHTMLElement(
@@ -367,9 +366,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	test('returns focus to the Search trigger when no earlier semantic owner was recorded', async () => {
 		// Arrange
 		const renderResult = await render(
-			<BridgeFileViewerBrowserHarnessApp
-				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
-			/>,
+			<BridgeFileViewerBrowserHarnessApp initialFileBatch={makeTreeRowsOnlyBatch()} />,
 		);
 		await waitForMetadataTreeRowCount(6);
 		const searchToggle = renderResult.getByTestId('worktree-file-search-toggle');
@@ -389,9 +386,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	test('restores Files focus by eligible path and falls back when the path is excluded', async () => {
 		// Arrange
 		const renderResult = await render(
-			<BridgeFileViewerBrowserHarnessApp
-				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
-			/>,
+			<BridgeFileViewerBrowserHarnessApp initialFileBatch={makeTreeRowsOnlyBatch()} />,
 		);
 		await waitForMetadataTreeRowCount(6);
 		const focusedPath = 'Sources/AgentStudio/App/AppDelegate.swift';
@@ -444,9 +439,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	test('File category filters use real native classes, preserve ancestors, and Clear restores the tree', async () => {
 		// Arrange
 		const renderResult = await render(
-			<BridgeFileViewerBrowserHarnessApp
-				initialMetadataEvents={makeMixedFileClassTreeMetadataEvents()}
-			/>,
+			<BridgeFileViewerBrowserHarnessApp initialFileBatch={makeMixedFileClassBatch()} />,
 		);
 		await waitForMetadataTreeRowCount(19);
 		await expect
@@ -531,6 +524,63 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			.toEqual(allClassifiedFileTreePaths);
 	});
 });
+
+function makeTreeRowsOnlyBatch(): ReturnType<typeof makeBrowserFileBatch> {
+	const paths = [
+		'Sources',
+		'Sources/AgentStudio',
+		'Sources/AgentStudio/App',
+		'Sources/AgentStudio/App/AppDelegate.swift',
+		'Sources/AgentStudio/Features',
+		'Sources/AgentStudio/Features/Bridge',
+	] as const;
+	return makeBrowserFileBatch({
+		rows: paths.map((path) =>
+			makeBrowserFileRow({ path, kind: path.endsWith('.swift') ? 'file' : 'directory' }),
+		),
+	});
+}
+
+function makeMixedFileClassBatch(): ReturnType<typeof makeBrowserFileBatch> {
+	const textDescriptor = makeBrowserFileDescriptorOutcome({
+		descriptorId: 'mixed-text-content',
+		fileId: 'file-mixed-text',
+		path: 'Sources/App/TextFile.ts',
+	});
+	const categories = [
+		['Tests/TextFile.test.ts', 'test'],
+		['Docs/Guide.md', 'docs'],
+		['Config/package.json', 'config'],
+		['Generated/API.generated.swift', 'generated'],
+		['Large/blob.txt', 'large'],
+		['Fixtures/sample.txt', 'fixture'],
+		['Assets/logo.png', 'unknown'],
+		['Vendor/Library.js', 'vendor'],
+	] as const;
+	return makeBrowserFileBatch({
+		rows: [
+			makeBrowserFileRow({ path: 'Sources', kind: 'directory' }),
+			makeBrowserFileRow({ path: 'Sources/App', kind: 'directory' }),
+			makeBrowserFileRow({ path: textDescriptor.path, descriptorOutcome: textDescriptor }),
+			...categories.flatMap(([path, fileClass]) => [
+				makeBrowserFileRow({ path: path.split('/')[0] ?? path, kind: 'directory' }),
+				makeBrowserFileRow({
+					path,
+					fileClass,
+					sizeBytes: fileClass === 'large' ? 1_000_000 : 64,
+					...(fileClass === 'vendor'
+						? {
+								descriptorOutcome: makeBrowserFileDescriptorOutcome({
+									path,
+									availability: 'unavailable',
+								}),
+							}
+						: {}),
+				}),
+			]),
+		],
+	});
+}
 
 const categoryFilterCases = [
 	{ expectedPaths: ['Sources/App', 'Sources/App/TextFile.ts'], label: 'Source code' },

@@ -3,11 +3,87 @@ import { z } from 'zod';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_CONTROL_REQUEST_SEQUENCE,
 	BRIDGE_PRODUCT_WIRE_VERSION,
+	bridgeProductDemandLaneSchema,
+	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductPositiveSequenceSchema,
+	bridgeProductUnicodeScalarUtf8ByteLength,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductMetadataApplicationKindSchema } from './bridge-product-metadata-application-protocol.js';
+
+export const bridgeProductMaximumViewScopeItemCount = 10_000;
+const bridgeProductMaximumViewScopeGroupCount = 64;
+
+const bridgeProductReviewViewScopeItemIdSchema = z
+	.string()
+	.min(1)
+	.superRefine((itemId, context) => {
+		const itemIdByteLength = bridgeProductUnicodeScalarUtf8ByteLength(itemId);
+		if (itemIdByteLength === null || itemIdByteLength > 128) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review view item ids must fit the UTF-8 ceiling.',
+			});
+		}
+	});
+
+const bridgeProductReviewViewScopeInterestSchema = z
+	.object({
+		itemIds: z
+			.array(bridgeProductReviewViewScopeItemIdSchema)
+			.max(bridgeProductMaximumViewScopeItemCount)
+			.readonly(),
+		lane: bridgeProductDemandLaneSchema,
+	})
+	.strict();
+
+const bridgeProductFileViewScopeInterestSchema = z
+	.object({
+		lane: bridgeProductDemandLaneSchema,
+		paths: z
+			.array(bridgeProductDisplayPathSchema)
+			.max(bridgeProductMaximumViewScopeItemCount)
+			.readonly(),
+	})
+	.strict();
+
+const bridgeProductFileViewScopeFields = z
+	.object({
+		interests: z
+			.array(bridgeProductFileViewScopeInterestSchema)
+			.max(bridgeProductMaximumViewScopeGroupCount)
+			.readonly(),
+		pathScope: z
+			.array(bridgeProductDisplayPathSchema)
+			.max(bridgeProductMaximumViewScopeItemCount)
+			.readonly(),
+	})
+	.strict()
+	.superRefine((scope, context): void => {
+		const paths = scope.interests.flatMap((interest) => interest.paths);
+		if (
+			new Set(paths).size !== paths.length ||
+			new Set(scope.pathScope).size !== scope.pathScope.length
+		) {
+			context.addIssue({ code: 'custom', message: 'File view scope paths must be unique.' });
+		}
+	});
+
+const bridgeProductReviewViewScopeFields = z
+	.object({
+		interests: z
+			.array(bridgeProductReviewViewScopeInterestSchema)
+			.max(bridgeProductMaximumViewScopeGroupCount)
+			.readonly(),
+	})
+	.strict()
+	.superRefine((scope, context): void => {
+		const itemIds = scope.interests.flatMap((interest) => interest.itemIds);
+		if (new Set(itemIds).size !== itemIds.length) {
+			context.addIssue({ code: 'custom', message: 'Review view scope item ids must be unique.' });
+		}
+	});
 
 const controlCorrelationShape = {
 	paneSessionId: bridgeProductIdentifierSchema,
@@ -49,24 +125,27 @@ const fileChangeFilterSchema = z.discriminatedUnion('kind', [
 		.strict(),
 ]);
 
-export const bridgeProductViewScopeSchema = z
-	.object({ kind: z.string().min(1) })
-	.catchall(z.unknown())
-	.superRefine((scope, context): void => {
-		if (scope.kind === 'comment') {
-			if (
-				Object.keys(scope).length !== 2 ||
-				!bridgeProductIdentifierSchema.safeParse(scope['worktreeId']).success
-			) {
-				context.addIssue({ code: 'custom', message: 'Comment scope requires a worktree id.' });
-			}
-			return;
-		}
-		if (scope.kind !== 'file') return;
-		if (!fileChangeFilterSchema.safeParse(scope['changeFilter']).success) {
-			context.addIssue({ code: 'custom', message: 'Invalid File change filter.' });
-		}
-	});
+export const bridgeProductViewScopeSchema = z.discriminatedUnion('kind', [
+	bridgeProductFileViewScopeFields.extend({
+		changeFilter: fileChangeFilterSchema,
+		kind: z.literal('file'),
+		prefix: bridgeProductDisplayPathSchema.optional(),
+	}),
+	bridgeProductReviewViewScopeFields.extend({
+		kind: z.literal('review'),
+		prefix: bridgeProductDisplayPathSchema.optional(),
+	}),
+	z
+		.object({
+			kind: z.literal('comment'),
+			sessionIds: z.array(bridgeProductIdentifierSchema).max(128).readonly(),
+			worktreeId: bridgeProductIdentifierSchema,
+		})
+		.strict()
+		.refine((scope) => new Set(scope.sessionIds).size === scope.sessionIds.length, {
+			message: 'Comment scope session ids must be unique.',
+		}),
+]);
 
 export const bridgeProductViewScopeRequestSchema = z
 	.object({
@@ -74,7 +153,21 @@ export const bridgeProductViewScopeRequestSchema = z
 		kind: z.literal('subscription.setScope'),
 		scope: bridgeProductViewScopeSchema,
 	})
-	.strict();
+	.strict()
+	.superRefine((request, context): void => {
+		const expectedKind =
+			request.subscriptionKind === 'file.metadata'
+				? 'file'
+				: request.subscriptionKind === 'review.metadata'
+					? 'review'
+					: 'comment';
+		if (request.scope.kind !== expectedKind) {
+			context.addIssue({
+				code: 'custom',
+				message: 'View scope kind differs from subscription kind.',
+			});
+		}
+	});
 
 export const bridgeProductViewResnapshotRequestSchema = z
 	.object({

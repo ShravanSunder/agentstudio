@@ -378,7 +378,7 @@ function dispatchMetadataInterestUpdate(props: {
 		productTransport: undefined,
 		publish: props.publish,
 		publishReviewMetadataInterests: props.publishReviewMetadataInterests,
-		reviewMetadataApplicator: null,
+		reviewSuccessorSettlementOwner: null,
 		sendProductControl: async (): Promise<null> => null,
 		setActiveComparisonTargetsRequestId: (): void => {},
 	});
@@ -439,7 +439,7 @@ function dispatchAnnotationOutput(props: {
 		productTransport: undefined,
 		publish: props.publish,
 		publishReviewMetadataInterests: async (): Promise<void> => {},
-		reviewMetadataApplicator: null,
+		reviewSuccessorSettlementOwner: null,
 		sendProductControl: props.sendProductControl,
 		setActiveComparisonTargetsRequestId: (): void => {},
 	});
@@ -481,7 +481,6 @@ function completedOutputResult(
 
 function createUnusedProductController(): BridgeCommWorkerProductController {
 	return new BridgeCommWorkerProductController({
-		onFileMetadataEvent: (): void => {},
 		productTransport: unusedProductTransport(),
 	});
 }

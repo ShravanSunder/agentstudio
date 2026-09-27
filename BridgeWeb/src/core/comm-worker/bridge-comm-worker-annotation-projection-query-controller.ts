@@ -1,14 +1,16 @@
+import { uuidv7 } from 'uuidv7';
+
 import {
 	recordWorktreeAnnotationLifecycleTelemetry,
 	type WorktreeAnnotationLifecycleTelemetryRecorder,
 } from '../../worktree-annotations/worktree-annotation-lifecycle-telemetry.js';
 import { type BridgeCommWorkerAnnotationCatalog } from './bridge-comm-worker-annotation-catalog-applicator.js';
-import { BridgeCommWorkerAnnotationMetadataApplication } from './bridge-comm-worker-annotation-metadata-application.js';
 import {
 	BridgeCommWorkerAnnotationProjectionDecoder,
 	type BridgeWorkerAnnotationProjectionSnapshot,
 } from './bridge-comm-worker-annotation-projection-decoder.js';
 import { scheduleBridgeCommWorkerTaskBoundary } from './bridge-comm-worker-task-boundary.js';
+import { BridgeIncrementalSha256 } from './bridge-incremental-sha256.js';
 import {
 	bridgeProductFileAnnotationMetadataApplicationProtocol,
 	bridgeProductReviewAnnotationMetadataApplicationProtocol,
@@ -20,7 +22,6 @@ import type {
 	BridgeProductMetadataApplicationSubscription,
 } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
-import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
 import {
 	bridgeProductAnnotationProjectionQueryResultSchema,
 	type BridgeProductAnnotationProjectionContentDescriptor,
@@ -65,12 +66,6 @@ export interface BridgeCommWorkerAnnotationProjectionPublication {
 	readonly surface: BridgeCommWorkerAnnotationSurface;
 }
 
-export interface BridgeCommWorkerAnnotationCatalogPublication {
-	readonly catalog: BridgeCommWorkerAnnotationCatalog;
-	readonly operationCorrelationId: string;
-	readonly surface: BridgeCommWorkerAnnotationSurface;
-}
-
 export interface BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication {
 	readonly currentSourceGeneration: number;
 	readonly requestedSourceGeneration: number;
@@ -78,7 +73,6 @@ export interface BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublica
 }
 
 interface CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps {
-	readonly onCatalog: (publication: BridgeCommWorkerAnnotationCatalogPublication) => void;
 	readonly onConvergence: (publication: BridgeCommWorkerAnnotationProjectionPublication) => void;
 	readonly onSourceAuthorityStale: (
 		publication: BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
@@ -101,6 +95,11 @@ export interface BridgeCommWorkerAnnotationProjectionTransport {
 	readonly subscribe: (
 		surface: BridgeCommWorkerAnnotationSurface,
 	) => AnnotationMetadataSubscription;
+	readonly setScope: (props: {
+		readonly sessionIds: readonly string[];
+		readonly subscriptionId: string;
+		readonly worktreeId: string;
+	}) => Promise<void>;
 }
 
 interface AnnotationProjectionInvalidation {
@@ -112,15 +111,13 @@ interface AnnotationProjectionInvalidation {
 }
 
 export class BridgeCommWorkerAnnotationProjectionQueryController {
-	readonly #onCatalog: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onCatalog'];
 	readonly #onConvergence: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onConvergence'];
 	readonly #onSourceAuthorityStale: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps['onSourceAuthorityStale'];
 	readonly #surface: BridgeCommWorkerAnnotationSurface;
 	readonly #transport: BridgeCommWorkerAnnotationProjectionTransport;
 	readonly #telemetryClient: WorktreeAnnotationLifecycleTelemetryRecorder | undefined;
 	#active = false;
-	readonly #metadataApplication = new BridgeCommWorkerAnnotationMetadataApplication();
-	#controlReady = false;
+	#installedCatalog: BridgeCommWorkerAnnotationCatalog | null = null;
 	#automaticQueryRetryConsumed = false;
 	#automaticSubscriptionReopenConsumed = false;
 	#abortController: AbortController | null = null;
@@ -131,16 +128,17 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#queryLoop: Promise<void> | null = null;
 	#reviewPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null = null;
 	readonly #queryAttempts = new Set<Promise<void>>();
+	readonly #scopeUpdates = new Set<Promise<void>>();
 	#scheduledQueryStart: Promise<void> | null = null;
 	#scheduledSubscriptionReopen: Promise<void> | null = null;
 	#sessionIds: readonly string[] = [];
+	#lastSubmittedScopeSignature: string | null = null;
 	#sourceGeneration: number | null = null;
 	#stageAttemptOperationCorrelationId: string | null = null;
 	#nextStageAttempt = 0;
 	#subscription: AnnotationMetadataSubscription | null = null;
 
 	constructor(props: CreateBridgeCommWorkerAnnotationProjectionQueryControllerProps) {
-		this.#onCatalog = props.onCatalog;
 		this.#onConvergence = props.onConvergence;
 		this.#onSourceAuthorityStale = props.onSourceAuthorityStale;
 		this.#surface = props.surface;
@@ -158,6 +156,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			return;
 		}
 		this.#subscription = subscription;
+		this.#submitCurrentCommentScope();
 		void this.#consumeSubscription(subscription).catch((error: unknown): void => {
 			if (this.#subscription !== subscription || this.#disposed) return;
 			if (error instanceof BridgeProductSubscriptionEpochRetiredError) {
@@ -165,6 +164,57 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				return;
 			}
 			this.#handleSubscriptionFailure(error);
+		});
+	}
+
+	/** W4 has certified and installed the Comment catalog for this surface. */
+	acceptInstalledCatalog(catalog: BridgeCommWorkerAnnotationCatalog): void {
+		if (this.#disposed) return;
+		if (
+			this.#subscription !== null &&
+			catalog.authority.subscriptionId !== this.#subscription.subscriptionId
+		) {
+			return;
+		}
+		const initialCatalog = this.#installedCatalog === null;
+		this.#installedCatalog = catalog;
+		this.#submitCurrentCommentScope(initialCatalog);
+		this.#automaticQueryRetryConsumed = false;
+		this.#automaticSubscriptionReopenConsumed = false;
+		const operationCorrelationId = nextCommentProjectionCorrelation(catalog.transferId);
+		this.#recordLifecycle(
+			operationCorrelationId,
+			'annotation_invalidation_received',
+			'success',
+			this.#sourceGeneration ?? 0,
+		);
+		this.#admitProjectionInvalidation({
+			operationCorrelationId,
+			queryKind: 'control',
+			sessionIds: [],
+			sourceGeneration: this.#sourceGeneration ?? 0,
+			worktreeId: catalog.authority.worktreeId,
+		});
+	}
+
+	/** File placement follows the installed File version, even when its source generation is unchanged. */
+	refreshPlacementForInstalledFileView(): void {
+		if (
+			this.#disposed ||
+			this.#surface !== 'file' ||
+			!this.#active ||
+			this.#installedCatalog === null ||
+			this.#sessionIds.length === 0 ||
+			this.#sourceGeneration === null
+		)
+			return;
+		const catalog = this.#installedCatalog;
+		this.#admitProjectionInvalidation({
+			operationCorrelationId: nextCommentProjectionCorrelation(catalog.transferId),
+			queryKind: 'content',
+			sessionIds: this.#sessionIds,
+			sourceGeneration: this.#sourceGeneration,
+			worktreeId: catalog.authority.worktreeId,
 		});
 	}
 
@@ -202,25 +252,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			this.#invalidationGeneration += 1;
 			this.#abortController?.abort();
 		}
-		if (
-			nextActive &&
-			sessionDemandChanged &&
-			!becameActive &&
-			!presentationAuthorityChanged &&
-			this.#invalidation !== null
-		) {
-			if (this.#controlReady) {
-				this.#admitProjectionInvalidation({
-					...this.#invalidation,
-					queryKind: 'content',
-					sessionIds: this.#sessionIds,
-				});
-			} else if (this.#invalidation.queryKind === 'content') {
-				this.#invalidation = { ...this.#invalidation, sessionIds: this.#sessionIds };
-				this.#invalidationGeneration += 1;
-				this.#abortController?.abort();
-			}
-		}
+		if (sessionDemandChanged) this.#submitCurrentCommentScope();
 		if (nextActive && this.#subscription === null) this.ensureSubscription();
 		if (becameActive || this.#invalidationGeneration > this.#lastAttemptedGeneration) {
 			this.#scheduleQueryLoop();
@@ -240,7 +272,6 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	sourceUnavailable(error: unknown): void {
 		if (this.#disposed || !this.#active) return;
-		this.#controlReady = false;
 		this.#invalidationGeneration += 1;
 		this.#lastAttemptedGeneration = this.#invalidationGeneration;
 		this.#abortController?.abort();
@@ -254,7 +285,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	async dispose(): Promise<void> {
 		if (this.#disposed) return;
 		this.#disposed = true;
-		this.#metadataApplication.retireAuthority();
+		this.#installedCatalog = null;
+		this.#lastSubmittedScopeSignature = null;
 		this.#invalidationGeneration += 1;
 		this.#abortController?.abort();
 		const subscription = this.#subscription;
@@ -264,6 +296,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			...(this.#scheduledQueryStart === null ? [] : [this.#scheduledQueryStart]),
 			...(this.#scheduledSubscriptionReopen === null ? [] : [this.#scheduledSubscriptionReopen]),
 			...this.#queryAttempts,
+			...this.#scopeUpdates,
 		]);
 	}
 
@@ -273,7 +306,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		while (
 			this.#scheduledQueryStart !== null ||
 			this.#scheduledSubscriptionReopen !== null ||
-			this.#queryAttempts.size > 0
+			this.#queryAttempts.size > 0 ||
+			this.#scopeUpdates.size > 0
 		) {
 			if (this.#scheduledSubscriptionReopen !== null) {
 				// eslint-disable-next-line no-await-in-loop -- Reopen is one bounded task boundary.
@@ -285,63 +319,46 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			}
 			// eslint-disable-next-line no-await-in-loop -- Replacement attempts may settle and schedule one newer attempt.
 			await Promise.allSettled(this.#queryAttempts);
+			// eslint-disable-next-line no-await-in-loop -- Latest-wins E4 scope admission settles independently of the content read.
+			await Promise.allSettled(this.#scopeUpdates);
 		}
 	}
 
+	#submitCurrentCommentScope(initialCatalog = false): void {
+		const catalog = this.#installedCatalog;
+		if (catalog === null || this.#subscription === null) return;
+		const signature = JSON.stringify({
+			sessionIds: this.#sessionIds,
+			subscriptionId: catalog.authority.subscriptionId,
+			worktreeId: catalog.authority.worktreeId,
+		});
+		if (signature === this.#lastSubmittedScopeSignature) return;
+		if (initialCatalog && this.#sessionIds.length === 0) {
+			// W2 admitted this empty scope before the first W4 snapshot.
+			this.#lastSubmittedScopeSignature = signature;
+			return;
+		}
+		this.#lastSubmittedScopeSignature = signature;
+		const update = this.#transport
+			.setScope({
+				sessionIds: this.#sessionIds,
+				subscriptionId: catalog.authority.subscriptionId,
+				worktreeId: catalog.authority.worktreeId,
+			})
+			.catch((error: unknown): void => {
+				if (this.#lastSubmittedScopeSignature !== signature) return;
+				this.#lastSubmittedScopeSignature = null;
+				this.sourceUnavailable(error);
+			})
+			.finally((): void => {
+				this.#scopeUpdates.delete(update);
+			});
+		this.#scopeUpdates.add(update);
+	}
+
 	async #consumeSubscription(subscription: AnnotationMetadataSubscription): Promise<void> {
-		for await (const frame of subscription.events) {
-			if (this.#disposed || this.#subscription !== subscription) return;
-			const event = bridgeProductWorktreeAnnotationEventSchema.parse(frame.data);
-			if (frame.operationCorrelationId === null) {
-				throw new Error('Annotation metadata event requires lifecycle correlation.');
-			}
-			this.#recordLifecycle(
-				frame.operationCorrelationId,
-				'annotation_invalidation_received',
-				'success',
-				event.authority.applicationSourceGeneration,
-			);
-			this.#automaticQueryRetryConsumed = false;
-			this.#automaticSubscriptionReopenConsumed = false;
-			const action = this.#metadataApplication.accept({ ...frame, data: event }, this.#sessionIds);
-			switch (action.kind) {
-				case 'catalog':
-					this.#onCatalog({
-						catalog: action.catalog,
-						operationCorrelationId: frame.operationCorrelationId,
-						surface: this.#surface,
-					});
-					this.#controlReady = false;
-					this.#admitProjectionInvalidation({
-						operationCorrelationId: frame.operationCorrelationId,
-						queryKind: 'control',
-						sessionIds: [],
-						sourceGeneration: event.authority.applicationSourceGeneration,
-						worktreeId: event.authority.worktreeId,
-					});
-					break;
-				case 'control':
-					this.#controlReady = false;
-					this.#admitProjectionInvalidation({
-						operationCorrelationId: frame.operationCorrelationId,
-						queryKind: 'control',
-						sessionIds: [],
-						sourceGeneration: event.authority.applicationSourceGeneration,
-						worktreeId: event.authority.worktreeId,
-					});
-					break;
-				case 'content':
-					this.#admitProjectionInvalidation({
-						operationCorrelationId: frame.operationCorrelationId,
-						queryKind: 'content',
-						sessionIds: this.#sessionIds,
-						sourceGeneration: event.authority.applicationSourceGeneration,
-						worktreeId: event.authority.worktreeId,
-					});
-					break;
-				case 'none':
-					break;
-			}
+		for await (const _event of subscription.events) {
+			throw new Error('Comment E3 carried a retired metadata data event.');
 		}
 		if (!this.#disposed && this.#subscription === subscription) {
 			throw new Error('Annotation projection notification subscription ended unexpectedly.');
@@ -363,8 +380,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#followRetiredSurfaceEpoch(): void {
 		const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
 		this.#subscription = null;
-		this.#controlReady = false;
-		this.#metadataApplication.retireAuthority();
+		this.#installedCatalog = null;
+		this.#lastSubmittedScopeSignature = null;
 		this.#invalidation = null;
 		this.#invalidationGeneration += 1;
 		this.#abortController?.abort();
@@ -379,8 +396,8 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	#handleSubscriptionFailure(error: unknown): void {
 		const operationCorrelationId = this.#invalidation?.operationCorrelationId ?? null;
 		this.#subscription = null;
-		this.#controlReady = false;
-		this.#metadataApplication.retireAuthority();
+		this.#installedCatalog = null;
+		this.#lastSubmittedScopeSignature = null;
 		this.#invalidation = null;
 		this.#invalidationGeneration += 1;
 		this.#abortController?.abort();
@@ -536,7 +553,6 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			terminalRecorded = true;
 			this.#automaticQueryRetryConsumed = false;
 			if (invalidation.queryKind === 'control') {
-				this.#controlReady = true;
 				if (this.#sessionIds.length > 0) {
 					this.#invalidation = {
 						...invalidation,
@@ -660,7 +676,11 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			const decodedProjection = decoder.finish();
 			const snapshot = decodedProjection.snapshot;
 			if (
-				!this.#metadataApplication.projectionMeetsCurrentness(snapshot, invalidation.sessionIds)
+				!projectionMeetsInstalledCatalogCurrentness(
+					this.#installedCatalog,
+					snapshot,
+					invalidation.sessionIds,
+				)
 			) {
 				throw new Error(
 					'Annotation rich projection did not meet current catalog session authority.',
@@ -803,6 +823,34 @@ function isRetryableProjectionAttempt(error: unknown): boolean {
 	return error instanceof BridgeProductControlRequestError && error.retryable;
 }
 
+function nextCommentProjectionCorrelation(transferId: string): string {
+	const hasher = new BridgeIncrementalSha256();
+	hasher.update(new TextEncoder().encode(`${transferId}:${uuidv7()}`));
+	return hasher.digestHex();
+}
+
+function projectionMeetsInstalledCatalogCurrentness(
+	catalog: BridgeCommWorkerAnnotationCatalog | null,
+	snapshot: BridgeWorkerAnnotationProjectionSnapshot,
+	requestedSessionIds: readonly string[],
+): boolean {
+	if (catalog === null || snapshot.worktreeId !== catalog.authority.worktreeId) return false;
+	for (const requestedSessionId of requestedSessionIds) {
+		const catalogSession = catalog.sessionsById.get(requestedSessionId);
+		const projectedSession = snapshot.sessions.find(
+			(candidate) => candidate.sessionId === requestedSessionId,
+		);
+		if (
+			catalogSession === undefined ||
+			projectedSession === undefined ||
+			projectedSession.semanticRevision < catalogSession.semanticRevision
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
 export function bridgeCommWorkerAnnotationProjectionTransport(
 	productTransport: BridgeProductTransportSession,
 ): BridgeCommWorkerAnnotationProjectionTransport {
@@ -817,6 +865,18 @@ export function bridgeCommWorkerAnnotationProjectionTransport(
 			surface === 'file'
 				? productTransport.subscribe(bridgeProductFileAnnotationMetadataApplicationProtocol, {})
 				: productTransport.subscribe(bridgeProductReviewAnnotationMetadataApplicationProtocol, {}),
+		setScope: async ({ sessionIds, subscriptionId, worktreeId }): Promise<void> => {
+			if (productTransport.setViewScopeForSubscription === undefined) {
+				throw new Error('Comment view scope admission is unavailable.');
+			}
+			const settlement = await productTransport.setViewScopeForSubscription({
+				scope: { kind: 'comment', sessionIds, worktreeId },
+				subscriptionId,
+			});
+			if (settlement.kind === 'cancelled') {
+				throw new Error('Comment view scope admission was superseded.');
+			}
+		},
 	};
 }
 

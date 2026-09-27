@@ -62,8 +62,8 @@ import {
 	assertCompleteFilePositionSurvivesModeSwitch,
 	completeFileDeepScrollFixture,
 	completeFileDeepScrollTreeRowCount,
+	makeCompleteFileDeepScrollBatch,
 	makeCompleteFileDeepScrollDescriptor,
-	makeCompleteFileDeepScrollMetadataEvents,
 	makeCorruptedCompleteFileDeepScrollContent,
 	settleCompleteFilePierreWorkerPoolInitialization,
 	type DeepScrollSurfacePaintSnapshot,
@@ -159,7 +159,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 						autoOpenInitialFile
 						codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
 						codeViewWorkerPoolEnabled
-						initialMetadataEvents={makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor)}
+						initialFileBatch={makeCompleteFileDeepScrollBatch(selectedDescriptor)}
 						fileProductSession={{
 							onWorkerCommand: (message): void => {
 								workerCommands.push(message);
@@ -244,7 +244,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 			const openedDescriptors: BridgeProductFileContentDescriptor[] = [];
 			const workerCommands: BridgeWorkerMainToServerMessage[] = [];
 			const productSession: BridgeFileViewerBrowserTestProductSession = {
-				initialMetadataEvents: makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor),
+				initialFileBatch: makeCompleteFileDeepScrollBatch(selectedDescriptor),
 				onWorkerCommand: (message): void => {
 					workerCommands.push(message);
 				},
@@ -347,7 +347,7 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 				autoOpenInitialFile
 				codeViewWorkerFactory={routePierreWorkerFactory.workerFactory}
 				codeViewWorkerPoolEnabled
-				initialMetadataEvents={makeCompleteFileDeepScrollMetadataEvents(selectedDescriptor)}
+				initialFileBatch={makeCompleteFileDeepScrollBatch(selectedDescriptor)}
 				fileProductSession={{
 					readContent: () => deferredContent.promise,
 				}}

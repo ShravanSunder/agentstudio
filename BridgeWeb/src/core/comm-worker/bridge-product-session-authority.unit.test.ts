@@ -13,7 +13,6 @@ import {
 	BridgeProductSessionAuthorityStore,
 } from './bridge-product-session-authority.js';
 import {
-	emptyReviewInterestSha256,
 	installFetchResponse,
 	installWorkerOpenAndCallExchange,
 	installWorkerOpenExchange,
@@ -28,7 +27,6 @@ import {
 	reviewSubscriptionOpenProps,
 	subscriptionCancelAcceptedResponse,
 	subscriptionOpenAcceptedResponse,
-	updatedReviewInterestSha256,
 	workerSessionAcceptedResponse,
 	workerSessionAdmittedResponse,
 	workerSessionResult,
@@ -331,91 +329,60 @@ describe('Bridge product session authority', () => {
 		expect([...firstAttempt]).toEqual([...retryAttempt]);
 	});
 
-	test('serializes call, subscription open, update, and cancel on one request sequence', async () => {
-		const requestIds = [
-			'call-1',
-			'subscription-open-1',
-			'subscription-update-1',
-			'subscription-cancel-1',
-			'call-result-ack-1',
-			'subscription-open-result-ack-1',
-			'subscription-update-result-ack-1',
-		];
+	test('serializes call, subscription open, and cancel on one request sequence', async () => {
+		const requestIds = ['call-1', 'cancel-1', 'open-1', 'result-ack-1', 'result-ack-2'];
 		const admittedRequests = new Map<string, Record<string, unknown>>();
 		const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
 			const body = JSON.parse(new TextDecoder().decode(requireUint8Array(init?.body)));
-			if (body.kind === 'workerSession.open') {
+			if (body['kind'] === 'workerSession.open') {
 				return responseWithJSON(workerSessionAdmittedResponse());
 			}
-			if (body.kind === 'operation.result') {
-				if (body.operationId === 'operation-open-1') {
+			if (body['kind'] === 'operation.result') {
+				if (body['operationId'] === 'operation-open-1') {
 					return responseWithJSON(workerSessionResult(workerSessionAcceptedResponse()));
 				}
-				const request = admittedRequests.get(body.operationId);
+				const request = admittedRequests.get(String(body['operationId']));
 				if (request === undefined)
 					throw new Error('Result read did not match an admitted request.');
-				let result: object;
-				switch (request['kind']) {
-					case 'product.call':
-						result = {
-							...productResponseIdentity(
+				const result =
+					request['kind'] === 'product.call'
+						? {
+								...productResponseIdentity(
+									String(request['requestId']),
+									Number(request['requestSequence']),
+								),
+								kind: 'call.completed',
+								call: { method: 'review.markFileViewed', result: null },
+							}
+						: subscriptionOpenAcceptedResponse(
 								String(request['requestId']),
 								Number(request['requestSequence']),
-							),
-							kind: 'call.completed',
-							call: { method: 'review.markFileViewed', result: null },
-						};
-						break;
-					case 'subscription.open':
-						result = subscriptionOpenAcceptedResponse(
-							String(request['requestId']),
-							Number(request['requestSequence']),
-							'review-subscription-1',
-						);
-						break;
-					case 'subscription.updateBatch':
-						result = {
-							...productResponseIdentity(
-								String(request['requestId']),
-								Number(request['requestSequence']),
-							),
-							batchIndex: 0,
-							disposition: 'committed',
-							kind: 'subscription.updateBatchAccepted',
-							subscriptionId: 'review-subscription-1',
-							subscriptionKind: 'review.metadata',
-							targetInterestRevision: 1,
-							targetInterestSha256: updatedReviewInterestSha256,
-							updateId: 'review-update-1',
-						};
-						break;
-					default:
-						throw new Error('Unexpected admitted request kind.');
-				}
+								'review-subscription-1',
+							);
 				return responseWithJSON({
 					failureCode: null,
 					kind: 'operation.result',
-					operationId: body.operationId,
+					operationId: body['operationId'],
 					outcome: 'succeeded',
 					result,
 				});
 			}
-			if (body.kind === 'operation.resultAcknowledgement') {
+			if (body['kind'] === 'operation.resultAcknowledgement') {
 				return responseWithJSON({ ...body, kind: 'operation.resultAcknowledged' });
 			}
-			if (body.kind === 'subscription.cancel') {
+			if (body['kind'] === 'subscription.cancel') {
 				return responseWithJSON(
 					subscriptionCancelAcceptedResponse(
-						body.requestId,
-						body.requestSequence,
-						body.subscriptionId,
+						String(body['requestId']),
+						Number(body['requestSequence']),
+						String(body['subscriptionId']),
 					),
 				);
 			}
-			const operationId = `operation-${body.requestId}`;
+			const operationId = `operation-${String(body['requestId'])}`;
 			admittedRequests.set(operationId, body);
 			return responseWithJSON({
-				...productResponseIdentity(body.requestId, body.requestSequence),
+				...productResponseIdentity(String(body['requestId']), Number(body['requestSequence'])),
 				kind: 'operation.admitted',
 				operationId,
 				waitKind: 'ordinary',
@@ -434,33 +401,15 @@ describe('Bridge product session authority', () => {
 			workerDerivationEpoch: 7,
 		});
 		const open = mux.openSubscription(reviewSubscriptionOpenProps('review-subscription-1', 7));
-		const update = mux.updateSubscriptionBatch({
-			baseInterestRevision: 0,
-			baseInterestSha256: emptyReviewInterestSha256,
-			batchCount: 1,
-			batchIndex: 0,
-			delta: {
-				add: [{ itemId: 'item-1', lane: 'foreground' }],
-				removeItemIds: [],
-				subscriptionKind: 'review.metadata',
-			},
-			subscriptionId: 'review-subscription-1',
-			targetInterestRevision: 1,
-			targetInterestSha256: updatedReviewInterestSha256,
-			totalDeltaItemCount: 1,
-			updateId: 'review-update-1',
-			workerDerivationEpoch: 7,
-		});
 		const cancel = mux.cancelSubscription(
 			reviewSubscriptionCancelProps('review-subscription-1', 7),
 		);
 
 		await expect(call).resolves.toBeNull();
-		const [openResult, updateResult, cancelResult] = await Promise.all([open, update, cancel]);
+		const [openResult, cancelResult] = await Promise.all([open, cancel]);
 		await mux.waitForAcknowledgementsQuiescent();
-		expect([openResult.kind, updateResult.kind, cancelResult.kind]).toEqual([
+		expect([openResult.kind, cancelResult.kind]).toEqual([
 			'subscription.openAccepted',
-			'subscription.updateBatchAccepted',
 			'subscription.cancelAccepted',
 		]);
 
@@ -469,25 +418,15 @@ describe('Bridge product session authority', () => {
 				JSON.parse(new TextDecoder().decode(requireUint8Array(callArguments[1]?.body))),
 			)
 			.filter((body) =>
-				[
-					'product.call',
-					'subscription.open',
-					'subscription.updateBatch',
-					'subscription.cancel',
-				].includes(body.kind),
+				['product.call', 'subscription.open', 'subscription.cancel'].includes(body.kind),
 			);
 		expect(controlBodies.map((body) => [body.kind, body.requestSequence])).toEqual([
 			['product.call', 3],
 			['subscription.cancel', 4],
 			['subscription.open', 6],
-			['subscription.updateBatch', 7],
 		]);
-		expect(controlBodies.slice(1).map((body) => body.workerDerivationEpoch)).toEqual([7, 7, 7]);
+		expect(controlBodies.slice(1).map((body) => body.workerDerivationEpoch)).toEqual([7, 7]);
 		expect(controlBodies[1]).not.toHaveProperty('surface');
-		expect(controlBodies.find((body) => body.kind === 'subscription.updateBatch')).toMatchObject({
-			delta: { subscriptionKind: 'review.metadata' },
-			subscriptionKind: 'review.metadata',
-		});
 	});
 
 	test('retries an ambiguous subscription admission with identical bytes', async () => {

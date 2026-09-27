@@ -1,13 +1,16 @@
 import { act } from 'react';
 
 import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
-import type { BridgeProductSubscriptionUpdateOptions } from '../core/comm-worker/bridge-product-subscription-contracts.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	findBridgeViewerTreeScrollOwner,
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import type {
+	BrowserFileViewScope,
+	PublishBrowserFileBatch,
+} from './bridge-file-viewer-browser-test-batches.js';
 import {
 	beginBridgeFileViewerBrowserInteractionAct,
 	createBridgeFileViewerBrowserTestPaneSessionFactory,
@@ -16,7 +19,6 @@ import {
 	waitForBridgeFileViewerWorkerMessageDrain,
 	waitForBridgeFileViewerWorkerPublicationQueue,
 } from './bridge-file-viewer-browser-test-comm-worker.js';
-import type { PublishFileMetadataEvents } from './bridge-file-viewer-browser-test-fixtures.js';
 
 export {
 	createBridgeFileViewerBrowserTestPaneSessionFactory,
@@ -72,24 +74,24 @@ export function bridgeFileViewerNoopResizeObserverIsInstalled(): boolean {
 	return globalThis.ResizeObserver === BridgeFileViewerNoopResizeObserver;
 }
 
-export function requireMetadataPublisher(
-	publisher: PublishFileMetadataEvents | null,
-): PublishFileMetadataEvents {
+export function requireBrowserFileBatchPublisher(
+	publisher: PublishBrowserFileBatch | null,
+): PublishBrowserFileBatch {
 	if (publisher === null) {
 		throw new Error('File metadata subscription was not initialized.');
 	}
 	return publisher;
 }
 
-export async function waitForMetadataPublisher(
-	getPublisher: () => PublishFileMetadataEvents | null,
-): Promise<PublishFileMetadataEvents> {
-	return waitForMetadataPublisherAttempt({ attempt: 0, getPublisher });
+export async function waitForBrowserFileBatchPublisher(
+	getPublisher: () => PublishBrowserFileBatch | null,
+): Promise<PublishBrowserFileBatch> {
+	return waitForBrowserFileBatchPublisherAttempt({ attempt: 0, getPublisher });
 }
 
 export function metadataInterestPathsForLane(
-	update: BridgeProductSubscriptionUpdateOptions<'file.metadata'>,
-	lane: BridgeProductSubscriptionUpdateOptions<'file.metadata'>['interests'][number]['lane'],
+	update: BrowserFileViewScope,
+	lane: BrowserFileViewScope['interests'][number]['lane'],
 ): readonly string[] {
 	return update.interests.find((interest) => interest.lane === lane)?.paths ?? [];
 }
@@ -215,7 +217,7 @@ export async function waitForOpenedContentCount(props: {
 
 export async function waitForMetadataInterestUpdateCount(props: {
 	readonly expectedCount: number;
-	readonly metadataInterestUpdates: readonly BridgeProductSubscriptionUpdateOptions<'file.metadata'>[];
+	readonly metadataInterestUpdates: readonly BrowserFileViewScope[];
 }): Promise<void> {
 	await waitForMetadataInterestUpdateCountAttempt({
 		attempt: 0,
@@ -337,17 +339,17 @@ export async function waitForOpenFileStateAttempt(props: {
 	});
 }
 
-async function waitForMetadataPublisherAttempt(props: {
+async function waitForBrowserFileBatchPublisherAttempt(props: {
 	readonly attempt: number;
-	readonly getPublisher: () => PublishFileMetadataEvents | null;
-}): Promise<PublishFileMetadataEvents> {
+	readonly getPublisher: () => PublishBrowserFileBatch | null;
+}): Promise<PublishBrowserFileBatch> {
 	const publisher = props.getPublisher();
 	if (publisher !== null) return publisher;
 	if (props.attempt >= 60) {
 		throw new Error('File metadata subscription was not initialized.');
 	}
 	await actFrame();
-	return waitForMetadataPublisherAttempt({
+	return waitForBrowserFileBatchPublisherAttempt({
 		attempt: props.attempt + 1,
 		getPublisher: props.getPublisher,
 	});
@@ -794,7 +796,7 @@ export async function waitForOpenedContentCountAttempt(props: {
 export async function waitForMetadataInterestUpdateCountAttempt(props: {
 	readonly attempt: number;
 	readonly expectedCount: number;
-	readonly metadataInterestUpdates: readonly BridgeProductSubscriptionUpdateOptions<'file.metadata'>[];
+	readonly metadataInterestUpdates: readonly BrowserFileViewScope[];
 }): Promise<void> {
 	if (props.metadataInterestUpdates.length >= props.expectedCount) {
 		return;

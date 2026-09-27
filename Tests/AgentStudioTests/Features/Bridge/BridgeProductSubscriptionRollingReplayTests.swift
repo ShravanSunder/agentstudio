@@ -4,8 +4,8 @@ import Testing
 @testable import AgentStudioBridge
 
 struct BridgeProductSubscriptionRollingReplayTests {
-    @Test("rolling history preserves exact replay and stale sequence rejection through the session")
-    func sessionReplayOutlivesRecentIdWindow() async throws {
+    @Test("many typed E4 scopes preserve exact replay and stale sequence rejection through the session")
+    func typedScopeReplayOutlivesRecentOperations() async throws {
         // Arrange: real native session, control replay, and subscription transitions.
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let metadataLease = try await harness.admitMetadataFrames(through: 0)
@@ -22,18 +22,15 @@ struct BridgeProductSubscriptionRollingReplayTests {
         var firstRequestBytes: Data?
 
         do {
-            // Act: each committed update is retried exactly before admitting the next.
+            // Act: each admitted view scope is retried exactly before the next.
             for revision in 1...1100 {
-                let before = try #require(
-                    await harness.session.subscriptionSnapshot(subscriptionId: "review-subscription-1")
-                )
-                let request = try makeRequest(snapshot: before, revision: revision)
+                let request = try makeRequest(revision: revision)
                 let requestBytes = try encode(request)
                 if firstRequestBytes == nil { firstRequestBytes = requestBytes }
                 guard
-                    try await commitAndReplayUpdate(
+                    try await acceptAndReplayScope(
                         request, requestBytes: requestBytes, revision: revision,
-                        harness: harness, metadataLease: metadataLease
+                        harness: harness
                     )
                 else { break }
             }
@@ -44,15 +41,16 @@ struct BridgeProductSubscriptionRollingReplayTests {
                 productAdmission: harness.productAdmission.context
             )
             guard case .rejected(let rejection) = stale else {
-                Issue.record("An evicted update ID must not permit replay of an old request")
+                Issue.record("An old scope request must not replay past the control window")
                 try await harness.closeProducer(metadataLease)
                 await close(harness)
                 return
             }
             #expect(rejection.reason == .sequenceConflict(nextExpectedRequestSequence: 2203))
             #expect(
-                await harness.session.subscriptionSnapshot(subscriptionId: "review-subscription-1")?.interestRevision
-                    == 1100)
+                await harness.session.subscriptionSnapshot(subscriptionId: "review-subscription-1")?
+                    .workerDerivationEpoch
+                    == 1)
         } catch {
             try await harness.closeProducer(metadataLease)
             await close(harness)
@@ -62,12 +60,11 @@ struct BridgeProductSubscriptionRollingReplayTests {
         await close(harness)
     }
 
-    private func commitAndReplayUpdate(
+    private func acceptAndReplayScope(
         _ request: BridgeProductControlRequest,
         requestBytes: Data,
         revision: Int,
-        harness: BridgeProductSessionLifecycleHarness,
-        metadataLease: BridgeProductProducerLease
+        harness: BridgeProductSessionLifecycleHarness
     ) async throws -> Bool {
         let admission = await harness.session.beginControl(
             exactRequestBytes: requestBytes,
@@ -78,24 +75,16 @@ struct BridgeProductSubscriptionRollingReplayTests {
             Issue.record("Expected a fresh control admission")
             return false
         }
-        let response = try BridgeProductControlResponse.subscriptionUpdateBatchAccepted(
-            correlating: request,
-            disposition: .committed
-        )
+        let response = try BridgeProductControlResponse.viewAccepted(correlating: request)
         let responseBytes = try encode(response)
         let effect = try await harness.session.completeAdmittedControl(
             token: token, exactResponseBytes: responseBytes)
-        guard case .subscriptionInterestsCommitted = effect else {
-            Issue.record("Expected a committed interest transition")
+        guard case .viewScopeAccepted(let scope) = effect else {
+            Issue.record("Expected an accepted typed view scope")
             return false
         }
-        #expect(
-            await consumeNextBridgeProductProducerFrame(
-                for: metadataLease,
-                from: harness.session,
-                productAdmission: harness.productAdmission.context
-            )?.sequence == revision + 1
-        )
+        #expect(scope.scopeRevision == revision)
+        #expect(await harness.session.acceptViewScope(scope, productAdmission: harness.productAdmission.context) == nil)
         let after = await harness.session.subscriptionSnapshot(subscriptionId: "review-subscription-1")
         let replay = await harness.session.beginControl(
             exactRequestBytes: requestBytes,
@@ -104,7 +93,7 @@ struct BridgeProductSubscriptionRollingReplayTests {
         )
 
         // Assert: replay returns identical bytes and performs no second mutation.
-        #expect(after?.interestRevision == revision)
+        #expect(after?.workerDerivationEpoch == 1)
         guard case .replay(let admittedBytes) = replay else {
             Issue.record("Expected exact replay of the stored operation admission")
             return false
@@ -155,39 +144,26 @@ struct BridgeProductSubscriptionRollingReplayTests {
         return true
     }
 
-    private func makeRequest(snapshot: BridgeProductSubscriptionSnapshot, revision: Int) throws
-        -> BridgeProductControlRequest
-    {
+    private func makeRequest(revision: Int) throws -> BridgeProductControlRequest {
         let lane: BridgeProductDemandLane = revision.isMultiple(of: 2) ? .visible : .foreground
-        let target = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [
-            try .init(itemIds: ["rolling-item"], lane: lane)
+        return try bridgeProductLifecycleControlRequest([
+            "kind": "subscription.setScope",
+            "paneSessionId": "pane-session-1",
+            "workerInstanceId": "worker-instance-1",
+            "wireVersion": BridgeProductWireContract.version,
+            "requestId": "rolling-control-\(revision)",
+            "requestSequence": revision * 2 + 1,
+            "subscriptionId": "review-subscription-1",
+            "subscriptionKind": "review.metadata",
+            "domain": "default",
+            "handle": "rolling-review-handle",
+            "incarnation": "rolling-review-incarnation",
+            "scopeRevision": revision,
+            "scope": [
+                "kind": "review",
+                "interests": [["itemIds": ["rolling-item"], "lane": lane.rawValue]],
+            ],
         ])
-        return try bridgeProductLifecycleControlRequest(
-            [
-                "kind": "subscription.updateBatch",
-                "paneSessionId": "pane-session-1",
-                "workerInstanceId": "worker-instance-1",
-                "wireVersion": BridgeProductWireContract.version,
-                "workerDerivationEpoch": 1,
-                "requestId": "rolling-control-\(revision)",
-                "requestSequence": revision * 2 + 1,
-                "subscriptionId": "review-subscription-1",
-                "subscriptionKind": "review.metadata",
-                "updateId": "rolling-update-\(revision)",
-                "batchIndex": 0,
-                "batchCount": 1,
-                "totalDeltaItemCount": 1,
-                "baseInterestRevision": snapshot.interestRevision,
-                "baseInterestSha256": snapshot.interestSha256,
-                "targetInterestRevision": revision,
-                "targetInterestSha256": try target.sha256Hex(),
-                "delta": [
-                    "subscriptionKind": "review.metadata",
-                    "add": [["itemId": "rolling-item", "lane": lane.rawValue]],
-                    "removeItemIds": [],
-                ],
-            ]
-        )
     }
 
     private func encode(_ value: some Encodable) throws -> Data {

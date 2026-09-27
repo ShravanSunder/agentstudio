@@ -27,7 +27,6 @@ describe('Bridge comm worker product command sender', () => {
 				reason: 'no-file-source-authority',
 				status: 'unavailable',
 			}),
-			onFileMetadataEvent: (): void => {},
 			productTransport,
 		});
 
@@ -119,7 +118,6 @@ describe('Bridge comm worker product command sender', () => {
 			workerDerivationEpoch: (): number => 1,
 		} satisfies BridgeProductTransportSession;
 		const controller = new BridgeCommWorkerProductController({
-			onFileMetadataEvent: (): void => {},
 			productTransport,
 		});
 

@@ -6,16 +6,7 @@ import {
 } from './bridge-product-frame-acknowledgement-contracts.js';
 
 describe('Bridge product frame acknowledgement contracts', () => {
-	test('accepts strict metadata and content observation requests', () => {
-		const metadataRequest = {
-			kind: 'stream.frameObserved',
-			metadataStreamId: 'metadata-stream-1',
-			paneSessionId: 'pane-session-1',
-			streamSequence: 7,
-			streamKind: 'metadata',
-			wireVersion: 2,
-			workerInstanceId: 'worker-instance-1',
-		} as const;
+	test('accepts content frame observations and rejects retired metadata frame observations', () => {
 		const contentRequest = {
 			contentRequestId: 'content-request-1',
 			contentSequence: 0,
@@ -27,24 +18,23 @@ describe('Bridge product frame acknowledgement contracts', () => {
 			workerInstanceId: 'worker-instance-1',
 		} as const;
 
-		expect(bridgeProductFrameAcknowledgementRequestSchema.parse(metadataRequest)).toEqual(
-			metadataRequest,
-		);
 		expect(bridgeProductFrameAcknowledgementRequestSchema.parse(contentRequest)).toEqual(
 			contentRequest,
 		);
+		expect(
+			bridgeProductFrameAcknowledgementRequestSchema.safeParse({
+				kind: 'stream.frameObserved',
+				metadataStreamId: 'metadata-stream-1',
+				paneSessionId: 'pane-session-1',
+				streamSequence: 7,
+				streamKind: 'metadata',
+				wireVersion: 2,
+				workerInstanceId: 'worker-instance-1',
+			}).success,
+		).toBe(false);
 	});
 
-	test('rejects cross-wired, unknown, and structurally invalid observation requests', () => {
-		const metadataRequest = {
-			kind: 'stream.frameObserved',
-			metadataStreamId: 'metadata-stream-1',
-			paneSessionId: 'pane-session-1',
-			streamKind: 'metadata',
-			streamSequence: 7,
-			wireVersion: 2,
-			workerInstanceId: 'worker-instance-1',
-		} as const;
+	test('rejects cross-wired, unknown, and structurally invalid content observations', () => {
 		const contentRequest = {
 			contentRequestId: 'content-request-1',
 			contentSequence: 0,
@@ -57,17 +47,6 @@ describe('Bridge product frame acknowledgement contracts', () => {
 		} as const;
 
 		for (const invalidRequest of [
-			{ ...metadataRequest, metadataStreamId: '' },
-			{ ...metadataRequest, paneSessionId: 'pane/invalid' },
-			{ ...metadataRequest, workerInstanceId: 'worker/invalid' },
-			{ ...metadataRequest, streamSequence: -1 },
-			{ ...metadataRequest, unknown: true },
-			{
-				...metadataRequest,
-				contentRequestId: 'content-request-1',
-				contentSequence: 0,
-				leaseId: 'lease-1',
-			},
 			{ ...contentRequest, contentRequestId: '' },
 			{ ...contentRequest, leaseId: 'lease/invalid' },
 			{ ...contentRequest, paneSessionId: 'pane/invalid' },

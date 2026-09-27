@@ -11,6 +11,10 @@ final class AppPoliciesBridgeTests {
         let bootstrapPolicy = BridgeProductBootstrapPolicy.productContract
         #expect(bootstrapPolicy.admissionRetryCount == AppPolicies.Bridge.productAdmissionRetryCount)
         #expect(
+            bootstrapPolicy.contentProgressDeadlineMilliseconds
+                == Int(AppPolicies.Bridge.contentProgressDeadline.components.seconds * 1000)
+        )
+        #expect(
             bootstrapPolicy.workerSettlementDeadlineMilliseconds
                 == Int(AppPolicies.Bridge.productWorkerSettlementDeadline.components.seconds * 1000)
         )

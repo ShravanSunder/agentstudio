@@ -53,10 +53,12 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         finishWaiters.removeAll(keepingCapacity: false)
     }
 
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
+    func applyViewDemand(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
+        forceRecapture _: Bool,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         updateObservedOpenFinished = didFinishOpen
@@ -128,6 +130,35 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
 
 actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private(set) var cancelledSubscriptionIds: [String] = []
+    private(set) var openCount = 0
+    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func captureKeyedSnapshot(
+        subscriptionId: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? {
+        guard subscriptionId == "file-subscription-1",
+            productAdmission.withValidAdmission({ true }) == true
+        else { return nil }
+        guard
+            let source = try? BridgeProductFileSourceIdentity(
+                repoId: "00000000-0000-4000-8000-000000000001",
+                rootRevisionToken: "root-token-1",
+                sourceCursor: "source-cursor-1",
+                sourceId: "file-source-1",
+                subscriptionGeneration: 1,
+                worktreeId: "00000000-0000-4000-8000-000000000002"
+            )
+        else { return nil }
+        return .init(
+            memberStatus: .init(record: .init(source: source), revision: 1),
+            records: [],
+            targetRevision: 1,
+            tombstoneRevisionByKey: [:],
+            absenceFloorRevisionByRange: [:]
+        )
+    }
 
     func currentSource() -> BridgeProductFileSourceCurrentResult {
         .unavailable(.noFileSourceAuthority)
@@ -139,6 +170,10 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
+        openCount += 1
+        let waiters = openWaiters
+        openWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
         try await emit(
             .sourceAccepted(
                 .init(
@@ -155,10 +190,19 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
         )
     }
 
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
+    func waitUntilOpened() async {
+        if openCount > 0 { return }
+        await withCheckedContinuation { continuation in
+            openWaiters.append(continuation)
+        }
+    }
+
+    func applyViewDemand(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
+        forceRecapture _: Bool,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 

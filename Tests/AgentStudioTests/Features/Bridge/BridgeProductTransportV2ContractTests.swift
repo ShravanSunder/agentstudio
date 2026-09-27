@@ -246,10 +246,73 @@ struct BridgeProductTransportV2ContractTests {
         let requests = try fixtureArray(named: "viewScopeRequests", in: transport)
         var request = try #require(requests.first)
         request["subscriptionKind"] = "file.annotations"
-        request["scope"] = ["kind": "comment", "worktreeId": "worktree-1"]
+        request["scope"] = ["kind": "comment", "sessionIds": [], "worktreeId": "worktree-1"]
         #expect(!decodingFails(BridgeProductViewScopeRequest.self, object: request))
         request["scope"] = ["kind": "comment"]
         #expect(decodingFails(BridgeProductViewScopeRequest.self, object: request))
+        request["scope"] = ["kind": "comment", "worktreeId": "worktree-1"]
+        #expect(decodingFails(BridgeProductViewScopeRequest.self, object: request))
+    }
+
+    @Test("metadata view scopes require their complete admitted demand")
+    func metadataViewScopesRequireDemand() throws {
+        let corpus = try fixtureJSONObject(
+            relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
+        )
+        let transport = try #require(corpus["transportV2"] as? [String: Any])
+        let requests = try fixtureArray(named: "viewScopeRequests", in: transport)
+        let fileRequest = try #require(requests.first { $0["subscriptionKind"] as? String == "file.metadata" })
+        let reviewRequest = try #require(requests.first { $0["subscriptionKind"] as? String == "review.metadata" })
+        #expect(!decodingFails(BridgeProductViewScopeRequest.self, object: fileRequest))
+        #expect(!decodingFails(BridgeProductViewScopeRequest.self, object: reviewRequest))
+        for missingDemand in [
+            ["kind": "file", "changeFilter": ["kind": "none"], "pathScope": []] as [String: Any],
+            ["kind": "file", "changeFilter": ["kind": "none"], "interests": []] as [String: Any],
+        ] {
+            var request = fileRequest
+            request["scope"] = missingDemand
+            #expect(decodingFails(BridgeProductViewScopeRequest.self, object: request))
+        }
+        var wrongReview = reviewRequest
+        wrongReview["scope"] = ["kind": "review"]
+        #expect(decodingFails(BridgeProductViewScopeRequest.self, object: wrongReview))
+        wrongReview = fileRequest
+        wrongReview["scope"] = ["kind": "review", "interests": []]
+        #expect(decodingFails(BridgeProductViewScopeRequest.self, object: wrongReview))
+    }
+
+    @Test("typed view scopes expose exactly the admitted File and Review demand")
+    func typedViewScopesExposeAdmittedDemand() throws {
+        let fileScope = BridgeProductJSONValue.object([
+            "kind": .string("file"),
+            "changeFilter": .object(["kind": .string("none")]),
+            "interests": .array([
+                .object([
+                    "lane": .string("foreground"),
+                    "paths": .array([.string("src/current.ts")]),
+                ])
+            ]),
+            "pathScope": .array([.string("src")]),
+        ])
+        try BridgeProductViewScopeContract.validate(fileScope, codingPath: [])
+        let fileDemand = try BridgeProductViewScopeContract.fileDemand(from: fileScope)
+        #expect(fileDemand.interests.first?.lane == .foreground)
+        #expect(fileDemand.interests.first?.paths == ["src/current.ts"])
+        #expect(fileDemand.pathScope == ["src"])
+
+        let reviewScope = BridgeProductJSONValue.object([
+            "kind": .string("review"),
+            "interests": .array([
+                .object([
+                    "lane": .string("active"),
+                    "itemIds": .array([.string("review-item-1")]),
+                ])
+            ]),
+        ])
+        try BridgeProductViewScopeContract.validate(reviewScope, codingPath: [])
+        let reviewDemand = try BridgeProductViewScopeContract.reviewDemand(from: reviewScope)
+        #expect(reviewDemand.interests.first?.lane == .active)
+        #expect(reviewDemand.interests.first?.itemIds == ["review-item-1"])
     }
 
     @Test("a deleted File row cannot carry a read descriptor")

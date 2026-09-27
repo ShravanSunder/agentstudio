@@ -232,14 +232,6 @@ struct BridgeProductSchemeAdapter: Sendable {
                 continuation: continuation
             )
             return
-        case .metadataFrameAcknowledgement(let acknowledgement):
-            try await routeMetadataFrameAcknowledgement(
-                acknowledgement,
-                responseURL: request.url,
-                productAdmission: productAdmission,
-                continuation: continuation
-            )
-            return
         case .operationResult(let resultRequest):
             try await routeOperationResult(
                 resultRequest,
@@ -529,40 +521,6 @@ struct BridgeProductSchemeAdapter: Sendable {
     ) async throws {
         guard
             await session.acknowledgeContentFrameObservation(
-                acknowledgement,
-                productAdmission: productAdmission
-            )
-        else {
-            try await sendResponse(
-                statusCode: 409,
-                url: responseURL,
-                contentType: "application/json",
-                contentLength: 0,
-                productAdmission: productAdmission,
-                continuation: continuation
-            )
-            continuation.finish()
-            return
-        }
-        try await sendResponse(
-            statusCode: 204,
-            url: responseURL,
-            contentType: "application/json",
-            contentLength: 0,
-            productAdmission: productAdmission,
-            continuation: continuation
-        )
-        continuation.finish()
-    }
-
-    private func routeMetadataFrameAcknowledgement(
-        _ acknowledgement: BridgeProductMetadataFrameAcknowledgement,
-        responseURL: URL,
-        productAdmission: BridgeProductAdmissionContext,
-        continuation: BridgeProductSchemeReplyContinuation
-    ) async throws {
-        guard
-            await session.acknowledgeMetadataFrameObservation(
                 acknowledgement,
                 productAdmission: productAdmission
             )

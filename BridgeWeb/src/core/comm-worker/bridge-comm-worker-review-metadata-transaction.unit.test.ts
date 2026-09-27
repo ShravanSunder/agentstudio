@@ -5,11 +5,13 @@ import {
 	activeIdentity,
 	candidateIdentity,
 	makeApplicatorHarness,
+	publishReviewTransactionBatch,
 	reviewDelta,
 	reviewComparisonOrigin,
 	reviewIdentity,
 	reviewInvalidated,
 	reviewMetadataTransport,
+	reviewTransactionBatch,
 	reviewPublicationId,
 	reviewReset,
 	reviewSnapshot,
@@ -18,18 +20,15 @@ import {
 	workerDerivationEpoch,
 } from './bridge-comm-worker-review-metadata-transaction.test-support.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
-import {
-	makeReviewMetadataDataFrame,
-	type ReviewMetadataSubscription,
-} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import type { ReviewMetadataSubscription } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-
-type ReviewMetadataDataFrame = ReturnType<typeof makeReviewMetadataDataFrame>;
+import { BridgeProductBatchFrameRouter } from './bridge-product-batch-frame-router.js';
+import { bridgeProductReviewBatchRecordSchema } from './bridge-product-review-batch-record-contracts.js';
 
 describe('Bridge comm worker Review metadata transaction staging', () => {
 	test('binds retained stale and replay-ready display status to the active publication', () => {
@@ -654,105 +653,94 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(harness.applications.map(({ reset }) => reset)).toEqual([true, false]);
 	});
 
-	test('reopens Review after a final B application failure and commits replayed B once', async () => {
-		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
-		const replayEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
-		let firstCancelCount = 0;
+	test('retains A, requests resnapshot for a rejected B bank, and commits replayed B once', async () => {
+		const events = new BridgeProductBoundedAsyncQueue<never>(1);
+		const subscriptionId = 'review-transaction-application-failure';
+		const subscription: ReviewMetadataSubscription = {
+			cancel: async (): Promise<void> => events.close(true),
+			events,
+			subscriptionId,
+			subscriptionKind: 'review.metadata',
+		};
+		const router = new BridgeProductBatchFrameRouter();
 		let openedSubscriptionCount = 0;
-		const subscriptions: readonly ReviewMetadataSubscription[] = [
-			{
-				cancel: async (): Promise<void> => {
-					firstCancelCount += 1;
-				},
-				events: firstEvents,
-				subscriptionId: 'review-transaction-application-failure',
-				subscriptionKind: 'review.metadata',
-				update: async (): Promise<void> => {},
-			},
-			{
-				cancel: async (): Promise<void> => {},
-				events: replayEvents,
-				subscriptionId: 'review-transaction-replay',
-				subscriptionKind: 'review.metadata',
-				update: async (): Promise<void> => {},
-			},
-		];
+		let resnapshotCount = 0;
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			productTransport: reviewMetadataTransport(subscriptions, (): void => {
-				openedSubscriptionCount += 1;
-			}),
+			productTransport: reviewMetadataTransport(
+				subscription,
+				(): void => {
+					openedSubscriptionCount += 1;
+				},
+				undefined,
+				(sinks): void => router.setSinks(sinks),
+				(): void => {
+					resnapshotCount += 1;
+				},
+			),
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'application-failure');
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(
-			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
-		);
-		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
-		firstEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
-		firstEvents.push(
-			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 3, false)),
-		);
-		firstEvents.push(
-			makeReviewMetadataDataFrame(reviewWindow(candidateIdentity, 'item-b-3', 2, 3, true)),
-		);
-
-		await flushBridgeWorkerRuntimeContinuations();
-
-		expect(firstCancelCount).toBe(1);
-		expect(openedSubscriptionCount).toBe(2);
-		const failureDisplayMessages = postedMessages
-			.map(({ message }) => message)
-			.filter((message) => message.kind === 'reviewDisplayPatch');
-		expect(JSON.stringify(failureDisplayMessages.at(-1))).toContain('source-active');
-		expect(JSON.stringify(failureDisplayMessages.at(-1))).not.toContain('source-candidate');
-
-		replayEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
-		replayEvents.push(
-			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-replay', 0, 1, true)),
+		await publishReviewTransactionBatch(
+			router,
+			reviewTransactionBatch(subscriptionId, activeIdentity, ['item-a']),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		const replayPublications = postedMessages
-			.map(({ message }) => message)
-			.filter(
-				(message) =>
-					message.kind === 'reviewDisplayPatch' &&
-					JSON.stringify(message).includes('source-candidate'),
-			);
-		expect(replayPublications).toHaveLength(1);
-		expect(JSON.stringify(replayPublications[0])).toContain('item-b-replay');
+		const invalidCandidate = reviewTransactionBatch(subscriptionId, candidateIdentity, ['item-b']);
+		const candidateItem = invalidCandidate.records[0];
+		if (candidateItem === undefined) throw new Error('Candidate item missing.');
+		const candidateRecord = bridgeProductReviewBatchRecordSchema.parse(candidateItem.value);
+		if (candidateRecord.recordKind !== 'item') throw new Error('Candidate item record missing.');
+		await publishReviewTransactionBatch(router, {
+			...invalidCandidate,
+			records: [
+				{ ...candidateItem, value: { ...candidateRecord, sortKey: -1 } },
+				...invalidCandidate.records.slice(1),
+			],
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(resnapshotCount).toBe(1);
+		expect(openedSubscriptionCount).toBe(1);
+		const beforeReplay = postedMessages.filter(
+			({ message }) => message.kind === 'reviewDisplayPatch',
+		);
+		expect(JSON.stringify(beforeReplay.at(-1))).toContain('source-active');
+		expect(JSON.stringify(beforeReplay)).not.toContain('source-candidate');
+
+		await publishReviewTransactionBatch(
+			router,
+			reviewTransactionBatch(
+				subscriptionId,
+				candidateIdentity,
+				['item-b-replay'],
+				'review-transaction-replay-incarnation',
+			),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		const candidateDisplays = postedMessages.filter(
+			({ message }) =>
+				message.kind === 'reviewDisplayPatch' &&
+				JSON.stringify(message).includes('source-candidate'),
+		);
+		expect(candidateDisplays).toHaveLength(1);
+		expect(JSON.stringify(candidateDisplays[0])).toContain('item-b-replay');
 	});
 
 	test('rolls back the real worker store when the critical B display post fails', async () => {
-		// Arrange
-		const firstEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
-		const replayEvents = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
-		let firstCancelCount = 0;
-		let openedSubscriptionCount = 0;
-		let appliedReceiptCount = 0;
+		const events = new BridgeProductBoundedAsyncQueue<never>(1);
+		const subscriptionId = 'review-transaction-display-failure';
+		const subscription: ReviewMetadataSubscription = {
+			cancel: async (): Promise<void> => events.close(true),
+			events,
+			subscriptionId,
+			subscriptionKind: 'review.metadata',
+		};
+		const router = new BridgeProductBatchFrameRouter();
 		let rejectCandidateDisplay = false;
-		const subscriptions: readonly ReviewMetadataSubscription[] = [
-			{
-				cancel: async (): Promise<void> => {
-					firstCancelCount += 1;
-				},
-				events: firstEvents,
-				subscriptionId: 'review-transaction-display-failure',
-				subscriptionKind: 'review.metadata',
-				update: async (): Promise<void> => {},
-			},
-			{
-				cancel: async (): Promise<void> => {},
-				events: replayEvents,
-				subscriptionId: 'review-transaction-display-replay',
-				subscriptionKind: 'review.metadata',
-				update: async (): Promise<void> => {},
-			},
-		];
+		let resnapshotCount = 0;
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort({
 			beforePostMessage: (message): void => {
 				if (rejectCandidateDisplay && message.kind === 'reviewDisplayPatch') {
@@ -765,100 +753,76 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: reviewMetadataTransport(
-				subscriptions,
+				subscription,
+				undefined,
+				undefined,
+				(sinks): void => router.setSinks(sinks),
 				(): void => {
-					openedSubscriptionCount += 1;
-				},
-				(): void => {
-					appliedReceiptCount += 1;
+					resnapshotCount += 1;
 				},
 			),
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'display-failure');
 		await flushBridgeWorkerRuntimeContinuations();
-		firstEvents.push(
-			makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)),
+		await publishReviewTransactionBatch(
+			router,
+			reviewTransactionBatch(subscriptionId, activeIdentity, ['item-a']),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 		const activeSlicePatchCount = postedMessages.filter(
 			({ message }) => message.kind === 'slicePatch',
 		).length;
 		rejectCandidateDisplay = true;
-
-		// Act
-		firstEvents.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
-		firstEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
-		firstEvents.push(
-			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true)),
+		await publishReviewTransactionBatch(
+			router,
+			reviewTransactionBatch(subscriptionId, candidateIdentity, ['item-b']),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		// Assert
-		expect(firstCancelCount).toBe(1);
-		expect(openedSubscriptionCount).toBe(2);
-		expect(appliedReceiptCount).toBe(0);
+		expect(resnapshotCount).toBe(1);
 		expect(postedMessages.filter(({ message }) => message.kind === 'slicePatch')).toHaveLength(
 			activeSlicePatchCount,
 		);
-		const failureDisplayMessages = postedMessages
-			.map(({ message }) => message)
-			.filter((message) => message.kind === 'reviewDisplayPatch');
-		expect(JSON.stringify(failureDisplayMessages.at(-1))).toContain('source-active');
-		expect(JSON.stringify(failureDisplayMessages)).not.toContain('source-candidate');
-		expect(
-			postedMessages
-				.map(({ message }) => message)
-				.filter(
-					(message) =>
-						message.kind === 'reviewCandidateFailed' &&
-						message.publicationId === candidateIdentity.publicationId,
-				),
-		).toHaveLength(1);
-
-		rejectCandidateDisplay = false;
-		replayEvents.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
-		replayEvents.push(
-			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true)),
+		const beforeReplay = postedMessages.filter(
+			({ message }) => message.kind === 'reviewDisplayPatch',
+		);
+		expect(JSON.stringify(beforeReplay.at(-1))).toContain('source-active');
+		expect(JSON.stringify(beforeReplay)).not.toContain('source-candidate');
+		await publishReviewTransactionBatch(
+			router,
+			reviewTransactionBatch(
+				subscriptionId,
+				candidateIdentity,
+				['item-b'],
+				'review-transaction-display-replay-incarnation',
+			),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		const candidateDisplayMessages = postedMessages
-			.map(({ message }) => message)
-			.filter(
-				(message) =>
+		expect(
+			postedMessages.filter(
+				({ message }) =>
 					message.kind === 'reviewDisplayPatch' &&
 					JSON.stringify(message).includes('source-candidate'),
-			);
-		expect(candidateDisplayMessages).toHaveLength(1);
-		expect(appliedReceiptCount).toBe(0);
+			),
+		).toHaveLength(1);
 	});
 
-	test('keeps applied B when post-commit drain scheduling fails', async () => {
-		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
-		let cancelCount = 0;
-		let openedSubscriptionCount = 0;
-		let appliedReceiptCount = 0;
-		const reviewSubscription: ReviewMetadataSubscription = {
-			cancel: async (): Promise<void> => {
-				cancelCount += 1;
-			},
+	test('keeps the installed Review publication when post-commit drain scheduling fails', async () => {
+		const events = new BridgeProductBoundedAsyncQueue<never>(1);
+		const subscriptionId = 'review-transaction-post-commit-drain-failure';
+		const subscription: ReviewMetadataSubscription = {
+			cancel: async (): Promise<void> => events.close(true),
 			events,
-			subscriptionId: 'review-transaction-post-commit-drain-failure',
+			subscriptionId,
 			subscriptionKind: 'review.metadata',
-			update: async (): Promise<void> => {},
 		};
+		const router = new BridgeProductBatchFrameRouter();
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			productTransport: reviewMetadataTransport(
-				reviewSubscription,
-				(): void => {
-					openedSubscriptionCount += 1;
-				},
-				(): void => {
-					appliedReceiptCount += 1;
-				},
+			productTransport: reviewMetadataTransport(subscription, undefined, undefined, (sinks): void =>
+				router.setSinks(sinks),
 			),
 			schedulePreparationDrain: (): never => {
 				throw new Error('injected post-commit drain scheduling failure');
@@ -875,15 +839,11 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-
-		// Act
-		events.push(makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)));
+		await publishReviewTransactionBatch(
+			router,
+			reviewTransactionBatch(subscriptionId, activeIdentity, ['item-a']),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
-
-		// Assert
-		expect(appliedReceiptCount).toBe(0);
-		expect(cancelCount).toBe(0);
-		expect(openedSubscriptionCount).toBe(1);
 		expect(
 			postedMessages.filter(
 				({ message }) =>
@@ -897,60 +857,46 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 	});
 
 	test('routes a pending subscription failure without replacing the active runtime source', async () => {
-		// Arrange
-		const events = new BridgeProductBoundedAsyncQueue<ReviewMetadataDataFrame>(64);
-		const reviewSubscription: ReviewMetadataSubscription = {
-			cancel: async (): Promise<void> => {},
+		const events = new BridgeProductBoundedAsyncQueue<never>(1);
+		const subscriptionId = 'review-transaction-failure';
+		const subscription: ReviewMetadataSubscription = {
+			cancel: async (): Promise<void> => events.close(true),
 			events,
-			subscriptionId: 'review-transaction-failure',
+			subscriptionId,
 			subscriptionKind: 'review.metadata',
-			update: async (): Promise<void> => {},
 		};
+		const router = new BridgeProductBatchFrameRouter();
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-			productTransport: reviewMetadataTransport(reviewSubscription),
+			productTransport: reviewMetadataTransport(subscription, undefined, undefined, (sinks): void =>
+				router.setSinks(sinks),
+			),
 		});
 		activateBridgeCommWorkerReviewViewerMode(dispatch, 'pending-subscription-failure');
 		await flushBridgeWorkerRuntimeContinuations();
-		events.push(makeReviewMetadataDataFrame(reviewSnapshot(activeIdentity, 'item-a', 0, 1, true)));
+		await publishReviewTransactionBatch(
+			router,
+			reviewTransactionBatch(subscriptionId, activeIdentity, ['item-a']),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 		const activeSlicePatchCount = postedMessages.filter(
 			({ message }) => message.kind === 'slicePatch',
 		).length;
-		events.push(makeReviewMetadataDataFrame(reviewReset(candidateIdentity)));
-		events.push(makeReviewMetadataDataFrame(reviewSourceAccepted(candidateIdentity)));
-		events.push(
-			makeReviewMetadataDataFrame(reviewSnapshot(candidateIdentity, 'item-b-1', 0, 2, false)),
-		);
-		await flushBridgeWorkerRuntimeContinuations();
-
-		// Act
+		const pending = reviewTransactionBatch(subscriptionId, candidateIdentity, ['item-b']);
+		router.accept(pending.begin);
 		events.fail(new Error('private pending B failure'), true);
 		await flushBridgeWorkerRuntimeContinuations();
-
-		// Assert
 		expect(postedMessages.filter(({ message }) => message.kind === 'slicePatch')).toHaveLength(
 			activeSlicePatchCount,
 		);
-		const reviewDisplayMessages = postedMessages
-			.map(({ message }) => message)
-			.filter((message) => message.kind === 'reviewDisplayPatch');
-		expect(reviewDisplayMessages.at(-1)).toMatchObject({
-			patches: [
-				{
-					operation: 'upsert',
-					payload: { status: 'stale' },
-					slice: 'reviewSource',
-				},
-				expect.objectContaining({ operation: 'batch', slice: 'reviewItem' }),
-				expect.objectContaining({ operation: 'batch', slice: 'reviewTree' }),
-			],
-		});
+		const reviewDisplayMessages = postedMessages.filter(
+			({ message }) => message.kind === 'reviewDisplayPatch',
+		);
 		expect(JSON.stringify(reviewDisplayMessages.at(-1))).toContain('source-active');
 		expect(JSON.stringify(reviewDisplayMessages.at(-1))).not.toMatch(
-			/source-candidate|metadataUnavailable|private pending B failure/iu,
+			/source-candidate|private pending B failure/iu,
 		);
 	});
 });

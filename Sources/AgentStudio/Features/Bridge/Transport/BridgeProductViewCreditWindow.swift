@@ -44,6 +44,17 @@ struct BridgeProductViewCreditWindow {
         stateByViewDomain[viewDomain]?.outstandingParts.count ?? 0
     }
 
+    /// A late receipt for already returned or abandoned credits is a no-op.
+    /// It may be answered without releasing any capacity a second time.
+    func wasAlreadySatisfied(
+        for viewDomain: BridgeProductViewDomainKey,
+        handle: String,
+        through sequence: Int
+    ) -> Bool {
+        guard let state = stateByViewDomain[viewDomain], state.handle == handle else { return false }
+        return sequence > 0 && sequence <= state.receivedThroughSequence
+    }
+
     var maximumPartByteCount: Int { maximumBytes }
 
     /// Abandoning one staging bank returns only its in-transit credits. A late

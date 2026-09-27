@@ -888,6 +888,7 @@
           "maximumMetadataFrameBytes": 262144,
           "maximumQueuedStreamBytes": 4194304,
           "admissionRetryCount": 2,
+          "contentProgressDeadlineMilliseconds": 5000,
           "workerSettlementDeadlineMilliseconds": 5000,
           "maximumQueuedStreamFrames": 64,
           "terminalFrameReserve": 1

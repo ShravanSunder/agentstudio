@@ -165,9 +165,11 @@ struct BridgePaneProductFileSharedConstructionTests {
             }
         }
         await sourceAcceptedGate.waitUntilStarted()
-        try await source.update(
-            subscription: fixture.updatedSnapshot(from: openSnapshot),
-            productAdmission: fixture.productAdmission.context
+        try await source.applyViewDemand(
+            subscriptionId: openSnapshot.subscriptionId,
+            demand: fixture.viewDemand(),
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
         ) { event in
             await collector.append(event)
         }

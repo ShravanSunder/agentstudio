@@ -158,6 +158,14 @@ struct BridgeProductViewSenderState {
         credits.acknowledge(for: viewDomain, handle: handle, through: deliverySequence)
     }
 
+    func acknowledgementWasAlreadySatisfied(
+        for viewDomain: BridgeProductViewDomainKey,
+        handle: String,
+        through deliverySequence: Int
+    ) -> Bool {
+        credits.wasAlreadySatisfied(for: viewDomain, handle: handle, through: deliverySequence)
+    }
+
     mutating func resnapshot(_ viewDomain: BridgeProductViewDomainKey) {
         guard dirtyKeys.hasActiveIncarnation(viewDomain) else { return }
         dirtyKeys.requireSnapshot(for: viewDomain)

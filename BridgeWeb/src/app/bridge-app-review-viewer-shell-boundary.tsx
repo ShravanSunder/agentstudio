@@ -8,6 +8,7 @@ import {
 	BridgeReviewMetadataLoadingShell,
 	BridgeReviewProjectionFailedShell,
 	BridgeReviewProjectionPendingShell,
+	BridgeReviewReadyEmptyShell,
 } from '../review-viewer/shell/review-viewer-fallback-shells.js';
 import type { ReviewViewerShellProps } from '../review-viewer/shell/review-viewer-shell.js';
 import type { BridgeReviewComparisonPaneState } from './bridge-review-comparison-pane-state.js';
@@ -20,6 +21,7 @@ const LazyReviewViewerShell = lazy(async () => {
 
 export type BridgeReviewViewerPresentationState =
 	| { readonly status: 'empty' }
+	| { readonly status: 'readyEmpty' }
 	| { readonly status: 'metadataLoading' }
 	| { readonly error: string | null; readonly status: 'metadataFailed' }
 	| { readonly status: 'projectionPending' }
@@ -80,6 +82,14 @@ export function BridgeReviewViewerShellBoundary(
 	}
 
 	switch (presentationState.status) {
+		case 'readyEmpty':
+			return (
+				<BridgeReviewReadyEmptyShell
+					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
+					viewerHeaderControls={viewerHeaderControls}
+				/>
+			);
 		case 'empty':
 			return (
 				<BridgeReviewEmptyShell

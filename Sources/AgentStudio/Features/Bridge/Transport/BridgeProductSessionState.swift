@@ -136,10 +136,6 @@ enum BridgeProductSessionCompletionEffect: Equatable, Sendable {
     case noEffect
     case productCall(BridgeProductCallRequest)
     case subscriptionOpened(BridgeProductSubscriptionSnapshot)
-    case subscriptionInterestsCommitted(
-        barrier: BridgeProductSubscriptionCommitBarrierIntent,
-        subscription: BridgeProductSubscriptionSnapshot
-    )
     case subscriptionCancelled(BridgeProductSubscriptionSnapshot)
     case viewScopeAccepted(BridgeProductViewScopeRequest)
     case viewResnapshotAccepted(BridgeProductViewResnapshotRequest)

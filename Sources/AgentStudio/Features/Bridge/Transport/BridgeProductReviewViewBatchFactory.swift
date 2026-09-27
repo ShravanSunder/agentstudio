@@ -5,6 +5,12 @@ struct BridgeProductReviewKeyedItem: Sendable {
     let revision: Int
 }
 
+struct BridgeProductReviewKeyedSnapshot: Sendable {
+    let targetRevision: Int
+    let publication: BridgeProductReviewBatchPublicationRecord
+    let items: [BridgeProductReviewKeyedItem]
+}
+
 struct BridgeProductReviewViewSnapshotInput: Sendable {
     let viewDomain: BridgeProductViewDomainKey
     let handle: String

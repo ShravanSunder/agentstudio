@@ -36,22 +36,17 @@
       {
         "kind": "operation.result",
         "operationId": "operation-ordinary-1",
-        "outcome": "succeeded",
-        "result": null,
-        "failureCode": null
+        "outcome": "succeeded"
       },
       {
         "kind": "operation.result",
         "operationId": "operation-unknown-1",
-        "outcome": "outcomeUnknown",
-        "result": null,
-        "failureCode": null
+        "outcome": "outcomeUnknown"
       },
       {
         "kind": "operation.result",
         "operationId": "operation-refused-1",
         "outcome": "refused",
-        "result": null,
         "failureCode": "result_capacity_exhausted"
       }
     ],
@@ -91,7 +86,10 @@
         "handle": "review-handle-1",
         "incarnation": "review-incarnation-1",
         "scopeRevision": 2,
-        "scope": { "kind": "review" }
+        "scope": {
+          "kind": "review",
+          "interests": []
+        }
       },
       {
         "kind": "subscription.setScope",
@@ -106,7 +104,14 @@
         "handle": "file-handle-1",
         "incarnation": "file-incarnation-1",
         "scopeRevision": 1,
-        "scope": { "kind": "file", "changeFilter": { "kind": "none" } }
+        "scope": {
+          "kind": "file",
+          "changeFilter": {
+            "kind": "none"
+          },
+          "interests": [],
+          "pathScope": []
+        }
       },
       {
         "kind": "subscription.setScope",
@@ -123,10 +128,20 @@
         "scopeRevision": 2,
         "scope": {
           "kind": "file",
+          "interests": [],
+          "pathScope": [],
           "changeFilter": {
             "kind": "changes",
-            "baseline": { "kind": "uncommitted" },
-            "kinds": ["added", "modified", "renamed", "deleted", "copied"]
+            "baseline": {
+              "kind": "uncommitted"
+            },
+            "kinds": [
+              "added",
+              "modified",
+              "renamed",
+              "deleted",
+              "copied"
+            ]
           }
         }
       },
@@ -145,10 +160,17 @@
         "scopeRevision": 3,
         "scope": {
           "kind": "file",
+          "interests": [],
+          "pathScope": [],
           "changeFilter": {
             "kind": "changes",
-            "baseline": { "kind": "originDefaultMergeBase" },
-            "kinds": ["modified", "deleted"]
+            "baseline": {
+              "kind": "originDefaultMergeBase"
+            },
+            "kinds": [
+              "modified",
+              "deleted"
+            ]
           }
         }
       },
@@ -165,7 +187,11 @@
         "handle": "comment-handle-1",
         "incarnation": "comment-incarnation-1",
         "scopeRevision": 1,
-        "scope": { "kind": "comment", "worktreeId": "worktree-1" }
+        "scope": {
+          "kind": "comment",
+          "sessionIds": [],
+          "worktreeId": "worktree-1"
+        }
       }
     ],
     "viewResnapshotRequests": [
@@ -272,7 +298,10 @@
         "scopeRevision": 2,
         "batchId": "review-batch-1",
         "mode": "snapshot",
-        "scope": { "kind": "review" },
+        "scope": {
+          "kind": "review",
+          "interests": []
+        },
         "baseRevision": 0,
         "targetRevision": 4,
         "partCount": 3,
@@ -298,7 +327,9 @@
           "operation": "put",
           "key": "item/a.ts",
           "revision": 4,
-          "value": { "itemId": "item-a" }
+          "value": {
+            "itemId": "item-a"
+          }
         }
       },
       {
@@ -317,7 +348,11 @@
         "batchId": "review-batch-1",
         "deliverySequence": 2,
         "partIndex": 1,
-        "part": { "operation": "delete", "key": "item/old.ts", "revision": 4 }
+        "part": {
+          "operation": "delete",
+          "key": "item/old.ts",
+          "revision": 4
+        }
       },
       {
         "kind": "subscription.batchPart",
@@ -335,7 +370,10 @@
         "batchId": "review-batch-1",
         "deliverySequence": 3,
         "partIndex": 2,
-        "part": { "operation": "evict", "key": "item/outside.ts" }
+        "part": {
+          "operation": "evict",
+          "key": "item/outside.ts"
+        }
       },
       {
         "kind": "subscription.batchComplete",
@@ -351,7 +389,10 @@
         "incarnation": "review-incarnation-1",
         "scopeRevision": 2,
         "batchId": "review-batch-1",
-        "coveredScope": { "kind": "review" }
+        "coveredScope": {
+          "kind": "review",
+          "interests": []
+        }
       },
       {
         "kind": "subscription.batchBegin",
@@ -368,7 +409,10 @@
         "scopeRevision": 3,
         "batchId": "review-batch-coverage-empty",
         "mode": "coverage",
-        "scope": { "kind": "review" },
+        "scope": {
+          "kind": "review",
+          "interests": []
+        },
         "baseRevision": 4,
         "targetRevision": 4,
         "partCount": 0,
@@ -388,7 +432,10 @@
         "incarnation": "review-incarnation-1",
         "scopeRevision": 3,
         "batchId": "review-batch-coverage-empty",
-        "coveredScope": { "kind": "review" }
+        "coveredScope": {
+          "kind": "review",
+          "interests": []
+        }
       },
       {
         "kind": "subscription.batchBegin",
@@ -405,7 +452,14 @@
         "scopeRevision": 4,
         "batchId": "member-a-batch-1",
         "mode": "snapshot",
-        "scope": { "kind": "file", "changeFilter": { "kind": "none" } },
+        "scope": {
+          "kind": "file",
+          "changeFilter": {
+            "kind": "none"
+          },
+          "interests": [],
+          "pathScope": []
+        },
         "baseRevision": 0,
         "targetRevision": 5,
         "partCount": 0,
@@ -425,7 +479,14 @@
         "incarnation": "member-a-incarnation-1",
         "scopeRevision": 4,
         "batchId": "member-a-batch-1",
-        "coveredScope": { "kind": "file", "changeFilter": { "kind": "none" } }
+        "coveredScope": {
+          "kind": "file",
+          "changeFilter": {
+            "kind": "none"
+          },
+          "interests": [],
+          "pathScope": []
+        }
       }
     ]
   },
@@ -440,6 +501,7 @@
       "maximumMetadataFrameBytes": 131072,
       "maximumQueuedStreamBytes": 4194304,
       "admissionRetryCount": 2,
+      "contentProgressDeadlineMilliseconds": 5000,
       "viewAcknowledgementDeadlineMilliseconds": 4000,
       "viewCreditBytes": 524288,
       "viewCreditParts": 8,
@@ -639,75 +701,6 @@
       ]
     }
   },
-  "interestStateVectors": [
-    {
-      "name": "review-empty",
-      "state": {
-        "subscriptionKind": "review.metadata",
-        "interests": []
-      },
-      "encodedBase64": "AQEAAAAA",
-      "sha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6"
-    },
-    {
-      "name": "file-empty",
-      "state": {
-        "subscriptionKind": "file.metadata",
-        "interests": [],
-        "pathScope": []
-      },
-      "encodedBase64": "AQIAAAAAAAAAAA==",
-      "sha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b"
-    },
-    {
-      "name": "review-multi-lane",
-      "state": {
-        "subscriptionKind": "review.metadata",
-        "interests": [
-          {
-            "itemIds": [
-              "review-item-2"
-            ],
-            "lane": "visible"
-          },
-          {
-            "itemIds": [
-              "review-item-1"
-            ],
-            "lane": "foreground"
-          }
-        ]
-      },
-      "encodedBase64": "AQEAAAACAAAADXJldmlldy1pdGVtLTEBAAAADXJldmlldy1pdGVtLTID",
-      "sha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd"
-    },
-    {
-      "name": "file-multi-lane-and-scope",
-      "state": {
-        "subscriptionKind": "file.metadata",
-        "interests": [
-          {
-            "lane": "visible",
-            "paths": [
-              "src/z.ts"
-            ]
-          },
-          {
-            "lane": "foreground",
-            "paths": [
-              "src/a.ts"
-            ]
-          }
-        ],
-        "pathScope": [
-          "tests",
-          "src"
-        ]
-      },
-      "encodedBase64": "AQIAAAACAAAACHNyYy9hLnRzAQAAAAhzcmMvei50cwMAAAACAAAAA3NyYwAAAAV0ZXN0cw==",
-      "sha256": "9396c477af63ed0b05a10296eb36674ea43886e009901564f0db31b363940702"
-    }
-  ],
   "fileSourceCurrentCases": [
     {
       "name": "available",
@@ -719,7 +712,6 @@
         "method": "file.source.current",
         "result": {
           "source": {
-            "cwdScope": null,
             "freshness": "live",
             "includeStatuses": true,
             "repoId": "00000000-0000-4000-8000-000000000001",
@@ -750,14 +742,10 @@
       "name": "cold-intake",
       "request": {
         "method": "review.intake.ready",
-        "request": {
-          "reason": null,
-          "streamId": null
-        }
+        "request": {}
       },
       "result": {
-        "method": "review.intake.ready",
-        "result": null
+        "method": "review.intake.ready"
       }
     },
     {
@@ -770,8 +758,7 @@
         }
       },
       "result": {
-        "method": "review.intake.ready",
-        "result": null
+        "method": "review.intake.ready"
       }
     }
   ],
@@ -785,8 +772,7 @@
         }
       },
       "result": {
-        "method": "review.publication.applied",
-        "result": null
+        "method": "review.publication.applied"
       }
     }
   ],
@@ -812,8 +798,7 @@
       "request": {
         "method": "review.publication.install.admit",
         "request": {
-          "candidatePublicationId": "00000000-0000-7000-8000-000000000018",
-          "expectedDisplayedPublicationId": null
+          "candidatePublicationId": "00000000-0000-7000-8000-000000000018"
         }
       },
       "result": {
@@ -831,8 +816,7 @@
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "requestId": "request-open-1",
-      "requestSequence": 1,
-      "request": null
+      "requestSequence": 1
     },
     {
       "kind": "product.call",
@@ -874,46 +858,12 @@
       "subscription": {
         "subscriptionKind": "file.metadata",
         "source": {
-          "cwdScope": null,
           "freshness": "live",
           "includeStatuses": true,
           "repoId": "00000000-0000-4000-8000-000000000001",
           "rootPathToken": "root-token-1",
           "worktreeId": "00000000-0000-4000-8000-000000000002"
         }
-      }
-    },
-    {
-      "kind": "subscription.updateBatch",
-      "wireVersion": 2,
-      "paneSessionId": "pane-session-1",
-      "workerDerivationEpoch": 7,
-      "workerInstanceId": "worker-instance-1",
-      "requestId": "request-review-subscription-update-batch-1",
-      "requestSequence": 5,
-      "subscriptionId": "review-subscription-1",
-      "subscriptionKind": "review.metadata",
-      "updateId": "review-interest-update-1",
-      "baseInterestRevision": 0,
-      "baseInterestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
-      "targetInterestRevision": 1,
-      "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
-      "batchIndex": 0,
-      "batchCount": 1,
-      "totalDeltaItemCount": 2,
-      "delta": {
-        "subscriptionKind": "review.metadata",
-        "add": [
-          {
-            "itemId": "review-item-1",
-            "lane": "foreground"
-          },
-          {
-            "itemId": "review-item-2",
-            "lane": "visible"
-          }
-        ],
-        "removeItemIds": []
       }
     },
     {
@@ -938,16 +888,12 @@
         {
           "subscriptionId": "review-subscription-1",
           "subscriptionKind": "review.metadata",
-          "interestRevision": 1,
-          "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
           "workerDerivationEpoch": 7
         },
         {
           "subscriptionId": "file-subscription-1",
           "subscriptionKind": "file.metadata",
-          "workerDerivationEpoch": 2,
-          "interestRevision": 0,
-          "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b"
+          "workerDerivationEpoch": 2
         }
       ],
       "lastAcceptedRequestSequence": 6,
@@ -987,8 +933,7 @@
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "requestId": "request-open-1",
-      "requestSequence": 1,
-      "result": null
+      "requestSequence": 1
     },
     {
       "kind": "call.completed",
@@ -998,8 +943,7 @@
       "requestId": "request-call-1",
       "requestSequence": 2,
       "call": {
-        "method": "review.markFileViewed",
-        "result": null
+        "method": "review.markFileViewed"
       }
     },
     {
@@ -1010,24 +954,18 @@
       "requestId": "request-review-subscription-open-1",
       "requestSequence": 3,
       "subscriptionId": "review-subscription-1",
-      "subscriptionKind": "review.metadata",
-      "interestRevision": 0,
-      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6"
+      "subscriptionKind": "review.metadata"
     },
     {
-      "kind": "subscription.updateBatchAccepted",
+      "kind": "subscription.openAccepted",
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
-      "requestId": "request-review-subscription-update-batch-1",
-      "requestSequence": 5,
-      "subscriptionId": "review-subscription-1",
-      "subscriptionKind": "review.metadata",
-      "updateId": "review-interest-update-1",
-      "batchIndex": 0,
-      "targetInterestRevision": 1,
-      "targetInterestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
-      "disposition": "committed"
+      "requestId": "request-review-annotation-open-accepted-1",
+      "requestSequence": 10,
+      "subscriptionId": "review-annotations-subscription-1",
+      "subscriptionKind": "review.annotations",
+      "worktreeId": "00000000-0000-7000-8000-000000000001"
     },
     {
       "kind": "subscription.cancelAccepted",
@@ -1053,16 +991,12 @@
           "disposition": "retained",
           "subscriptionId": "review-subscription-1",
           "subscriptionKind": "review.metadata",
-          "interestRevision": 1,
-          "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
           "workerDerivationEpoch": 7
         },
         {
           "disposition": "retained",
           "subscriptionId": "file-subscription-1",
           "subscriptionKind": "file.metadata",
-          "interestRevision": 0,
-          "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
           "workerDerivationEpoch": 2
         }
       ]
@@ -1106,8 +1040,7 @@
       "requestId": "request-file-refresh-retry-1",
       "requestSequence": 10,
       "call": {
-        "method": "file.refresh.retry",
-        "result": null
+        "method": "file.refresh.retry"
       }
     }
   ],
@@ -1126,7 +1059,7 @@
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-resumed-1",
-      "resumeFromStreamSequence": 6
+      "resumeFromStreamSequence": 8
     },
     {
       "kind": "metadataStream.open",
@@ -1149,15 +1082,15 @@
     },
     {
       "kind": "pane.presentation",
-      "operationCorrelationId": null,
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-presentation-1",
       "streamSequence": 1,
       "presentationRevision": 1,
-      "nativeActivity": "foreground",
       "fileRefreshFailure": null,
+      "nativeActivity": "foreground",
+      "operationCorrelationId": null,
       "reviewComparison": {
         "activeTarget": {
           "basis": "commonCommit",
@@ -1186,7 +1119,6 @@
     },
     {
       "kind": "pane.presentation",
-      "operationCorrelationId": null,
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
@@ -1198,34 +1130,35 @@
         "failureKind": "fileSourceUnavailable",
         "retryable": true
       },
+      "operationCorrelationId": null,
       "reviewComparison": null,
       "refreshingLanes": []
     },
     {
       "kind": "pane.presentation",
-      "operationCorrelationId": null,
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-presentation-1",
       "streamSequence": 3,
       "presentationRevision": 3,
-      "nativeActivity": "dormant",
       "fileRefreshFailure": null,
+      "nativeActivity": "dormant",
+      "operationCorrelationId": null,
       "reviewComparison": null,
       "refreshingLanes": []
     },
     {
       "kind": "pane.presentation",
-      "operationCorrelationId": null,
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-presentation-1",
       "streamSequence": 4,
       "presentationRevision": 4,
-      "nativeActivity": "closed",
       "fileRefreshFailure": null,
+      "nativeActivity": "closed",
+      "operationCorrelationId": null,
       "reviewComparison": null,
       "refreshingLanes": []
     },
@@ -1239,57 +1172,7 @@
       "streamSequence": 1,
       "subscriptionId": "review-subscription-1",
       "subscriptionKind": "review.metadata",
-      "subscriptionSequence": 0,
-      "interestRevision": 0,
-      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
-      "sourceGeneration": 7,
-      "cursor": null
-    },
-    {
-      "kind": "subscription.interestsCommitted",
-      "wireVersion": 2,
-      "paneSessionId": "pane-session-1",
-      "workerDerivationEpoch": 7,
-      "workerInstanceId": "worker-instance-1",
-      "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 2,
-      "subscriptionId": "review-subscription-1",
-      "subscriptionKind": "review.metadata",
-      "subscriptionSequence": 1,
-      "interestRevision": 1,
-      "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
-      "sourceGeneration": 7,
-      "cursor": "review-cursor-commit-1",
-      "updateId": "review-interest-update-1"
-    },
-    {
-      "kind": "subscription.data",
-      "operationCorrelationId": null,
-      "wireVersion": 2,
-      "paneSessionId": "pane-session-1",
-      "workerDerivationEpoch": 7,
-      "workerInstanceId": "worker-instance-1",
-      "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 3,
-      "subscriptionId": "review-subscription-1",
-      "subscriptionKind": "review.metadata",
-      "subscriptionSequence": 2,
-      "interestRevision": 1,
-      "interestSha256": "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
-      "sourceGeneration": 7,
-      "cursor": "review-cursor-1",
-      "data": {
-        "subscriptionKind": "review.metadata",
-        "event": {
-          "eventKind": "review.sourceAccepted",
-          "operationCorrelationId": null,
-          "sourceIdentity": "review-source-1",
-          "packageId": "review-package-1",
-          "publicationId": "11111111-1111-7111-8111-111111111111",
-          "generation": 7,
-          "revision": 1
-        }
-      }
+      "subscriptionSequence": 0
     },
     {
       "kind": "subscription.accepted",
@@ -1298,62 +1181,10 @@
       "workerDerivationEpoch": 2,
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 4,
+      "streamSequence": 2,
       "subscriptionId": "file-subscription-1",
       "subscriptionKind": "file.metadata",
-      "subscriptionSequence": 0,
-      "interestRevision": 0,
-      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
-      "sourceGeneration": 11,
-      "cursor": null
-    },
-    {
-      "kind": "subscription.data",
-      "operationCorrelationId": null,
-      "wireVersion": 2,
-      "paneSessionId": "pane-session-1",
-      "workerDerivationEpoch": 2,
-      "workerInstanceId": "worker-instance-1",
-      "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 5,
-      "subscriptionId": "file-subscription-1",
-      "subscriptionKind": "file.metadata",
-      "subscriptionSequence": 1,
-      "interestRevision": 0,
-      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
-      "sourceGeneration": 11,
-      "cursor": "file-cursor-1",
-      "data": {
-        "subscriptionKind": "file.metadata",
-        "event": {
-          "eventKind": "file.sourceAccepted",
-          "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
-            "rootRevisionToken": null,
-            "sourceCursor": "source-cursor-1",
-            "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
-          }
-        }
-      }
-    },
-    {
-      "kind": "subscription.reset",
-      "wireVersion": 2,
-      "paneSessionId": "pane-session-1",
-      "workerDerivationEpoch": 7,
-      "workerInstanceId": "worker-instance-1",
-      "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 6,
-      "subscriptionId": "review-subscription-1",
-      "subscriptionKind": "review.metadata",
-      "subscriptionSequence": 3,
-      "interestRevision": 2,
-      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
-      "sourceGeneration": 7,
-      "cursor": "review-cursor-2",
-      "reason": "interest_mismatch"
+      "subscriptionSequence": 0
     },
     {
       "kind": "subscription.accepted",
@@ -1362,45 +1193,10 @@
       "workerDerivationEpoch": 3,
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 7,
+      "streamSequence": 3,
       "subscriptionId": "file-subscription-epoch-3",
       "subscriptionKind": "file.metadata",
-      "subscriptionSequence": 0,
-      "interestRevision": 0,
-      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
-      "sourceGeneration": 12,
-      "cursor": null
-    },
-    {
-      "kind": "subscription.data",
-      "operationCorrelationId": null,
-      "wireVersion": 2,
-      "paneSessionId": "pane-session-1",
-      "workerDerivationEpoch": 2,
-      "workerInstanceId": "worker-instance-1",
-      "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 8,
-      "subscriptionId": "file-subscription-1",
-      "subscriptionKind": "file.metadata",
-      "subscriptionSequence": 2,
-      "interestRevision": 0,
-      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
-      "sourceGeneration": 11,
-      "cursor": "file-cursor-stale-2",
-      "data": {
-        "subscriptionKind": "file.metadata",
-        "event": {
-          "eventKind": "file.sourceAccepted",
-          "source": {
-            "repoId": "00000000-0000-4000-8000-000000000001",
-            "rootRevisionToken": null,
-            "sourceCursor": "source-cursor-1",
-            "sourceId": "source-1",
-            "subscriptionGeneration": 11,
-            "worktreeId": "00000000-0000-4000-8000-000000000002"
-          }
-        }
-      }
+      "subscriptionSequence": 0
     },
     {
       "kind": "subscription.accepted",
@@ -1409,14 +1205,10 @@
       "workerDerivationEpoch": 7,
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 9,
+      "streamSequence": 4,
       "subscriptionId": "review-subscription-cancel-1",
       "subscriptionKind": "review.metadata",
-      "subscriptionSequence": 0,
-      "interestRevision": 0,
-      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
-      "sourceGeneration": 7,
-      "cursor": null
+      "subscriptionSequence": 0
     },
     {
       "kind": "subscription.cancelled",
@@ -1425,14 +1217,10 @@
       "workerDerivationEpoch": 7,
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 10,
+      "streamSequence": 5,
       "subscriptionId": "review-subscription-cancel-1",
       "subscriptionKind": "review.metadata",
-      "subscriptionSequence": 1,
-      "interestRevision": 0,
-      "interestSha256": "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
-      "sourceGeneration": 7,
-      "cursor": null
+      "subscriptionSequence": 1
     },
     {
       "kind": "content.cancelled",
@@ -1441,7 +1229,7 @@
       "workerDerivationEpoch": 2,
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 11,
+      "streamSequence": 6,
       "contentRequestId": "content-request-1",
       "leaseId": "lease-1",
       "operationCorrelationId": null,
@@ -1473,14 +1261,10 @@
       "workerDerivationEpoch": 2,
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 12,
+      "streamSequence": 7,
       "subscriptionId": "file-subscription-1",
       "subscriptionKind": "file.metadata",
-      "subscriptionSequence": 3,
-      "interestRevision": 0,
-      "interestSha256": "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
-      "sourceGeneration": 11,
-      "cursor": "file-cursor-2"
+      "subscriptionSequence": 3
     },
     {
       "kind": "metadataStream.error",
@@ -1488,10 +1272,10 @@
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-1",
-      "streamSequence": 13,
+      "streamSequence": 8,
       "code": "internal",
-      "retryable": false,
-      "safeMessage": null
+      "safeMessage": null,
+      "retryable": false
     },
     {
       "kind": "metadataStream.accepted",
@@ -1499,7 +1283,7 @@
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-resumed-1",
-      "streamSequence": 7,
+      "streamSequence": 9,
       "resumeDisposition": "resumed"
     },
     {
@@ -1531,13 +1315,13 @@
         "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         "fileId": "file-1",
         "maximumBytes": 3,
-        "source": {
-          "repoId": "00000000-0000-4000-8000-000000000001",
-          "rootRevisionToken": null,
-          "sourceCursor": "source-cursor-1",
-          "sourceId": "source-1",
-          "subscriptionGeneration": 11,
-          "worktreeId": "00000000-0000-4000-8000-000000000002"
+          "source": {
+            "repoId": "00000000-0000-4000-8000-000000000001",
+            "rootRevisionToken": null,
+            "sourceCursor": "source-cursor-1",
+            "sourceId": "source-1",
+            "subscriptionGeneration": 11,
+            "worktreeId": "00000000-0000-4000-8000-000000000002"
         },
         "window": {
           "kind": "prefix",
@@ -1555,7 +1339,6 @@
       "workerInstanceId": "worker-instance-1",
       "contentRequestId": "comparison-targets-content-request-1",
       "leaseId": "comparison-targets-lease-1",
-      "operationCorrelationId": null,
       "contentKind": "review.comparisonTargets",
       "descriptor": {
         "contentKind": "review.comparisonTargets",
@@ -1573,7 +1356,6 @@
       "workerInstanceId": "worker-instance-1",
       "contentRequestId": "content-request-1",
       "leaseId": "lease-1",
-      "operationCorrelationId": null,
       "contentSequence": 0,
       "declaredByteLength": 3,
       "expectedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
@@ -1584,7 +1366,6 @@
         "fileId": "file-1",
         "source": {
           "repoId": "00000000-0000-4000-8000-000000000001",
-          "rootRevisionToken": null,
           "sourceCursor": "source-cursor-1",
           "sourceId": "source-1",
           "subscriptionGeneration": 11,
@@ -1601,38 +1382,31 @@
     {
       "kind": "content.data",
       "contentSequence": 1,
-      "offsetBytes": 0,
-      "operationCorrelationId": null
+      "offsetBytes": 0
     },
     {
       "kind": "content.end",
       "contentSequence": 2,
       "endOfSource": true,
       "observedByteLength": 3,
-      "observedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-      "operationCorrelationId": null
+      "observedSha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     },
     {
       "kind": "content.error",
       "contentSequence": 2,
       "code": "internal",
-      "retryable": false,
-      "safeMessage": null,
-      "operationCorrelationId": null
+      "retryable": false
     },
     {
       "kind": "content.error",
       "contentSequence": 2,
       "code": "superseded",
-      "retryable": true,
-      "safeMessage": null,
-      "operationCorrelationId": null
+      "retryable": true
     },
     {
       "kind": "content.reset",
       "contentSequence": 2,
-      "reason": "stale_source",
-      "operationCorrelationId": null
+      "reason": "stale_source"
     }
   ],
   "wireVectors": {

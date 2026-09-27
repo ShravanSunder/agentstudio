@@ -1,21 +1,17 @@
 import type { BridgeCommWorkerDemandMember } from './bridge-comm-worker-reconciler.js';
-import type {
-	bridgeProductFileMetadataApplicationProtocol,
-	bridgeProductReviewMetadataApplicationProtocol,
-} from './bridge-product-metadata-application-registry.js';
-import { BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
-type FileMetadataInterest = Parameters<
-	BridgeProductMetadataApplicationSubscription<
-		typeof bridgeProductFileMetadataApplicationProtocol
-	>['update']
->[0]['interests'][number];
+import {
+	bridgeProductMaximumViewScopeItemCount,
+	type BridgeProductViewScopeRequest,
+} from './bridge-product-view-control-wire-contracts.js';
+type FileMetadataInterest = Extract<
+	BridgeProductViewScopeRequest['scope'],
+	{ kind: 'file' }
+>['interests'][number];
 type FileMetadataInterestLane = FileMetadataInterest['lane'];
-type ReviewMetadataInterest = Parameters<
-	BridgeProductMetadataApplicationSubscription<
-		typeof bridgeProductReviewMetadataApplicationProtocol
-	>['update']
->[0]['interests'][number];
+type ReviewMetadataInterest = Extract<
+	BridgeProductViewScopeRequest['scope'],
+	{ kind: 'review' }
+>['interests'][number];
 type ReviewMetadataInterestLane = ReviewMetadataInterest['lane'];
 const fileMetadataInterestLanePriority: readonly FileMetadataInterestLane[] = [
 	'foreground',
@@ -56,8 +52,7 @@ export function reviewMetadataInterestsInPriorityOrder(
 	const claimedItemIds = new Set<string>();
 	const interests: ReviewMetadataInterest[] = [];
 	for (const lane of reviewMetadataInterestLanePriority) {
-		const remainingItemCount =
-			BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT - claimedItemIds.size;
+		const remainingItemCount = bridgeProductMaximumViewScopeItemCount - claimedItemIds.size;
 		if (remainingItemCount <= 0) break;
 		const itemIds: string[] = [];
 		for (const itemId of itemIdsByLane.get(lane) ?? []) {
@@ -77,8 +72,7 @@ export function fileMetadataInterestsInPriorityOrder(
 	const claimedPaths = new Set<string>();
 	const interests: FileMetadataInterest[] = [];
 	for (const lane of fileMetadataInterestLanePriority) {
-		const remainingPathCount =
-			BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT - claimedPaths.size;
+		const remainingPathCount = bridgeProductMaximumViewScopeItemCount - claimedPaths.size;
 		if (remainingPathCount <= 0) break;
 		const paths: string[] = [];
 		for (const path of pathsByLane.get(lane) ?? []) {

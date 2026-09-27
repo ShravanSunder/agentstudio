@@ -184,8 +184,8 @@ describe('Bridge viewer typed product File worktree data', () => {
 		await metadataStreamsClosed;
 
 		// Assert
-		expect(surface.frames.at(-1)?.finalWindow).toBe(true);
-		expect(secondSurface.frames.at(-1)?.finalWindow).toBe(true);
+		expect(surface.frames.at(-1)?.begin.mode).toBe('snapshot');
+		expect(secondSurface.frames.at(-1)?.begin.mode).toBe('snapshot');
 		expect(worktreeData.worktreeFileTreeRows(surface.frames).length).toBeGreaterThan(0);
 		expect(worktreeData.openWorktreeFileSurfaceCount()).toBe(0);
 		expect(observedMetadataStreamCloseCount).toBe(2);

@@ -7,6 +7,208 @@ import Testing
 
 @Suite("Bridge product sealed native batch")
 struct BridgeProductSealedViewBatchTests {
+    @Test("Comment producer receives the page's accepted E4 handle")
+    func commentProducerWaitsForAcceptedScope() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        open["subscription"] = ["subscriptionKind": "file.annotations"]
+        open["subscriptionId"] = "comment-scope-wait-1"
+        try await harness.openSubscription(open)
+        let waiting = Task {
+            await harness.session.awaitAcceptedViewScope(subscriptionId: "comment-scope-wait-1")
+        }
+        let scopeRequest = try BridgeProductStrictJSON.decode(
+            BridgeProductViewScopeRequest.self,
+            from: Data(
+                """
+                {"kind":"subscription.setScope","wireVersion":2,"paneSessionId":"pane-session-1",\
+                "workerInstanceId":"worker-instance-1","requestId":"comment-scope-wait-request",\
+                "requestSequence":3,"subscriptionId":"comment-scope-wait-1",\
+                "subscriptionKind":"file.annotations","domain":"default",\
+                "handle":"page-comment-handle-1","incarnation":"page-comment-incarnation-1",\
+                "scopeRevision":1,"scope":{"kind":"comment","worktreeId":"00000000-0000-7000-8000-000000000011",\
+                "sessionIds":[]}}
+                """.utf8
+            )
+        )
+        #expect(
+            await harness.session.acceptViewScope(scopeRequest, productAdmission: harness.productAdmission.context)
+                == nil)
+        let accepted = try #require(await waiting.value)
+        #expect(accepted.handle == "page-comment-handle-1")
+        #expect(accepted.revision == 1)
+        #expect(accepted.viewDomain.incarnation == "page-comment-incarnation-1")
+    }
+
+    @Test("a Review snapshot follows an empty Comment batch on the same metadata producer")
+    func reviewSnapshotFollowsCommentBatch() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        var commentOpen = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        commentOpen["subscription"] = ["subscriptionKind": "file.annotations"]
+        commentOpen["subscriptionId"] = "comment-subscription-before-review"
+        try await harness.openSubscription(commentOpen)
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+            )
+        )
+        let commentView = try #require(
+            try await harness.session.openNativeCommentView(
+                subscriptionId: "comment-subscription-before-review",
+                worktreeID: "worktree-1",
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        #expect(
+            try await harness.session.sealCommentCatalogBatch(
+                subscriptionId: "comment-subscription-before-review",
+                catalogBatch: .init(
+                    handle: commentView.handle, scopeRevision: 0, baseRevision: 0,
+                    targetRevision: 1, puts: [], deletes: []
+                ),
+                mode: .snapshot,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        var kinds: [String] = []
+        for _ in 0..<2 {
+            let delivery = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+                )
+            )
+            kinds.append(try #require(BridgeProductMetadataFrameDecoder().append(delivery.data).first).kind)
+        }
+
+        try await harness.openSubscription(
+            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 3, epoch: 2)
+        )
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+            )
+        )
+        let scopeRequest = try BridgeProductStrictJSON.decode(
+            BridgeProductViewScopeRequest.self,
+            from: Data(
+                """
+                {"kind":"subscription.setScope","wireVersion":2,"paneSessionId":"pane-session-1",\
+                "workerInstanceId":"worker-instance-1","requestId":"review-scope-after-comment","requestSequence":4,\
+                "subscriptionId":"review-subscription-1","subscriptionKind":"review.metadata",\
+                "domain":"default","handle":"review-handle-after-comment","incarnation":"review-incarnation-after-comment",\
+                "scopeRevision":1,"scope":{"kind":"review","interests":[]}}
+                """.utf8
+            )
+        )
+        #expect(
+            await harness.session.acceptViewScope(
+                scopeRequest, productAdmission: harness.productAdmission.context
+            ) == nil
+        )
+        let package = makeReviewPackage(itemCount: 0)
+        let publication = try BridgeProductReviewBatchPublicationProjection.record(
+            from: .init(
+                classifiedRefreshImpact: nil,
+                publicationId: reviewMetadataTestPublicationId,
+                revision: 1,
+                desiredComparison: nil,
+                desiredStatus: .ready,
+                displayedPackage: package,
+                displayedPublicationId: reviewMetadataTestPublicationId,
+                displayedComparison: nil
+            )
+        )
+        #expect(
+            try await harness.session.sealReviewSnapshot(
+                subscriptionId: scopeRequest.subscriptionId,
+                snapshot: .init(targetRevision: 1, publication: publication, items: []),
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        for _ in 0..<3 {
+            let delivery = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+                )
+            )
+            kinds.append(try #require(BridgeProductMetadataFrameDecoder().append(delivery.data).first).kind)
+        }
+        #expect(
+            kinds == [
+                "subscription.batchBegin", "subscription.batchComplete",
+                "subscription.batchBegin", "subscription.batchPart", "subscription.batchComplete",
+            ])
+        try await harness.closeProducer(lease)
+    }
+
+    @Test("a keyed Review publication reaches the live metadata producer as one sealed snapshot")
+    func sealedReviewBatchReachesProducerPump() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        try await harness.openSubscription(
+            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        )
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let scopeRequest = try BridgeProductStrictJSON.decode(
+            BridgeProductViewScopeRequest.self,
+            from: Data(
+                """
+                {"kind":"subscription.setScope","wireVersion":2,"paneSessionId":"pane-session-1",\
+                "workerInstanceId":"worker-instance-1","requestId":"review-scope-test","requestSequence":3,\
+                "subscriptionId":"review-subscription-1","subscriptionKind":"review.metadata",\
+                "domain":"default","handle":"review-handle-1","incarnation":"review-incarnation-1",\
+                "scopeRevision":1,"scope":{"kind":"review","interests":[]}}
+                """.utf8
+            )
+        )
+        #expect(
+            await harness.session.acceptViewScope(
+                scopeRequest,
+                productAdmission: harness.productAdmission.context
+            ) == nil
+        )
+        let package = makeReviewPackage(itemCount: 0)
+        let publication = try BridgeProductReviewBatchPublicationProjection.record(
+            from: .init(
+                classifiedRefreshImpact: nil,
+                publicationId: reviewMetadataTestPublicationId,
+                revision: 1,
+                desiredComparison: nil,
+                desiredStatus: .ready,
+                displayedPackage: package,
+                displayedPublicationId: reviewMetadataTestPublicationId,
+                displayedComparison: nil
+            )
+        )
+        #expect(
+            try await harness.session.sealReviewSnapshot(
+                subscriptionId: scopeRequest.subscriptionId,
+                snapshot: .init(targetRevision: 1, publication: publication, items: []),
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        var kinds: [String] = []
+        for _ in 0..<3 {
+            let queued = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease,
+                    from: harness.session,
+                    productAdmission: harness.productAdmission.context
+                )
+            )
+            kinds.append(try #require(BridgeProductMetadataFrameDecoder().append(queued.data).first).kind)
+        }
+        #expect(kinds == ["subscription.batchBegin", "subscription.batchPart", "subscription.batchComplete"])
+        try await harness.closeProducer(lease)
+    }
+
     @Test("native Comment view scope carries the admitted worktree before publication")
     func nativeCommentViewCarriesAdmittedWorktree() async throws {
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
@@ -24,7 +226,11 @@ struct BridgeProductSealedViewBatchTests {
             )
         )
         #expect(view.viewDomain.viewId == "comment-subscription-1")
-        #expect(view.scope == .object(["kind": .string("comment"), "worktreeId": .string("worktree-1")]))
+        #expect(
+            view.scope
+                == .object([
+                    "kind": .string("comment"), "sessionIds": .array([]), "worktreeId": .string("worktree-1"),
+                ]))
         #expect(!view.handle.isEmpty)
         let second = try await harness.session.openNativeCommentView(
             subscriptionId: "unknown-subscription",
@@ -76,6 +282,7 @@ struct BridgeProductSealedViewBatchTests {
                 subscriptionId: "comment-subscription-snapshot",
                 catalogBatch: .init(
                     handle: view.handle,
+                    scopeRevision: 0,
                     baseRevision: 0,
                     targetRevision: 1,
                     puts: [],
@@ -127,11 +334,12 @@ struct BridgeProductSealedViewBatchTests {
                 productAdmission: harness.productAdmission.context
             )
         )
-        try #require(
+        #expect(
             try await harness.session.sealCommentCatalogBatch(
                 subscriptionId: "comment-subscription-retire",
                 catalogBatch: .init(
                     handle: view.handle,
+                    scopeRevision: 0,
                     baseRevision: 0,
                     targetRevision: 1,
                     puts: [],
@@ -183,10 +391,13 @@ struct BridgeProductSealedViewBatchTests {
                 productAdmission: harness.productAdmission.context
             )
         )
-        try #require(
+        #expect(
             try await harness.session.sealCommentCatalogBatch(
                 subscriptionId: "comment-subscription-resnapshot",
-                catalogBatch: .init(handle: view.handle, baseRevision: 0, targetRevision: 1, puts: [], deletes: []),
+                catalogBatch: .init(
+                    handle: view.handle, scopeRevision: 0, baseRevision: 0,
+                    targetRevision: 1, puts: [], deletes: []
+                ),
                 mode: .snapshot,
                 productAdmission: harness.productAdmission.context
             )
@@ -250,7 +461,7 @@ struct BridgeProductSealedViewBatchTests {
                 "workerInstanceId":"worker-instance-1","requestId":"file-scope-test","requestSequence":3,\
                 "subscriptionId":"file-subscription-1","subscriptionKind":"file.metadata",\
                 "domain":"default","handle":"file-handle-1","incarnation":"file-incarnation-1",\
-                "scopeRevision":1,"scope":{"kind":"file","changeFilter":{"kind":"none"}}}
+                "scopeRevision":1,"scope":{"kind":"file","changeFilter":{"kind":"none"},"interests":[],"pathScope":[]}}
                 """.utf8
             )
         )
@@ -313,7 +524,58 @@ struct BridgeProductSealedViewBatchTests {
         #expect(deliveredKinds.dropFirst().dropLast().allSatisfy { $0 == "subscription.batchPart" })
         #expect(deliveredKinds.last == "subscription.batchComplete")
         #expect(deliveredKinds.count == snapshot.records.count + 3)
+        try await assertAbandonedFileReceiptAfterResnapshot(
+            harness: harness, scopeRequest: scopeRequest, recordCount: snapshot.records.count
+        )
         try await harness.closeProducer(lease)
+    }
+
+    private func assertAbandonedFileReceiptAfterResnapshot(
+        harness: BridgeProductSessionLifecycleHarness,
+        scopeRequest: BridgeProductViewScopeRequest,
+        recordCount: Int
+    ) async throws {
+        let resnapshotBytes = try JSONSerialization.data(withJSONObject: [
+            "kind": "subscription.resnapshot",
+            "wireVersion": 2,
+            "paneSessionId": "pane-session-1",
+            "workerInstanceId": "worker-instance-1",
+            "requestId": "file-resnapshot-after-credits",
+            "requestSequence": 4,
+            "subscriptionId": scopeRequest.subscriptionId,
+            "subscriptionKind": "file.metadata",
+            "domain": "default",
+            "handle": scopeRequest.handle,
+            "incarnation": scopeRequest.incarnation,
+            "scopeRevision": scopeRequest.scopeRevision,
+        ])
+        let resnapshot = try BridgeProductStrictJSON.decode(
+            BridgeProductViewResnapshotRequest.self, from: resnapshotBytes
+        )
+        #expect(
+            await harness.session.acceptViewResnapshot(
+                resnapshot, productAdmission: harness.productAdmission.context
+            ) == nil)
+        let abandonedReceiptBytes = try JSONSerialization.data(withJSONObject: [
+            "kind": "subscription.acknowledge",
+            "wireVersion": 2,
+            "paneSessionId": "pane-session-1",
+            "workerInstanceId": "worker-instance-1",
+            "subscriptionId": scopeRequest.subscriptionId,
+            "domain": "default",
+            "handle": scopeRequest.handle,
+            "incarnation": scopeRequest.incarnation,
+            "receivedThroughDeliverySequence": recordCount + 1,
+        ])
+        let abandonedReceipt = try BridgeProductStrictJSON.decode(
+            BridgeProductViewAcknowledgementRequest.self, from: abandonedReceiptBytes
+        )
+        #expect(
+            await harness.session.acknowledgeViewReceipt(
+                abandonedReceipt,
+                exactRequestBytes: abandonedReceiptBytes,
+                productAdmission: harness.productAdmission.context
+            ) != nil)
     }
 
     @Test("File snapshot seals canonical rows and tombstones without changing their revisions")

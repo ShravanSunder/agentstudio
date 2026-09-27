@@ -26,6 +26,7 @@ struct BridgeProductReviewViewBatchFactoryTests {
         )
         let publication = try BridgeProductReviewBatchPublicationProjection.record(
             from: .init(
+                classifiedRefreshImpact: nil,
                 publicationId: UUIDv7.generate(),
                 revision: revision,
                 desiredComparison: nil,

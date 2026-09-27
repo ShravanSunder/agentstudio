@@ -46,7 +46,7 @@ test('copies a current saved File annotation while the next real file refresh is
 		for (const epochs of openEpochsByWorker.values()) {
 			expect(epochs).toEqual(epochs.toSorted((left, right) => left - right));
 		}
-		expect(observations.evidence.subscriptionUpdateCount).toBeGreaterThan(0);
+		expect(observations.evidence.fileScopeUpdateCount).toBeGreaterThan(0);
 		expect(observations.evidence.transportRequests).toContainEqual(
 			expect.objectContaining({
 				method: 'file.annotations.command',

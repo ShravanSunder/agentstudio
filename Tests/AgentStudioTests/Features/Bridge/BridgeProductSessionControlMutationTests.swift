@@ -7,207 +7,95 @@ import Testing
 
 @Suite("Bridge product session control mutation boundary")
 struct BridgeProductSessionControlMutationTests {
-    @Test("an update for a retired subscription is refused before execution")
-    func unknownSubscriptionUpdateIsTypedRefusal() async throws {
-        let interestFixture = try ReviewInterestFixture.make()
+    @Test("scope for an unknown subscription is refused before execution")
+    func unknownSubscriptionScopeIsTypedRefusal() async throws {
         let harness = try await RawControlSessionHarness.opened()
         defer { harness.metadataProducer.release() }
-        let requestBytes = try jsonData(
-            reviewUpdateBatchObject(
-                requestSequence: 2,
-                batchIndex: 0,
-                itemId: "review-item-1",
-                lane: "foreground",
-                interestFixture: interestFixture
-            )
-        )
+        let requestBytes = try jsonData(reviewViewScopeObject(requestSequence: 2))
 
         let admission = await harness.begin(requestBytes)
 
         guard case .rejected(let rejection) = admission else {
-            Issue.record("Unknown subscription update was admitted")
+            Issue.record("Unknown subscription scope was admitted")
             return
         }
         #expect(rejection.reason == .unknownSubscription)
-        #expect(
-            await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId) == nil
-        )
+        #expect(await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId) == nil)
     }
 
-    @Test("raw subscription controls stage then commit once with a barrier")
-    func successfulMultiBatchUpdateCommitsOnce() async throws {
-        // Arrange
-        let interestFixture = try ReviewInterestFixture.make()
+    @Test("one accepted scope settles once and exact replay leaves subscription state unchanged")
+    func acceptedScopeSettlesOnceAndReplays() async throws {
         let harness = try await RawControlSessionHarness.opened()
         defer { harness.metadataProducer.release() }
-        let openEffects = try await openReviewSubscription(
-            harness,
-            interestFixture: interestFixture
-        )
+        _ = try await openReviewSubscription(harness)
         let openedSnapshot = try #require(
             await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId)
         )
-        let firstBatchRequestBytes = try jsonData(
-            reviewUpdateBatchObject(
-                requestSequence: 3,
-                batchIndex: 0,
-                itemId: "review-item-1",
-                lane: "foreground",
-                interestFixture: interestFixture
-            ))
-        let firstBatchResponseBytes = try jsonData(
-            reviewUpdateAcceptedObject(
-                requestSequence: 3,
-                batchIndex: 0,
-                disposition: "staged",
-                interestFixture: interestFixture
-            ))
+        let requestBytes = try jsonData(reviewViewScopeObject(requestSequence: 3))
+        let request = try BridgeProductStrictJSON.decode(BridgeProductControlRequest.self, from: requestBytes)
+        let acceptedResponse = try BridgeProductControlResponse.viewAccepted(correlating: request)
+        let responseBytes = try JSONEncoder().encode(acceptedResponse)
 
-        // Act
-        let firstBatchEffects = try await harness.execute(
-            requestBytes: firstBatchRequestBytes,
-            responseBytes: firstBatchResponseBytes
-        )
-        let stagedSnapshot = try #require(
-            await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId)
-        )
-
-        // Assert
-        guard case .subscriptionOpened(let committedOpenedSnapshot) = openEffects else {
-            Issue.record("Expected a committed subscription-open effect")
+        let effect = try await harness.execute(requestBytes: requestBytes, responseBytes: responseBytes)
+        guard case .viewScopeAccepted(let acceptedScope) = effect else {
+            Issue.record("Expected accepted typed view scope")
             return
         }
-        #expect(committedOpenedSnapshot == openedSnapshot)
-        #expect(firstBatchEffects == .noEffect)
-        #expect(stagedSnapshot.hasStagedUpdate)
-        #expect(stagedSnapshot.interestRevision == 0)
-        #expect(stagedSnapshot.interestSha256 == interestFixture.emptySHA256)
-        #expect(stagedSnapshot.interestState == interestFixture.emptyState)
-
-        let finalBatchRequestBytes = try jsonData(
-            reviewUpdateBatchObject(
-                requestSequence: 4,
-                batchIndex: 1,
-                itemId: "review-item-2",
-                lane: "visible",
-                interestFixture: interestFixture
-            ))
-        let finalBatchResponseBytes = try jsonData(
-            reviewUpdateAcceptedObject(
-                requestSequence: 4,
-                batchIndex: 1,
-                disposition: "committed",
-                interestFixture: interestFixture
-            ))
-
-        let finalBatchEffects = try await harness.execute(
-            requestBytes: finalBatchRequestBytes,
-            responseBytes: finalBatchResponseBytes
-        )
-        let committedSnapshot = try #require(
-            await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId)
-        )
-        let sessionAfterCommit = await harness.session.snapshot
-        let retryAdmission = await harness.begin(finalBatchRequestBytes)
-        let subscriptionAfterRetry = await harness.session.subscriptionSnapshot(
-            subscriptionId: reviewSubscriptionId
-        )
-
-        guard
-            case .subscriptionInterestsCommitted(
-                let committedBarrier,
-                let committedEffectSnapshot
-            ) = finalBatchEffects
-        else {
-            Issue.record("Expected a committed subscription-interest effect")
-            return
-        }
-        #expect(
-            committedBarrier
-                == BridgeProductSubscriptionCommitBarrierIntent(
-                    subscriptionId: reviewSubscriptionId,
-                    subscriptionKind: .reviewMetadata,
-                    workerDerivationEpoch: reviewEpoch,
-                    interestRevision: 1,
-                    interestSha256: interestFixture.targetSHA256,
-                    updateId: reviewUpdateId
-                )
-        )
-        #expect(committedEffectSnapshot == committedSnapshot)
-        #expect(committedSnapshot.interestRevision == 1)
-        #expect(committedSnapshot.interestSha256 == interestFixture.targetSHA256)
-        #expect(committedSnapshot.interestState == interestFixture.targetState)
-        #expect(!committedSnapshot.hasStagedUpdate)
-        let replay = try admittedReplay(retryAdmission)
-        #expect(replay.correlation.requestSequence == 4)
-        #expect(subscriptionAfterRetry == committedSnapshot)
-        #expect((await harness.session.snapshot) == sessionAfterCommit)
+        #expect(acceptedScope.subscriptionId == reviewSubscriptionId)
+        #expect(acceptedScope.scopeRevision == 1)
+        let completedSession = await harness.session.snapshot
+        let replay = try admittedReplay(await harness.begin(requestBytes))
+        #expect(replay.correlation.requestSequence == 3)
+        #expect((await harness.session.snapshot) == completedSession)
+        #expect(await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId) == openedSnapshot)
     }
 
-    @Test("every accepted update response identity field is atomic on mismatch")
-    func updateAcceptedFieldMismatchesLeavePendingStateUnchanged() async throws {
-        // Arrange
-        let interestFixture = try ReviewInterestFixture.make()
+    @Test("mismatched typed scope response cannot commit a pending control")
+    func scopeResponseMismatchesLeavePendingStateUnchanged() async throws {
         let harness = try await RawControlSessionHarness.opened()
         defer { harness.metadataProducer.release() }
-        _ = try await openReviewSubscription(harness, interestFixture: interestFixture)
-        try await stageFirstReviewBatch(harness, interestFixture: interestFixture)
-        let finalRequestBytes = try jsonData(
-            reviewUpdateBatchObject(
-                requestSequence: 4,
-                batchIndex: 1,
-                itemId: "review-item-2",
-                lane: "visible",
-                interestFixture: interestFixture
-            ))
-        let finalToken = try await harness.beginExecution(finalRequestBytes)
-        let pendingSessionSnapshot = await harness.session.snapshot
-        let stagedSubscriptionSnapshot = try #require(
-            await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId)
+        _ = try await openReviewSubscription(harness)
+        let requestBytes = try jsonData(reviewViewScopeObject(requestSequence: 3))
+        let request = try BridgeProductStrictJSON.decode(BridgeProductControlRequest.self, from: requestBytes)
+        let response = try BridgeProductControlResponse.viewAccepted(correlating: request)
+        let responseObject = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(response)) as? [String: Any]
         )
-        let correctResponseObject = reviewUpdateAcceptedObject(
-            requestSequence: 4,
-            batchIndex: 1,
-            disposition: "committed",
-            interestFixture: interestFixture
-        )
-        let mismatchFixtures = try updateResponseMismatchFixtures(
-            correctResponseObject,
-            interestFixture: interestFixture
-        )
-
-        // Act / Assert
-        for mismatchFixture in mismatchFixtures {
+        let token = try await harness.beginExecution(requestBytes)
+        let pendingSession = await harness.session.snapshot
+        let pendingSubscription = await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId)
+        let mismatches = try [
+            responseMismatch("handle", responseObject, key: "handle", value: "other-handle"),
+            responseMismatch("incarnation", responseObject, key: "incarnation", value: "other-incarnation"),
+            responseMismatch("scopeRevision", responseObject, key: "scopeRevision", value: 2),
+            responseMismatch("subscriptionId", responseObject, key: "subscriptionId", value: "other-subscription"),
+            responseMismatch("subscriptionKind", responseObject, key: "subscriptionKind", value: "file.metadata"),
+            responseMismatch("requestId", responseObject, key: "requestId", value: "other-request"),
+        ]
+        for mismatch in mismatches {
             await expectCompletionError(
                 .mismatchedControlResponse,
-                context: mismatchFixture.name,
+                context: mismatch.name,
                 session: harness.session,
-                token: finalToken,
-                responseBytes: mismatchFixture.bytes
+                token: token,
+                responseBytes: mismatch.bytes
             )
-            #expect(
-                (await harness.session.snapshot) == pendingSessionSnapshot,
-                "\(mismatchFixture.name) must preserve the replay admission"
-            )
+            #expect((await harness.session.snapshot) == pendingSession)
             #expect(
                 await harness.session.subscriptionSnapshot(subscriptionId: reviewSubscriptionId)
-                    == stagedSubscriptionSnapshot,
-                "\(mismatchFixture.name) must preserve the staged subscription"
+                    == pendingSubscription
             )
         }
-
-        let correctResponseBytes = try jsonData(correctResponseObject)
-        let completionEffects = try await harness.session.completeControl(
-            token: finalToken,
-            exactResponseBytes: correctResponseBytes
+        let effect = try await harness.session.completeControl(
+            token: token,
+            exactResponseBytes: JSONEncoder().encode(response)
         )
-
-        guard case .subscriptionInterestsCommitted(let barrier, _) = completionEffects else {
-            Issue.record("Expected a committed subscription-interest effect")
+        guard case .viewScopeAccepted(let acceptedScope) = effect else {
+            Issue.record("Expected a typed scope effect after a matching response")
             return
         }
-        #expect(barrier.updateId == reviewUpdateId)
-        #expect((await harness.session.snapshot).controlReplay.nextExpectedRequestSequence == 5)
+        #expect(acceptedScope.scopeRevision == 1)
+        #expect((await harness.session.snapshot).controlReplay.nextExpectedRequestSequence == 4)
     }
 
     @Test("request error completes replay without applying the candidate open")
@@ -250,7 +138,6 @@ struct BridgeProductSessionControlMutationTests {
     @Test("invalid bytes and cross-wired responses never become replay entries")
     func invalidAndCrossWiredBytesCannotEnterReplay() async throws {
         // Arrange
-        let interestFixture = try ReviewInterestFixture.make()
         let harness = try await RawControlSessionHarness.opened()
         defer { harness.metadataProducer.release() }
         let initialSnapshot = await harness.session.snapshot
@@ -274,10 +161,9 @@ struct BridgeProductSessionControlMutationTests {
         let invalidResponseBytes = [
             Data("{".utf8),
             try jsonData(
-                reviewSubscriptionOpenAcceptedObject(
-                    requestSequence: 2,
-                    interestSHA256: interestFixture.emptySHA256
-                ).merging(["unexpected": true]) { _, newValue in newValue }
+                reviewSubscriptionOpenAcceptedObject(requestSequence: 2).merging(["unexpected": true]) { _, newValue in
+                    newValue
+                }
             ),
         ]
 
@@ -316,10 +202,7 @@ struct BridgeProductSessionControlMutationTests {
         #expect(pendingSnapshot.controlReplay.replayableRequestSequence == 2)
 
         let correctResponseBytes = try jsonData(
-            reviewSubscriptionOpenAcceptedObject(
-                requestSequence: 2,
-                interestSHA256: interestFixture.emptySHA256
-            ))
+            reviewSubscriptionOpenAcceptedObject(requestSequence: 2))
         _ = try await harness.session.completeControl(
             token: token,
             exactResponseBytes: correctResponseBytes
@@ -334,31 +217,7 @@ struct BridgeProductSessionControlMutationTests {
 private let paneSessionId = "pane-session-1"
 private let workerInstanceId = "worker-instance-1"
 private let reviewSubscriptionId = "review-subscription-1"
-private let reviewUpdateId = "review-update-1"
 private let reviewEpoch = 7
-
-private struct ReviewInterestFixture: Sendable {
-    let emptyState: BridgeProductSubscriptionInterestState
-    let emptySHA256: String
-    let targetState: BridgeProductSubscriptionInterestState
-    let targetSHA256: String
-
-    static func make() throws -> Self {
-        let emptyState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
-        let targetState = BridgeProductSubscriptionInterestState.reviewMetadata(
-            interests: [
-                try .init(itemIds: ["review-item-1"], lane: .foreground),
-                try .init(itemIds: ["review-item-2"], lane: .visible),
-            ]
-        )
-        return try Self(
-            emptyState: emptyState,
-            emptySHA256: emptyState.sha256Hex(),
-            targetState: targetState,
-            targetSHA256: targetState.sha256Hex()
-        )
-    }
-}
 
 private struct RawControlSessionHarness {
     let capabilityHeader: String
@@ -473,39 +332,11 @@ private struct ResponseMismatchFixture: Sendable {
 }
 
 private func openReviewSubscription(
-    _ harness: RawControlSessionHarness,
-    interestFixture: ReviewInterestFixture
+    _ harness: RawControlSessionHarness
 ) async throws -> BridgeProductSessionCompletionEffect {
     try await harness.execute(
         requestBytes: jsonData(reviewSubscriptionOpenObject(requestSequence: 2)),
-        responseBytes: jsonData(
-            reviewSubscriptionOpenAcceptedObject(
-                requestSequence: 2,
-                interestSHA256: interestFixture.emptySHA256
-            ))
-    )
-}
-
-private func stageFirstReviewBatch(
-    _ harness: RawControlSessionHarness,
-    interestFixture: ReviewInterestFixture
-) async throws {
-    _ = try await harness.execute(
-        requestBytes: jsonData(
-            reviewUpdateBatchObject(
-                requestSequence: 3,
-                batchIndex: 0,
-                itemId: "review-item-1",
-                lane: "foreground",
-                interestFixture: interestFixture
-            )),
-        responseBytes: jsonData(
-            reviewUpdateAcceptedObject(
-                requestSequence: 3,
-                batchIndex: 0,
-                disposition: "staged",
-                interestFixture: interestFixture
-            ))
+        responseBytes: jsonData(reviewSubscriptionOpenAcceptedObject(requestSequence: 2))
     )
 }
 
@@ -527,30 +358,6 @@ private func expectCompletionError(
     } catch {
         Issue.record("Unexpected non-session error for \(context): \(error)")
     }
-}
-
-private func updateResponseMismatchFixtures(
-    _ correctResponse: [String: Any],
-    interestFixture: ReviewInterestFixture
-) throws -> [ResponseMismatchFixture] {
-    try [
-        responseMismatch("batchIndex", correctResponse, key: "batchIndex", value: 0),
-        responseMismatch("disposition", correctResponse, key: "disposition", value: "staged"),
-        responseMismatch("subscriptionId", correctResponse, key: "subscriptionId", value: "other-subscription"),
-        responseMismatch("subscriptionKind", correctResponse, key: "subscriptionKind", value: "file.metadata"),
-        responseMismatch("targetInterestRevision", correctResponse, key: "targetInterestRevision", value: 2),
-        responseMismatch(
-            "targetInterestSha256",
-            correctResponse,
-            key: "targetInterestSha256",
-            value: interestFixture.emptySHA256
-        ),
-        responseMismatch("updateId", correctResponse, key: "updateId", value: "other-update"),
-        responseMismatch("paneSessionId", correctResponse, key: "paneSessionId", value: "other-pane"),
-        responseMismatch("requestId", correctResponse, key: "requestId", value: "other-request"),
-        responseMismatch("requestSequence", correctResponse, key: "requestSequence", value: 5),
-        responseMismatch("workerInstanceId", correctResponse, key: "workerInstanceId", value: "other-worker"),
-    ]
 }
 
 private func responseMismatch(
@@ -584,69 +391,31 @@ private func reviewSubscriptionOpenObject(requestSequence: Int) -> [String: Any]
 }
 
 private func reviewSubscriptionOpenAcceptedObject(
-    requestSequence: Int,
-    interestSHA256: String
+    requestSequence: Int
 ) -> [String: Any] {
     controlIdentity(
         kind: "subscription.openAccepted",
         requestId: reviewSubscriptionOpenRequestId(requestSequence: requestSequence),
         requestSequence: requestSequence
     ).merging([
-        "interestRevision": 0,
-        "interestSha256": interestSHA256,
         "subscriptionId": reviewSubscriptionId,
         "subscriptionKind": "review.metadata",
     ]) { _, newValue in newValue }
 }
 
-private func reviewUpdateBatchObject(
-    requestSequence: Int,
-    batchIndex: Int,
-    itemId: String,
-    lane: String,
-    interestFixture: ReviewInterestFixture
-) -> [String: Any] {
-    surfaceControlRequestIdentity(
-        kind: "subscription.updateBatch",
-        requestId: reviewUpdateRequestId(requestSequence: requestSequence),
-        requestSequence: requestSequence
-    ).merging([
-        "baseInterestRevision": 0,
-        "baseInterestSha256": interestFixture.emptySHA256,
-        "batchCount": 2,
-        "batchIndex": batchIndex,
-        "delta": [
-            "add": [["itemId": itemId, "lane": lane]],
-            "removeItemIds": [],
-            "subscriptionKind": "review.metadata",
-        ],
-        "subscriptionId": reviewSubscriptionId,
-        "subscriptionKind": "review.metadata",
-        "targetInterestRevision": 1,
-        "targetInterestSha256": interestFixture.targetSHA256,
-        "totalDeltaItemCount": 2,
-        "updateId": reviewUpdateId,
-    ]) { _, newValue in newValue }
-}
-
-private func reviewUpdateAcceptedObject(
-    requestSequence: Int,
-    batchIndex: Int,
-    disposition: String,
-    interestFixture: ReviewInterestFixture
-) -> [String: Any] {
+private func reviewViewScopeObject(requestSequence: Int) -> [String: Any] {
     controlIdentity(
-        kind: "subscription.updateBatchAccepted",
-        requestId: reviewUpdateRequestId(requestSequence: requestSequence),
+        kind: "subscription.setScope",
+        requestId: "request-review-scope-\(requestSequence)",
         requestSequence: requestSequence
     ).merging([
-        "batchIndex": batchIndex,
-        "disposition": disposition,
+        "domain": "default",
+        "handle": "review-handle-1",
+        "incarnation": "review-incarnation-1",
+        "scope": ["kind": "review", "interests": []],
+        "scopeRevision": 1,
         "subscriptionId": reviewSubscriptionId,
         "subscriptionKind": "review.metadata",
-        "targetInterestRevision": 1,
-        "targetInterestSha256": interestFixture.targetSHA256,
-        "updateId": reviewUpdateId,
     ]) { _, newValue in newValue }
 }
 
@@ -696,10 +465,6 @@ private func controlIdentity(
 
 private func reviewSubscriptionOpenRequestId(requestSequence: Int) -> String {
     "request-review-open-\(requestSequence)"
-}
-
-private func reviewUpdateRequestId(requestSequence: Int) -> String {
-    "request-review-update-\(requestSequence)"
 }
 
 private func jsonData(_ object: [String: Any]) throws -> Data {

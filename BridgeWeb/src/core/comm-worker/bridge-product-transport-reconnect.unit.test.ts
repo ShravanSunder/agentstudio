@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
 import { bridgeProductFileMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import {
 	createTransportHarness,
 	disposeTransportHarnesses,
-	emptyInterestHash,
-	fileSourceAcceptedData,
 	fileSourceConfiguration,
-	fileSourceIdentity,
 	metadataAccepted,
 	subscriptionAccepted,
 	subscriptionCancelled,
@@ -22,20 +20,113 @@ afterEach(async () => {
 });
 
 describe('Bridge product transport metadata reconnection', () => {
+	test('resnapshots an installed File view after its physical stream reconnects', async () => {
+		const harness = createTransportHarness();
+		let resolveInstallation: () => void = (): void => {};
+		const installed = new Promise<void>((resolve): void => {
+			resolveInstallation = resolve;
+		});
+		harness.transport.setBatchFrameSinks?.({
+			install: (): void => resolveInstallation(),
+			receipt: (): void => {},
+			resnapshot: (): void => {},
+		});
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			source: fileSourceConfiguration(),
+		});
+		try {
+			await harness.server.waitForMetadataStream();
+			const firstStream = harness.server.requiredMetadataRequest(0);
+			harness.server.emitMetadata(metadataAccepted(firstStream, 0));
+			harness.server.emitMetadata(
+				subscriptionAccepted({
+					epoch: 0,
+					kind: 'file.metadata',
+					request: firstStream,
+					streamSequence: 1,
+					subscriptionId: subscription.subscriptionId,
+				}),
+			);
+			await harness.server.waitForControlKind('subscription.open');
+			await harness.server.waitForControlKind('subscription.setScope');
+			const acceptedScope = harness.server.requiredControlRequest('subscription.setScope', 0);
+			const scope = {
+				kind: 'file',
+				changeFilter: { kind: 'none' },
+				interests: [],
+				pathScope: [],
+			} as const;
+			const identity = {
+				batchId: 'file-reconnect-batch-1',
+				domain: 'default',
+				handle: acceptedScope.handle,
+				incarnation: acceptedScope.incarnation,
+				metadataStreamId: firstStream.metadataStreamId,
+				paneSessionId: firstStream.paneSessionId,
+				scopeRevision: acceptedScope.scopeRevision,
+				subscriptionId: subscription.subscriptionId,
+				subscriptionKind: 'file.metadata',
+				wireVersion: firstStream.wireVersion,
+				workerInstanceId: firstStream.workerInstanceId,
+			} as const;
+			harness.server.emitMetadata(
+				bridgeProductBatchFrameSchema.parse({
+					...identity,
+					baseRevision: 0,
+					kind: 'subscription.batchBegin',
+					mode: 'snapshot',
+					partCount: 0,
+					scope,
+					streamSequence: 2,
+					targetRevision: 1,
+				}),
+			);
+			harness.server.emitMetadata(
+				bridgeProductBatchFrameSchema.parse({
+					...identity,
+					coveredScope: scope,
+					kind: 'subscription.batchComplete',
+					streamSequence: 3,
+				}),
+			);
+			await installed;
+			harness.server.failMetadataReader(new Error('physical stream lost after File view install'));
+			await harness.server.waitForControlKind('workerSession.resync');
+			await harness.server.waitForMetadataStream(2);
+			const replacementStream = harness.server.requiredMetadataRequest(1);
+			if (replacementStream.resumeFromStreamSequence === null)
+				throw new Error('Expected a resumed metadata stream.');
+			harness.server.emitMetadata(
+				metadataAccepted(
+					replacementStream,
+					replacementStream.resumeFromStreamSequence + 1,
+					'resumed',
+				),
+			);
+			await harness.server.waitForControlKind('subscription.resnapshot');
+			expect(harness.server.requiredControlRequest('subscription.resnapshot', 0)).toMatchObject({
+				domain: 'default',
+				handle: identity.handle,
+				incarnation: identity.incarnation,
+				scopeRevision: acceptedScope.scopeRevision,
+				subscriptionId: subscription.subscriptionId,
+			});
+		} finally {
+			harness.server.shutdown();
+		}
+	});
+
 	test.each(['read-error', 'eof'] as const)(
-		'retains an accepted File subscription across a physical metadata %s',
+		'reopens the metadata stream after physical %s and resnapshots the retained scope',
 		async (failureKind) => {
 			const harness = createTransportHarness();
 			const subscription = harness.transport.subscribe(
 				bridgeProductFileMetadataApplicationProtocol,
 				{
-					interests: [],
-					pathScope: [],
 					source: fileSourceConfiguration(),
 				},
 			);
 			const events = subscription.events[Symbol.asyncIterator]();
-			const interestHash = emptyInterestHash('file.metadata');
 
 			try {
 				await harness.server.waitForMetadataStream();
@@ -44,7 +135,6 @@ describe('Bridge product transport metadata reconnection', () => {
 				harness.server.emitMetadata(
 					subscriptionAccepted({
 						epoch: 0,
-						interestHash,
 						kind: 'file.metadata',
 						request: initialStreamRequest,
 						streamSequence: 1,
@@ -52,26 +142,6 @@ describe('Bridge product transport metadata reconnection', () => {
 					}),
 				);
 				await harness.server.waitForControlKind('subscription.open');
-				harness.server.emitMetadata(
-					fileSourceAcceptedData({
-						epoch: 0,
-						interestHash,
-						request: initialStreamRequest,
-						streamSequence: 2,
-						subscriptionId: subscription.subscriptionId,
-					}),
-				);
-
-				await expect(events.next()).resolves.toMatchObject({
-					done: false,
-					value: {
-						data: { eventKind: 'file.sourceAccepted', source: fileSourceIdentity(1) },
-						streamSequence: 2,
-						subscriptionId: subscription.subscriptionId,
-						subscriptionSequence: 1,
-					},
-				});
-				await harness.server.waitForFrameAcknowledgementCount(3);
 
 				if (failureKind === 'read-error') {
 					harness.server.failMetadataReader(new Error('deliberate physical metadata read failure'));
@@ -81,59 +151,33 @@ describe('Bridge product transport metadata reconnection', () => {
 
 				await harness.server.waitForControlKind('workerSession.resync');
 				const resyncRequest = harness.server.requiredControlRequest('workerSession.resync', 0);
-				expect(resyncRequest).toMatchObject({
-					activeSubscriptions: [
-						{
-							interestRevision: 0,
-							interestSha256: interestHash,
-							subscriptionId: subscription.subscriptionId,
-							subscriptionKind: 'file.metadata',
-							workerDerivationEpoch: 0,
-						},
-					],
-					lastAcceptedRequestSequence: 4,
-					lastAcceptedStreamSequence: 2,
-				});
+				expect(resyncRequest.activeSubscriptions).toEqual([
+					{
+						subscriptionId: subscription.subscriptionId,
+						subscriptionKind: 'file.metadata',
+						workerDerivationEpoch: 0,
+					},
+				]);
+				expect(resyncRequest.lastAcceptedStreamSequence).toBe(1);
 				await harness.server.waitForMetadataStream(2);
 				const replacementStreamRequest = harness.server.requiredMetadataRequest(1);
 				expect(replacementStreamRequest).toMatchObject({
 					paneSessionId: initialStreamRequest.paneSessionId,
-					resumeFromStreamSequence: 2,
+					resumeFromStreamSequence: 1,
 					workerInstanceId: initialStreamRequest.workerInstanceId,
 				});
 				expect(replacementStreamRequest.metadataStreamId).not.toBe(
 					initialStreamRequest.metadataStreamId,
 				);
-				harness.server.emitMetadata(metadataAccepted(replacementStreamRequest, 3, 'resumed'));
-				await harness.server.waitForFrameAcknowledgementCount(4);
-
-				harness.server.emitMetadata(
-					fileSourceAcceptedData({
-						epoch: 0,
-						interestHash,
-						request: replacementStreamRequest,
-						sourceGeneration: 2,
-						streamSequence: 4,
-						subscriptionId: subscription.subscriptionId,
-						subscriptionSequence: 2,
-					}),
-				);
-
-				await expect(events.next()).resolves.toMatchObject({
-					done: false,
-					value: {
-						data: { eventKind: 'file.sourceAccepted', source: fileSourceIdentity(2) },
-						streamSequence: 4,
-						subscriptionId: subscription.subscriptionId,
-						subscriptionSequence: 2,
-						workerDerivationEpoch: 0,
-					},
+				harness.server.emitMetadata(metadataAccepted(replacementStreamRequest, 2, 'resumed'));
+				await harness.server.waitForControlKind('subscription.resnapshot');
+				expect(harness.server.requiredControlRequest('subscription.resnapshot', 0)).toMatchObject({
+					subscriptionId: subscription.subscriptionId,
+					subscriptionKind: 'file.metadata',
 				});
-				await harness.server.waitForFrameAcknowledgementCount(5);
 				expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
 					activeSubscriptionCount: 1,
 					failureStage: null,
-					lastAcknowledgedStreamSequence: 4,
 					lifecycleState: 'reading',
 					streamOpenCount: 2,
 				});
@@ -143,17 +187,13 @@ describe('Bridge product transport metadata reconnection', () => {
 				harness.server.emitMetadata(
 					subscriptionCancelled({
 						epoch: 0,
-						interestHash,
 						kind: 'file.metadata',
 						request: replacementStreamRequest,
-						sourceGeneration: 2,
-						streamSequence: 5,
+						streamSequence: 3,
 						subscriptionId: subscription.subscriptionId,
-						subscriptionSequence: 3,
 					}),
 				);
 				await cancel;
-				await harness.server.waitForFrameAcknowledgementCount(6);
 				expect(await events.next()).toEqual({ done: true, value: undefined });
 				expect(harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount).toBe(0);
 			} finally {
@@ -166,10 +206,7 @@ describe('Bridge product transport metadata reconnection', () => {
 describe('Bridge product transport fresh metadata stream after poison', () => {
 	test('a fresh metadata stream after an exhausted recovery does not need native replay of the old subscription ids', async () => {
 		const harness = createTransportHarness();
-		const interestHash = emptyInterestHash('file.metadata');
 		const poisoned = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
-			interests: [],
-			pathScope: [],
 			source: fileSourceConfiguration(),
 		});
 		const poisonedEvents = poisoned.events[Symbol.asyncIterator]();
@@ -187,7 +224,6 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 			harness.server.emitMetadata(
 				subscriptionAccepted({
 					epoch: 0,
-					interestHash,
 					kind: 'file.metadata',
 					request: firstRequest,
 					streamSequence: 1,
@@ -195,7 +231,6 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 				}),
 			);
 			await harness.server.waitForControlKind('subscription.open');
-			await harness.server.waitForFrameAcknowledgementCount(2);
 
 			// Spend the single recovery attempt: kill stream #1, let the resync reopen...
 			harness.server.failMetadataReader(new Error('deliberate metadata read failure'));
@@ -212,7 +247,7 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 			// stream under a NEW id, and native must not replay the id the client forgot.
 			const replacement = harness.transport.subscribe(
 				bridgeProductFileMetadataApplicationProtocol,
-				{ interests: [], pathScope: [], source: fileSourceConfiguration() },
+				{ source: fileSourceConfiguration() },
 			);
 			const replacementEvents = replacement.events[Symbol.asyncIterator]();
 			await harness.server.waitForMetadataStream(3);
@@ -224,7 +259,6 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 			harness.server.emitMetadata(
 				subscriptionAccepted({
 					epoch: 0,
-					interestHash,
 					kind: 'file.metadata',
 					request: freshRequest,
 					streamSequence: 1,
@@ -232,29 +266,13 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 				}),
 			);
 			await harness.server.waitForControlKind('subscription.open', 2);
-			harness.server.emitMetadata(
-				fileSourceAcceptedData({
-					epoch: 0,
-					interestHash,
-					request: freshRequest,
-					streamSequence: 2,
-					subscriptionId: replacement.subscriptionId,
-				}),
-			);
-
-			await expect(replacementEvents.next()).resolves.toMatchObject({
-				done: false,
-				value: {
-					data: { eventKind: 'file.sourceAccepted' },
-					streamSequence: 2,
-					subscriptionId: replacement.subscriptionId,
-				},
-			});
 			expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
 				activeSubscriptionCount: 1,
 				failureStage: null,
 				lifecycleState: 'reading',
 			});
+			await replacement.cancel();
+			expect(await replacementEvents.next()).toEqual({ done: true, value: undefined });
 		} finally {
 			harness.server.shutdown();
 		}
@@ -262,10 +280,7 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 
 	test('a frame naming a subscription the client no longer holds fails the fresh stream closed', async () => {
 		const harness = createTransportHarness();
-		const interestHash = emptyInterestHash('file.metadata');
 		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
-			interests: [],
-			pathScope: [],
 			source: fileSourceConfiguration(),
 		});
 		const events = subscription.events[Symbol.asyncIterator]();
@@ -281,7 +296,6 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 			harness.server.emitMetadata(
 				subscriptionAccepted({
 					epoch: 0,
-					interestHash,
 					kind: 'file.metadata',
 					request,
 					streamSequence: 1,
@@ -289,14 +303,12 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 				}),
 			);
 			await harness.server.waitForControlKind('subscription.open');
-			await harness.server.waitForFrameAcknowledgementCount(2);
 
 			// This is what the pre-fix native side did on a fresh stream: announce a
 			// subscription under an id from before the client poisoned its session.
 			harness.server.emitMetadata(
 				subscriptionAccepted({
 					epoch: 0,
-					interestHash,
 					kind: 'file.metadata',
 					request,
 					streamSequence: 2,

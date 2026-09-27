@@ -317,10 +317,12 @@ private actor PacingFileMetadataSource: BridgePaneProductFileMetadataProducing {
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
+    func applyViewDemand(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
+        forceRecapture _: Bool,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 

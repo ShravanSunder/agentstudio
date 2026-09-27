@@ -72,6 +72,7 @@ export class BridgeCommWorkerReviewBatchInstaller {
 	async install(props: {
 		readonly begin: ReviewBatchBegin;
 		readonly records: readonly InstalledRecord[];
+		readonly applyPresentation?: (presentation: BridgeCommWorkerReviewBatchPresentation) => void;
 	}): Promise<'installed' | 'ignored'> {
 		const { begin } = props;
 		if (!this.acceptsBegin(begin)) return 'ignored';
@@ -118,10 +119,12 @@ export class BridgeCommWorkerReviewBatchInstaller {
 			targetRevision: begin.targetRevision,
 			treeRows: order.treeRows,
 		};
-		this.#presentation = {
+		const presentation = {
 			...candidate,
 			runtimeSource: bridgeCommWorkerReviewRuntimeSourceFromBatch(candidate),
 		};
+		props.applyPresentation?.(presentation);
+		this.#presentation = presentation;
 		return 'installed';
 	}
 }

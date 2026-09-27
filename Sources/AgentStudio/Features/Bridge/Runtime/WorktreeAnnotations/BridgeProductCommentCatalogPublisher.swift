@@ -8,6 +8,7 @@ struct BridgeProductCommentCatalogBatch: Equatable, Sendable {
     }
 
     let handle: String
+    let scopeRevision: Int
     let baseRevision: Int
     let targetRevision: Int
     let puts: [BridgeProductCommentCatalogRecord]
@@ -28,17 +29,39 @@ actor BridgeProductCommentCatalogPublisher {
 
     private var handle: String
     private let readCurrent: ReadCurrent
+    private var admittedSessionIDs: Set<WorktreeAnnotationSessionID>
+    private var scopeRevision: Int
     private var dirtyRanges: Set<WorktreeAnnotationCatalogRange> = []
     private var installedEntries: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] = [:]
     private var installedSessionByKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] = [:]
     private var nextWireRevision = 0
     private var activeCaptureID: UUID?
+    private var isRetired = false
 
-    init(handle: String, readCurrent: @escaping ReadCurrent) {
+    init(
+        handle: String,
+        admittedSessionIDs: Set<WorktreeAnnotationSessionID>,
+        scopeRevision: Int,
+        readCurrent: @escaping ReadCurrent
+    ) {
         precondition(!handle.isEmpty)
         self.handle = handle
+        self.admittedSessionIDs = admittedSessionIDs
+        self.scopeRevision = scopeRevision
         self.readCurrent = readCurrent
     }
+
+    func acceptScope(
+        sessionIDs: Set<WorktreeAnnotationSessionID>,
+        revision: Int
+    ) -> Bool {
+        guard !isRetired, revision > scopeRevision else { return false }
+        scopeRevision = revision
+        admittedSessionIDs = sessionIDs
+        return true
+    }
+
+    func retire() { isRetired = true }
 
     func replaceHandle(_ newHandle: String) {
         precondition(!newHandle.isEmpty)
@@ -60,20 +83,24 @@ actor BridgeProductCommentCatalogPublisher {
     /// Registers for invalidations before the read. The captured handle must
     /// still be current when the complete read installs its diff and revision.
     func captureSnapshot() async throws -> BridgeProductCommentCatalogBatch? {
-        guard let captureID = beginCapture() else { return nil }
+        guard !isRetired, let captureID = beginCapture() else { return nil }
         defer { endCapture(captureID) }
         let capturedHandle = handle
+        let capturedScopeRevision = scopeRevision
         let rows = try await readCurrent(.worktree)
-        guard handle == capturedHandle else { return nil }
+        guard !isRetired, handle == capturedHandle, scopeRevision == capturedScopeRevision else {
+            return nil
+        }
         return try install(rows, in: .worktree)
     }
 
     func captureDirty() async throws -> BridgeProductCommentCatalogBatch? {
-        guard let range = nextDirtyRange(),
+        guard !isRetired, let range = nextDirtyRange(),
             let captureID = beginCapture()
         else { return nil }
         defer { endCapture(captureID) }
         let capturedHandle = handle
+        let capturedScopeRevision = scopeRevision
         dirtyRanges.remove(range)
         let rows: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
         do {
@@ -82,7 +109,9 @@ actor BridgeProductCommentCatalogPublisher {
             if handle == capturedHandle { dirtyRanges.insert(range) }
             throw error
         }
-        guard handle == capturedHandle else { return nil }
+        guard !isRetired, handle == capturedHandle, scopeRevision == capturedScopeRevision else {
+            return nil
+        }
         // A second invalidation during the read remains dirty for another
         // pass. This complete read still installs, so continuous edits cannot
         // starve publication.
@@ -124,6 +153,9 @@ actor BridgeProductCommentCatalogPublisher {
         let baseRevision = nextWireRevision
         let revision = baseRevision + 1
         let membership = try sessionMembership(for: rows)
+        let admittedRows = rows.filter { key, _ in
+            membership[key].map(admittedSessionIDs.contains) ?? false
+        }
         if case .session(let sessionID) = range,
             membership.values.contains(where: { $0 != sessionID })
         {
@@ -138,9 +170,9 @@ actor BridgeProductCommentCatalogPublisher {
                         owner == sessionID ? key : nil
                     })
             }
-        let currentKeys = Set(rows.keys)
-        let puts = try rows.keys.sorted { $0.recordKey < $1.recordKey }.map { key in
-            guard let entry = rows[key] else { preconditionFailure("A selected catalog row disappeared") }
+        let currentKeys = Set(admittedRows.keys)
+        let puts = try admittedRows.keys.sorted { $0.recordKey < $1.recordKey }.map { key in
+            guard let entry = admittedRows[key] else { preconditionFailure("A selected catalog row disappeared") }
             return try BridgeProductCommentCatalogRecord(entry: entry, revision: revision)
         }
         let deletes = previousKeys.subtracting(currentKeys)
@@ -151,13 +183,14 @@ actor BridgeProductCommentCatalogPublisher {
             installedEntries.removeValue(forKey: key)
             installedSessionByKey.removeValue(forKey: key)
         }
-        for (key, entry) in rows {
+        for (key, entry) in admittedRows {
             installedEntries[key] = entry
             installedSessionByKey[key] = membership[key]
         }
         nextWireRevision = revision
         return .init(
             handle: handle,
+            scopeRevision: scopeRevision,
             baseRevision: baseRevision,
             targetRevision: revision,
             puts: puts,

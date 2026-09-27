@@ -10,10 +10,8 @@ import {
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductOpaqueReferenceSchema,
 	bridgeProductSafeMessageSchema,
-	bridgeProductUnicodeScalarUtf8ByteLength,
 	type BridgeProductTypeSetsEqual,
 } from './bridge-product-contract-primitives.js';
-import { bridgeProductExactUtf8IdentitySet } from './bridge-product-exact-utf8-identity.js';
 import {
 	bridgeProductFileSourceIdentitySchema,
 	type BridgeProductFileSourceIdentity,
@@ -22,14 +20,9 @@ import {
 	bridgeProductFileChangeStatusSchema,
 	bridgeProductFileTreeRowSchema,
 } from './bridge-product-file-tree-contracts.js';
-import type {
-	BridgeProductMetadataApplicationEvent,
-	BridgeProductMetadataApplicationOptions,
-	BridgeProductMetadataApplicationUpdateOptions,
-} from './bridge-product-metadata-application-protocol.js';
+import type { BridgeProductMetadataApplicationOptions } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductRegisteredMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
-import { validateBridgeProductSubscriptionDeltaCollection } from './bridge-product-subscription-delta-validation.js';
 import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
 
 export {
@@ -47,70 +40,9 @@ export type BridgeProductDemandLaneParity = BridgeProductAssert<
 	BridgeProductTypeSetsEqual<z.infer<typeof bridgeProductDemandLaneSchema>, BridgeDemandLane>
 >;
 
-const bridgeProductMaximumInterestGroupCount = 64;
-const bridgeProductMaximumReviewInterestIdentityBytes = 128;
-export const BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT = 10_000;
-export const BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT = 40_000;
 export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT = 256;
 export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_OPERATION_COUNT = 256;
 export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT = 256;
-
-const bridgeProductReviewInterestIdentitySchema = z
-	.string()
-	.min(1)
-	.superRefine((value, context): void => {
-		const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(value);
-		if (byteLength === null) {
-			context.addIssue({
-				code: 'custom',
-				message:
-					'Bridge product Review interest identities must contain only Unicode scalar values.',
-			});
-			return;
-		}
-		if (byteLength > bridgeProductMaximumReviewInterestIdentityBytes) {
-			context.addIssue({
-				code: 'custom',
-				message: `Bridge product Review interest identities cannot exceed ${bridgeProductMaximumReviewInterestIdentityBytes} UTF-8 bytes.`,
-			});
-		}
-	});
-
-const bridgeProductReviewMetadataInterestSchema = z
-	.object({
-		itemIds: z
-			.array(bridgeProductReviewInterestIdentitySchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT)
-			.readonly(),
-		lane: bridgeProductDemandLaneSchema,
-	})
-	.strict();
-
-export const bridgeProductReviewMetadataSubscriptionOptionsSchema = z
-	.object({
-		interests: z
-			.array(bridgeProductReviewMetadataInterestSchema)
-			.max(bridgeProductMaximumInterestGroupCount)
-			.readonly(),
-	})
-	.strict()
-	.superRefine((options, context): void => {
-		const itemIds = options.interests.flatMap((interest) => interest.itemIds);
-		if (itemIds.length > BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT) {
-			context.addIssue({
-				code: 'custom',
-				message: 'Review metadata interests exceed the aggregate item ceiling.',
-				path: ['interests'],
-			});
-		}
-		if (bridgeProductExactUtf8IdentitySet(itemIds).size !== itemIds.length) {
-			context.addIssue({
-				code: 'custom',
-				message: 'Review metadata interest items must be unique across demand lanes.',
-				path: ['interests'],
-			});
-		}
-	});
 
 export const bridgeProductFileSourceConfigurationSchema = z
 	.object({
@@ -122,115 +54,6 @@ export const bridgeProductFileSourceConfigurationSchema = z
 		worktreeId: z.uuid(),
 	})
 	.strict();
-
-const bridgeProductFileMetadataInterestSchema = z
-	.object({
-		lane: bridgeProductDemandLaneSchema,
-		paths: z
-			.array(bridgeProductDisplayPathSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT)
-			.readonly(),
-	})
-	.strict();
-
-export const bridgeProductFileMetadataSubscriptionOptionsSchema = z
-	.object({
-		interests: z
-			.array(bridgeProductFileMetadataInterestSchema)
-			.max(bridgeProductMaximumInterestGroupCount)
-			.readonly(),
-		pathScope: z
-			.array(bridgeProductDisplayPathSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT)
-			.readonly(),
-		source: bridgeProductFileSourceConfigurationSchema,
-	})
-	.strict()
-	.superRefine((options, context): void => {
-		const interestPaths = options.interests.flatMap((interest) => interest.paths);
-		if (interestPaths.length > BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT) {
-			context.addIssue({
-				code: 'custom',
-				message: 'File metadata interests exceed the aggregate path ceiling.',
-				path: ['interests'],
-			});
-		}
-		if (bridgeProductExactUtf8IdentitySet(interestPaths).size !== interestPaths.length) {
-			context.addIssue({
-				code: 'custom',
-				message: 'File metadata interest paths must be unique across demand lanes.',
-				path: ['interests'],
-			});
-		}
-		if (bridgeProductExactUtf8IdentitySet(options.pathScope).size !== options.pathScope.length) {
-			context.addIssue({
-				code: 'custom',
-				message: 'File metadata path scope entries must be unique.',
-				path: ['pathScope'],
-			});
-		}
-	});
-
-export const bridgeProductAnnotationSubscriptionOptionsSchema = z.object({}).strict();
-export const bridgeProductAnnotationSubscriptionUpdateOptionsSchema =
-	bridgeProductAnnotationSubscriptionOptionsSchema;
-
-export const bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema =
-	bridgeProductReviewMetadataSubscriptionOptionsSchema;
-
-export const bridgeProductFileMetadataSubscriptionUpdateOptionsSchema = z
-	.object({
-		interests: z
-			.array(bridgeProductFileMetadataInterestSchema)
-			.max(bridgeProductMaximumInterestGroupCount)
-			.readonly(),
-		pathScope: z
-			.array(bridgeProductDisplayPathSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT)
-			.readonly(),
-	})
-	.strict()
-	.superRefine((options, context): void => {
-		const interestPaths = options.interests.flatMap((interest) => interest.paths);
-		if (interestPaths.length > BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_ITEM_COUNT) {
-			context.addIssue({
-				code: 'custom',
-				message: 'File metadata interests exceed the aggregate path ceiling.',
-				path: ['interests'],
-			});
-		}
-		if (bridgeProductExactUtf8IdentitySet(interestPaths).size !== interestPaths.length) {
-			context.addIssue({
-				code: 'custom',
-				message: 'File metadata interest paths must be unique across demand lanes.',
-				path: ['interests'],
-			});
-		}
-		if (bridgeProductExactUtf8IdentitySet(options.pathScope).size !== options.pathScope.length) {
-			context.addIssue({
-				code: 'custom',
-				message: 'File metadata path scope entries must be unique.',
-				path: ['pathScope'],
-			});
-		}
-	});
-
-const bridgeProductSubscriptionInterestStateStructuralSchema = z.discriminatedUnion(
-	'subscriptionKind',
-	[
-		z.object({ subscriptionKind: z.literal('file.annotations') }).strict(),
-		bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.safeExtend({
-			subscriptionKind: z.literal('file.metadata'),
-		}),
-		z.object({ subscriptionKind: z.literal('review.annotations') }).strict(),
-		bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.safeExtend({
-			subscriptionKind: z.literal('review.metadata'),
-		}),
-	],
-);
-
-export const bridgeProductSubscriptionInterestStateSchema =
-	bridgeProductSubscriptionInterestStateStructuralSchema;
 
 export const bridgeProductFileMetadataLoadedBySchema = z.enum([
 	'startup_window',
@@ -753,98 +576,13 @@ export type BridgeProductSubscriptionOptions<
 >;
 export type BridgeProductSubscriptionEvent<
 	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = BridgeProductMetadataApplicationEvent<
-	BridgeProductProtocolForSubscriptionKind<TSubscriptionKind>
->;
-export type BridgeProductSubscriptionUpdateOptions<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
-> = BridgeProductMetadataApplicationUpdateOptions<
-	BridgeProductProtocolForSubscriptionKind<TSubscriptionKind>
->;
-export type BridgeProductSubscriptionInterestState = z.infer<
-	typeof bridgeProductSubscriptionInterestStateSchema
->;
-
-const bridgeProductReviewMetadataInterestAdditionSchema = z
-	.object({
-		itemId: bridgeProductReviewInterestIdentitySchema,
-		lane: bridgeProductDemandLaneSchema,
-	})
-	.strict();
-
-const bridgeProductFileMetadataInterestAdditionSchema = z
-	.object({
-		lane: bridgeProductDemandLaneSchema,
-		path: bridgeProductDisplayPathSchema,
-	})
-	.strict();
-
-export const bridgeProductReviewMetadataInterestDeltaSchema = z
-	.object({
-		add: z
-			.array(bridgeProductReviewMetadataInterestAdditionSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
-			.readonly(),
-		removeItemIds: z
-			.array(bridgeProductReviewInterestIdentitySchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
-			.readonly(),
-		subscriptionKind: z.literal('review.metadata'),
-	})
-	.strict()
-	.superRefine((delta, context): void => {
-		const addedItemIds = delta.add.map((addition) => addition.itemId);
-		const removedItemIds = delta.removeItemIds;
-		validateBridgeProductSubscriptionDeltaCollection({
-			addedValues: addedItemIds,
-			context,
-			maximumItemCount: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
-			path: ['add'],
-			removedPath: ['removeItemIds'],
-			removedValues: removedItemIds,
-		});
-	});
-
-export const bridgeProductFileMetadataInterestDeltaSchema = z
-	.object({
-		add: z
-			.array(bridgeProductFileMetadataInterestAdditionSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
-			.readonly(),
-		addPathScope: z
-			.array(bridgeProductDisplayPathSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
-			.readonly(),
-		removePathScope: z
-			.array(bridgeProductDisplayPathSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
-			.readonly(),
-		removePaths: z
-			.array(bridgeProductDisplayPathSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT)
-			.readonly(),
-		subscriptionKind: z.literal('file.metadata'),
-	})
-	.strict()
-	.superRefine((delta, context): void => {
-		validateBridgeProductSubscriptionDeltaCollection({
-			addedValues: delta.add.map((addition) => addition.path),
-			context,
-			maximumItemCount: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
-			path: ['add'],
-			removedPath: ['removePaths'],
-			removedValues: delta.removePaths,
-		});
-		validateBridgeProductSubscriptionDeltaCollection({
-			addedValues: delta.addPathScope,
-			context,
-			maximumItemCount: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
-			path: ['addPathScope'],
-			removedPath: ['removePathScope'],
-			removedValues: delta.removePathScope,
-		});
-	});
-
+> = TSubscriptionKind extends 'file.annotations'
+	? z.infer<typeof bridgeProductFileAnnotationSubscriptionDataSchema>['event']
+	: TSubscriptionKind extends 'review.annotations'
+		? z.infer<typeof bridgeProductReviewAnnotationSubscriptionDataSchema>['event']
+		: TSubscriptionKind extends 'file.metadata'
+			? z.infer<typeof bridgeProductFileMetadataSubscriptionDataSchema>['event']
+			: z.infer<typeof bridgeProductReviewMetadataSubscriptionDataSchema>['event'];
 export const bridgeProductFileAnnotationSubscriptionDataSchema = z
 	.object({
 		event: bridgeProductWorktreeAnnotationEventSchema,
@@ -872,9 +610,3 @@ export const bridgeProductReviewMetadataSubscriptionDataSchema = z
 		subscriptionKind: z.literal('review.metadata'),
 	})
 	.strict();
-
-export type BridgeProductSubscriptionInterestDeltaWire =
-	| { readonly subscriptionKind: 'file.annotations' }
-	| z.infer<typeof bridgeProductFileMetadataInterestDeltaSchema>
-	| { readonly subscriptionKind: 'review.annotations' }
-	| z.infer<typeof bridgeProductReviewMetadataInterestDeltaSchema>;

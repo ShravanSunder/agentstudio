@@ -368,13 +368,9 @@ private struct ProducerSessionHarness {
                 presentedCapability: capabilityHeader
             ).executionToken
         )
-        let interestSha256 =
-            try BridgeProductSubscriptionInterestState
-            .fileMetadata(interests: [], pathScope: [])
-            .sha256Hex()
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: request,
-            interestSha256: interestSha256
+            worktreeId: nil
         )
         _ = try await session.completeAdmittedControl(
             token: token,

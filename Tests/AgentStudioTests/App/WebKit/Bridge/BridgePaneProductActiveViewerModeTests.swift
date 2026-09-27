@@ -775,14 +775,7 @@ private actor ProductActiveViewerReviewMetadataRecorder:
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {}
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws {}
 
     func reserve(

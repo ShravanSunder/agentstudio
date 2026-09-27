@@ -60,31 +60,17 @@ struct BridgeProductSessionLifecycleHarness {
     func openSubscription(_ object: [String: Any]) async throws {
         let request = try bridgeProductLifecycleControlRequest(object)
         let token = try #require(lifecycleExecutionToken(try await begin(request)))
-        let interestSha256: String
-        guard case .subscriptionOpen(let subscriptionOpen) = request else {
-            Issue.record("Expected a surface-scoped subscription request")
-            return
-        }
-        switch subscriptionOpen.subscription.subscriptionKind {
-        case .fileAnnotations:
-            interestSha256 = try BridgeProductSubscriptionInterestState.fileAnnotations.sha256Hex()
-        case .fileMetadata:
-            interestSha256 =
-                try BridgeProductSubscriptionInterestState
-                .fileMetadata(interests: [], pathScope: []).sha256Hex()
-        case .reviewAnnotations:
-            interestSha256 = try BridgeProductSubscriptionInterestState.reviewAnnotations.sha256Hex()
-        case .reviewMetadata:
-            interestSha256 =
-                try BridgeProductSubscriptionInterestState
-                .reviewMetadata(interests: []).sha256Hex()
-        default:
-            Issue.record("Unexpected subscription kind in lifecycle harness")
-            return
-        }
+        let worktreeId: String? =
+            switch request {
+            case .subscriptionOpen(let open)
+            where open.subscription.subscriptionKind == .fileAnnotations
+                || open.subscription.subscriptionKind == .reviewAnnotations:
+                "worktree-1"
+            default: nil
+            }
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: request,
-            interestSha256: interestSha256
+            worktreeId: worktreeId
         )
         _ = try await session.completeAdmittedControl(
             token: token,
@@ -336,30 +322,18 @@ func bridgeProductLifecycleResyncObject(
     reviewEpoch: Int,
     fileEpoch: Int
 ) throws -> [String: Any] {
-    let reviewEmptySHA256 =
-        try BridgeProductSubscriptionInterestState
-        .reviewMetadata(interests: [])
-        .sha256Hex()
-    let fileEmptySHA256 =
-        try BridgeProductSubscriptionInterestState
-        .fileMetadata(interests: [], pathScope: [])
-        .sha256Hex()
-    return controlIdentity(
+    controlIdentity(
         kind: "workerSession.resync",
         requestId: "request-resync-\(requestSequence)",
         requestSequence: requestSequence
     ).merging([
         "activeSubscriptions": [
             [
-                "interestRevision": 0,
-                "interestSha256": reviewEmptySHA256,
                 "subscriptionId": "review-subscription-1",
                 "subscriptionKind": "review.metadata",
                 "workerDerivationEpoch": reviewEpoch,
             ],
             [
-                "interestRevision": 0,
-                "interestSha256": fileEmptySHA256,
                 "subscriptionId": "file-subscription-1",
                 "subscriptionKind": "file.metadata",
                 "workerDerivationEpoch": fileEpoch,
@@ -414,13 +388,6 @@ private func metadataProgressSubscriptionCorrelation()
     throws -> BridgeProductSubscriptionFrameCorrelation
 {
     try .init(
-        cursor: nil,
-        interestRevision: 0,
-        interestSha256:
-            BridgeProductSubscriptionInterestState
-            .reviewMetadata(interests: [])
-            .sha256Hex(),
-        sourceGeneration: 0,
         subscriptionId: "metadata-progress-subscription",
         subscriptionKind: .reviewMetadata,
         workerDerivationEpoch: 0

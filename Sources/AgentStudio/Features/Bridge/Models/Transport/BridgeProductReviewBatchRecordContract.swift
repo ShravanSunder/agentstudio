@@ -320,9 +320,10 @@ struct BridgeProductReviewBatchDesiredPublication: Codable, Equatable, Sendable 
 
 struct BridgeProductReviewBatchPublicationRecord: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case desired, displayed, publicationId, recordKind, revision
+        case classifiedRefreshImpact, desired, displayed, publicationId, recordKind, revision
     }
 
+    let classifiedRefreshImpact: BridgeReviewRefreshImpact?
     let desired: BridgeProductReviewBatchDesiredPublication
     let displayed: BridgeProductReviewBatchDisplayedPublication?
     let publicationId: UUID
@@ -334,6 +335,9 @@ struct BridgeProductReviewBatchPublicationRecord: Codable, Equatable, Sendable {
             from: decoder, allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)), contract: "Review publication record"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        classifiedRefreshImpact = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgeReviewRefreshImpact.self, forKey: .classifiedRefreshImpact, from: container,
+            codingPath: decoder.codingPath)
         desired = try container.decode(BridgeProductReviewBatchDesiredPublication.self, forKey: .desired)
         displayed = try BridgeProductContractDecoding.decodeRequiredNullable(
             BridgeProductReviewBatchDisplayedPublication.self, forKey: .displayed, from: container,
@@ -354,11 +358,22 @@ struct BridgeProductReviewBatchPublicationRecord: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(classifiedRefreshImpact, forKey: .classifiedRefreshImpact)
         try container.encode(desired, forKey: .desired)
         try container.encode(displayed, forKey: .displayed)
         try container.encode(BridgeProductReviewPublicationIdContract.encode(publicationId), forKey: .publicationId)
         try container.encode(recordKind, forKey: .recordKind)
         try container.encode(revision, forKey: .revision)
+    }
+}
+
+extension BridgeReviewRefreshImpact: Codable {
+    init(from decoder: Decoder) throws {
+        self = try BridgeReviewRefreshImpactWireContract.decodeRequired(from: decoder)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try BridgeReviewRefreshImpactWireContract.encode(self, to: encoder)
     }
 }
 

@@ -1,0 +1,93 @@
+import { describe, expect, test } from 'vitest';
+
+import { awaitBridgeProductContentProgress } from './bridge-product-content-progress-deadline.js';
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
+import {
+	createContentTransportHarness,
+	fileContentDescriptor,
+} from './test-fixtures/bridge-product-transport-content.test-support.js';
+
+class ControlledContentDeadlineClock implements BridgeProductDeadlineClock {
+	readonly deadlines: Array<{ active: boolean; delayMilliseconds: number; fire: () => void }> = [];
+
+	schedule(delayMilliseconds: number, onDeadline: () => void): () => void {
+		const deadline = {
+			active: true,
+			delayMilliseconds,
+			fire: (): void => {
+				if (!deadline.active) throw new Error('Cannot fire a cleared content deadline.');
+				deadline.active = false;
+				onDeadline();
+			},
+		};
+		this.deadlines.push(deadline);
+		return (): void => {
+			deadline.active = false;
+		};
+	}
+
+	activeDeadline(): (typeof this.deadlines)[number] {
+		const active = this.deadlines.find((deadline) => deadline.active);
+		if (active === undefined) throw new Error('Expected an armed content deadline.');
+		return active;
+	}
+}
+
+describe('Bridge product finite content progress', () => {
+	test('arms the deadline before starting the fetch', async () => {
+		const clock = new ControlledContentDeadlineClock();
+		const result = await awaitBridgeProductContentProgress({
+			abortRead: (): void => {},
+			clock,
+			delayMilliseconds: 5_000,
+			pending: (): Promise<string> => {
+				expect(clock.activeDeadline().delayMilliseconds).toBe(5_000);
+				return Promise.resolve('response');
+			},
+		});
+		expect(result).toBe('response');
+		expect(clock.deadlines[0]?.active).toBe(false);
+	});
+
+	test('pre-response expiry settles only the held content read', async () => {
+		const clock = new ControlledContentDeadlineClock();
+		const harness = createContentTransportHarness(0, undefined, 100, clock);
+		harness.server.holdNextContentRequestBeforeResponse = true;
+		const content = harness.transport.openContent(
+			fileContentDescriptor('held-before-response'),
+			new AbortController().signal,
+		);
+		await harness.server.waitForContentRequestInvocationCount(1);
+		expect(clock.activeDeadline().delayMilliseconds).toBe(5_000);
+		clock.activeDeadline().fire();
+		await expect(content.terminal).rejects.toMatchObject({
+			name: 'BridgeProductContentProgressDeadlineExpired',
+			retryable: true,
+		});
+		harness.server.releaseHeldContentRequestBeforeResponse();
+	});
+
+	test('partial verified body progress rearms and a later stall expires', async () => {
+		const clock = new ControlledContentDeadlineClock();
+		const harness = createContentTransportHarness(0, undefined, 100, clock);
+		harness.server.leaveContentOpenAfterAcceptance = true;
+		const content = harness.transport.openContent(
+			fileContentDescriptor('held-after-accepted'),
+			new AbortController().signal,
+		);
+		await harness.server.waitForFrameAcknowledgementCount(1);
+		const contentDeadlines = clock.deadlines.filter(
+			(deadline) => deadline.delayMilliseconds === 5_000,
+		);
+		expect(contentDeadlines.length).toBeGreaterThanOrEqual(2);
+		expect(contentDeadlines[0]?.active).toBe(false);
+		const rearmedDeadline = contentDeadlines.at(-1);
+		expect(rearmedDeadline?.active).toBe(true);
+		rearmedDeadline?.fire();
+		await expect(content.terminal).rejects.toMatchObject({
+			name: 'BridgeProductContentProgressDeadlineExpired',
+			retryable: true,
+		});
+		expect(harness.server.contentReaderCancelCount).toBe(1);
+	});
+});

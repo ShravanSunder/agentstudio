@@ -19,11 +19,13 @@ struct BridgePaneProductFileDescriptorRenewalTests {
             subscription: opened,
             productAdmission: fixture.productAdmission.context
         ) { _ in }
-        let interests = try fixture.updatedSnapshot(from: opened)
+        let interests = try fixture.viewDemand()
         let initialEvents = ProductFileMetadataEventCollector()
-        try await source.update(
-            subscription: interests,
-            productAdmission: fixture.productAdmission.context
+        try await source.applyViewDemand(
+            subscriptionId: opened.subscriptionId,
+            demand: interests,
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
         ) { await initialEvents.append($0) }
         let previousDescriptor = try #require(
             (await initialEvents.events).compactMap(availableRenewalDescriptor).first
@@ -64,9 +66,11 @@ struct BridgePaneProductFileDescriptorRenewalTests {
                 return false
             })
         let renewedEvents = ProductFileMetadataEventCollector()
-        try await source.update(
-            subscription: interests,
-            productAdmission: fixture.productAdmission.context
+        try await source.applyViewDemand(
+            subscriptionId: opened.subscriptionId,
+            demand: interests,
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
         ) { await renewedEvents.append($0) }
 
         // Assert — this explicit-renewal control does not claim automatic recovery.
@@ -118,10 +122,12 @@ struct BridgePaneProductFileDescriptorRenewalTests {
             subscription: opened,
             productAdmission: fixture.productAdmission.context
         ) { _ in }
-        let interests = try fixture.updatedSnapshot(from: opened)
-        try await source.update(
-            subscription: interests,
-            productAdmission: fixture.productAdmission.context
+        let interests = try fixture.viewDemand()
+        try await source.applyViewDemand(
+            subscriptionId: opened.subscriptionId,
+            demand: interests,
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
         ) { _ in }
         let olderBytes = Data("overlapping renewal A\n".utf8)
         try olderBytes.write(to: fixture.demandedFileURL)

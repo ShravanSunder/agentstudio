@@ -1,17 +1,13 @@
-import {
-	BridgeProductBoundedAsyncQueue,
-	createBridgeProductDeferred,
-	type BridgeProductDeferred,
-} from './bridge-product-async-queue.js';
+import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type {
 	BridgeProductResetReason,
 	BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
-import type {
-	BridgeProductMetadataApplicationProtocol,
-	BridgeProductMetadataDataFrame,
-} from './bridge-product-metadata-application-protocol.js';
-import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
+import type { BridgeProductMetadataApplicationProtocol } from './bridge-product-metadata-application-protocol.js';
+import {
+	BridgeProductControlRequestError,
+	type BridgeProductSubscriptionOpenAccepted,
+} from './bridge-product-session-authority.js';
 import type {
 	BridgeProductControlRequest,
 	BridgeProductMetadataFrame,
@@ -51,18 +47,15 @@ export class BridgeProductSubscriptionEpochRetiredError extends Error {
 	}
 }
 
-export type BridgeProductSubscriptionIdentifierPurpose = 'subscription-update';
-
-export type BridgeProductSubscriptionFrame = Exclude<
+export type BridgeProductSubscriptionFrame = Extract<
 	BridgeProductMetadataFrame,
-	| { readonly kind: 'content.cancelled' }
-	| { readonly kind: 'metadataStream.accepted' }
-	| { readonly kind: 'metadataStream.error' }
-	| { readonly kind: 'pane.presentation' }
-	| { readonly kind: 'pane.surfaceSelectionRequested' }
-	| { readonly kind: 'subscription.batchBegin' }
-	| { readonly kind: 'subscription.batchPart' }
-	| { readonly kind: 'subscription.batchComplete' }
+	{
+		readonly kind:
+			| 'subscription.accepted'
+			| 'subscription.cancelled'
+			| 'subscription.end'
+			| 'subscription.reset';
+	}
 >;
 
 export interface BridgeProductSubscriptionFrameSink {
@@ -80,14 +73,11 @@ export interface BridgeProductSubscriptionFrameSink {
 		  >['activeSubscriptions'][number]
 		| null;
 	applyReconciliation(outcome: BridgeProductResyncReconciliationOutcome): Promise<void>;
-	beginRecovery(): void;
-	finishRecovery(): Promise<void>;
 }
 
 export interface BridgeProductSubscriptionStateControlMux<
 	TKind extends string,
 	TOpen extends { readonly subscriptionKind: TKind },
-	TInterestDelta extends { readonly subscriptionKind: TKind },
 > {
 	cancelSubscription(props: {
 		readonly subscriptionId: string;
@@ -98,33 +88,15 @@ export interface BridgeProductSubscriptionStateControlMux<
 		readonly subscription: TOpen;
 		readonly subscriptionId: string;
 		readonly workerDerivationEpoch: number;
-	}): Promise<{ readonly interestRevision: number; readonly interestSha256: string }>;
-	updateSubscriptionBatch(props: {
-		readonly baseInterestRevision: number;
-		readonly baseInterestSha256: string;
-		readonly batchCount: number;
-		readonly batchIndex: number;
-		readonly delta: TInterestDelta;
-		readonly subscriptionId: string;
-		readonly targetInterestRevision: number;
-		readonly targetInterestSha256: string;
-		readonly totalDeltaItemCount: number;
-		readonly updateId: string;
-		readonly workerDerivationEpoch: number;
-	}): Promise<unknown>;
+	}): Promise<BridgeProductSubscriptionOpenAccepted>;
 }
 
 export interface BridgeProductSubscriptionStateProps<
 	TKind extends string,
 	TOptions,
-	TUpdateOptions,
 	TOpen extends { readonly subscriptionKind: TKind },
-	TInterestState extends { readonly subscriptionKind: TKind },
-	TInterestDelta extends { readonly subscriptionKind: TKind },
-	TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
 > {
-	readonly controlMux: BridgeProductSubscriptionStateControlMux<TKind, TOpen, TInterestDelta>;
-	readonly createIdentifier: (purpose: BridgeProductSubscriptionIdentifierPurpose) => string;
+	readonly controlMux: BridgeProductSubscriptionStateControlMux<TKind, TOpen>;
 	readonly ensureMetadataStream: () => Promise<void>;
 	readonly initialOptions: TOptions;
 	/**
@@ -137,15 +109,12 @@ export interface BridgeProductSubscriptionStateProps<
 		error?: unknown,
 		drainUntilNativeTerminal?: boolean,
 	) => void;
-	readonly protocol: BridgeProductMetadataApplicationProtocol<
-		TKind,
-		TOptions,
-		TUpdateOptions,
-		TOpen,
-		TInterestState,
-		TInterestDelta,
-		TData
-	>;
+	readonly onOpened?: (
+		subscriptionId: string,
+		signal: AbortSignal,
+		worktreeId: string | null,
+	) => Promise<void>;
+	readonly protocol: BridgeProductMetadataApplicationProtocol<TKind, TOptions, TOpen>;
 	readonly readWorkerDerivationEpochAtAdmission: () => number;
 	/**
 	 * Waits while the surface retires older-epoch subscriptions, then runs `admit`
@@ -161,11 +130,7 @@ export interface BridgeProductSubscriptionStateProps<
 export class BridgeProductSubscriptionState<
 	TKind extends string,
 	TOptions,
-	TUpdateOptions,
 	TOpen extends { readonly subscriptionKind: TKind },
-	TInterestState extends { readonly subscriptionKind: TKind },
-	TInterestDelta extends { readonly subscriptionKind: TKind },
-	TData extends { readonly event: unknown; readonly subscriptionKind: TKind },
 > implements BridgeProductSubscriptionFrameSink {
 	#accepted = false;
 	/**
@@ -186,68 +151,30 @@ export class BridgeProductSubscriptionState<
 	readonly #admitAtWorkerDerivationEpoch: <TAdmission>(
 		admit: (workerDerivationEpoch: number) => TAdmission,
 	) => Promise<TAdmission>;
-	readonly #controlMux: BridgeProductSubscriptionStateProps<
-		TKind,
-		TOptions,
-		TUpdateOptions,
-		TOpen,
-		TInterestState,
-		TInterestDelta,
-		TData
-	>['controlMux'];
-	readonly #createIdentifier: (purpose: BridgeProductSubscriptionIdentifierPurpose) => string;
-	#currentInterestHash: string | null = null;
-	#currentInterestRevision = 0;
-	#currentInterestState: TInterestState;
+	readonly #controlMux: BridgeProductSubscriptionStateProps<TKind, TOptions, TOpen>['controlMux'];
 	readonly #ensureMetadataStream: () => Promise<void>;
-	readonly #eventQueue = new BridgeProductBoundedAsyncQueue<
-		BridgeProductMetadataDataFrame<TData['event']>
-	>(64);
+	readonly #eventQueue = new BridgeProductBoundedAsyncQueue<never>(1);
 	#expectedSubscriptionSequence = 0;
 	readonly #initialOptions: TOptions;
-	readonly #onTerminal: BridgeProductSubscriptionStateProps<
-		TKind,
-		TOptions,
-		TUpdateOptions,
-		TOpen,
-		TInterestState,
-		TInterestDelta,
-		TData
-	>['onTerminal'];
+	readonly #onTerminal: BridgeProductSubscriptionStateProps<TKind, TOptions, TOpen>['onTerminal'];
+	readonly #onOpened:
+		| ((subscriptionId: string, signal: AbortSignal, worktreeId: string | null) => Promise<void>)
+		| undefined;
+	readonly #initialScopeAbortController = new AbortController();
+	#initialScopePending = false;
 	#operation: Promise<void> = Promise.resolve();
-	#pendingBarrier: PendingSubscriptionBarrier<TInterestState> | null = null;
-	#recoveryGate: BridgeProductDeferred<void> | null = null;
-	#resetReplay: ResetReplay<TInterestState> | null = null;
-	readonly #protocol: BridgeProductMetadataApplicationProtocol<
-		TKind,
-		TOptions,
-		TUpdateOptions,
-		TOpen,
-		TInterestState,
-		TInterestDelta,
-		TData
-	>;
+	readonly #protocol: BridgeProductMetadataApplicationProtocol<TKind, TOptions, TOpen>;
 	readonly #readWorkerDerivationEpochAtAdmission: () => number;
 	readonly subscriptionId: string;
 	#terminal = false;
 	#admittedWorkerDerivationEpoch: number | null = null;
 
-	constructor(
-		props: BridgeProductSubscriptionStateProps<
-			TKind,
-			TOptions,
-			TUpdateOptions,
-			TOpen,
-			TInterestState,
-			TInterestDelta,
-			TData
-		>,
-	) {
+	constructor(props: BridgeProductSubscriptionStateProps<TKind, TOptions, TOpen>) {
 		this.#controlMux = props.controlMux;
-		this.#createIdentifier = props.createIdentifier;
 		this.#ensureMetadataStream = props.ensureMetadataStream;
 		this.#initialOptions = props.initialOptions;
 		this.#onTerminal = props.onTerminal;
+		this.#onOpened = props.onOpened;
 		this.#protocol = props.protocol;
 		this.#readWorkerDerivationEpochAtAdmission = props.readWorkerDerivationEpochAtAdmission;
 		this.#admitAtWorkerDerivationEpoch =
@@ -256,24 +183,19 @@ export class BridgeProductSubscriptionState<
 				admit: (workerDerivationEpoch: number) => TAdmission,
 			): Promise<TAdmission> => admit(props.readWorkerDerivationEpochAtAdmission()));
 		this.subscriptionId = props.subscriptionId;
-		this.#currentInterestState = props.protocol.interestStateSchema.parse(
-			props.protocol.emptyInterestState(),
-		);
 	}
 
 	get publicSubscription(): {
-		readonly events: AsyncIterable<BridgeProductMetadataDataFrame<TData['event']>>;
+		readonly events: AsyncIterable<never>;
 		readonly subscriptionId: string;
 		readonly subscriptionKind: TKind;
 		cancel(): Promise<void>;
-		update(options: TUpdateOptions): Promise<void>;
 	} {
 		return {
 			cancel: (): Promise<void> => this.cancel(),
 			events: this.#eventQueue,
 			subscriptionId: this.subscriptionId,
 			subscriptionKind: this.#protocol.kind,
-			update: (options): Promise<void> => this.update(options),
 		};
 	}
 
@@ -310,13 +232,8 @@ export class BridgeProductSubscriptionState<
 		}
 		const consumerRelease = this.#releaseOperation;
 		this.#markReleased(retirement);
-		this.#rejectFrameWaiters(retirement);
 		if (consumerRelease === null) this.#eventQueue.fail(retirement, true);
 		return (consumerRelease ?? this.#queueRelease(retirement)).catch((): void => {});
-	}
-
-	update(options: TUpdateOptions): Promise<void> {
-		return this.#enqueue(() => this.#updateTo(options));
 	}
 
 	/**
@@ -372,8 +289,6 @@ export class BridgeProductSubscriptionState<
 				);
 			}
 			this.#accepted = true;
-			this.#currentInterestRevision = frame.interestRevision;
-			this.#currentInterestHash = frame.interestSha256;
 			this.#expectedSubscriptionSequence = 1;
 			return;
 		}
@@ -393,9 +308,6 @@ export class BridgeProductSubscriptionState<
 		// An operation cut short by this subscription's own release ends it cleanly:
 		// the consumer already has its terminal and native's frames still drain.
 		const endedByRelease = error === this.#releaseReason;
-		this.#rejectFrameWaiters(error);
-		this.#recoveryGate?.reject(error);
-		this.#recoveryGate = null;
 		if (endedByRelease && !(error instanceof BridgeProductSubscriptionEpochRetiredError)) {
 			this.#eventQueue.close(true);
 		} else {
@@ -408,28 +320,16 @@ export class BridgeProductSubscriptionState<
 		);
 	}
 
-	beginRecovery(): void {
-		if (this.#terminal || this.#recoveryGate !== null) return;
-		this.#recoveryGate = createBridgeProductDeferred<void>();
-		void this.#recoveryGate.promise.catch((): void => {});
-	}
-
 	reconciliationClaim():
 		| Extract<
 				BridgeProductControlRequest,
 				{ kind: 'workerSession.resync' }
 		  >['activeSubscriptions'][number]
 		| null {
-		if (
-			this.#terminal ||
-			this.#admittedWorkerDerivationEpoch === null ||
-			this.#currentInterestHash === null
-		) {
+		if (this.#terminal || this.#admittedWorkerDerivationEpoch === null) {
 			return null;
 		}
 		return {
-			interestRevision: this.#currentInterestRevision,
-			interestSha256: this.#currentInterestHash,
 			subscriptionId: this.subscriptionId,
 			subscriptionKind: this.#protocol.kind,
 			// Ask native whether the old ID can serve the current surface. Its
@@ -451,32 +351,7 @@ export class BridgeProductSubscriptionState<
 		}
 		switch (outcome.disposition) {
 			case 'retained':
-				this.#currentInterestRevision = outcome.interestRevision;
-				this.#currentInterestHash = outcome.interestSha256;
 				return;
-			case 'reset': {
-				const emptyState = this.#protocol.interestStateSchema.parse(
-					this.#protocol.emptyInterestState(),
-				);
-				const emptyHash = await sha256Hex(this.#protocol.encodeInterestState(emptyState));
-				if (this.#terminal) return;
-				if (
-					outcome.interestRevision <= this.#currentInterestRevision ||
-					outcome.interestSha256 !== emptyHash
-				) {
-					throw new Error('Bridge product reset must advance to canonical empty interests.');
-				}
-				this.#resetReplay = {
-					completion: this.#pendingBarrier?.completion ?? createBridgeProductDeferred<void>(),
-					targetState: this.#pendingBarrier?.targetState ?? this.#currentInterestState,
-				};
-				void this.#resetReplay.completion.promise.catch((): void => {});
-				this.#pendingBarrier = null;
-				this.#currentInterestRevision = outcome.interestRevision;
-				this.#currentInterestHash = outcome.interestSha256;
-				this.#currentInterestState = emptyState;
-				return;
-			}
 			case 'cancelled':
 				this.#retire();
 				return;
@@ -496,79 +371,10 @@ export class BridgeProductSubscriptionState<
 		}
 	}
 
-	async finishRecovery(): Promise<void> {
-		const gate = this.#recoveryGate;
-		if (gate === null) return;
-		if (this.#terminal) return;
-		if (this.#released) {
-			// A released subscription restores no interests; it only drains.
-			gate.resolve();
-			this.#recoveryGate = null;
-			return;
-		}
-		try {
-			const replay = this.#resetReplay;
-			if (replay !== null) await this.#replayResetInterests(replay);
-			this.#resetReplay = null;
-			gate.resolve();
-			this.#recoveryGate = null;
-		} catch (error) {
-			this.fail(error);
-			throw error;
-		}
-	}
-
 	#acceptPostAdmissionFrame(
 		frame: Exclude<BridgeProductSubscriptionFrame, { readonly kind: 'subscription.accepted' }>,
 	): void {
 		switch (frame.kind) {
-			case 'subscription.data': {
-				if (
-					frame.interestRevision !== this.#currentInterestRevision ||
-					frame.interestSha256 !== this.#currentInterestHash
-				) {
-					throw new BridgeProductSubscriptionFrameFailure(
-						'subscription_interest_mismatch',
-						'Bridge product subscription data arrived outside its committed barrier.',
-					);
-				}
-				const parsedData = this.#protocol.dataSchema.safeParse(frame.data);
-				if (!parsedData.success) {
-					throw new BridgeProductSubscriptionFrameFailure(
-						'subscription_payload_invalid',
-						parsedData.error.message,
-					);
-				}
-				const data = parsedData.data;
-				if (this.#protocol.readEventSourceGeneration(data.event) !== frame.sourceGeneration) {
-					throw new BridgeProductSubscriptionFrameFailure(
-						'subscription_generation_mismatch',
-						'Bridge product application event generation does not match its frame.',
-					);
-				}
-				try {
-					this.#eventQueue.push({
-						data: data.event,
-						metadataStreamId: frame.metadataStreamId,
-						operationCorrelationId: frame.operationCorrelationId,
-						sourceGeneration: frame.sourceGeneration,
-						streamSequence: frame.streamSequence,
-						subscriptionId: frame.subscriptionId,
-						subscriptionKind: frame.subscriptionKind,
-						subscriptionSequence: frame.subscriptionSequence,
-						workerDerivationEpoch: frame.workerDerivationEpoch,
-					});
-				} catch {
-					throw new BridgeProductSubscriptionFrameFailure(
-						'subscription_queue_rejected',
-						'Bridge product subscription event queue rejected a frame.',
-					);
-				}
-				return;
-			}
-			case 'subscription.interestsCommitted':
-				this.#acceptBarrier(frame);
-				return;
 			case 'subscription.cancelled':
 			case 'subscription.end':
 				this.#retire();
@@ -595,9 +401,9 @@ export class BridgeProductSubscriptionState<
 		// Admission records the epoch and queues the open control in one synchronous
 		// turn, so a later surface advance always sees this admission and sequences
 		// its release after the open.
-		let opened: { readonly interestRevision: number; readonly interestSha256: string };
+		let openAccepted: BridgeProductSubscriptionOpenAccepted;
 		try {
-			opened = await this.#admitAtWorkerDerivationEpoch((workerDerivationEpoch) => {
+			openAccepted = await this.#admitAtWorkerDerivationEpoch((workerDerivationEpoch) => {
 				this.#admittedWorkerDerivationEpoch = workerDerivationEpoch;
 				return this.#controlMux.openSubscription({
 					subscription,
@@ -610,95 +416,18 @@ export class BridgeProductSubscriptionState<
 			throw error;
 		}
 		this.#openAcknowledged = true;
-		if (
-			this.#currentInterestHash !== null &&
-			(this.#currentInterestRevision !== opened.interestRevision ||
-				this.#currentInterestHash !== opened.interestSha256)
-		) {
-			throw new Error('Bridge product subscription open control and stream facts disagree.');
+		if (this.#onOpened !== undefined) {
+			this.#initialScopePending = true;
+			try {
+				await this.#onOpened(
+					this.subscriptionId,
+					this.#initialScopeAbortController.signal,
+					'worktreeId' in openAccepted ? openAccepted.worktreeId : null,
+				);
+			} finally {
+				this.#initialScopePending = false;
+			}
 		}
-		this.#currentInterestRevision = opened.interestRevision;
-		this.#currentInterestHash = opened.interestSha256;
-		await this.#updateTo(
-			this.#protocol.updateOptionsSchema.parse(this.#protocol.initialUpdateOptions(initialOptions)),
-		);
-	}
-
-	async #updateTo(options: TUpdateOptions): Promise<void> {
-		this.#assertAcceptsInterests();
-		const parsedOptions = this.#protocol.updateOptionsSchema.parse(options);
-		const targetState = this.#protocol.interestStateSchema.parse(
-			this.#protocol.interestStateForUpdate(parsedOptions),
-		);
-		const delta = this.#protocol.interestDeltaSchema.parse(
-			this.#protocol.interestDelta(this.#currentInterestState, targetState),
-		);
-		const deltaItemCount = this.#protocol.interestDeltaItemCount(delta);
-		if (deltaItemCount === 0) return;
-		if (this.#currentInterestHash === null) {
-			throw new Error('Bridge product subscription update preceded its open acceptance.');
-		}
-		const targetInterestSha256 = await sha256Hex(this.#protocol.encodeInterestState(targetState));
-		while (this.#recoveryGate !== null) {
-			// eslint-disable-next-line no-await-in-loop -- Recovery restores committed interests before admitting this prepared update.
-			await this.#recoveryGate.promise;
-		}
-		this.#assertAcceptsInterests();
-		const targetInterestRevision = this.#currentInterestRevision + 1;
-		const updateId = this.#createIdentifier('subscription-update');
-		const barrier = createBridgeProductDeferred<void>();
-		void barrier.promise.catch((): void => {});
-		this.#pendingBarrier = {
-			completion: barrier,
-			targetInterestRevision,
-			targetInterestSha256,
-			targetState,
-			updateId,
-		};
-		try {
-			await this.#controlMux.updateSubscriptionBatch({
-				baseInterestRevision: this.#currentInterestRevision,
-				baseInterestSha256: this.#currentInterestHash,
-				batchCount: 1,
-				batchIndex: 0,
-				delta,
-				subscriptionId: this.subscriptionId,
-				targetInterestRevision,
-				targetInterestSha256,
-				totalDeltaItemCount: deltaItemCount,
-				updateId,
-				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
-			});
-		} catch (error) {
-			// A release requested while the update was in flight owns its outcome.
-			throw this.#releaseReason ?? error;
-		}
-		await barrier.promise;
-	}
-
-	/** A terminal or released subscription never sends interests to native. */
-	#assertAcceptsInterests(): void {
-		if (this.#releaseReason !== null) throw this.#releaseReason;
-		if (this.#terminal) throw new Error('Bridge product subscription is terminal.');
-	}
-
-	#acceptBarrier(
-		frame: Extract<BridgeProductSubscriptionFrame, { kind: 'subscription.interestsCommitted' }>,
-	): void {
-		const pending = this.#pendingBarrier;
-		if (
-			pending === null ||
-			frame.updateId !== pending.updateId ||
-			frame.interestRevision !== pending.targetInterestRevision ||
-			frame.interestSha256 !== pending.targetInterestSha256
-		) {
-			throw new Error('Bridge product subscription committed an unexpected interest barrier.');
-		}
-		this.#currentInterestRevision = pending.targetInterestRevision;
-		this.#currentInterestHash = pending.targetInterestSha256;
-		this.#currentInterestState = pending.targetState;
-		this.#pendingBarrier = null;
-		pending.completion.resolve();
 	}
 
 	#enqueue(
@@ -707,13 +436,7 @@ export class BridgeProductSubscriptionState<
 	): Promise<void> {
 		const prior =
 			admission === 'afterPriorSettles' ? this.#operation.catch((): void => {}) : this.#operation;
-		const result = prior.then(async (): Promise<void> => {
-			while (this.#recoveryGate !== null) {
-				// eslint-disable-next-line no-await-in-loop -- Recheck admission if another recovery began while this gate resolved.
-				await this.#recoveryGate.promise;
-			}
-			await operation();
-		});
+		const result = prior.then(operation);
 		this.#operation = result.catch((error: unknown): never => {
 			this.fail(error);
 			throw error;
@@ -729,6 +452,7 @@ export class BridgeProductSubscriptionState<
 	 * still hold the subscription, even after a local failure.
 	 */
 	#queueRelease(reason: Error): Promise<void> {
+		if (this.#initialScopePending) this.#markReleased(reason);
 		const operation = this.#enqueue(async (): Promise<void> => {
 			this.#markReleased(reason);
 			if (this.#openAcknowledged && !this.#nativeTerminalObserved) {
@@ -744,6 +468,7 @@ export class BridgeProductSubscriptionState<
 		if (this.#released) return;
 		this.#released = true;
 		this.#releaseReason = reason;
+		this.#initialScopeAbortController.abort(reason);
 	}
 
 	/**
@@ -766,13 +491,6 @@ export class BridgeProductSubscriptionState<
 		}
 	}
 
-	#rejectFrameWaiters(error: unknown): void {
-		this.#pendingBarrier?.completion.reject(error);
-		this.#pendingBarrier = null;
-		this.#resetReplay?.completion.reject(error);
-		this.#resetReplay = null;
-	}
-
 	/** Native may still send frames: admitted, and native has not ended it. */
 	#nativeMayStillServe(): boolean {
 		return (
@@ -793,54 +511,12 @@ export class BridgeProductSubscriptionState<
 	}
 
 	/** Native ended this subscription. */
-	#retire(waiterError: unknown = new Error('Bridge product subscription terminated.')): void {
+	#retire(_waiterError: unknown = new Error('Bridge product subscription terminated.')): void {
 		if (this.#terminal) return;
 		this.#nativeTerminalObserved = true;
 		this.#terminal = true;
-		this.#rejectFrameWaiters(waiterError);
-		this.#recoveryGate?.resolve();
-		this.#recoveryGate = null;
 		this.#eventQueue.close(true);
 		this.#onTerminal(this.subscriptionId);
-	}
-
-	async #replayResetInterests(replay: ResetReplay<TInterestState>): Promise<void> {
-		const delta = this.#protocol.interestDeltaSchema.parse(
-			this.#protocol.interestDelta(this.#currentInterestState, replay.targetState),
-		);
-		const deltaItemCount = this.#protocol.interestDeltaItemCount(delta);
-		if (deltaItemCount === 0) {
-			replay.completion.resolve();
-			return;
-		}
-		if (this.#currentInterestHash === null)
-			throw new Error('Reset replay requires interest state.');
-		const targetInterestRevision = this.#currentInterestRevision + 1;
-		const targetInterestSha256 = await sha256Hex(
-			this.#protocol.encodeInterestState(replay.targetState),
-		);
-		const updateId = this.#createIdentifier('subscription-update');
-		this.#pendingBarrier = {
-			completion: replay.completion,
-			targetInterestRevision,
-			targetInterestSha256,
-			targetState: replay.targetState,
-			updateId,
-		};
-		await this.#controlMux.updateSubscriptionBatch({
-			baseInterestRevision: this.#currentInterestRevision,
-			baseInterestSha256: this.#currentInterestHash,
-			batchCount: 1,
-			batchIndex: 0,
-			delta,
-			subscriptionId: this.subscriptionId,
-			targetInterestRevision,
-			targetInterestSha256,
-			totalDeltaItemCount: deltaItemCount,
-			updateId,
-			workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
-		});
-		await replay.completion.promise;
 	}
 
 	#requiredAdmittedWorkerDerivationEpoch(): number {
@@ -849,25 +525,4 @@ export class BridgeProductSubscriptionState<
 		}
 		return this.#admittedWorkerDerivationEpoch;
 	}
-}
-
-interface PendingSubscriptionBarrier<TInterestState> {
-	readonly completion: BridgeProductDeferred<void>;
-	readonly targetInterestRevision: number;
-	readonly targetInterestSha256: string;
-	readonly targetState: TInterestState;
-	readonly updateId: string;
-}
-
-interface ResetReplay<TInterestState> {
-	readonly completion: BridgeProductDeferred<void>;
-	readonly targetState: TInterestState;
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-	const ownedBytes = Uint8Array.from(bytes);
-	const digestBytes = new Uint8Array(
-		await globalThis.crypto.subtle.digest('SHA-256', ownedBytes.buffer),
-	);
-	return [...digestBytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }

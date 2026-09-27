@@ -2,10 +2,6 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
-import type {
-	BridgeProductMetadataApplicationEvent,
-	BridgeProductMetadataDataFrame,
-} from './bridge-product-metadata-application-protocol.js';
 import {
 	bridgeProductFileMetadataApplicationProtocol,
 	bridgeProductReviewMetadataApplicationProtocol,
@@ -14,10 +10,8 @@ import type { BridgeProductMetadataApplicationSubscription } from './bridge-prod
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 
 type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
-type FileMetadataEvent = BridgeProductMetadataApplicationEvent<FileMetadataProtocol>;
 type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
 type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
-type ReviewMetadataEvent = BridgeProductMetadataApplicationEvent<ReviewMetadataProtocol>;
 type ReviewMetadataSubscription =
 	BridgeProductMetadataApplicationSubscription<ReviewMetadataProtocol>;
 
@@ -40,7 +34,6 @@ describe('Bridge comm worker annotation source reconciliation', () => {
 				discoveryCount += 1;
 				return { source: currentFileSourceConfiguration, status: 'available' };
 			},
-			onFileMetadataEvent: (): void => {},
 			productTransport: unusedProductTransport(),
 			subscribeFile: () => {
 				subscriptionCount += 1;
@@ -69,7 +62,6 @@ describe('Bridge comm worker annotation source reconciliation', () => {
 		let cancellationCount = 0;
 		let subscriptionCount = 0;
 		const controller = new BridgeCommWorkerProductController({
-			onFileMetadataEvent: (): void => {},
 			productTransport: unusedProductTransport(),
 			subscribeReview: () => {
 				subscriptionCount += 1;
@@ -104,7 +96,6 @@ describe('Bridge comm worker annotation source reconciliation', () => {
 			onAnnotationProjectionConvergence: ({ state }): void => {
 				convergenceStates.push(state.kind);
 			},
-			onFileMetadataEvent: (): void => {},
 			productTransport: unusedProductTransport(),
 		});
 		controller.setAnnotationProjectionSurfaceActive('file', false, 10);
@@ -126,12 +117,9 @@ function fileMetadataSubscription(props: {
 }): FileMetadataSubscription {
 	return {
 		cancel: props.cancel,
-		events: new BridgeProductBoundedAsyncQueue<BridgeProductMetadataDataFrame<FileMetadataEvent>>(
-			1,
-		),
+		events: new BridgeProductBoundedAsyncQueue<never>(1),
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: 'file.metadata',
-		update: async (): Promise<void> => {},
 	};
 }
 
@@ -141,12 +129,9 @@ function reviewMetadataSubscription(props: {
 }): ReviewMetadataSubscription {
 	return {
 		cancel: props.cancel,
-		events: new BridgeProductBoundedAsyncQueue<BridgeProductMetadataDataFrame<ReviewMetadataEvent>>(
-			1,
-		),
+		events: new BridgeProductBoundedAsyncQueue<never>(1),
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: 'review.metadata',
-		update: async (): Promise<void> => {},
 	};
 }
 

@@ -188,14 +188,15 @@ describe('worktree annotation surface command rendezvous', () => {
 				)
 				.map((sample) => sample.stringAttributes['agentstudio.bridge.phase']),
 		).toEqual([
-			'annotation_catalog_main_begin',
-			'annotation_catalog_main_window',
-			'annotation_catalog_main_commit',
 			'projection_store_started',
 			'main_thread_install_started',
 			'projection_store_terminal',
 			'main_thread_install_terminal',
 		]);
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 7 },
+			kind: 'current',
+		});
 		expect(projectionSamples).toHaveLength(2);
 		expect(projectionSamples[0]?.stringAttributes).toMatchObject({
 			'agentstudio.bridge.operation.id': 'a'.repeat(64),
@@ -240,54 +241,25 @@ describe('worktree annotation surface command rendezvous', () => {
 		harness.client.dispose();
 	});
 
-	test('records bounded catalog staging units and the final presentation publication', () => {
+	test('commits catalog staging atomically without finite projection telemetry', () => {
 		const harness = createSurfaceClientHarness();
 		const messages = catalogStagingMessages(7, 'fileView');
-		const encoder = new TextEncoder();
-
-		for (const message of messages) harness.publish(message);
-
-		expect(harness.telemetrySamples).toHaveLength(3);
-		for (const [index, sample] of harness.telemetrySamples.entries()) {
-			const message = messages[index];
-			if (message === undefined) throw new Error('Expected catalog staging message.');
-			expect(sample.stringAttributes).toMatchObject({
-				'agentstudio.bridge.operation.id': 'a'.repeat(64),
-				'agentstudio.bridge.result': 'success',
-				'agentstudio.bridge.transport': 'local',
-				'agentstudio.bridge.viewer': 'file',
-			});
-			expect(sample.numericAttributes).toMatchObject({
-				'agentstudio.bridge.annotation.catalog.revision': 7,
-				'agentstudio.bridge.annotation.catalog.unit.byte_count': encoder.encode(
-					JSON.stringify(message),
-				).byteLength,
-				'agentstudio.bridge.presentation.revision.before': 0,
-			});
+		const [begin, window, commit] = messages;
+		if (begin === undefined || window === undefined || commit === undefined) {
+			throw new Error('Expected complete certified catalog staging.');
 		}
-		expect(harness.telemetrySamples[0]).toMatchObject({
-			stringAttributes: { 'agentstudio.bridge.phase': 'annotation_catalog_main_begin' },
-			numericAttributes: {
-				'agentstudio.bridge.annotation.catalog.entry.count': 3,
-				'agentstudio.bridge.presentation.revision.after': 0,
-			},
+		const initialPresentationRevision = harness.client.getSnapshot().presentationRevision;
+		harness.publish(begin);
+		harness.publish(window);
+		expect(harness.client.getCatalogSnapshot().kind).toBe('unknown');
+		expect(harness.client.getSnapshot().presentationRevision).toBe(initialPresentationRevision);
+		harness.publish(commit);
+		expect(harness.client.getCatalogSnapshot()).toMatchObject({
+			catalog: { catalogRevision: 7, entries: expect.any(Array) },
+			kind: 'current',
 		});
-		expect(harness.telemetrySamples[1]).toMatchObject({
-			stringAttributes: { 'agentstudio.bridge.phase': 'annotation_catalog_main_window' },
-			numericAttributes: {
-				'agentstudio.bridge.annotation.catalog.entry.count': 3,
-				'agentstudio.bridge.annotation.catalog.window.ordinal': 0,
-				'agentstudio.bridge.presentation.revision.after': 0,
-			},
-		});
-		expect(harness.telemetrySamples[2]).toMatchObject({
-			stringAttributes: { 'agentstudio.bridge.phase': 'annotation_catalog_main_commit' },
-			numericAttributes: {
-				'agentstudio.bridge.annotation.catalog.entry.count': 3,
-				'agentstudio.bridge.annotation.catalog.window.count': 1,
-				'agentstudio.bridge.presentation.revision.after': 1,
-			},
-		});
+		expect(harness.client.getSnapshot().presentationRevision).toBe(initialPresentationRevision + 1);
+		expect(harness.telemetrySamples).toEqual([]);
 		harness.client.dispose();
 	});
 

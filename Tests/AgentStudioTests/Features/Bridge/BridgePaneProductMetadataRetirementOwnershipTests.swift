@@ -5,12 +5,8 @@ import Testing
 
 @Suite("Bridge metadata reset retirement ownership")
 struct BridgeMetadataRetirementOwnershipTests {
-    @Test(
-        "failed predecessor completion cannot retire a replacement producer",
-        .timeLimit(.minutes(1)),
-        arguments: [false, true]
-    )
-    func failedPredecessorCannotRetireReplacement(failsDuringInterest: Bool) async throws {
+    @Test("failed predecessor completion cannot retire a replacement producer", .timeLimit(.minutes(1)))
+    func failedPredecessorCannotRetireReplacement() async throws {
         // Arrange
         let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
@@ -21,7 +17,7 @@ struct BridgeMetadataRetirementOwnershipTests {
             productAdmission: harness.productAdmission.context,
             acknowledgeLifecycle: { _ in true }
         )
-        let probe = MetadataRetirementOwnershipProbe(failsDuringInterest: failsDuringInterest)
+        let probe = MetadataRetirementOwnershipProbe()
         var observations = probe.observations.makeAsyncIterator()
         let registry = try BridgePaneProductMetadataNativeApplicationRegistry(applications: [
             .init(
@@ -30,7 +26,6 @@ struct BridgeMetadataRetirementOwnershipTests {
                 ),
                 adapter: .init(
                     open: { _, _, _, _, _, _, _ in try await probe.open() },
-                    update: { _, _, _, _, _, _, _ in try await probe.update() },
                     cancel: { _, _ in await probe.cancel() }
                 )
             )
@@ -53,26 +48,21 @@ struct BridgeMetadataRetirementOwnershipTests {
         )
         let token = try #require(controlExecutionToken(try await harness.begin(openRequest)))
         #expect(await harness.session.admitControlProviderExecution(token: token))
-        let lifecycle = try coordinatorFileSubscriptionLifecycle()
-        let subscription = lifecycle.opened
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
-            interestSha256: subscription.interestSha256
+            worktreeId: nil
         )
         let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
         )
+        guard case .subscriptionOpened(let subscription) = effect else {
+            Issue.record("Opening File subscription did not produce a lifecycle effect")
+            return
+        }
         _ = try await pullMetadataFrame(from: pump)
         await coordinator.apply(effect, productAdmission: harness.productAdmission.context)
-        let producerEffect: BridgeProductSessionCompletionEffect =
-            failsDuringInterest
-            ? .subscriptionInterestsCommitted(barrier: lifecycle.commitBarrier, subscription: lifecycle.updated)
-            : .subscriptionOpened(subscription)
-        if failsDuringInterest {
-            #expect(await observations.next() == .initialBootstrapFinished)
-            await coordinator.apply(producerEffect, productAdmission: harness.productAdmission.context)
-        }
+        let producerEffect = BridgeProductSessionCompletionEffect.subscriptionOpened(subscription)
         #expect(await observations.next() == .resetEnqueued)
         await harness.session.settleControlProviderDispatch(token: token)
 
@@ -97,7 +87,6 @@ struct BridgeMetadataRetirementOwnershipTests {
 
 private actor MetadataRetirementOwnershipProbe: BridgeProductMetadataLifecycleTraceRecording {
     enum Observation: Equatable, Sendable {
-        case initialBootstrapFinished
         case resetEnqueued
         case replacementOpened
         case failedProducerFinished
@@ -105,25 +94,19 @@ private actor MetadataRetirementOwnershipProbe: BridgeProductMetadataLifecycleTr
 
     nonisolated let observations: AsyncStream<Observation>
     private let continuation: AsyncStream<Observation>.Continuation
-    private let failsDuringInterest: Bool
     private var failureCompletionRelease: CheckedContinuation<Void, Never>?
     private var replacementRelease: CheckedContinuation<Void, Never>?
     private var operationCount = 0
     private(set) var cancellationCount = 0
 
-    init(failsDuringInterest: Bool) {
-        self.failsDuringInterest = failsDuringInterest
+    init() {
         let stream = AsyncStream.makeStream(of: Observation.self, bufferingPolicy: .bufferingNewest(8))
         observations = stream.stream
         continuation = stream.continuation
     }
 
     func open() async throws {
-        if !failsDuringInterest { try await runProducer() }
-    }
-
-    func update() async throws {
-        if failsDuringInterest { try await runProducer() }
+        try await runProducer()
     }
 
     private func runProducer() async throws {
@@ -151,8 +134,6 @@ private actor MetadataRetirementOwnershipProbe: BridgeProductMetadataLifecycleTr
             }
         } else if event.stage == .bootstrapFinished, event.result == .failure {
             continuation.yield(.failedProducerFinished)
-        } else if event.stage == .bootstrapFinished, operationCount == 0 {
-            continuation.yield(.initialBootstrapFinished)
         }
     }
 

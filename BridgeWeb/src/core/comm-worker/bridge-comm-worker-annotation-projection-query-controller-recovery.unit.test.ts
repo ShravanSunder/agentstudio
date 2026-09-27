@@ -2,12 +2,11 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import {
-	controlChanged,
 	createHarness,
 	deferred,
 	flushTaskQueueUntil,
 	makeProjectionPages,
-	pushSessionCatalog,
+	installSessionCatalog,
 } from './test-fixtures/bridge-comm-worker-annotation-projection.test-support.js';
 
 describe('Bridge annotation projection query recovery', () => {
@@ -26,14 +25,14 @@ describe('Bridge annotation projection query recovery', () => {
 		try {
 			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 1 });
 			harness.controller.ensureSubscription();
-			pushSessionCatalog(harness.notifications, 1);
+			installSessionCatalog(harness.notifications, 1);
 			await harness.controller.waitForIdle();
 
 			expect(harness.querySourceGenerations).toEqual([1, 1]);
 			expect(harness.statuses).toEqual(['refreshing', 'refreshing', 'unavailable']);
 			expect(harness.failures).toHaveLength(1);
 
-			harness.notifications.push(controlChanged(1));
+			harness.notifications.installCatalog(1);
 			await harness.controller.waitForIdle();
 
 			expect(harness.querySourceGenerations).toEqual([1, 1, 1]);
@@ -63,12 +62,12 @@ describe('Bridge annotation projection query recovery', () => {
 		try {
 			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 1 });
 			harness.controller.ensureSubscription();
-			pushSessionCatalog(harness.notifications, 1);
+			installSessionCatalog(harness.notifications, 1);
 			await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 1);
 
 			harness.controller.setDemand({ active: false, sessionIds: [], sourceGeneration: 1 });
 			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 2 });
-			harness.notifications.push(controlChanged(2));
+			harness.notifications.installCatalog(2);
 			firstAttempt.resolve(Promise.reject(retryableProjectionFailure(1)));
 			await harness.controller.waitForIdle();
 
@@ -96,7 +95,7 @@ describe('Bridge annotation projection query recovery', () => {
 		try {
 			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 1 });
 			harness.controller.ensureSubscription();
-			pushSessionCatalog(harness.notifications, 1);
+			installSessionCatalog(harness.notifications, 1);
 			await harness.controller.waitForIdle();
 			expect(harness.failures).toHaveLength(1);
 

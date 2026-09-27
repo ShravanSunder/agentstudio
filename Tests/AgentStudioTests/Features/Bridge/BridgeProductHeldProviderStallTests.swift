@@ -430,14 +430,18 @@ private actor S13HeldProductCallProvider: BridgeProductSchemeProvider {
                 }
                 return try .callCompleted(correlating: request, result: .reviewMarkFileViewed)
             case .subscriptionOpen(let openRequest):
-                let interestState = try openRequest.subscription.initialInterestState()
+                let worktreeId: String? =
+                    switch openRequest.subscription.subscriptionKind {
+                    case .fileAnnotations, .reviewAnnotations: "worktree-1"
+                    default: nil
+                    }
                 return try .subscriptionOpenAccepted(
                     correlating: request,
-                    interestSha256: interestState.sha256Hex()
+                    worktreeId: worktreeId
                 )
             case .subscriptionCancel:
                 return try .subscriptionCancelAccepted(correlating: request)
-            case .subscriptionUpdateBatch, .viewScope, .viewResnapshot, .workerSessionResync:
+            case .viewScope, .viewResnapshot, .workerSessionResync:
                 preconditionFailure("The S13 provider received an unconfigured control request")
             }
         } catch {

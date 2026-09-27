@@ -46,6 +46,7 @@ const bootstrap: BridgeProductSessionBootstrap = {
 		maximumMetadataFrameBytes: 128 * 1024,
 		maximumQueuedStreamBytes: 4 * 1024 * 1024,
 		admissionRetryCount: 2,
+		contentProgressDeadlineMilliseconds: 5_000,
 		telemetryPreReadyBufferMaxBytes: 64 * 1024,
 		telemetryPreReadyBufferMaxSamples: 128,
 		workerSettlementDeadlineMilliseconds: 5_000,

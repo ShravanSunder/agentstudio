@@ -33,9 +33,6 @@ type ActiveSubscriptions = Extract<
 type ResyncRequest = Extract<BridgeProductControlRequest, { kind: 'workerSession.resync' }>;
 type ResyncResponse = Extract<BridgeProductControlResponse, { kind: 'resync.accepted' }>;
 
-const firstInterestSha256 = '1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6';
-const secondInterestSha256 = '2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd';
-
 describe('Bridge product control mux resync', () => {
 	test('exposes the strict worker-session resync operation', () => {
 		const mux = createControlMux(async (): Promise<Response> => new Response(null));
@@ -121,30 +118,21 @@ describe('Bridge product control mux resync', () => {
 		).rejects.toThrow(/order or identity/iu);
 	});
 
-	test.each([
-		['interest hash', { interestSha256: secondInterestSha256 }],
-		['interest revision', { interestRevision: 8 }],
-	] satisfies readonly [string, Readonly<Record<string, string | number>>][])(
-		'rejects a retained reconciliation with a mismatched %s',
-		async (_field, mismatch) => {
-			await expectRejectedResyncResponse(
-				(request) => ({
-					...resyncAcceptedResponse(request, [
-						retainedOutcome(requireArrayItem(oneActiveSubscription(), 0, 'active subscription')),
-					]),
-					reconciliation: [
-						{
-							...retainedOutcome(
-								requireArrayItem(oneActiveSubscription(), 0, 'active subscription'),
-							),
-							...mismatch,
-						},
-					],
-				}),
-				/retained reconciliation/iu,
-			);
-		},
-	);
+	test('rejects a retained reconciliation with a mismatched worker epoch', async () => {
+		await expectRejectedResyncResponse(
+			(request) => ({
+				...resyncAcceptedResponse(request, [
+					{
+						disposition: 'retained',
+						subscriptionId: 'review-subscription-1',
+						subscriptionKind: 'review.metadata',
+						workerDerivationEpoch: 99,
+					},
+				]),
+			}),
+			/retained reconciliation epoch/iu,
+		);
+	});
 
 	test('captures resync state after admission while a prior result remains held', async () => {
 		const heldCallResponse = createBridgeProductDeferred<Response>();
@@ -272,8 +260,6 @@ async function expectRejectedResyncResponse(
 function oneActiveSubscription(): ActiveSubscriptions {
 	return [
 		{
-			interestRevision: 7,
-			interestSha256: firstInterestSha256,
 			subscriptionId: 'review-subscription-1',
 			subscriptionKind: 'review.metadata',
 			workerDerivationEpoch: 3,
@@ -285,8 +271,6 @@ function twoActiveSubscriptions(): ActiveSubscriptions {
 	return [
 		...oneActiveSubscription(),
 		{
-			interestRevision: 2,
-			interestSha256: secondInterestSha256,
 			subscriptionId: 'file-subscription-1',
 			subscriptionKind: 'file.metadata',
 			workerDerivationEpoch: 5,
@@ -298,15 +282,6 @@ function canonicalReconciliationOutcomes(): readonly BridgeProductResyncReconcil
 	const activeSubscription = requireArrayItem(oneActiveSubscription(), 0, 'active subscription');
 	return [
 		retainedOutcome(activeSubscription),
-		{
-			disposition: 'reset',
-			interestRevision: 8,
-			interestSha256: secondInterestSha256,
-			reason: 'interest_mismatch',
-			subscriptionId: activeSubscription.subscriptionId,
-			subscriptionKind: activeSubscription.subscriptionKind,
-			workerDerivationEpoch: activeSubscription.workerDerivationEpoch,
-		},
 		{
 			disposition: 'cancelled',
 			priorWorkerDerivationEpoch: activeSubscription.workerDerivationEpoch,
@@ -329,8 +304,6 @@ function retainedOutcome(
 ): BridgeProductResyncReconciliationOutcome {
 	return {
 		disposition: 'retained',
-		interestRevision: activeSubscription.interestRevision,
-		interestSha256: activeSubscription.interestSha256,
 		subscriptionId: activeSubscription.subscriptionId,
 		subscriptionKind: activeSubscription.subscriptionKind,
 		workerDerivationEpoch: activeSubscription.workerDerivationEpoch,
@@ -380,6 +353,7 @@ function createControlMux(
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				admissionRetryCount: 2,
+				contentProgressDeadlineMilliseconds: 5_000,
 				telemetryPreReadyBufferMaxBytes: 64 * 1024,
 				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,

@@ -133,68 +133,28 @@ struct ProductFileSourceFixture {
         return try requiredSnapshot(from: state, subscriptionId: subscriptionId)
     }
 
-    func updatedSnapshot(
-        from openSnapshot: BridgeProductSubscriptionSnapshot,
-        visiblePaths: [String] = []
-    ) throws -> BridgeProductSubscriptionSnapshot {
-        var interests = [
-            try BridgeProductFileMetadataInterestStateGroup(
-                lane: .foreground,
-                paths: [demandedPath]
-            )
-        ]
+    func viewDemand(
+        foregroundPaths: [String]? = nil,
+        visiblePaths: [String] = [],
+        pathScope: [String] = [],
+        scopeRevision: Int = 1,
+        admissionSequence: Int? = nil,
+        handle: String = "file-view-handle-1"
+    ) throws -> BridgePaneProductFileViewDemand {
+        let selectedPaths = foregroundPaths ?? [demandedPath]
+        var interests: [BridgeProductFileMetadataInterestStateGroup] = []
+        if !selectedPaths.isEmpty {
+            interests.append(try .init(lane: .foreground, paths: selectedPaths))
+        }
         if !visiblePaths.isEmpty {
             interests.append(try .init(lane: .visible, paths: visiblePaths))
         }
-        let targetState = BridgeProductSubscriptionInterestState.fileMetadata(
-            interests: interests,
-            pathScope: []
+        return BridgePaneProductFileViewDemand(
+            admissionSequence: admissionSequence ?? scopeRevision,
+            handle: handle,
+            scopeRevision: scopeRevision,
+            state: .init(interests: interests, pathScope: pathScope)
         )
-        let targetSHA256 = try targetState.sha256Hex()
-        let request = try controlRequest(
-            kind: "subscription.updateBatch",
-            requestSequence: 3,
-            values: [
-                "baseInterestRevision": 0,
-                "baseInterestSha256": openSnapshot.interestSha256,
-                "batchCount": 1,
-                "batchIndex": 0,
-                "delta": [
-                    "add": [
-                        ["lane": "foreground", "path": demandedPath]
-                    ] + visiblePaths.map { ["lane": "visible", "path": $0] },
-                    "addPathScope": [],
-                    "removePathScope": [],
-                    "removePaths": [],
-                    "subscriptionKind": "file.metadata",
-                ],
-                "subscriptionId": openSnapshot.subscriptionId,
-                "subscriptionKind": "file.metadata",
-                "targetInterestRevision": 1,
-                "targetInterestSha256": targetSHA256,
-                "totalDeltaItemCount": 1 + visiblePaths.count,
-                "updateId": "file-update-1",
-            ]
-        )
-        guard case .subscriptionUpdateBatch(let updateRequest) = request else {
-            throw ProductFileSourceFixtureError.invalidControlRequest
-        }
-        var state = BridgeProductSubscriptionState()
-        guard
-            case .subscriptionOpen(let openRequest) = try controlRequest(
-                kind: "subscription.open",
-                requestSequence: 2,
-                values: [
-                    "subscription": openSnapshotSubscriptionObject,
-                    "subscriptionId": openSnapshot.subscriptionId,
-                ]
-            )
-        else {
-            throw ProductFileSourceFixtureError.invalidControlRequest
-        }
-        _ = try state.open(openRequest)
-        _ = try state.apply(updateRequest)
-        return try requiredSnapshot(from: state, subscriptionId: openSnapshot.subscriptionId)
     }
 
     func contentRequest(
@@ -223,20 +183,6 @@ struct ProductFileSourceFixture {
             throw ProductFileSourceFixtureError.invalidContentRequest
         }
         return fileRequest
-    }
-
-    private var openSnapshotSubscriptionObject: [String: Any] {
-        [
-            "source": [
-                "cwdScope": NSNull(),
-                "freshness": "live",
-                "includeStatuses": true,
-                "repoId": repoId.uuidString,
-                "rootPathToken": StableKey.fromPath(rootURL),
-                "worktreeId": worktreeId.uuidString,
-            ],
-            "subscriptionKind": "file.metadata",
-        ]
     }
 
     private func requiredSnapshot(

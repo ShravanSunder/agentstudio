@@ -24,14 +24,12 @@ describe('Bridge comm worker product controller active viewer mode', () => {
 			onActiveViewerModeAdmitted: (mode): void => {
 				admittedModes.push(mode);
 			},
-			onFileMetadataEvent: (): void => {},
 			productTransport: activeModeTransport(fileAdmission.promise, reviewAdmission.promise),
 			subscribeFile: () => ({
 				cancel: async (): Promise<void> => {},
 				events: new BridgeProductBoundedAsyncQueue(1),
 				subscriptionId: 'late-file-mode-subscription',
 				subscriptionKind: 'file.metadata',
-				update: async (): Promise<void> => {},
 			}),
 			subscribeReview: () => {
 				reviewSubscriptionCount += 1;
@@ -40,7 +38,6 @@ describe('Bridge comm worker product controller active viewer mode', () => {
 					events: new BridgeProductBoundedAsyncQueue(1),
 					subscriptionId: 'current-review-mode-subscription',
 					subscriptionKind: 'review.metadata',
-					update: async (): Promise<void> => {},
 				};
 			},
 		});
@@ -72,14 +69,12 @@ describe('Bridge comm worker product controller active viewer mode', () => {
 			onActiveViewerModeAdmitted: (mode): void => {
 				admittedModes.push(mode);
 			},
-			onFileMetadataEvent: (): void => {},
 			productTransport: activeModeTransport(fileAdmission.promise, reviewAdmission.promise),
 			subscribeFile: () => ({
 				cancel: async (): Promise<void> => {},
 				events: new BridgeProductBoundedAsyncQueue(1),
 				subscriptionId: 'current-file-mode-subscription',
 				subscriptionKind: 'file.metadata',
-				update: async (): Promise<void> => {},
 			}),
 			subscribeReview: () => {
 				reviewSubscriptionCount += 1;
@@ -88,7 +83,6 @@ describe('Bridge comm worker product controller active viewer mode', () => {
 					events: new BridgeProductBoundedAsyncQueue(1),
 					subscriptionId: 'hidden-review-subscription',
 					subscriptionKind: 'review.metadata',
-					update: async (): Promise<void> => {},
 				};
 			},
 		});

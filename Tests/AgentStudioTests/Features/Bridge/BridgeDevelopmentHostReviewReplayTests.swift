@@ -13,8 +13,8 @@ import Testing
     .timeLimit(.minutes(1))
 )
 struct BridgeDevelopmentHostReviewReplayTests {
-    @Test("fresh File bootstrap replays every retained Review metadata window")
-    func freshFileBootstrapReplaysEveryRetainedReviewMetadataWindow() async throws {
+    @Test("fresh File bootstrap replays every certified Review batch part with returned credits")
+    func freshFileBootstrapReplaysEveryCertifiedReviewBatchPart() async throws {
         // Arrange
         let expectedItemCount = 1699
         let repositoryURL = try await FilesystemTestGitRepo.create(
@@ -54,7 +54,7 @@ struct BridgeDevelopmentHostReviewReplayTests {
             let retainedPublication = try #require(await host.diagnosticCommittedReviewPublication())
             #expect(retainedPublication.package.orderedItemIds.count == expectedItemCount)
             #expect(firstReplay.identity.publicationId == retainedPublication.publicationId)
-            #expect(firstReplay.windowCount > 1)
+            #expect(firstReplay.partCount > 1)
             #expect(
                 try await firstWorker.admitReviewPublication(
                     candidatePublicationId: retainedPublication.publicationId,
@@ -102,7 +102,7 @@ struct BridgeDevelopmentHostReviewReplayTests {
             #expect(secondWorker.workerInstanceId != firstWorker.workerInstanceId)
             #expect(secondReplay.identity == firstReplay.identity)
             #expect(secondReplay.itemCount == expectedItemCount)
-            #expect(secondReplay.windowCount == firstReplay.windowCount)
+            #expect(secondReplay.partCount == firstReplay.partCount)
             #expect(
                 await host.diagnosticCommittedReviewPublication()?.publicationId
                     == retainedPublication.publicationId

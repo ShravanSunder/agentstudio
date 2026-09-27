@@ -31,6 +31,7 @@ const bootstrap: BridgeProductSessionBootstrap = {
 	paneSessionId: 'pane-result-ack',
 	policy: {
 		admissionRetryCount: 2,
+		contentProgressDeadlineMilliseconds: 5_000,
 		maximumContentBytes: 2 * 1024 * 1024,
 		maximumMetadataFrameBytes: 128 * 1024,
 		maximumQueuedStreamBytes: 4 * 1024 * 1024,

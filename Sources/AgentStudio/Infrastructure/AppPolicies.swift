@@ -178,6 +178,8 @@ package enum AppPolicies {
         package static let productOperationSettlementDeadline: Duration = .seconds(4)
         /// The worker allows the native settlement deadline to fire first.
         package static let productWorkerSettlementDeadline: Duration = .seconds(5)
+        /// A finite content read must make response or verified body progress.
+        package static let contentProgressDeadline: Duration = .seconds(5)
         package static let productAdmissionRetryCount: Int = 2
         /// N3 bounds in-transit metadata parts independently of the producer queue.
         package static let productViewCreditParts: Int = 8

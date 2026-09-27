@@ -1,14 +1,5 @@
 import Foundation
 
-func sealBridgeReviewMetadataEvent(
-    _ event: BridgeProductReviewMetadataEvent
-) throws -> BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent> {
-    let registration = try BridgeProductMetadataApplicationRegistry.product.registration(
-        for: .reviewMetadata
-    )
-    return try registration.sealEvent(event)
-}
-
 struct BridgeReviewMetadataProjectionWindow: Equatable, Sendable {
     let itemRange: Range<Int>
     let treeRowRange: Range<Int>

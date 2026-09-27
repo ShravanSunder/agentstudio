@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { vi } from 'vitest';
 
 import { executeAgentStudioBridgeProductRequest } from '../bridge-product-agent-studio-request-executor.js';
@@ -29,12 +27,7 @@ import {
 	type BridgeProductMetadataFrame,
 	type BridgeProductMetadataStreamRequest,
 } from '../bridge-product-session-contracts.js';
-import type {
-	BridgeProductSubscriptionKind,
-	BridgeProductSubscriptionOptions,
-} from '../bridge-product-subscription-contracts.js';
-import { bridgeProductSubscriptionKindSchema } from '../bridge-product-subscription-contracts.js';
-import { encodeBridgeProductSubscriptionInterestState } from '../bridge-product-subscription-interest-state-codec.js';
+import type { BridgeProductSubscriptionKind } from '../bridge-product-subscription-contracts.js';
 import {
 	createBridgeProductTransport,
 	type BridgeProductIdentifierPurpose,
@@ -78,6 +71,7 @@ export function createTransportHarness(
 				maximumMetadataFrameBytes: 128 * 1024,
 				maximumQueuedStreamBytes: 4 * 1024 * 1024,
 				admissionRetryCount: 2,
+				contentProgressDeadlineMilliseconds: 5_000,
 				telemetryPreReadyBufferMaxBytes: 64 * 1024,
 				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,
@@ -139,11 +133,6 @@ export class TestProductServer {
 	cancelHandler:
 		| ((
 				request: Extract<BridgeProductControlRequest, { kind: 'subscription.cancel' }>,
-		  ) => Promise<Response> | Response)
-		| null = null;
-	updateHandler:
-		| ((
-				request: Extract<BridgeProductControlRequest, { kind: 'subscription.updateBatch' }>,
 		  ) => Promise<Response> | Response)
 		| null = null;
 	nextAcknowledgementHandler:
@@ -374,24 +363,13 @@ export class TestProductServer {
 			case 'subscription.open':
 				return jsonResponse({
 					...identity,
-					interestRevision: 0,
-					interestSha256: emptyInterestHash(request.subscription.subscriptionKind),
+					...(request.subscription.subscriptionKind === 'file.annotations' ||
+					request.subscription.subscriptionKind === 'review.annotations'
+						? { worktreeId: '00000000-0000-4000-8000-000000000002' }
+						: {}),
 					kind: 'subscription.openAccepted',
 					subscriptionId: request.subscriptionId,
 					subscriptionKind: request.subscription.subscriptionKind,
-				});
-			case 'subscription.updateBatch':
-				if (this.updateHandler !== null) return await this.updateHandler(request);
-				return jsonResponse({
-					...identity,
-					batchIndex: request.batchIndex,
-					disposition: 'committed',
-					kind: 'subscription.updateBatchAccepted',
-					subscriptionId: request.subscriptionId,
-					subscriptionKind: request.subscriptionKind,
-					targetInterestRevision: request.targetInterestRevision,
-					targetInterestSha256: request.targetInterestSha256,
-					updateId: request.updateId,
 				});
 			case 'subscription.cancel':
 				if (this.cancelHandler !== null) return await this.cancelHandler(request);
@@ -450,8 +428,6 @@ function validatedRetainedResyncResponse(
 		nextExpectedRequestSequence: request.requestSequence + 1,
 		reconciliation: request.activeSubscriptions.map((subscription) => ({
 			disposition: 'retained',
-			interestRevision: subscription.interestRevision,
-			interestSha256: subscription.interestSha256,
 			subscriptionId: subscription.subscriptionId,
 			subscriptionKind: subscription.subscriptionKind,
 			workerDerivationEpoch: subscription.workerDerivationEpoch,
@@ -475,7 +451,6 @@ export function metadataAccepted(
 
 export function subscriptionAccepted(props: {
 	readonly epoch: number;
-	readonly interestHash: string;
 	readonly kind: BridgeProductSubscriptionKind;
 	readonly request: BridgeProductMetadataStreamRequest;
 	readonly streamSequence: number;
@@ -483,11 +458,7 @@ export function subscriptionAccepted(props: {
 }): BridgeProductMetadataFrame {
 	return bridgeProductMetadataFrameSchema.parse({
 		...metadataIdentity(props.request, props.streamSequence),
-		cursor: null,
-		interestRevision: 0,
-		interestSha256: props.interestHash,
 		kind: 'subscription.accepted',
-		sourceGeneration: 0,
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: props.kind,
 		subscriptionSequence: 0,
@@ -495,90 +466,17 @@ export function subscriptionAccepted(props: {
 	});
 }
 
-export function reviewData(props: {
-	readonly epoch: number;
-	readonly interestHash: string;
-	readonly request: BridgeProductMetadataStreamRequest;
-	readonly streamSequence: number;
-	readonly subscriptionId: string;
-	readonly subscriptionSequence: number;
-}): BridgeProductMetadataFrame {
-	return bridgeProductMetadataFrameSchema.parse({
-		...metadataIdentity(props.request, props.streamSequence),
-		cursor: 'cursor-1',
-		data: {
-			event: {
-				eventKind: 'review.sourceAccepted',
-				generation: 1,
-				operationCorrelationId: null,
-				packageId: 'package-1',
-				publicationId: '00000000-0000-7000-8000-000000000001',
-				revision: 1,
-				sourceIdentity: 'source-1',
-			},
-			subscriptionKind: 'review.metadata',
-		},
-		interestRevision: 0,
-		interestSha256: props.interestHash,
-		kind: 'subscription.data',
-		operationCorrelationId: null,
-		sourceGeneration: 1,
-		subscriptionId: props.subscriptionId,
-		subscriptionKind: 'review.metadata',
-		subscriptionSequence: props.subscriptionSequence,
-		workerDerivationEpoch: props.epoch,
-	});
-}
-
-export function fileSourceAcceptedData(props: {
-	readonly epoch: number;
-	readonly interestHash: string;
-	readonly request: BridgeProductMetadataStreamRequest;
-	readonly sourceGeneration?: number;
-	readonly streamSequence: number;
-	readonly subscriptionId: string;
-	readonly subscriptionSequence?: number;
-}): BridgeProductMetadataFrame {
-	const sourceGeneration = props.sourceGeneration ?? 1;
-	return bridgeProductMetadataFrameSchema.parse({
-		...metadataIdentity(props.request, props.streamSequence),
-		cursor: `source-cursor-${sourceGeneration}`,
-		data: {
-			event: {
-				eventKind: 'file.sourceAccepted',
-				source: fileSourceIdentity(sourceGeneration),
-			},
-			subscriptionKind: 'file.metadata',
-		},
-		interestRevision: 0,
-		interestSha256: props.interestHash,
-		kind: 'subscription.data',
-		operationCorrelationId: null,
-		sourceGeneration,
-		subscriptionId: props.subscriptionId,
-		subscriptionKind: 'file.metadata',
-		subscriptionSequence: props.subscriptionSequence ?? 1,
-		workerDerivationEpoch: props.epoch,
-	});
-}
-
 export function subscriptionCancelled(props: {
 	readonly epoch: number;
-	readonly interestHash: string;
 	readonly kind?: BridgeProductSubscriptionKind;
 	readonly request: BridgeProductMetadataStreamRequest;
-	readonly sourceGeneration?: number;
 	readonly streamSequence: number;
 	readonly subscriptionId: string;
 	readonly subscriptionSequence?: number;
 }): BridgeProductMetadataFrame {
 	return bridgeProductMetadataFrameSchema.parse({
 		...metadataIdentity(props.request, props.streamSequence),
-		cursor: null,
-		interestRevision: 0,
-		interestSha256: props.interestHash,
 		kind: 'subscription.cancelled',
-		sourceGeneration: props.sourceGeneration ?? 0,
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: props.kind ?? 'review.metadata',
 		subscriptionSequence: props.subscriptionSequence ?? 1,
@@ -611,7 +509,6 @@ export function requestErrorResponse(
 
 export function subscriptionReset(props: {
 	readonly epoch: number;
-	readonly interestHash: string;
 	readonly kind: BridgeProductSubscriptionKind;
 	readonly reason: 'stale_source';
 	readonly request: BridgeProductMetadataStreamRequest;
@@ -621,12 +518,8 @@ export function subscriptionReset(props: {
 }): BridgeProductMetadataFrame {
 	return bridgeProductMetadataFrameSchema.parse({
 		...metadataIdentity(props.request, props.streamSequence),
-		cursor: null,
-		interestRevision: 0,
-		interestSha256: props.interestHash,
 		kind: 'subscription.reset',
 		reason: props.reason,
-		sourceGeneration: 0,
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: props.kind,
 		subscriptionSequence: props.subscriptionSequence,
@@ -634,28 +527,14 @@ export function subscriptionReset(props: {
 	});
 }
 
-export function interestBarrier(
-	update: Extract<BridgeProductControlRequest, { kind: 'subscription.updateBatch' }>,
-	request: BridgeProductMetadataStreamRequest,
-	streamSequence: number,
-	subscriptionSequence: number,
-): BridgeProductMetadataFrame {
-	return bridgeProductMetadataFrameSchema.parse({
-		...metadataIdentity(request, streamSequence),
-		cursor: null,
-		interestRevision: update.targetInterestRevision,
-		interestSha256: update.targetInterestSha256,
-		kind: 'subscription.interestsCommitted',
-		sourceGeneration: 1,
-		subscriptionId: update.subscriptionId,
-		subscriptionKind: update.subscriptionKind,
-		subscriptionSequence,
-		updateId: update.updateId,
-		workerDerivationEpoch: update.workerDerivationEpoch,
-	});
-}
-
-export function fileSourceConfiguration(): BridgeProductSubscriptionOptions<'file.metadata'>['source'] {
+export function fileSourceConfiguration(): {
+	readonly cwdScope: string | null;
+	readonly freshness: 'live';
+	readonly includeStatuses: boolean;
+	readonly repoId: string;
+	readonly rootPathToken: string;
+	readonly worktreeId: string;
+} {
 	return {
 		cwdScope: null,
 		freshness: 'live',
@@ -675,28 +554,6 @@ export function fileSourceIdentity(sourceGeneration = 1): BridgeProductFileSourc
 		subscriptionGeneration: sourceGeneration,
 		worktreeId: '00000000-0000-4000-8000-000000000002',
 	} as const;
-}
-
-export function emptyInterestHash(kind: string): string {
-	const validatedKind = bridgeProductSubscriptionKindSchema.parse(kind);
-	switch (validatedKind) {
-		case 'file.annotations':
-		case 'review.annotations':
-			return interestHash({ subscriptionKind: validatedKind });
-		case 'file.metadata':
-			return interestHash({ interests: [], pathScope: [], subscriptionKind: validatedKind });
-		case 'review.metadata':
-			return interestHash({ interests: [], subscriptionKind: validatedKind });
-	}
-	throw new Error('Unsupported Bridge product subscription kind.');
-}
-
-export function interestHash(
-	state: Parameters<typeof encodeBridgeProductSubscriptionInterestState>[0],
-): string {
-	return createHash('sha256')
-		.update(encodeBridgeProductSubscriptionInterestState(state))
-		.digest('hex');
 }
 
 export async function waitForCondition(predicate: () => boolean): Promise<void> {

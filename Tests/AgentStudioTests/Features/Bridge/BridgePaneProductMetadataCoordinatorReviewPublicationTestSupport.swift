@@ -10,32 +10,24 @@ actor CoordinatorTrackingReviewMetadataSource: BridgePaneProductReviewMetadataPr
     private var publicationReceipt: BridgeReviewMetadataPublicationReceipt?
     private var publicationReceiptWaiters: [CheckedContinuation<BridgeReviewMetadataPublicationReceipt, Never>] = []
 
+    func applyViewDemand(_ request: BridgePaneProductReviewViewDemandRequest) async throws
+        -> BridgePaneProductReviewViewCapture?
+    {
+        try await source.applyViewDemand(request)
+    }
+
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
+        productAdmission: BridgeProductAdmissionContext
     ) async throws {
         try await source.open(
             subscription: subscription,
-            productAdmission: productAdmission,
-            emit: emit
+            productAdmission: productAdmission
         )
         didRegisterOpen = true
         let waiters = openWaiters
         openWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.resume() }
-    }
-
-    func update(
-        subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {
-        try await source.update(
-            subscription: subscription,
-            productAdmission: productAdmission,
-            emit: emit
-        )
     }
 
     func reserve(
@@ -120,23 +112,10 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
     private var deliveryStartedWaiters: [CheckedContinuation<Void, Never>] = []
     private var deliveryFinished = false
     private var deliveryFinishedWaiters: [CheckedContinuation<Void, Never>] = []
-    private var emit: BridgePaneProductReviewMetadataEventSink?
-
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) {
-        self.emit = emit
-    }
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) {
-        self.emit = emit
-    }
+        productAdmission _: BridgeProductAdmissionContext
+    ) {}
 
     func reserve(
         package: BridgeReviewPackage,
@@ -147,9 +126,9 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
     }
 
     func deliver(
-        publication: BridgeReviewCommittedPublication,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         defer {
             deliveryFinished = true
@@ -164,27 +143,13 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
         await withCheckedContinuation { continuation in
             deliveryRelease = continuation
         }
-        guard let emit else {
-            throw CoordinatorReviewPublicationTestError.missingSink
-        }
-        let enqueueResult = try await emit(
-            try sealBridgeReviewMetadataEvent(
-                coordinatorReviewMetadataEvent(for: publication.package)
-            ),
-            productAdmission
-        )
-        guard case .enqueued(let frame) = enqueueResult else {
-            throw CoordinatorReviewPublicationTestError.enqueueRejected
-        }
         return .delivered(
             .init(
                 retained: 1,
                 publishedSubscriptions: 1,
-                emittedEvents: 1,
+                emittedEvents: 0,
                 superseded: 0,
-                finalFrames: [
-                    .init(sequence: frame.sequence, subscriptionId: "review-subscription-1")
-                ]
+                finalFrames: []
             ))
     }
 
@@ -215,23 +180,10 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
 actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
     private var deliverAttemptCount = 0
     private var deliverAttemptWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
-    private var emit: BridgePaneProductReviewMetadataEventSink?
-
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) {
-        self.emit = emit
-    }
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) {
-        self.emit = emit
-    }
+        productAdmission _: BridgeProductAdmissionContext
+    ) {}
 
     func reserve(
         package: BridgeReviewPackage,
@@ -242,9 +194,9 @@ actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataP
     }
 
     func deliver(
-        publication: BridgeReviewCommittedPublication,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         deliverAttemptCount += 1
         let attempt = deliverAttemptCount
@@ -254,27 +206,13 @@ actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataP
         if attempt == 1 {
             throw BridgePaneProductMetadataCoordinatorError.producerQueueReset
         }
-        guard let emit else {
-            throw CoordinatorReviewPublicationTestError.missingSink
-        }
-        let enqueueResult = try await emit(
-            try sealBridgeReviewMetadataEvent(
-                coordinatorReviewMetadataEvent(for: publication.package)
-            ),
-            productAdmission
-        )
-        guard case .enqueued(let frame) = enqueueResult else {
-            throw CoordinatorReviewPublicationTestError.enqueueRejected
-        }
         return .delivered(
             .init(
                 retained: 1,
                 publishedSubscriptions: 1,
-                emittedEvents: 1,
+                emittedEvents: 0,
                 superseded: 0,
-                finalFrames: [
-                    .init(sequence: frame.sequence, subscriptionId: "review-subscription-1")
-                ]
+                finalFrames: []
             ))
     }
 
@@ -288,107 +226,6 @@ actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataP
     }
 
     var deliveryAttempts: Int { deliverAttemptCount }
-}
-
-actor CoordinatorEarlyFinalFramesSource:
-    BridgePaneProductReviewMetadataProducing
-{
-    private var deliveryRelease: CheckedContinuation<Void, Never>?
-    private var finalFrames: [BridgeReviewMetadataFinalFrame]?
-    private var finalFramesWaiters: [CheckedContinuation<Void, Never>] = []
-    private var emit: BridgePaneProductReviewMetadataEventSink?
-
-    func open(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) {
-        self.emit = emit
-    }
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) {
-        self.emit = emit
-    }
-
-    func reserve(
-        package: BridgeReviewPackage,
-        publicationId: UUID,
-        productAdmission _: BridgeProductAdmissionContext
-    ) -> BridgeReviewMetadataPublicationReservation {
-        coordinatorReviewReservation(for: package, publicationId: publicationId)
-    }
-
-    func deliver(
-        publication: BridgeReviewCommittedPublication,
-        reservation _: BridgeReviewMetadataPublicationReservation,
-        productAdmission: BridgeProductAdmissionContext
-    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        guard let emit else {
-            throw CoordinatorReviewPublicationTestError.missingSink
-        }
-        let firstResult = try await emit(
-            try sealBridgeReviewMetadataEvent(
-                coordinatorReviewMetadataEvent(for: publication.package)
-            ),
-            productAdmission
-        )
-        let secondResult = try await emit(
-            try sealBridgeReviewMetadataEvent(
-                coordinatorReviewMetadataEvent(for: publication.package)
-            ),
-            productAdmission
-        )
-        guard case .enqueued(let firstFrame) = firstResult,
-            case .enqueued(let secondFrame) = secondResult
-        else {
-            throw CoordinatorReviewPublicationTestError.enqueueRejected
-        }
-        let deliveredFinalFrames = [
-            BridgeReviewMetadataFinalFrame(
-                sequence: firstFrame.sequence,
-                subscriptionId: "review-subscription-1"
-            ),
-            BridgeReviewMetadataFinalFrame(
-                sequence: secondFrame.sequence,
-                subscriptionId: "review-subscription-1"
-            ),
-        ]
-        finalFrames = deliveredFinalFrames
-        let waiters = finalFramesWaiters
-        finalFramesWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
-        await withCheckedContinuation { continuation in
-            deliveryRelease = continuation
-        }
-        return .delivered(
-            .init(
-                retained: 1,
-                publishedSubscriptions: 1,
-                emittedEvents: 2,
-                superseded: 0,
-                finalFrames: deliveredFinalFrames
-            ))
-    }
-
-    func cancel(subscriptionId _: String) {
-        releaseDeliveryReceipt()
-    }
-
-    func releaseDeliveryReceipt() {
-        deliveryRelease?.resume()
-        deliveryRelease = nil
-    }
-
-    func waitUntilFinalFramesEnqueued() async {
-        guard finalFrames == nil else { return }
-        await withCheckedContinuation { continuation in
-            finalFramesWaiters.append(continuation)
-        }
-    }
 }
 
 func coordinatorReviewPackageFixture() throws -> BridgeReviewPackage {
@@ -429,22 +266,5 @@ func coordinatorReviewReservation(
             package: package,
             publicationId: publicationId
         )
-    )
-}
-
-private enum CoordinatorReviewPublicationTestError: Error {
-    case enqueueRejected
-    case missingSink
-}
-
-private func coordinatorReviewMetadataEvent(
-    for package: BridgeReviewPackage
-) throws -> BridgeProductReviewMetadataEvent {
-    try .init(
-        generation: package.reviewGeneration.rawValue,
-        packageId: package.packageId,
-        publicationId: UUID(uuidString: "11111111-1111-7111-8111-111111111111")!,
-        revision: package.revision,
-        sourceIdentity: package.query.queryId
     )
 }

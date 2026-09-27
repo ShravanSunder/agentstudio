@@ -95,6 +95,7 @@ export function productSessionBootstrap(): BridgeProductSessionBootstrap {
 			maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 			maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 			admissionRetryCount: 2,
+			contentProgressDeadlineMilliseconds: 5_000,
 			telemetryPreReadyBufferMaxBytes: 64 * 1024,
 			telemetryPreReadyBufferMaxSamples: 128,
 			workerSettlementDeadlineMilliseconds: 5_000,
@@ -152,11 +153,6 @@ export function workerSessionResult(result: unknown): Readonly<Record<string, un
 	};
 }
 
-export const emptyReviewInterestSha256 =
-	'1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6';
-export const updatedReviewInterestSha256 =
-	'2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd';
-
 export function productResponseIdentity(
 	requestId: string,
 	requestSequence: number,
@@ -177,8 +173,6 @@ export function subscriptionOpenAcceptedResponse(
 ): Readonly<Record<string, unknown>> {
 	return {
 		...productResponseIdentity(requestId, requestSequence),
-		interestRevision: 0,
-		interestSha256: emptyReviewInterestSha256,
 		kind: 'subscription.openAccepted',
 		subscriptionId,
 		subscriptionKind: 'review.metadata',

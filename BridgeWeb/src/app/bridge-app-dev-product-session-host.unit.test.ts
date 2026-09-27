@@ -618,6 +618,7 @@ function productBootstrapDelivery(sequence: number): BridgeProductDevBootstrapDe
 			policy: {
 				...validProductSessionCorpus.bootstrap.policy,
 				admissionRetryCount: validProductSessionCorpus.bootstrap.policy.admissionRetryCount,
+				contentProgressDeadlineMilliseconds: 5_000,
 				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,

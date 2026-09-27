@@ -50,10 +50,15 @@ extension BridgePaneProductFileMetadataSource {
         // This call-local buffer adapts the existing streaming renewal to changeset publication.
         // The source's descriptor-revision index admits only missing or invalidated interests.
         let emissions = Mutex<[BridgePaneProductFileMetadataEmission]>([])
-        try await update(
-            subscription: subscription,
+        guard let demand = contextBySubscriptionId[subscription.subscriptionId]?.viewDemand else {
+            return []
+        }
+        try await applyViewDemand(
+            subscriptionId: subscription.subscriptionId,
+            demand: demand,
             productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            forceRecapture: false
         ) { event in
             emissions.withLock {
                 $0.append(.init(event: event, subscriptionId: subscription.subscriptionId))
@@ -65,6 +70,7 @@ extension BridgePaneProductFileMetadataSource {
     struct DescriptorInterestCommit: Sendable {
         let committedPayload: BridgeProductFileDescriptorReadyPayload
         let committedRevision: Int
+        let committedDemand: BridgePaneProductFileViewDemand
         let previousPayload: BridgeProductFileDescriptorReadyPayload?
         let previousRevision: Int?
     }
@@ -74,27 +80,28 @@ extension BridgePaneProductFileMetadataSource {
         for row: BridgeWorktreeTreeRowMetadata,
         request: DescriptorReconciliationRequest
     ) -> DescriptorInterestCommit? {
-        let subscription = request.subscription
-        return request.foregroundWorkAdmission.withValidAdmission({
+        request.foregroundWorkAdmission.withValidAdmission({
             request.productAdmission.withValidAdmission {
-                guard var currentContext = contextBySubscriptionId[subscription.subscriptionId],
+                guard var currentContext = contextBySubscriptionId[request.subscriptionId],
                     currentContext.productSource == request.productSource,
                     currentContext.productAdmission.matches(request.productAdmission),
-                    currentContext.subscription.interestRevision == subscription.interestRevision,
+                    currentContext.viewDemand == request.demand,
+                    currentContext.demandGeneration == request.demandGeneration,
                     currentContext.inFlightDescriptorInterestRevisionByPath[row.path]
-                        == subscription.interestRevision
+                        == request.demandGeneration
                 else { return nil }
                 let commit = DescriptorInterestCommit(
                     committedPayload: materialized.payload,
-                    committedRevision: subscription.interestRevision,
+                    committedRevision: request.demandGeneration,
+                    committedDemand: request.demand,
                     previousPayload: currentContext.descriptorByPath[row.path],
                     previousRevision: currentContext.descriptorInterestRevisionByPath[row.path]
                 )
                 currentContext.inFlightDescriptorInterestRevisionByPath.removeValue(forKey: row.path)
                 currentContext.descriptorInterestRevisionByPath[row.path] =
-                    subscription.interestRevision
+                    request.demandGeneration
                 currentContext.descriptorByPath[row.path] = materialized.payload
-                contextBySubscriptionId[subscription.subscriptionId] = currentContext
+                contextBySubscriptionId[request.subscriptionId] = currentContext
                 return commit
             }.flatMap { $0 }
         }).flatMap { $0 }
@@ -105,14 +112,14 @@ extension BridgePaneProductFileMetadataSource {
         for row: BridgeWorktreeTreeRowMetadata,
         request: DescriptorReconciliationRequest
     ) -> Bool {
-        let subscription = request.subscription
-        return request.foregroundWorkAdmission.withValidAdmission({
+        request.foregroundWorkAdmission.withValidAdmission({
             request.productAdmission.withValidAdmission {
-                guard let currentContext = contextBySubscriptionId[subscription.subscriptionId]
+                guard let currentContext = contextBySubscriptionId[request.subscriptionId]
                 else { return false }
                 return currentContext.productSource == request.productSource
                     && currentContext.productAdmission.matches(request.productAdmission)
-                    && currentContext.subscription.interestRevision == commit.committedRevision
+                    && currentContext.viewDemand == commit.committedDemand
+                    && currentContext.demandGeneration == commit.committedRevision
                     && currentContext.descriptorInterestRevisionByPath[row.path]
                         == commit.committedRevision
                     && currentContext.descriptorByPath[row.path] == commit.committedPayload
@@ -125,7 +132,7 @@ extension BridgePaneProductFileMetadataSource {
         for row: BridgeWorktreeTreeRowMetadata,
         request: DescriptorReconciliationRequest
     ) {
-        let subscriptionId = request.subscription.subscriptionId
+        let subscriptionId = request.subscriptionId
         guard var currentContext = contextBySubscriptionId[subscriptionId],
             currentContext.productSource == request.productSource,
             currentContext.productAdmission.matches(request.productAdmission),
@@ -134,7 +141,9 @@ extension BridgePaneProductFileMetadataSource {
             currentContext.descriptorByPath[row.path] == commit.committedPayload
         else { return }
 
-        if currentContext.subscription.interestRevision == commit.committedRevision {
+        if currentContext.viewDemand == commit.committedDemand,
+            currentContext.demandGeneration == commit.committedRevision
+        {
             currentContext.descriptorInterestRevisionByPath[row.path] = commit.previousRevision
             currentContext.descriptorByPath[row.path] = commit.previousPayload
         } else {

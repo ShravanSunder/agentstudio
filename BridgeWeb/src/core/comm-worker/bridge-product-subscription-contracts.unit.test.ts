@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
 import { encodeBridgeProductMetadataFrame } from './bridge-product-metadata-frame-codec.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT,
@@ -415,27 +416,32 @@ describe('Bridge product File metadata event contract', () => {
 			startIndex: 0,
 			totalRowCount: oversizedRows.length,
 		});
+		const oversizedBatchPart = bridgeProductBatchFrameSchema.parse({
+			batchId: 'file-batch-1',
+			deliverySequence: 1,
+			domain: 'default',
+			handle: 'file-handle-1',
+			incarnation: 'file-incarnation-1',
+			kind: 'subscription.batchPart',
+			metadataStreamId: 'metadata-stream-1',
+			paneSessionId: 'pane-session-1',
+			part: {
+				key: 'src/file.ts',
+				operation: 'put',
+				revision: 1,
+				value: event,
+			},
+			partIndex: 0,
+			scopeRevision: 1,
+			streamSequence: 1,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+			wireVersion: 2,
+			workerInstanceId: 'worker-instance-1',
+		});
 
-		expect(() =>
-			encodeBridgeProductMetadataFrame({
-				cursor: 'file-cursor-1',
-				data: { event, subscriptionKind: 'file.metadata' },
-				interestRevision: 0,
-				interestSha256: '51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b',
-				kind: 'subscription.data',
-
-				operationCorrelationId: null,
-				metadataStreamId: 'metadata-stream-1',
-				paneSessionId: 'pane-session-1',
-				sourceGeneration: 11,
-				streamSequence: 1,
-				subscriptionId: 'file-subscription-1',
-				subscriptionKind: 'file.metadata',
-				subscriptionSequence: 1,
-				wireVersion: 2,
-				workerDerivationEpoch: 2,
-				workerInstanceId: 'worker-instance-1',
-			}),
-		).toThrow('exceeds its body ceiling');
+		expect(() => encodeBridgeProductMetadataFrame(oversizedBatchPart)).toThrow(
+			'exceeds its body ceiling',
+		);
 	});
 });

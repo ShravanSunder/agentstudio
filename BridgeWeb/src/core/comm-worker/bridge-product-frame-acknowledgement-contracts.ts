@@ -12,27 +12,16 @@ const bridgeProductFrameAcknowledgementCommonIdentityShape = {
 	workerInstanceId: bridgeProductIdentifierSchema,
 } as const;
 
-export const bridgeProductFrameAcknowledgementRequestSchema = z.discriminatedUnion('streamKind', [
-	z
-		.object({
-			...bridgeProductFrameAcknowledgementCommonIdentityShape,
-			kind: z.literal('stream.frameObserved'),
-			metadataStreamId: bridgeProductIdentifierSchema,
-			streamKind: z.literal('metadata'),
-			streamSequence: bridgeProductNonnegativeSequenceSchema,
-		})
-		.strict(),
-	z
-		.object({
-			...bridgeProductFrameAcknowledgementCommonIdentityShape,
-			contentRequestId: bridgeProductIdentifierSchema,
-			contentSequence: bridgeProductNonnegativeSequenceSchema,
-			kind: z.literal('stream.frameObserved'),
-			leaseId: bridgeProductIdentifierSchema,
-			streamKind: z.literal('content'),
-		})
-		.strict(),
-]);
+export const bridgeProductFrameAcknowledgementRequestSchema = z
+	.object({
+		...bridgeProductFrameAcknowledgementCommonIdentityShape,
+		contentRequestId: bridgeProductIdentifierSchema,
+		contentSequence: bridgeProductNonnegativeSequenceSchema,
+		kind: z.literal('stream.frameObserved'),
+		leaseId: bridgeProductIdentifierSchema,
+		streamKind: z.literal('content'),
+	})
+	.strict();
 
 export const bridgeProductFrameAcknowledgementRejectedStatusSchema = z.union([
 	z.literal(400),

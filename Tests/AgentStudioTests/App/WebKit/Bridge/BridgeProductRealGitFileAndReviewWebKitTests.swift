@@ -499,7 +499,7 @@ extension WebKitSerializedTests {
                 Issue.record(
                     """
                     Review replay wait failed: status=\(controller.paneState.diff.status), \
-                    corrupted=\(reviewFailure.didCorruptFinalWindow), held=\(reviewFailure.replayIsBlocked), \
+                    corrupted=\(reviewFailure.didCorruptViewCapture), held=\(reviewFailure.replayIsBlocked), \
                     opens=\(reviewFailure.openedSubscriptions.count), cancels=\(reviewFailure.cancelledSubscriptionIds.count), \
                     deliveryGenerations=\(reviewFailure.deliveryAttempts.map { $0.package.reviewGeneration.rawValue }), \
                     successorEvents=\(reviewFailure.successorEventKinds), native=\(nativeFailure)
@@ -585,23 +585,22 @@ extension WebKitSerializedTests {
                 ],
                 "the worker must apply exact A then exact replayed B once"
             )
-            #expect(proof.reviewAfterFailure.didCorruptFinalWindow)
+            #expect(proof.reviewAfterFailure.didCorruptViewCapture)
             #expect(proof.reviewAfterFailure.corruptedPublicationId == secondPublicationId)
             #expect(
                 proof.reviewAfterFailure.openedSubscriptions.count
-                    == proof.reviewBeforeFailure.openedSubscriptions.count + 1
+                    == proof.reviewBeforeFailure.openedSubscriptions.count
             )
             #expect(
                 proof.reviewAfterFailure.cancelledSubscriptionIds.count
-                    == proof.reviewBeforeFailure.cancelledSubscriptionIds.count + 1
+                    == proof.reviewBeforeFailure.cancelledSubscriptionIds.count
             )
             #expect(
-                proof.reviewAfterFailure.deliveryAttempts.suffix(2).allSatisfy {
-                    $0.publicationId == secondPublicationId
-                        && $0.package == proof.secondPublication.package
-                },
-                "Review reopen must replay the exact committed B publication and payload"
+                proof.reviewAfterFailure.deliveryAttempts.last?.publicationId == secondPublicationId
+                    && proof.reviewAfterFailure.deliveryAttempts.last?.package == proof.secondPublication.package,
+                "Review must retain the exact committed B publication and payload"
             )
+            #expect(proof.reviewAfterFailure.successorEventKinds == ["corruptedCapture", "recoveryCapture"])
             #expect(proof.fileAfterFailure == proof.fileBeforeFailure)
             #expect(
                 proof.nativeAfterFailure.fileWorkerDerivationEpoch

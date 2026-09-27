@@ -134,7 +134,6 @@ export function catalogStagingMessages(
 		authority,
 		direction: 'serverWorkerToMain' as const,
 		kind: 'annotationCatalogStaging' as const,
-		operationCorrelationId: 'a'.repeat(64),
 		surface,
 		transferDescriptors: [],
 		wireVersion: BRIDGE_WORKER_WIRE_VERSION,

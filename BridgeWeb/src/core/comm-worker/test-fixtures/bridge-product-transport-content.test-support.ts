@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 
 import { vi } from 'vitest';
@@ -15,6 +14,7 @@ import {
 	encodeMinimalControlFrame,
 	encodeMinimalDataFrame,
 } from '../bridge-product-content-frame-test-support.js';
+import type { BridgeProductDeadlineClock } from '../bridge-product-deadline-clock.js';
 import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
@@ -37,7 +37,6 @@ import {
 	type BridgeProductMetadataFrame,
 	type BridgeProductMetadataStreamRequest,
 } from '../bridge-product-session-contracts.js';
-import { encodeBridgeProductSubscriptionInterestState } from '../bridge-product-subscription-interest-state-codec.js';
 import {
 	createBridgeProductTransport,
 	type BridgeProductIdentifierPurpose,
@@ -49,6 +48,7 @@ export function createContentTransportHarness(
 	fileEpoch = 0,
 	maximumConcurrentContentResponses?: number,
 	frameAcknowledgementTimeoutMilliseconds?: number,
+	deadlineClock?: BridgeProductDeadlineClock,
 ): {
 	readonly server: TestContentProductServer;
 	readonly transport: ReturnType<typeof createBridgeProductTransport>;
@@ -62,6 +62,7 @@ export function createContentTransportHarness(
 				maximumMetadataFrameBytes: 256 * 1024,
 				maximumQueuedStreamBytes: 4 * 1024 * 1024,
 				admissionRetryCount: 2,
+				contentProgressDeadlineMilliseconds: 5_000,
 				telemetryPreReadyBufferMaxBytes: 64 * 1024,
 				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,
@@ -94,6 +95,7 @@ export function createContentTransportHarness(
 			createIdentifier: purposeIdentifier(),
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 			initialWorkerDerivationEpochs: { file: fileEpoch, review: 0 },
+			...(deadlineClock === undefined ? {} : { deadlineClock }),
 			metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
 			...(maximumConcurrentContentResponses === undefined
 				? {}
@@ -129,7 +131,6 @@ export class TestContentProductServer {
 	readonly requestRoutes: string[] = [];
 	#heldAcknowledgement: Promise<void> | null = null;
 	#heldContentRequestId: string | null = null;
-	#holdMetadataAcknowledgement = false;
 	#metadataController: ReadableStreamDefaultController<Uint8Array> | null = null;
 	#metadataRequest: BridgeProductMetadataStreamRequest | null = null;
 	#releaseHeldContentRequestBeforeResponse: (() => void) | null = null;
@@ -177,19 +178,11 @@ export class TestContentProductServer {
 		});
 	}
 
-	holdMetadataAcknowledgement(): void {
-		this.#holdMetadataAcknowledgement = true;
-		this.#heldAcknowledgement = new Promise<void>((resolve): void => {
-			this.#releaseHeldAcknowledgement = resolve;
-		});
-	}
-
 	releaseHeldContentAcknowledgement(): void {
 		const release = this.#releaseHeldAcknowledgement;
 		if (release === null) throw new Error('No content acknowledgement is held.');
 		this.#heldAcknowledgement = null;
 		this.#heldContentRequestId = null;
-		this.#holdMetadataAcknowledgement = false;
 		this.#releaseHeldAcknowledgement = null;
 		release();
 	}
@@ -226,9 +219,8 @@ export class TestContentProductServer {
 		const request = bridgeProductFrameAcknowledgementRequestSchema.parse(body);
 		this.frameAcknowledgements.push(request);
 		if (
-			(request.streamKind === 'content' &&
-				request.contentRequestId === this.#heldContentRequestId) ||
-			(request.streamKind === 'metadata' && this.#holdMetadataAcknowledgement)
+			request.streamKind === 'content' &&
+			request.contentRequestId === this.#heldContentRequestId
 		) {
 			if (this.#heldAcknowledgement === null) throw new Error('Held acknowledgement is missing.');
 			await this.#heldAcknowledgement;
@@ -284,11 +276,20 @@ export class TestContentProductServer {
 		} else if (request.kind === 'subscription.open') {
 			result = {
 				...identity,
-				interestRevision: 0,
-				interestSha256: emptyReviewInterestHash(),
 				kind: 'subscription.openAccepted',
 				subscriptionId: request.subscriptionId,
 				subscriptionKind: request.subscription.subscriptionKind,
+			};
+		} else if (request.kind === 'subscription.setScope') {
+			result = {
+				...identity,
+				domain: request.domain,
+				handle: request.handle,
+				incarnation: request.incarnation,
+				kind: 'subscription.scopeAccepted',
+				scopeRevision: request.scopeRevision,
+				subscriptionId: request.subscriptionId,
+				subscriptionKind: request.subscriptionKind,
 			};
 		} else {
 			throw new Error(`Unexpected control request ${request.kind}.`);
@@ -437,17 +438,6 @@ export function fileContentDescriptor(descriptorId: string): BridgeProductFileCo
 		},
 		window: { kind: 'prefix', maximumBytes: 3, maximumLines: 10_000, startByte: 0 },
 	} as const;
-}
-
-function emptyReviewInterestHash(): string {
-	return createHash('sha256')
-		.update(
-			encodeBridgeProductSubscriptionInterestState({
-				interests: [],
-				subscriptionKind: 'review.metadata',
-			}),
-		)
-		.digest('hex');
 }
 
 function parseBody(init?: RequestInit): unknown {

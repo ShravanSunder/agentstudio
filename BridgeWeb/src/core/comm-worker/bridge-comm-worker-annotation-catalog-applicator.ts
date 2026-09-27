@@ -36,6 +36,11 @@ export interface BridgeCommWorkerAnnotationCatalog {
 	readonly transferId: string;
 }
 
+export interface BridgeCommWorkerAnnotationCatalogPublication {
+	readonly catalog: BridgeCommWorkerAnnotationCatalog;
+	readonly surface: 'file' | 'review';
+}
+
 export type BridgeCommWorkerAnnotationCatalogRejectionReason =
 	| MetadataCatalogAssemblerRejectionReason
 	| 'duplicate_message_id'

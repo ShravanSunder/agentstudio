@@ -69,17 +69,21 @@ extension BridgePaneProductFileMetadataSource {
         )
     }
 
-    func update(
-        subscription: BridgeProductSubscriptionSnapshot,
+    func applyViewDemand(
+        subscriptionId: String,
+        demand: BridgePaneProductFileViewDemand,
         productAdmission: BridgeProductAdmissionContext,
+        forceRecapture: Bool,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         let foregroundWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
             .admission
-        try await update(
-            subscription: subscription,
+        try await applyViewDemand(
+            subscriptionId: subscriptionId,
+            demand: demand,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission,
+            forceRecapture: forceRecapture,
             emit: emit
         )
     }

@@ -34,6 +34,19 @@ describe('Bridge product Review batch records', () => {
 		).toBe(false);
 	});
 
+	test('requires the nullable classified refresh impact field', () => {
+		const record = recordCorpus.records[1]?.record;
+		expect(record).toBeDefined();
+		if (record === undefined) return;
+		expect(bridgeProductReviewBatchRecordSchema.safeParse(record).success).toBe(true);
+		expect(
+			bridgeProductReviewBatchRecordSchema.safeParse({
+				...record,
+				classifiedRefreshImpact: undefined,
+			}).success,
+		).toBe(false);
+	});
+
 	test('rejects a content source assigned to another item or role', () => {
 		const record = bridgeProductReviewBatchRecordSchema.parse(recordCorpus.records[0]?.record);
 		if (record.recordKind !== 'item') return;

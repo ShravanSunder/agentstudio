@@ -383,7 +383,7 @@ struct BridgeProductSchemeControlCompletionEffectsTests {
         )
         let provider = BridgeProductCompletionEffectsRecordingProvider(
             session: session,
-            subscriptionOpenInterestSha256: String(repeating: "0", count: 64)
+            mismatchedSubscriptionOpenResponse: true
         )
         let productAdmission = try BridgeProductAdmissionTestContext.make().context
         let dispatcher = makeBridgeProductSchemeControlDispatcher(
@@ -783,9 +783,6 @@ private func bridgeProductCompletionEffectsMarkViewedBody() -> Data {
 }
 
 private let bridgeProductCompletionEffectsSubscriptionId = "review-subscription-effects-1"
-private let bridgeProductCompletionEffectsEmptyInterestSha256 =
-    "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6"
-
 private struct BridgeProductCompletionEffectsObservation: Equatable, Sendable {
     let cancelledSubscriptionId: String?
     let cancelledSubscriptionWasStillRegistered: Bool
@@ -795,17 +792,17 @@ private struct BridgeProductCompletionEffectsObservation: Equatable, Sendable {
 private actor BridgeProductCompletionEffectsRecordingProvider: BridgeProductSchemeProvider {
     private let committedEffectsGate: BridgeProductCommittedEffectsGate?
     private let session: BridgeProductSession
-    private let subscriptionOpenInterestSha256: String
+    private let mismatchedSubscriptionOpenResponse: Bool
     private(set) var completionEffectObservations: [BridgeProductCompletionEffectsObservation] = []
 
     init(
         session: BridgeProductSession,
-        subscriptionOpenInterestSha256: String = bridgeProductCompletionEffectsEmptyInterestSha256,
+        mismatchedSubscriptionOpenResponse: Bool = false,
         committedEffectsGate: BridgeProductCommittedEffectsGate? = nil
     ) {
         self.committedEffectsGate = committedEffectsGate
         self.session = session
-        self.subscriptionOpenInterestSha256 = subscriptionOpenInterestSha256
+        self.mismatchedSubscriptionOpenResponse = mismatchedSubscriptionOpenResponse
     }
 
     func response(
@@ -816,14 +813,24 @@ private actor BridgeProductCompletionEffectsRecordingProvider: BridgeProductSche
             switch request {
             case .workerSessionOpen:
                 return try .workerSessionAccepted(correlating: request)
-            case .subscriptionOpen:
+            case .subscriptionOpen(let openRequest):
+                if mismatchedSubscriptionOpenResponse {
+                    return try .subscriptionOpenAccepted(
+                        .init(
+                            correlation: request.correlation,
+                            subscriptionId: "other-subscription",
+                            subscriptionKind: openRequest.subscription.subscriptionKind,
+                            worktreeId: nil
+                        )
+                    )
+                }
                 return try .subscriptionOpenAccepted(
                     correlating: request,
-                    interestSha256: subscriptionOpenInterestSha256
+                    worktreeId: nil
                 )
             case .subscriptionCancel:
                 return try .subscriptionCancelAccepted(correlating: request)
-            case .productCall, .subscriptionUpdateBatch, .viewScope, .viewResnapshot,
+            case .productCall, .viewScope, .viewResnapshot,
                 .workerSessionResync:
                 preconditionFailure("Unexpected completion-effects control request")
             }

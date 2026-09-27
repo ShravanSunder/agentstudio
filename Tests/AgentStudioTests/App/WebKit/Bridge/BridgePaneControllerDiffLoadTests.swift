@@ -746,14 +746,7 @@ private actor DiffLoadReadyPublicationGate: BridgePaneProductReviewMetadataProdu
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {}
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws {}
 
     func reserve(
@@ -821,14 +814,7 @@ private actor DiffLoadReviewReservationGate: BridgePaneProductReviewMetadataProd
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {}
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws {}
 
     func reserve(

@@ -106,7 +106,6 @@ export const bridgeProductSurfaceSchema = z.enum(['review', 'file']);
 export const bridgeProductSha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
 
 export const bridgeProductResetReasonSchema = z.enum([
-	'interest_mismatch',
 	'producer_overflow',
 	'sequence_gap',
 	'stale_source',

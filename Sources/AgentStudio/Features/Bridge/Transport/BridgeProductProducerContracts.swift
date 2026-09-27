@@ -62,7 +62,9 @@ enum BridgeProductProducerFrame: Equatable, Sendable {
     }
 
     var requiresWorkerObservation: Bool {
-        if case .metadata(.batch) = self { return false }
+        // Metadata is delivered through W4 part credits. Only finite content
+        // retains its own frame observation contract.
+        if case .metadata = self { return false }
         return true
     }
 
@@ -212,8 +214,6 @@ extension BridgeProductMetadataFrame {
         case .panePresentation(let frame): frame.frameIdentity
         case .paneSurfaceSelectionRequested(let frame): frame.frameIdentity
         case .subscriptionAccepted(let frame): frame.frameIdentity
-        case .subscriptionInterestsCommitted(let frame): frame.identity.frameIdentity
-        case .subscriptionData(let frame): frame.frameIdentity
         case .batch(let frame): frame.identity.frame
         case .subscriptionReset(let frame): frame.identity.frameIdentity
         case .subscriptionEnd(let frame): frame.identity.frameIdentity

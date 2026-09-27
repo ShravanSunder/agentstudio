@@ -15,7 +15,7 @@ function commentInstallation(): BridgeProductViewInstallation {
 		...reviewBegin,
 		publicationId: undefined,
 		batchId: 'comment-batch-1',
-		scope: { kind: 'comment', worktreeId: 'worktree-1' },
+		scope: { kind: 'comment', sessionIds: [], worktreeId: 'worktree-1' },
 		subscriptionId: 'comment-subscription-1',
 		subscriptionKind: 'file.annotations',
 		targetRevision: 4,

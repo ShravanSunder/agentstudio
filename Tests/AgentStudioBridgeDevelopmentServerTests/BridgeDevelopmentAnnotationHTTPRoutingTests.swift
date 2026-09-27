@@ -32,88 +32,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
             worktreeRoot: repositoryURL
         )
         try await withBridgeDevelopmentHTTPRouterTestClient(host: runtime.host) { client in
-            let connection = try await openHTTPProductConnection(client: client)
-            let preparation = try await prepareHTTPAnnotationAuthoring(
-                client: client,
-                runtime: runtime,
-                connection: connection
-            )
-            let createOutcome = try await executeHTTPAnnotationCommand(
-                client: client,
-                connection: connection,
-                operation: twoPaneRootCreateOperation(
-                    sourceIdentity: preparation.descriptor.descriptorId
-                ),
-                requestID: "annotation-output-result-create",
-                requestSequence: 6
-            )
-            let createReceipt = try requireHTTPAnnotationMessage(createOutcome)
-            let sessionID = try #require(createOutcome.sessionId)
-            _ = try await waitForHTTPAnnotationCatalogCommit(
-                client: client,
-                connection: connection,
-                recorder: preparation.metadataStream.recorder
-            )
-            let saveOutcome = try await executeHTTPAnnotationCommand(
-                client: client,
-                connection: connection,
-                operation: [
-                    "editToken": "two-pane-editor",
-                    "expectedDraftRevision": try #require(createReceipt.draft?.revision),
-                    "expectedMessageRevision": createReceipt.messageRevision,
-                    "kind": "draft.save",
-                    "messageId": createReceipt.messageId.uuidString.lowercased(),
-                    "sessionId": sessionID.uuidString.lowercased(),
-                ],
-                requestID: "annotation-output-result-save",
-                requestSequence: 7
-            )
-            #expect(saveOutcome.status == .committed)
-            _ = try await waitForHTTPAnnotationSessionChange(
-                client: client,
-                connection: connection,
-                recorder: preparation.metadataStream.recorder,
-                expectedSessionID: sessionID
-            )
-            let projection = try await fetchHTTPFileAnnotationProjection(
-                client: client,
-                host: runtime.host,
-                connection: connection,
-                demandedSessionIDs: [sessionID],
-                sourceGeneration: preparation.fileSourceGeneration,
-                requestSequence: 8
-            )
-            let savedMessage = try #require(projection.messages.first?.message)
-
-            // Act
-            let outputOutcome = try await executeHTTPAnnotationCommand(
-                client: client,
-                connection: connection,
-                operation: [
-                    "displayedProjectionRevision": projection.header.projectionRevision,
-                    "expectedSessionRevision": savedMessage.sessionRevision,
-                    "kind": "output.scope.commit",
-                    "outputKind": "clipboardMarkdown",
-                    "scope": "all",
-                    "sessionId": sessionID.uuidString.lowercased(),
-                    "sourceGeneration": preparation.fileSourceGeneration,
-                ],
-                requestID: "annotation-output-result-copy",
-                requestSequence: 9
-            )
-
-            // Assert
-            guard case .output(.succeeded(let summary)) = outputOutcome.status else {
-                Issue.record("Expected the successful output result to cross the HTTP response")
-                return
-            }
-            #expect(summary.sessionId == sessionID)
-            #expect(summary.outputKind == .clipboardMarkdown)
-            #expect(summary.messageCount == 1)
-            try await shutdownHTTPHostAndDrainMetadataStream(
-                host: runtime.host,
-                drain: preparation.metadataStream.drain
-            )
+            try await assertHTTPAnnotationOutputResult(client: client, runtime: runtime)
         }
         try await runtime.composition.shutdown()
     }
@@ -163,11 +82,19 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                         sourceIdentity: preparationA.descriptor.descriptorId
                     ),
                     requestID: "annotation-create-two-pane",
-                    requestSequence: 6
+                    requestSequence: 7
                 )
                 guard case .committed = outcome.status,
                     let sessionID = outcome.sessionId
                 else { throw HTTPAnnotationIntegrationError.annotationCommandFailed }
+                try await acceptHTTPCommentScopeInBothPanes(
+                    sessionID: sessionID,
+                    clientA: clientA,
+                    connectionA: connectionA,
+                    clientB: clientB,
+                    connectionB: connectionB,
+                    commentSubscriptions: (preparationA.commentSubscription, preparationB.commentSubscription)
+                )
                 let catalogA = try await waitForHTTPAnnotationCatalogCommit(
                     client: clientA,
                     connection: connectionA,
@@ -184,7 +111,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                     connection: connectionA,
                     demandedSessionIDs: [sessionID],
                     sourceGeneration: preparationA.fileSourceGeneration,
-                    requestSequence: 7
+                    requestSequence: 9
                 )
                 let projectionB = try await fetchHTTPFileAnnotationProjection(
                     client: clientB,
@@ -192,7 +119,7 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
                     connection: connectionB,
                     demandedSessionIDs: [sessionID],
                     sourceGeneration: preparationB.fileSourceGeneration,
-                    requestSequence: 6
+                    requestSequence: 8
                 )
 
                 #expect(catalogA.targetRevision == catalogB.targetRevision)
@@ -282,6 +209,127 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
     }
 }
 
+@MainActor
+private func assertHTTPAnnotationOutputResult(
+    client: some TestClientProtocol,
+    runtime: HTTPDevelopmentProductRuntime
+) async throws {
+    let connection = try await openHTTPProductConnection(client: client)
+    let preparation = try await prepareHTTPAnnotationAuthoring(
+        client: client,
+        runtime: runtime,
+        connection: connection
+    )
+    let createOutcome = try await executeHTTPAnnotationCommand(
+        client: client,
+        connection: connection,
+        operation: twoPaneRootCreateOperation(sourceIdentity: preparation.descriptor.descriptorId),
+        requestID: "annotation-output-result-create",
+        requestSequence: 7
+    )
+    let createReceipt = try requireHTTPAnnotationMessage(createOutcome)
+    let sessionID = try #require(createOutcome.sessionId)
+    try await acceptHTTPCommentViewScope(
+        client: client,
+        connection: connection,
+        openResponse: preparation.commentSubscription,
+        requestSequence: 8,
+        scopeRevision: 2,
+        sessionIDs: [sessionID]
+    )
+    _ = try await waitForHTTPAnnotationCatalogCommit(
+        client: client,
+        connection: connection,
+        recorder: preparation.metadataStream.recorder
+    )
+    let saveOutcome = try await executeHTTPAnnotationCommand(
+        client: client,
+        connection: connection,
+        operation: [
+            "editToken": "two-pane-editor",
+            "expectedDraftRevision": try #require(createReceipt.draft?.revision),
+            "expectedMessageRevision": createReceipt.messageRevision,
+            "kind": "draft.save",
+            "messageId": createReceipt.messageId.uuidString.lowercased(),
+            "sessionId": sessionID.uuidString.lowercased(),
+        ],
+        requestID: "annotation-output-result-save",
+        requestSequence: 9
+    )
+    #expect(saveOutcome.status == .committed)
+    _ = try await waitForHTTPAnnotationSessionChange(
+        client: client,
+        connection: connection,
+        recorder: preparation.metadataStream.recorder,
+        expectedSessionID: sessionID
+    )
+    let projection = try await fetchHTTPFileAnnotationProjection(
+        client: client,
+        host: runtime.host,
+        connection: connection,
+        demandedSessionIDs: [sessionID],
+        sourceGeneration: preparation.fileSourceGeneration,
+        requestSequence: 10
+    )
+    let savedMessage = try #require(projection.messages.first?.message)
+    let outputOutcome = try await executeHTTPAnnotationCommand(
+        client: client,
+        connection: connection,
+        operation: [
+            "displayedProjectionRevision": projection.header.projectionRevision,
+            "expectedSessionRevision": savedMessage.sessionRevision,
+            "kind": "output.scope.commit",
+            "outputKind": "clipboardMarkdown",
+            "scope": "all",
+            "sessionId": sessionID.uuidString.lowercased(),
+            "sourceGeneration": preparation.fileSourceGeneration,
+        ],
+        requestID: "annotation-output-result-copy",
+        requestSequence: 11
+    )
+    guard case .output(.succeeded(let summary)) = outputOutcome.status else {
+        Issue.record("Expected the successful output result to cross the HTTP response")
+        return
+    }
+    #expect(summary.sessionId == sessionID)
+    #expect(summary.outputKind == .clipboardMarkdown)
+    #expect(summary.messageCount == 1)
+    try await shutdownHTTPHostAndDrainMetadataStream(
+        host: runtime.host,
+        drain: preparation.metadataStream.drain
+    )
+}
+
+@MainActor
+private func acceptHTTPCommentScopeInBothPanes(
+    sessionID: UUID,
+    clientA: some TestClientProtocol,
+    connectionA: HTTPProductConnection,
+    clientB: some TestClientProtocol,
+    connectionB: HTTPProductConnection,
+    commentSubscriptions: (
+        paneA: BridgeProductSubscriptionOpenAcceptedResponse,
+        paneB: BridgeProductSubscriptionOpenAcceptedResponse
+    )
+) async throws {
+    try await acceptHTTPCommentViewScope(
+        client: clientA,
+        connection: connectionA,
+        openResponse: commentSubscriptions.paneA,
+        requestSequence: 8,
+        scopeRevision: 2,
+        sessionIDs: [sessionID]
+    )
+    try await acceptHTTPCommentViewScope(
+        client: clientB,
+        connection: connectionB,
+        openResponse: commentSubscriptions.paneB,
+        requestSequence: 7,
+        scopeRevision: 2,
+        sessionIDs: [sessionID]
+    )
+}
+
 private func twoPaneRootCreateOperation(sourceIdentity: String) -> [String: Any] {
     [
         "admission": ["kind": "implicitOrSingle"],
@@ -365,11 +413,19 @@ private func createHTTPAnnotationDraftBeforeRestart(
             connection: connection,
             operation: createOperation,
             requestID: "annotation-create-before-restart",
-            requestSequence: 6
+            requestSequence: 7
         )
         guard case .committed = createOutcome.status,
             let sessionID = createOutcome.sessionId
         else { throw HTTPAnnotationIntegrationError.annotationCommandFailed }
+        try await acceptHTTPCommentViewScope(
+            client: client,
+            connection: connection,
+            openResponse: preparation.commentSubscription,
+            requestSequence: 8,
+            scopeRevision: 2,
+            sessionIDs: [sessionID]
+        )
         _ = try await waitForHTTPAnnotationCatalogCommit(
             client: client,
             connection: connection,
@@ -381,7 +437,7 @@ private func createHTTPAnnotationDraftBeforeRestart(
             connection: connection,
             demandedSessionIDs: [sessionID],
             sourceGeneration: preparation.fileSourceGeneration,
-            requestSequence: 7
+            requestSequence: 9
         )
         let createdMessage = try #require(projection.messages.first?.message)
         #expect(createdMessage.draft?.body == draftBody)
@@ -399,7 +455,7 @@ private func createHTTPAnnotationDraftBeforeRestart(
             connection: connection,
             operation: releaseOperation,
             requestID: "annotation-release-before-restart",
-            requestSequence: 8
+            requestSequence: 10
         )
         guard case .committed = releaseOutcome.status else {
             throw HTTPAnnotationIntegrationError.annotationCommandFailed
@@ -416,7 +472,7 @@ private func createHTTPAnnotationDraftBeforeRestart(
             connection: connection,
             demandedSessionIDs: [sessionID],
             sourceGeneration: preparation.fileSourceGeneration,
-            requestSequence: 9
+            requestSequence: 11
         )
         #expect(releasedProjection.messages.first?.message.draft?.activeEditToken == nil)
         try await shutdownHTTPHostAndDrainMetadataStream(
@@ -469,22 +525,20 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             recorder: metadataStream.recorder,
             subscriptionID: "file-metadata-annotation-second"
         )
-        let acceptedFileSource: BridgeProductFileSourceIdentity =
-            try await waitForAcknowledgedMetadataFrame(
-                client: client,
-                connection: connection,
-                recorder: metadataStream.recorder
-            ) { frame in
-                guard case .subscriptionData(let dataFrame) = frame,
-                    let fileEvent = dataFrame.data.fileMetadataEvent,
-                    case .sourceAccepted(let event) = fileEvent
-                else { return nil }
-                return event.source
-            }
-        _ = try await openHTTPSubscription(
+        try await acceptHTTPFileViewScope(
+            path: nil,
             client: client,
             connection: connection,
             requestSequence: 4,
+            subscriptionID: "file-metadata-annotation-second"
+        )
+        let acceptedFileSource = try await waitForHTTPFileSourceIdentity(
+            client: client, connection: connection, recorder: metadataStream.recorder
+        )
+        let commentOpen = try await openHTTPSubscription(
+            client: client,
+            connection: connection,
+            requestSequence: 5,
             subscription: ["subscriptionKind": "file.annotations"],
             subscriptionID: "file-annotations-second"
         )
@@ -493,6 +547,13 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             connection: connection,
             recorder: metadataStream.recorder,
             subscriptionID: "file-annotations-second"
+        )
+        try await acceptHTTPCommentViewScope(
+            client: client,
+            connection: connection,
+            openResponse: commentOpen,
+            requestSequence: 6,
+            sessionIDs: [sessionID]
         )
         _ = try await waitForHTTPAnnotationCatalogCommit(
             client: client,
@@ -505,7 +566,7 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             connection: connection,
             demandedSessionIDs: [sessionID],
             sourceGeneration: acceptedFileSource.subscriptionGeneration,
-            requestSequence: 5
+            requestSequence: 7
         )
         #expect(restoredProjection.messages.first?.message.draft?.body == draftBody)
         try await shutdownHTTPHostAndDrainMetadataStream(

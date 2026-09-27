@@ -197,23 +197,29 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 guard await metadataCoordinator.hasActiveStream else {
                     return try metadataStreamRequiredError(for: request)
                 }
-                let emptyInterestState = try openRequest.subscription.initialInterestState()
-                return try .subscriptionOpenAccepted(
-                    correlating: request,
-                    interestSha256: emptyInterestState.sha256Hex()
-                )
-            case .subscriptionUpdateBatch(let updateRequest):
-                guard await metadataCoordinator.hasActiveStream else {
-                    return try metadataStreamRequiredError(for: request)
+                let subscriptionKind = openRequest.subscription.subscriptionKind
+                let worktreeId: String?
+                if subscriptionKind == .fileAnnotations || subscriptionKind == .reviewAnnotations {
+                    guard let admittedWorktreeId = await metadataCoordinator.annotationSource.admittedWorktreeID(),
+                        (try? BridgeProductContractDecoding.validateIdentifier(
+                            admittedWorktreeId,
+                            codingPath: []
+                        )) != nil
+                    else {
+                        return try .requestError(
+                            correlating: request,
+                            code: .staleSource,
+                            nextExpectedRequestSequence: request.requestSequence + 1,
+                            retryAfterMilliseconds: nil,
+                            retryable: true,
+                            safeMessage: "Comment worktree is unavailable"
+                        )
+                    }
+                    worktreeId = admittedWorktreeId
+                } else {
+                    worktreeId = nil
                 }
-                let disposition: BridgeProductSubscriptionUpdateBatchDisposition =
-                    updateRequest.batchIndex + 1 == updateRequest.batchCount
-                    ? .committed
-                    : .staged
-                return try .subscriptionUpdateBatchAccepted(
-                    correlating: request,
-                    disposition: disposition
-                )
+                return try .subscriptionOpenAccepted(correlating: request, worktreeId: worktreeId)
             case .subscriptionCancel:
                 guard await metadataCoordinator.hasActiveStream else {
                     return try metadataStreamRequiredError(for: request)

@@ -13,6 +13,24 @@ import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizab
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
 import { cn } from '../../app/class-name.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
+import { BridgeReviewEmptyCanvas } from './review-viewer-no-changes.js';
+
+export function BridgeReviewReadyEmptyShell(props: {
+	readonly isActive?: boolean | undefined;
+	readonly viewerContextSwitcher?: ReactNode;
+	readonly viewerHeaderControls?: ReactNode;
+}): ReactElement {
+	return (
+		<BridgeReviewFallbackFrame
+			isActive={props.isActive}
+			title="Bridge Review"
+			viewerContextSwitcher={props.viewerContextSwitcher}
+			viewerHeaderControls={props.viewerHeaderControls}
+		>
+			<BridgeReviewEmptyCanvas />
+		</BridgeReviewFallbackFrame>
+	);
+}
 
 export function BridgeReviewEmptyShell(props: {
 	readonly isActive?: boolean | undefined;

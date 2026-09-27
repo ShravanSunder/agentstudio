@@ -5,7 +5,7 @@ import {
 } from './bridge-comm-worker-product-control-completion.js';
 import type { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import type { BridgeWorkerComparisonTargetsQueryRunner } from './bridge-comm-worker-review-comparison-target-query.js';
-import type { BridgeCommWorkerReviewMetadataApplicator } from './bridge-comm-worker-review-metadata-applicator.js';
+import type { BridgeCommWorkerReviewSuccessorReExposureSettlement } from './bridge-comm-worker-review-successor-re-exposure.js';
 import { bridgeWorkerRuntimeProductControlCommandForMessage } from './bridge-comm-worker-runtime-command-routing.js';
 import {
 	bridgeCommWorkerProductControlFailureMessage,
@@ -46,7 +46,14 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 	readonly productController: BridgeCommWorkerProductController | null;
 	readonly productTransport: BridgeProductTransportSession | undefined;
 	readonly publishReviewMetadataInterests: () => Promise<void>;
-	readonly reviewMetadataApplicator: BridgeCommWorkerReviewMetadataApplicator | null;
+	readonly reviewSuccessorSettlementOwner:
+		| {
+				handleSuccessorReExposureSettlement: (
+					settlement: BridgeCommWorkerReviewSuccessorReExposureSettlement,
+					workerDerivationEpoch: number | null,
+				) => boolean;
+		  }
+		| null;
 	readonly sendProductControl: BridgeCommWorkerProductControlSender;
 	readonly sessionIdentity?: {
 		readonly paneSessionId: string;
@@ -122,7 +129,7 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 					messages: props.messages,
 					publish: props.publish,
 					requestId: productControlCommand.requestId,
-					reviewSuccessorSettlementOwner: props.reviewMetadataApplicator,
+					reviewSuccessorSettlementOwner: props.reviewSuccessorSettlementOwner,
 					reviewWorkerDerivationEpoch: props.activeReviewWorkerDerivationEpoch,
 				});
 			})
@@ -174,7 +181,7 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 										messages: props.messages,
 										publish: props.publish,
 										requestId: productControlCommand.requestId,
-										reviewSuccessorSettlementOwner: props.reviewMetadataApplicator,
+										reviewSuccessorSettlementOwner: props.reviewSuccessorSettlementOwner,
 										reviewWorkerDerivationEpoch: props.activeReviewWorkerDerivationEpoch,
 									});
 								} else {
@@ -215,7 +222,7 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				);
 				notifyBridgeCommWorkerProductControlFailure({
 					command: productControlCommand.command,
-					reviewSuccessorSettlementOwner: props.reviewMetadataApplicator,
+					reviewSuccessorSettlementOwner: props.reviewSuccessorSettlementOwner,
 					reviewWorkerDerivationEpoch: props.activeReviewWorkerDerivationEpoch,
 				});
 			});

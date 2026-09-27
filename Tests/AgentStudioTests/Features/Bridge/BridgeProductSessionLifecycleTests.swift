@@ -38,16 +38,12 @@ struct BridgeProductSessionLifecycleTests {
         let openToken = try #require(
             try await harness.begin(openRequest).executionToken
         )
-        let emptyReviewSHA256 =
-            try BridgeProductSubscriptionInterestState
-            .reviewMetadata(interests: [])
-            .sha256Hex()
         let mismatchedOpenResponse = BridgeProductControlResponse.subscriptionOpenAccepted(
             try .init(
                 correlation: openRequest.correlation,
-                interestSha256: emptyReviewSHA256,
                 subscriptionId: "review-subscription-other",
-                subscriptionKind: .reviewMetadata
+                subscriptionKind: .reviewMetadata,
+                worktreeId: nil
             )
         )
 
@@ -66,7 +62,7 @@ struct BridgeProductSessionLifecycleTests {
 
         let openResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
-            interestSha256: emptyReviewSHA256
+            worktreeId: nil
         )
         _ = try await harness.session.completeAdmittedControl(
             token: openToken,
@@ -190,13 +186,9 @@ struct BridgeProductSessionLifecycleTests {
             try await harness.begin(fileOpenRequest).executionToken
         )
         #expect(await harness.session.admitControlProviderExecution(token: fileOpenToken))
-        let emptyFileSHA256 =
-            try BridgeProductSubscriptionInterestState
-            .fileMetadata(interests: [], pathScope: [])
-            .sha256Hex()
         let fileOpenResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: fileOpenRequest,
-            interestSha256: emptyFileSHA256
+            worktreeId: nil
         )
         _ = try await harness.session.completeAdmittedControl(
             token: fileOpenToken,
@@ -225,8 +217,6 @@ struct BridgeProductSessionLifecycleTests {
         let resyncRequest = try bridgeProductLifecycleControlRequest([
             "activeSubscriptions": [
                 [
-                    "interestRevision": 0,
-                    "interestSha256": emptyFileSHA256,
                     "subscriptionId": "file-subscription-1",
                     "subscriptionKind": "file.metadata",
                     "workerDerivationEpoch": 2,

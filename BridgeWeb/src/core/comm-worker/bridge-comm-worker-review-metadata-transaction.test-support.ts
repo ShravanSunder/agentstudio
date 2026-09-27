@@ -8,8 +8,16 @@ import type {
 	BridgeCommWorkerReviewCandidateStartedPublication,
 } from './bridge-comm-worker-review-publication-types.js';
 import type { ReviewMetadataSubscription } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import type { BridgeProductBatchFrameSinks } from './bridge-product-batch-frame-router.js';
+import { BridgeProductBatchFrameRouter } from './bridge-product-batch-frame-router.js';
+import {
+	bridgeProductBatchFrameSchema,
+	type BridgeProductBatchFrame,
+} from './bridge-product-batch-wire-contracts.js';
+import { bridgeProductReviewBatchRecordSchema } from './bridge-product-review-batch-record-contracts.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
 import type { BridgeWorkerReviewDisplayPatch } from './bridge-worker-contracts.js';
 
 type ReviewMetadataIdentity = Pick<
@@ -41,6 +49,127 @@ type ReviewInvalidatedEvent = Extract<
 export const workerDerivationEpoch = 31;
 export const activeIdentity = reviewIdentity('active', 7, 11);
 export const candidateIdentity = reviewIdentity('candidate', 8, 21);
+let nextReviewTransactionStreamSequence = 0;
+let nextReviewTransactionDeliverySequence = 0;
+const pendingReviewTransactionInstalls = new Set<Promise<void>>();
+
+export async function publishReviewTransactionBatch(
+	router: BridgeProductBatchFrameRouter,
+	installation: BridgeProductViewInstallation,
+): Promise<void> {
+	const begin = { ...installation.begin, streamSequence: ++nextReviewTransactionStreamSequence };
+	router.accept(begin);
+	const frameIdentity = {
+		batchId: begin.batchId,
+		domain: begin.domain,
+		handle: begin.handle,
+		incarnation: begin.incarnation,
+		metadataStreamId: begin.metadataStreamId,
+		paneSessionId: begin.paneSessionId,
+		scopeRevision: begin.scopeRevision,
+		subscriptionId: begin.subscriptionId,
+		subscriptionKind: begin.subscriptionKind,
+		wireVersion: begin.wireVersion,
+		workerInstanceId: begin.workerInstanceId,
+	};
+	for (const [partIndex, record] of installation.records.entries()) {
+		const part: BridgeProductBatchFrame = bridgeProductBatchFrameSchema.parse({
+			...frameIdentity,
+			deliverySequence: ++nextReviewTransactionDeliverySequence,
+			kind: 'subscription.batchPart',
+			part: { key: record.key, operation: 'put', revision: record.revision, value: record.value },
+			partIndex,
+			streamSequence: ++nextReviewTransactionStreamSequence,
+		});
+		router.accept(part);
+	}
+	router.accept(
+		bridgeProductBatchFrameSchema.parse({
+			...frameIdentity,
+			coveredScope: begin.scope,
+			kind: 'subscription.batchComplete',
+			streamSequence: ++nextReviewTransactionStreamSequence,
+		}),
+	);
+	await Promise.all(pendingReviewTransactionInstalls);
+}
+
+export function reviewTransactionBatch(
+	subscriptionId: string,
+	identity: ReviewMetadataIdentity,
+	itemIds: readonly string[],
+	incarnation = 'review-transaction-incarnation',
+): BridgeProductViewInstallation {
+	const templateItem = reviewBatchCorpus.records[0]?.record;
+	const templatePublication = reviewBatchCorpus.records[2]?.record;
+	const displayed =
+		templatePublication?.recordKind === 'publication' ? templatePublication.displayed : undefined;
+	if (templateItem?.recordKind !== 'item' || displayed === undefined || displayed === null) {
+		throw new Error('Review transaction batch corpus is incomplete.');
+	}
+	const begin = bridgeProductBatchFrameSchema.parse({
+		...sessionCorpus.transportV2.batchFrames[0],
+		batchId: uuidv7(),
+		baseRevision: 0,
+		handle: 'review-transaction-handle',
+		incarnation,
+		mode: 'snapshot',
+		partCount: itemIds.length + 1,
+		publicationId: identity.publicationId,
+		scope: { kind: 'review', interests: [] },
+		subscriptionId,
+		subscriptionKind: 'review.metadata',
+		targetRevision: identity.revision,
+	});
+	if (begin.kind !== 'subscription.batchBegin')
+		throw new Error('Review transaction batch begin missing.');
+	const records = itemIds.map((itemId, sortKey) => ({
+		key: itemId,
+		revision: identity.revision,
+		value: bridgeProductReviewBatchRecordSchema.parse({
+			...templateItem,
+			basePath: `Sources/${itemId}.swift`,
+			contentByRole: {
+				base: { state: 'absent' },
+				diff: { state: 'absent' },
+				file: { state: 'absent' },
+				head: { state: 'absent' },
+			},
+			contentHashesByRole: {},
+			extentByRole: { base: null, diff: null, file: null, head: null },
+			headPath: `Sources/${itemId}.swift`,
+			itemId,
+			parentPath: 'Sources',
+			sortKey,
+		}),
+	}));
+	const publication = bridgeProductReviewBatchRecordSchema.parse({
+		...templatePublication,
+		desired: { reviewComparison: null, status: 'ready' },
+		displayed: {
+			...displayed,
+			generation: identity.generation,
+			packageId: identity.packageId,
+			publicationId: identity.publicationId,
+			query: { ...displayed.query, queryId: identity.sourceIdentity },
+			revision: identity.revision,
+			summary: {
+				additions: itemIds.length,
+				deletions: 0,
+				filesChanged: itemIds.length,
+				hiddenFileCount: 0,
+				visibleFileCount: itemIds.length,
+			},
+		},
+		publicationId: identity.publicationId,
+		revision: identity.revision,
+	});
+	return {
+		begin,
+		domain: 'default',
+		records: [...records, { key: 'publication', revision: identity.revision, value: publication }],
+	};
+}
 export const reviewComparisonOrigin = {
 	baseOID: 'contribution-base-oid',
 	baseRole: 'commonCommit',
@@ -353,6 +482,8 @@ export function reviewMetadataTransport(
 	reviewSubscription: ReviewMetadataSubscription | readonly ReviewMetadataSubscription[],
 	onSubscriptionOpened: () => void = (): void => {},
 	onPublicationApplied: () => void = (): void => {},
+	onBatchFrameSinks: (sinks: BridgeProductBatchFrameSinks) => void = (): void => {},
+	onResnapshot: () => void = (): void => {},
 ): BridgeProductTransportSession {
 	let reviewWorkerDerivationEpoch = 0;
 	let subscriptionIndex = 0;
@@ -379,6 +510,34 @@ export function reviewMetadataTransport(
 		openContent: (): never => {
 			throw new Error('Review content is outside metadata transaction staging.');
 		},
+		setBatchFrameSinks: (sinks): void =>
+			onBatchFrameSinks({
+				...sinks,
+				install: (installation): Promise<void> => {
+					const install = Promise.resolve().then(() => sinks.install(installation));
+					const settled = install.then(
+						(): void => {},
+						(): void => {},
+					);
+					pendingReviewTransactionInstalls.add(settled);
+					void settled.finally((): void => {
+						pendingReviewTransactionInstalls.delete(settled);
+					});
+					return install;
+				},
+			}),
+		resnapshotView: async (request) => {
+			onResnapshot();
+			return {
+				...request,
+				kind: 'subscription.resnapshotAccepted' as const,
+				paneSessionId: 'review-transaction-pane',
+				requestId: uuidv7(),
+				requestSequence: 1,
+				wireVersion: 2 as const,
+				workerInstanceId: 'review-transaction-worker',
+			};
+		},
 		subscribe: (...arguments_): never => {
 			const [{ kind: subscriptionKind }] = arguments_;
 			if (subscriptionKind !== 'review.metadata') {
@@ -397,3 +556,7 @@ export function reviewMetadataTransport(
 			surface === 'review' ? reviewWorkerDerivationEpoch : 0,
 	};
 }
+import { uuidv7 } from 'uuidv7';
+
+import reviewBatchCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-review-batch-record-corpus.json' with { type: 'json' };
+import sessionCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };

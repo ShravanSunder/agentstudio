@@ -74,7 +74,7 @@ describe('Bridge product view receipt acknowledgement owner', () => {
 				kind: 'subscription.batchBegin',
 				mode: 'snapshot',
 				partCount: 1,
-				scope: { kind: 'file', changeFilter: { kind: 'none' } },
+				scope: { kind: 'file', changeFilter: { kind: 'none' }, interests: [], pathScope: [] },
 				streamSequence: 1,
 				targetRevision: 1,
 			}),
@@ -143,5 +143,47 @@ describe('Bridge product view receipt acknowledgement owner', () => {
 		expect(exactBodies).toHaveLength(bootstrap.policy.admissionRetryCount + 1);
 		expect(new Set(exactBodies).size).toBe(1);
 		expect(exhausted).toEqual([receipt.subscriptionId]);
+	});
+
+	test('exhaustion discards later credits from the abandoned batch before resnapshot', async () => {
+		const sentSequences: number[] = [];
+		const exhausted: number[] = [];
+		let signalFirstRequest = (): void => {};
+		let releaseFirstRequest = (): void => {};
+		const firstRequestStarted = new Promise<void>((resolve): void => {
+			signalFirstRequest = resolve;
+		});
+		const firstRequestHeld = new Promise<void>((resolve): void => {
+			releaseFirstRequest = resolve;
+		});
+		const acknowledger = new BridgeProductViewReceiptAcknowledger({
+			authority,
+			deadlineClock: clock,
+			executeProductRequest: async (_, requestInit): Promise<Response> => {
+				if (!(requestInit.body instanceof Uint8Array)) throw new Error('Expected ACK bytes.');
+				const request = bridgeProductViewAcknowledgementRequestSchema.parse(
+					JSON.parse(new TextDecoder().decode(requestInit.body)),
+				);
+				sentSequences.push(request.receivedThroughDeliverySequence);
+				if (sentSequences.length === 1) {
+					signalFirstRequest();
+					await firstRequestHeld;
+				}
+				return new Response('', { status: 502 });
+			},
+			onExhausted: (request): void => {
+				exhausted.push(request.receivedThroughDeliverySequence);
+			},
+		});
+		acknowledger.received(receipt);
+		await firstRequestStarted;
+		acknowledger.received({ ...receipt, receivedThroughDeliverySequence: 2 });
+		releaseFirstRequest();
+		await acknowledger.waitForIdle();
+
+		expect(sentSequences).toEqual(
+			Array.from({ length: bootstrap.policy.admissionRetryCount + 1 }, (): number => 1),
+		);
+		expect(exhausted).toEqual([1]);
 	});
 });

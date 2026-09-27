@@ -10,20 +10,18 @@ import {
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
-import type { FileMetadataInterestUpdate } from './bridge-file-viewer-browser-test-fixtures.js';
-import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
-	fileNavigationCommandForPath,
-	makeFileDescriptor,
-	makeFileDescriptorForContent,
-	makeDescriptorReadyMetadataEvents,
-	makeFileMetadataEvents,
-	makeSourceIdentity,
-	makeTreeRow,
-	makeTreeRowsOnlyMetadataEvents,
-	parseFileMetadataEvent,
-	type PublishFileMetadataEvents,
-} from './bridge-file-viewer-browser-test-fixtures.js';
+	makeBrowserFileBatchWithDescriptors,
+	makeBrowserFileDescriptorOutcome,
+	makeBrowserFileDescriptorOutcomeForContent,
+	makeBrowserFileRow,
+	makeBrowserMetadataOnlyFileBatch,
+	replaceBrowserFileBatchRows,
+	type BrowserFileViewScope,
+	type PublishBrowserFileBatch,
+} from './bridge-file-viewer-browser-test-batches.js';
+import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
+import { fileNavigationCommandForPath } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actClick,
 	actFrame,
@@ -35,7 +33,7 @@ import {
 	renderedFilePath,
 	requireActivateFiles,
 	requireDeactivateFiles,
-	requireMetadataPublisher,
+	requireBrowserFileBatchPublisher,
 	selectedDisplayPath,
 	visibleCodeText,
 	waitForMetadataInterestUpdateCount,
@@ -58,7 +56,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const loadedWhileInactiveContent = makeFileContent(
 			'export const loadedWhileInactive = true;\n',
 		);
-		const slowDescriptor = await makeFileDescriptorForContent({
+		const slowDescriptor = await makeBrowserFileDescriptorOutcomeForContent({
 			content: loadedWhileInactiveContent,
 			contentHandle: 'inactive-open-content',
 			fileId: 'file-inactive-open',
@@ -80,7 +78,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(slowDescriptor)}
+					initialFileBatch={makeBrowserFileBatchWithDescriptors(slowDescriptor)}
 					isActive={isActive}
 					navigationCommand={fileNavigationCommandForPath('src/inactive-open.ts')}
 					fileProductSession={{
@@ -134,7 +132,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 	test('reissues an aborted still-selected content open exactly once', async () => {
 		const retriedContent = makeFileContent('export const autoOpenRetried = true;\n');
-		const initialDescriptor = await makeFileDescriptorForContent({
+		const initialDescriptor = await makeBrowserFileDescriptorOutcomeForContent({
 			content: retriedContent,
 			contentHandle: 'auto-open-aborted-content',
 			fileId: 'file-auto-open-aborted',
@@ -152,7 +150,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			<BridgeFileViewerApp
 				autoOpenInitialFile
 				codeViewWorkerPoolEnabled={false}
-				initialMetadataEvents={makeFileMetadataEvents(initialDescriptor)}
+				initialFileBatch={makeBrowserFileBatchWithDescriptors(initialDescriptor)}
 				fileProductSession={{
 					readContent: (props) => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
@@ -209,9 +207,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(
-						makeFileDescriptor({
-							contentHandle: 'content-1',
+					initialFileBatch={makeBrowserFileBatchWithDescriptors(
+						makeBrowserFileDescriptorOutcome({
+							descriptorId: 'content-1',
 							fileId: 'file-1',
 							path: 'src/file-1.ts',
 						}),
@@ -252,7 +250,19 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let activateFiles: (() => void) | null = null;
 		let deactivateFiles: (() => void) | null = null;
 		let metadataSubscriptionOpenCount = 0;
-		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
+		let publishMetadataEvents: PublishBrowserFileBatch | null = null;
+		const initialBatch = makeBrowserFileBatchWithDescriptors(
+			makeBrowserFileDescriptorOutcome({
+				descriptorId: 'content-existing',
+				fileId: 'file-existing',
+				path: 'src/existing.ts',
+			}),
+			makeBrowserFileDescriptorOutcome({
+				descriptorId: 'content-removed',
+				fileId: 'file-removed',
+				path: 'src/removed.ts',
+			}),
+		);
 
 		function ControlledFileViewer(): ReactElement {
 			const [isActive, setIsActive] = useState(true);
@@ -265,24 +275,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(
-						makeFileDescriptor({
-							contentHandle: 'content-existing',
-							fileId: 'file-existing',
-							path: 'src/existing.ts',
-						}),
-						makeFileDescriptor({
-							contentHandle: 'content-removed',
-							fileId: 'file-removed',
-							path: 'src/removed.ts',
-						}),
-					)}
+					initialFileBatch={initialBatch}
 					isActive={isActive}
 					fileProductSession={{
 						onMetadataSubscriptionOpen: () => {
 							metadataSubscriptionOpenCount += 1;
 						},
-						onMetadataSubscription: (handler): (() => void) => {
+						onFileBatchPublisher: (handler): (() => void) => {
 							publishMetadataEvents = handler;
 							return (): void => {
 								publishMetadataEvents = null;
@@ -301,7 +300,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 1,
 			getLoadCount: () => metadataSubscriptionOpenCount,
 		});
-		await waitForMetadataTreeRowCount(2);
+		await waitForMetadataTreeRowCount(3);
 		await waitForBridgeViewerTreeItemButton('src/existing.ts');
 		await waitForBridgeViewerTreeItemButton('src/removed.ts');
 
@@ -309,33 +308,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
 		await actUpdate((): void => {
-			requireMetadataPublisher(publishMetadataEvents)([
-				parseFileMetadataEvent({
-					eventKind: 'file.treeDelta',
-					operations: [
-						{
-							op: 'upsertRows',
-							rows: [
-								makeTreeRow({
-									depth: 1,
-									fileId: 'file-added',
-									isDirectory: false,
-									lineCount: 12,
-									name: 'added.ts',
-									parentPath: 'src',
-									path: 'src/added.ts',
-								}),
-							],
-						},
-						{
-							op: 'removeRows',
-							rowIds: ['row:src:removed.ts'],
-							paths: ['src/removed.ts'],
-						},
+			requireBrowserFileBatchPublisher(publishMetadataEvents)(
+				replaceBrowserFileBatchRows({
+					previous: initialBatch,
+					upserts: [
+						makeBrowserFileRow({ path: 'src/added.ts', fileId: 'file-added', lineCount: 12 }),
 					],
-					source: makeSourceIdentity(),
+					deletedPaths: ['src/removed.ts'],
+					revision: 2,
 				}),
-			]);
+			);
 		});
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
@@ -359,7 +341,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const reactivatedContentBody = makeFileContent(
 			'export const reactivatedPreservedFile = true;\n',
 		);
-		const reactivatedDescriptor = await makeFileDescriptorForContent({
+		const reactivatedDescriptor = await makeBrowserFileDescriptorOutcomeForContent({
 			content: reactivatedContentBody,
 			contentHandle: 'content-1',
 			fileId: 'file-1',
@@ -377,7 +359,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeFileMetadataEvents(reactivatedDescriptor)}
+					initialFileBatch={makeBrowserFileBatchWithDescriptors(reactivatedDescriptor)}
 					isActive={isActive}
 					fileProductSession={{
 						readContent: (props) => {
@@ -437,19 +419,19 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 	test('opens the inactive metadata subscription without main-thread demand', async () => {
 		let metadataSubscriptionOpenCount = 0;
-		let subscriptionInterestCount: number | null = null;
-		let subscriptionPathScopeCount: number | null = null;
+		const observedScopes: BrowserFileViewScope[] = [];
 
 		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
+				initialFileBatch={makeBrowserMetadataOnlyFileBatch()}
 				isActive={false}
 				fileProductSession={{
-					onMetadataSubscriptionOpen: (options) => {
+					onMetadataSubscriptionOpen: () => {
 						metadataSubscriptionOpenCount += 1;
-						subscriptionInterestCount = options.interests.length;
-						subscriptionPathScopeCount = options.pathScope.length;
+					},
+					onFileScopeChange: (scope) => {
+						observedScopes.push(scope);
 					},
 				}}
 			/>,
@@ -458,18 +440,17 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
 		expect(metadataSubscriptionOpenCount).toBe(1);
-		expect(subscriptionInterestCount).toBe(0);
-		expect(subscriptionPathScopeCount).toBe(0);
+		expect(observedScopes).toEqual([]);
 	});
 
 	test('does not open unselected descriptors while Files is inactive', async () => {
-		const visibleDescriptor = makeFileDescriptor({
-			contentHandle: 'visible-content',
+		const visibleDescriptor = makeBrowserFileDescriptorOutcome({
+			descriptorId: 'visible-content',
 			fileId: 'file-visible',
 			path: 'src/visible.ts',
 		});
-		const updatedDescriptor = makeFileDescriptor({
-			contentHandle: 'recently-updated-content',
+		const updatedDescriptor = makeBrowserFileDescriptorOutcome({
+			descriptorId: 'recently-updated-content',
 			fileId: 'file-recently-updated',
 			path: 'src/recently-updated.ts',
 		});
@@ -477,7 +458,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await render(
 			<BridgeFileViewerApp
-				initialMetadataEvents={makeFileMetadataEvents(visibleDescriptor, updatedDescriptor)}
+				initialFileBatch={makeBrowserFileBatchWithDescriptors(visibleDescriptor, updatedDescriptor)}
 				isActive={false}
 				fileProductSession={{
 					readContent: async (props) => {
@@ -494,20 +475,24 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('requests visible metadata-only descriptors without opening their content', async () => {
-		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
+		const metadataInterestUpdates: BrowserFileViewScope[] = [];
 		const openedDescriptorIds: string[] = [];
+		const workerCommandNames: string[] = [];
 
 		await render(
 			<div style={{ height: '720px', overflow: 'hidden', width: '1280px' }}>
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
+					initialFileBatch={makeBrowserMetadataOnlyFileBatch()}
 					fileProductSession={{
+						onWorkerCommand: (message) => {
+							workerCommandNames.push(message.command);
+						},
 						readContent: async (props) => {
 							openedDescriptorIds.push(props.descriptor.descriptorId);
 							return makeFileContent('export const recentlyUpdatedMetadataOnly = true;\n');
 						},
-						onMetadataInterestUpdate: (request) => {
+						onFileScopeChange: (request) => {
 							metadataInterestUpdates.push(request);
 						},
 					}}
@@ -518,6 +503,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
 		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		expect(workerCommandNames).toContain('viewport');
 		await waitForMetadataInterestUpdateCount({
 			expectedCount: 1,
 			metadataInterestUpdates: metadataInterestUpdates,
@@ -527,7 +513,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actFrame();
 		await waitForBridgeFileViewerWorkerMessageDrain();
 
-		expect(metadataInterestUpdates.at(-1)).toEqual({
+		expect(metadataInterestUpdates.at(-1)).toMatchObject({
 			interests: [{ lane: 'visible', paths: ['Sources/AgentStudio/App/AppDelegate.swift'] }],
 			pathScope: [],
 		});
@@ -536,15 +522,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('keeps metadata-only fulfillment from opening content while Files is inactive', async () => {
-		const firstDescriptor = makeFileDescriptor({
-			contentHandle: 'recently-updated-inactive-content',
+		const firstDescriptor = makeBrowserFileDescriptorOutcome({
+			descriptorId: 'recently-updated-inactive-content',
 			fileId: 'file-app-delegate',
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
 		});
-		const metadataInterestUpdates: FileMetadataInterestUpdate[] = [];
+		const metadataInterestUpdates: BrowserFileViewScope[] = [];
 		const openedDescriptorIds: string[] = [];
 		let deactivateFiles: (() => void) | null = null;
-		let publishMetadataEvents: PublishFileMetadataEvents | null = null;
+		let publishMetadataEvents: PublishBrowserFileBatch | null = null;
+		const initialBatch = makeBrowserMetadataOnlyFileBatch();
 
 		function ControlledFileViewer(): ReactElement {
 			const [isActive, setIsActive] = useState(true);
@@ -554,7 +541,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					initialMetadataEvents={makeTreeRowsOnlyMetadataEvents()}
+					initialFileBatch={initialBatch}
 					isActive={isActive}
 					fileProductSession={{
 						readContent: (props) => {
@@ -563,10 +550,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 								makeFileContent('export const visibleAfterReactivate = true;\n'),
 							);
 						},
-						onMetadataInterestUpdate: (request) => {
+						onFileScopeChange: (request) => {
 							metadataInterestUpdates.push(request);
 						},
-						onMetadataSubscription: (handler): (() => void) => {
+						onFileBatchPublisher: (handler): (() => void) => {
 							publishMetadataEvents = handler;
 							return (): void => {
 								publishMetadataEvents = null;
@@ -605,8 +592,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
 		await actUpdate((): void => {
-			requireMetadataPublisher(publishMetadataEvents)(
-				makeDescriptorReadyMetadataEvents(firstDescriptor, { sequence: 1 }),
+			requireBrowserFileBatchPublisher(publishMetadataEvents)(
+				replaceBrowserFileBatchRows({
+					previous: initialBatch,
+					upserts: [
+						makeBrowserFileRow({ path: firstDescriptor.path, descriptorOutcome: firstDescriptor }),
+					],
+					revision: 2,
+				}),
 			);
 		});
 		await waitForBridgeFileViewerWorkerMessageDrain();

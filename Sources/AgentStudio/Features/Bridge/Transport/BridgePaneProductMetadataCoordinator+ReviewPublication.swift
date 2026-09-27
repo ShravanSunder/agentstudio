@@ -156,22 +156,25 @@ extension BridgePaneProductMetadataCoordinator {
                 context.productAdmission
             )
         else { return .deferred }
+        var sealedViewCount = 0
+        for subscriptionID in reviewSubscriptionIds {
+            if try await publishReviewViewSnapshot(
+                subscriptionId: subscriptionID,
+                productAdmission: context.productAdmission
+            ) {
+                sealedViewCount += 1
+            }
+        }
         await recordReviewMetadataEnqueue(
             publication: context.publication,
             result: .started,
             stage: .metadataDeliveryStarted,
             stageAttempt: context.attempt
         )
-        if let failureDisposition = await reviewMetadataReceiptFailureDisposition(
-            receipt,
-            publication: context.publication,
-            publishingStream: context.publishingStream,
-            productAdmission: context.productAdmission,
-            foregroundWorkAdmission: context.foregroundWorkAdmission,
-            stageAttempt: context.attempt
-        ) {
-            return failureDisposition
-        }
+        guard activeStream?.lease == context.publishingStream.lease,
+            context.foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            await isReviewPublicationCurrent(context.publication.publicationId, context.productAdmission)
+        else { return .deferred }
         await recordReviewMetadataDeliveryTerminal(
             publication: context.publication,
             result: .success,
@@ -180,53 +183,7 @@ extension BridgePaneProductMetadataCoordinator {
         await lifecycleTraceRecorder?.record(
             .completed(receipt: receipt, traceContext: context.traceContext)
         )
-        return receipt.publishedSubscriptions > 0 ? .transportAcknowledged : .deferred
-    }
-
-    private func reviewMetadataReceiptFailureDisposition(
-        _ receipt: BridgeReviewMetadataPublicationReceipt,
-        publication: BridgeReviewCommittedPublication,
-        publishingStream: ActiveStream,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        stageAttempt: Int
-    ) async -> BridgeReviewPublicationDeliveryDisposition? {
-        if let maximumFinalSequence = receipt.finalFrames.map(\.sequence).max(),
-            !(await publishingStream.session.waitUntilProducerFrameSequenceObserved(
-                for: publishingStream.lease,
-                sequence: maximumFinalSequence,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission
-            ))
-        {
-            let publicationRemainsCurrent = await isReviewPublicationCurrent(
-                publication.publicationId,
-                productAdmission
-            )
-            let remainsCurrent =
-                activeStream?.lease == publishingStream.lease
-                && foregroundWorkAdmission.withValidAdmission({ true }) == true
-                && publicationRemainsCurrent
-                && (productAdmission.withValidAdmission { true }) == true
-            await recordReviewMetadataDeliveryTerminal(
-                publication: publication,
-                result: remainsCurrent ? .failure : .stale,
-                stageAttempt: stageAttempt
-            )
-            return remainsCurrent ? .failed : .deferred
-        }
-        guard activeStream?.lease == publishingStream.lease,
-            foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            await isReviewPublicationCurrent(publication.publicationId, productAdmission)
-        else {
-            await recordReviewMetadataDeliveryTerminal(
-                publication: publication,
-                result: .stale,
-                stageAttempt: stageAttempt
-            )
-            return .deferred
-        }
-        return nil
+        return sealedViewCount > 0 ? .viewBatchSealed : .deferred
     }
 
     private func recordReviewMetadataEnqueue(

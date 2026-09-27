@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import {
-	controlChanged,
 	createHarness,
 	createNotificationQueue,
 	deferred,
@@ -10,8 +9,7 @@ import {
 	flushTaskQueue,
 	flushTaskQueueUntil,
 	makeProjectionPages,
-	pushSessionCatalog,
-	sessionChanged,
+	installSessionCatalog,
 	sessionId,
 	uuidv7,
 } from './test-fixtures/bridge-comm-worker-annotation-projection.test-support.js';
@@ -24,6 +22,22 @@ const reviewPublicationIdentity = {
 } as const;
 
 describe('Bridge comm worker annotation projection query controller', () => {
+	test('re-reads visible File placement after a new File view installs at the same source generation', async () => {
+		const harness = await createHarness({ pages: await makeProjectionPages(1, 7) });
+		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 7 });
+		harness.controller.ensureSubscription();
+		installSessionCatalog(harness.notifications, 7);
+		await harness.controller.waitForIdle();
+
+		const readsBeforeFileInstall = harness.querySessionIds.length;
+		harness.controller.refreshPlacementForInstalledFileView();
+		await harness.controller.waitForIdle();
+
+		expect(harness.querySessionIds).toHaveLength(readsBeforeFileInstall + 1);
+		expect(harness.querySessionIds.at(-1)).toEqual([sessionId]);
+		expect(harness.publications.at(-1)?.snapshot.threads[0]?.messages).toHaveLength(1);
+	});
+
 	test('returns the exact Review identity captured by the query attempt', async () => {
 		const harness = await createHarness({
 			pages: await makeProjectionPages(1, 7, undefined, 'review'),
@@ -36,7 +50,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 			sourceGeneration: 7,
 		});
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 7);
+		installSessionCatalog(harness.notifications, 7);
 
 		await harness.controller.waitForIdle();
 
@@ -51,7 +65,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 	test('records inactive invalidations and fetches only after activation', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 7) });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 7);
+		installSessionCatalog(harness.notifications, 7);
 		await flushMicrotasks();
 		expect(harness.querySourceGenerations).toEqual([]);
 
@@ -68,15 +82,15 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		);
 		expect(
 			lifecyclePhases.filter((phase) => phase === 'annotation_invalidation_received:success'),
-		).toHaveLength(3);
+		).toHaveLength(1);
 		expect(
 			lifecyclePhases.filter((phase) => phase === 'projection_query_terminal:success'),
 		).toHaveLength(2);
-		expect(
-			harness.telemetrySamples.every(
-				(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'] === 'a'.repeat(64),
-			),
-		).toBe(true);
+		const operationIds = harness.telemetrySamples.map(
+			(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'],
+		);
+		expect(new Set(operationIds).size).toBe(1);
+		expect(operationIds[0]).toMatch(/^[a-f0-9]{64}$/u);
 		expect([
 			...new Set(
 				harness.telemetrySamples
@@ -90,17 +104,25 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		]).toEqual([0, 1]);
 	});
 
-	test('requeries when demanded sessions change on the same active source generation', async () => {
+	test('submits changed session demand through Comment scope before the next certified body read', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 100);
+		installSessionCatalog(harness.notifications, 100);
 		await harness.controller.waitForIdle();
 
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
 		await harness.controller.waitForIdle();
 
-		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
+		expect(harness.scopeUpdates.at(-1)).toEqual({
+			sessionIds: [sessionId],
+			subscriptionId: 'file-annotation-notifications',
+			worktreeId: 'worktree-annotations-1',
+		});
+		expect(harness.querySessionIds).toEqual([[]]);
+		harness.notifications.installCatalog(101);
+		await harness.controller.waitForIdle();
+		expect(harness.querySessionIds).toEqual([[], [], [sessionId]]);
 	});
 
 	test('finishes the empty-demand control read before retained demand loads rich content', async () => {
@@ -108,7 +130,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
 		harness.controller.ensureSubscription();
 
-		pushSessionCatalog(harness.notifications, 8);
+		installSessionCatalog(harness.notifications, 8);
 		await harness.controller.waitForIdle();
 
 		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
@@ -122,17 +144,21 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 8);
+		installSessionCatalog(harness.notifications, 8);
 		await harness.controller.waitForIdle();
 		harness.querySessionIds.length = 0;
 
-		harness.notifications.push(sessionChanged(9, 2));
+		harness.notifications.installCatalog(9, 2);
 		await harness.controller.waitForIdle();
-		expect(harness.querySessionIds).toEqual([]);
+		expect(harness.querySessionIds).toEqual([[]]);
 
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
 		await harness.controller.waitForIdle();
-		expect(harness.querySessionIds).toEqual([[sessionId]]);
+		expect(harness.scopeUpdates.at(-1)?.sessionIds).toEqual([sessionId]);
+		expect(harness.querySessionIds).toEqual([[]]);
+		harness.notifications.installCatalog(10, 2);
+		await harness.controller.waitForIdle();
+		expect(harness.querySessionIds).toEqual([[], [], [sessionId]]);
 		expect(harness.publications.at(-1)?.contentSessionIds).toEqual([sessionId]);
 	});
 
@@ -140,32 +166,32 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 8);
+		installSessionCatalog(harness.notifications, 8);
 		await harness.controller.waitForIdle();
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
 		await harness.controller.waitForIdle();
 		harness.querySessionIds.length = 0;
 
-		harness.notifications.push(sessionChanged(9, 1));
-		harness.notifications.push(sessionChanged(10, 2));
-		harness.notifications.push(sessionChanged(11, 2));
+		harness.notifications.installCatalog(9, 1);
+		harness.notifications.installCatalog(10, 2);
+		harness.notifications.installCatalog(11, 2);
 		await flushMicrotasks();
 		await harness.controller.waitForIdle();
 
-		expect(harness.querySessionIds).toEqual([[sessionId]]);
+		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
 	});
 
 	test('control changes query summaries with empty rich demand even while a session is demanded', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 8);
+		installSessionCatalog(harness.notifications, 8);
 		await harness.controller.waitForIdle();
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
 		await harness.controller.waitForIdle();
 		harness.querySessionIds.length = 0;
 
-		harness.notifications.push(controlChanged(9));
+		harness.notifications.installCatalog(9);
 		await harness.controller.waitForIdle();
 
 		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
@@ -177,7 +203,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 9) });
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 9 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 9);
+		installSessionCatalog(harness.notifications, 9);
 		await harness.controller.waitForIdle();
 
 		harness.controller.setDemand({ active: false, sessionIds: [sessionId], sourceGeneration: 9 });
@@ -206,7 +232,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 10 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 12);
+		installSessionCatalog(harness.notifications, 12);
 		await harness.controller.waitForIdle();
 
 		expect(harness.statuses).toEqual(['refreshing']);
@@ -232,7 +258,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 17 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 18);
+		installSessionCatalog(harness.notifications, 18);
 		await harness.controller.waitForIdle();
 		harness.controller.sourceUnavailable(new Error('File metadata producer ended.'));
 		expect(harness.statuses).toEqual(['refreshing', 'unavailable']);
@@ -259,7 +285,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 16 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 16);
+		installSessionCatalog(harness.notifications, 16);
 
 		await harness.controller.waitForIdle();
 
@@ -280,7 +306,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 
 		firstNotifications.close();
 		await flushTaskQueueUntil(() => harness.subscriptionCount() === 2);
-		pushSessionCatalog(replacementNotifications, 17);
+		installSessionCatalog(replacementNotifications, 17);
 		await flushTaskQueue();
 		await harness.controller.waitForIdle();
 
@@ -308,7 +334,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 17 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(firstNotifications, 20);
+		installSessionCatalog(firstNotifications, 20);
 		await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 1);
 
 		firstNotifications.close();
@@ -321,7 +347,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.publications).toEqual([]);
 		expect(harness.querySourceGenerations).toEqual([17]);
 
-		pushSessionCatalog(replacementNotifications, 1);
+		installSessionCatalog(replacementNotifications, 1);
 		await harness.controller.waitForIdle();
 
 		expect(harness.querySourceGenerations).toEqual([17, 17]);
@@ -346,7 +372,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		await harness.controller.waitForIdle();
 		harness.controller.retry();
 		await flushTaskQueueUntil(() => harness.subscriptionCount() === 3);
-		pushSessionCatalog(retryNotifications, 19);
+		installSessionCatalog(retryNotifications, 19);
 		await flushTaskQueue();
 		await harness.controller.waitForIdle();
 
@@ -370,10 +396,10 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 10 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 10);
+		installSessionCatalog(harness.notifications, 10);
 		await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 1);
 		for (let sourceGeneration = 11; sourceGeneration <= 15; sourceGeneration += 1) {
-			harness.notifications.push(controlChanged(sourceGeneration));
+			harness.notifications.installCatalog(sourceGeneration);
 		}
 		await flushTaskQueueUntil(() => harness.querySourceGenerations.length === 2);
 		expect(harness.querySourceGenerations).toEqual([10, 10]);
@@ -395,7 +421,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 20 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 20);
+		installSessionCatalog(harness.notifications, 20);
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toHaveLength(1);
@@ -409,7 +435,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 21 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 21);
+		installSessionCatalog(harness.notifications, 21);
 		await harness.controller.waitForIdle();
 
 		expect(harness.failures).toEqual([]);
@@ -423,7 +449,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 22 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 22);
+		installSessionCatalog(harness.notifications, 22);
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toEqual([]);
@@ -442,7 +468,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 30 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 30);
+		installSessionCatalog(harness.notifications, 30);
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toEqual([]);
@@ -454,7 +480,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		const harness = await createHarness({ pages, terminalKind: 'error' });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 40 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 40);
+		installSessionCatalog(harness.notifications, 40);
 		await harness.controller.waitForIdle();
 
 		expect(harness.publications).toEqual([]);
@@ -474,7 +500,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		});
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 50 });
 		harness.controller.ensureSubscription();
-		pushSessionCatalog(harness.notifications, 50);
+		installSessionCatalog(harness.notifications, 50);
 		await flushTaskQueue();
 		const disposal = harness.controller.dispose();
 		expect(observedSignals[0]?.aborted).toBe(true);

@@ -15,9 +15,11 @@ struct FileAnnotationSourceWitnessTests {
         let collector = ProductFileMetadataEventCollector()
         try await source.open(subscription: snapshot, productAdmission: fixture.productAdmission.context) { _ in }
         do {
-            try await source.update(
-                subscription: fixture.updatedSnapshot(from: snapshot),
-                productAdmission: fixture.productAdmission.context
+            try await source.applyViewDemand(
+                subscriptionId: snapshot.subscriptionId,
+                demand: fixture.viewDemand(),
+                productAdmission: fixture.productAdmission.context,
+                forceRecapture: false
             ) { await collector.append($0) }
             let payload = try #require(
                 (await collector.events).compactMap { event -> BridgeProductFileDescriptorReadyPayload? in

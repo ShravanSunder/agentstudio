@@ -7,6 +7,21 @@ struct BridgeProductNativeCommentView: Sendable {
     let viewDomain: BridgeProductViewDomainKey
 }
 
+struct BridgeProductAcceptedViewScope: Sendable {
+    let handle: String
+    let revision: Int
+    let admissionSequence: Int
+    let scope: BridgeProductJSONValue
+}
+
+struct BridgeProductAcceptedViewScopeSnapshot: Sendable {
+    let viewDomain: BridgeProductViewDomainKey
+    let handle: String
+    let revision: Int
+    let admissionSequence: Int
+    let scope: BridgeProductJSONValue
+}
+
 struct BridgeProductViewEmissionWaiter {
     let id: UUID
     let handle: String
@@ -35,6 +50,7 @@ extension BridgeProductSession {
         else { return nil }
         let scope = BridgeProductJSONValue.object([
             "kind": .string("comment"),
+            "sessionIds": .array([]),
             "worktreeId": .string(worktreeID),
         ])
         try BridgeProductViewScopeContract.validate(scope, codingPath: [])
@@ -52,9 +68,12 @@ extension BridgeProductSession {
             viewAcknowledgementReplayByDomain.removeValue(forKey: prior)
             nextViewDeliverySequenceByDomain.removeValue(forKey: prior)
             pendingFileSnapshotByViewDomain.removeValue(forKey: prior)
+            pendingReviewSnapshotByViewDomain.removeValue(forKey: prior)
         }
         viewSenderState.open(viewDomain, handle: handle, scanGeneration: 0)
-        viewScopeByDomain[viewDomain] = (handle: handle, revision: 0, scope: scope)
+        viewScopeByDomain[viewDomain] = .init(
+            handle: handle, revision: 0, admissionSequence: 0, scope: scope
+        )
         nextViewDeliverySequenceByDomain[viewDomain] = 1
         return .init(handle: handle, scope: scope, viewDomain: viewDomain)
     }
@@ -88,6 +107,38 @@ extension BridgeProductSession {
         return try sealViewBatch(batch, productAdmission: productAdmission)
     }
 
+    func sealReviewSnapshot(
+        subscriptionId: String,
+        snapshot: BridgeProductReviewKeyedSnapshot,
+        productAdmission: BridgeProductAdmissionContext
+    ) throws -> Bool {
+        guard let subscription = subscriptionState.snapshot(subscriptionId: subscriptionId),
+            subscription.subscriptionKind == .reviewMetadata,
+            let viewDomain = viewScopeByDomain.keys.first(where: {
+                $0.viewId == subscriptionId && $0.domain == .singleDomain
+            }), let current = viewScopeByDomain[viewDomain]
+        else { return false }
+        if viewSenderState.hasActiveEmission(for: viewDomain) {
+            if snapshot.targetRevision >= (pendingReviewSnapshotByViewDomain[viewDomain]?.targetRevision ?? 0) {
+                pendingReviewSnapshotByViewDomain[viewDomain] = snapshot
+            }
+            return true
+        }
+        let batch = try BridgeProductReviewViewBatchFactory.sealSnapshot(
+            .init(
+                viewDomain: viewDomain,
+                handle: current.handle,
+                scopeRevision: current.revision,
+                scope: current.scope,
+                firstDeliverySequence: nextViewDeliverySequenceByDomain[viewDomain] ?? 1,
+                targetRevision: snapshot.targetRevision,
+                publication: snapshot.publication,
+                items: snapshot.items
+            )
+        )
+        return try sealViewBatch(batch, productAdmission: productAdmission)
+    }
+
     func sealCommentCatalogBatch(
         subscriptionId: String,
         catalogBatch: BridgeProductCommentCatalogBatch,
@@ -101,7 +152,8 @@ extension BridgeProductSession {
                 $0.viewId == subscriptionId && $0.domain == .singleDomain
             }),
             let current = viewScopeByDomain[viewDomain],
-            current.handle == catalogBatch.handle
+            current.handle == catalogBatch.handle,
+            current.revision == catalogBatch.scopeRevision
         else { return false }
         let sealedBatch = try BridgeProductCommentViewBatchFactory.seal(
             .init(
@@ -220,6 +272,7 @@ extension BridgeProductSession {
     ) throws {
         guard lifecycle == .active else { return }
         try sealPendingFileSnapshotIfReady()
+        try sealPendingReviewSnapshotIfReady()
         var proposedSender = viewSenderState
         guard
             let frame = try proposedSender.nextFrame(
@@ -279,7 +332,31 @@ extension BridgeProductSession {
         }
     }
 
+    private func sealPendingReviewSnapshotIfReady() throws {
+        for (viewDomain, snapshot) in pendingReviewSnapshotByViewDomain {
+            guard !viewSenderState.hasActiveEmission(for: viewDomain),
+                let current = viewScopeByDomain[viewDomain]
+            else { continue }
+            let batch = try BridgeProductReviewViewBatchFactory.sealSnapshot(
+                .init(
+                    viewDomain: viewDomain,
+                    handle: current.handle,
+                    scopeRevision: current.revision,
+                    scope: current.scope,
+                    firstDeliverySequence: nextViewDeliverySequenceByDomain[viewDomain] ?? 1,
+                    targetRevision: snapshot.targetRevision,
+                    publication: snapshot.publication,
+                    items: snapshot.items
+                )
+            )
+            try viewSenderState.seal(batch)
+            nextViewDeliverySequenceByDomain[viewDomain] = batch.firstDeliverySequence + batch.parts.count
+            pendingReviewSnapshotByViewDomain.removeValue(forKey: viewDomain)
+        }
+    }
+
     func closeViewDomains(subscriptionId: String) {
+        viewScopeWaiterBySubscriptionId.removeValue(forKey: subscriptionId)?.finish()
         for viewDomain in Array(viewScopeByDomain.keys) where viewDomain.viewId == subscriptionId {
             finishViewEmissionWaiter(for: viewDomain, outcome: .retired)
             viewSenderState.close(viewDomain)
@@ -287,7 +364,48 @@ extension BridgeProductSession {
             viewAcknowledgementReplayByDomain.removeValue(forKey: viewDomain)
             nextViewDeliverySequenceByDomain.removeValue(forKey: viewDomain)
             pendingFileSnapshotByViewDomain.removeValue(forKey: viewDomain)
+            pendingReviewSnapshotByViewDomain.removeValue(forKey: viewDomain)
         }
+    }
+
+    func acceptedViewScope(
+        subscriptionId: String
+    ) -> BridgeProductAcceptedViewScopeSnapshot? {
+        guard
+            let viewDomain = viewScopeByDomain.keys.first(where: {
+                $0.viewId == subscriptionId && $0.domain == .singleDomain
+            }), let current = viewScopeByDomain[viewDomain]
+        else { return nil }
+        return .init(
+            viewDomain: viewDomain,
+            handle: current.handle,
+            revision: current.revision,
+            admissionSequence: current.admissionSequence,
+            scope: current.scope
+        )
+    }
+
+    func awaitAcceptedViewScope(
+        subscriptionId: String
+    ) async -> BridgeProductAcceptedViewScopeSnapshot? {
+        if let current = acceptedViewScope(subscriptionId: subscriptionId), current.revision > 0 {
+            return current
+        }
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        viewScopeWaiterBySubscriptionId[subscriptionId]?.finish()
+        viewScopeWaiterBySubscriptionId[subscriptionId] = continuation
+        defer {
+            viewScopeWaiterBySubscriptionId.removeValue(forKey: subscriptionId)?.finish()
+        }
+        for await _ in stream {
+            if let current = acceptedViewScope(subscriptionId: subscriptionId), current.revision > 0 {
+                return current
+            }
+        }
+        return nil
     }
 
     func acceptViewScope(
@@ -306,6 +424,13 @@ extension BridgeProductSession {
             domain: .singleDomain,
             incarnation: request.incarnation
         )
+        if viewScopeByDomain.contains(where: { element in
+            element.key.viewId == request.subscriptionId
+                && element.key.domain == .singleDomain
+                && element.value.admissionSequence >= request.correlation.requestSequence
+        }) {
+            return .superseded
+        }
         if let current = viewScopeByDomain[viewDomain],
             request.scopeRevision <= current.revision
         {
@@ -318,17 +443,20 @@ extension BridgeProductSession {
             viewAcknowledgementReplayByDomain.removeValue(forKey: prior)
             nextViewDeliverySequenceByDomain.removeValue(forKey: prior)
             pendingFileSnapshotByViewDomain.removeValue(forKey: prior)
+            pendingReviewSnapshotByViewDomain.removeValue(forKey: prior)
         }
         viewSenderState.open(
             viewDomain,
             handle: request.handle,
             scanGeneration: request.scopeRevision
         )
-        viewScopeByDomain[viewDomain] = (
+        viewScopeByDomain[viewDomain] = .init(
             handle: request.handle,
             revision: request.scopeRevision,
+            admissionSequence: request.correlation.requestSequence,
             scope: request.scope
         )
+        _ = viewScopeWaiterBySubscriptionId[request.subscriptionId]?.yield(())
         return nil
     }
 
@@ -355,6 +483,7 @@ extension BridgeProductSession {
         viewSenderState.resnapshot(viewDomain)
         finishViewEmissionWaiter(for: viewDomain, outcome: .resnapshotRequired)
         pendingFileSnapshotByViewDomain.removeValue(forKey: viewDomain)
+        pendingReviewSnapshotByViewDomain.removeValue(forKey: viewDomain)
         return nil
     }
 
@@ -380,12 +509,18 @@ extension BridgeProductSession {
         {
             return replay.responseBytes
         }
+        let returnedCredit = viewSenderState.acknowledge(
+            for: viewDomain,
+            handle: request.handle,
+            through: request.receivedThroughDeliverySequence
+        )
         guard
-            viewSenderState.acknowledge(
-                for: viewDomain,
-                handle: request.handle,
-                through: request.receivedThroughDeliverySequence
-            )
+            returnedCredit
+                || viewSenderState.acknowledgementWasAlreadySatisfied(
+                    for: viewDomain,
+                    handle: request.handle,
+                    through: request.receivedThroughDeliverySequence
+                )
         else { return nil }
 
         let encoder = JSONEncoder()

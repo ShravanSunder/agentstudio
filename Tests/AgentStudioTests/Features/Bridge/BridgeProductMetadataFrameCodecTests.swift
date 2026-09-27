@@ -372,8 +372,6 @@ struct BridgeProductMetadataFrameCodecTests {
         let frames = try #require(corpus["metadataFrames"] as? [[String: Any]])
         let surfaceFrameKinds: Set<String> = [
             "subscription.accepted",
-            "subscription.interestsCommitted",
-            "subscription.data",
             "subscription.reset",
             "subscription.end",
             "subscription.cancelled",
@@ -401,12 +399,6 @@ struct BridgeProductMetadataFrameCodecTests {
                     && $0["subscriptionKind"] as? String == "review.metadata"
             }
         )
-        var currentFileData = try #require(
-            frames.first {
-                $0["kind"] as? String == "subscription.data"
-                    && $0["subscriptionKind"] as? String == "file.metadata"
-            }
-        )
         var oldReviewReset = try #require(
             frames.first { $0["kind"] as? String == "subscription.reset" }
         )
@@ -415,12 +407,10 @@ struct BridgeProductMetadataFrameCodecTests {
         )
 
         oldReviewAccepted = surfaceMetadataFrame(oldReviewAccepted, derivationEpoch: 3)
-        currentFileData = surfaceMetadataFrame(currentFileData, derivationEpoch: 29)
         oldReviewReset = surfaceMetadataFrame(oldReviewReset, derivationEpoch: 3)
         oldFileCancellation = surfaceMetadataFrame(oldFileCancellation, derivationEpoch: 7)
         let lifecycleObjects = [
             oldReviewAccepted,
-            currentFileData,
             oldReviewReset,
             oldFileCancellation,
         ]
@@ -451,26 +441,12 @@ struct BridgeProductMetadataFrameCodecTests {
                 streamSequence: 1,
                 subscription: fixture.initialSubscription
             ),
-            try .subscriptionInterestsCommitted(
-                stream: fixture.stream,
-                streamSequence: 2,
-                subscription: fixture.updatedSubscription,
-                subscriptionSequence: 1,
-                updateId: "review-interest-update-1"
-            ),
-            try .subscriptionData(
-                stream: fixture.stream,
-                streamSequence: 3,
-                subscription: fixture.updatedSubscription,
-                subscriptionSequence: 2,
-                data: fixture.event
-            ),
             try .subscriptionReset(
                 stream: fixture.stream,
                 streamSequence: 4,
                 subscription: fixture.updatedSubscription,
                 subscriptionSequence: 3,
-                reason: .interestMismatch
+                reason: .staleSource
             ),
             try .subscriptionEnd(
                 stream: fixture.stream,
@@ -503,8 +479,6 @@ struct BridgeProductMetadataFrameCodecTests {
             frames.map(\.kind) == [
                 "metadataStream.accepted",
                 "subscription.accepted",
-                "subscription.interestsCommitted",
-                "subscription.data",
                 "subscription.reset",
                 "subscription.end",
                 "subscription.cancelled",
@@ -519,7 +493,6 @@ struct BridgeProductMetadataFrameCodecTests {
         try verifyRuntimeFactoryRejections(
             stream: fixture.stream,
             subscription: fixture.updatedSubscription,
-            event: fixture.event,
             contentRequests: fixture.contentRequests
         )
     }
@@ -576,36 +549,18 @@ struct BridgeProductMetadataFrameCodecTests {
             from: try #require(contentRequests.first)
         )
         let initialSubscription = try BridgeProductSubscriptionFrameCorrelation(
-            cursor: "review-cursor-1",
-            interestRevision: 0,
-            interestSha256: "1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6",
-            sourceGeneration: 7,
             subscriptionId: "review-subscription-1",
             subscriptionKind: .reviewMetadata,
             workerDerivationEpoch: 7
         )
         let updatedSubscription = try BridgeProductSubscriptionFrameCorrelation(
-            cursor: "review-cursor-commit-1",
-            interestRevision: 1,
-            interestSha256: "2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd",
-            sourceGeneration: 7,
             subscriptionId: "review-subscription-1",
             subscriptionKind: .reviewMetadata,
             workerDerivationEpoch: 7
         )
-        let event = try BridgeProductSubscriptionData.reviewMetadata(
-            .init(
-                generation: 7,
-                packageId: "review-package-1",
-                publicationId: UUID(uuidString: "11111111-1111-7111-8111-111111111111")!,
-                revision: 1,
-                sourceIdentity: "review-source-1"
-            )
-        )
         return MetadataRuntimeFixture(
             contentRequest: contentRequest,
             contentRequests: contentRequests,
-            event: event,
             initialSubscription: initialSubscription,
             stream: streamRequest.correlation,
             streamRequest: streamRequest,
@@ -616,45 +571,8 @@ struct BridgeProductMetadataFrameCodecTests {
     private func verifyRuntimeFactoryRejections(
         stream: BridgeProductMetadataStreamCorrelation,
         subscription: BridgeProductSubscriptionFrameCorrelation,
-        event: BridgeProductSubscriptionData,
         contentRequests: [[String: Any]]
     ) throws {
-        let mismatchedGenerationSubscription = try BridgeProductSubscriptionFrameCorrelation(
-            cursor: subscription.cursor,
-            interestRevision: subscription.interestRevision,
-            interestSha256: subscription.interestSha256,
-            sourceGeneration: event.sourceGeneration + 1,
-            subscriptionId: subscription.subscriptionId,
-            subscriptionKind: subscription.subscriptionKind,
-            workerDerivationEpoch: subscription.workerDerivationEpoch
-        )
-        let fileSubscription = try BridgeProductSubscriptionFrameCorrelation(
-            cursor: nil,
-            interestRevision: 0,
-            interestSha256: "51ce8b03041697e18e2a24d5311e14bb1df4da119635bb84246c1b047316e46b",
-            sourceGeneration: 7,
-            subscriptionId: "file-subscription-1",
-            subscriptionKind: .fileMetadata,
-            workerDerivationEpoch: 2
-        )
-        #expect(throws: BridgeProductMetadataFrameFactoryError.subscriptionDataMismatch) {
-            _ = try BridgeProductMetadataFrame.subscriptionData(
-                stream: stream,
-                streamSequence: 8,
-                subscription: fileSubscription,
-                subscriptionSequence: 1,
-                data: event
-            )
-        }
-        #expect(throws: BridgeProductMetadataFrameFactoryError.subscriptionDataSourceGenerationMismatch) {
-            _ = try BridgeProductMetadataFrame.subscriptionData(
-                stream: stream,
-                streamSequence: 8,
-                subscription: mismatchedGenerationSubscription,
-                subscriptionSequence: 1,
-                data: event
-            )
-        }
         #expect(throws: (any Error).self) {
             _ = try BridgeProductMetadataFrame.subscriptionEnd(
                 stream: stream,
@@ -827,7 +745,6 @@ struct BridgeProductMetadataFrameCodecTests {
     private struct MetadataRuntimeFixture {
         let contentRequest: BridgeProductContentRequest
         let contentRequests: [[String: Any]]
-        let event: BridgeProductSubscriptionData
         let initialSubscription: BridgeProductSubscriptionFrameCorrelation
         let stream: BridgeProductMetadataStreamCorrelation
         let streamRequest: BridgeProductMetadataStreamRequest

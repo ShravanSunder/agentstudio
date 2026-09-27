@@ -22,6 +22,12 @@ export function installBridgeProductCommentBatch(
 	if (authority.subscriptionId !== installation.begin.subscriptionId) {
 		throw new Error('Comment catalog authority differs from its subscription.');
 	}
+	if (
+		installation.begin.scope.kind !== 'comment' ||
+		installation.begin.scope.worktreeId !== authority.worktreeId
+	) {
+		throw new Error('Comment catalog authority differs from its certified worktree scope.');
+	}
 	const entries = installation.records.map((installed) => {
 		const record = bridgeProductCommentCatalogRecordSchema.parse(installed.value);
 		if (

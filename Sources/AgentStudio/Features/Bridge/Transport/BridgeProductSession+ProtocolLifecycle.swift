@@ -68,60 +68,6 @@ extension BridgeProductSession {
         } ?? .rejected(.lifecycleClosed)
     }
 
-    func enqueueSubscriptionData(
-        subscriptionId: String,
-        data: BridgeProductSubscriptionData,
-        operationCorrelationID: String? = nil,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) throws -> BridgeProductProducerEnqueueResult {
-        try foregroundWorkAdmission.withValidAdmission {
-            try productAdmission.withValidAdmission {
-                let target = try activeMetadataFrameTarget()
-                guard producerAdmissionMatches(productAdmission, for: target.lease),
-                    var delivery = protocolSubscriptionDeliveryById[subscriptionId],
-                    delivery.correlation.subscriptionKind == data.subscriptionKind
-                else {
-                    return .rejected(.unknownLease)
-                }
-                let dataCorrelation = try delivery.correlation.replacingSourceGeneration(
-                    with: data.sourceGeneration
-                )
-                let subscriptionSequence = delivery.nextSequence
-                let result = try producerRegistry.enqueueNonterminalFrame(
-                    for: target.lease,
-                    build: { streamSequence in
-                        .metadata(
-                            try .subscriptionData(
-                                stream: target.stream,
-                                streamSequence: streamSequence,
-                                subscription: dataCorrelation,
-                                subscriptionSequence: subscriptionSequence,
-                                operationCorrelationID: operationCorrelationID,
-                                data: data
-                            )
-                        )
-                    },
-                    overflowReset: metadataStreamOverflowReset(for: target)
-                )
-                switch result {
-                case .enqueued(let frame):
-                    delivery.correlation = dataCorrelation
-                    delivery.nextSequence += 1
-                    delivery.lastEnqueuedStreamSequence = frame.sequence
-                    protocolSubscriptionDeliveryById[subscriptionId] = delivery
-                    resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
-                case .queueReset:
-                    terminateAllProtocolSubscriptionsWithDeliveries()
-                    resumeProducerFrameWaiterIfPossible(for: target.lease, admissionAlreadyHeld: true)
-                case .rejected:
-                    break
-                }
-                return result
-            } ?? .rejected(.lifecycleClosed)
-        } ?? .rejected(.lifecycleClosed)
-    }
-
     /// Terminates exactly the named subscriptions, for a metadata stream opened fresh
     /// (no resume): the client that owned those ids no longer exists.
     ///
@@ -206,12 +152,6 @@ extension BridgeProductSession {
             return
         case .subscriptionOpened(let snapshot):
             try admitSubscriptionOpenedFrame(snapshot, admissionAlreadyHeld: admissionAlreadyHeld)
-        case .subscriptionInterestsCommitted(let barrier, let snapshot):
-            try admitSubscriptionInterestsCommittedFrame(
-                barrier: barrier,
-                snapshot: snapshot,
-                admissionAlreadyHeld: admissionAlreadyHeld
-            )
         case .subscriptionCancelled(let snapshot):
             try admitSubscriptionCancelledFrame(snapshot, admissionAlreadyHeld: admissionAlreadyHeld)
         }
@@ -229,7 +169,7 @@ extension BridgeProductSession {
             case .cancelled, .reopenRequired:
                 closeViewDomains(subscriptionId: outcome.subscriptionId)
                 protocolSubscriptionDeliveryById.removeValue(forKey: outcome.subscriptionId)
-            case .retained, .reset:
+            case .retained:
                 guard
                     let snapshot = subscriptionState.snapshot(
                         subscriptionId: outcome.subscriptionId
@@ -267,38 +207,6 @@ extension BridgeProductSession {
             nextSequence: 1,
             lastEnqueuedStreamSequence: streamSequence
         )
-    }
-
-    private func admitSubscriptionInterestsCommittedFrame(
-        barrier: BridgeProductSubscriptionCommitBarrierIntent,
-        snapshot: BridgeProductSubscriptionSnapshot,
-        admissionAlreadyHeld: Bool
-    ) throws {
-        let target = try activeMetadataFrameTarget()
-        guard var delivery = protocolSubscriptionDeliveryById[snapshot.subscriptionId] else {
-            throw BridgeProductSessionError.lifecycleFrameAdmissionFailed
-        }
-        let correlation = try Self.subscriptionFrameCorrelation(for: snapshot)
-        let subscriptionSequence = delivery.nextSequence
-        let streamSequence = try enqueueRequiredProtocolLifecycleFrame(
-            target: target,
-            admissionAlreadyHeld: admissionAlreadyHeld,
-            build: { streamSequence in
-                .metadata(
-                    try .subscriptionInterestsCommitted(
-                        stream: target.stream,
-                        streamSequence: streamSequence,
-                        subscription: correlation,
-                        subscriptionSequence: subscriptionSequence,
-                        updateId: barrier.updateId
-                    )
-                )
-            }
-        )
-        delivery.correlation = correlation
-        delivery.nextSequence += 1
-        delivery.lastEnqueuedStreamSequence = streamSequence
-        protocolSubscriptionDeliveryById[snapshot.subscriptionId] = delivery
     }
 
     private func admitSubscriptionCancelledFrame(
@@ -382,10 +290,6 @@ extension BridgeProductSession {
         for snapshot: BridgeProductSubscriptionSnapshot
     ) throws -> BridgeProductSubscriptionFrameCorrelation {
         try .init(
-            cursor: nil,
-            interestRevision: snapshot.interestRevision,
-            interestSha256: snapshot.interestSha256,
-            sourceGeneration: 0,
             subscriptionId: snapshot.subscriptionId,
             subscriptionKind: snapshot.subscriptionKind,
             workerDerivationEpoch: snapshot.workerDerivationEpoch

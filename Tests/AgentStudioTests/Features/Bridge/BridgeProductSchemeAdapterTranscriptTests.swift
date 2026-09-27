@@ -19,7 +19,7 @@ struct BridgeProductSchemeAdapterTranscriptTests {
 
         // Assert
         #expect(fixture.sha256Hex == BridgeProductSchemeTranscriptFixture.expectedSHA256)
-        #expect(fixture.transcriptCount == 27)
+        #expect(fixture.transcriptCount == 21)
         #expect(fixture.observationCaseCount == 16)
         guard case .contentFrameAcknowledgement = command else {
             Issue.record("Content observation did not decode through the V0b command branch")
@@ -27,35 +27,19 @@ struct BridgeProductSchemeAdapterTranscriptTests {
         }
     }
 
-    @Test("shared Review interest update is valid against the production state codec")
-    func sharedReviewInterestUpdateIsValidAgainstProductionStateCodec() throws {
-        // Arrange
+    @Test("retired metadata frame observations are rejected by the command package")
+    func retiredMetadataFrameObservationsAreRejected() throws {
         let fixture = try BridgeProductSchemeTranscriptFixture.load()
-        let updateCommand = try fixture.decodeTranscriptValue(
-            BridgeProductControlRequest.self,
-            named: "review-selection-demand"
-        )
-        guard case .subscriptionUpdateBatch(let updateRequest) = updateCommand else {
-            Issue.record("Shared Review update did not decode to its required command branch")
-            return
+        #expect(throws: (any Error).self) {
+            try fixture.decodeObservationRequest(
+                BridgeProductCommandPackage.self,
+                named: "metadata-sequence-zero"
+            )
         }
-
-        // Act
-        let emptyState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
-        let candidateState = try BridgeProductSubscriptionInterestMutation.apply(
-            [updateRequest.delta],
-            to: emptyState,
-            subscriptionKind: .reviewMetadata
-        )
-        let candidateSHA256 = try candidateState.sha256Hex()
-
-        // Assert
-        #expect(try emptyState.sha256Hex() == updateRequest.baseInterestSha256)
-        #expect(candidateSHA256 == updateRequest.targetInterestSha256)
     }
 
-    @Test("mixed File and Review streams pace independently with bodyless observations")
-    func mixedFileAndReviewStreamsPaceIndependently() async throws {
+    @Test("mixed metadata and content streams keep content observation separate")
+    func mixedMetadataAndContentStreamsKeepContentObservationSeparate() async throws {
         // Arrange
         let fixture = try BridgeProductSchemeTranscriptFixture.load()
         let workerOpen = try fixture.decodeTranscriptValue(
@@ -64,9 +48,7 @@ struct BridgeProductSchemeAdapterTranscriptTests {
         )
         let harness = try BridgeProductSchemeAdapterTranscriptHarness.make(
             paneSessionId: workerOpen.paneSessionId,
-            workerInstanceId: workerOpen.workerInstanceId,
-            reviewSourceData: try fixture.subscriptionData(named: "review-source-accepted"),
-            fileSourceData: try fixture.subscriptionData(named: "file-source-accepted")
+            workerInstanceId: workerOpen.workerInstanceId
         )
         var retainedReplies: [BridgeProductSchemeReplyWithRoutingTask] = []
 
@@ -83,7 +65,7 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                     harness: harness
                 )
             )
-            try await assertContentObservationAndReviewUpdate(
+            try await assertContentObservationAndReviewCancel(
                 fixture: fixture,
                 harness: harness
             )
@@ -144,23 +126,6 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                 named: "metadata-stream-accepted-sequence-zero"
             )
             #expect(openingMetadataFrames == [expectedMetadataFrame])
-
-            let controlCountBeforeMetadataObservation =
-                await harness.provider.snapshot.controlRequestKinds.count
-            let metadataObservation = try await collectBridgeProductSchemeReply(
-                adapter: harness.adapter,
-                request: harness.request(
-                    route: BridgeProductWireContract.commandRoute,
-                    body: try fixture.observationRequestData(named: "metadata-sequence-zero")
-                )
-            )
-            #expect(metadataObservation.response?.statusCode == 204)
-            #expect(metadataObservation.body.isEmpty)
-            #expect(metadataObservation.events == [.response])
-            #expect(
-                await harness.provider.snapshot.controlRequestKinds.count
-                    == controlCountBeforeMetadataObservation
-            )
 
             let reviewOpenReply = try await routeControl(
                 requestName: "review-subscription-open",
@@ -236,8 +201,8 @@ struct BridgeProductSchemeAdapterTranscriptTests {
             let pacedSnapshot = await harness.session.producerSnapshot()
             #expect(pacedSnapshot.activeContentLeaseCount == 1)
             #expect(
-                pacedSnapshot.inFlightFrameReceiptCount == 2,
-                "Metadata and content must each retain one independently observed frame"
+                pacedSnapshot.inFlightFrameReceiptCount == 1,
+                "Only finite content retains a frame observation receipt"
             )
             #expect(pacedSnapshot.pendingFrameWaiterCount == 0)
             return contentReply
@@ -248,7 +213,7 @@ struct BridgeProductSchemeAdapterTranscriptTests {
         }
     }
 
-    private func assertContentObservationAndReviewUpdate(
+    private func assertContentObservationAndReviewCancel(
         fixture: BridgeProductSchemeTranscriptFixture,
         harness: BridgeProductSchemeAdapterTranscriptHarness
     ) async throws {
@@ -313,19 +278,19 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                 == controlCountBeforeContentObservation
         )
 
-        let reviewUpdateReply = try await routeControl(
-            requestName: "review-selection-demand",
-            expectedResponseName: "review-selection-demand-accepted",
+        let reviewCancelReply = try await routeControl(
+            requestName: "review-subscription-cancel",
+            expectedResponseName: "review-subscription-cancel-accepted",
             fixture: fixture,
             harness: harness
         )
-        #expect(reviewUpdateReply.response?.statusCode == 200)
+        #expect(reviewCancelReply.response?.statusCode == 200)
         #expect(
             await harness.provider.snapshot.controlRequestKinds == [
                 "workerSession.open",
                 "subscription.open",
                 "subscription.open",
-                "subscription.updateBatch",
+                "subscription.cancel",
             ]
         )
     }

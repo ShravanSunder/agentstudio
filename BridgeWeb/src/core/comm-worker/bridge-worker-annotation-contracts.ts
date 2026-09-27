@@ -149,7 +149,6 @@ export const bridgeWorkerAnnotationCatalogStagingEventSchema = bridgeWorkerServe
 			})
 			.strict(),
 		kind: z.literal('annotationCatalogStaging'),
-		operationCorrelationId: bridgeProductSha256Schema,
 		surface: bridgeWorkerInteractionSurfaceSchema,
 		transfer: createBridgeMetadataCatalogTransferSchema(
 			bridgeProductWorktreeAnnotationCatalogEntrySchema,

@@ -13,7 +13,6 @@ import { bridgeProductSubscriptionKindSchema } from './bridge-product-subscripti
 import {
 	createTransportHarness,
 	disposeTransportHarnesses,
-	emptyInterestHash,
 	fileSourceConfiguration,
 	metadataAccepted,
 	subscriptionAccepted,
@@ -34,24 +33,18 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 	test('opens replacement File metadata without waiting for the annotation sibling, then moves annotations to the new epoch', async () => {
 		// Arrange
 		const harness = createTransportHarness();
-		const publishedCatalogRevisions: number[] = [];
 		const fileConvergenceStates: string[] = [];
 		const controller = new BridgeCommWorkerProductController({
 			callCurrentFileSource: async () => ({
 				source: fileSourceConfiguration(),
 				status: 'available',
 			}),
-			onAnnotationCatalog: ({ catalog, surface }): void => {
-				if (surface === 'file') publishedCatalogRevisions.push(catalog.catalogRevision);
-			},
 			onAnnotationProjectionConvergence: ({ state, surface }): void => {
 				if (surface !== 'file') return;
 				fileConvergenceStates.push(
 					state.kind === 'ready' ? 'ready' : `${state.kind}:${state.catalogAuthorityRetired}`,
 				);
 			},
-			onFileMetadataEvent: (): void => {},
-			onReviewMetadataEvent: (): void => {},
 			productTransport: harness.transport,
 		});
 		const initialFileSource = controller.ensureFileSource();
@@ -71,7 +64,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			harness.server.emitMetadata(
 				subscriptionAccepted({
 					epoch: 1,
-					interestHash: emptyInterestHash(subscriptionKind),
 					kind: subscriptionKind,
 					request: streamRequest,
 					streamSequence: index + 1,
@@ -96,7 +88,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			harness.server.emitMetadata(
 				subscriptionAccepted({
 					epoch: 1,
-					interestHash: emptyInterestHash(subscriptionKind),
 					kind: subscriptionKind,
 					request: streamRequest,
 					streamSequence: index + 1,
@@ -104,7 +95,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				}),
 			);
 		}
-		await harness.server.waitForFrameAcknowledgementCount(5);
 
 		const initialFileAnnotation = requiredSubscriptionOpen(initialOpenByKind, 'file.annotations');
 		const initialFileMetadata = requiredSubscriptionOpen(initialOpenByKind, 'file.metadata');
@@ -174,17 +164,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		expect(fileConvergenceStates).toContain('refreshing:true');
 		expect(fileConvergenceStates.filter((state) => state.startsWith('unavailable'))).toEqual([]);
 
-		// A frame the retired sibling produced before its terminal drains silently.
-		harness.server.emitMetadata(
-			annotationControlChangedFrame({
-				epoch: 1,
-				request: streamRequest,
-				streamSequence: nextStreamSequence,
-				subscriptionId: initialFileAnnotation.subscriptionId,
-			}),
-		);
-		nextStreamSequence += 1;
-
 		for (const replacement of [replacementFileMetadata, replacementFileAnnotation]) {
 			const subscriptionKind = bridgeProductSubscriptionKindSchema.parse(
 				replacement.subscription.subscriptionKind,
@@ -192,7 +171,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			harness.server.emitMetadata(
 				subscriptionAccepted({
 					epoch: 2,
-					interestHash: emptyInterestHash(subscriptionKind),
 					kind: subscriptionKind,
 					request: streamRequest,
 					streamSequence: nextStreamSequence,
@@ -202,16 +180,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			nextStreamSequence += 1;
 		}
 
-		for (const frame of annotationCatalogFrames({
-			epoch: 2,
-			request: streamRequest,
-			startStreamSequence: nextStreamSequence,
-			subscriptionId: replacementFileAnnotation.subscriptionId,
-		})) {
-			harness.server.emitMetadata(frame);
-			nextStreamSequence += 1;
-		}
-		await waitForCondition(() => publishedCatalogRevisions.includes(2));
 		await reconciliation;
 
 		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
@@ -261,16 +229,13 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		scenario.harness.server.emitMetadata(
 			subscriptionCancelled({
 				epoch: 1,
-				interestHash: emptyInterestHash('file.metadata'),
 				kind: 'file.metadata',
 				request: scenario.streamRequest,
-				sourceGeneration: 1,
 				streamSequence: 5,
 				subscriptionId: metadataCancellation.subscriptionId,
 				subscriptionSequence: 1,
 			}),
 		);
-		await scenario.harness.server.waitForFrameAcknowledgementCount(6);
 		await scenario.harness.server.waitForControlKind('subscription.cancel', 2);
 		const annotationCancellation = requiredCancellation(
 			scenario.harness.server.controlRequests,
@@ -287,7 +252,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				subscriptionId: annotationCancellation.subscriptionId,
 			}),
 		);
-		await scenario.harness.server.waitForFrameAcknowledgementCount(7);
 		await reconciliation;
 
 		await waitForCondition(() =>
@@ -422,10 +386,8 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		scenario.harness.server.emitMetadata(
 			subscriptionCancelled({
 				epoch: 1,
-				interestHash: emptyInterestHash('file.metadata'),
 				kind: 'file.metadata',
 				request: scenario.streamRequest,
-				sourceGeneration: 1,
 				streamSequence: 5,
 				subscriptionId: requiredCancellation(
 					scenario.harness.server.controlRequests,
@@ -434,7 +396,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				subscriptionSequence: 1,
 			}),
 		);
-		await scenario.harness.server.waitForFrameAcknowledgementCount(6);
 		await reconciliation;
 		await waitForCondition(() =>
 			hasReplacementOpen(
@@ -449,10 +410,8 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		scenario.harness.server.emitMetadata(
 			subscriptionCancelled({
 				epoch: 1,
-				interestHash: emptyInterestHash('file.annotations'),
 				kind: 'file.annotations',
 				request: scenario.streamRequest,
-				sourceGeneration: 1,
 				streamSequence: 6,
 				subscriptionId: requiredCancellation(
 					scenario.harness.server.controlRequests,
@@ -461,7 +420,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				subscriptionSequence: 1,
 			}),
 		);
-		await scenario.harness.server.waitForFrameAcknowledgementCount(7);
 
 		// Assert: one epoch-2 replacement, however the request and retirement interleave.
 		expect(
@@ -501,8 +459,6 @@ async function establishEpochOneSubscriptions(
 		...(props.onAnnotationProjectionConvergence === undefined
 			? {}
 			: { onAnnotationProjectionConvergence: props.onAnnotationProjectionConvergence }),
-		onFileMetadataEvent: (): void => {},
-		onReviewMetadataEvent: (): void => {},
 		productTransport: harness.transport,
 	});
 	const initialFileSource = controller.ensureFileSource();
@@ -519,7 +475,6 @@ async function establishEpochOneSubscriptions(
 		harness.server.emitMetadata(
 			subscriptionAccepted({
 				epoch: 1,
-				interestHash: emptyInterestHash(subscriptionKind),
 				kind: subscriptionKind,
 				request: streamRequest,
 				streamSequence: nextStreamSequence,
@@ -541,7 +496,6 @@ async function establishEpochOneSubscriptions(
 		harness.server.emitMetadata(
 			subscriptionAccepted({
 				epoch: 1,
-				interestHash: emptyInterestHash(subscriptionKind),
 				kind: subscriptionKind,
 				request: streamRequest,
 				streamSequence: nextStreamSequence,
@@ -550,7 +504,6 @@ async function establishEpochOneSubscriptions(
 		);
 		nextStreamSequence += 1;
 	}
-	await harness.server.waitForFrameAcknowledgementCount(5);
 	return { controller, harness, initialOpenByKind, streamRequest };
 }
 
@@ -655,18 +608,6 @@ async function drainSurfaceCancellationsUntilReplacementMetadataOpen(props: {
 			continue;
 		}
 
-		if (cancellation.subscriptionId === props.initialFileAnnotation.subscriptionId) {
-			props.harness.server.emitMetadata(
-				annotationControlChangedFrame({
-					epoch: 1,
-					request: props.streamRequest,
-					streamSequence: props.nextStreamSequence(),
-					subscriptionId: props.initialFileAnnotation.subscriptionId,
-				}),
-			);
-			props.useNextStreamSequence();
-			await props.harness.server.waitForFrameAcknowledgementCount(props.nextStreamSequence());
-		}
 		const openRequest =
 			cancellation.subscriptionId === props.initialFileAnnotation.subscriptionId
 				? props.initialFileAnnotation
@@ -674,55 +615,16 @@ async function drainSurfaceCancellationsUntilReplacementMetadataOpen(props: {
 		props.harness.server.emitMetadata(
 			subscriptionCancelled({
 				epoch: 1,
-				interestHash: emptyInterestHash(
-					bridgeProductSubscriptionKindSchema.parse(openRequest.subscription.subscriptionKind),
-				),
 				kind: bridgeProductSubscriptionKindSchema.parse(openRequest.subscription.subscriptionKind),
 				request: props.streamRequest,
-				sourceGeneration: 1,
 				streamSequence: props.nextStreamSequence(),
 				subscriptionId: cancellation.subscriptionId,
-				subscriptionSequence:
-					cancellation.subscriptionId === props.initialFileAnnotation.subscriptionId ? 2 : 1,
+				subscriptionSequence: 1,
 			}),
 		);
 		props.drainedCancellationIds.add(cancellation.subscriptionId);
 		props.useNextStreamSequence();
-		await props.harness.server.waitForFrameAcknowledgementCount(props.nextStreamSequence());
 	}
-}
-
-function annotationControlChangedFrame(props: {
-	readonly epoch: number;
-	readonly request: BridgeProductMetadataStreamRequest;
-	readonly streamSequence: number;
-	readonly subscriptionId: string;
-}): BridgeProductMetadataFrame {
-	return bridgeProductMetadataFrameSchema.parse({
-		metadataStreamId: props.request.metadataStreamId,
-		paneSessionId: props.request.paneSessionId,
-		streamSequence: props.streamSequence,
-		wireVersion: props.request.wireVersion,
-		workerInstanceId: props.request.workerInstanceId,
-		cursor: null,
-		data: {
-			event: {
-				authority: { applicationSourceGeneration: 1, worktreeId: 'worktree-1' },
-				kind: 'annotation.controlChanged',
-				reason: 'discovery',
-			},
-			subscriptionKind: 'file.annotations',
-		},
-		interestRevision: 0,
-		interestSha256: emptyInterestHash('file.annotations'),
-		kind: 'subscription.data',
-		operationCorrelationId: 'a'.repeat(64),
-		sourceGeneration: 1,
-		subscriptionId: props.subscriptionId,
-		subscriptionKind: 'file.annotations',
-		subscriptionSequence: 1,
-		workerDerivationEpoch: props.epoch,
-	});
 }
 
 function subscriptionResetFrame(props: {
@@ -739,85 +641,11 @@ function subscriptionResetFrame(props: {
 		streamSequence: props.streamSequence,
 		wireVersion: props.request.wireVersion,
 		workerInstanceId: props.request.workerInstanceId,
-		cursor: null,
-		interestRevision: 0,
-		interestSha256: emptyInterestHash(props.kind),
 		kind: 'subscription.reset',
 		reason: props.reason ?? 'stale_source',
-		sourceGeneration: 1,
 		subscriptionId: props.subscriptionId,
 		subscriptionKind: props.kind,
 		subscriptionSequence: 1,
 		workerDerivationEpoch: props.epoch,
 	});
-}
-
-function annotationCatalogFrames(props: {
-	readonly epoch: number;
-	readonly request: BridgeProductMetadataStreamRequest;
-	readonly startStreamSequence: number;
-	readonly subscriptionId: string;
-}): readonly BridgeProductMetadataFrame[] {
-	const transferId = 'file-annotation-catalog-after-epoch-cutover';
-	const authority = { applicationSourceGeneration: 2, worktreeId: 'worktree-1' } as const;
-	const events = [
-		{
-			authority,
-			kind: 'annotation.catalog',
-			transfer: {
-				catalogRevision: 2,
-				expectedEntryCount: 1,
-				kind: 'catalog.begin',
-				transferId,
-			},
-		},
-		{
-			authority,
-			kind: 'annotation.catalog',
-			transfer: {
-				catalogRevision: 2,
-				entries: [
-					{
-						kind: 'session',
-						semanticRevision: 2,
-						sessionId: '00000000-0000-7000-8000-000000000002',
-					},
-				],
-				kind: 'catalog.window',
-				transferId,
-				windowOrdinal: 0,
-			},
-		},
-		{
-			authority,
-			kind: 'annotation.catalog',
-			transfer: {
-				catalogRevision: 2,
-				entryCount: 1,
-				kind: 'catalog.commit',
-				transferId,
-				windowCount: 1,
-			},
-		},
-	] as const;
-	return events.map((event, index) =>
-		bridgeProductMetadataFrameSchema.parse({
-			metadataStreamId: props.request.metadataStreamId,
-			paneSessionId: props.request.paneSessionId,
-			streamSequence: props.startStreamSequence + index,
-			wireVersion: props.request.wireVersion,
-			workerInstanceId: props.request.workerInstanceId,
-			cursor: null,
-			data: { event, subscriptionKind: 'file.annotations' },
-			interestRevision: 0,
-			interestSha256: emptyInterestHash('file.annotations'),
-			kind: 'subscription.data',
-			operationCorrelationId: 'b'.repeat(64),
-			sourceGeneration: 2,
-			subscriptionId: props.subscriptionId,
-			subscriptionKind: 'file.annotations',
-			subscriptionSequence: index + 1,
-			workerDerivationEpoch: props.epoch,
-		}),
-	);
 }

@@ -77,6 +77,7 @@
       "recordKey": "publication",
       "record": {
         "recordKind": "publication",
+        "classifiedRefreshImpact": null,
         "desired": {
           "reviewComparison": null,
           "status": "ready"
@@ -90,6 +91,14 @@
       "recordKey": "publication",
       "record": {
         "recordKind": "publication",
+        "classifiedRefreshImpact": {
+          "preDeliveryPresentationClass": { "kind": "promoted", "reason": "files" },
+          "newlyImportedCommitCount": 0,
+          "affectedFileCount": 100,
+          "addedLineCount": 3,
+          "deletedLineCount": 0,
+          "affectedStableFileIdentities": ["review-item-1"]
+        },
         "desired": {
           "reviewComparison": {
             "activeTarget": { "basis": "commonCommit", "kind": "branch", "name": "origin/feature" },

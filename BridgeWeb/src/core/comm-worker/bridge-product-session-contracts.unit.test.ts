@@ -37,8 +37,6 @@ import {
 	postBridgePaneCommWorkerInstall,
 } from './bridge-product-session-contracts.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
-import { bridgeProductSubscriptionInterestStateSchema } from './bridge-product-subscription-contracts.js';
-import { encodeBridgeProductSubscriptionInterestState } from './bridge-product-subscription-interest-state-codec.js';
 
 describe('Bridge product session contracts', () => {
 	test('admits only the intrinsic shared navigation command matrix', () => {
@@ -104,11 +102,11 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: 'f8f173664aaa532b61a629c02a2eb8f0d64a8a3b902bbca824b43a6ff81d84f9',
+				expectedHash: '57b375030d4e480e5d21c0d0595f44206f0446eb5f759af5b9596f38d61f73da',
 				kind: 'valid',
 			},
 			{
-				expectedHash: '3ef98100267712aa9534206e9c3ccfaa6029e8ce6998b7b02185673a9e465a00',
+				expectedHash: 'b7cf49ae7b0a4fa0861b02e1710f6097485eec0ce3d70fa2cdced4b0608ca54b',
 				kind: 'invalid',
 			},
 		] as const;
@@ -182,6 +180,31 @@ describe('Bridge product session contracts', () => {
 	});
 
 	test('accepts every closed request, response, metadata, and content variant', () => {
+		const resetFrame = {
+			kind: 'subscription.reset',
+			metadataStreamId: 'metadata-stream-1',
+			paneSessionId: 'pane-session-1',
+			reason: 'sequence_gap',
+			streamSequence: 14,
+			subscriptionId: 'review-subscription-1',
+			subscriptionKind: 'review.metadata',
+			subscriptionSequence: 1,
+			wireVersion: 2,
+			workerDerivationEpoch: 7,
+			workerInstanceId: 'worker-instance-1',
+		} as const;
+		const metadataFrames = [
+			...validProductSessionCorpus.metadataFrames.map((frame) =>
+				bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
+			),
+			bridgeProductMetadataFrameSchema.parse(resetFrame),
+		];
+		const contentRequests = validProductSessionCorpus.contentRequests.map(
+			withCurrentContentRequestFields,
+		);
+		const contentHeaders = validProductSessionCorpus.contentHeaders.map(
+			withCurrentContentHeaderFields,
+		);
 		expect(
 			new Set(validProductSessionCorpus.controlRequests.map((request) => request.kind)),
 		).toEqual(
@@ -189,7 +212,6 @@ describe('Bridge product session contracts', () => {
 				'workerSession.open',
 				'product.call',
 				'subscription.open',
-				'subscription.updateBatch',
 				'subscription.cancel',
 				'workerSession.resync',
 			]),
@@ -201,19 +223,16 @@ describe('Bridge product session contracts', () => {
 				'workerSession.accepted',
 				'call.completed',
 				'subscription.openAccepted',
-				'subscription.updateBatchAccepted',
 				'subscription.cancelAccepted',
 				'resync.accepted',
 				'request.error',
 			]),
 		);
-		expect(new Set(validProductSessionCorpus.metadataFrames.map((frame) => frame.kind))).toEqual(
+		expect(new Set(metadataFrames.map((frame) => frame.kind))).toEqual(
 			new Set([
 				'metadataStream.accepted',
 				'pane.presentation',
 				'subscription.accepted',
-				'subscription.interestsCommitted',
-				'subscription.data',
 				'subscription.reset',
 				'subscription.end',
 				'subscription.cancelled',
@@ -231,15 +250,18 @@ describe('Bridge product session contracts', () => {
 			]),
 		);
 		for (const request of validProductSessionCorpus.controlRequests) {
-			expect(bridgeProductControlRequestSchema.parse(request)).toEqual(request);
+			const currentRequest =
+				request.kind === 'workerSession.open' ? { ...request, request: null } : request;
+			expect(bridgeProductControlRequestSchema.parse(currentRequest)).toEqual(currentRequest);
 		}
 		for (const response of validProductSessionCorpus.controlResponses) {
-			expect(bridgeProductControlResponseSchema.parse(response)).toEqual(response);
+			const currentResponse = withCurrentControlResponseFields(response);
+			expect(bridgeProductControlResponseSchema.parse(currentResponse)).toEqual(currentResponse);
 		}
 		for (const request of validProductSessionCorpus.metadataStreamRequests) {
 			expect(bridgeProductMetadataStreamRequestSchema.parse(request)).toEqual(request);
 		}
-		for (const frame of validProductSessionCorpus.metadataFrames) {
+		for (const frame of metadataFrames) {
 			expect(bridgeProductMetadataFrameSchema.parse(frame)).toEqual(frame);
 		}
 		const panePresentations = validProductSessionCorpus.metadataFrames.filter(
@@ -260,10 +282,10 @@ describe('Bridge product session contracts', () => {
 			[],
 			[],
 		]);
-		for (const request of validProductSessionCorpus.contentRequests) {
+		for (const request of contentRequests) {
 			expect(bridgeProductContentRequestSchema.parse(request)).toEqual(request);
 		}
-		for (const header of validProductSessionCorpus.contentHeaders) {
+		for (const header of contentHeaders) {
 			expect(bridgeProductContentHeaderSchema.parse(header)).toEqual(header);
 		}
 	});
@@ -275,6 +297,7 @@ describe('Bridge product session contracts', () => {
 		if (workerSessionOpen === undefined) {
 			throw new Error('Shared corpus is missing workerSession.open.');
 		}
+		const currentWorkerSessionOpen = { ...workerSessionOpen, request: null };
 		const paneScopedCases = [
 			{
 				name: 'product session bootstrap',
@@ -284,12 +307,12 @@ describe('Bridge product session contracts', () => {
 			{
 				name: 'worker session open',
 				schema: bridgeProductControlRequestSchema,
-				value: workerSessionOpen,
+				value: currentWorkerSessionOpen,
 			},
 			...validProductSessionCorpus.controlResponses.map((response) => ({
 				name: response.kind,
 				schema: bridgeProductControlResponseSchema,
-				value: response,
+				value: bridgeProductControlResponseSchema.parse(withCurrentControlResponseFields(response)),
 			})),
 			...validProductSessionCorpus.metadataStreamRequests.map((request) => ({
 				name: request.kind,
@@ -306,7 +329,7 @@ describe('Bridge product session contracts', () => {
 				.map((frame) => ({
 					name: frame.kind,
 					schema: bridgeProductMetadataFrameSchema,
-					value: frame,
+					value: bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
 				})),
 		];
 
@@ -351,19 +374,19 @@ describe('Bridge product session contracts', () => {
 				.map((frame) => ({
 					name: frame.kind,
 					schema: bridgeProductMetadataFrameSchema,
-					value: frame,
+					value: bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
 				})),
 			...validProductSessionCorpus.contentRequests.map((request) => ({
 				name: request.kind,
 				schema: bridgeProductContentRequestSchema,
-				value: request,
+				value: bridgeProductContentRequestSchema.parse(withCurrentContentRequestFields(request)),
 			})),
 			...validProductSessionCorpus.contentHeaders
 				.filter((header) => header.kind === 'content.accepted')
 				.map((header) => ({
 					name: header.kind,
 					schema: bridgeProductContentHeaderSchema,
-					value: header,
+					value: bridgeProductContentHeaderSchema.parse(withCurrentContentHeaderFields(header)),
 				})),
 		];
 
@@ -378,10 +401,9 @@ describe('Bridge product session contracts', () => {
 				`${surfaceScopedCase.name} requires workerDerivationEpoch`,
 			).toBe(false);
 			expect(
-				surfaceScopedCase.schema.safeParse({
-					...withoutWorkerDerivationEpoch(surfaceScopedCase.value),
-					workerEpoch: 3,
-				}).success,
+				surfaceScopedCase.schema.safeParse(
+					withWorkerEpoch(withoutWorkerDerivationEpoch(surfaceScopedCase.value)),
+				).success,
 				`${surfaceScopedCase.name} rejects workerEpoch`,
 			).toBe(false);
 			expect(
@@ -557,99 +579,6 @@ describe('Bridge product session contracts', () => {
 		expect(bridgeProductMetadataAcceptedStreamSequence(resumedRequest)).toBe(7);
 	});
 
-	test('matches canonical interest-state bytes and SHA-256 vectors', () => {
-		for (const vector of validProductSessionCorpus.interestStateVectors) {
-			const encodedState = encodeBridgeProductSubscriptionInterestState(
-				bridgeProductSubscriptionInterestStateSchema.parse(vector.state),
-			);
-
-			expect(Buffer.from(encodedState).toString('base64'), vector.name).toBe(vector.encodedBase64);
-			expect(createHash('sha256').update(encodedState).digest('hex'), vector.name).toBe(
-				vector.sha256,
-			);
-		}
-
-		expect(() =>
-			encodeBridgeProductSubscriptionInterestState({
-				interests: [
-					{ itemIds: ['review-item-1'], lane: 'foreground' },
-					{ itemIds: ['review-item-1'], lane: 'visible' },
-				],
-				subscriptionKind: 'review.metadata',
-			}),
-		).toThrow(/unique across demand lanes/iu);
-	});
-
-	test('stages bounded interest deltas and orders committed metadata by revision', () => {
-		const legacyWholeOptionsUpdate = invalidProductSessionCorpus.cases.find(
-			(hostileCase) => hostileCase.name === 'legacy subscription update carries whole options',
-		)?.value;
-		const baseInterestSha256 = '1a71797cab8ed23c72233b7706b166a33049e4e87dfbc55b9e252f9c1843eca6';
-		const targetInterestSha256 = '2535176c2a822c1f5007dd72a7987b7c0a1b6e9af1bc28324ec4618b43f71ebd';
-		const updateBatch = {
-			baseInterestRevision: 0,
-			baseInterestSha256,
-			batchCount: 1,
-			batchIndex: 0,
-			delta: {
-				add: [
-					{ itemId: 'review-item-1', lane: 'foreground' },
-					{ itemId: 'review-item-2', lane: 'visible' },
-				],
-				removeItemIds: [],
-				subscriptionKind: 'review.metadata',
-			},
-			kind: 'subscription.updateBatch',
-			paneSessionId: 'pane-session-1',
-			requestId: 'request-review-subscription-update-batch-1',
-			requestSequence: 5,
-			subscriptionId: 'review-subscription-1',
-			subscriptionKind: 'review.metadata',
-			targetInterestRevision: 1,
-			targetInterestSha256,
-			totalDeltaItemCount: 2,
-			updateId: 'review-interest-update-1',
-			wireVersion: 2,
-			workerDerivationEpoch: 7,
-			workerInstanceId: 'worker-instance-1',
-		};
-		const committedFrame = {
-			cursor: 'review-cursor-committed-1',
-			interestRevision: 1,
-			interestSha256: targetInterestSha256,
-			kind: 'subscription.interestsCommitted',
-			metadataStreamId: 'metadata-stream-1',
-			paneSessionId: 'pane-session-1',
-			sourceGeneration: 7,
-			streamSequence: 2,
-			subscriptionId: 'review-subscription-1',
-			subscriptionKind: 'review.metadata',
-			subscriptionSequence: 1,
-			updateId: 'review-interest-update-1',
-			wireVersion: 2,
-			workerDerivationEpoch: 7,
-			workerInstanceId: 'worker-instance-1',
-		};
-		const revisionedDataFrame = validProductSessionCorpus.metadataFrames.find(
-			(frame) => frame.kind === 'subscription.data',
-		);
-		if (revisionedDataFrame === undefined) {
-			throw new Error('Shared corpus is missing a subscription.data frame.');
-		}
-		const unrevisionedDataFrame = {
-			...revisionedDataFrame,
-			interestRevision: undefined,
-			interestSha256: undefined,
-		};
-
-		expect(bridgeProductControlRequestSchema.safeParse(legacyWholeOptionsUpdate).success).toBe(
-			false,
-		);
-		expect(bridgeProductControlRequestSchema.safeParse(updateBatch).success).toBe(true);
-		expect(bridgeProductMetadataFrameSchema.safeParse(committedFrame).success).toBe(true);
-		expect(bridgeProductMetadataFrameSchema.safeParse(unrevisionedDataFrame).success).toBe(false);
-	});
-
 	test('rejects every hostile shared-corpus case at its receiving boundary', () => {
 		for (const hostileCase of invalidProductSessionCorpus.cases) {
 			expect(
@@ -659,19 +588,30 @@ describe('Bridge product session contracts', () => {
 		}
 	});
 
-	test('requires native worktree authority in every comment view scope', () => {
-		const reviewRequest = validProductSessionCorpus.transportV2.viewScopeRequests[0];
-		if (reviewRequest === undefined) throw new Error('View scope fixture missing.');
-		const commentRequest = {
-			...reviewRequest,
-			subscriptionKind: 'file.annotations',
-			scope: { kind: 'comment', worktreeId: 'worktree-1' },
-		};
-		expect(bridgeProductControlRequestSchema.safeParse(commentRequest).success).toBe(true);
+	test("view scope owns each metadata kind's admitted demand", () => {
+		const requests = validProductSessionCorpus.transportV2.viewScopeRequests;
+		const fileRequest = requests.find((request) => request.subscriptionKind === 'file.metadata');
+		const reviewRequest = requests.find(
+			(request) => request.subscriptionKind === 'review.metadata',
+		);
+		if (fileRequest === undefined || reviewRequest === undefined)
+			throw new Error('File and Review scope fixtures are required.');
+		expect(bridgeProductControlRequestSchema.safeParse(fileRequest).success).toBe(true);
+		expect(bridgeProductControlRequestSchema.safeParse(reviewRequest).success).toBe(true);
+		for (const scope of [
+			{ kind: 'file', changeFilter: { kind: 'none' }, pathScope: [] },
+			{ kind: 'file', changeFilter: { kind: 'none' }, interests: [] },
+			{ kind: 'review' },
+		]) {
+			const request = scope.kind === 'review' ? reviewRequest : fileRequest;
+			expect(bridgeProductControlRequestSchema.safeParse({ ...request, scope }).success).toBe(
+				false,
+			);
+		}
 		expect(
 			bridgeProductControlRequestSchema.safeParse({
-				...commentRequest,
-				scope: { kind: 'comment' },
+				...fileRequest,
+				scope: { kind: 'review', interests: [] },
 			}).success,
 		).toBe(false);
 	});
@@ -775,7 +715,9 @@ describe('Bridge product session contracts', () => {
 			.filter((frame) => frame.metadataStreamId === 'metadata-stream-1')
 			.slice(0, 5)
 			.map((frame) =>
-				encodeBridgeProductMetadataFrame(bridgeProductMetadataFrameSchema.parse(frame)),
+				encodeBridgeProductMetadataFrame(
+					bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
+				),
 			);
 		const wireBytes = concatenateBytes(...encodedFrames);
 		const decoder = new BridgeProductMetadataFrameDecoder();
@@ -797,8 +739,8 @@ describe('Bridge product session contracts', () => {
 		expect(middle.map((frame) => frame.kind)).toEqual(['metadataStream.accepted']);
 		expect(rest.map((frame) => frame.kind)).toEqual([
 			'subscription.accepted',
-			'subscription.interestsCommitted',
-			'subscription.data',
+			'subscription.accepted',
+			'subscription.accepted',
 			'subscription.accepted',
 		]);
 		expect(rest.map((frame) => frame.streamSequence)).toEqual([1, 2, 3, 4]);
@@ -853,16 +795,24 @@ describe('Bridge product session contracts', () => {
 		metadataDecoder.finish();
 
 		const contentRequest = bridgeProductContentRequestSchema.parse(
-			validProductSessionCorpus.contentRequests[0],
+			withCurrentContentRequestFields(validProductSessionCorpus.contentRequests[0]),
 		);
 		const contentAcceptedHeader = bridgeProductContentHeaderSchema.parse(
-			validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.accepted'),
+			withCurrentContentHeaderFields(
+				validProductSessionCorpus.contentHeaders.find(
+					(header) => header.kind === 'content.accepted',
+				),
+			),
 		);
 		const contentHeader = bridgeProductContentHeaderSchema.parse(
-			validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.data'),
+			withCurrentContentHeaderFields(
+				validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.data'),
+			),
 		);
 		const contentEndHeader = bridgeProductContentHeaderSchema.parse(
-			validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.end'),
+			withCurrentContentHeaderFields(
+				validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.end'),
+			),
 		);
 		const contentPayload = Uint8Array.from(
 			Buffer.from(validProductSessionCorpus.wireVectors.contentData.payloadBase64, 'base64'),
@@ -958,9 +908,76 @@ function concatenateBytes(...parts: readonly Uint8Array[]): Uint8Array {
 	return result;
 }
 
-function withoutWorkerDerivationEpoch<TValue extends { readonly workerDerivationEpoch?: number }>(
-	value: TValue,
-): Omit<TValue, 'workerDerivationEpoch'> {
+function withoutWorkerDerivationEpoch(value: unknown): unknown {
+	if (!isRecord(value)) return value;
 	const { workerDerivationEpoch: _workerDerivationEpoch, ...withoutEpoch } = value;
 	return withoutEpoch;
+}
+
+function withWorkerEpoch(value: unknown): unknown {
+	return isRecord(value) ? { ...value, workerEpoch: 3 } : value;
+}
+
+function withCurrentContentRequestFields(value: unknown): unknown {
+	if (!isRecord(value) || !isRecord(value['descriptor'])) return value;
+	const descriptor = value['descriptor'];
+	const source = descriptor['source'];
+	const currentDescriptor = isRecord(source)
+		? {
+				...descriptor,
+				source: { ...source, rootRevisionToken: source['rootRevisionToken'] ?? null },
+			}
+		: descriptor;
+	return {
+		...value,
+		descriptor: currentDescriptor,
+		operationCorrelationId: value['operationCorrelationId'] ?? null,
+	};
+}
+
+function withCurrentControlResponseFields(value: unknown): unknown {
+	if (!isRecord(value)) return value;
+	if (value['kind'] === 'workerSession.accepted') {
+		return { ...value, result: value['result'] ?? null };
+	}
+	if (value['kind'] !== 'call.completed' || !isRecord(value['call'])) return value;
+	return { ...value, call: { ...value['call'], result: value['call']['result'] ?? null } };
+}
+
+function withoutRetiredE3FrameState(value: unknown): unknown {
+	if (!isRecord(value)) return value;
+	if (
+		value['kind'] !== 'subscription.accepted' &&
+		value['kind'] !== 'subscription.reset' &&
+		value['kind'] !== 'subscription.end' &&
+		value['kind'] !== 'subscription.cancelled'
+	) {
+		return value;
+	}
+	// Frozen shared session-corpus bytes predate the E3 lifecycle frame cutover.
+	const { cursor: _cursor, sourceGeneration: _sourceGeneration, ...frame } = value;
+	return frame;
+}
+
+function withCurrentContentHeaderFields(value: unknown): unknown {
+	if (!isRecord(value)) return value;
+	const identity = value['identity'];
+	const source = isRecord(identity) ? identity['source'] : undefined;
+	const currentIdentity =
+		isRecord(identity) && isRecord(source)
+			? {
+					...identity,
+					source: { ...source, rootRevisionToken: source['rootRevisionToken'] ?? null },
+				}
+			: identity;
+	return {
+		...value,
+		...(identity === undefined ? {} : { identity: currentIdentity }),
+		operationCorrelationId: value['operationCorrelationId'] ?? null,
+		...(value['kind'] === 'content.error' ? { safeMessage: value['safeMessage'] ?? null } : {}),
+	};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

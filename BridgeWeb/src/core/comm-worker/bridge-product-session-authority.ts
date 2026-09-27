@@ -75,19 +75,8 @@ type BridgeProductControlResponseForKind<
 	TResponseKind extends BridgeProductControlResponse['kind'],
 > = Extract<BridgeProductControlResponse, { readonly kind: TResponseKind }>;
 
-export type BridgeProductSubscriptionOpenAccepted<TSubscriptionKind extends string> = Omit<
-	BridgeProductControlResponseForKind<'subscription.openAccepted'>,
-	'subscriptionKind'
-> & {
-	readonly subscriptionKind: TSubscriptionKind;
-};
-
-export type BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionKind extends string> = Omit<
-	BridgeProductControlResponseForKind<'subscription.updateBatchAccepted'>,
-	'subscriptionKind'
-> & {
-	readonly subscriptionKind: TSubscriptionKind;
-};
+export type BridgeProductSubscriptionOpenAccepted =
+	BridgeProductControlResponseForKind<'subscription.openAccepted'>;
 
 export type BridgeProductSubscriptionCancelAccepted<TSubscriptionKind extends string> = Omit<
 	BridgeProductControlResponseForKind<'subscription.cancelAccepted'>,
@@ -209,11 +198,9 @@ export class BridgeProductControlMux {
 		readonly subscription: TSubscriptionOpen;
 		readonly subscriptionId: string;
 		readonly workerDerivationEpoch: number;
-	}): Promise<BridgeProductSubscriptionOpenAccepted<TSubscriptionOpen['subscriptionKind']>> {
+	}): Promise<BridgeProductSubscriptionOpenAccepted> {
 		return this.#admit({
-			acceptResponse: (
-				response,
-			): BridgeProductSubscriptionOpenAccepted<TSubscriptionOpen['subscriptionKind']> => {
+			acceptResponse: (response): BridgeProductSubscriptionOpenAccepted => {
 				if (response.kind !== 'subscription.openAccepted') {
 					throw new Error(
 						'Bridge product subscription open did not return subscription.openAccepted.',
@@ -225,7 +212,7 @@ export class BridgeProductControlMux {
 				) {
 					throw new Error('Bridge product subscription open result does not match its request.');
 				}
-				return { ...response, subscriptionKind: props.subscription.subscriptionKind };
+				return response;
 			},
 			buildRequest: (identity): BridgeProductControlRequest => {
 				return bridgeProductControlRequestSchema.parse({
@@ -233,68 +220,6 @@ export class BridgeProductControlMux {
 					kind: 'subscription.open',
 					subscription: props.subscription,
 					subscriptionId: props.subscriptionId,
-					workerDerivationEpoch: props.workerDerivationEpoch,
-				});
-			},
-			...(props.signal === undefined ? {} : { signal: props.signal }),
-		});
-	}
-
-	updateSubscriptionBatch<TSubscriptionDelta extends { readonly subscriptionKind: string }>(props: {
-		readonly baseInterestRevision: number;
-		readonly baseInterestSha256: string;
-		readonly batchCount: number;
-		readonly batchIndex: number;
-		readonly delta: TSubscriptionDelta;
-		readonly signal?: AbortSignal;
-		readonly subscriptionId: string;
-		readonly targetInterestRevision: number;
-		readonly targetInterestSha256: string;
-		readonly totalDeltaItemCount: number;
-		readonly updateId: string;
-		readonly workerDerivationEpoch: number;
-	}): Promise<
-		BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionDelta['subscriptionKind']>
-	> {
-		return this.#admit({
-			acceptResponse: (
-				response,
-			): BridgeProductSubscriptionUpdateBatchAccepted<TSubscriptionDelta['subscriptionKind']> => {
-				if (response.kind !== 'subscription.updateBatchAccepted') {
-					throw new Error(
-						'Bridge product subscription update did not return subscription.updateBatchAccepted.',
-					);
-				}
-				const expectedDisposition =
-					props.batchIndex + 1 === props.batchCount ? 'committed' : 'staged';
-				if (
-					response.subscriptionId !== props.subscriptionId ||
-					response.subscriptionKind !== props.delta.subscriptionKind ||
-					response.batchIndex !== props.batchIndex ||
-					response.disposition !== expectedDisposition ||
-					response.targetInterestRevision !== props.targetInterestRevision ||
-					response.targetInterestSha256 !== props.targetInterestSha256 ||
-					response.updateId !== props.updateId
-				) {
-					throw new Error('Bridge product subscription update result does not match its request.');
-				}
-				return { ...response, subscriptionKind: props.delta.subscriptionKind };
-			},
-			buildRequest: (identity): BridgeProductControlRequest => {
-				return bridgeProductControlRequestSchema.parse({
-					...identity,
-					baseInterestRevision: props.baseInterestRevision,
-					baseInterestSha256: props.baseInterestSha256,
-					batchCount: props.batchCount,
-					batchIndex: props.batchIndex,
-					delta: props.delta,
-					kind: 'subscription.updateBatch',
-					subscriptionId: props.subscriptionId,
-					subscriptionKind: props.delta.subscriptionKind,
-					targetInterestRevision: props.targetInterestRevision,
-					targetInterestSha256: props.targetInterestSha256,
-					totalDeltaItemCount: props.totalDeltaItemCount,
-					updateId: props.updateId,
 					workerDerivationEpoch: props.workerDerivationEpoch,
 				});
 			},

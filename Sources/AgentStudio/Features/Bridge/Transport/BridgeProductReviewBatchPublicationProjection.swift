@@ -1,6 +1,7 @@
 import Foundation
 
 struct BridgeProductReviewBatchPublicationInput: Sendable {
+    let classifiedRefreshImpact: BridgeReviewRefreshImpact?
     let publicationId: UUID
     let revision: Int
     let desiredComparison: BridgePaneReviewComparisonPresentation?
@@ -33,6 +34,7 @@ enum BridgeProductReviewBatchPublicationProjection {
             displayed = nil
         }
         return try .init(
+            classifiedRefreshImpact: input.classifiedRefreshImpact,
             desired: .init(
                 reviewComparison: input.desiredComparison,
                 status: input.desiredStatus
@@ -73,6 +75,7 @@ extension BridgeProductReviewBatchDisplayedPublication {
 
 extension BridgeProductReviewBatchPublicationRecord {
     init(
+        classifiedRefreshImpact: BridgeReviewRefreshImpact? = nil,
         desired: BridgeProductReviewBatchDesiredPublication,
         displayed: BridgeProductReviewBatchDisplayedPublication?,
         publicationId: UUID,
@@ -88,6 +91,7 @@ extension BridgeProductReviewBatchPublicationRecord {
             codingPath: []
         )
         self.desired = desired
+        self.classifiedRefreshImpact = classifiedRefreshImpact
         self.displayed = displayed
         self.publicationId = publicationId
         recordKind = "publication"

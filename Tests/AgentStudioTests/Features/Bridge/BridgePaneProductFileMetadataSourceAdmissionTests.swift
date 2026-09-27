@@ -23,9 +23,11 @@ extension BridgePaneProductFileMetadataSourceTests {
         ) { _ in }
         let collector = ProductFileMetadataEventCollector()
         let updateTask = Task {
-            try await source.update(
-                subscription: fixture.updatedSnapshot(from: openSnapshot),
-                productAdmission: fixture.productAdmission.context
+            try await source.applyViewDemand(
+                subscriptionId: openSnapshot.subscriptionId,
+                demand: fixture.viewDemand(),
+                productAdmission: fixture.productAdmission.context,
+                forceRecapture: false
             ) { event in
                 await collector.append(event)
             }
@@ -67,9 +69,11 @@ extension BridgePaneProductFileMetadataSourceTests {
             productAdmission: fixture.productAdmission.context
         ) { _ in }
         let descriptorCollector = ProductFileMetadataEventCollector()
-        try await source.update(
-            subscription: fixture.updatedSnapshot(from: openSnapshot),
-            productAdmission: fixture.productAdmission.context
+        try await source.applyViewDemand(
+            subscriptionId: openSnapshot.subscriptionId,
+            demand: fixture.viewDemand(),
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
         ) { event in
             await descriptorCollector.append(event)
         }

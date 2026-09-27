@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import type { BridgeProductMetadataApplicationOpen } from './bridge-product-metadata-application-protocol.js';
@@ -6,7 +6,10 @@ import {
 	bridgeProductReviewAnnotationMetadataApplicationProtocol,
 	bridgeProductReviewMetadataApplicationProtocol,
 } from './bridge-product-metadata-application-registry.js';
-import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
+import {
+	BridgeProductControlRequestError,
+	type BridgeProductSubscriptionOpenAccepted,
+} from './bridge-product-session-authority.js';
 import {
 	bridgeProductMetadataFrameSchema,
 	type BridgeProductMetadataFrame,
@@ -18,75 +21,59 @@ import {
 	type BridgeProductSubscriptionFrame,
 	type BridgeProductSubscriptionStateControlMux,
 } from './bridge-product-subscription-state.js';
-import {
-	emptyInterestHash,
-	waitForCondition,
-} from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
 type ReviewAnnotationOpen = BridgeProductMetadataApplicationOpen<
 	typeof bridgeProductReviewAnnotationMetadataApplicationProtocol
 >;
 
-const annotationInterestSha256 = 'a'.repeat(64);
-
 describe('Bridge product subscription state', () => {
-	test('unknown-subscription update refusal ends that subscription and permits a new open', async () => {
-		const terminalErrors: unknown[] = [];
-		let openCount = 0;
-		const controlMux = {
-			cancelSubscription: async (): Promise<void> => {},
-			openSubscription: async (): Promise<{
-				readonly interestRevision: number;
-				readonly interestSha256: string;
-			}> => {
-				openCount += 1;
-				return {
-					interestRevision: 0,
-					interestSha256: emptyInterestHash('review.metadata'),
-				};
+	test('cancellation releases a subscription while its initial view scope reply is held', async () => {
+		const scopeStarted = createBridgeProductDeferred<void>();
+		const scopeAborted = createBridgeProductDeferred<void>();
+		let cancelled = 0;
+		const state = new BridgeProductSubscriptionState({
+			controlMux: {
+				cancelSubscription: async (): Promise<void> => {
+					cancelled += 1;
+				},
+				openSubscription: async (props): Promise<BridgeProductSubscriptionOpenAccepted> => ({
+					kind: 'subscription.openAccepted',
+					paneSessionId: 'pane-session-review',
+					requestId: 'request-open-review',
+					requestSequence: 1,
+					subscriptionId: props.subscriptionId,
+					subscriptionKind: 'review.metadata',
+					wireVersion: 2,
+					workerInstanceId: 'worker-instance-review',
+				}),
 			},
-			updateSubscriptionBatch: async (): Promise<never> => {
-				throw new BridgeProductControlRequestError({
-					code: 'unknown_subscription',
-					message: 'Subscription ended.',
-					retryAfterMilliseconds: null,
-					retryable: false,
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onOpened: async (_subscriptionId, signal): Promise<void> => {
+				scopeStarted.resolve();
+				await new Promise<void>((_resolve, reject): void => {
+					signal.addEventListener(
+						'abort',
+						(): void => {
+							scopeAborted.resolve();
+							reject(signal.reason);
+						},
+						{ once: true },
+					);
 				});
 			},
-		};
-		const first = new BridgeProductSubscriptionState({
-			controlMux,
-			createIdentifier: (): string => 'unknown-subscription-update',
-			ensureMetadataStream: async (): Promise<void> => {},
-			initialOptions: { interests: [] },
-			onTerminal: (_subscriptionId, error): void => {
-				terminalErrors.push(error);
-			},
-			protocol: bridgeProductReviewMetadataApplicationProtocol,
-			readWorkerDerivationEpochAtAdmission: (): number => 0,
-			subscriptionId: 'retired-review-subscription',
-		});
-		first.start();
-		await first.update({ interests: [] });
-
-		await expect(
-			first.update({ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] }),
-		).rejects.toMatchObject({ code: 'unknown_subscription' });
-		expect(terminalErrors).toMatchObject([{ code: 'unknown_subscription' }]);
-		const successor = new BridgeProductSubscriptionState({
-			controlMux,
-			createIdentifier: (): string => 'replacement-subscription-update',
-			ensureMetadataStream: async (): Promise<void> => {},
-			initialOptions: { interests: [] },
 			onTerminal: (): void => {},
 			protocol: bridgeProductReviewMetadataApplicationProtocol,
 			readWorkerDerivationEpochAtAdmission: (): number => 0,
-			subscriptionId: 'replacement-review-subscription',
+			subscriptionId: 'held-scope-subscription',
 		});
-		successor.start();
-		await successor.update({ interests: [] });
-		expect(openCount).toBe(2);
-		successor.fail(new Error('Test cleanup.'));
+		state.start();
+		await scopeStarted.promise;
+
+		const cancellation = state.cancel();
+		await scopeAborted.promise;
+		await expect(cancellation).resolves.toBeUndefined();
+		expect(cancelled).toBe(1);
 	});
 
 	test('reconciles an older subscription against the current surface epoch without retagging its admission', async () => {
@@ -96,7 +83,6 @@ describe('Bridge product subscription state', () => {
 		let surfaceEpoch = 0;
 		const state = new BridgeProductSubscriptionState({
 			controlMux: harness.controlMux,
-			createIdentifier: (): string => 'unused-epoch-reconciliation-update',
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: {},
 			onTerminal: (): void => {},
@@ -106,7 +92,6 @@ describe('Bridge product subscription state', () => {
 		});
 		state.start();
 		const admittedOpen = await harness.capturedOpen;
-		await state.update({});
 
 		try {
 			// Act: reconciliation asks native whether this ID can serve the current
@@ -146,7 +131,6 @@ describe('Bridge product subscription state', () => {
 		const terminalErrors: unknown[] = [];
 		const state = new BridgeProductSubscriptionState({
 			controlMux: harness.controlMux,
-			createIdentifier: (): string => 'unused-missing-reconciliation-update',
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: {},
 			onTerminal: (_subscriptionId, error): void => {
@@ -158,7 +142,6 @@ describe('Bridge product subscription state', () => {
 		});
 		state.start();
 		await harness.capturedOpen;
-		await state.update({});
 		const terminal = state.publicSubscription.events[Symbol.asyncIterator]().next();
 		void terminal.catch((): void => {});
 
@@ -184,7 +167,6 @@ describe('Bridge product subscription state', () => {
 		const terminalErrors: unknown[] = [];
 		const state = new BridgeProductSubscriptionState({
 			controlMux: harness.controlMux,
-			createIdentifier: (): string => 'unused-floor-retired-update',
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: {},
 			onTerminal: (_subscriptionId, error, drainUntilNativeTerminal): void => {
@@ -196,14 +178,9 @@ describe('Bridge product subscription state', () => {
 		});
 		state.start();
 		const open = await harness.capturedOpen;
-		await state.update({});
 		const terminal = state.publicSubscription.events[Symbol.asyncIterator]().next();
 		void terminal.catch((): void => {});
 		const correlation = {
-			cursor: null,
-			interestRevision: 0,
-			interestSha256: annotationInterestSha256,
-			sourceGeneration: 0,
 			subscriptionId: open.subscriptionId,
 			subscriptionKind: 'review.annotations',
 			workerDerivationEpoch: open.workerDerivationEpoch,
@@ -241,169 +218,11 @@ describe('Bridge product subscription state', () => {
 		expect(terminalErrors).toEqual([{ drainUntilNativeTerminal: undefined, error: undefined }]);
 	});
 
-	test('rechecks recovery admission after asynchronous interest hashing', async () => {
-		// Arrange
-		const digestStarted = createBridgeProductDeferred<void>();
-		const digestResult = createBridgeProductDeferred<ArrayBuffer>();
-		const controlResponse = createBridgeProductDeferred<void>();
-		let updateControlCount = 0;
-		const state = new BridgeProductSubscriptionState({
-			controlMux: {
-				cancelSubscription: async (): Promise<void> => {},
-				openSubscription: async (): Promise<{
-					readonly interestRevision: number;
-					readonly interestSha256: string;
-				}> => ({
-					interestRevision: 0,
-					interestSha256: emptyInterestHash('review.metadata'),
-				}),
-				updateSubscriptionBatch: (): Promise<void> => {
-					updateControlCount += 1;
-					return controlResponse.promise;
-				},
-			},
-			createIdentifier: (): string => 'recovery-hash-update',
-			ensureMetadataStream: async (): Promise<void> => {},
-			initialOptions: { interests: [] },
-			onTerminal: (): void => {},
-			protocol: bridgeProductReviewMetadataApplicationProtocol,
-			readWorkerDerivationEpochAtAdmission: (): number => 0,
-			subscriptionId: 'recovery-hash-subscription',
-		});
-		state.start();
-		await state.update({ interests: [] });
-		const digestSpy = vi.spyOn(globalThis.crypto.subtle, 'digest').mockImplementationOnce(() => {
-			digestStarted.resolve();
-			return digestResult.promise;
-		});
-		const update = state.update({ interests: [{ itemIds: ['item-1'], lane: 'foreground' }] });
-		void update.catch((): void => {});
-		await digestStarted.promise;
-
-		try {
-			// Act: recovery starts while preparation is suspended, before control admission.
-			state.beginRecovery();
-			digestResult.resolve(new Uint8Array(32).buffer);
-			await new Promise<void>((resolve): void => {
-				setImmediate(resolve);
-			});
-
-			// Assert: completing preparation is not permission to bypass the recovery gate.
-			expect(updateControlCount).toBe(0);
-		} finally {
-			await state.finishRecovery();
-			await waitForCondition(() => updateControlCount === 1);
-			state.fail(new Error('Interest-hash test cleanup.'));
-			controlResponse.resolve();
-			await update.catch((): void => {});
-			digestSpy.mockRestore();
-		}
-	});
-
-	test('does not start a queued operation across a newly installed recovery gate', async () => {
-		// Arrange: let the operation enter its queue callback, then begin recovery
-		// before any extra asynchronous admission hop can start the control call.
-		const harness = createAnnotationControlHarness();
-		let cancelControlCount = 0;
-		const state = new BridgeProductSubscriptionState({
-			controlMux: {
-				...harness.controlMux,
-				cancelSubscription: async (): Promise<void> => {
-					cancelControlCount += 1;
-				},
-			},
-			createIdentifier: (): string => 'unused-recovery-gate-update',
-			ensureMetadataStream: async (): Promise<void> => {},
-			initialOptions: {},
-			onTerminal: (): void => {},
-			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
-			readWorkerDerivationEpochAtAdmission: (): number => 1,
-			subscriptionId: 'recovery-gate-subscription',
-		});
-		state.start();
-		await harness.capturedOpen;
-		await state.update({});
-		const cancellation = state.cancel();
-		void cancellation.catch((): void => {});
-		await Promise.resolve();
-		const admittedBeforeRecovery = cancelControlCount;
-
-		try {
-			// Act
-			state.beginRecovery();
-			await Promise.resolve();
-
-			// Assert: controls already started are allowed to settle, but a queued
-			// control cannot newly start while the recovery gate is closed.
-			expect(cancelControlCount).toBe(admittedBeforeRecovery);
-		} finally {
-			state.fail(new Error('Recovery-gate test cleanup.'));
-			await cancellation.catch((): void => {});
-		}
-	});
-
-	test.each([
-		{ cancelTiming: 'after the failed open settles' },
-		{ cancelTiming: 'while the failing open is in flight' },
-	] as const)(
-		'settles cancellation of a subscription whose open was refused $cancelTiming',
-		async ({ cancelTiming }) => {
-			// Arrange: native refuses the open, as when the worktree annotation source
-			// is unavailable. The subscription becomes terminal through its open failure.
-			const openRefusal = new Error('Annotation source is unavailable.');
-			const openResponse = createBridgeProductDeferred<never>();
-			let cancelControlCount = 0;
-			const terminalErrors: unknown[] = [];
-			const state = new BridgeProductSubscriptionState({
-				controlMux: {
-					cancelSubscription: async (): Promise<void> => {
-						cancelControlCount += 1;
-					},
-					openSubscription: (): Promise<never> => openResponse.promise,
-					updateSubscriptionBatch: async (): Promise<never> => {
-						throw new Error('Refused-open test does not update subscriptions.');
-					},
-				},
-				createIdentifier: (): string => 'unused-refused-open-update',
-				ensureMetadataStream: async (): Promise<void> => {},
-				initialOptions: {},
-				onTerminal: (_subscriptionId, error): void => {
-					terminalErrors.push(error);
-				},
-				protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
-				readWorkerDerivationEpochAtAdmission: (): number => 0,
-				subscriptionId: 'refused-open-subscription',
-			});
-			const terminalEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
-			void terminalEvent.catch((): void => {});
-			state.start();
-
-			// Act
-			let cancellation: Promise<void>;
-			if (cancelTiming === 'while the failing open is in flight') {
-				cancellation = state.cancel();
-				openResponse.reject(openRefusal);
-			} else {
-				openResponse.reject(openRefusal);
-				await expect(terminalEvent).rejects.toBe(openRefusal);
-				cancellation = state.cancel();
-			}
-
-			// Assert: retiring an already-terminal subscription is a local no-op, so a
-			// surface epoch change waiting on it can proceed to open its successor.
-			await expect(cancellation).resolves.toBeUndefined();
-			await expect(terminalEvent).rejects.toBe(openRefusal);
-			expect(cancelControlCount).toBe(0);
-			expect(terminalErrors).toEqual([openRefusal]);
-		},
-	);
-
 	test('still rejects cancellation when native refuses to cancel an active subscription', async () => {
 		// Arrange
 		const harness = createAnnotationControlHarness();
 		const state = new BridgeProductSubscriptionState({
 			controlMux: harness.controlMux,
-			createIdentifier: (): string => 'unused-active-cancel-update',
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: {},
 			onTerminal: (): void => {},
@@ -413,7 +232,6 @@ describe('Bridge product subscription state', () => {
 		});
 		state.start();
 		await harness.capturedOpen;
-		await state.update({});
 
 		// Act
 		const cancellation = state.cancel();
@@ -441,7 +259,6 @@ describe('Bridge product subscription state', () => {
 					});
 				},
 			},
-			createIdentifier: (): string => 'unused-stale-cancel-update',
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: {},
 			onTerminal: (_subscriptionId, error): void => {
@@ -453,12 +270,7 @@ describe('Bridge product subscription state', () => {
 		});
 		state.start();
 		const open = await harness.capturedOpen;
-		await state.update({});
 		const correlation = {
-			cursor: null,
-			interestRevision: 0,
-			interestSha256: annotationInterestSha256,
-			sourceGeneration: 0,
 			subscriptionId: open.subscriptionId,
 			subscriptionKind: 'review.annotations',
 			workerDerivationEpoch: open.workerDerivationEpoch,
@@ -511,7 +323,6 @@ describe('Bridge product subscription state', () => {
 		};
 		const admitted = new BridgeProductSubscriptionState({
 			controlMux,
-			createIdentifier: (): string => 'unused-admitted-retire-update',
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: {},
 			onTerminal: (): void => {},
@@ -521,10 +332,8 @@ describe('Bridge product subscription state', () => {
 		});
 		admitted.start();
 		await harness.capturedOpen;
-		await admitted.update({});
 		const unadmitted = new BridgeProductSubscriptionState({
 			controlMux,
-			createIdentifier: (): string => 'unused-unadmitted-retire-update',
 			ensureMetadataStream: (): Promise<void> => new Promise<void>((): void => {}),
 			initialOptions: {},
 			onTerminal: (): void => {},
@@ -556,252 +365,62 @@ describe('Bridge product subscription state', () => {
 		}
 	});
 
-	test.each([
-		'interest_mismatch',
-		'producer_overflow',
-		'sequence_gap',
-		'stale_source',
-		'snapshot_required',
-	] as const)('preserves the generic %s reset reason as a terminal typed error', async (reason) => {
-		// Arrange
-		const controlHarness = createAnnotationControlHarness();
-		let terminalCount = 0;
-		const state = new BridgeProductSubscriptionState({
-			controlMux: controlHarness.controlMux,
-			createIdentifier: (): string => 'unused-reset-update',
-			ensureMetadataStream: async (): Promise<void> => {},
-			initialOptions: {},
-			onTerminal: (): void => {
-				terminalCount += 1;
-			},
-			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
-			readWorkerDerivationEpochAtAdmission: (): number => 1,
-			subscriptionId: 'reset-reason-subscription',
-		});
-		state.start();
-		const open = await controlHarness.capturedOpen;
-		const correlation = {
-			cursor: null,
-			interestRevision: 0,
-			interestSha256: annotationInterestSha256,
-			sourceGeneration: 0,
-			subscriptionId: open.subscriptionId,
-			subscriptionKind: 'review.annotations',
-			workerDerivationEpoch: open.workerDerivationEpoch,
-		};
-		state.acceptFrame(
-			requireSubscriptionFrame(
-				bridgeProductMetadataFrameSchema.parse({
-					...metadataFrameIdentity(1),
-					...correlation,
-					kind: 'subscription.accepted',
-					subscriptionSequence: 0,
-				}),
-			),
-		);
-		const nextEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
-
-		// Act
-		state.acceptFrame(
-			requireSubscriptionFrame(
-				bridgeProductMetadataFrameSchema.parse({
-					...metadataFrameIdentity(2),
-					...correlation,
-					kind: 'subscription.reset',
-					reason,
-					subscriptionSequence: 1,
-				}),
-			),
-		);
-
-		// Assert
-		await expect(nextEvent).rejects.toBeInstanceOf(BridgeProductSubscriptionResetError);
-		await expect(nextEvent).rejects.toMatchObject({ reason });
-		state.fail(new Error('Already-terminal reset cleanup.'));
-		expect(terminalCount).toBe(1);
-	});
-
-	test('captures its deferred-open epoch at admission and retains it for later frames', async () => {
-		// Arrange
-		const metadataReady = createBridgeProductDeferred<void>();
-		const controlHarness = createAnnotationControlHarness();
-		let currentReviewEpoch = 0;
-		const subscriptionState = new BridgeProductSubscriptionState({
-			controlMux: controlHarness.controlMux,
-			createIdentifier: (): string => 'unused-annotation-update',
-			ensureMetadataStream: (): Promise<void> => metadataReady.promise,
-			initialOptions: {},
-			onTerminal: (): void => {},
-			readWorkerDerivationEpochAtAdmission: (): number => currentReviewEpoch,
-			subscriptionId: 'review-annotations-admission-1',
-			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
-		});
-		const nextEvent = subscriptionState.publicSubscription.events[Symbol.asyncIterator]().next();
-		subscriptionState.start();
-
-		// Act
-		currentReviewEpoch = 1;
-		metadataReady.resolve();
-		const open = await controlHarness.capturedOpen;
-		subscriptionState.acceptFrame(
-			requireSubscriptionFrame(
-				bridgeProductMetadataFrameSchema.parse({
-					...metadataFrameIdentity(1),
-					cursor: null,
-					interestRevision: 0,
-					interestSha256: annotationInterestSha256,
-					kind: 'subscription.accepted',
-					sourceGeneration: 0,
-					subscriptionId: open.subscriptionId,
-					subscriptionKind: 'review.annotations',
-					subscriptionSequence: 0,
-					workerDerivationEpoch: open.workerDerivationEpoch,
-				}),
-			),
-		);
-		currentReviewEpoch = 2;
-		const catalogBeginEvent = {
-			authority: {
-				applicationSourceGeneration: 1,
-				worktreeId: 'worktree-1',
-			},
-			kind: 'annotation.catalog',
-			transfer: {
-				catalogRevision: 1,
-				expectedEntryCount: 0,
-				kind: 'catalog.begin',
-				transferId: 'annotation-catalog-transfer-1',
-			},
-		} as const;
-		subscriptionState.acceptFrame(
-			requireSubscriptionFrame(
-				bridgeProductMetadataFrameSchema.parse({
-					...metadataFrameIdentity(2),
-					cursor: 'review-annotations-cursor-1',
-					data: {
-						event: catalogBeginEvent,
-						subscriptionKind: 'review.annotations',
-					},
-					interestRevision: 0,
-					interestSha256: annotationInterestSha256,
-					kind: 'subscription.data',
-
-					operationCorrelationId: null,
-					sourceGeneration: 1,
-					subscriptionId: open.subscriptionId,
-					subscriptionKind: 'review.annotations',
-					subscriptionSequence: 1,
-					workerDerivationEpoch: open.workerDerivationEpoch,
-				}),
-			),
-		);
-
-		// Assert
-		expect(open.workerDerivationEpoch).toBe(1);
-		await expect(nextEvent).resolves.toEqual({
-			done: false,
-			value: {
-				data: catalogBeginEvent,
-				metadataStreamId: 'metadata-stream-annotations',
-				operationCorrelationId: null,
-				sourceGeneration: 1,
-				streamSequence: 2,
-				subscriptionId: open.subscriptionId,
-				subscriptionKind: 'review.annotations',
-				subscriptionSequence: 1,
-				workerDerivationEpoch: open.workerDerivationEpoch,
-			},
-		});
-		subscriptionState.fail(new Error('Subscription-state test cleanup.'));
-	});
-
-	test('rejects cross-kind and generation-mismatched raw data after generic barriers', async () => {
-		for (const testCase of [
-			{
-				data: {
-					event: {
-						authority: {
-							applicationSourceGeneration: 2,
-							worktreeId: 'worktree-1',
-						},
-						kind: 'annotation.controlChanged',
-						reason: 'discovery',
-					},
-					subscriptionKind: 'file.annotations',
-				},
-				expectedError: /subscriptionKind|literal/iu,
-				frameSourceGeneration: 2,
-			},
-			{
-				data: {
-					event: {
-						authority: {
-							applicationSourceGeneration: 3,
-							worktreeId: 'worktree-1',
-						},
-						kind: 'annotation.sessionChanged',
-						semanticRevision: 4,
-						sessionId: '00000000-0000-7000-8000-000000000001',
-					},
-					subscriptionKind: 'review.annotations',
-				},
-				expectedError: /generation/iu,
-				frameSourceGeneration: 2,
-			},
-		]) {
+	test.each(['producer_overflow', 'sequence_gap', 'stale_source', 'snapshot_required'] as const)(
+		'preserves the generic %s reset reason as a terminal typed error',
+		async (reason) => {
+			// Arrange
 			const controlHarness = createAnnotationControlHarness();
-			const subscriptionState = new BridgeProductSubscriptionState({
+			let terminalCount = 0;
+			const state = new BridgeProductSubscriptionState({
 				controlMux: controlHarness.controlMux,
-				createIdentifier: (): string => 'unused-annotation-update',
 				ensureMetadataStream: async (): Promise<void> => {},
 				initialOptions: {},
-				onTerminal: (): void => {},
+				onTerminal: (): void => {
+					terminalCount += 1;
+				},
 				protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
 				readWorkerDerivationEpochAtAdmission: (): number => 1,
-				subscriptionId: 'review-annotations-validation-1',
+				subscriptionId: 'reset-reason-subscription',
 			});
-			subscriptionState.start();
+			state.start();
 			const open = await controlHarness.capturedOpen;
-			subscriptionState.acceptFrame(
+			const correlation = {
+				subscriptionId: open.subscriptionId,
+				subscriptionKind: 'review.annotations',
+				workerDerivationEpoch: open.workerDerivationEpoch,
+			};
+			state.acceptFrame(
 				requireSubscriptionFrame(
 					bridgeProductMetadataFrameSchema.parse({
 						...metadataFrameIdentity(1),
-						cursor: null,
-						interestRevision: 0,
-						interestSha256: annotationInterestSha256,
+						...correlation,
 						kind: 'subscription.accepted',
-						sourceGeneration: 0,
-						subscriptionId: open.subscriptionId,
-						subscriptionKind: 'review.annotations',
 						subscriptionSequence: 0,
-						workerDerivationEpoch: open.workerDerivationEpoch,
+					}),
+				),
+			);
+			const nextEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
+
+			// Act
+			state.acceptFrame(
+				requireSubscriptionFrame(
+					bridgeProductMetadataFrameSchema.parse({
+						...metadataFrameIdentity(2),
+						...correlation,
+						kind: 'subscription.reset',
+						reason,
+						subscriptionSequence: 1,
 					}),
 				),
 			);
 
-			expect(() =>
-				subscriptionState.acceptFrame(
-					requireSubscriptionFrame(
-						bridgeProductMetadataFrameSchema.parse({
-							...metadataFrameIdentity(2),
-							cursor: null,
-							data: testCase.data,
-							interestRevision: 0,
-							interestSha256: annotationInterestSha256,
-							kind: 'subscription.data',
-							operationCorrelationId: null,
-							sourceGeneration: testCase.frameSourceGeneration,
-							subscriptionId: open.subscriptionId,
-							subscriptionKind: 'review.annotations',
-							subscriptionSequence: 1,
-							workerDerivationEpoch: open.workerDerivationEpoch,
-						}),
-					),
-				),
-			).toThrow(testCase.expectedError);
-			subscriptionState.fail(new Error('Subscription validation test cleanup.'));
-		}
-	});
+			// Assert
+			await expect(nextEvent).rejects.toBeInstanceOf(BridgeProductSubscriptionResetError);
+			await expect(nextEvent).rejects.toMatchObject({ reason });
+			state.fail(new Error('Already-terminal reset cleanup.'));
+			expect(terminalCount).toBe(1);
+		},
+	);
 });
 
 interface CapturedAnnotationOpen {
@@ -813,8 +432,7 @@ function createAnnotationControlHarness(): {
 	readonly capturedOpen: Promise<CapturedAnnotationOpen>;
 	readonly controlMux: BridgeProductSubscriptionStateControlMux<
 		'review.annotations',
-		ReviewAnnotationOpen,
-		{ readonly subscriptionKind: 'review.annotations' }
+		ReviewAnnotationOpen
 	>;
 } {
 	let resolveCapturedOpen: ((open: CapturedAnnotationOpen) => void) | null = null;
@@ -823,8 +441,7 @@ function createAnnotationControlHarness(): {
 	});
 	const controlMux: BridgeProductSubscriptionStateControlMux<
 		'review.annotations',
-		ReviewAnnotationOpen,
-		{ readonly subscriptionKind: 'review.annotations' }
+		ReviewAnnotationOpen
 	> = {
 		cancelSubscription: async (): Promise<never> => {
 			throw new Error('Annotation admission harness does not cancel subscriptions.');
@@ -835,20 +452,16 @@ function createAnnotationControlHarness(): {
 			}
 			resolveCapturedOpen?.(props);
 			return {
-				interestRevision: 0,
-				interestSha256: annotationInterestSha256,
 				kind: 'subscription.openAccepted',
 				paneSessionId: 'pane-session-annotations',
 				requestId: 'request-open-review-annotations',
 				requestSequence: 2,
 				subscriptionId: props.subscriptionId,
 				subscriptionKind: props.subscription.subscriptionKind,
+				worktreeId: '00000000-0000-7000-8000-000000000001',
 				wireVersion: 2,
 				workerInstanceId: 'worker-instance-annotations',
 			};
-		},
-		updateSubscriptionBatch: async (): Promise<never> => {
-			throw new Error('Annotation admission harness does not update subscriptions.');
 		},
 	};
 	return { capturedOpen, controlMux };
@@ -876,9 +489,7 @@ function requireSubscriptionFrame(
 	switch (frame.kind) {
 		case 'subscription.accepted':
 		case 'subscription.cancelled':
-		case 'subscription.data':
 		case 'subscription.end':
-		case 'subscription.interestsCommitted':
 		case 'subscription.reset':
 			return frame;
 		case 'content.cancelled':

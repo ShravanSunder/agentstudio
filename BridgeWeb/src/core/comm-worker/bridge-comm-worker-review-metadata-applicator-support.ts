@@ -1,6 +1,14 @@
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
-import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
+import type {
+	BridgeProductReviewMetadataEvent,
+	bridgeProductReviewRefreshImpactSchema,
+} from './bridge-product-review-metadata-contracts.js';
 import type { BridgeWorkerReviewCandidateStartDisposition } from './bridge-worker-contracts.js';
+import type { z } from 'zod';
+
+export type BridgeProductReviewRefreshImpact = z.infer<
+	typeof bridgeProductReviewRefreshImpactSchema
+>;
 
 export type ReviewMetadataRoutedEvent = Extract<
 	BridgeProductReviewMetadataEvent,
@@ -36,12 +44,26 @@ export function candidateStartDisposition(
 		event.preDeliveryPresentationClass !== undefined &&
 		event.affectedStableFileIdentities !== undefined
 	)
-		return {
+		return reviewCandidateStartDispositionFromRefreshImpact({
+			addedLineCount: null,
+			affectedFileCount: null,
 			affectedStableFileIdentities: event.affectedStableFileIdentities,
-			kind: 'sameSource',
-			presentationClass: event.preDeliveryPresentationClass,
-		};
-	return { kind: 'replacement' };
+			deletedLineCount: null,
+			newlyImportedCommitCount: null,
+			preDeliveryPresentationClass: event.preDeliveryPresentationClass,
+		});
+	return reviewCandidateStartDispositionFromRefreshImpact(null);
+}
+
+export function reviewCandidateStartDispositionFromRefreshImpact(
+	impact: BridgeProductReviewRefreshImpact | null,
+): BridgeWorkerReviewCandidateStartDisposition {
+	if (impact === null) return { kind: 'replacement' };
+	return {
+		affectedStableFileIdentities: impact.affectedStableFileIdentities,
+		kind: 'sameSource',
+		presentationClass: impact.preDeliveryPresentationClass,
+	};
 }
 
 export function replaceMapContents<TKey, TValue>(

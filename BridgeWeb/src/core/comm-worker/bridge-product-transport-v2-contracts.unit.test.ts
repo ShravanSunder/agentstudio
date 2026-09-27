@@ -32,11 +32,11 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 				case 'operationResultRequest':
 					expect(bridgeProductOperationResultRequestSchema.parse(entry.value)).toEqual(entry.value);
 					break;
-				case 'operationResultResponse':
-					expect(bridgeProductOperationResultResponseSchema.parse(entry.value)).toEqual(
-						entry.value,
-					);
+				case 'operationResultResponse': {
+					const response = currentOperationResultResponse(entry.value);
+					expect(bridgeProductOperationResultResponseSchema.parse(response)).toEqual(response);
 					break;
+				}
 				case 'operationResultAcknowledgement':
 					expect(bridgeProductOperationResultAcknowledgementSchema.parse(entry.value)).toEqual(
 						entry.value,
@@ -50,10 +50,11 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 
 	test('decodes and re-encodes the shared operation and batch corpus', () => {
 		const transport = validProductSessionCorpus.transportV2;
+		const resultResponses = transport.resultResponses.map(currentOperationResultResponse);
 		const cases = [
 			[bridgeProductOperationAdmittedResponseSchema, transport.admittedResponses],
 			[bridgeProductOperationResultRequestSchema, transport.resultRequests],
-			[bridgeProductOperationResultResponseSchema, transport.resultResponses],
+			[bridgeProductOperationResultResponseSchema, resultResponses],
 			[bridgeProductOperationResultAcknowledgementSchema, transport.resultAcknowledgements],
 			[
 				bridgeProductOperationResultAcknowledgedResponseSchema,
@@ -104,6 +105,9 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 		expect(batchPart).toBeDefined();
 		expect(settled).toBeDefined();
 		if (batchBegin === undefined || batchPart === undefined || settled === undefined) return;
+		const currentSettled = bridgeProductOperationResultResponseSchema.parse(
+			currentOperationResultResponse(settled),
+		);
 
 		expect(
 			bridgeProductBatchFrameSchema.safeParse({ ...batchBegin, partCount: undefined }).success,
@@ -132,7 +136,7 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 		).toBe(false);
 		expect(
 			bridgeProductOperationResultResponseSchema.safeParse({
-				...settled,
+				...currentSettled,
 				outcome: 'cancelled',
 				result: { published: true },
 			}).success,
@@ -185,3 +189,14 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 		}
 	});
 });
+
+function currentOperationResultResponse(value: unknown): unknown {
+	if (typeof value !== 'object' || value === null || !('kind' in value)) return value;
+	if (value.kind !== 'operation.result') return value;
+	// Frozen corpus entries predate the current required nullable result envelope fields.
+	return {
+		...value,
+		failureCode: 'failureCode' in value ? value.failureCode : null,
+		result: 'result' in value ? value.result : null,
+	};
+}

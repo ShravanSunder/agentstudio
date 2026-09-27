@@ -27,16 +27,15 @@ struct BridgePaneProductFileMetadataPriorityTests {
             productAdmission: fixture.productAdmission.context
         ) { _ in }
         let visiblePaths = (0..<39).map { String(format: "File-%04d.swift", $0) }
-        let updateSnapshot = try fixture.updatedSnapshot(
-            from: openSnapshot,
-            visiblePaths: visiblePaths
-        )
+        let viewDemand = try fixture.viewDemand(visiblePaths: visiblePaths)
         let collector = ProductFileMetadataEventCollector()
 
         // Act
-        try await source.update(
-            subscription: updateSnapshot,
-            productAdmission: fixture.productAdmission.context
+        try await source.applyViewDemand(
+            subscriptionId: openSnapshot.subscriptionId,
+            demand: viewDemand,
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
         ) { event in
             await collector.append(event)
         }

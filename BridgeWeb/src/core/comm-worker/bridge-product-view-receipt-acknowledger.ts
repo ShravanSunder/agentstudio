@@ -94,8 +94,14 @@ export class BridgeProductViewReceiptAcknowledger {
 			if (next === undefined) return;
 			const [viewKey, request] = next;
 			const acknowledged = await this.#sendExactWithRetry(request);
-			if (this.#pendingByView.get(viewKey) === request) this.#pendingByView.delete(viewKey);
-			if (!acknowledged && !this.#closed) this.#onExhausted(request);
+			if (!acknowledged) {
+				// Every pending credit for this view belongs to the unconfirmed bank.
+				// Its resnapshot must start with a fresh receipt baseline.
+				this.#pendingByView.delete(viewKey);
+				if (!this.#closed) this.#onExhausted(request);
+			} else if (this.#pendingByView.get(viewKey) === request) {
+				this.#pendingByView.delete(viewKey);
+			}
 		}
 	}
 

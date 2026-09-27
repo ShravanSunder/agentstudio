@@ -51,7 +51,6 @@ actor BridgePaneProductMetadataCoordinator {
     private var streamTransitionGeneration = 0
     var subscriptionKindById: [String: BridgeProductSubscriptionKind] = [:]
     var deferredOpenSubscriptionIds: Set<String> = []
-    var deferredUpdateSubscriptionIds: Set<String> = []
     var openedSourceSubscriptionIds: Set<String> = []
 
     init(
@@ -227,8 +226,6 @@ actor BridgePaneProductMetadataCoordinator {
         switch effect {
         case .subscriptionOpened(let subscription):
             applySubscriptionOpened(subscription, productAdmission: productAdmission)
-        case .subscriptionInterestsCommitted(_, let subscription):
-            applySubscriptionInterestsCommitted(subscription, productAdmission: productAdmission)
         case .subscriptionCancelled(let subscription):
             let producerTasks = producerTaskLifecycle.takeAndCancelProducerTasks(
                 subscriptionId: subscription.subscriptionId
@@ -262,14 +259,6 @@ actor BridgePaneProductMetadataCoordinator {
                         subscriptionKindById[outcome.subscriptionId] == nil
                     else { continue }
                     applySubscriptionOpened(subscription, productAdmission: productAdmission)
-                case .reset:
-                    guard let resetStream = activeStream,
-                        let subscription = await resetStream.session.subscriptionSnapshot(
-                            subscriptionId: outcome.subscriptionId
-                        ),
-                        activeStream?.lease == resetStream.lease
-                    else { continue }
-                    applySubscriptionInterestsCommitted(subscription, productAdmission: productAdmission)
                 }
             }
             for subscriptionId in result.revokedNativeOnlySubscriptionIds {
@@ -285,21 +274,8 @@ actor BridgePaneProductMetadataCoordinator {
                 await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
                 removeSubscriptionLifecycleState(subscriptionId: subscriptionId)
             }
-        case .viewScopeAccepted(let request):
-            if request.subscriptionKind == .fileMetadata {
-                _ = try? await publishFileViewSnapshot(
-                    subscriptionId: request.subscriptionId,
-                    productAdmission: productAdmission
-                )
-            }
-        case .viewResnapshotAccepted(let request):
-            if request.subscriptionKind == .fileMetadata {
-                _ = try? await publishFileViewSnapshot(
-                    subscriptionId: request.subscriptionId,
-                    productAdmission: productAdmission
-                )
-            }
-        case .noEffect, .productCall:
+        case .viewScopeAccepted, .viewResnapshotAccepted, .noEffect, .productCall:
+            // E4 accepts demand; the source recaptures behind the separate W4 barrier.
             break
         }
     }
@@ -320,7 +296,6 @@ actor BridgePaneProductMetadataCoordinator {
                 productAdmission.withValidAdmission { () -> Bool in
                     subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
                     deferredOpenSubscriptionIds.remove(subscription.subscriptionId)
-                    deferredUpdateSubscriptionIds.remove(subscription.subscriptionId)
                     startSubscriptionOpen(
                         subscription,
                         activeStream: activeStream,
@@ -335,64 +310,6 @@ actor BridgePaneProductMetadataCoordinator {
         }
     }
 
-    private func applySubscriptionInterestsCommitted(
-        _ subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext
-    ) {
-        guard let activeStream,
-            activeStream.productAdmission.matches(productAdmission)
-        else { return }
-        guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire() else {
-            deferSubscriptionInterestsCommitted(subscription, productAdmission: productAdmission)
-            return
-        }
-        let didStart =
-            foregroundWorkAdmission.withValidAdmission {
-                productAdmission.withValidAdmission { () -> Bool in
-                    subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
-                    producerTaskLifecycle.cancelInterestTasks(
-                        subscriptionId: subscription.subscriptionId
-                    )
-                    let application = try? nativeApplicationRegistry.application(
-                        for: subscription.subscriptionKind
-                    )
-                    let bootstrapAdmission =
-                        application?.adapter.interestBootstrapAdmission ?? .afterBootstrap
-                    let sourceIsReady = openedSourceSubscriptionIds.contains(
-                        subscription.subscriptionId
-                    )
-                    let bootstrapIsRunning = producerTaskLifecycle.hasBootstrapTask(
-                        subscriptionId: subscription.subscriptionId
-                    )
-                    if sourceIsReady
-                        || (bootstrapIsRunning && bootstrapAdmission == .afterBootstrap)
-                    {
-                        deferredUpdateSubscriptionIds.remove(subscription.subscriptionId)
-                        startSubscriptionUpdate(
-                            subscription,
-                            activeStream: activeStream,
-                            productAdmission: productAdmission,
-                            foregroundWorkAdmission: foregroundWorkAdmission
-                        )
-                    } else if bootstrapIsRunning {
-                        deferredUpdateSubscriptionIds.insert(subscription.subscriptionId)
-                    } else {
-                        deferredOpenSubscriptionIds.remove(subscription.subscriptionId)
-                        startSubscriptionOpen(
-                            subscription,
-                            activeStream: activeStream,
-                            productAdmission: productAdmission,
-                            foregroundWorkAdmission: foregroundWorkAdmission
-                        )
-                    }
-                    return true
-                } ?? false
-            } ?? false
-        if !didStart {
-            deferSubscriptionInterestsCommitted(subscription, productAdmission: productAdmission)
-        }
-    }
-
     private func deferSubscriptionOpen(
         _ subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext
@@ -400,44 +317,14 @@ actor BridgePaneProductMetadataCoordinator {
         _ = productAdmission.withValidAdmission {
             subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
             deferredOpenSubscriptionIds.insert(subscription.subscriptionId)
-            deferredUpdateSubscriptionIds.remove(subscription.subscriptionId)
-        }
-    }
-
-    private func deferSubscriptionInterestsCommitted(
-        _ subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext
-    ) {
-        _ = productAdmission.withValidAdmission {
-            subscriptionKindById[subscription.subscriptionId] = subscription.subscriptionKind
-            producerTaskLifecycle.cancelInterestTasks(subscriptionId: subscription.subscriptionId)
-            if openedSourceSubscriptionIds.contains(subscription.subscriptionId) {
-                deferredUpdateSubscriptionIds.insert(subscription.subscriptionId)
-            } else {
-                deferredOpenSubscriptionIds.insert(subscription.subscriptionId)
-            }
         }
     }
 
     func suspendForegroundWork() async {
         for subscriptionId in subscriptionKindById.keys {
-            if subscriptionKindById[subscriptionId] == .reviewMetadata
-                || producerTaskLifecycle.hasBootstrapTask(subscriptionId: subscriptionId)
-            {
-                deferredOpenSubscriptionIds.insert(subscriptionId)
-                deferredUpdateSubscriptionIds.remove(subscriptionId)
-            } else if openedSourceSubscriptionIds.contains(subscriptionId) {
-                deferredUpdateSubscriptionIds.insert(subscriptionId)
-            } else {
-                deferredOpenSubscriptionIds.insert(subscriptionId)
-            }
+            deferredOpenSubscriptionIds.insert(subscriptionId)
         }
         let producerTasks = producerTaskLifecycle.takeAndCancelEveryProducerTask()
-        if let activeStream {
-            await activeStream.session.resolveProducerObservationPacingCancellation(
-                for: activeStream.lease
-            )
-        }
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
     }
 
@@ -445,9 +332,7 @@ actor BridgePaneProductMetadataCoordinator {
         guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire(),
             let activeStream
         else { return }
-        let subscriptionIds = Set(deferredOpenSubscriptionIds)
-            .union(deferredUpdateSubscriptionIds)
-            .sorted()
+        let subscriptionIds = deferredOpenSubscriptionIds.sorted()
         for subscriptionId in subscriptionIds {
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 self.activeStream?.lease == activeStream.lease
@@ -457,19 +342,32 @@ actor BridgePaneProductMetadataCoordinator {
                     subscriptionId: subscriptionId
                 )
             else { continue }
+            deferredOpenSubscriptionIds.remove(subscriptionId)
             if openedSourceSubscriptionIds.contains(subscriptionId),
-                !deferredOpenSubscriptionIds.contains(subscriptionId)
+                let scope = await activeStream.session.acceptedViewScope(subscriptionId: subscriptionId)
             {
-                deferredUpdateSubscriptionIds.remove(subscriptionId)
-                startSubscriptionUpdate(
-                    subscription,
-                    activeStream: activeStream,
-                    productAdmission: activeStream.productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission
-                )
+                if subscription.subscriptionKind == .fileMetadata {
+                    await applyAcceptedFileViewDemand(
+                        subscriptionId: subscriptionId,
+                        expectedHandle: scope.handle,
+                        expectedRevision: scope.revision,
+                        forceRecapture: true,
+                        productAdmission: activeStream.productAdmission
+                    )
+                } else if subscription.subscriptionKind == .reviewMetadata {
+                    _ = try? await publishReviewViewSnapshot(
+                        subscriptionId: subscriptionId,
+                        productAdmission: activeStream.productAdmission
+                    )
+                } else {
+                    startSubscriptionOpen(
+                        subscription,
+                        activeStream: activeStream,
+                        productAdmission: activeStream.productAdmission,
+                        foregroundWorkAdmission: foregroundWorkAdmission
+                    )
+                }
             } else {
-                deferredOpenSubscriptionIds.remove(subscriptionId)
-                deferredUpdateSubscriptionIds.remove(subscriptionId)
                 startSubscriptionOpen(
                     subscription,
                     activeStream: activeStream,
@@ -749,8 +647,7 @@ extension BridgePaneProductMetadataCoordinator {
     func publish(
         status: GitWorkingTreeStatus,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        operationCorrelationID: String
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
         guard let activeStream else { return .notRequired }
         guard activeStream.productAdmission.matches(productAdmission),
@@ -765,23 +662,8 @@ extension BridgePaneProductMetadataCoordinator {
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
         guard !emissions.isEmpty else { return .notRequired }
         do {
-            for emission in emissions {
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                    return .stale
-                }
-                try await Self.enqueue(
-                    event: emission.event,
-                    subscriptionId: emission.subscriptionId,
-                    operationCorrelationID: operationCorrelationID,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    session: activeStream.session
-                )
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                    return .stale
-                }
-            }
             for subscriptionId in Set(emissions.map(\.subscriptionId)).sorted() {
+                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
                 _ = try await publishFileViewSnapshot(
                     subscriptionId: subscriptionId,
                     productAdmission: productAdmission
@@ -798,8 +680,7 @@ extension BridgePaneProductMetadataCoordinator {
     func publish(
         changeset: FileChangeset,
         productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        operationCorrelationID: String
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
         guard let activeStream else { return .notRequired }
         guard activeStream.productAdmission.matches(productAdmission),
@@ -821,23 +702,8 @@ extension BridgePaneProductMetadataCoordinator {
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
         guard !emissions.isEmpty else { return .notRequired }
         do {
-            for emission in emissions {
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                    return .stale
-                }
-                try await Self.enqueue(
-                    event: emission.event,
-                    subscriptionId: emission.subscriptionId,
-                    operationCorrelationID: operationCorrelationID,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    session: activeStream.session
-                )
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                    return .stale
-                }
-            }
             for subscriptionId in Set(emissions.map(\.subscriptionId)).sorted() {
+                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
                 _ = try await publishFileViewSnapshot(
                     subscriptionId: subscriptionId,
                     productAdmission: productAdmission
@@ -877,7 +743,6 @@ extension BridgePaneProductMetadataCoordinator {
         let subscriptions = subscriptionKindById
         subscriptionKindById.removeAll(keepingCapacity: false)
         deferredOpenSubscriptionIds.removeAll(keepingCapacity: false)
-        deferredUpdateSubscriptionIds.removeAll(keepingCapacity: false)
         openedSourceSubscriptionIds.removeAll(keepingCapacity: false)
         await contentDemandAuthority.removeAll()
         for (subscriptionId, subscriptionKind) in subscriptions {
@@ -901,7 +766,6 @@ extension BridgePaneProductMetadataCoordinator {
     private func removeSubscriptionLifecycleState(subscriptionId: String) {
         subscriptionKindById.removeValue(forKey: subscriptionId)
         deferredOpenSubscriptionIds.remove(subscriptionId)
-        deferredUpdateSubscriptionIds.remove(subscriptionId)
         openedSourceSubscriptionIds.remove(subscriptionId)
     }
     var reviewSubscriptionIds: [String] {

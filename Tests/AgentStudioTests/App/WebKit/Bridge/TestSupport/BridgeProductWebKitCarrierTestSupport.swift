@@ -3,6 +3,7 @@ import AgentStudioInfrastructure
 import AppKit
 import Foundation
 import SwiftUI
+import Testing
 import WebKit
 
 @testable import AgentStudioBridge
@@ -237,16 +238,20 @@ actor BridgeWebKitTrackingFileMetadataSource:
         firstOpenWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
     }
 
-    func update(
-        subscription: BridgeProductSubscriptionSnapshot,
+    func applyViewDemand(
+        subscriptionId: String,
+        demand: BridgePaneProductFileViewDemand,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        forceRecapture: Bool,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
-        try await source.update(
-            subscription: subscription,
+        try await source.applyViewDemand(
+            subscriptionId: subscriptionId,
+            demand: demand,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission,
+            forceRecapture: forceRecapture,
             emit: emit
         )
     }
@@ -319,7 +324,7 @@ struct BridgeProductWebKitCarrierReviewDeliveryAttempt: Equatable, Sendable {
 struct BridgeProductWebKitCarrierReviewMetadataSnapshot: Equatable, Sendable {
     let cancelledSubscriptionIds: [String]
     let corruptedPublicationId: UUID?
-    let didCorruptFinalWindow: Bool
+    let didCorruptViewCapture: Bool
     let deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt]
     let openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity]
     let replayIsBlocked: Bool
@@ -333,7 +338,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private var armedPredecessorPublicationId: UUID?
     private var cancelledSubscriptionIds: [String] = []
     private var corruptedPublicationId: UUID?
-    private var didCorruptFinalWindow = false
+    private var didCorruptViewCapture = false
     private var deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt] = []
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
     private var firstOpenWaiters: [UUID: CheckedContinuation<BridgeProductWebKitCarrierSubscriptionIdentity?, Never>] =
@@ -347,8 +352,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
 
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
+        productAdmission: BridgeProductAdmissionContext
     ) async throws {
         let identity = BridgeProductWebKitCarrierSubscriptionIdentity(
             subscriptionId: subscription.subscriptionId,
@@ -358,16 +362,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
         let waiters = Array(firstOpenWaiters.values)
         firstOpenWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.resume(returning: identity) }
-        try await source.open(
-            subscription: subscription,
-            productAdmission: productAdmission
-        ) { event, emittedAdmission in
-            try await self.emitPossiblyCorrupted(
-                event,
-                productAdmission: emittedAdmission,
-                emit: emit
-            )
-        }
+        try await source.open(subscription: subscription, productAdmission: productAdmission)
     }
 
     func waitForFirstOpen() async -> BridgeProductWebKitCarrierSubscriptionIdentity? {
@@ -392,21 +387,66 @@ actor BridgeWebKitFailingReviewMetadataSource:
         firstOpenWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
     }
 
-    func update(
-        subscription: BridgeProductSubscriptionSnapshot,
-        productAdmission: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {
-        try await source.update(
-            subscription: subscription,
-            productAdmission: productAdmission
-        ) { event, emittedAdmission in
-            try await self.emitPossiblyCorrupted(
-                event,
-                productAdmission: emittedAdmission,
-                emit: emit
-            )
+    func applyViewDemand(_ request: BridgePaneProductReviewViewDemandRequest) async throws
+        -> BridgePaneProductReviewViewCapture?
+    {
+        if request.expectedPublicationId == corruptedPublicationId && didCorruptViewCapture {
+            replayIsBlocked = true
+            successorEventKinds.append("recoveryCapture")
+            resumeReplayFailureStateWaitersIfReady()
+            if !replayIsReleased {
+                await withCheckedContinuation { continuation in replayRelease = continuation }
+            }
         }
+        guard
+            let capture = try await source.applyViewDemand(request)
+        else { return nil }
+        guard request.expectedPublicationId == corruptedPublicationId, !didCorruptViewCapture,
+            let itemIndex = capture.snapshot.items.firstIndex(where: { item in
+                let roles = item.record.contentByRole
+                return [roles.base, roles.diff, roles.file, roles.head].contains {
+                    if case .available = $0 { true } else { false }
+                }
+            })
+        else { return capture }
+        var items = capture.snapshot.items
+        let original = items[itemIndex]
+        var recordObject = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(original.record)) as? [String: Any]
+        )
+        var contentByRole = try #require(recordObject["contentByRole"] as? [String: Any])
+        for role in ["base", "diff", "file", "head"] {
+            guard var content = contentByRole[role] as? [String: Any],
+                content["state"] as? String == "available",
+                var sourceIdentity = content["source"] as? [String: Any]
+            else { continue }
+            sourceIdentity["sourceIdentity"] = "wrong-publication-source"
+            content["source"] = sourceIdentity
+            contentByRole[role] = content
+            break
+        }
+        recordObject["contentByRole"] = contentByRole
+        let corruptedRecord = try BridgeProductStrictJSON.decode(
+            BridgeProductReviewBatchItemRecord.self,
+            from: JSONSerialization.data(withJSONObject: recordObject)
+        )
+        items[itemIndex] = BridgeProductReviewKeyedItem(
+            record: corruptedRecord,
+            revision: original.revision
+        )
+        didCorruptViewCapture = true
+        successorEventKinds.append("corruptedCapture")
+        resumeReplayFailureStateWaitersIfReady()
+        return BridgePaneProductReviewViewCapture(
+            handle: capture.handle,
+            scopeRevision: capture.scopeRevision,
+            publicationId: capture.publicationId,
+            snapshot: BridgeProductReviewKeyedSnapshot(
+                targetRevision: capture.snapshot.targetRevision,
+                publication: capture.snapshot.publication,
+                items: items
+            )
+        )
     }
 
     func reserve(
@@ -432,17 +472,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
                 publicationId: reservation.publicationId
             )
         )
-        if corruptedPublicationId == reservation.publicationId,
-            deliveryAttempts.count(where: { $0.publicationId == reservation.publicationId }) == 2
-        {
-            replayIsBlocked = true
-            resumeReplayFailureStateWaitersIfReady()
-            if !replayIsReleased {
-                await withCheckedContinuation { continuation in
-                    replayRelease = continuation
-                }
-            }
-        } else if let armedPredecessorPublicationId,
+        if let armedPredecessorPublicationId,
             reservation.publicationId != armedPredecessorPublicationId,
             corruptedPublicationId == nil
         {
@@ -474,7 +504,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
         BridgeProductWebKitCarrierReviewMetadataSnapshot(
             cancelledSubscriptionIds: cancelledSubscriptionIds,
             corruptedPublicationId: corruptedPublicationId,
-            didCorruptFinalWindow: didCorruptFinalWindow,
+            didCorruptViewCapture: didCorruptViewCapture,
             deliveryAttempts: deliveryAttempts,
             openedSubscriptions: openedSubscriptions,
             replayIsBlocked: replayIsBlocked,
@@ -482,66 +512,15 @@ actor BridgeWebKitFailingReviewMetadataSource:
         )
     }
 
-    private func emitPossiblyCorrupted(
-        _ sealedEvent: BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>,
-        productAdmission: BridgeProductAdmissionContext,
-        emit: BridgePaneProductReviewMetadataEventSink
-    ) async throws -> BridgeProductProducerEnqueueResult {
-        let event = sealedEvent.event
-        if event.publicationId == corruptedPublicationId {
-            switch event {
-            case .sourceAccepted: successorEventKinds.append("sourceAccepted")
-            case .snapshot: successorEventKinds.append("snapshot")
-            case .window: successorEventKinds.append("window")
-            case .delta: successorEventKinds.append("delta")
-            case .invalidated: successorEventKinds.append("invalidated")
-            case .reset: successorEventKinds.append("reset")
-            }
-        }
-        guard event.publicationId == corruptedPublicationId,
-            !didCorruptFinalWindow,
-            case .window(let window) = event,
-            window.itemWindow.finalWindow,
-            window.treeWindow.finalWindow,
-            window.itemMetadata.count > 1
-        else {
-            return try await emit(sealedEvent, productAdmission)
-        }
-        let gappedItemWindow = try BridgeProductReviewItemWindow(
-            finalWindow: true,
-            itemCount: window.itemWindow.itemCount - 1,
-            startIndex: window.itemWindow.startIndex + 1,
-            totalItemCount: window.itemWindow.totalItemCount
-        )
-        let gappedFinalWindow = try BridgeProductReviewWindowEvent(
-            identity: window.identity,
-            contentSources: window.contentSources,
-            extentFacts: window.extentFacts,
-            itemMetadata: Array(window.itemMetadata.dropFirst()),
-            itemWindow: gappedItemWindow,
-            presentationRevision: window.presentationRevision,
-            reviewComparison: window.reviewComparison,
-            summary: window.summary,
-            treeRows: window.treeRows,
-            treeWindow: window.treeWindow
-        )
-        didCorruptFinalWindow = true
-        resumeReplayFailureStateWaitersIfReady()
-        return try await emit(
-            try sealBridgeReviewMetadataEvent(.window(gappedFinalWindow)),
-            productAdmission
-        )
-    }
-
     func waitForReplayFailureState() async -> Bool {
-        guard !(replayIsBlocked && didCorruptFinalWindow) else { return true }
+        guard !(replayIsBlocked && didCorruptViewCapture) else { return true }
         let waiterID = nextReplayFailureStateWaiterID
         nextReplayFailureStateWaiterID += 1
         return await waitForReplayFailureStateEvent(waiterID: waiterID)
     }
 
     private func resumeReplayFailureStateWaitersIfReady() {
-        guard replayIsBlocked && didCorruptFinalWindow else { return }
+        guard replayIsBlocked && didCorruptViewCapture else { return }
         let waiters = Array(replayFailureStateWaiters.values)
         replayFailureStateWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
@@ -552,7 +531,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private func waitForReplayFailureStateEvent(waiterID: UInt64) async -> Bool {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                if replayIsBlocked && didCorruptFinalWindow {
+                if replayIsBlocked && didCorruptViewCapture {
                     continuation.resume(returning: true)
                 } else if Task.isCancelled {
                     continuation.resume(returning: false)

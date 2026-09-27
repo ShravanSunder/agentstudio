@@ -13,6 +13,7 @@ import { bridgeProductReviewComparisonPresentationSchema } from './bridge-produc
 import {
 	bridgeProductReviewItemMetadataSchema,
 	bridgeProductReviewQuerySchema,
+	bridgeProductReviewRefreshImpactSchema,
 	bridgeProductReviewSourceEndpointSchema,
 } from './bridge-product-review-metadata-contracts.js';
 import {
@@ -97,6 +98,7 @@ const reviewDesiredPublicationSchema = z
 
 const reviewBatchPublicationSchema = z
 	.object({
+		classifiedRefreshImpact: bridgeProductReviewRefreshImpactSchema.nullable(),
 		desired: reviewDesiredPublicationSchema,
 		displayed: reviewDisplayedPublicationSchema.nullable(),
 		publicationId: bridgeProductReviewPublicationIdSchema,

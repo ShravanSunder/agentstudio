@@ -27,8 +27,7 @@ extension BridgePaneProductSchemeProvider {
         let disposition = await metadataCoordinator.publish(
             status: status,
             productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission,
-            operationCorrelationID: operationCorrelationID
+            foregroundWorkAdmission: foregroundWorkAdmission
         )
         await recordOperationLifecycle(
             operationCorrelationID: operationCorrelationID,
@@ -71,8 +70,7 @@ extension BridgePaneProductSchemeProvider {
         let disposition = await metadataCoordinator.publish(
             changeset: changeset,
             productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission,
-            operationCorrelationID: operationCorrelationID
+            foregroundWorkAdmission: foregroundWorkAdmission
         )
         await recordOperationLifecycle(
             operationCorrelationID: operationCorrelationID,

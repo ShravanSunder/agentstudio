@@ -63,4 +63,25 @@ struct BridgeProductViewCreditWindowTests {
         #expect(credits.outstandingPartCount(for: retired) == 0)
         #expect(credits.outstandingPartCount(for: successor) == 1)
     }
+
+    @Test("late acknowledgement after resnapshot is satisfied without returning successor credit")
+    func abandonedReceiptIsSatisfiedWithoutDoubleCredit() {
+        var credits = BridgeProductViewCreditWindow(maximumParts: 1, maximumBytes: 8)
+        let view = BridgeProductViewDomainKey(viewId: "file-view", domain: .singleDomain, incarnation: "first")
+        credits.open(view, handle: "handle-1")
+        let firstAdmitted = credits.admitPart(for: view, handle: "handle-1", sequence: 1, byteCount: 8)
+        #expect(firstAdmitted)
+        credits.abandonOutstanding(for: view)
+        #expect(credits.outstandingPartCount(for: view) == 0)
+
+        let abandonedReceiptReturnedCredit = credits.acknowledge(for: view, handle: "handle-1", through: 1)
+        #expect(!abandonedReceiptReturnedCredit)
+        #expect(credits.wasAlreadySatisfied(for: view, handle: "handle-1", through: 1))
+        #expect(!credits.wasAlreadySatisfied(for: view, handle: "wrong-handle", through: 1))
+        #expect(!credits.wasAlreadySatisfied(for: view, handle: "handle-1", through: 2))
+        let successorPartAdmitted = credits.admitPart(for: view, handle: "handle-1", sequence: 2, byteCount: 8)
+        #expect(successorPartAdmitted)
+        #expect(credits.wasAlreadySatisfied(for: view, handle: "handle-1", through: 1))
+        #expect(credits.outstandingPartCount(for: view) == 1)
+    }
 }

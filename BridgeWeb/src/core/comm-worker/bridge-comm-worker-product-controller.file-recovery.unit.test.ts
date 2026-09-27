@@ -3,36 +3,30 @@ import { describe, expect, test } from 'vitest';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
-import type {
-	BridgeProductMetadataApplicationEvent,
-	BridgeProductMetadataDataFrame,
-} from './bridge-product-metadata-application-protocol.js';
 import { bridgeProductFileMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import { BridgeProductSubscriptionResetError } from './bridge-product-subscription-state.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 
 type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
-type FileMetadataEvent = BridgeProductMetadataApplicationEvent<FileMetadataProtocol>;
-type FileMetadataFrame = BridgeProductMetadataDataFrame<FileMetadataEvent>;
 type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
-
-const fileSource = {
-	repoId: '00000000-0000-4000-8000-000000000001',
-	rootRevisionToken: 'root-revision-1',
-	sourceCursor: 'source-cursor-1',
-	sourceId: 'file-source-1',
-	subscriptionGeneration: 3,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
-} as const;
 
 const currentFileSourceConfiguration = {
 	cwdScope: null,
 	freshness: 'live',
 	includeStatuses: true,
-	repoId: fileSource.repoId,
+	repoId: '00000000-0000-4000-8000-000000000001',
 	rootPathToken: 'root-token-1',
-	worktreeId: fileSource.worktreeId,
+	worktreeId: '00000000-0000-4000-8000-000000000002',
+} as const;
+
+const installedFileSource = {
+	repoId: currentFileSourceConfiguration.repoId,
+	rootRevisionToken: 'root-revision-1',
+	sourceCursor: 'source-cursor-1',
+	sourceId: 'file-source-1',
+	subscriptionGeneration: 3,
+	worktreeId: currentFileSourceConfiguration.worktreeId,
 } as const;
 
 describe('Bridge comm worker File metadata recovery', () => {
@@ -40,9 +34,10 @@ describe('Bridge comm worker File metadata recovery', () => {
 		'an active %s reset rediscovers File metadata without another UI action',
 		async (reason) => {
 			// Arrange — the error is the transport's existing valid subscription.reset outcome.
-			const firstEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
-			const replacementEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
+			const firstEvents = new BridgeProductBoundedAsyncQueue<never>(8);
+			const replacementEvents = new BridgeProductBoundedAsyncQueue<never>(8);
 			const observedFailure = makeDeferred<void>();
+			const secondFailure = makeDeferred<void>();
 			let discoveryCount = 0;
 			let subscriptionCount = 0;
 			let failureCount = 0;
@@ -51,10 +46,10 @@ describe('Bridge comm worker File metadata recovery', () => {
 					discoveryCount += 1;
 					return { source: currentFileSourceConfiguration, status: 'available' };
 				},
-				onFileMetadataEvent: (): void => {},
 				onFileMetadataFailure: (): void => {
 					failureCount += 1;
 					observedFailure.resolve();
+					if (failureCount === 2) secondFailure.resolve();
 				},
 				productTransport: fileEpochTransport(),
 				subscribeFile: () => {
@@ -73,11 +68,12 @@ describe('Bridge comm worker File metadata recovery', () => {
 				await observedFailure.promise;
 
 				// Assert — the existing source owner must reconnect from the latest source authority.
-				await expect.poll(() => subscriptionCount, { timeout: 250 }).toBe(2);
+				expect(subscriptionCount).toBe(2);
 				expect(discoveryCount).toBe(2);
-				// A replacement that resets again before producing data must not loop.
+				// A replacement that resets again before a certified batch must not loop.
 				replacementEvents.fail(new BridgeProductSubscriptionResetError(reason), true);
-				await expect.poll(() => failureCount, { timeout: 250 }).toBe(2);
+				await secondFailure.promise;
+				expect(failureCount).toBe(2);
 				expect(subscriptionCount).toBe(2);
 			} finally {
 				firstEvents.close(true);
@@ -86,17 +82,58 @@ describe('Bridge comm worker File metadata recovery', () => {
 		},
 	);
 
+	test('a certified File batch permits a later automatic reset recovery', async () => {
+		const firstEvents = new BridgeProductBoundedAsyncQueue<never>(1);
+		const secondEvents = new BridgeProductBoundedAsyncQueue<never>(1);
+		const thirdEvents = new BridgeProductBoundedAsyncQueue<never>(1);
+		const secondOpened = makeDeferred<void>();
+		const thirdOpened = makeDeferred<void>();
+		let subscriptionCount = 0;
+		const events = [firstEvents, secondEvents, thirdEvents] as const;
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => ({
+				source: currentFileSourceConfiguration,
+				status: 'available',
+			}),
+			productTransport: fileEpochTransport(),
+			subscribeFile: () => {
+				const eventQueue = events[subscriptionCount];
+				if (eventQueue === undefined) throw new Error('Unexpected fourth File subscription.');
+				subscriptionCount += 1;
+				if (subscriptionCount === 2) secondOpened.resolve();
+				if (subscriptionCount === 3) thirdOpened.resolve();
+				return fileSubscription(`file-reset-${subscriptionCount}`, eventQueue);
+			},
+		});
+		await controller.ensureFileSource();
+		try {
+			firstEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await secondOpened.promise;
+			controller.acceptInstalledFileBatch({
+				source: installedFileSource,
+				subscriptionId: 'file-reset-2',
+				workerDerivationEpoch: 2,
+			});
+			secondEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await thirdOpened.promise;
+			expect(subscriptionCount).toBe(3);
+		} finally {
+			firstEvents.close(true);
+			secondEvents.close(true);
+			thirdEvents.close(true);
+		}
+	});
+
 	test('retries File source discovery after a transient rejection', async () => {
 		// Arrange
 		let discoveryCount = 0;
-		const events = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
+		const events = new BridgeProductBoundedAsyncQueue<never>(8);
 		const controller = new BridgeCommWorkerProductController({
 			callCurrentFileSource: async () => {
 				discoveryCount += 1;
 				if (discoveryCount === 1) throw new Error('transient source discovery failure');
 				return { source: currentFileSourceConfiguration, status: 'available' };
 			},
-			onFileMetadataEvent: (): void => {},
 			productTransport: fileEpochTransport(),
 			subscribeFile: () => fileSubscription('file-subscription-after-retry', events),
 		});
@@ -113,9 +150,8 @@ describe('Bridge comm worker File metadata recovery', () => {
 
 	test('a later ensure opens a replacement subscription after the active File stream fails', async () => {
 		// Arrange — removing the terminal-subscription cache reset makes this test fail.
-		const firstEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
-		const replacementEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
-		const observedReplacementWindow = makeDeferred<void>();
+		const firstEvents = new BridgeProductBoundedAsyncQueue<never>(8);
+		const replacementEvents = new BridgeProductBoundedAsyncQueue<never>(8);
 		const observedFailure = makeDeferred<void>();
 		let discoveryCount = 0;
 		let subscriptionCount = 0;
@@ -127,11 +163,6 @@ describe('Bridge comm worker File metadata recovery', () => {
 			callCurrentFileSource: async () => {
 				discoveryCount += 1;
 				return { source: currentFileSourceConfiguration, status: 'available' };
-			},
-			onFileMetadataEvent: (event, workerDerivationEpoch): void => {
-				if (event.eventKind === 'file.treeWindow' && workerDerivationEpoch === 2) {
-					observedReplacementWindow.resolve();
-				}
 			},
 			onFileMetadataFailure: (): void => {
 				observedFailure.resolve();
@@ -157,30 +188,13 @@ describe('Bridge comm worker File metadata recovery', () => {
 		await controller.ensureFileSource();
 		expect(discoveryCount).toBe(2);
 		expect(subscriptionCount).toBe(2);
-		replacementEvents.push(
-			fileMetadataFrame({ eventKind: 'file.sourceAccepted', source: fileSource }),
-		);
-		replacementEvents.push(
-			fileMetadataFrame({
-				eventKind: 'file.treeWindow',
-				finalWindow: true,
-				lineage: { lane: 'foreground', loadedBy: 'startup_window' },
-				pathScope: [],
-				rows: [],
-				source: fileSource,
-				startIndex: 0,
-				totalRowCount: 0,
-			}),
-		);
-
-		// Assert
-		await observedReplacementWindow.promise;
+		// Assert: a later ensure opens one replacement from fresh source authority.
 	});
 
 	test('File activation reopens a source retired by metadata stream failure', async () => {
 		// Arrange
-		const firstEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
-		const replacementEvents = new BridgeProductBoundedAsyncQueue<FileMetadataFrame>(8);
+		const firstEvents = new BridgeProductBoundedAsyncQueue<never>(8);
+		const replacementEvents = new BridgeProductBoundedAsyncQueue<never>(8);
 		const observedFailure = makeDeferred<void>();
 		let discoveryCount = 0;
 		let subscriptionCount = 0;
@@ -193,7 +207,6 @@ describe('Bridge comm worker File metadata recovery', () => {
 				discoveryCount += 1;
 				return { source: currentFileSourceConfiguration, status: 'available' };
 			},
-			onFileMetadataEvent: (): void => {},
 			onFileMetadataFailure: (): void => observedFailure.resolve(),
 			productTransport: fileEpochTransport(),
 			subscribeFile: () => {
@@ -235,7 +248,6 @@ describe('Bridge comm worker File metadata recovery', () => {
 				callOrder.push('file-source-discovery');
 				throw new Error('File source recovery unavailable');
 			},
-			onFileMetadataEvent: (): void => {},
 			onActiveViewerModeAdmitted: (mode): void => {
 				callOrder.push(`admitted-${mode}`);
 			},
@@ -269,28 +281,13 @@ function fileActiveViewerModeCommand(): Extract<
 
 function fileSubscription(
 	subscriptionId: string,
-	events: BridgeProductBoundedAsyncQueue<FileMetadataFrame>,
+	events: BridgeProductBoundedAsyncQueue<never>,
 ): FileMetadataSubscription {
 	return {
 		cancel: async (): Promise<void> => {},
 		events,
 		subscriptionId,
 		subscriptionKind: 'file.metadata',
-		update: async (): Promise<void> => {},
-	};
-}
-
-function fileMetadataFrame(event: FileMetadataEvent): FileMetadataFrame {
-	return {
-		data: event,
-		metadataStreamId: 'file-metadata-stream',
-		operationCorrelationId: null,
-		sourceGeneration: event.source.subscriptionGeneration,
-		streamSequence: 1,
-		subscriptionId: 'file-metadata-subscription',
-		subscriptionKind: 'file.metadata',
-		subscriptionSequence: 1,
-		workerDerivationEpoch: 1,
 	};
 }
 

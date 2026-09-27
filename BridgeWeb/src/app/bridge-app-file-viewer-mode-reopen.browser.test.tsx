@@ -7,7 +7,7 @@ import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime
 import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductSubscriptionOptions } from '../core/comm-worker/bridge-product-subscription-contracts.js';
 import type { BridgeFileViewerBrowserTestProductSession } from '../file-viewer/bridge-file-viewer-browser-test-app.js';
-import { makeTreeRowsOnlyMetadataEvents } from '../file-viewer/bridge-file-viewer-browser-test-fixtures.js';
+import { makeBrowserMetadataOnlyFileBatch } from '../file-viewer/bridge-file-viewer-browser-test-batches.js';
 import {
 	createBridgeFileViewerBrowserTestPaneSessionFactory,
 	installBridgeFileViewerNoopResizeObserver,
@@ -57,7 +57,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 				sourceDiscoveryCount += 1;
 				return availableFileSource();
 			},
-			initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
+			initialFileBatch: makeBrowserMetadataOnlyFileBatch(),
 			onMetadataSubscriptionOpen: (
 				_options: BridgeProductSubscriptionOptions<'file.metadata'>,
 			): void => {
@@ -93,7 +93,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		const handshake = installBridgeReadyHandshake();
 		await renderFileProductApp('worktree-file', {
 			currentSource: availableFileSource,
-			initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
+			initialFileBatch: makeBrowserMetadataOnlyFileBatch(),
 		});
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
 		const outgoingReviewButton = activeContextButton('file', 'review');
@@ -131,7 +131,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 				sourceDiscoveryCount += 1;
 				return availableFileSource();
 			},
-			initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
+			initialFileBatch: makeBrowserMetadataOnlyFileBatch(),
 			onMetadataSubscriptionOpen: (): void => {
 				metadataSubscriptionOpenCount += 1;
 			},
@@ -165,7 +165,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 					sourceDiscoveryCount += 1;
 					return availableFileSource();
 				},
-				initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
+				initialFileBatch: makeBrowserMetadataOnlyFileBatch(),
 				onMetadataSubscriptionOpen: (): void => {
 					metadataSubscriptionOpenCount += 1;
 				},

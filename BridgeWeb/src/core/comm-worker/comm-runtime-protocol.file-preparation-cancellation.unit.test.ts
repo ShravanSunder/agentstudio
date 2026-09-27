@@ -8,34 +8,35 @@ import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-protocol.js';
-import {
-	makeReviewMetadataDataFrame,
-	type ReviewMetadataSubscription,
-} from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
+import { type ReviewMetadataSubscription } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	activateBridgeCommWorkerFileViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
-	makeFileMetadataDataFrame,
-	type FileMetadataDataFrame,
 	type FileMetadataSubscription,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import type { BridgeProductBatchFrameSinks } from './bridge-product-batch-frame-router.js';
+import { bridgeProductFileBatchRowSchema } from './bridge-product-file-batch-row-contracts.js';
 import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
+import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
 import type { BridgeWorkerServerToMainMessage } from './bridge-worker-contracts.js';
+import {
+	fileProductTestSource,
+	makeFileBatchInstallation,
+} from './comm-runtime-protocol.file-product.test-support.js';
 
-const source = {
-	repoId: '00000000-0000-4000-8000-000000000001',
-	rootRevisionToken: 'root-revision-1',
-	sourceCursor: 'source-cursor-1',
-	sourceId: 'file-source-1',
-	subscriptionGeneration: 3,
-	worktreeId: '00000000-0000-4000-8000-000000000002',
-} as const;
+interface PreparationFileBatchOptions {
+	readonly descriptorId?: string;
+	readonly expectedSha256?: string;
+	readonly includeDescriptor?: boolean;
+	readonly includeUnrelatedFile?: boolean;
+	readonly revision: number;
+}
 
 interface PendingContentAttempt {
 	readonly descriptorId: string;
@@ -96,8 +97,7 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 	test('keeps the selected load alive across identity-equivalent descriptor replay', async () => {
 		const harness = await createPendingFilePreparationHarness();
 
-		harness.events.push(makeFileMetadataDataFrame(fileDescriptorReadyEvent()));
-		await flushBridgeWorkerRuntimeContinuations();
+		await harness.installFileBatch({ revision: 5 });
 
 		expect(harness.abortCount()).toBe(0);
 		expect(harness.attempts).toHaveLength(1);
@@ -113,16 +113,7 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 	test('keeps the selected load alive across an unrelated descriptor delta', async () => {
 		const harness = await createPendingFilePreparationHarness();
 
-		harness.events.push(
-			makeFileMetadataDataFrame(
-				fileDescriptorReadyEvent({
-					descriptorId: 'descriptor-file-2',
-					fileId: 'file-2',
-					path: 'Sources/Unrelated.swift',
-				}),
-			),
-		);
-		await flushBridgeWorkerRuntimeContinuations();
+		await harness.installFileBatch({ includeUnrelatedFile: true, revision: 5 });
 
 		expect(harness.abortCount()).toBe(0);
 		expect(harness.attempts).toHaveLength(1);
@@ -160,16 +151,11 @@ describe('Bridge comm worker selected File preparation cancellation', () => {
 	test('cancels once and reopens when the selected descriptor is replaced', async () => {
 		const harness = await createPendingFilePreparationHarness();
 
-		harness.events.push(
-			makeFileMetadataDataFrame(
-				fileDescriptorReadyEvent({
-					descriptorId: 'descriptor-file-1-replacement',
-					expectedSha256: 'b'.repeat(64),
-					modifiedAtUnixMilliseconds: 2,
-				}),
-			),
-		);
-		await flushBridgeWorkerRuntimeContinuations();
+		await harness.installFileBatch({
+			descriptorId: 'descriptor-file-1-replacement',
+			expectedSha256: 'b'.repeat(64),
+			revision: 5,
+		});
 		await drainUntilAttemptCount(harness, 2);
 
 		expect(harness.abortCount()).toBe(1);
@@ -312,7 +298,7 @@ interface PendingFilePreparationHarness {
 	readonly abortCount: () => number;
 	readonly attempts: PendingContentAttempt[];
 	readonly dispatch: ReturnType<typeof createRecordingBridgeCommWorkerPort>['dispatch'];
-	readonly events: BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>;
+	readonly installFileBatch: (options: PreparationFileBatchOptions) => Promise<void>;
 	readonly postedMessages: readonly { readonly message: BridgeWorkerServerToMainMessage }[];
 	readonly publishPresentation: (
 		presentationRevision: number,
@@ -339,7 +325,7 @@ async function createPendingFilePreparationHarness(
 		) => () => void;
 	} = {},
 ): Promise<PendingFilePreparationHarness> {
-	const events = new BridgeProductBoundedAsyncQueue<FileMetadataDataFrame>(64);
+	const events = new BridgeProductBoundedAsyncQueue<never>(64);
 	const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
 	const attempts: PendingContentAttempt[] = [];
 	let observedAbortCount = 0;
@@ -348,18 +334,17 @@ async function createPendingFilePreparationHarness(
 		events,
 		subscriptionId: 'file-subscription-preparation-cancellation',
 		subscriptionKind: 'file.metadata',
-		update: async (): Promise<void> => {},
 	};
 	const reviewSubscription: ReviewMetadataSubscription = {
 		cancel: async (): Promise<void> => {},
-		events: new BridgeProductBoundedAsyncQueue<ReturnType<typeof makeReviewMetadataDataFrame>>(64),
+		events: new BridgeProductBoundedAsyncQueue<never>(64),
 		subscriptionId: 'review-subscription-for-file-preparation-cancellation',
 		subscriptionKind: 'review.metadata',
-		update: async (): Promise<void> => {},
 	};
 	let fileEpoch = 0;
 	let reviewEpoch = 0;
 	let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
+	let batchFrameSinks: BridgeProductBatchFrameSinks | null = null;
 	const productTransport: BridgeProductTransportSession = {
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
@@ -372,9 +357,9 @@ async function createPendingFilePreparationHarness(
 					cwdScope: null,
 					freshness: 'live',
 					includeStatuses: true,
-					repoId: source.repoId,
+					repoId: fileProductTestSource.repoId,
 					rootPathToken: 'root-token-1',
-					worktreeId: source.worktreeId,
+					worktreeId: fileProductTestSource.worktreeId,
 				},
 				status: 'available',
 			}) as never,
@@ -408,6 +393,9 @@ async function createPendingFilePreparationHarness(
 		}) as BridgeProductTransportSession['openContent'],
 		setPanePresentationFrameSink: (sink): void => {
 			panePresentationSink = sink;
+		},
+		setBatchFrameSinks: (sinks): void => {
+			batchFrameSinks = sinks;
 		},
 		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): never =>
 			(protocol.kind === 'file.metadata'
@@ -446,6 +434,13 @@ async function createPendingFilePreparationHarness(
 			makePanePresentationFrame(presentationRevision, nativeActivity, refreshingLanes),
 		);
 	};
+	const installFileBatch = async (options: PreparationFileBatchOptions): Promise<void> => {
+		if (batchFrameSinks === null) throw new Error('Expected File batch sinks registration.');
+		await batchFrameSinks.install(
+			makePreparationFileBatchInstallation(fileSubscription.subscriptionId, options),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+	};
 	publishPresentation(1, 'foreground', props.initialRefreshingLanes ?? []);
 	dispatch.message(
 		encodeBridgeWorkerSelectCommand({
@@ -457,17 +452,17 @@ async function createPendingFilePreparationHarness(
 		}),
 	);
 	await flushBridgeWorkerRuntimeContinuations();
-	events.push(makeFileMetadataDataFrame({ eventKind: 'file.sourceAccepted', source }));
-	events.push(makeFileMetadataDataFrame(fileTreeWindowEvent()));
-	if (props.includeDescriptor !== false) {
-		events.push(makeFileMetadataDataFrame(fileDescriptorReadyEvent()));
-	}
-	await flushBridgeWorkerRuntimeContinuations();
+	await installFileBatch({
+		...(props.includeDescriptor === undefined
+			? {}
+			: { includeDescriptor: props.includeDescriptor }),
+		revision: 4,
+	});
 	const harness = {
 		abortCount: (): number => observedAbortCount,
 		attempts,
 		dispatch,
-		events,
+		installFileBatch,
 		postedMessages,
 		publishPresentation,
 		scheduledDrains,
@@ -563,83 +558,84 @@ function fileAvailabilityPatches(
 		.filter((patch) => patch.slice === 'contentAvailability');
 }
 
-function fileTreeWindowEvent(): Parameters<typeof makeFileMetadataDataFrame>[0] {
-	return {
-		eventKind: 'file.treeWindow',
-		finalWindow: true,
-		lineage: { lane: 'visible', loadedBy: 'startup_window' },
-		pathScope: [],
-		rows: [
-			{
-				changeStatus: 'modified',
-				depth: 0,
-				fileId: 'file-1',
-				fileClass: 'source',
-				isDirectory: false,
-				lineCount: 1,
-				name: 'File.swift',
-				parentPath: null,
+function makePreparationFileBatchInstallation(
+	subscriptionId: string,
+	options: PreparationFileBatchOptions,
+): BridgeProductViewInstallation {
+	const installation = makeFileBatchInstallation(subscriptionId, {
+		revision: options.revision,
+		...(options.includeDescriptor === undefined
+			? {}
+			: { withDescriptor: options.includeDescriptor }),
+	});
+	const records = installation.records.flatMap((record) => {
+		if (record.key !== '/workspace/src/a.ts') return [record];
+		const fileRow = bridgeProductFileBatchRowSchema.parse(record.value);
+		if (
+			fileRow.readDescriptor === null ||
+			fileRow.descriptorOutcome === null ||
+			fileRow.descriptorOutcome.availability.availabilityKind !== 'available'
+		) {
+			if (options.includeDescriptor === false) return [record];
+			throw new Error('Expected the File batch corpus to contain a readable file.');
+		}
+		const descriptorId = options.descriptorId ?? 'descriptor-file-1';
+		const expectedSha256 = options.expectedSha256 ?? 'a'.repeat(64);
+		const descriptor = {
+			...fileRow.readDescriptor,
+			declaredByteLength: 10,
+			descriptorId,
+			expectedSha256,
+			maximumBytes: 10,
+			window: { ...fileRow.readDescriptor.window, maximumBytes: 10 },
+		};
+		const selectedRow = bridgeProductFileBatchRowSchema.parse({
+			...fileRow,
+			descriptorOutcome: {
+				...fileRow.descriptorOutcome,
+				availability: { availabilityKind: 'available', contentDescriptor: descriptor },
+				endsWithNewline: true,
+				modifiedAtUnixMilliseconds: descriptorId.endsWith('replacement') ? 2 : 1,
 				path: 'Sources/File.swift',
-				rowId: 'row-file-1',
+				payloadByteCount: 10,
 				sizeBytes: 10,
 			},
-		],
-		source,
-		startIndex: 0,
-		totalRowCount: 1,
-	};
-}
-
-function fileDescriptorReadyEvent(
-	props: {
-		readonly descriptorId?: string;
-		readonly expectedSha256?: string;
-		readonly fileId?: string;
-		readonly modifiedAtUnixMilliseconds?: number;
-		readonly path?: string;
-	} = {},
-): Parameters<typeof makeFileMetadataDataFrame>[0] {
-	const fileId = props.fileId ?? 'file-1';
-	const path = props.path ?? 'Sources/File.swift';
-	return {
-		availability: {
-			availabilityKind: 'available',
-			contentDescriptor: {
-				contentKind: 'file.content',
-				declaredByteLength: 10,
-				descriptorId: props.descriptorId ?? 'descriptor-file-1',
-				encoding: 'utf-8',
-				expectedSha256: props.expectedSha256 ?? 'a'.repeat(64),
-				fileId,
-				maximumBytes: 10,
-				source,
-				window: {
-					kind: 'prefix',
-					maximumBytes: 10,
-					maximumLines: 10_000,
-					startByte: 0,
-				},
+			displayKey: 'Sources/File.swift',
+			name: 'File.swift',
+			parentDisplayKey: null,
+			readDescriptor: descriptor,
+			sizeBytes: 10,
+			sortKey: 'File.swift',
+		});
+		const selectedRecord = { ...record, value: selectedRow };
+		if (options.includeUnrelatedFile !== true) return [selectedRecord];
+		const unrelatedDescriptor = {
+			...descriptor,
+			descriptorId: 'descriptor-file-2',
+			fileId: 'file-2',
+		};
+		const unrelatedRow = bridgeProductFileBatchRowSchema.parse({
+			...selectedRow,
+			descriptorOutcome: {
+				...selectedRow.descriptorOutcome,
+				availability: { availabilityKind: 'available', contentDescriptor: unrelatedDescriptor },
+				fileId: 'file-2',
+				path: 'src/unrelated.ts',
+				rowId: 'worktree-file-row-unrelated',
 			},
-		},
-		encoding: 'utf-8',
-		endsMidLine: false,
-		endsWithNewline: true,
-		estimatedContentHeightPixels: null,
-		eventKind: 'file.descriptorReady',
-		fileExtension: 'swift',
-		fileId,
-		language: 'swift',
-		modifiedAtUnixMilliseconds: props.modifiedAtUnixMilliseconds ?? 1,
-		path,
-		payloadByteCount: 10,
-		payloadLineCount: 1,
-		rowId: `row-${fileId}`,
-		sizeBytes: 10,
-		source,
-		totalLineCount: 1,
-		truncationKind: 'none',
-		virtualizedExtentKind: 'exactLineCount',
-	};
+			displayKey: 'src/unrelated.ts',
+			fileId: 'file-2',
+			name: 'unrelated.ts',
+			readDescriptor: unrelatedDescriptor,
+			rowId: 'worktree-file-row-unrelated',
+			sortKey: 'unrelated.ts',
+		});
+		return [
+			selectedRecord,
+			{ key: '/workspace/src/unrelated.ts', revision: options.revision, value: unrelatedRow },
+		];
+	});
+	return { ...installation, records };
 }
 
 async function* emptyFrames(): AsyncIterable<never> {}

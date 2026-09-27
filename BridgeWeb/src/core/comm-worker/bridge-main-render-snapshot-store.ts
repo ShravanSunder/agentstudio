@@ -126,6 +126,10 @@ export type BridgeMainReviewSourceDisplaySlice =
 	| Extract<
 			BridgeWorkerReviewDisplayPatch,
 			{ readonly operation: 'failed'; readonly slice: 'reviewSource' }
+	  >['payload']
+	| Extract<
+			BridgeWorkerReviewDisplayPatch,
+			{ readonly operation: 'replace'; readonly slice: 'reviewSource' }
 	  >['payload'];
 
 export interface BridgeMainReviewDisplayState {
@@ -846,6 +850,7 @@ function candidatePublishesKeyedSameSourceChange(props: {
 	return (
 		previousSource !== null &&
 		previousSource.status !== 'failed' &&
+		previousSource.status !== 'readyEmpty' &&
 		previousSource.packageId === props.candidate.identity.packageId &&
 		previousSource.reviewGeneration === props.candidate.identity.generation &&
 		previousSource.metadataSourceId === props.candidate.identity.sourceIdentity

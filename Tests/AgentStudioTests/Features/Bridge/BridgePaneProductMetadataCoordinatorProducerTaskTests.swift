@@ -40,11 +40,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         let token = try #require(producerTaskControlExecutionToken(try await harness.begin(openRequest)))
         #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
-            correlating: openRequest,
-            interestSha256:
-                BridgeProductSubscriptionInterestState
-                .fileMetadata(interests: [], pathScope: []).sha256Hex()
-        )
+            correlating: openRequest, worktreeId: nil)
         let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
@@ -117,11 +113,7 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
         let token = try #require(producerTaskControlExecutionToken(try await harness.begin(openRequest)))
         #expect(await harness.session.admitControlProviderExecution(token: token))
         let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
-            correlating: openRequest,
-            interestSha256:
-                BridgeProductSubscriptionInterestState
-                .fileMetadata(interests: [], pathScope: []).sha256Hex()
-        )
+            correlating: openRequest, worktreeId: nil)
         let effect = try await harness.session.completeAdmittedControl(
             token: token,
             exactResponseBytes: try JSONEncoder().encode(response)
@@ -411,8 +403,7 @@ private actor CoordinatorDrainControlledReviewMetadataSource:
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws {
         openStarted = true
         let waiters = openStartedWaiters
@@ -431,12 +422,6 @@ private actor CoordinatorDrainControlledReviewMetadataSource:
         openFinished = true
         try Task.checkCancellation()
     }
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {}
 
     func reserve(
         package: BridgeReviewPackage,
@@ -496,8 +481,7 @@ private actor CoordinatorThrowingReviewMetadataSource: BridgePaneProductReviewMe
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+        productAdmission _: BridgeProductAdmissionContext
     ) async throws {
         switch failureMode {
         case .eventConstruction:
@@ -512,12 +496,6 @@ private actor CoordinatorThrowingReviewMetadataSource: BridgePaneProductReviewMe
             throw CoordinatorProducerTaskTestError.unexpectedReviewBootstrapFailure
         }
     }
-
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext,
-        emit _: @escaping BridgePaneProductReviewMetadataEventSink
-    ) async throws {}
 
     func reserve(
         package: BridgeReviewPackage,
@@ -586,10 +564,12 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
         try Task.checkCancellation()
     }
 
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
+    func applyViewDemand(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
+        forceRecapture _: Bool,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
@@ -659,10 +639,12 @@ private actor CoordinatorCancellationErrorFileSource:
         throw CancellationError()
     }
 
-    func update(
-        subscription _: BridgeProductSubscriptionSnapshot,
+    func applyViewDemand(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
+        forceRecapture _: Bool,
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 

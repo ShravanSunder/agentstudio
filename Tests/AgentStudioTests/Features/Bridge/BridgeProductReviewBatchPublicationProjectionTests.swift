@@ -19,9 +19,17 @@ struct BridgeProductReviewBatchPublicationProjectionTests {
         )
         let displayedPublicationId = UUIDv7.generate()
         let statusPublicationId = UUIDv7.generate()
+        let refreshImpact = BridgeReviewRefreshImpact.exact(
+            newlyImportedCommitCount: 0,
+            affectedFileCount: AppPolicies.Bridge.reviewRefreshPromotionAffectedFileCount,
+            addedLineCount: 0,
+            deletedLineCount: 0,
+            affectedStableFileIdentities: ["stable-file-1"]
+        )
 
         let record = try BridgeProductReviewBatchPublicationProjection.record(
             from: .init(
+                classifiedRefreshImpact: refreshImpact,
                 publicationId: statusPublicationId,
                 revision: 12,
                 desiredComparison: nil,
@@ -38,17 +46,27 @@ struct BridgeProductReviewBatchPublicationProjectionTests {
         #expect(record.displayed?.packageId == package.packageId)
         #expect(record.displayed?.query.queryId == package.query.queryId)
         #expect(record.displayed?.revision == package.revision)
+        #expect(record.classifiedRefreshImpact == refreshImpact)
         let encoded = try JSONEncoder().encode(BridgeProductReviewBatchRecord.publication(record))
         #expect(
             try BridgeProductStrictJSON.decode(BridgeProductReviewBatchRecord.self, from: encoded)
                 == .publication(record)
         )
+        var untrustedRecord = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        untrustedRecord.removeValue(forKey: "classifiedRefreshImpact")
+        let missingImpact = try JSONSerialization.data(withJSONObject: untrustedRecord)
+        #expect(throws: (any Error).self) {
+            try BridgeProductStrictJSON.decode(BridgeProductReviewBatchRecord.self, from: missingImpact)
+        }
     }
 
     @Test("an empty publication has no displayed identity")
     func emptyPublicationHasNoDisplayedIdentity() throws {
         let record = try BridgeProductReviewBatchPublicationProjection.record(
             from: .init(
+                classifiedRefreshImpact: nil,
                 publicationId: UUIDv7.generate(),
                 revision: 1,
                 desiredComparison: nil,

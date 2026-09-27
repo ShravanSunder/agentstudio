@@ -60,6 +60,7 @@ import { scheduleBridgeReviewActivationSelectedContentPaint } from '../telemetry
 import { bridgeTreesDisclosurePolicyIdentity } from '../trees/bridge-trees-controller.js';
 import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-trees-panel.js';
+import { BridgeReviewEmptyCanvas, BridgeReviewEmptyFileTree } from './review-viewer-no-changes.js';
 
 export interface ReviewViewerShellProps {
 	readonly annotationReveal?: BridgeCodeViewAnnotationReveal | null;
@@ -609,28 +610,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 				railTestId="bridge-review-resizable-rail"
 			/>
 		</main>
-	);
-}
-
-function BridgeReviewEmptyCanvas(): ReactElement {
-	return (
-		<div
-			className="flex h-full items-center justify-center px-8 text-center"
-			data-testid="bridge-review-empty-canvas"
-		>
-			<p className="text-sm font-medium text-foreground">Nothing to review</p>
-		</div>
-	);
-}
-
-function BridgeReviewEmptyFileTree(): ReactElement {
-	return (
-		<div
-			className="flex h-full items-center justify-center px-4 text-center"
-			data-testid="bridge-review-empty-file-tree"
-		>
-			<p className="text-xs text-muted-foreground">No changed files</p>
-		</div>
 	);
 }
 

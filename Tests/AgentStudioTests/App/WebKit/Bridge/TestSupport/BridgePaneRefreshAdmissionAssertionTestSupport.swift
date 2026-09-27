@@ -144,3 +144,63 @@ func makeRefreshAdmissionStatus(
         origin: nil
     )
 }
+@MainActor
+func sealRefreshAdmissionFileProofBatch(
+    _ fixture: RefreshAdmissionIntegrationFixture
+) async throws -> BridgeProductBatchCompleteFrame {
+    let installation = fixture.productInstallation
+    let scopeBytes = try JSONSerialization.data(withJSONObject: [
+        "kind": "subscription.setScope",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+        "wireVersion": BridgeProductWireContract.version,
+        "requestId": "request-file-proof-scope-refresh-admission",
+        "requestSequence": 4,
+        "subscriptionId": "file-subscription-refresh-admission",
+        "subscriptionKind": "file.metadata",
+        "domain": "default",
+        "handle": "file-proof-handle-refresh-admission",
+        "incarnation": "file-proof-incarnation-refresh-admission",
+        "scopeRevision": 1,
+        "scope": ["kind": "file", "changeFilter": ["kind": "none"]],
+    ])
+    let scopeRequest = try BridgeProductStrictJSON.decode(
+        BridgeProductViewScopeRequest.self, from: scopeBytes
+    )
+    #expect(
+        await installation.session.acceptViewScope(
+            scopeRequest, productAdmission: fixture.productAdmission
+        ) == nil
+    )
+    guard case .sourceAccepted(let accepted) = try refreshAdmissionFileSourceAcceptedEvent() else {
+        throw RefreshAdmissionIntegrationError.expectedMetadataFrame
+    }
+    let snapshot = BridgeWorktreeFileKeyedSnapshot(
+        memberStatus: .init(
+            record: BridgeProductFileMemberStatusRecord(source: accepted.source),
+            revision: 1
+        ),
+        records: [],
+        targetRevision: 1,
+        tombstoneRevisionByKey: [:],
+        absenceFloorRevisionByRange: [:]
+    )
+    #expect(
+        try await installation.session.sealFileSnapshot(
+            subscriptionId: "file-subscription-refresh-admission",
+            snapshot: snapshot,
+            productAdmission: fixture.productAdmission
+        )
+    )
+    guard case .batch(.begin(let begin)) = try await fixture.consumeNextMetadataFrame(),
+        case .batch(.part(let part)) = try await fixture.consumeNextMetadataFrame(),
+        case .put(let key, _, _) = part.part,
+        case .batch(.complete(let complete)) = try await fixture.consumeNextMetadataFrame()
+    else {
+        throw RefreshAdmissionIntegrationError.expectedMetadataFrame
+    }
+    #expect(begin.mode == .snapshot)
+    #expect(key == BridgeProductFileMemberStatusRecord.recordKey)
+    #expect(complete.identity.batchId == begin.identity.batchId)
+    return complete
+}

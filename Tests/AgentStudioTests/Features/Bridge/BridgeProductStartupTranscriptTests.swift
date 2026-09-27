@@ -16,7 +16,7 @@ struct BridgeProductStartupTranscriptTests {
     private static let invalidMirrorPath =
         "BridgeWeb/src/test-fixtures/bridge-contract-fixtures/invalid/bridge-product-startup-transcript.json"
     private static let validFixtureSHA256 =
-        "ceff569ba2d4c78540fad3a6ec9d60d478c7e026763e941c363424a549f4998c"
+        "cf00a51bddd35a7d9cfa682be944741eab07814887175d2c4378f61d99e96e90"
     private static let invalidFixtureSHA256 =
         "78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8"
 
@@ -50,7 +50,7 @@ struct BridgeProductStartupTranscriptTests {
         let transcript = try fixtureArray(named: "transcript", in: fixture)
 
         // Act / Assert
-        #expect(transcript.count == 27)
+        #expect(transcript.count == 21)
         for entry in transcript {
             let codec = try #require(entry["codec"] as? String)
             let name = try #require(entry["name"] as? String)
@@ -78,23 +78,23 @@ struct BridgeProductStartupTranscriptTests {
         }
     }
 
-    @Test("Review interest transition hashes derive through production state")
-    func reviewInterestTransitionHashesDeriveThroughProductionState() throws {
+    @Test("Review subscription lifecycle retains E3 identity without an interest hash")
+    func reviewSubscriptionLifecycleRetainsIdentity() throws {
         // Arrange
         let fixture = try loadFixture(relativePath: Self.validFixturePath)
-        let updateCommand = try decodeTranscriptValue(
+        let openCommand = try decodeTranscriptValue(
             BridgeProductControlRequest.self,
-            named: "review-selection-demand",
+            named: "review-subscription-open",
             in: fixture
         )
-        let updateResponse = try decodeTranscriptValue(
+        let openResponse = try decodeTranscriptValue(
             BridgeProductControlResponse.self,
-            named: "review-selection-demand-accepted",
+            named: "review-subscription-open-accepted",
             in: fixture
         )
-        let committedFrame = try decodeTranscriptValue(
+        let acceptedFrame = try decodeTranscriptValue(
             BridgeProductMetadataFrame.self,
-            named: "review-selection-demand-committed",
+            named: "review-subscription-accepted-frame",
             in: fixture
         )
         let cancelledFrame = try decodeTranscriptValue(
@@ -102,34 +102,23 @@ struct BridgeProductStartupTranscriptTests {
             named: "review-subscription-cancelled-frame",
             in: fixture
         )
-        guard case .subscriptionUpdateBatch(let updateRequest) = updateCommand,
-            case .subscriptionUpdateBatchAccepted(let acceptedResponse) = updateResponse,
-            case .subscriptionInterestsCommitted(let committed) = committedFrame,
+        guard case .subscriptionOpen(let opened) = openCommand,
+            case .subscriptionOpenAccepted(let acceptedResponse) = openResponse,
+            case .subscriptionAccepted(let accepted) = acceptedFrame,
             case .subscriptionCancelled(let cancelled) = cancelledFrame
         else {
-            Issue.record("Review startup transcript does not contain its typed interest transitions")
+            Issue.record("Review startup transcript does not contain its E3 lifecycle")
             return
         }
 
-        // Act
-        let emptyState = BridgeProductSubscriptionInterestState.reviewMetadata(interests: [])
-        let candidateState = try BridgeProductSubscriptionInterestMutation.apply(
-            [updateRequest.delta],
-            to: emptyState,
-            subscriptionKind: .reviewMetadata
-        )
-        let derivedSHA256 = try candidateState.sha256Hex()
-
         // Assert
-        #expect(try emptyState.sha256Hex() == updateRequest.baseInterestSha256)
-        #expect(
-            [
-                updateRequest.targetInterestSha256,
-                acceptedResponse.targetInterestSha256,
-                committed.identity.subscriptionIdentity.interestSha256,
-                cancelled.identity.subscriptionIdentity.interestSha256,
-            ].allSatisfy { $0 == derivedSHA256 }
-        )
+        #expect(acceptedResponse.subscriptionId == opened.subscriptionId)
+        #expect(acceptedResponse.subscriptionKind == opened.subscription.subscriptionKind)
+        #expect(acceptedResponse.worktreeId == nil)
+        #expect(accepted.subscriptionIdentity.subscriptionId == opened.subscriptionId)
+        #expect(cancelled.identity.subscriptionIdentity.subscriptionId == opened.subscriptionId)
+        #expect(accepted.subscriptionIdentity.workerDerivationEpoch == opened.workerDerivationEpoch)
+        #expect(cancelled.identity.subscriptionIdentity.workerDerivationEpoch == opened.workerDerivationEpoch)
     }
 
     @Test("observation identities and lifecycle outcomes are frozen")
@@ -184,8 +173,8 @@ struct BridgeProductStartupTranscriptTests {
         #expect(zeroResidue.values.allSatisfy { ($0 as? Int) == 0 })
     }
 
-    @Test("metadata observation decodes through the current command package")
-    func metadataObservationDecodesThroughCurrentCommandPackage() throws {
+    @Test("retired metadata observation is rejected by the command package")
+    func retiredMetadataObservationIsRejected() throws {
         // Arrange
         let fixture = try loadFixture(relativePath: Self.validFixturePath)
         let observationCases = try fixtureArray(named: "observationCases", in: fixture)
@@ -198,12 +187,8 @@ struct BridgeProductStartupTranscriptTests {
         let request = try #require(metadataCase["request"] as? [String: Any])
 
         // Act
-        let package = try decodeCommandPackage(request)
-
-        // Assert
-        guard case .metadataFrameAcknowledgement = package else {
-            Issue.record("Metadata observation did not decode as an acknowledgement")
-            return
+        #expect(throws: (any Error).self) {
+            _ = try decodeCommandPackage(request)
         }
     }
 

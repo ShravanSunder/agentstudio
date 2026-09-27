@@ -38,7 +38,7 @@ function receiver(
 	return new BridgeProductViewBatchReceiver({
 		...(coversKey === undefined ? {} : { coversKey }),
 		handle: identity.handle,
-		scope: { kind: 'review' },
+		scope: { kind: 'review', interests: [] },
 		scopeRevision: 0,
 		subscriptionId: identity.subscriptionId,
 		subscriptionKind: identity.subscriptionKind,
@@ -73,7 +73,7 @@ function begin(props: {
 		...(props.requiresCollection === undefined
 			? {}
 			: { requiresCollection: props.requiresCollection }),
-		scope: props.scope ?? { kind: 'review' },
+		scope: props.scope ?? { kind: 'review', interests: [] },
 		scopeRevision: props.scopeRevision ?? 0,
 		targetRevision: props.target,
 	});
@@ -149,7 +149,7 @@ function complete(props: {
 		...identity,
 		streamSequence: fixtureStreamSequence(),
 		batchId: props.batchId ?? identity.batchId,
-		coveredScope: props.coveredScope ?? { kind: 'review' },
+		coveredScope: props.coveredScope ?? { kind: 'review', interests: [] },
 		domain: props.domain ?? identity.domain,
 		handle: props.handle ?? identity.handle,
 		incarnation: props.incarnation ?? identity.incarnation,
@@ -252,25 +252,25 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			{
 				key: fileCorpus.rows[0]?.recordKey,
 				kind: 'file.metadata',
-				scope: { kind: 'file', changeFilter: { kind: 'none' } },
+				scope: { kind: 'file', changeFilter: { kind: 'none' }, interests: [], pathScope: [] },
 				value: fileCorpus.rows[0]?.row,
 			},
 			{
 				key: 'review:item-a',
 				kind: 'review.metadata',
-				scope: { kind: 'review' },
+				scope: { kind: 'review', interests: [] },
 				value: { itemId: 'item-a' },
 			},
 			{
 				key: commentCorpus.records[0]?.recordKey,
 				kind: 'file.annotations',
-				scope: { kind: 'file.annotations' },
+				scope: { kind: 'comment', sessionIds: [], worktreeId: 'worktree-1' },
 				value: commentCorpus.records[0]?.record,
 			},
 			{
 				key: commentCorpus.records[0]?.recordKey,
 				kind: 'review.annotations',
-				scope: { kind: 'review.annotations' },
+				scope: { kind: 'comment', sessionIds: [], worktreeId: 'worktree-1' },
 				value: commentCorpus.records[0]?.record,
 			},
 		] as const;
@@ -440,7 +440,10 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		state.accept(begin({ batchId: 'src-empty-3', mode: 'snapshot', partCount: 0, target: 3 }));
 		expect(
 			state.accept(
-				complete({ batchId: 'src-empty-3', coveredScope: { kind: 'review', prefix: 'src/' } }),
+				complete({
+					batchId: 'src-empty-3',
+					coveredScope: { kind: 'review', interests: [], prefix: 'src/' },
+				}),
 			).kind,
 		).toBe('installed');
 		state.accept(begin({ batchId: 'late-4', base: 3, mode: 'change', partCount: 1, target: 4 }));
@@ -471,7 +474,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 	it('scope comparison is independent of JSON member order', () => {
 		const state = new BridgeProductViewBatchReceiver({
 			handle: identity.handle,
-			scope: { kind: 'review', first: 1, second: 2 },
+			scope: { kind: 'review', interests: [{ lane: 'active', itemIds: ['first', 'second'] }] },
 			scopeRevision: 0,
 			subscriptionId: identity.subscriptionId,
 			subscriptionKind: identity.subscriptionKind,
@@ -479,7 +482,11 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		state.admitDomain('default', 'incarnation-1');
 		expect(
 			state.accept(
-				begin({ partCount: 0, scope: { second: 2, kind: 'review', first: 1 }, target: 1 }),
+				begin({
+					partCount: 0,
+					scope: { interests: [{ itemIds: ['first', 'second'], lane: 'active' }], kind: 'review' },
+					target: 1,
+				}),
 			).kind,
 		).toBe('staged');
 		expect(state.accept(complete({})).kind).toBe('installed');
@@ -628,7 +635,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		state.accept(begin({ partCount: 1, target: 1 }));
 		state.accept(part({ key: 'a', revision: 1, value: 'A' }));
 		state.accept(complete({}));
-		state.replaceHandle('handle-2', { kind: 'review' }, 0);
+		state.replaceHandle('handle-2', { kind: 'review', interests: [] }, 0);
 		expect(state.records('default')).toEqual([]);
 		expect(state.staleRecords('default')).toEqual([{ key: 'a', revision: 1, value: 'A' }]);
 		state.admitDomain('default', 'incarnation-2');
@@ -662,14 +669,14 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		state.accept(begin({ partCount: 1, target: 1 }));
 		state.accept(part({ key: 'a', revision: 1, value: 'A' }));
 		state.accept(complete({}));
-		state.setScope({ kind: 'review', folder: 'B' }, 1);
+		state.setScope({ kind: 'review', interests: [{ lane: 'active', itemIds: ['B'] }] }, 1);
 		state.accept(
 			begin({
 				batchId: 'scope-b',
 				base: 1,
 				mode: 'coverage',
 				partCount: 1,
-				scope: { kind: 'review', folder: 'B' },
+				scope: { kind: 'review', interests: [{ lane: 'active', itemIds: ['B'] }] },
 				scopeRevision: 1,
 				target: 2,
 			}),
@@ -677,7 +684,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		state.accept(eviction({ batchId: 'scope-b', scopeRevision: 1 }));
 		expect(state.accept(complete({ batchId: 'scope-b', scopeRevision: 1 })).kind).toBe('installed');
 		expect(state.records('default')).toEqual([]);
-		state.setScope({ kind: 'review' }, 2);
+		state.setScope({ kind: 'review', interests: [] }, 2);
 		state.accept(
 			begin({
 				batchId: 'scope-a',

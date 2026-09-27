@@ -82,52 +82,6 @@ extension BridgePaneProductMetadataCoordinator {
 }
 
 extension BridgePaneProductMetadataCoordinator {
-    static func enqueueAnnotationEvent(
-        _ request: BridgeWorktreeAnnotationEnqueueRequest
-    ) async throws -> BridgeProductProducerEnqueueResult {
-        let data = try BridgeProductSubscriptionData.registered(
-            request.event,
-            subscriptionKind: request.subscriptionKind
-        )
-        let result = try await request.session.enqueueSubscriptionData(
-            subscriptionId: request.subscriptionID,
-            data: data,
-            operationCorrelationID: request.operationCorrelationID,
-            productAdmission: request.productAdmission,
-            foregroundWorkAdmission: request.foregroundWorkAdmission
-        )
-        return result
-    }
-
-    static func makeProspectiveMetadataFrame(
-        event: BridgeProductWorktreeAnnotationEvent,
-        operationCorrelationID: String,
-        stream: BridgeProductMetadataStreamCorrelation,
-        subscription: BridgeProductSubscriptionSnapshot
-    ) throws -> BridgeProductMetadataFrame {
-        let data = try BridgeProductSubscriptionData.registered(
-            event,
-            subscriptionKind: subscription.subscriptionKind
-        )
-        let subscriptionCorrelation = try BridgeProductSubscriptionFrameCorrelation(
-            cursor: nil,
-            interestRevision: subscription.interestRevision,
-            interestSha256: subscription.interestSha256,
-            sourceGeneration: data.sourceGeneration,
-            subscriptionId: subscription.subscriptionId,
-            subscriptionKind: subscription.subscriptionKind,
-            workerDerivationEpoch: subscription.workerDerivationEpoch
-        )
-        return try .subscriptionData(
-            stream: stream,
-            streamSequence: BridgeProductWireContract.maximumSafeInteger,
-            subscription: subscriptionCorrelation,
-            subscriptionSequence: BridgeProductWireContract.maximumSafeInteger,
-            operationCorrelationID: operationCorrelationID,
-            data: data
-        )
-    }
-
     static func reviewPublicationFailure(
         for error: any Error
     ) -> BridgeProductReviewMetadataPublicationFailure {
@@ -209,61 +163,4 @@ extension BridgePaneProductMetadataCoordinator {
         return coordinatorError == .foregroundWorkInvalidated
     }
 
-    static func enqueue(
-        event: BridgeProductFileMetadataEvent,
-        subscriptionId: String,
-        operationCorrelationID: String? = nil,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        session: BridgeProductSession
-    ) async throws {
-        let result = try await session.enqueueSubscriptionData(
-            subscriptionId: subscriptionId,
-            data: try BridgeProductSubscriptionData.registered(
-                event,
-                subscriptionKind: .fileMetadata
-            ),
-            operationCorrelationID: operationCorrelationID,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
-        )
-        switch result {
-        case .enqueued:
-            return
-        case .queueReset:
-            throw BridgePaneProductMetadataCoordinatorError.producerQueueReset
-        case .rejected(let rejection):
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-            }
-            throw BridgePaneProductMetadataCoordinatorError.producerRejected(rejection)
-        }
-    }
-
-    static func enqueue(
-        sealedEvent: BridgeProductSealedMetadataApplicationEvent<BridgeProductReviewMetadataEvent>,
-        subscriptionId: String,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        session: BridgeProductSession
-    ) async throws -> BridgeProductProducerEnqueueResult {
-        let result = try await session.enqueueSubscriptionData(
-            subscriptionId: subscriptionId,
-            data: try BridgeProductSubscriptionData.registered(sealedEvent),
-            operationCorrelationID: sealedEvent.event.operationCorrelationID,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission
-        )
-        switch result {
-        case .enqueued:
-            return result
-        case .queueReset:
-            throw BridgePaneProductMetadataCoordinatorError.producerQueueReset
-        case .rejected(let rejection):
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-            }
-            throw BridgePaneProductMetadataCoordinatorError.producerRejected(rejection)
-        }
-    }
 }

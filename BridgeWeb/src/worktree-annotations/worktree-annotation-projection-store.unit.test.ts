@@ -629,7 +629,6 @@ describe('WorktreeAnnotationProjectionStore read convergence', () => {
 		} satisfies BridgeCommWorkerAnnotationCatalog;
 		const messages = bridgeCommWorkerAnnotationCatalogStagingEvents({
 			catalog,
-			operationCorrelationId: 'a'.repeat(64),
 			surface: 'file',
 		});
 		let publicationCount = 0;
@@ -691,7 +690,6 @@ function catalogStaging(
 		authority: { subscriptionId, workerDerivationEpoch, worktreeId: 'worktree-1' },
 		direction: 'serverWorkerToMain',
 		kind: 'annotationCatalogStaging',
-		operationCorrelationId: 'a'.repeat(64),
 		surface: 'fileView',
 		transfer,
 		transferDescriptors: [],

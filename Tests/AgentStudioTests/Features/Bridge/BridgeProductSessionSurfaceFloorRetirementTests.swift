@@ -130,13 +130,9 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
             lease: lease,
             expectedFrameSequence: 1
         )
-        let reviewEmptySHA256 =
-            try BridgeProductSubscriptionInterestState.reviewMetadata(interests: []).sha256Hex()
         let resyncRequest = try bridgeProductLifecycleControlRequest([
             "activeSubscriptions": [
                 [
-                    "interestRevision": 0,
-                    "interestSha256": reviewEmptySHA256,
                     "subscriptionId": "review-subscription-1",
                     "subscriptionKind": "review.metadata",
                     "workerDerivationEpoch": 8,
@@ -307,13 +303,9 @@ private func completeDeliveredOpen(
     token: BridgeProductControlAdmissionToken
 ) async throws {
     #expect(await harness.session.admitControlProviderExecution(token: token))
-    let interestState: BridgeProductSubscriptionInterestState =
-        request.surface == .file
-        ? .fileMetadata(interests: [], pathScope: [])
-        : .reviewMetadata(interests: [])
     let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
         correlating: request,
-        interestSha256: try interestState.sha256Hex()
+        worktreeId: nil
     )
     _ = try await harness.session.completeAdmittedControl(
         token: token,
@@ -429,14 +421,8 @@ private actor FloorRetirementRecordingProvider: BridgeProductSchemeProvider {
                 return try .workerSessionAccepted(correlating: request)
             case .subscriptionOpen(let openRequest):
                 events.append("response:subscription.open:\(openRequest.subscriptionId)")
-                return try .subscriptionOpenAccepted(
-                    correlating: request,
-                    interestSha256:
-                        try BridgeProductSubscriptionInterestState
-                        .reviewMetadata(interests: [])
-                        .sha256Hex()
-                )
-            case .productCall, .subscriptionCancel, .subscriptionUpdateBatch,
+                return try .subscriptionOpenAccepted(correlating: request, worktreeId: nil)
+            case .productCall, .subscriptionCancel,
                 .viewScope, .viewResnapshot, .workerSessionResync:
                 preconditionFailure("Unexpected floor-retirement control request")
             }

@@ -11,7 +11,6 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
     case workerSessionAccepted(BridgeProductWorkerSessionAcceptedResponse)
     case callCompleted(BridgeProductCallCompletedResponse)
     case subscriptionOpenAccepted(BridgeProductSubscriptionOpenAcceptedResponse)
-    case subscriptionUpdateBatchAccepted(BridgeProductSubscriptionBatchAcceptedResponse)
     case subscriptionCancelAccepted(BridgeProductSubscriptionCancelAcceptedResponse)
     case viewAccepted(BridgeProductViewAcceptedResponse)
     case resyncAccepted(BridgeProductResyncAcceptedResponse)
@@ -26,7 +25,6 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
         case .workerSessionAccepted: "workerSession.accepted"
         case .callCompleted: "call.completed"
         case .subscriptionOpenAccepted: "subscription.openAccepted"
-        case .subscriptionUpdateBatchAccepted: "subscription.updateBatchAccepted"
         case .subscriptionCancelAccepted: "subscription.cancelAccepted"
         case .viewAccepted(let response): response.kind.rawValue
         case .resyncAccepted: "resync.accepted"
@@ -39,7 +37,6 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
         case .workerSessionAccepted(let response): response.correlation
         case .callCompleted(let response): response.correlation
         case .subscriptionOpenAccepted(let response): response.correlation
-        case .subscriptionUpdateBatchAccepted(let response): response.correlation
         case .subscriptionCancelAccepted(let response): response.correlation
         case .viewAccepted(let response): response.correlation
         case .resyncAccepted(let response): response.correlation
@@ -61,10 +58,6 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
             self = .callCompleted(try BridgeProductCallCompletedResponse(from: decoder))
         case "subscription.openAccepted":
             self = .subscriptionOpenAccepted(try BridgeProductSubscriptionOpenAcceptedResponse(from: decoder))
-        case "subscription.updateBatchAccepted":
-            self = .subscriptionUpdateBatchAccepted(
-                try BridgeProductSubscriptionBatchAcceptedResponse(from: decoder)
-            )
         case "subscription.cancelAccepted":
             self = .subscriptionCancelAccepted(try BridgeProductSubscriptionCancelAcceptedResponse(from: decoder))
         case "subscription.scopeAccepted", "subscription.resnapshotAccepted":
@@ -87,7 +80,6 @@ enum BridgeProductControlResponse: Codable, Equatable, Sendable {
         case .workerSessionAccepted(let response): try response.encode(to: encoder)
         case .callCompleted(let response): try response.encode(to: encoder)
         case .subscriptionOpenAccepted(let response): try response.encode(to: encoder)
-        case .subscriptionUpdateBatchAccepted(let response): try response.encode(to: encoder)
         case .subscriptionCancelAccepted(let response): try response.encode(to: encoder)
         case .viewAccepted(let response): try response.encode(to: encoder)
         case .resyncAccepted(let response): try response.encode(to: encoder)
@@ -132,7 +124,7 @@ extension BridgeProductControlResponse {
 
     static func subscriptionOpenAccepted(
         correlating request: BridgeProductControlRequest,
-        interestSha256: String
+        worktreeId: String?
     ) throws -> Self {
         guard case .subscriptionOpen(let subscriptionRequest) = request else {
             throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
@@ -140,30 +132,9 @@ extension BridgeProductControlResponse {
         return .subscriptionOpenAccepted(
             try .init(
                 correlation: request.correlation,
-                interestSha256: interestSha256,
                 subscriptionId: subscriptionRequest.subscriptionId,
-                subscriptionKind: subscriptionRequest.subscription.subscriptionKind
-            )
-        )
-    }
-
-    static func subscriptionUpdateBatchAccepted(
-        correlating request: BridgeProductControlRequest,
-        disposition: BridgeProductSubscriptionUpdateBatchDisposition
-    ) throws -> Self {
-        guard case .subscriptionUpdateBatch(let subscriptionRequest) = request else {
-            throw BridgeProductControlResponseFactoryError.mismatchedRequestKind
-        }
-        return .subscriptionUpdateBatchAccepted(
-            try .init(
-                batchIndex: subscriptionRequest.batchIndex,
-                correlation: request.correlation,
-                disposition: disposition,
-                subscriptionId: subscriptionRequest.subscriptionId,
-                subscriptionKind: subscriptionRequest.subscriptionKind,
-                targetInterestRevision: subscriptionRequest.targetInterestRevision,
-                targetInterestSha256: subscriptionRequest.targetInterestSha256,
-                updateId: subscriptionRequest.updateId
+                subscriptionKind: subscriptionRequest.subscription.subscriptionKind,
+                worktreeId: worktreeId
             )
         )
     }

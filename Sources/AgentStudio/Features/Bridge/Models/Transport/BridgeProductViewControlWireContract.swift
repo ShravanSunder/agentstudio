@@ -1,6 +1,41 @@
 import Foundation
 
 enum BridgeProductViewScopeContract {
+    static func fileDemand(
+        from scope: BridgeProductJSONValue
+    ) throws -> BridgeProductFileMetadataInterestState {
+        guard case .object(let members) = scope,
+            case .string("file")? = members["kind"],
+            let interests = members["interests"],
+            let pathScope = members["pathScope"]
+        else {
+            throw BridgeProductContractDecoding.invalidValue("File view demand is absent", codingPath: [])
+        }
+        let demand = BridgeProductJSONValue.object([
+            "interests": interests,
+            "pathScope": pathScope,
+        ])
+        return try BridgeProductStrictJSON.decode(
+            BridgeProductFileMetadataInterestState.self,
+            from: JSONEncoder().encode(demand)
+        )
+    }
+
+    static func reviewDemand(
+        from scope: BridgeProductJSONValue
+    ) throws -> BridgeProductReviewMetadataInterestState {
+        guard case .object(let members) = scope,
+            case .string("review")? = members["kind"],
+            let interests = members["interests"]
+        else {
+            throw BridgeProductContractDecoding.invalidValue("Review view demand is absent", codingPath: [])
+        }
+        return try BridgeProductStrictJSON.decode(
+            BridgeProductReviewMetadataInterestState.self,
+            from: JSONEncoder().encode(BridgeProductJSONValue.object(["interests": interests]))
+        )
+    }
+
     static func validate(_ scope: BridgeProductJSONValue, codingPath: [any CodingKey]) throws {
         guard case .object(let members) = scope,
             case .string(let kind)? = members["kind"]
@@ -12,19 +47,76 @@ enum BridgeProductViewScopeContract {
         }
         try BridgeProductContractDecoding.validateNonemptyString(kind, codingPath: codingPath)
         if kind == "comment" {
-            guard Set(members.keys) == ["kind", "worktreeId"],
-                case .string(let worktreeID)? = members["worktreeId"]
+            guard Set(members.keys) == ["kind", "sessionIds", "worktreeId"],
+                case .string(let worktreeID)? = members["worktreeId"],
+                case .array(let sessionIDs)? = members["sessionIds"],
+                sessionIDs.count <= 128
             else {
                 throw BridgeProductContractDecoding.invalidValue(
-                    "Comment scope requires a worktree id",
+                    "Comment scope requires a worktree and bounded sessions",
                     codingPath: codingPath
                 )
             }
             try BridgeProductContractDecoding.validateIdentifier(worktreeID, codingPath: codingPath)
+            var seenSessions: Set<Data> = []
+            for value in sessionIDs {
+                guard case .string(let sessionID) = value,
+                    seenSessions.insert(Data(sessionID.utf8)).inserted
+                else {
+                    throw BridgeProductContractDecoding.invalidValue(
+                        "Comment scope session ids must be unique strings", codingPath: codingPath
+                    )
+                }
+                try BridgeProductContractDecoding.validateIdentifier(sessionID, codingPath: codingPath)
+            }
             return
         }
-        guard kind == "file" else { return }
-        guard let changeFilter = members["changeFilter"],
+        if kind == "review" {
+            let allowedKeys: Set<String> = ["kind", "interests", "prefix"]
+            guard Set(members.keys).isSubset(of: allowedKeys),
+                let interests = members["interests"]
+            else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review scope requires interests", codingPath: codingPath
+                )
+            }
+            try validateInterestGroups(interests, itemKey: "itemIds", codingPath: codingPath)
+            try validatePrefix(members["prefix"], codingPath: codingPath)
+            return
+        }
+        guard kind == "file" else {
+            throw BridgeProductContractDecoding.invalidValue("Unknown view scope kind", codingPath: codingPath)
+        }
+        let allowedKeys: Set<String> = ["kind", "changeFilter", "interests", "pathScope", "prefix"]
+        guard Set(members.keys).isSubset(of: allowedKeys),
+            let interests = members["interests"],
+            case .array(let pathScope)? = members["pathScope"],
+            pathScope.count <= BridgeProductWireContract.maximumSubscriptionInterestItemCount
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "File scope requires bounded interests and path scope", codingPath: codingPath
+            )
+        }
+        try validateInterestGroups(interests, itemKey: "paths", codingPath: codingPath)
+        var seenPaths: Set<Data> = []
+        for value in pathScope {
+            guard case .string(let path) = value,
+                seenPaths.insert(Data(path.utf8)).inserted
+            else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File path scope must contain unique paths", codingPath: codingPath
+                )
+            }
+            try BridgeProductContractDecoding.validateDisplayPath(path, codingPath: codingPath)
+        }
+        try validatePrefix(members["prefix"], codingPath: codingPath)
+        try validateFileChangeFilter(members["changeFilter"], codingPath: codingPath)
+    }
+
+    private static func validateFileChangeFilter(
+        _ value: BridgeProductJSONValue?, codingPath: [any CodingKey]
+    ) throws {
+        guard let changeFilter = value,
             case .object(let filterMembers) = changeFilter,
             case .string(let filterKind)? = filterMembers["kind"]
         else {
@@ -74,6 +166,60 @@ enum BridgeProductViewScopeContract {
             )
         }
     }
+
+    private static func validatePrefix(
+        _ value: BridgeProductJSONValue?, codingPath: [any CodingKey]
+    ) throws {
+        guard let value else { return }
+        guard case .string(let prefix) = value else {
+            throw BridgeProductContractDecoding.invalidValue("Invalid scope prefix", codingPath: codingPath)
+        }
+        try BridgeProductContractDecoding.validateDisplayPath(prefix, codingPath: codingPath)
+    }
+
+    private static func validateInterestGroups(
+        _ value: BridgeProductJSONValue,
+        itemKey: String,
+        codingPath: [any CodingKey]
+    ) throws {
+        guard case .array(let groups) = value, groups.count <= 64 else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "View interests exceed the group ceiling", codingPath: codingPath
+            )
+        }
+        var seenItems: Set<Data> = []
+        for group in groups {
+            guard case .object(let members) = group,
+                Set(members.keys) == ["lane", itemKey],
+                case .string(let lane)? = members["lane"],
+                BridgeProductDemandLane(rawValue: lane) != nil,
+                case .array(let items)? = members[itemKey],
+                items.count <= BridgeProductWireContract.maximumSubscriptionInterestItemCount
+            else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Invalid view interest group", codingPath: codingPath
+                )
+            }
+            for value in items {
+                guard case .string(let item) = value, seenItems.insert(Data(item.utf8)).inserted else {
+                    throw BridgeProductContractDecoding.invalidValue(
+                        "View interest items must be unique strings", codingPath: codingPath
+                    )
+                }
+                if itemKey == "paths" {
+                    try BridgeProductContractDecoding.validateDisplayPath(item, codingPath: codingPath)
+                } else {
+                    try BridgeProductReviewInterestIdentity.validate(item, codingPath: codingPath)
+                }
+            }
+        }
+        try BridgeProductContractDecoding.validateCollectionCount(
+            seenItems.count,
+            maximum: BridgeProductWireContract.maximumSubscriptionInterestItemCount,
+            name: "view interest items",
+            codingPath: codingPath
+        )
+    }
 }
 
 struct BridgeProductViewScopeRequest: Codable, Equatable, Sendable {
@@ -121,6 +267,16 @@ struct BridgeProductViewScopeRequest: Codable, Equatable, Sendable {
         scopeRevision = try container.decode(Int.self, forKey: .scopeRevision)
         subscriptionId = try container.decode(String.self, forKey: .subscriptionId)
         subscriptionKind = try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind)
+        guard case .object(let scopeMembers) = scope,
+            case .string(let scopeKind)? = scopeMembers["kind"],
+            scopeKind
+                == (subscriptionKind == .fileMetadata
+                    ? "file" : subscriptionKind == .reviewMetadata ? "review" : "comment")
+        else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "View scope kind differs from subscription kind", codingPath: decoder.codingPath
+            )
+        }
         try BridgeProductContractDecoding.validateIdentifier(domain, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(handle, codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(incarnation, codingPath: decoder.codingPath)
