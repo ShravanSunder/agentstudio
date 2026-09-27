@@ -92,28 +92,27 @@ struct RepoExplorerKeyboardChromeTests {
 
     @Test("pane and worktree rows omit Space while retaining trailing number stamps")
     func paneAndWorktreeRowsOmitSpaceWhileRetainingTrailingNumberStamps() throws {
-        let projectRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appending(path: "../../../..")
-            .standardizedFileURL
-        let paneRowSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift"
-            ),
-            encoding: .utf8
+        let fixture = RepoExplorerListKeyboardFixture()
+        defer { fixture.close() }
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let row = navigationWorktreeRow(
+            groupID: "repo",
+            repositoryID: repositoryID,
+            worktreeID: worktreeID
         )
-        let worktreeRowSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift"
-            ),
-            encoding: .utf8
+        _ = try fixture.apply(
+            snapshot: RepoExplorerMaterializationSnapshot(rows: [row]),
+            generation: 1
+        )
+        let table = try #require(firstRepoExplorerKeyboardDescendant(NSTableView.self, in: fixture.host))
+        let cell = try #require(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? RepoExplorerTableRowCell
         )
 
-        #expect(paneRowSource.components(separatedBy: "RepoExplorerPaneRowContent(").count - 1 == 2)
-        #expect(!paneRowSource.contains("SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)"))
-        #expect(!worktreeRowSource.contains("LocalActionSpec.previewPaneShortcutDisplay"))
-        #expect(worktreeRowSource.contains(".sidebarShortcutHint("))
-        #expect(worktreeRowSource.contains("alignment: .trailing"))
+        #expect(cell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay == nil)
+        fixture.materializer.setShowsKeyboardHints(true)
+        #expect(cell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "1")
     }
 
     @Test("pane rows preserve numbered hints and recency at supported widths")
