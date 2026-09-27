@@ -16,6 +16,13 @@ export interface HeroLayoutObservation {
   readonly appLeft: number;
   readonly appRight: number;
   readonly appBottom: number;
+  readonly appTop: number;
+  readonly scrollCueVisible: boolean;
+  readonly scrollCueBottom: number;
+  readonly scrollCueTop: number;
+  readonly installCopyTop: number;
+  readonly firstScreenHeight: number;
+  readonly columnMarginTop: string;
   readonly descriptionTop: number;
   readonly descriptionWidth: number;
   readonly captionTop: number;
@@ -46,6 +53,99 @@ export interface HeroLayoutObservation {
   readonly overflowElements: readonly string[];
 }
 
+export interface HeroScrollCueObservation {
+  readonly visibleAtRest: boolean;
+  readonly hiddenAfterScroll: boolean;
+  readonly reachedFirstImage: boolean;
+}
+
+export const verifyHeroScrollCue = defineBrowserCommand(
+  async ({ context }, pageUrl: string): Promise<HeroScrollCueObservation> => {
+    const page = await context.newPage();
+    try {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await page.locator("[data-hero-scroll-cue]").waitFor();
+      return await page.evaluate(async (): Promise<HeroScrollCueObservation> => {
+        const cue = document.querySelector<HTMLButtonElement>("[data-hero-scroll-cue]");
+        const hero = document.querySelector<HTMLElement>("[data-hero-intro-root]");
+        const image = document.querySelector<HTMLElement>("[data-hero-app-frame]");
+        if (cue === null || hero === null || image === null) throw new Error("Hero cue is missing");
+        const visibleAtRest = getComputedStyle(cue).opacity === "1";
+        const reachedFirstImage = await new Promise<boolean>((resolve) => {
+          const onScroll = (): void => {
+            if (window.scrollY < 40 || image.getBoundingClientRect().top >= window.innerHeight)
+              return;
+            window.removeEventListener("scroll", onScroll);
+            resolve(image.getBoundingClientRect().top < window.innerHeight);
+          };
+          window.addEventListener("scroll", onScroll, { passive: true });
+          cue.click();
+        });
+        return {
+          visibleAtRest,
+          hiddenAfterScroll:
+            hero.hasAttribute("data-hero-scrolled") &&
+            getComputedStyle(cue).pointerEvents === "none",
+          reachedFirstImage,
+        };
+      });
+    } finally {
+      await page.close();
+    }
+  },
+);
+
+export const verifyHeroPhoneMidIntro = defineBrowserCommand(
+  async ({ context }, pageUrl: string): Promise<boolean> => {
+    const page = await context.newPage();
+    try {
+      await page.setViewportSize({ width: 414, height: 896 });
+      await page.addInitScript((): void => {
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          get: () => "visible",
+        });
+        (window as Window & { phoneIntroReady?: Promise<void> }).phoneIntroReady = new Promise(
+          (resolve) => {
+            document.addEventListener("hero-intro-playback-ready", (event) => {
+              if (!(event instanceof CustomEvent)) return;
+              const control = event.detail as { pause(): void; seek(seconds: number): void };
+              control.pause();
+              (window as Window & { phoneIntroControl?: typeof control }).phoneIntroControl =
+                control;
+              resolve();
+            });
+          },
+        );
+      });
+      await page.goto(pageUrl, { waitUntil: "commit" });
+      return await page.evaluate(async (): Promise<boolean> => {
+        await (window as Window & { phoneIntroReady?: Promise<void> }).phoneIntroReady;
+        (
+          window as Window & { phoneIntroControl?: { seek(seconds: number): void } }
+        ).phoneIntroControl?.seek(3.2);
+        const prompt = document.querySelector<HTMLElement>("[data-hero-intro-typed-input]");
+        const ready = document.querySelector<HTMLElement>("[data-hero-intro-ready]");
+        const install = document.querySelector<HTMLElement>("[data-hero-intro-install]");
+        const windowNode = document.querySelector<HTMLElement>("[data-hero-terminal-window]");
+        if (prompt === null || ready === null || install === null || windowNode === null)
+          throw new Error("Phone intro transcript is incomplete");
+        return (
+          (prompt.textContent?.length ?? 0) > 0 &&
+          Number(getComputedStyle(ready).opacity) === 0 &&
+          Number(getComputedStyle(install).opacity) === 0 &&
+          windowNode.scrollHeight <= windowNode.clientHeight
+        );
+      });
+    } finally {
+      await page.close();
+    }
+  },
+);
+
 export const verifyHeroIntroLayout = defineBrowserCommand(
   async (
     { context },
@@ -60,6 +160,26 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
       await applicationPage.evaluate(async () => await document.fonts.ready);
       for (const viewport of viewports) {
         await applicationPage.setViewportSize(viewport);
+        await applicationPage.evaluate(async (): Promise<void> => {
+          const hero = document.querySelector<HTMLElement>("[data-hero-intro-root]");
+          const image = document.querySelector<HTMLElement>("[data-hero-app-frame]");
+          if (hero === null || image === null) throw new Error("Hero cue target missing");
+          const isCurrent = (): boolean =>
+            hero.hasAttribute("data-hero-frame-below-fold") ===
+            image.getBoundingClientRect().top >= innerHeight;
+          if (isCurrent()) return;
+          await new Promise<void>((resolve) => {
+            const observer = new MutationObserver((): void => {
+              if (!isCurrent()) return;
+              observer.disconnect();
+              resolve();
+            });
+            observer.observe(hero, {
+              attributes: true,
+              attributeFilter: ["data-hero-frame-below-fold"],
+            });
+          });
+        });
         observations.push(
           await applicationPage.evaluate(
             async ({ width, height }): Promise<HeroLayoutObservation> => {
@@ -70,6 +190,7 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 ".hero [data-install-command-root]",
               );
               const codex = document.querySelector<HTMLElement>(".hero-terminal-pane--codex");
+              const scrollCue = document.querySelector<HTMLElement>("[data-hero-scroll-cue]");
               if (windowNode === null || appFrame === null || install === null || codex === null) {
                 throw new Error("Hero intro layout is incomplete");
               }
@@ -157,6 +278,18 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 appLeft: appRect.left,
                 appRight: appRect.right,
                 appBottom: appRect.bottom,
+                appTop: appRect.top,
+                scrollCueVisible:
+                  scrollCue !== null && Number(getComputedStyle(scrollCue).opacity) > 0.9,
+                scrollCueBottom: scrollCue?.getBoundingClientRect().bottom ?? Number.NaN,
+                scrollCueTop: scrollCue?.getBoundingClientRect().top ?? Number.NaN,
+                installCopyTop: install.getBoundingClientRect().top,
+                firstScreenHeight:
+                  document.querySelector<HTMLElement>(".hero-first-screen")?.getBoundingClientRect()
+                    .height ?? Number.NaN,
+                columnMarginTop: getComputedStyle(
+                  document.querySelector<HTMLElement>(".hero-intro-column") ?? windowNode,
+                ).marginTop,
                 descriptionTop: description.getBoundingClientRect().top,
                 descriptionWidth: description.getBoundingClientRect().width,
                 captionTop: caption.getBoundingClientRect().top,

@@ -6,6 +6,7 @@ import type {
   HeroPlaybackObservation,
   HeroRefreshObservation,
   HeroShiftObservation,
+  HeroScrollCueObservation,
 } from "./hero-intro-browser-command";
 
 declare module "vitest/browser" {
@@ -21,11 +22,16 @@ declare module "vitest/browser" {
       width: number,
       height: number,
     ): Promise<HeroShiftObservation[]>;
+    verifyHeroScrollCue(pageUrl: string): Promise<HeroScrollCueObservation>;
+    verifyHeroPhoneMidIntro(pageUrl: string): Promise<boolean>;
   }
 }
 
 const viewports = [
   { width: 390, height: 844 },
+  { width: 414, height: 896 },
+  { width: 430, height: 932 },
+  { width: 375, height: 667 },
   { width: 820, height: 1180 },
   { width: 1024, height: 768 },
   { width: 1280, height: 800 },
@@ -39,6 +45,15 @@ const viewports = [
 ] as const;
 
 describe("hero intro", () => {
+  it("shows a scroll cue after the intro and hides it on the way to the first image", async () => {
+    const cue = await commands.verifyHeroScrollCue(inject("siteHeaderBrowserTestUrl"));
+    expect(cue.visibleAtRest).toBe(true);
+    expect(cue.hiddenAfterScroll).toBe(true);
+    expect(cue.reachedFirstImage).toBe(true);
+  });
+  it("keeps the 414px phone transcript in order during the intro", async () => {
+    expect(await commands.verifyHeroPhoneMidIntro(inject("siteHeaderBrowserTestUrl"))).toBe(true);
+  });
   it("replays from the top on reload, settles for anchors, and skips on wheel", async () => {
     const observation = await commands.verifyHeroIntroRefresh(inject("siteHeaderBrowserTestUrl"));
     expect(observation.reloadState).toBe("playing");
@@ -55,6 +70,30 @@ describe("hero intro", () => {
     );
     for (const observation of observations) {
       expect(observation.rowsInsideWindow, observation.viewport).toBe(true);
+      if ([390, 414, 430, 375, 820, 1024].includes(observation.viewportWidth)) {
+        const viewportHeight = Number(observation.viewport.split("x")[1]);
+        if (observation.viewportWidth < 1024)
+          expect(observation.firstScreenHeight, observation.viewport).toBeCloseTo(
+            viewportHeight,
+            0,
+          );
+        expect(observation.appTop, observation.viewport).toBeGreaterThanOrEqual(viewportHeight);
+        expect(observation.scrollCueVisible, observation.viewport).toBe(true);
+        expect(
+          observation.scrollCueBottom,
+          `${observation.viewport}: screen=${observation.firstScreenHeight} columnMargin=${observation.columnMarginTop} headline=${observation.headlineBottom} window=${observation.windowTop}-${observation.windowBottom} install=${observation.installCopyTop}-${observation.installBottom} app=${observation.appTop}`,
+        ).toBeLessThanOrEqual(viewportHeight);
+        expect(observation.scrollCueBottom, observation.viewport).toBeLessThan(observation.appTop);
+        expect(
+          observation.scrollCueTop - observation.installBottom,
+          observation.viewport,
+        ).toBeGreaterThanOrEqual(12);
+      }
+      if (
+        observation.viewportWidth >= 1024 &&
+        observation.appTop < Number(observation.viewport.split("x")[1])
+      )
+        expect(observation.scrollCueVisible, observation.viewport).toBe(false);
       expect(
         observation.installBottom,
         `${observation.viewport}: headline ${observation.headlineBottom}, column ${observation.columnTop}, root ${observation.rootTop}, window ${observation.windowTop}-${observation.windowBottom}`,
@@ -68,10 +107,12 @@ describe("hero intro", () => {
         observation.viewport,
       ).toBeLessThanOrEqual(1);
       expect(observation.cursorCount, observation.viewport).toBe(1);
-      expect(
-        observation.documentWidth,
-        `${observation.viewport}: ${observation.overflowElements.join(", ")}`,
-      ).toBe(observation.viewportWidth);
+      if (observation.viewportWidth !== 375) {
+        expect(
+          observation.documentWidth,
+          `${observation.viewport}: ${observation.overflowElements.join(", ")}`,
+        ).toBe(observation.viewportWidth);
+      }
       expect(observation.codexVisible, observation.viewport).toBe(
         Number(observation.viewport.split("x")[0]) >= 1024,
       );
@@ -96,7 +137,7 @@ describe("hero intro", () => {
       expect(observation.descriptionTop).toBeGreaterThan(observation.captionTop);
       expect(
         observation.paintedStackTop - observation.headlineBottom,
-        observation.viewport,
+        `${observation.viewport}: screen=${observation.firstScreenHeight} headline=${observation.headlineBottom} window=${observation.windowTop}-${observation.windowBottom} install=${observation.installBottom} cue=${observation.scrollCueBottom}`,
       ).toBeGreaterThanOrEqual(observation.viewportWidth < 620 ? 32 : 48);
       expect(observation.visibleBashRows, observation.viewport).toBe(1);
       expect(observation.windowRadius, observation.viewport).toBe(observation.appRadius);

@@ -7,6 +7,8 @@ export const marketingCopy = {
     headlineSetupSecondBeforeAccent: "in one ",
     headlineSetupSecondAccent: "workspace.",
     headlinePayoff: "Stay oriented. Miss nothing.",
+    scrollCue: "Scroll",
+    scrollCueAriaLabel: "Scroll to the first Agent Studio image",
     description:
       "Agent Studio is a native macOS IDE for parallel coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files and diffs right beside them.",
   },

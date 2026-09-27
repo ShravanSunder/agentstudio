@@ -17,6 +17,8 @@ import {
   verifyHeroIntroPlayback,
   verifyHeroIntroRefresh,
   verifyHeroIntroShift,
+  verifyHeroScrollCue,
+  verifyHeroPhoneMidIntro,
 } from "./tests/hero-intro-browser-command.ts";
 import { verifyHeroIntroFinale } from "./tests/hero-intro-finale-browser-command.ts";
 import { verifyInstallCommandLayout } from "./tests/install-command-layout-browser-command.ts";
@@ -63,6 +65,8 @@ export default defineConfig({
               verifyHeroIntroPlayback,
               verifyHeroIntroRefresh,
               verifyHeroIntroShift,
+              verifyHeroScrollCue,
+              verifyHeroPhoneMidIntro,
               verifyHeroIntroFinale,
               verifyInstallCommandLayout,
               verifyChapterStepRow,

@@ -60,6 +60,7 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
   {...{ [heroIntroRootAttribute]: "", [heroIntroStateAttribute]: "settled" }}
 >
   <div class="hero-glow" {...{ [heroIntroGlowAttribute]: "" }} aria-hidden="true"></div>
+  <div class="hero-first-screen">
   <div class="relative z-[2] max-w-hero lg:pl-[clamp(24px,2.6vw,56px)]">
     <p
       {...railAnchorAttributes}
@@ -104,6 +105,10 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
         <InstallCommand />
       </div>
     </div>
+  </div>
+  <button type="button" class="hero-scroll-cue" data-hero-scroll-cue aria-label={marketingCopy.hero.scrollCueAriaLabel}>
+    <span aria-hidden="true">⌄</span><span>{marketingCopy.hero.scrollCue}</span>
+  </button>
   </div>
 
   <div class="hero-frame-flow scroll-material-lift-group" data-scroll-material-lift-target>
@@ -156,6 +161,78 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
 
 <style>
   .hero { isolation: isolate; overflow-x: clip; }
+  .hero-first-screen { position: relative; }
+  @media (width >= 64rem) {
+    .hero-first-screen { padding-bottom: 28px; }
+    .hero-first-screen .hero-scroll-cue { bottom: 0; }
+  }
+  @media (width < 64rem) {
+    .hero { padding-top: 0; }
+    .hero-first-screen {
+      position: relative;
+      display: flex;
+      min-height: 100svh;
+      margin-top: -4.5rem;
+      flex-direction: column;
+      justify-content: space-evenly;
+      gap: 54px;
+      padding-top: calc(4.5rem + clamp(32px, 1.5vw + 3vh, 80px));
+      padding-bottom: calc(72px + env(safe-area-inset-bottom));
+    }
+    .hero-first-screen .hero-intro-column { display: flex; flex: 1 1 auto; flex-direction: column; margin-top: 0; }
+    .hero-first-screen :global(.hero-intro-root) { display: flex; flex: 1 1 auto; flex-direction: column; }
+    .hero-first-screen :global(.hero-terminal-window) { flex: 1 1 auto; }
+  }
+  @media (width < 38.75rem) and (height < 44rem) {
+    .hero-first-screen {
+      gap: 52px;
+      padding-top: calc(4.5rem + 8px);
+      padding-bottom: calc(42px + env(safe-area-inset-bottom));
+    }
+  }
+  @media (width >= 38.75rem) and (width < 64rem) {
+    .hero-first-screen { gap: 102px; }
+  }
+  .hero-scroll-cue {
+    position: absolute;
+    z-index: 3;
+    right: 0;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    left: 0;
+    display: flex;
+    width: max-content;
+    align-items: center;
+    gap: 6px;
+    margin: auto;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink-faint);
+    cursor: pointer;
+    font: 12px var(--font-mono-product);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 300ms ease-out;
+  }
+  .hero[data-hero-intro-state="settled"][data-hero-frame-below-fold]:not([data-hero-scrolled]) .hero-scroll-cue {
+    opacity: 1;
+    pointer-events: auto;
+    animation: hero-scroll-bob 650ms ease-in-out 1;
+  }
+  @media (width < 64rem) {
+    .hero[data-hero-intro-state="settled"]:not([data-hero-scrolled]) .hero-scroll-cue {
+      opacity: 1;
+      pointer-events: auto;
+      animation: hero-scroll-bob 650ms ease-in-out 1;
+    }
+  }
+  @keyframes hero-scroll-bob { 50% { translate: 0 5px; } }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-scroll-cue { transition: none; }
+    .hero[data-hero-intro-state="settled"][data-hero-frame-below-fold]:not([data-hero-scrolled]) .hero-scroll-cue,
+    .hero[data-hero-intro-state="settled"]:not([data-hero-scrolled]) .hero-scroll-cue { animation: none; }
+  }
   @media (width >= 64rem) and (height <= 56.25rem) {
     .hero { padding-top: clamp(24px, 1.5vw + 3vh - 12px, 72px); }
     #hero-title { font-size: clamp(34px, 3.2vw, 54px); }
@@ -168,3 +245,23 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
     border-color: rgb(137 180 250 / 88%);
   }
 </style>
+
+<script>
+  const hero = document.querySelector<HTMLElement>("[data-hero-intro-root]");
+  const cue = hero?.querySelector<HTMLButtonElement>("[data-hero-scroll-cue]");
+  const firstImage = hero?.querySelector<HTMLElement>("[data-hero-app-frame]");
+  if (hero !== null && hero !== undefined && cue !== null && cue !== undefined && firstImage !== null && firstImage !== undefined) {
+    const markScrolled = (): void => {
+      hero.toggleAttribute("data-hero-scrolled", window.scrollY >= 40);
+    };
+    const frameVisibility = new IntersectionObserver(([entry]): void => {
+      if (entry !== undefined) {
+        hero.toggleAttribute("data-hero-frame-below-fold", entry.boundingClientRect.top >= window.innerHeight);
+      }
+    });
+    frameVisibility.observe(firstImage);
+    window.addEventListener("scroll", markScrolled, { passive: true });
+    markScrolled();
+    cue.addEventListener("click", (): void => firstImage.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
+</script>
