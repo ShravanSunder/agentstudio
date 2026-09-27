@@ -1,5 +1,10 @@
-import Darwin
 import Foundation
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 public struct ArchitectureLintCommand {
     private let fileManager: FileManager
@@ -41,10 +46,10 @@ public struct ArchitectureLintCommand {
 
     private static func canonicalFileSystemPath(_ path: String) -> String {
         let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        guard let resolvedPath = standardizedPath.withCString({ Darwin.realpath($0, nil) }) else {
+        guard let resolvedPath = standardizedPath.withCString({ realpath($0, nil) }) else {
             return standardizedPath
         }
-        defer { Darwin.free(resolvedPath) }
+        defer { free(resolvedPath) }
         return String(cString: resolvedPath)
     }
 
