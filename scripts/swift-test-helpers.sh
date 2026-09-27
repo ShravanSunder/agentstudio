@@ -1909,13 +1909,16 @@ run_swift_with_timeout() {
     read -r last_output_size last_progress_epoch <<<"$watchdog_state"
     local inactive_seconds=$((now_epoch - last_progress_epoch))
 
-    if ! swift_test_watchdog_timeout_status \
-      "$last_progress_epoch" \
-      "$now_epoch" \
-      "$timeout_seconds"
-    then
-      timed_out=1
-      break
+    # Hang tests arm the watchdog only after their child is parked.
+    if [ -z "${LANE_WATCHDOG_ARM_PATH:-}" ] || [ -e "$LANE_WATCHDOG_ARM_PATH" ]; then
+      if ! swift_test_watchdog_timeout_status \
+        "$last_progress_epoch" \
+        "$now_epoch" \
+        "$timeout_seconds"
+      then
+        timed_out=1
+        break
+      fi
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
