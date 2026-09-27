@@ -331,13 +331,11 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v3
 
-      - name: Install lint tools for Swift test contracts
-        run: bash scripts/install-ci-lint-tools.sh
-
-      - name: Verify lint tools on PATH
+      # Setup mise installs the pinned SwiftLint that the contract tests run.
+      # No Swift test runs swift-format, so this job does not build it.
+      - name: Verify SwiftLint on PATH
         run: |
           test "$(command -v swiftlint)" = "$(mise where swiftlint@0.65.1)/swiftlint"
-          swift-format --version
           swiftlint version
 
       # --- Submodule SHAs for cache keys ---
