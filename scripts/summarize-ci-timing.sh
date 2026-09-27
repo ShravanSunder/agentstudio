@@ -100,37 +100,41 @@ TIMING_EVIDENCE_DIR="$evidence_dir" /usr/bin/perl -MJSON::PP -MTime::Local -MFil
   }
   print "\n## Isolated scheduler\n\n";
   print "Measured dispatch-to-wrapper spans. Idle includes startup and tail gaps across the recorded slot cap. Sidecars without a cap are omitted.\n\n";
-  print "| Lane | Dispatches | Slots | Phase wall | Slot idle |\n| --- | ---: | ---: | ---: | ---: |\n";
+  print "| Lane | Phase | Dispatches | Slots | Phase wall | Slot idle |\n| --- | --- | ---: | ---: | ---: | ---: |\n";
   my %scheduler;
   for my $item (@records) {
     next unless defined($item->{filter}) && defined($item->{batch_id}) &&
       numeric($item->{slot}) && numeric($item->{slot_cap}) && $item->{slot_cap} >= 1;
-    push @{$scheduler{$item->{lane}//"unknown"}}, $item;
+    my $lane = $item->{lane} // "unknown";
+    my $phase = $item->{phase} // "unknown";
+    push @{$scheduler{$lane}{$phase}}, $item;
   }
   for my $lane (sort keys %scheduler) {
-    my @items = @{$scheduler{$lane}};
-    my ($first,$last,$eligible,$slots,$busy) = (undef,undef,undef,undef,0);
-    my $known = 1;
-    for my $item (@items) {
-      my $duration = span($item->{dispatch_ms},$item->{wrapper_complete_ms});
-      unless (defined($duration) && $item->{slot} >= 1 && $item->{slot} <= $item->{slot_cap}) {
-        $known=0; next;
+    for my $phase (sort keys %{$scheduler{$lane}}) {
+      my @items = @{$scheduler{$lane}{$phase}};
+      my ($first,$last,$eligible,$slots,$busy) = (undef,undef,undef,undef,0);
+      my $known = 1;
+      for my $item (@items) {
+        my $duration = span($item->{dispatch_ms},$item->{wrapper_complete_ms});
+        unless (defined($duration) && $item->{slot} >= 1 && $item->{slot} <= $item->{slot_cap}) {
+          $known=0; next;
+        }
+        $busy += $duration;
+        $known=0 if defined($slots) && $slots != $item->{slot_cap};
+        $slots = $item->{slot_cap};
+        $first = $item->{dispatch_ms} if !defined($first) || $item->{dispatch_ms} < $first;
+        $last = $item->{wrapper_complete_ms} if !defined($last) || $item->{wrapper_complete_ms} > $last;
+        $eligible = $item->{eligible_ms} if numeric($item->{eligible_ms}) &&
+          (!defined($eligible) || $item->{eligible_ms} < $eligible);
       }
-      $busy += $duration;
-      $known=0 if defined($slots) && $slots != $item->{slot_cap};
-      $slots = $item->{slot_cap};
-      $first = $item->{dispatch_ms} if !defined($first) || $item->{dispatch_ms} < $first;
-      $last = $item->{wrapper_complete_ms} if !defined($last) || $item->{wrapper_complete_ms} > $last;
-      $eligible = $item->{eligible_ms} if numeric($item->{eligible_ms}) &&
-        (!defined($eligible) || $item->{eligible_ms} < $eligible);
+      $first = $eligible if defined($eligible) && (!defined($first) || $eligible < $first);
+      my $wall = $known ? span($first,$last) : undef;
+      my $idle = defined($wall) ? $slots * $wall - $busy : undef;
+      $idle = undef if defined($idle) && $idle < 0;
+      print "| $lane | $phase | ",scalar(@items)," | ",($slots//"unknown")," | ",seconds($wall)," | ",seconds($idle)," |\n";
     }
-    $first = $eligible if defined($eligible) && (!defined($first) || $eligible < $first);
-    my $wall = $known ? span($first,$last) : undef;
-    my $idle = defined($wall) ? $slots * $wall - $busy : undef;
-    $idle = undef if defined($idle) && $idle < 0;
-    print "| $lane | ",scalar(@items)," | ",($slots//"unknown")," | ",seconds($wall)," | ",seconds($idle)," |\n";
   }
-  print "| unknown | unknown | unknown | unknown | unknown |\n" unless %scheduler;
+  print "| unknown | unknown | unknown | unknown | unknown | unknown |\n" unless %scheduler;
   my @prebuild=grep { ($_->{label}//"") eq "prebuild test bundles" } @records;
   print "\n## Prebuild and compiler work\n\nPrebuild wall: ",
     (@prebuild ? seconds($prebuild[-1]{_wall}) : "unknown")," s.\n\n";

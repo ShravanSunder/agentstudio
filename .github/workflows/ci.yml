@@ -29,6 +29,8 @@ jobs:
     env:
       SWIFT_BUILD_DIR: .build-ci
       CI_CONTAINER_TOOLS: "1"
+      # Lint never uses zig; keep mise from auto-installing it on `mise run` (its mirror rate-limits).
+      MISE_DISABLE_TOOLS: zig
 
     steps:
       # First step of every job, before checkout: a re-run attempt fails here unless
@@ -88,6 +90,10 @@ jobs:
 
       - name: Setup mise
         uses: jdx/mise-action@v3
+        with:
+          # Lint needs only SwiftLint, which the next step installs by exact version.
+          # Installing every .mise.toml tool here pulled zig, whose mirror rate-limits (HTTP 429).
+          install: false
 
       - name: Install lint tools
         run: bash scripts/install-ci-lint-tools.sh
