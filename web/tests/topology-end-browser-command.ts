@@ -29,6 +29,7 @@ export interface TopologyEndObservation {
 
 export interface FinaleBookendObservation {
   readonly transitionalFanAngles: readonly number[];
+  readonly transitionalPlaneBorderWidths: readonly number[];
   readonly eventCount: number;
   readonly href: string;
   readonly finalState: string | undefined;
@@ -149,6 +150,11 @@ export const verifyFinaleBookend = defineBrowserCommand(
           const transform = new DOMMatrixReadOnly(getComputedStyle(plane).transform);
           return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
         });
+        const finaleTerminal = root.querySelector<HTMLElement>(".finale-terminal");
+        if (finaleTerminal === null) throw new Error("Finale terminal card is missing");
+        const transitionalPlaneBorderWidths = [...fanPlanes, finaleTerminal].map((plane) =>
+          Number.parseFloat(getComputedStyle(plane).borderTopWidth),
+        );
         const railStartFraction =
           Number.parseFloat(railPath.style.strokeDashoffset) / railPath.getTotalLength();
         const nodeStartOpacity = getComputedStyle(endNode).opacity;
@@ -176,6 +182,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
         return {
           eventCount: proofWindow.topologyEndEventCount ?? 0,
           transitionalFanAngles,
+          transitionalPlaneBorderWidths,
           href: button.href,
           finalState: root.dataset["finaleState"],
           logoOpacity: getComputedStyle(logo).opacity,

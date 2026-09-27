@@ -458,6 +458,9 @@ export interface HeroPlaybackObservation {
   readonly midIntroWasPlaying: boolean;
   readonly fanAnglesAtEnd: readonly number[];
   readonly fourthAngleAtEnd: number;
+  readonly fanBorderWidthsAtEnd: readonly number[];
+  readonly fourthBorderWidthWhileDealing: number;
+  readonly terminalWindowBorderWidth: number;
   readonly midIntroHorizontalOverflow: number;
   readonly resizeSettledEvents: number;
   readonly resizeProgress: number;
@@ -564,28 +567,48 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
             .querySelector("[data-hero-intro-root]")
             ?.getAttribute("data-hero-intro-state") === "playing",
       );
+      const fourthBorderWidthWhileDealing = await introPage.evaluate(() => {
+        (
+          window as Window & { heroIntroPlaybackControl?: { seek(seconds: number): void } }
+        ).heroIntroPlaybackControl?.seek(1.8);
+        const fourth = document.querySelector("[data-hero-intro-fourth-plane]");
+        if (fourth === null) throw new Error("Hero fourth plane is missing while dealing");
+        return Number.parseFloat(getComputedStyle(fourth).borderTopWidth);
+      });
       await introPage.evaluate(() => {
         (
           window as Window & { heroIntroPlaybackControl?: { seek(seconds: number): void } }
         ).heroIntroPlaybackControl?.seek(3.2);
       });
-      const { fanAnglesAtEnd, fourthAngleAtEnd } = await introPage.evaluate(() => {
-        const angle = (element: Element): number => {
-          const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
-          return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
-        };
-        const front = document.querySelector("[data-hero-icon-front]");
-        const rearOne = document.querySelector('[data-hero-icon-rear="one"]');
-        const rearTwo = document.querySelector('[data-hero-icon-rear="two"]');
-        const fourth = document.querySelector("[data-hero-intro-fourth-plane]");
-        if (front === null || rearOne === null || rearTwo === null || fourth === null) {
-          throw new Error("Hero fan or fourth plane is incomplete");
-        }
-        return {
-          fanAnglesAtEnd: [front, rearTwo, rearOne].map(angle),
-          fourthAngleAtEnd: angle(fourth),
-        };
-      });
+      const { fanAnglesAtEnd, fourthAngleAtEnd, fanBorderWidthsAtEnd, terminalWindowBorderWidth } =
+        await introPage.evaluate(() => {
+          const angle = (element: Element): number => {
+            const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+            return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
+          };
+          const front = document.querySelector("[data-hero-icon-front]");
+          const rearOne = document.querySelector('[data-hero-icon-rear="one"]');
+          const rearTwo = document.querySelector('[data-hero-icon-rear="two"]');
+          const fourth = document.querySelector("[data-hero-intro-fourth-plane]");
+          const terminalWindow = document.querySelector("[data-hero-terminal-window]");
+          if (
+            front === null ||
+            rearOne === null ||
+            rearTwo === null ||
+            fourth === null ||
+            terminalWindow === null
+          ) {
+            throw new Error("Hero fan, fourth plane, or terminal window is incomplete");
+          }
+          const borderWidth = (element: Element): number =>
+            Number.parseFloat(getComputedStyle(element).borderTopWidth);
+          return {
+            fanAnglesAtEnd: [front, rearTwo, rearOne].map(angle),
+            fourthAngleAtEnd: angle(fourth),
+            fanBorderWidthsAtEnd: [front, rearTwo, rearOne, fourth].map(borderWidth),
+            terminalWindowBorderWidth: borderWidth(terminalWindow),
+          };
+        });
       const midIntroHorizontalOverflow = await introPage.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
@@ -666,6 +689,9 @@ export const verifyHeroIntroPlayback = defineBrowserCommand(
         midIntroWasPlaying,
         fanAnglesAtEnd,
         fourthAngleAtEnd,
+        fanBorderWidthsAtEnd,
+        fourthBorderWidthWhileDealing,
+        terminalWindowBorderWidth,
         midIntroHorizontalOverflow,
         resizeSettledEvents,
         resizeProgress: resized.progress,

@@ -255,6 +255,9 @@ describe("hero intro", () => {
       expect(observation.fanAnglesAtEnd[index]).toBeCloseTo(expectedAngle, 1);
     }
     expect(observation.fourthAngleAtEnd).toBeCloseTo(0, 1);
+    expect(observation.terminalWindowBorderWidth).toBe(1);
+    expect(observation.fanBorderWidthsAtEnd).toEqual([1, 1, 1, 1]);
+    expect(observation.fourthBorderWidthWhileDealing).toBe(1);
     expect(observation.midIntroHorizontalOverflow).toBeLessThanOrEqual(0);
     expect(observation.resizeSettledEvents).toBe(1);
     expect(observation.resizeProgress).toBe(1);
