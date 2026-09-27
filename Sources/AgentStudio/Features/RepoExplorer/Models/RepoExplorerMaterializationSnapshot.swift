@@ -312,9 +312,40 @@ struct RepoExplorerMaterializedRow: Equatable, Sendable {
     let layout: RepoExplorerRowLayout
     let representedRepoID: UUID?
     let representedWorktreeID: UUID?
+    let expandedPaneLayout: RepoExplorerRowLayout?
+
+    init(
+        id: RepoExplorerRowID,
+        contentRevision: RepoExplorerRowContentRevision,
+        layout: RepoExplorerRowLayout,
+        representedRepoID: UUID?,
+        representedWorktreeID: UUID?,
+        expandedPaneLayout: RepoExplorerRowLayout? = nil
+    ) {
+        self.id = id
+        self.contentRevision = contentRevision
+        self.layout = layout
+        self.representedRepoID = representedRepoID
+        self.representedWorktreeID = representedWorktreeID
+        self.expandedPaneLayout = expandedPaneLayout
+    }
 
     var presentation: RepoExplorerMaterializedRowPresentation {
         contentRevision.presentation
+    }
+
+    func displayingPaneVariant(_ variant: RepoExplorerPaneDisplayVariant) -> Self {
+        guard case .pane(var pane) = presentation, pane.variants != nil else { return self }
+        pane.displayVariant = variant
+        let displayedPresentation = RepoExplorerMaterializedRowPresentation.pane(pane)
+        return Self(
+            id: id,
+            contentRevision: RepoExplorerRowContentRevision(presentation: displayedPresentation),
+            layout: expandedPaneLayout ?? layout,
+            representedRepoID: representedRepoID,
+            representedWorktreeID: representedWorktreeID,
+            expandedPaneLayout: expandedPaneLayout
+        )
     }
 }
 
@@ -473,12 +504,20 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
                 inputs: inputs
             )
             let representedIdentities = representedIdentities(for: presentation)
+            let expandedPaneLayout: RepoExplorerRowLayout?
+            if case .pane(var pane) = presentation, pane.variants != nil {
+                pane.displayVariant = .expanded
+                expandedPaneLayout = RepoExplorerRowLayout.make(for: .pane(pane))
+            } else {
+                expandedPaneLayout = nil
+            }
             return RepoExplorerMaterializedRow(
                 id: entry.id,
                 contentRevision: RepoExplorerRowContentRevision(presentation: presentation),
                 layout: RepoExplorerRowLayout.make(for: presentation),
                 representedRepoID: representedIdentities.repoID,
-                representedWorktreeID: representedIdentities.worktreeID
+                representedWorktreeID: representedIdentities.worktreeID,
+                expandedPaneLayout: expandedPaneLayout
             )
         }
         return Self(rows: rows)
