@@ -524,7 +524,7 @@ describe("composed topology", () => {
           }
           const edge =
             attach.targetEdge === "left"
-              ? { x: anchor?.surface?.left ?? Number.NaN, y: end.y }
+              ? { x: (anchor?.surface?.left ?? Number.NaN) - (attach.terminal ? 6 : 0), y: end.y }
               : { x: end.x, y: anchor?.surface?.top ?? Number.NaN };
           expect(Math.abs(end.x - edge.x)).toBeLessThanOrEqual(1);
           expect(Math.abs(end.y - edge.y)).toBeLessThanOrEqual(1);
@@ -585,7 +585,7 @@ describe("composed topology", () => {
       expect(finalRoute?.terminal).toBe(true);
       expect(finalRoute?.targetEdge).toBe("left");
       expect(finalRoute?.targetPoint).toEqual({
-        x: button.left,
+        x: button.left - 6,
         y: button.top + button.height / 2,
       });
       expect(endDot?.y).toBeLessThan(button.top + button.height / 2);

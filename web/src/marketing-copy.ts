@@ -142,8 +142,10 @@ export const marketingCopy = {
   ghosttyUrl: "https://ghostty.org",
   finalCallToAction: {
     starOnGitHub: "Star on GitHub",
-    description: "A native macOS IDE for parallel agents and all your work.",
-    traits: "Native macOS. Repo-aware. Terminal-first.",
+    starShort: "Star",
+    copyInstall: "Copy install",
+    copyShort: "Copy",
+    copiedInstall: "Copied ✓",
     technologyCredit: "👻 Built on Ghostty. ",
     creatorPrefix: "🛠️ Made by ",
     creatorName: "Shravan Sunder",

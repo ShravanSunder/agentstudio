@@ -1,4 +1,6 @@
 export const topologyRowUnit = 96;
+/** The terminal merge ring touches the final pill while its centre stays outside. */
+export const topologyMergeNodeRadius = 6;
 
 export type WorktreeEndKind = "merge" | "open";
 

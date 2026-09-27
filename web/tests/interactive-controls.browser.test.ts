@@ -263,4 +263,34 @@ describe("interactive website controllers", () => {
     dispose();
     Reflect.deleteProperty(navigator, "clipboard");
   });
+
+  it("restores the finale copy label exactly two seconds after a successful copy", async () => {
+    const fixture = addFixture(`
+      <div data-install-command="brew tap ShravanSunder/agentstudio\nbrew install --cask agent-studio" data-install-copied-label="Copied ✓" data-install-feedback-ms="2000">
+        <code data-install-code hidden></code>
+        <button data-install-copy><span data-install-copy-feedback>Copy install</span></button>
+        <span data-install-status aria-live="polite"></span>
+      </div>
+    `);
+    const root = requiredHtmlElement(fixture, "[data-install-command]");
+    const button = requiredButton(root, "[data-install-copy]");
+    const label = requiredHtmlElement(root, "[data-install-copy-feedback]");
+    const status = requiredHtmlElement(root, "[data-install-status]");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const dispose = initializeInstallCommand(root);
+    button.click();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith(
+      "brew tap ShravanSunder/agentstudio\nbrew install --cask agent-studio",
+    );
+    expect(label.textContent).toBe("Copied ✓");
+    expect(status.textContent).toBe(marketingCopy.installation.copiedStatus);
+    vi.advanceTimersByTime(1999);
+    expect(label.textContent).toBe("Copied ✓");
+    vi.advanceTimersByTime(1);
+    expect(label.textContent).toBe("Copy install");
+    expect(status.textContent).toBe("");
+    dispose();
+  });
 });

@@ -19,6 +19,7 @@ import {
   type TopologyRoute,
   type TopologyRowDot,
 } from "./full-page-topology-composition";
+import { topologyMergeNodeRadius } from "./full-page-topology-model";
 
 const svgNamespace = "http://www.w3.org/2000/svg";
 // The node vocabulary, smallest to largest: commit and fork dots, the chapter
@@ -27,7 +28,7 @@ const svgNamespace = "http://www.w3.org/2000/svg";
 export const topologyNodeRadii = {
   commit: 3.5,
   chapter: 5.5,
-  merge: 6,
+  merge: topologyMergeNodeRadius,
   mergeCore: 2.5,
   terminal: 7,
 } as const;
@@ -209,6 +210,21 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
     }
     group.append(path);
   }
+  if (route.terminal === true && route.targetPoint !== undefined) {
+    const terminalNode = createRowNode(ownerDocument, {
+      row: -1,
+      x: route.targetPoint.x,
+      y: route.targetPoint.y,
+      ownerId: "main",
+      accent: "main",
+      incomingAccent: "cyan",
+      kind: "merge",
+      anchorId: undefined,
+      terminal: true,
+    });
+    terminalNode.setAttribute("data-topology-terminal-node", "");
+    group.append(terminalNode);
+  }
   return group;
 }
 
@@ -340,6 +356,19 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
       continue;
     }
     group.toggleAttribute("data-topology-terminal-route", route.terminal === true);
+    const terminalNode = group.querySelector<SVGGElement>("[data-topology-terminal-node]");
+    if (terminalNode !== null && route.targetPoint !== undefined) {
+      for (const circle of terminalNode.querySelectorAll("circle")) {
+        setAttributeIfChanged(circle, "cx", String(route.targetPoint.x));
+        setAttributeIfChanged(circle, "cy", String(route.targetPoint.y));
+      }
+      setAttributeIfChanged(terminalNode, "data-node-owner", "main");
+      setAttributeIfChanged(
+        terminalNode,
+        "data-topology-node-progress",
+        String(progressForY(composition, route.endY)),
+      );
+    }
     for (const path of group.querySelectorAll<SVGPathElement>("[data-route]")) {
       setAttributeIfChanged(path, "d", route.pathData);
       setAttributeIfChanged(

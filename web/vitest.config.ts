@@ -24,7 +24,7 @@ import { verifyRailViewportBands } from "./tests/rail-band-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
-import { verifyTopologyEnd, verifyTopologyEndPulse } from "./tests/topology-end-browser-command.ts";
+import { verifyFinaleBookend, verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
 import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
 
@@ -71,7 +71,7 @@ export default defineConfig({
               verifySiteFooterResponsiveLayout,
               verifySiteHeaderScrollStability,
               verifyTopologyEnd,
-              verifyTopologyEndPulse,
+              verifyFinaleBookend,
               verifyTopologyNodeVocabulary,
               verifyWebsiteQualityLayout,
             },

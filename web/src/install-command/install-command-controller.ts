@@ -40,6 +40,17 @@ export function initializeInstallCommand(root: HTMLElement): () => void {
   const { button, code, status } = resolveControllerElements(root);
   const lifecycle = new AbortController();
   let state: InstallCommandState = { kind: "idle" };
+  let feedbackResetTimer: number | undefined;
+  const feedbackLabels = [...root.querySelectorAll<HTMLElement>("[data-install-copy-feedback]")];
+  const idleLabels = feedbackLabels.map((label) => label.textContent ?? "");
+  const feedbackDurationMs = Number(root.dataset["installFeedbackMs"]);
+  const resetFeedback = (): void => {
+    feedbackLabels.forEach((label, index) => {
+      label.textContent = idleLabels[index] ?? "";
+    });
+    status.textContent = "";
+    feedbackResetTimer = undefined;
+  };
 
   const measureCopyLayout = (): void => {
     root.removeAttribute("data-compact-copy");
@@ -84,6 +95,14 @@ export function initializeInstallCommand(root: HTMLElement): () => void {
         .then((): void => {
           state = reduceInstallCommandState(state, { kind: "copy-succeeded" });
           status.textContent = copyStatusText(state);
+          const copiedLabel = root.dataset["installCopiedLabel"];
+          if (copiedLabel !== undefined) {
+            for (const label of feedbackLabels) label.textContent = copiedLabel;
+          }
+          if (feedbackResetTimer !== undefined) window.clearTimeout(feedbackResetTimer);
+          if (Number.isFinite(feedbackDurationMs) && feedbackDurationMs > 0) {
+            feedbackResetTimer = window.setTimeout(resetFeedback, feedbackDurationMs);
+          }
         })
         .catch((): void => {
           state = reduceInstallCommandState(state, {
@@ -97,6 +116,7 @@ export function initializeInstallCommand(root: HTMLElement): () => void {
   );
 
   return (): void => {
+    if (feedbackResetTimer !== undefined) window.clearTimeout(feedbackResetTimer);
     resizeObserver.disconnect();
     lifecycle.abort();
   };

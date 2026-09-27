@@ -5,6 +5,7 @@ import type {
   TopologyRoute,
   TopologyRowDot,
 } from "./full-page-topology-composition";
+import { topologyMergeNodeRadius } from "./full-page-topology-model";
 import { localForkPath, localMergePath } from "./full-page-topology-paths";
 import { topologyRectBottom } from "./topology-end-geometry";
 import {
@@ -102,14 +103,15 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       const forkY = rowYs[finalMainlineRow];
       if (forkY === undefined) continue;
       const centerY = target.top + target.height / 2;
-      const cornerX = Math.max(mainlineX, target.left - columnUnit);
+      const nodeX = target.left - topologyMergeNodeRadius;
+      const cornerX = Math.max(mainlineX, nodeX - columnUnit);
       attachRoutes.push({
         id: `attach-${anchor.id}`,
         kind: "attach",
         accent: "port",
         pathData: [
           `M ${mainlineX} ${forkY}`,
-          ...localMergePath(target.left, cornerX, forkY, centerY),
+          ...localMergePath(nodeX, cornerX, forkY, centerY),
         ].join(" "),
         parentColumn: 0,
         column: 1,
@@ -117,7 +119,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
         endY: centerY,
         anchorId: anchor.id,
         targetEdge: "left",
-        targetPoint: { x: target.left, y: centerY },
+        targetPoint: { x: nodeX, y: centerY },
         sourceAccent: "main",
         terminal: true,
       });

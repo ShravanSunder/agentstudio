@@ -175,7 +175,7 @@ export function composeFullPageTopology(
       ...page.anchors.flatMap((anchor) =>
         anchor.stepLine === undefined ? [] : [topologyRectCenterY(anchor.stepLine)],
       ),
-      ...(terminalAnchor?.surface === undefined ? [] : [terminalAnchor.surface.top - 16]),
+      ...(terminalAnchor?.surface === undefined ? [] : [terminalAnchor.surface.top + 2]),
     ],
     endY: topologyEndY(page),
   });
