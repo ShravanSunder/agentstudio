@@ -1475,7 +1475,7 @@ dispatch_isolated_suites() {
   local -a suite_filters=("$@") active_pids=() active_filters=()
   local concurrency next_filter=0 active_count=0 dispatch_ordinal=0
   local slot suite_filter wrapper_pid completed_slot completed_pid completed_status waited_status
-  local lane_status=0 timing_eligible_ms fifo_path
+  local lane_status=0 timing_eligible_ms dispatch_dir fifo_path
   if [ "$lane_kind" = webkit ]; then
     concurrency="$(swift_test_webkit_process_concurrency)"
     echo "[$LOG_PREFIX] WebKit process-global concurrency: $concurrency"
@@ -1484,8 +1484,9 @@ dispatch_isolated_suites() {
     echo "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
   fi
   timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-  fifo_path="$(mktemp "${TMPDIR:-/tmp}/agentstudio-isolated-completions.XXXXXX")"
-  rm -f "$fifo_path"
+  mkdir -p "$LANE_EVENT_STREAM_DIR"
+  dispatch_dir="$(mktemp -d "${LANE_EVENT_STREAM_DIR:-${TMPDIR:-/tmp}}/agentstudio-isolated-dispatch.XXXXXX")"
+  fifo_path="$dispatch_dir/completions"
   mkfifo "$fifo_path"
   exec 7<>"$fifo_path"
   SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
@@ -1500,9 +1501,9 @@ dispatch_isolated_suites() {
         # Bash 3.2 lacks BASHPID and $$ is the parent shell. An immediate
         # child reports its PPID through a slot-local file, avoiding a second
         # FIFO handshake that can strand a rapidly completing worker.
-        /bin/sh -c 'printf "%s\n" "$PPID"' >"$fifo_path.pid$slot"
-        read -r child_pid <"$fifo_path.pid$slot"
-        rm -f "$fifo_path.pid$slot"
+        /bin/sh -c 'printf "%s\n" "$PPID"' >"$dispatch_dir/pid-$slot"
+        read -r child_pid <"$dispatch_dir/pid-$slot"
+        rm -f "$dispatch_dir/pid-$slot"
         export LANE_TIMING_PHASE="$lane_kind" LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
         export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
         export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
@@ -1553,6 +1554,7 @@ dispatch_isolated_suites() {
   SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
   exec 7>&-
   rm -f "$fifo_path"
+  rmdir "$dispatch_dir"
   return "$lane_status"
 }
 

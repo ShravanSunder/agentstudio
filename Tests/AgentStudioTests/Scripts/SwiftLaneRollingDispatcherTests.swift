@@ -56,6 +56,32 @@ struct SwiftLaneRollingDispatcherTests {
         #expect(result.output.contains("ARG:--filter\nARG:WebKitSerializedTests/Fixture"))
     }
 
+    @Test("dispatcher state is private to a lane-owned temporary directory")
+    func dispatcherStateUsesLaneOwnedDirectory() async throws {
+        let command = #"""
+            set -euo pipefail
+            source scripts/swift-test-helpers.sh
+            LOG_PREFIX=dispatch-state-probe
+            LANE_EVENT_STREAM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dispatch-state-probe.XXXXXX")"
+            trap 'rmdir "$LANE_EVENT_STREAM_DIR"' EXIT
+            swift_test_isolated_process_concurrency() { echo 1; }
+            run_selected_isolated_suite() {
+              case "$dispatch_dir" in
+                "$LANE_EVENT_STREAM_DIR"/agentstudio-isolated-dispatch.*) ;;
+                *) return 44;;
+              esac
+              [ -p "$dispatch_dir/completions" ] || return 45
+              [ "$(stat -f %Lp "$dispatch_dir")" = 700 ] || return 46
+            }
+            dispatch_isolated_suites fast Fixture
+            [ -z "$(find "$LANE_EVENT_STREAM_DIR" -mindepth 1 -print)" ] || exit 47
+            printf 'PRIVATE_DISPATCH_STATE_OK\n'
+            """#
+        let result = try await runLaneScriptBash(command)
+        #expect(result.exitCode == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("PRIVATE_DISPATCH_STATE_OK"))
+    }
+
     @Test("a completed slot refills before the slow child finishes and every failure is tallied")
     func completionRefillsSlotAndTalliesFailures() async throws {
         let command = #"""
