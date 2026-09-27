@@ -8,7 +8,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("AgentStudio IPC query adapter", .serialized)
+@Suite("AgentStudio IPC query adapter")
 struct AgentStudioIPCQueryAdapterTests {
     @Test("current window fails closed when no workspace window is active")
     func currentWindowFailsClosedWhenNoWorkspaceWindowIsActive() throws {
@@ -173,7 +173,7 @@ extension WorkspaceWindowLifecycleSnapshot {
 
 @MainActor
 private func makeWorkspaceStore() -> WorkspaceStore {
-    WorkspaceStore()
+    WorkspaceStore(startsObserving: false)
 }
 
 private func encodedJSONString<T: Encodable>(_ value: T) throws -> String {
