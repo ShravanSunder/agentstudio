@@ -94,7 +94,8 @@ jobs:
           # Lint needs only SwiftLint, which the next step installs by exact version.
           # Installing every .mise.toml tool here pulled zig, whose mirror rate-limits (HTTP 429).
           install: false
-          cache_save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # Nothing is installed through mise in this job, so there is nothing to cache.
+          cache: false
 
       - name: Install lint tools
         run: bash scripts/install-ci-lint-tools.sh

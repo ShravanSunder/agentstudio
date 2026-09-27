@@ -91,22 +91,45 @@ struct CITopologyWorkflowTests {
     @Test("release restores vendor caches without saving a Swift build cache")
     func releaseRestoresVendorCachesWithoutSavingSwiftBuildCache() throws {
         let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let ciVendorJobs = try [
+            topologyJob(named: "bridge-web", in: ciWorkflow),
+            topologyJob(named: "swift-test-suite", in: ciWorkflow),
+        ]
 
         #expect(!releaseWorkflow.contains("name: Cache Swift build"))
         #expect(!releaseWorkflow.contains("path: .build-ci"))
 
         for stepName in ["Cache Ghostty artifacts", "Cache zmx artifacts", "Cache Zig compilation"] {
-            let cacheStep = try topologyBlock(
+            #expect(ciWorkflow.components(separatedBy: "- name: \(stepName)\n").count == 3)
+            let releaseCacheStep = try topologyBlock(
                 startingWith: "      - name: \(stepName)\n",
-                endingBefore: "\n      - ",
+                endingBefore: "\n\n",
                 in: releaseWorkflow
             )
-            #expect(cacheStep.contains("uses: actions/cache/restore@v4"))
+            #expect(releaseCacheStep.contains("uses: actions/cache/restore@v4"))
+            let releaseKey = try topologyBlock(startingWith: "key: ", endingBefore: "\n", in: releaseCacheStep)
+
+            for ciJob in ciVendorJobs {
+                let ciCacheStep = try topologyBlock(
+                    startingWith: "          - name: \(stepName)\n",
+                    endingBefore: "\n\n",
+                    in: ciJob
+                )
+                let ciKey = try topologyBlock(startingWith: "key: ", endingBefore: "\n", in: ciCacheStep)
+                #expect(ciKey == releaseKey)
+
+                if stepName == "Cache Zig compilation" {
+                    let releaseRestoreKey = try topologyFirstRestoreKey(in: releaseCacheStep)
+                    let ciRestoreKey = try topologyFirstRestoreKey(in: ciCacheStep)
+                    #expect(ciRestoreKey == releaseRestoreKey)
+                }
+            }
         }
     }
 
-    @Test("code-quality mise cache saves only on main pushes")
-    func codeQualityMiseCacheSavesOnlyOnMainPushes() throws {
+    @Test("code-quality mise cache is disabled when installation is disabled")
+    func codeQualityMiseCacheIsDisabledWhenInstallationIsDisabled() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let qualityJob = try topologyJob(named: "code-quality", in: workflow)
         let miseStep = try topologyBlock(
@@ -116,7 +139,9 @@ struct CITopologyWorkflowTests {
         )
 
         #expect(miseStep.contains("uses: jdx/mise-action@v3"))
-        #expect(miseStep.contains("cache_save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"))
+        #expect(miseStep.contains("install: false"))
+        #expect(miseStep.contains("cache: false"))
+        #expect(!miseStep.contains("cache_save:"))
     }
 }
 
@@ -154,4 +179,15 @@ private func topologyBlock(startingWith marker: String, endingBefore terminator:
         return String(tail)
     }
     return String(tail[..<endRange.lowerBound])
+}
+
+private func topologyFirstRestoreKey(in cacheStep: String) throws -> String {
+    let cacheLines = cacheStep.split(separator: "\n")
+    let restoreIndex = cacheLines.firstIndex {
+        $0.trimmingCharacters(in: .whitespaces) == "restore-keys: |"
+    }
+    guard let restoreIndex, cacheLines.indices.contains(cacheLines.index(after: restoreIndex)) else {
+        throw CITopologyWorkflowError.missingBlock("restore-keys")
+    }
+    return cacheLines[cacheLines.index(after: restoreIndex)].trimmingCharacters(in: .whitespaces)
 }
