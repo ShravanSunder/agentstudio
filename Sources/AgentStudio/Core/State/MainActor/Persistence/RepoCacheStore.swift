@@ -242,7 +242,7 @@ package final class RepoCacheStore {
             guard let self else { return }
             await self.autosave(for: workspaceId, fromMaximumDelay: false)
         }
-        if maximumDelaySaveTask == nil, activeSaveTask == nil {
+        if maximumDelaySaveTask == nil {
             let persistMaximumDelay = self.persistMaximumDelay
             maximumDelaySaveTask = Task { @MainActor [weak self, delay, persistMaximumDelay, workspaceId] in
                 try? await delay.wait(persistMaximumDelay)

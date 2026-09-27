@@ -36,29 +36,18 @@ struct RepositoryTopologyStoreTests {
         )
         let repository = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/autosave-max-delay-repository"))
         store.startObserving()
-        var maximumDelayWasScheduled = false
 
         for changeIndex in 0..<9 {
             let nextSleepGeneration = clock.scheduledSleepGeneration
             coordinator.setRepoPinned(repository.id, isPinned: changeIndex.isMultiple(of: 2))
             if changeIndex == 0 {
-                await clock.waitForPendingSleepCount()
-                await Task { @MainActor in }.value
-                maximumDelayWasScheduled = clock.pendingSleepCount == 2
+                await clock.waitForPendingSleepCount(exactly: 2)
             }
             await clock.waitForPendingSleepGeneration(nextSleepGeneration)
             clock.advance(by: .milliseconds(6))
         }
 
-        if maximumDelayWasScheduled {
-            #expect(try await savedRepositoryIterator.next() == 1)
-        } else {
-            let persistedCount = try await coreDatabase.read { database in
-                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM repo") ?? 0
-            }
-            #expect(persistedCount == 1)
-            return
-        }
+        #expect(try await savedRepositoryIterator.next() == 1)
         guard case .loaded(let persisted) = await datastore.loadRepositoryTopologySnapshot() else {
             Issue.record("expected persisted topology")
             return

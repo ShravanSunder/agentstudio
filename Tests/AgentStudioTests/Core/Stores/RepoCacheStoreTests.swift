@@ -154,7 +154,6 @@ struct RepoCacheStoreTests {
         }.values(in: fixture.databaseQueue)
         var savedBranchIterator = savedBranchValues.makeAsyncIterator()
         #expect(try await savedBranchIterator.next() == .some(nil))
-        var maximumDelayWasScheduled = false
 
         for changedCount in 0..<9 {
             let nextSleepGeneration = clock.scheduledSleepGeneration
@@ -173,22 +172,13 @@ struct RepoCacheStoreTests {
                 )
             )
             if changedCount == 0 {
-                await clock.waitForPendingSleepCount()
-                await Task { @MainActor in }.value
-                maximumDelayWasScheduled = clock.pendingSleepCount == 2
+                await clock.waitForPendingSleepCount(exactly: 2)
             }
             await clock.waitForPendingSleepGeneration(nextSleepGeneration)
             clock.advance(by: .milliseconds(6))
         }
 
-        if maximumDelayWasScheduled {
-            #expect(try await savedBranchIterator.next() == "feature/x")
-        } else {
-            #expect(
-                try fixture.repository.fetchCacheState().worktreeEnrichmentByWorktreeId[worktreeId]?.branch
-                    == "feature/x"
-            )
-        }
+        #expect(try await savedBranchIterator.next() == "feature/x")
     }
 
     @Test
