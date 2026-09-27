@@ -1,0 +1,9 @@
+{
+  "kind": "pullRequest",
+  "pullRequest": {
+    "host": "github.com",
+    "owner": "example",
+    "repository": "source",
+    "number": 42
+  }
+}

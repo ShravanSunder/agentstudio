@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct ArchitectureLintCommand {
@@ -35,7 +36,16 @@ public struct ArchitectureLintCommand {
         self.standardError = standardError
         self.rules = rules
         self.documentRules = documentRules
-        self.workspaceRootPath = workspaceRootPath
+        self.workspaceRootPath = Self.canonicalFileSystemPath(workspaceRootPath)
+    }
+
+    private static func canonicalFileSystemPath(_ path: String) -> String {
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard let resolvedPath = standardizedPath.withCString({ Darwin.realpath($0, nil) }) else {
+            return standardizedPath
+        }
+        defer { Darwin.free(resolvedPath) }
+        return String(cString: resolvedPath)
     }
 
     public func run(arguments: [String]) -> Int32 {
@@ -139,11 +149,11 @@ public struct ArchitectureLintCommand {
         try ArchitectureDebtLedger.load(path: workspacePath(ledgerPath), displayPath: ledgerPath)
     }
 
-    /// A root or scoped path as an absolute, standardized path, so the same
+    /// A root or scoped path as an absolute, canonical path, so the same
     /// file named two ways is one file.
     private func workspacePath(_ path: String) -> String {
         guard !path.hasPrefix("/") else {
-            return URL(fileURLWithPath: path).standardizedFileURL.path
+            return Self.canonicalFileSystemPath(path)
         }
         return URL(
             fileURLWithPath: path,

@@ -206,55 +206,30 @@ struct SwiftLaneReceiptTests {
 
     @Test("a lane's build-slot claim is released when the lane exits")
     func laneBuildSlotClaimIsReleasedWhenTheLaneExits() async throws {
-        // The real allocator claims a slot and arms its release on EXIT; the
-        // runner then installs its own EXIT trap, which used to replace that
-        // release and leak the claim. The lane below is the runner's own takeover
-        // line and its own finish_lane_invocation, with the receipt stubbed. The
-        // control replaces the trap without the takeover: that is the old leak.
         let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
         let invocationExit = try laneScriptShellFunction(named: "finish_lane_invocation", in: laneRunnerScript)
-        let takeoverLine = try #require(
-            laneRunnerScript.split(separator: "\n").first { $0.hasPrefix("LANE_SLOT_RELEASE_COMMAND=") }
-        )
         let repositoryRoot = FileManager.default.currentDirectoryPath
-        let laneDirectory = NSTemporaryDirectory() + "agentstudio-receipt-slot-\(UUIDv7.generate())"
-        defer { try? FileManager.default.removeItem(atPath: laneDirectory) }
-        func lane(takingOver: Bool) -> String {
-            [
-                "set -euo pipefail",
-                // The test process itself runs inside a lane that exported its own
-                // slot; this lane must allocate locally, as a developer's would.
-                "unset SWIFT_BUILD_DIR CI GITHUB_ACTIONS",
-                "source '\(repositoryRoot)/scripts/swift-build-slot.sh' >/dev/null",
-                takingOver ? String(takeoverLine) : "LANE_SLOT_RELEASE_COMMAND=''",
-                "print_closing_lane_report() { echo CLOSING_RECEIPT; }",
-                invocationExit + "\n}",
-                "trap finish_lane_invocation EXIT",
-                "[ -d \"$SWIFT_BUILD_DIR/.slot-claim\" ] && echo \"CLAIM_HELD=$SWIFT_BUILD_DIR\"",
-            ].joined(separator: "\n") + "\n"
-        }
-        for variant in ["taken-over", "replaced"] {
-            try FileManager.default.createDirectory(
-                atPath: laneDirectory + "/" + variant,
-                withIntermediateDirectories: true
-            )
-            try lane(takingOver: variant == "taken-over")
-                .write(toFile: laneDirectory + "/\(variant).sh", atomically: true, encoding: .utf8)
-        }
-
-        let claims = try await laneBash(
-            "for variant in taken-over replaced; do "
-                + "(cd '\(laneDirectory)'/$variant && bash ../$variant.sh); "
-                + "[ -d '\(laneDirectory)'/$variant/.build-agent-1/.slot-claim ] "
-                + "&& echo \"$variant=leaked\" || echo \"$variant=released\"; done"
+        let output = try await laneBash(
+            "set -euo pipefail\n"
+                + "unset SWIFT_BUILD_DIR CI GITHUB_ACTIONS\n"
+                + "source '\(repositoryRoot)/scripts/swift-build-slot.sh'\n"
+                // The test runner owns the test slot. Exercise the nested EXIT
+                // handler with the free build slot so the proof cannot wait on
+                // its own parent lane.
+                + "swift_build_slot_acquire build \"receipt-test\"\n"
+                + "print_closing_lane_report() { echo CLOSING_RECEIPT; }\n"
+                + "swift_test_terminate_active_isolated_suites() { :; }\n"
+                + invocationExit + "\n}\n"
+                + "trap finish_lane_invocation EXIT\n"
+                + "[ -d \"$SWIFT_BUILD_SLOT_CLAIM_DIRECTORY\" ] && echo CLAIM_HELD\n"
         )
 
-        #expect(invocationExit.contains("eval \"$LANE_SLOT_RELEASE_COMMAND\""))
-        // The lane really held the claim, and really printed its receipt on exit.
-        #expect(claims.components(separatedBy: "CLAIM_HELD=.build-agent-1").count - 1 == 2)
-        #expect(claims.components(separatedBy: "CLOSING_RECEIPT").count - 1 == 2)
-        #expect(claims.contains("taken-over=released"))
-        #expect(claims.contains("replaced=leaked"))
+        #expect(invocationExit.contains("print_closing_lane_report \"$exit_status\""))
+        #expect(invocationExit.contains("swift_build_slot_release || true"))
+        #expect(output.contains("CLAIM_HELD"))
+        #expect(output.contains("CLOSING_RECEIPT"))
+        #expect(output.contains("released slot=build task=receipt-test"))
+        #expect(!output.contains("LANE_SLOT_RELEASE_COMMAND"))
     }
 
     @Test("a reused bundle is linked only to a clean, successful build of this commit and this executable")
@@ -316,39 +291,47 @@ struct SwiftLaneReceiptTests {
         )
     }
 
-    @Test("a crashed WebKit suite fails the lane once, named with its signal, and is never retried")
+    @Test("all crashed WebKit suites fail the lane, are tallied, and are never retried")
     func crashedWebKitSuiteFailsTheLaneWithoutRetry() async throws {
-        // `swift test` reports a helper lost to a signal only as text and exits 1,
-        // so the fake does exactly that and counts how often it was started.
+        // Two crashes must both be recorded while the healthy filter still runs.
         let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-webkit-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: workDirectory) }
 
         let laneOutput = try await laneBashAllowingFailure(
             "mkdir -p '\(workDirectory)/bin'; "
                 + "printf '#!/bin/bash\\necho started >> \"\(workDirectory)/invocations\"\\n"
-                + "echo \"error: Exited with unexpected signal code 11\"\\nexit 1\\n' > '\(workDirectory)/bin/swift'; "
-                + "chmod +x '\(workDirectory)/bin/swift'; "
-                + "export PATH='\(workDirectory)/bin':$PATH; "
+                + "if [[ \"$*\" == *CrashingSuite* || \"$*\" == *SecondCrashingSuite* ]]; then "
+                + "echo \"error: Exited with unexpected signal code 11\"; exit 1; fi\\n"
+                + "echo HEALTHY_WEBKIT_RAN\\n' > '\(workDirectory)/bin/fake-helper'; "
+                + "chmod +x '\(workDirectory)/bin/fake-helper'; "
                 + "export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE='\(workDirectory)/tally'; "
                 + ": > \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\"; "
                 + "LOG_PREFIX=webkit; TIMEOUT_SECONDS=60; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
+                + "swift_testing_bundle_path() { echo '\(workDirectory)/fake-bundle'; }; "
+                + "swift_testing_helper_path() { echo '\(workDirectory)/bin/fake-helper'; }; "
+                + "swift_testing_framework_path() { echo '\(workDirectory)'; }; "
                 + "webkit_suite_filters() { printf 'WebKitSerializedTests/CrashingSuite\\n"
-                + "WebKitSerializedTests/NeverReachedSuite\\n'; }; "
+                + "WebKitSerializedTests/SecondCrashingSuite\\n"
+                + "WebKitSerializedTests/HealthySuite\\n'; }; "
                 + "run_webkit_suites; echo \"LANE_STATUS=$?\"; "
                 + "echo \"INVOCATIONS=$(wc -l < '\(workDirectory)/invocations' | tr -d '[:space:]')\"; "
                 + "cat \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\""
         )
 
         #expect(laneOutput.contains("LANE_STATUS=1"))
-        // Exactly one start: no in-lane retry of the crashed suite, and the lane
-        // stops there rather than reporting green later.
-        #expect(laneOutput.contains("INVOCATIONS=1"))
+        #expect(laneOutput.contains("INVOCATIONS=3"))
+        #expect(laneOutput.contains("WebKit process-global concurrency: 1"))
+        #expect(laneOutput.contains("HEALTHY_WEBKIT_RAN"))
         #expect(
             laneOutput.contains("WebKit suite failed: WebKitSerializedTests/CrashingSuite status=1 signal=SEGV")
         )
         #expect(laneOutput.contains("WebKitSerializedTests/CrashingSuite\t1\tSEGV"))
+        #expect(
+            laneOutput.contains("WebKit suite failed: WebKitSerializedTests/SecondCrashingSuite status=1 signal=SEGV")
+        )
+        #expect(laneOutput.contains("WebKitSerializedTests/SecondCrashingSuite\t1\tSEGV"))
         #expect(!laneOutput.contains("retrying"))
     }
 
@@ -384,7 +367,8 @@ struct SwiftLaneReceiptTests {
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)'; LANE_EVENT_STREAM_RETAIN_ALWAYS=1; "
                 + "source scripts/swift-test-helpers.sh; "
                 + "run_swift_with_timeout 'clean half' 60 /bin/bash -c 'echo CLEAN_RUN_OK'; "
-                + "echo \"LEDGERS=$(ls -1 '\(workDirectory)' | wc -l | tr -d '[:space:]')\""
+                + "echo \"LEDGERS=$(find '\(workDirectory)' -name '*.events.jsonl' | wc -l | tr -d '[:space:]')\"; "
+                + "echo \"TIMINGS=$(find '\(workDirectory)' -name '*.timing.json' | wc -l | tr -d '[:space:]')\""
         )
 
         #expect(comparisonTask.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-width-comparison\""))
@@ -414,5 +398,6 @@ struct SwiftLaneReceiptTests {
         #expect(retained.contains("CLEAN_RUN_OK"))
         #expect(retained.contains("lane-report event_stream=\(workDirectory)/lane-clean-half-"))
         #expect(retained.contains("LEDGERS=1"))
+        #expect(retained.contains("TIMINGS=1"))
     }
 }

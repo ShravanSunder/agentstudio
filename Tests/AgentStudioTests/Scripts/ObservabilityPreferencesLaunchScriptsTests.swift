@@ -132,7 +132,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
     }
 
     @Test("preferences launchers reject unsafe trace names before writing preferences")
-    func preferencesLaunchersRejectUnsafeTraceNamesBeforeWritingPreferences() throws {
+    func preferencesLaunchersRejectUnsafeTraceNamesBeforeWritingPreferences() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let debugDataRoot = fixture.url("debug-data")
@@ -151,7 +151,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
             """
         )
 
-        let debugResult = try fixture.runScript(
+        let debugResult = try await fixture.runScript(
             "scripts/run-debug-preferences-observability.sh",
             arguments: [],
             environment: [
@@ -164,7 +164,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
             !FileManager.default.fileExists(
                 atPath: debugDataRoot.appending(path: "preferences.global.json").path))
 
-        let betaResult = try fixture.runScript(
+        let betaResult = try await fixture.runScript(
             "scripts/run-beta-preferences-observability.sh",
             arguments: ["--app", fixture.url("AgentStudio Beta.app").path],
             environment: [
@@ -177,7 +177,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
             !FileManager.default.fileExists(
                 atPath: betaProofRoot.appending(path: "preferences.global.json").path))
 
-        let stableResult = try fixture.runScript(
+        let stableResult = try await fixture.runScript(
             "scripts/run-stable-preferences-observability.sh",
             arguments: ["--app", stableApp.path, "--detach"],
             environment: [
@@ -193,7 +193,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
     }
 
     @Test("preferences launcher rejects untrusted stack helper before execution")
-    func preferencesLauncherRejectsUntrustedStackHelperBeforeExecution() throws {
+    func preferencesLauncherRejectsUntrustedStackHelperBeforeExecution() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let helperMarker = fixture.url("helper-executed")
@@ -207,7 +207,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
         )
         let proofRoot = fixture.url("beta-proof")
 
-        let result = try fixture.runScript(
+        let result = try await fixture.runScript(
             "scripts/run-beta-preferences-observability.sh",
             arguments: ["--app", fixture.url("AgentStudio Beta.app").path],
             environment: [
@@ -226,14 +226,14 @@ struct ObservabilityPreferencesLaunchScriptsTests {
     }
 
     @Test("stable preferences verifier rejects non-loopback logs query URL before curl")
-    func stablePreferencesVerifierRejectsNonLoopbackLogsQueryURLBeforeCurl() throws {
+    func stablePreferencesVerifierRejectsNonLoopbackLogsQueryURLBeforeCurl() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
         let curlMarker = fixture.url("curl-executed")
         try "".write(to: stateFile, atomically: true, encoding: .utf8)
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-stable-preferences-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -290,7 +290,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
     }
 
     @Test("preferences launchers reject escaped data roots before writing preferences")
-    func preferencesLaunchersRejectEscapedDataRootsBeforeWritingPreferences() throws {
+    func preferencesLaunchersRejectEscapedDataRootsBeforeWritingPreferences() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let escapedDebugRoot = fixture.url("escaped-debug-root")
@@ -313,7 +313,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
             """
         )
 
-        let debugResult = try fixture.runScript(
+        let debugResult = try await fixture.runScript(
             "scripts/run-debug-preferences-observability.sh",
             arguments: [],
             environment: [
@@ -326,7 +326,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
         #expect(
             !FileManager.default.fileExists(atPath: escapedDebugRoot.appending(path: "preferences.global.json").path))
 
-        let betaResult = try fixture.runScript(
+        let betaResult = try await fixture.runScript(
             "scripts/run-beta-preferences-observability.sh",
             arguments: ["--app", fixture.url("AgentStudio Beta.app").path],
             environment: [
@@ -339,7 +339,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
         #expect(
             !FileManager.default.fileExists(atPath: escapedBetaRoot.appending(path: "preferences.global.json").path))
 
-        let stableResult = try fixture.runScript(
+        let stableResult = try await fixture.runScript(
             "scripts/run-stable-preferences-observability.sh",
             arguments: ["--app", stableApp.path, "--detach"],
             environment: [
@@ -359,7 +359,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
     }
 
     @Test("beta observability verifier requires global preference load event in preference mode")
-    func betaObservabilityVerifierRequiresGlobalPreferenceLoadEventInPreferenceMode() throws {
+    func betaObservabilityVerifierRequiresGlobalPreferenceLoadEventInPreferenceMode() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -378,7 +378,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
         """.write(to: stateFile, atomically: true, encoding: .utf8)
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-beta-observability.sh",
             stateFile: stateFile,
             environment: [
@@ -419,7 +419,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
     }
 
     @Test("debug observability verifier requires global preference load event in preference mode")
-    func debugObservabilityVerifierRequiresGlobalPreferenceLoadEventInPreferenceMode() throws {
+    func debugObservabilityVerifierRequiresGlobalPreferenceLoadEventInPreferenceMode() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
@@ -439,7 +439,7 @@ struct ObservabilityPreferencesLaunchScriptsTests {
         )
         let curlArguments = fixture.url("curl-arguments")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: [

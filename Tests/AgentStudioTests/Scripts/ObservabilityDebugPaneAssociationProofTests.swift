@@ -4,13 +4,13 @@ import Testing
 @Suite("Observability debug pane association proof")
 struct ObservabilityDebugPaneAssociationProofTests {
     @Test("debug verifier accepts complete pane association runtime proof and bounded outcomes")
-    func acceptsCompletePaneAssociationRuntimeProof() throws {
+    func acceptsCompletePaneAssociationRuntimeProof() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = try paneAssociationStateFile(fixture: fixture)
         let queryLog = fixture.url("curl-query.log")
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: paneAssociationVerifierEnvironment(
@@ -29,12 +29,12 @@ struct ObservabilityDebugPaneAssociationProofTests {
     }
 
     @Test("debug verifier rejects pane association proof without topology removal telemetry")
-    func rejectsProofWithoutTopologyRemovalTelemetry() throws {
+    func rejectsProofWithoutTopologyRemovalTelemetry() async throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = try paneAssociationStateFile(fixture: fixture)
 
-        let result = try fixture.runVerifier(
+        let result = try await fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
             stateFile: stateFile,
             environment: paneAssociationVerifierEnvironment(

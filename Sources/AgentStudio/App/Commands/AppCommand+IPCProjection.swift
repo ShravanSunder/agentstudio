@@ -74,7 +74,8 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .focusSidebar:
+            .focusSidebar, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            // Worktree creation has no parameterized IPC contract yet (v1 is interactive only).
             [.noArguments]
 
         case .undoCloseTab,
@@ -243,7 +244,7 @@ extension AppCommand {
             .selectBridgeWorktree, .removeBridgeWorktree,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .debugTesting
         }
     }
@@ -309,7 +310,7 @@ extension AppCommand {
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
             .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .headless
         }
     }
@@ -384,7 +385,7 @@ extension AppCommand {
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,
             .addBridgeWorktree, .selectBridgeWorktree, .removeBridgeWorktree, .searchBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .layoutMutate
         }
     }
@@ -397,7 +398,8 @@ extension AppCommand {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             []
 
         case .undoCloseTab, .newTab,
@@ -477,7 +479,7 @@ extension AppCommand {
             .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
             .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .togglePanesSortDirection:
+            .togglePanesSortDirection, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             [.unavailable]
 
         case .openPaneLocationInEditorMenu, .editPaneNote,
@@ -593,6 +595,7 @@ extension AppCommand {
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
             .newFloatingTerminal, .openWebview,
             .showBridgeReview, .showBridgeFiles,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             // Human-only B1 receiver commands.
             .activateBridgeFile, .activateBridgeReview, .closeBridgeFile,

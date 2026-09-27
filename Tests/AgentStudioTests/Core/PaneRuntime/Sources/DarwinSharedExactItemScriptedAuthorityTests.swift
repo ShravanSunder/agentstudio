@@ -183,8 +183,8 @@ extension DarwinSharedExactItemObserverTests {
         }
     }
 
-    @Test("RootChanged invalidates both authorities; rebind renews new generations without status reads")
-    func scriptedRootChangedAndRebindReplaceAuthorityGenerations() async throws {
+    @Test("RootChanged rebinds the exact item under a replacement parent")
+    func scriptedRootChangedRebindsExactItemUnderReplacementParent() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-shared-scripted-rebind-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
@@ -192,7 +192,9 @@ extension DarwinSharedExactItemObserverTests {
         let firstRoot = fixtureRoot.appending(path: "first", directoryHint: .isDirectory)
         let secondRoot = fixtureRoot.appending(path: "second", directoryHint: .isDirectory)
         let externalParent = fixtureRoot.appending(path: "external", directoryHint: .isDirectory)
+        let replacementParent = fixtureRoot.appending(path: "external-replacement", directoryHint: .isDirectory)
         let exactItem = externalParent.appending(path: "global-excludes")
+        let replacementExactItem = replacementParent.appending(path: "global-excludes")
         try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: externalParent, withIntermediateDirectories: true)
@@ -200,41 +202,28 @@ extension DarwinSharedExactItemObserverTests {
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
 
         let streamFactory = RecordingSharedExactItemStreamFactory()
-        let client = DarwinFSEventStreamClient(
-            localStreamFactory: { _ in NoopLocalFSEventStreamLifetime() },
-            sharedExactItemStreamFactory: streamFactory.makeStream
+        let streamLifecycleRecorder = ScriptedParentStreamLifecycleRecorder()
+        let client = makeParentRebindClient(
+            streamFactory: streamFactory,
+            lifecycleRecorder: streamLifecycleRecorder
         )
         defer { client.shutdown() }
         let registrations = [
             (worktreeId: UUIDv7.generate(), root: firstRoot),
             (worktreeId: UUIDv7.generate(), root: secondRoot),
         ]
-        var originalAuthorities: [UUID: GitCleanContinuityAuthority] = [:]
-        for registration in registrations {
-            _ = client.register(
-                worktreeId: registration.worktreeId,
-                repoId: UUIDv7.generate(),
-                rootPath: registration.root
-            )
-            let barrier = try #require(
-                await client.prepare(
-                    worktreeId: registration.worktreeId,
-                    rootPath: registration.root,
-                    observationPlan: makeSharedAuthorityObservationPlan(
-                        worktreeRoot: registration.root,
-                        exactItem: exactItem
-                    )
-                )
-            )
-            let authority = try #require(
-                (await client.commit(barrier)).scriptedAuthority
-            )
-            originalAuthorities[registration.worktreeId] = authority
-        }
+        let originalAuthorities = try await prepareOriginalScriptedAuthorities(
+            for: registrations,
+            exactItem: exactItem,
+            using: client
+        )
 
+        let oldParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(externalParent).path
+        let replacementParentPath = DarwinFSEventPathCanonicalizer.canonicalURL(replacementParent).path
+        try FileManager.default.moveItem(at: externalParent, to: replacementParent)
         try #require(
             streamFactory.emit(
-                path: DarwinFSEventPathCanonicalizer.canonicalURL(externalParent).path,
+                path: oldParentPath,
                 eventId: 300,
                 flags: FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)
             )
@@ -258,7 +247,55 @@ extension DarwinSharedExactItemObserverTests {
         )
 
         for registration in registrations {
-            client.unregister(worktreeId: registration.worktreeId)
+            let originalAuthority = try #require(originalAuthorities[registration.worktreeId])
+            try await rebindScriptedRegistration(
+                registration,
+                replacementParentExactItem: replacementExactItem,
+                originalAuthority: originalAuthority,
+                client: client,
+                provider: provider
+            )
+        }
+        #expect(readRecorder.snapshot.completeStatusReadCount == 0)
+
+        let streamLifecycle = streamLifecycleRecorder.snapshot
+        #expect(streamLifecycle.startedParentPaths == [oldParentPath, replacementParentPath])
+        #expect(streamLifecycle.retiredParentPaths == [oldParentPath])
+    }
+
+    private func makeParentRebindClient(
+        streamFactory: RecordingSharedExactItemStreamFactory,
+        lifecycleRecorder: ScriptedParentStreamLifecycleRecorder
+    ) -> DarwinFSEventStreamClient {
+        DarwinFSEventStreamClient(
+            localStreamFactory: { _ in NoopLocalFSEventStreamLifetime() },
+            sharedExactItemStreamFactory: { parentKey, streamGeneration, eventHandler in
+                guard
+                    let lifetime = streamFactory.makeStream(
+                        parentKey: parentKey,
+                        streamGeneration: streamGeneration,
+                        eventHandler: eventHandler
+                    )
+                else {
+                    return nil
+                }
+                lifecycleRecorder.recordStart(parentPath: parentKey.parentPath)
+                return ScriptedParentTrackingStreamLifetime(
+                    wrappedLifetime: lifetime,
+                    parentPath: parentKey.parentPath,
+                    lifecycleRecorder: lifecycleRecorder
+                )
+            }
+        )
+    }
+
+    private func prepareOriginalScriptedAuthorities(
+        for registrations: [(worktreeId: UUID, root: URL)],
+        exactItem: URL,
+        using client: DarwinFSEventStreamClient
+    ) async throws -> [UUID: GitCleanContinuityAuthority] {
+        var authorities: [UUID: GitCleanContinuityAuthority] = [:]
+        for registration in registrations {
             _ = client.register(
                 worktreeId: registration.worktreeId,
                 repoId: UUIDv7.generate(),
@@ -274,19 +311,44 @@ extension DarwinSharedExactItemObserverTests {
                     )
                 )
             )
-            let replacementAuthority = try #require(
+            let authority = try #require(
                 (await client.commit(barrier)).scriptedAuthority
             )
-            let originalAuthority = try #require(originalAuthorities[registration.worktreeId])
-            #expect(replacementAuthority.registrationGeneration != originalAuthority.registrationGeneration)
-            #expect(await client.renew(originalAuthority) == .requiresExact(.registrationReplaced))
-            #expect(await client.renew(replacementAuthority) == .authoritative(replacementAuthority))
-            #expect(
-                await provider.renewExactCleanAuthority(replacementAuthority)
-                    == .renewed(replacementAuthority)
-            )
+            authorities[registration.worktreeId] = authority
         }
-        #expect(readRecorder.snapshot.completeStatusReadCount == 0)
+        return authorities
+    }
+
+    private func rebindScriptedRegistration(
+        _ registration: (worktreeId: UUID, root: URL),
+        replacementParentExactItem: URL,
+        originalAuthority: GitCleanContinuityAuthority,
+        client: DarwinFSEventStreamClient,
+        provider: AgentStudioGitWorkingTreeStatusProvider
+    ) async throws {
+        client.unregister(worktreeId: registration.worktreeId)
+        _ = client.register(
+            worktreeId: registration.worktreeId,
+            repoId: UUIDv7.generate(),
+            rootPath: registration.root
+        )
+        let barrier = try #require(
+            await client.prepare(
+                worktreeId: registration.worktreeId,
+                rootPath: registration.root,
+                observationPlan: makeSharedAuthorityObservationPlan(
+                    worktreeRoot: registration.root,
+                    exactItem: replacementParentExactItem
+                )
+            )
+        )
+        let replacementAuthority = try #require(
+            (await client.commit(barrier)).scriptedAuthority
+        )
+        #expect(replacementAuthority.registrationGeneration != originalAuthority.registrationGeneration)
+        #expect(await client.renew(originalAuthority) == .requiresExact(.registrationReplaced))
+        #expect(await client.renew(replacementAuthority) == .authoritative(replacementAuthority))
+        #expect(await provider.renewExactCleanAuthority(replacementAuthority) == .renewed(replacementAuthority))
     }
 
     @Test("pre-armed native callback match survives a burst beyond the diagnostic ring")
@@ -362,3 +424,56 @@ extension GitCleanContinuityAuthorityValidation {
 }
 
 private struct ScriptedStatusReadError: Error {}
+
+private struct ScriptedParentStreamLifecycleSnapshot: Sendable {
+    let startedParentPaths: [String]
+    let retiredParentPaths: [String]
+}
+
+private final class ScriptedParentStreamLifecycleRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedParentPaths: [String] = []
+    private var retiredParentPaths: [String] = []
+
+    var snapshot: ScriptedParentStreamLifecycleSnapshot {
+        lock.withLock {
+            ScriptedParentStreamLifecycleSnapshot(
+                startedParentPaths: startedParentPaths,
+                retiredParentPaths: retiredParentPaths
+            )
+        }
+    }
+
+    func recordStart(parentPath: String) {
+        lock.withLock { startedParentPaths.append(parentPath) }
+    }
+
+    func recordRetirement(parentPath: String) {
+        lock.withLock { retiredParentPaths.append(parentPath) }
+    }
+}
+
+private final class ScriptedParentTrackingStreamLifetime: DarwinSharedExactItemStreamLifetime, @unchecked Sendable {
+    private let wrappedLifetime: any DarwinSharedExactItemStreamLifetime
+    private let parentPath: String
+    private let lifecycleRecorder: ScriptedParentStreamLifecycleRecorder
+
+    init(
+        wrappedLifetime: any DarwinSharedExactItemStreamLifetime,
+        parentPath: String,
+        lifecycleRecorder: ScriptedParentStreamLifecycleRecorder
+    ) {
+        self.wrappedLifetime = wrappedLifetime
+        self.parentPath = parentPath
+        self.lifecycleRecorder = lifecycleRecorder
+    }
+
+    func flush() -> Bool {
+        wrappedLifetime.flush()
+    }
+
+    func retire() {
+        wrappedLifetime.retire()
+        lifecycleRecorder.recordRetirement(parentPath: parentPath)
+    }
+}

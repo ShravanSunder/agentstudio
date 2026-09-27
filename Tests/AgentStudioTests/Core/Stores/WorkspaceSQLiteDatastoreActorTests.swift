@@ -39,6 +39,66 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(await recorder.events.contains(.saveWorkspaceSnapshot))
     }
 
+    @Test("one datastore saves two workspaces and restores the last selected workspace")
+    func oneDatastoreSavesAndRestoresTwoWorkspaces() async throws {
+        let firstWorkspaceId = UUIDv7.generate()
+        let secondWorkspaceId = UUIDv7.generate()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.multiple-workspaces.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.multiple-workspaces.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let preparedApplicationLocalRepository = WorkspaceLocalRepository(
+            workspaceId: firstWorkspaceId,
+            databaseWriter: localQueue
+        )
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            preparedApplicationLocalRepository: preparedApplicationLocalRepository
+        )
+        _ = await datastore.loadWorkspaceSnapshot()
+
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: firstWorkspaceId,
+                    name: "First Workspace",
+                    updatedAt: Date(timeIntervalSince1970: 10)
+                )
+            )
+        )
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: secondWorkspaceId,
+                    name: "Second Workspace",
+                    updatedAt: Date(timeIntervalSince1970: 20)
+                )
+            )
+        )
+
+        let restoredWorkspaceResult = await datastore.loadWorkspaceSnapshot()
+        guard case .loaded(let restoredWorkspace) = restoredWorkspaceResult else {
+            Issue.record("Expected the last saved workspace to restore, got \(restoredWorkspaceResult)")
+            return
+        }
+        #expect(restoredWorkspace.id == secondWorkspaceId)
+        #expect(restoredWorkspace.name == "Second Workspace")
+
+        let persistedWorkspaceRecords = try coreRepository.fetchWorkspaces()
+        #expect(persistedWorkspaceRecords.count == 2)
+
+        let persistedFirstWorkspace = try coreRepository.fetchWorkspace(id: firstWorkspaceId)
+        #expect(persistedFirstWorkspace?.id == firstWorkspaceId)
+        #expect(persistedFirstWorkspace?.name == "First Workspace")
+
+        let persistedSecondWorkspace = try coreRepository.fetchWorkspace(id: secondWorkspaceId)
+        #expect(persistedSecondWorkspace?.id == secondWorkspaceId)
+        #expect(persistedSecondWorkspace?.name == "Second Workspace")
+    }
+
     @Test("workspace save emits persistence operation trace records")
     func workspaceSaveEmitsPersistenceOperationTraceRecords() async throws {
         let workspaceId = UUIDv7.generate()
@@ -198,36 +258,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(contents.contains("\"agentstudio.persistence.outcome\":\"succeeded\""))
     }
 
-    @Test("one application local database owner serves save and restore across workspaces")
-    func oneApplicationLocalDatabaseOwnerServesSaveAndRestoreAcrossWorkspaces() async throws {
-        let firstWorkspaceId = UUIDv7.generate()
-        let secondWorkspaceId = UUIDv7.generate()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.cache.core")
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.cache.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let localRepositoryFactory = CountingDatastoreLocalRepositoryFactory(localQueue: localQueue)
-        let preparedApplicationLocalRepository = localRepositoryFactory.make(
-            workspaceId: firstWorkspaceId
-        )
-        let datastore = try await preparedWorkspaceSQLiteDatastore(
-            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
-            preparedApplicationLocalRepository: preparedApplicationLocalRepository
-        )
-        #expect(localRepositoryFactory.openCount == 1)
-        _ = await datastore.loadWorkspaceSnapshot()
-
-        try await datastore.saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: firstWorkspaceId, name: "One"))
-        )
-        try await datastore.saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: secondWorkspaceId, name: "Two"))
-        )
-        _ = await datastore.loadWorkspaceSnapshot()
-
-        #expect(localRepositoryFactory.openCount == 1)
-    }
-
     @Test("workspace snapshot bundle saves are serialized")
     func workspaceSnapshotBundleSavesAreSerialized() async throws {
         let workspaceId = UUID()
@@ -340,30 +370,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(snapshot.updatedAt == Date(timeIntervalSince1970: 20))
     }
 
-    @Test("application local database opens only once across save then load")
-    func applicationLocalDatabaseOpensOnlyOnceAcrossSaveThenLoad() async throws {
-        let workspaceId = UUIDv7.generate()
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.load.core")
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.load.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let localRepositoryFactory = CountingDatastoreLocalRepositoryFactory(localQueue: localQueue)
-        let preparedApplicationLocalRepository = localRepositoryFactory.make(workspaceId: workspaceId)
-        let datastore = try await preparedWorkspaceSQLiteDatastore(
-            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
-            preparedApplicationLocalRepository: preparedApplicationLocalRepository
-        )
-        #expect(localRepositoryFactory.openCount == 1)
-        _ = await datastore.loadWorkspaceSnapshot()
-
-        try await datastore.saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Loaded"))
-        )
-        _ = await datastore.loadWorkspaceSnapshot()
-
-        #expect(localRepositoryFactory.openCount == 1)
-    }
-
     @Test("production datastore quarantines corrupt local SQLite before save")
     func productionDatastoreQuarantinesCorruptLocalSQLiteBeforeSave() async throws {
         let workspaceId = UUIDv7.generate()
@@ -421,25 +427,6 @@ struct WorkspaceSQLiteDatastoreActorTests {
     }
 
 }
-private final class CountingDatastoreLocalRepositoryFactory: @unchecked Sendable {
-    private let localQueue: DatabaseWriter
-    private let lock = NSLock()
-    private var mutableOpenCount = 0
-
-    init(localQueue: DatabaseWriter) {
-        self.localQueue = localQueue
-    }
-
-    var openCount: Int {
-        lock.withLock { mutableOpenCount }
-    }
-
-    func make(workspaceId: UUID) -> WorkspaceLocalRepository {
-        lock.withLock { mutableOpenCount += 1 }
-        return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-    }
-}
-
 private actor DatastoreProbeRecorder {
     private(set) var events: [WorkspaceSQLiteDatastoreActor.ProbeEvent] = []
 

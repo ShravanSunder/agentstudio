@@ -56,7 +56,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .openWorktree, .openWorktreeInPane,
+            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -115,10 +115,9 @@ extension AppDelegate: ShellCommandHandling {
             return executeSidebarScreenCommand(.repos) == .applied
         case .showPanesSidebar:
             return executeSidebarScreenCommand(.panes) == .applied
-        case .setInboxRowStateFilter, .setInboxContentMode:
-            return false
-        case .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-            .setInboxGroupingNone:
+        case .setInboxRowStateFilter, .setInboxContentMode,
+            .setInboxGroupingTab, .setInboxGroupingRepo,
+            .setInboxGroupingPane, .setInboxGroupingNone:
             return false
         case .newWindow:
             newWindow()
@@ -172,6 +171,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -223,7 +223,7 @@ extension AppDelegate: ShellCommandHandling {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .watchFolder, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .openWorktree, .openWorktreeInPane,
+            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -254,6 +254,9 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if WorktreeCreationKind(command: command) != nil {
+            return canExecuteWorktreeCreation(command, targetId: target, targetType: targetType)
+        }
         guard command == .updateRepositoryFacts else {
             return canExecute(command)
         }
