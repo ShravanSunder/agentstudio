@@ -1,0 +1,7 @@
+{
+  "union": "BridgeAgentRevealSettlement",
+  "value": {
+    "kind": "shown",
+    "reason": "refused"
+  }
+}
