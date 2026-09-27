@@ -329,13 +329,6 @@ final class RepoExplorerTableMaterializer: NSObject,
             }
             if !affected.isEmpty {
                 tableView.noteHeightOfRows(withIndexesChanged: affected)
-                let visibleAffected = affected.intersection(representedRowIndexes())
-                if !visibleAffected.isEmpty {
-                    tableView.reloadData(
-                        forRowIndexes: visibleAffected,
-                        columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
-                    )
-                }
             }
         }
         pendingApplicationRequiresGeometryUpdate = false

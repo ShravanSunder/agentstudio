@@ -42,7 +42,6 @@ extension RepoExplorerTableMaterializerTests {
     func candidateSelectionRemeasuresBothRows() throws {
         let paneIDs = [UUIDv7.generate(), UUIDv7.generate()]
         let snapshot = paneVariantMaterializerSnapshot(paneIDs)
-        let updated = paneVariantMaterializerSnapshot(paneIDs, title: "Updated")
         let materializer = RepoExplorerTableMaterializer(
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             onVisibleWorktreeSnapshotChange: { _ in }
@@ -68,10 +67,19 @@ extension RepoExplorerTableMaterializerTests {
         #expect(tableView.rect(ofRow: 0).height == expandedFirstHeight)
 
         materializer.apply(
-            try tableCandidate(
-                baseline: nativePlanBaseline(snapshot: snapshot, revision: 1, visibleGeneration: 1),
-                snapshot: updated,
+            RepoExplorerMaterializationContentCandidate(
+                candidateID: RepoExplorerMaterializationCandidateID(rawValue: 2),
                 requestGeneration: 2,
+                visibleGeneration: 1,
+                snapshot: snapshot,
+                tableUpdatePlan: .content(
+                    RepoExplorerNativeContentUpdatePlan(
+                        rowCount: snapshot.rows.count,
+                        membershipFingerprint: RepoExplorerMaterializationFingerprint.make(snapshot: snapshot),
+                        reloadRowsInNewSpace: [],
+                        heightReloadRowsInNewSpace: []
+                    )
+                ),
                 selectedRowID: secondID
             )
         ) { _ in }
@@ -177,8 +185,7 @@ extension RepoExplorerTableMaterializerTests {
 
     private func paneVariantMaterializerSnapshot(
         _ paneIDs: [UUID],
-        groupID: String = "recent",
-        title: String = "Pane"
+        groupID: String = "recent"
     ) -> RepoExplorerMaterializationSnapshot {
         let rows = paneIDs.map { paneID in
             let destination = RepoExplorerUnassociatedPaneDestination(
@@ -192,14 +199,14 @@ extension RepoExplorerTableMaterializerTests {
                 groupId: groupID,
                 destination: destination,
                 rowId: paneID.uuidString,
-                primaryText: title
+                primaryText: "Pane"
             )
             pane.variants = RepoExplorerPaneRowVariants(
                 compact: RepoExplorerPaneRowVariant(
-                    lines: [.title(title)], chips: [.clock], fallbackLineCount: 2
+                    lines: [.title("Pane")], chips: [.clock], fallbackLineCount: 2
                 ),
                 expanded: RepoExplorerPaneRowVariant(
-                    lines: [.title(title), .note("Note")], chips: [.clock], fallbackLineCount: 3
+                    lines: [.title("Pane"), .note("Note")], chips: [.clock], fallbackLineCount: 3
                 )
             )
             pane.displayVariant = .expanded

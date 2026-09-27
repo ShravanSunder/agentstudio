@@ -109,6 +109,9 @@ package actor PaneActivityClock {
         !pendingByPaneId.isEmpty
     }
 
+    /// Read-only observation for proof: waits until settled() has registered the requested waiters.
+    /// Available in all builds, not DEBUG-gated. It does not affect admission, publication, or
+    /// the clock's quiescence decision.
     func waitForSettledWaiterCount(_ count: Int) async {
         guard settledWaiters.count < count, !isShutDown else { return }
         await withCheckedContinuation { continuation in
