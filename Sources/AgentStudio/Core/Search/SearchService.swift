@@ -1,3 +1,5 @@
+import AgentStudioInfrastructure
+import Dispatch
 import Foundation
 import GRDB
 
@@ -6,16 +8,71 @@ package actor SearchService: SearchServicing {
     private var index: SearchIndex?
     private var installedGeneration: SearchDocumentGeneration?
     private let makeDatabaseQueue: @Sendable () throws -> DatabaseQueue
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
-    package init() {
+    package init(performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil) {
         makeDatabaseQueue = { try DatabaseQueue() }
+        self.performanceTraceRecorder = performanceTraceRecorder
     }
 
-    init(makeDatabaseQueue: @escaping @Sendable () throws -> DatabaseQueue) {
+    init(
+        makeDatabaseQueue: @escaping @Sendable () throws -> DatabaseQueue,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+    ) {
         self.makeDatabaseQueue = makeDatabaseQueue
+        self.performanceTraceRecorder = performanceTraceRecorder
     }
 
     package func search(_ request: SearchRequest) -> SearchResultSet {
+        let actorStarted = DispatchTime.now().uptimeNanoseconds
+        if let submittedAt = request.submittedAtNanoseconds {
+            recordStage(
+                "queue_wait",
+                durationNanoseconds: actorStarted >= submittedAt ? actorStarted - submittedAt : 0,
+                request: request
+            )
+        }
+        let answer = searchResult(request)
+        let actorFinished = DispatchTime.now().uptimeNanoseconds
+        recordStage(
+            "actor_work",
+            durationNanoseconds: actorFinished >= actorStarted ? actorFinished - actorStarted : 0,
+            request: request
+        )
+        return SearchResultSet(
+            sequence: answer.sequence,
+            generation: answer.generation,
+            groups: answer.groups,
+            outcome: answer.outcome,
+            actorFinishedAtNanoseconds: actorFinished
+        )
+    }
+
+    package func install(_ documentSet: SearchDocumentSet) {
+        guard installedGeneration == nil || documentSet.generation > installedGeneration! else { return }
+        do {
+            try installGeneration(documentSet)
+        } catch {
+            index = nil
+            installedGeneration = nil
+            do {
+                try installGeneration(documentSet)
+            } catch {
+                index = nil
+                installedGeneration = nil
+            }
+        }
+    }
+
+    private func installGeneration(_ documentSet: SearchDocumentSet) throws {
+        if index == nil {
+            index = try SearchIndex(databaseQueue: makeDatabaseQueue())
+        }
+        try index?.install(documentSet)
+        installedGeneration = documentSet.generation
+    }
+
+    private func searchResult(_ request: SearchRequest) -> SearchResultSet {
         if Task.isCancelled {
             return result(for: request, groups: [], outcome: .obsolete)
         }
@@ -38,17 +95,31 @@ package actor SearchService: SearchServicing {
         }
     }
 
+    private func recordStage(
+        _ stage: String,
+        durationNanoseconds: UInt64,
+        request: SearchRequest
+    ) {
+        performanceTraceRecorder?.recordDuration(
+            .commandBarSearch,
+            duration: .nanoseconds(Int64(clamping: durationNanoseconds)),
+            attributes: [
+                "agentstudio.performance.commandbar.search.stage": .string(stage),
+                "agentstudio.performance.commandbar.search.sequence": .int(Int(clamping: request.sequence.value)),
+                "agentstudio.performance.commandbar.search.generation": .int(
+                    Int(clamping: request.documentSet.generation.value)),
+                "agentstudio.performance.commandbar.item.count": .int(request.documentSet.documents.count),
+                "agentstudio.performance.commandbar.query_character.count": .int(request.text.count),
+            ]
+        )
+    }
+
     private func answer(_ request: SearchRequest) throws -> SearchResultSet {
-        if index == nil {
-            index = try SearchIndex(databaseQueue: makeDatabaseQueue())
+        if installedGeneration != request.documentSet.generation {
+            try installGeneration(request.documentSet)
         }
         guard let index else {
             return result(for: request, groups: [], outcome: .degraded(.databaseUnavailable))
-        }
-
-        if installedGeneration != request.documentSet.generation {
-            try index.install(request.documentSet)
-            installedGeneration = request.documentSet.generation
         }
 
         let foldedQuery = Self.fold(request.text)
@@ -151,6 +222,7 @@ private struct SearchRankedMatch {
 /// The sole SQLite writer. It is reachable only within the service actor.
 private final class SearchIndex {
     private let databaseQueue: DatabaseQueue
+    private var installedDocuments: [SearchItemId: SearchDocument] = [:]
 
     init(databaseQueue: DatabaseQueue) throws {
         self.databaseQueue = databaseQueue
@@ -174,12 +246,23 @@ private final class SearchIndex {
     }
 
     func install(_ documentSet: SearchDocumentSet) throws {
+        var nextDocuments: [SearchItemId: SearchDocument] = [:]
+        for document in documentSet.documents where nextDocuments[document.itemId] == nil {
+            nextDocuments[document.itemId] = document
+        }
+        let removedOrChangedIds = installedDocuments.compactMap { itemId, old -> SearchItemId? in
+            guard let new = nextDocuments[itemId], Self.sameContent(old, new) else { return itemId }
+            return nil
+        }
         try databaseQueue.write { database in
-            let existingRows = try Row.fetchAll(
-                database,
-                sql: "SELECT rowid, folded_title, folded_fields FROM search_document"
-            )
-            for row in existingRows {
+            for itemId in removedOrChangedIds {
+                guard
+                    let row = try Row.fetchOne(
+                        database,
+                        sql: "SELECT rowid, folded_title, folded_fields FROM search_document WHERE item_id = ?",
+                        arguments: [itemId.rawValue]
+                    )
+                else { continue }
                 try database.execute(
                     sql: """
                         INSERT INTO search_document_fts
@@ -188,11 +271,13 @@ private final class SearchIndex {
                         """,
                     arguments: [row["rowid"], row["folded_title"], row["folded_fields"]]
                 )
+                try database.execute(sql: "DELETE FROM search_document WHERE rowid = ?", arguments: [row["rowid"]])
             }
-            try database.execute(sql: "DELETE FROM search_document")
 
-            var installedIds: Set<SearchItemId> = []
-            for document in documentSet.documents where installedIds.insert(document.itemId).inserted {
+            for document in nextDocuments.values {
+                if let old = installedDocuments[document.itemId], Self.sameContent(old, document) {
+                    continue
+                }
                 let foldedTitle = Self.fold(document.title)
                 let foldedFields = document.fields.map(Self.fold).joined(separator: "\n")
                 try database.execute(
@@ -216,6 +301,11 @@ private final class SearchIndex {
                 )
             }
         }
+        installedDocuments = nextDocuments
+    }
+
+    private static func sameContent(_ lhs: SearchDocument, _ rhs: SearchDocument) -> Bool {
+        lhs.kind == rhs.kind && lhs.groupId == rhs.groupId && lhs.title == rhs.title && lhs.fields == rhs.fields
     }
 
     func matchingRows(query: String) throws -> [SearchIndexedRow] {

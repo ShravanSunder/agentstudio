@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AppKit
+import Dispatch
 import SwiftUI
 
 private struct CommandBarInputFocusAcknowledgementKey: EnvironmentKey {
@@ -26,7 +27,7 @@ struct CommandBarTextField: NSViewRepresentable {
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
-    var onInputChanged: @MainActor @Sendable (String) -> Void = { _ in }
+    var onInputChanged: @MainActor @Sendable (String, UInt64) -> Void = { _, _ in }
     let onBackspaceOnEmpty: () -> Void
     let onTabForward: () -> Void
     let onShiftTabBack: () -> Void
@@ -90,8 +91,9 @@ struct CommandBarTextField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
+            let inputAtNanoseconds = DispatchTime.now().uptimeNanoseconds
             parent.text = field.stringValue
-            parent.onInputChanged(field.stringValue)
+            parent.onInputChanged(field.stringValue, inputAtNanoseconds)
         }
 
         /// Called when the field editor is set up (field gains focus).

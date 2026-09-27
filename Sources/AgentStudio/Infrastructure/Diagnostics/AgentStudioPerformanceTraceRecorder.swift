@@ -198,6 +198,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
         case commandBarCache = "performance.commandbar.cache"
+        case commandBarSearch = "performance.commandbar.search"
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemIngressSnapshot = "performance.filesystem.ingress_snapshot"

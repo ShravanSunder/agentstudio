@@ -678,6 +678,7 @@ large|BridgeReviewSmokeFrameLivenessTests|concurrent
 large|BridgeWorktreeRefreshSessionTests|concurrent
 large|CIFastLaneWorkflowTests|concurrent
 large|CIFirstAttemptGateWorkflowTests|concurrent
+benchmark|CommandBarSearchBenchmarkTests|process-global
 large|CursorPackageInstallerTests|concurrent
 large|DarwinCompositeFSEventContinuityTests|process-global
 large|DarwinFSEventStreamClientTests|process-global

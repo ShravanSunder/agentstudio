@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import Dispatch
 import Foundation
 import Observation
 
@@ -33,6 +34,7 @@ final class CommandBarResultSession {
     @ObservationIgnored private var preparedSearch: CommandBarPreparedSearch?
     @ObservationIgnored private var preparedLevelVisitRevision: Int?
     @ObservationIgnored private var lastPresentationSnapshot: CommandBarResultSnapshot?
+    @ObservationIgnored private var lastTopologyInvalidatedAtNanoseconds: UInt64?
     private(set) var rootItemSnapshotInvalidationRevision = 0
 
     var currentRowGeneration: SearchDocumentGeneration {
@@ -254,7 +256,8 @@ final class CommandBarResultSession {
             rowsById: rowsById,
             canOpenWorktreeInCurrentTab: canOpenWorktreeInCurrentTab(),
             focusedPane: focusedPane,
-            commandContext: commandContext
+            commandContext: commandContext,
+            topologyInvalidatedAtNanoseconds: lastTopologyInvalidatedAtNanoseconds
         )
         preparedSearch = prepared
         return prepared
@@ -404,6 +407,7 @@ final class CommandBarResultSession {
     private func invalidateRootItemSnapshot(observationGeneration: Int) {
         guard rootItemSnapshotObservationGeneration == observationGeneration else { return }
         isRootItemSnapshotInvalidated = true
+        lastTopologyInvalidatedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
         advanceRowGeneration()
         rootItemSnapshotInvalidationRevision += 1
     }

@@ -1,12 +1,16 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
+import Dispatch
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AgentStudioCommandBar
 
 private actor ControlledCommandBarSearchService: SearchServicing {
+    private var installedSets: [SearchDocumentSet] = []
+    private var installWaiters: [CheckedContinuation<SearchDocumentSet, Never>] = []
     private var admittedRequests: [SearchRequest] = []
     private var requestWaiters: [CheckedContinuation<SearchRequest, Never>] = []
     private var answerWaiters: [UInt64: CheckedContinuation<SearchResultSet, Never>] = [:]
@@ -21,6 +25,21 @@ private actor ControlledCommandBarSearchService: SearchServicing {
             answerWaiters[request.sequence.value] = continuation
         }
     }
+
+    func install(_ documentSet: SearchDocumentSet) async {
+        if installWaiters.isEmpty {
+            installedSets.append(documentSet)
+        } else {
+            installWaiters.removeFirst().resume(returning: documentSet)
+        }
+    }
+
+    func nextInstall() async -> SearchDocumentSet {
+        if !installedSets.isEmpty { return installedSets.removeFirst() }
+        return await withCheckedContinuation { installWaiters.append($0) }
+    }
+
+    func requestCount() -> Int { admittedRequests.count }
 
     func nextRequest() async -> SearchRequest {
         if !admittedRequests.isEmpty { return admittedRequests.removeFirst() }
@@ -41,6 +60,21 @@ struct CommandBarAsyncSearchTests {
 
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    @Test("open and topology invalidation install their generations before a query")
+    func generationInstalledAheadOfQuery() async {
+        let service = ControlledCommandBarSearchService()
+        let controller = makeController(service: service)
+        controller.state.show(prefix: ">")
+        controller.queryChanged(text: controller.state.rawInput)
+        let openSet = await service.nextInstall()
+        #expect(await service.requestCount() == 0)
+
+        controller.searchContextChanged()
+        let changedSet = await service.nextInstall()
+        #expect(changedSet.generation > openSet.generation)
+        #expect(await service.requestCount() == 0)
     }
 
     @Test("a late first answer cannot replace the newest applied query")
@@ -389,10 +423,82 @@ struct CommandBarAsyncSearchTests {
         #expect(controller.state.appliedSearchResult?.displayedItems.map(\.id).contains(worktreeId) != true)
     }
 
+    @Test("holding publication increases the recorded input-to-publication interval")
+    func publicationStageIsCausal() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "command-bar-search-measurement-\(UUIDv7.generate().uuidString)")
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "command-bar-search-measurement",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 731,
+            timeUnixNano: { 1 }
+        )
+        let traceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let clock = Mutex<UInt64>(1_000_000)
+        let service = ControlledCommandBarSearchService()
+        let controller = makeController(
+            service: service,
+            traceRecorder: traceRecorder,
+            nowNanoseconds: { clock.withLock { $0 } }
+        )
+        controller.state.show(prefix: ">")
+
+        controller.state.rawInput = "> close"
+        controller.queryChanged(text: controller.state.rawInput)
+        let firstRequest = await service.nextRequest()
+        let firstTask = try #require(controller.pendingSearchTask)
+        clock.withLock { $0 = 2_000_000 }
+        await service.release(answer(for: firstRequest))
+        await firstTask.value
+        clock.withLock { $0 = 3_000_000 }
+        controller.acknowledgeResultPublished(
+            sequence: firstRequest.sequence,
+            generation: firstRequest.documentSet.generation
+        )
+
+        clock.withLock { $0 = 4_000_000 }
+        controller.state.rawInput = "> new"
+        controller.queryChanged(text: controller.state.rawInput)
+        let secondRequest = await service.nextRequest()
+        let secondTask = try #require(controller.pendingSearchTask)
+        clock.withLock { $0 = 5_000_000 }
+        await service.release(answer(for: secondRequest))
+        await secondTask.value
+        clock.withLock { $0 = 10_000_000 }
+        controller.acknowledgeResultPublished(
+            sequence: secondRequest.sequence,
+            generation: secondRequest.documentSet.generation
+        )
+
+        try await traceRecorder.drain()
+        let outputURL = try #require(traceRuntime.outputFileURL)
+        let records = try String(contentsOf: outputURL, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { line -> [String: Any]? in
+                try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            }
+        let intervals = records.compactMap { record -> Double? in
+            guard let attributes = record["attributes"] as? [String: Any],
+                attributes["agentstudio.performance.commandbar.search.stage"] as? String == "end_to_end"
+            else { return nil }
+            return attributes["agentstudio.performance.elapsed_ms"] as? Double
+        }
+        #expect(intervals.count == 2)
+        if intervals.count == 2 {
+            #expect(intervals[1] > intervals[0])
+        }
+    }
+
     private func makeController(
         service: any SearchServicing,
         store: WorkspaceStore = WorkspaceStore(),
-        repoCache: RepoCacheAtom = RepoCacheAtom()
+        repoCache: RepoCacheAtom = RepoCacheAtom(),
+        traceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        nowNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
     ) -> CommandBarPanelController {
         CommandBarPanelController(
             store: store,
@@ -402,6 +508,8 @@ struct CommandBarAsyncSearchTests {
             quickOpenDirectoryHandler: { _, _ in },
             commandBarSurface: CommandBarSurfaceAtom(),
             searchService: service,
+            performanceTraceRecorder: traceRecorder,
+            searchNowNanoseconds: nowNanoseconds,
             recentsDefaults: recentsDefaultsFixture.makeDefaults()
         )
     }

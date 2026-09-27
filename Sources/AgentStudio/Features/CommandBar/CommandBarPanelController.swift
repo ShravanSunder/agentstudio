@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AppKit
+import Dispatch
 import SwiftUI
 import os.log
 
@@ -28,7 +29,8 @@ package final class CommandBarPanelController {
     private let quickOpenDirectoryHandler: @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
-    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let searchNowNanoseconds: @Sendable () -> UInt64
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private let animatePanelDismissal: Bool
     let worktreeForkEligibility: (any WorktreeForkEligibilityChecking)?
@@ -39,7 +41,12 @@ package final class CommandBarPanelController {
     let searchService: any SearchServicing
     var searchSequence: UInt64 = 0
     var pendingSearchTask: Task<Void, Never>?
+    var pendingGenerationInstallTask: Task<Void, Never>?
+    var scheduledInstallGeneration: SearchDocumentGeneration?
     var lastResubmittedGeneration: SearchDocumentGeneration?
+    var currentSearchMeasurement: CommandBarSearchMeasurement?
+    var lastAcknowledgedPublication: CommandBarPublicationIdentity?
+    var lastFreshnessMeasuredGeneration: SearchDocumentGeneration?
 
     /// The open-in-current-tab capability every worktree level is first built with, read
     /// directly: an async answer must not rebuild the result snapshot or move the selection.
@@ -83,6 +90,7 @@ package final class CommandBarPanelController {
         commandBarSurface: CommandBarSurfaceAtom,
         searchService: any SearchServicing = SearchService(),
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        searchNowNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         animatePanelDismissal: Bool = true,
         recentsDefaults: UserDefaults = .standard,
@@ -100,6 +108,7 @@ package final class CommandBarPanelController {
         self.commandBarSurface = commandBarSurface
         self.searchService = searchService
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.searchNowNanoseconds = searchNowNanoseconds
         self.interactionProbe =
             interactionProbe
             ?? performanceTraceRecorder.map {
@@ -217,6 +226,7 @@ package final class CommandBarPanelController {
         }
 
         activationGenerationGate.invalidate()
+        recordSupersededSearch(at: searchNowNanoseconds())
         searchSequence += 1
         pendingSearchTask?.cancel()
         pendingSearchTask = nil
@@ -275,11 +285,14 @@ package final class CommandBarPanelController {
             onInputFocusAcknowledged: { [weak self] in
                 self?.acknowledgeInputFocus()
             },
-            onInputChanged: { [weak self] text in
-                self?.queryChanged(text: text)
+            onInputChanged: { [weak self] text, inputAtNanoseconds in
+                self?.queryChanged(text: text, inputAtNanoseconds: inputAtNanoseconds)
             },
             onSearchContextChanged: { [weak self] in
                 self?.searchContextChanged()
+            },
+            onResultPublished: { [weak self] sequence, generation in
+                self?.acknowledgeResultPublished(sequence: sequence, generation: generation)
             }
         )
         panel.setContent(contentView)

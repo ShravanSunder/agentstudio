@@ -13,7 +13,7 @@ package struct CommandBarSearchField: View {
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
-    let onInputChanged: @MainActor @Sendable (String) -> Void
+    let onInputChanged: @MainActor @Sendable (String, UInt64) -> Void
     let onBackspaceOnEmpty: () -> Void
     let onTabForward: () -> Void
     let onShiftTabBack: () -> Void
@@ -25,7 +25,7 @@ package struct CommandBarSearchField: View {
         onArrowDown: @escaping () -> Void,
         onEnter: @escaping (EnterModifier) -> Void,
         onShortcutTrigger: @escaping (ShortcutTrigger) -> Bool,
-        onInputChanged: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+        onInputChanged: @escaping @MainActor @Sendable (String, UInt64) -> Void = { _, _ in },
         onBackspaceOnEmpty: @escaping () -> Void,
         onTabForward: @escaping () -> Void,
         onShiftTabBack: @escaping () -> Void

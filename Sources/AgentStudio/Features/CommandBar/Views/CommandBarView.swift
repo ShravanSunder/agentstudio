@@ -15,8 +15,15 @@ struct CommandBarView: View {
     let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
     let onInitialResultsPublished: @MainActor @Sendable () -> Void
     let onInputFocusAcknowledged: @MainActor @Sendable () -> Void
-    let onInputChanged: @MainActor @Sendable (String) -> Void
+    let onInputChanged: @MainActor @Sendable (String, UInt64) -> Void
     let onSearchContextChanged: @MainActor @Sendable () -> Void
+    let onResultPublished: @MainActor @Sendable (SearchRequestSequence, SearchDocumentGeneration) -> Void
+
+    private var currentPublication: CommandBarPublicationIdentity? {
+        state.appliedSearchResult.map {
+            CommandBarPublicationIdentity(sequence: $0.sequence, generation: $0.generation)
+        }
+    }
 
     var body: some View {
         let resultSnapshot = resultSession.snapshot(state: state)
@@ -82,7 +89,16 @@ struct CommandBarView: View {
             )
         }
         .frame(maxWidth: .infinity)
-        .onAppear(perform: onInitialResultsPublished)
+        .onAppear {
+            onInitialResultsPublished()
+            if let publication = currentPublication {
+                onResultPublished(publication.sequence, publication.generation)
+            }
+        }
+        .onChange(of: currentPublication) { _, publication in
+            guard let publication else { return }
+            onResultPublished(publication.sequence, publication.generation)
+        }
         .environment(\.commandBarInputFocusAcknowledgement, onInputFocusAcknowledged)
     }
 

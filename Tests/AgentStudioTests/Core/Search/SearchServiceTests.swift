@@ -99,6 +99,41 @@ struct SearchServiceTests {
         #expect(ids(in: again) == ["new"])
     }
 
+    @Test("a one-title generation change rewrites only that indexed row")
+    func changedTitleInstallsAsDiff() async throws {
+        let queue = try DatabaseQueue()
+        let service = SearchService(makeDatabaseQueue: { queue })
+        let originals = (0..<10).map { document("row-\($0)", title: "entry-\($0)") }
+        let firstSet = set(1, documents: originals)
+        await service.install(firstSet)
+        let originalRowIds = try await queue.read { database in
+            let rows = try Row.fetchAll(database, sql: "SELECT item_id, rowid FROM search_document")
+            var rowIds: [String: Int64] = [:]
+            for row in rows {
+                rowIds[row["item_id"] as String] = row["rowid"] as Int64
+            }
+            return rowIds
+        }
+
+        var changed = originals
+        changed[4] = document("row-4", title: "renamed-entry")
+        let secondSet = set(2, documents: changed)
+        await service.install(secondSet)
+        let updatedRowIds = try await queue.read { database in
+            let rows = try Row.fetchAll(database, sql: "SELECT item_id, rowid FROM search_document")
+            var rowIds: [String: Int64] = [:]
+            for row in rows {
+                rowIds[row["item_id"] as String] = row["rowid"] as Int64
+            }
+            return rowIds
+        }
+        #expect(updatedRowIds.count == 10)
+        #expect(updatedRowIds.filter { originalRowIds[$0.key] != $0.value }.count == 1)
+        #expect(updatedRowIds["row-4"] != originalRowIds["row-4"])
+        #expect(ids(in: await service.search(request(1, text: "renamed", set: secondSet))) == ["row-4"])
+        #expect(ids(in: await service.search(request(2, text: "entry-4", set: secondSet))).isEmpty)
+    }
+
     @Test("a cancelled first request for a generation cannot poison its next request")
     func cancelledRequestKeepsGenerationAvailable() async {
         let service = SearchService()

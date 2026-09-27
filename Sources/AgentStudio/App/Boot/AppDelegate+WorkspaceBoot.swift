@@ -513,7 +513,7 @@ extension AppDelegate {
     }
 
     private func bootInstallCommandBar() {
-        let searchService = SearchService()
+        let searchService = SearchService(performanceTraceRecorder: performanceTraceRecorder)
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,

@@ -85,17 +85,20 @@ package struct SearchRequest: Sendable {
     package let text: String
     package let recentItemIds: [SearchItemId]
     package let documentSet: SearchDocumentSet
+    package let submittedAtNanoseconds: UInt64?
 
     package init(
         sequence: SearchRequestSequence,
         text: String,
         recentItemIds: [SearchItemId],
-        documentSet: SearchDocumentSet
+        documentSet: SearchDocumentSet,
+        submittedAtNanoseconds: UInt64? = nil
     ) {
         self.sequence = sequence
         self.text = text
         self.recentItemIds = recentItemIds
         self.documentSet = documentSet
+        self.submittedAtNanoseconds = submittedAtNanoseconds
     }
 }
 
@@ -135,20 +138,24 @@ package struct SearchResultSet: Sendable {
     package let generation: SearchDocumentGeneration
     package let groups: [SearchResultGroup]
     package let outcome: SearchResultOutcome
+    package let actorFinishedAtNanoseconds: UInt64?
 
     package init(
         sequence: SearchRequestSequence,
         generation: SearchDocumentGeneration,
         groups: [SearchResultGroup],
-        outcome: SearchResultOutcome
+        outcome: SearchResultOutcome,
+        actorFinishedAtNanoseconds: UInt64? = nil
     ) {
         self.sequence = sequence
         self.generation = generation
         self.groups = groups
         self.outcome = outcome
+        self.actorFinishedAtNanoseconds = actorFinishedAtNanoseconds
     }
 }
 
 package protocol SearchServicing: Sendable {
+    func install(_ documentSet: SearchDocumentSet) async
     func search(_ request: SearchRequest) async -> SearchResultSet
 }
