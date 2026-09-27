@@ -357,8 +357,16 @@ final class WorkspaceStoreDrawerTests {
     @Test
 
     func test_removeDrawerPane_invalidParent_noOp() {
-        // Should not crash
-        store.removeDrawerPane(UUID(), from: UUID())
+        let parentPane = createTabbedPane()
+        let drawerPane = store.addDrawerPane(to: parentPane.id)!
+        let invalidParentPaneId = UUIDv7.generate()
+        let drawerBefore = drawerView(for: parentPane.id)!
+        let workspaceBefore = store.programmaticControlSnapshot()
+
+        store.removeDrawerPane(drawerPane.id, from: invalidParentPaneId)
+
+        #expect(drawerView(for: parentPane.id) == drawerBefore)
+        #expect(store.programmaticControlSnapshot() == workspaceBefore)
     }
 
     // MARK: - toggleDrawer

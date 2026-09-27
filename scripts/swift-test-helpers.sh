@@ -1342,7 +1342,7 @@ run_fast_serial_process_swift_tests() {
 
   for fast_process_global_suite_filter in "${fast_process_global_suite_filters[@]}"; do
     timing_batch=$((timing_batch + 1))
-    LANE_TIMING_FILTER="$fast_process_global_suite_filter" \
+    LANE_TIMING_PHASE=fast-process-global LANE_TIMING_FILTER="$fast_process_global_suite_filter" \
       LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
       LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" run_swift_with_timeout \
       "isolated fast process-global suite: $fast_process_global_suite_filter" \
@@ -1464,8 +1464,9 @@ swift_test_failed_isolated_suite_count() {
   /usr/bin/awk 'END { print NR + 0 }' "$tally_file"
 }
 
-# The parent owns the one completion channel and reaps by PID. A wrapper writes
-# one short line after its watchdog has reaped the test command; FIFO lines stay
+# The parent owns the one completion channel and reaps by PID. A wrapper waits
+# for its worker and writes one short line even when that worker is killed;
+# FIFO lines stay
 # atomic because they are shorter than PIPE_BUF. Bash 3.2 has no wait -n.
 dispatch_isolated_suites() {
   local lane_kind="$1"
@@ -1474,7 +1475,7 @@ dispatch_isolated_suites() {
   local -a suite_filters=("$@") active_pids=() active_filters=()
   local concurrency next_filter=0 active_count=0 dispatch_ordinal=0
   local slot suite_filter wrapper_pid completed_slot completed_pid completed_status waited_status
-  local lane_status=0 timing_eligible_ms fifo_path
+  local lane_status=0 timing_eligible_ms dispatch_dir fifo_path
   if [ "$lane_kind" = webkit ]; then
     concurrency="$(swift_test_webkit_process_concurrency)"
     echo "[$LOG_PREFIX] WebKit process-global concurrency: $concurrency"
@@ -1483,8 +1484,9 @@ dispatch_isolated_suites() {
     echo "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
   fi
   timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-  fifo_path="$(mktemp "${TMPDIR:-/tmp}/agentstudio-isolated-completions.XXXXXX")"
-  rm -f "$fifo_path"
+  mkdir -p "$LANE_EVENT_STREAM_DIR"
+  dispatch_dir="$(mktemp -d "${LANE_EVENT_STREAM_DIR:-${TMPDIR:-/tmp}}/agentstudio-isolated-dispatch.XXXXXX")"
+  fifo_path="$dispatch_dir/completions"
   mkfifo "$fifo_path"
   exec 7<>"$fifo_path"
   SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
@@ -1499,14 +1501,16 @@ dispatch_isolated_suites() {
         # Bash 3.2 lacks BASHPID and $$ is the parent shell. An immediate
         # child reports its PPID through a slot-local file, avoiding a second
         # FIFO handshake that can strand a rapidly completing worker.
-        /bin/sh -c 'printf "%s\n" "$PPID"' >"$fifo_path.pid$slot"
-        read -r child_pid <"$fifo_path.pid$slot"
-        rm -f "$fifo_path.pid$slot"
-        export LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
+        /bin/sh -c 'printf "%s\n" "$PPID"' >"$dispatch_dir/pid-$slot"
+        read -r child_pid <"$dispatch_dir/pid-$slot"
+        rm -f "$dispatch_dir/pid-$slot"
+        export LANE_TIMING_PHASE="$lane_kind" LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
         export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
         export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
         local child_status=0
-        run_selected_isolated_suite "$lane_kind" "$suite_filter" || child_status=$?
+        (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
+        local worker_pid=$!
+        wait "$worker_pid" || child_status=$?
         printf '%s %s %s\n' "$slot" "$child_pid" "$child_status" >&7
         exit "$child_status"
       ) &
@@ -1550,6 +1554,7 @@ dispatch_isolated_suites() {
   SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
   exec 7>&-
   rm -f "$fifo_path"
+  rmdir "$dispatch_dir"
   return "$lane_status"
 }
 
@@ -1779,12 +1784,14 @@ write_lane_timing_sidecar() {
     LANE_TIMING_EXIT="$child_exit_ms" LANE_TIMING_STATUS="$child_status" \
     LANE_TIMING_COMPLETE="$wrapper_complete_ms" LANE_TIMING_TIMEOUT="$timed_out" \
     LANE_TIMING_CAP="${LANE_TIMING_CONCURRENCY:-}" \
+    LANE_TIMING_PHASE="${LANE_TIMING_PHASE:-}" \
     LANE_TIMING_EVENT_FILE="$event_stream_path" \
     /usr/bin/perl -MJSON::PP -e '
       sub nullable_number { defined $_[0] && $_[0] =~ /^[0-9]+$/ ? 0 + $_[0] : undef }
       sub nullable_text { defined $_[0] && length $_[0] ? $_[0] : undef }
       my $record = {
         schema_version => 1, lane => $ENV{LANE_TIMING_LANE}, label => $ENV{LANE_TIMING_LABEL},
+        phase => nullable_text($ENV{LANE_TIMING_PHASE}),
         filter => nullable_text($ENV{LANE_TIMING_FILTER}),
         batch_id => nullable_number($ENV{LANE_TIMING_BATCH}),
         slot => nullable_number($ENV{LANE_TIMING_SLOT}),
@@ -1903,13 +1910,16 @@ run_swift_with_timeout() {
     read -r last_output_size last_progress_epoch <<<"$watchdog_state"
     local inactive_seconds=$((now_epoch - last_progress_epoch))
 
-    if ! swift_test_watchdog_timeout_status \
-      "$last_progress_epoch" \
-      "$now_epoch" \
-      "$timeout_seconds"
-    then
-      timed_out=1
-      break
+    # Hang tests arm the watchdog only after their child is parked.
+    if [ -z "${LANE_WATCHDOG_ARM_PATH:-}" ] || [ -e "$LANE_WATCHDOG_ARM_PATH" ]; then
+      if ! swift_test_watchdog_timeout_status \
+        "$last_progress_epoch" \
+        "$now_epoch" \
+        "$timeout_seconds"
+      then
+        timed_out=1
+        break
+      fi
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
@@ -2288,13 +2298,22 @@ run_webkit_suite() {
   # Preserve raw output so a signalled helper remains visible in the receipt.
   # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
   _XCB_BYPASS=1
-  # shellcheck disable=SC2086
-  output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
-    DYLD_FRAMEWORK_PATH="$testing_framework_path" \
-    "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-    --filter "$filter" "$swift_test_bundle" --testing-library swift-testing \
-    2>&1) || command_status=$?
+  if [ -n "${EXTRA_SWIFT_TEST_ARGS:-}" ]; then
+    # swiftpm-testing-helper has no coverage option. Let SwiftPM apply the
+    # requested flags to this suite rather than silently dropping them.
+    # shellcheck disable=SC2086
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      swift test ${EXTRA_SWIFT_TEST_ARGS} --skip-build --filter "$filter" --build-path "$BUILD_PATH" \
+      2>&1) || command_status=$?
+  else
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+      --filter "$filter" "$swift_test_bundle" --testing-library swift-testing \
+      2>&1) || command_status=$?
+  fi
   unset _XCB_BYPASS
   echo "$output"
 

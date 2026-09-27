@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 
-@Suite(.serialized)
+@Suite
 @MainActor
 struct AppLifecycleAtomTests {
     @Test("starts inactive and not terminating")

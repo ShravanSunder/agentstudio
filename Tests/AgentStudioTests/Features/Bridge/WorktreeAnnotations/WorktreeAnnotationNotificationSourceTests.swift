@@ -19,13 +19,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             )
         }
 
-        guard
-            await waitUntilNotificationState(
-                "catalog begin should enqueue",
-                condition: {
-                    await harness.recorder.eventCount == 1
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(1)) else {
             openTask.cancel()
             return
         }
@@ -41,11 +35,9 @@ struct WorktreeAnnotationNotificationSourceTests {
         #expect(beginEvent.authority.applicationSourceGeneration == 0)
         #expect(beginTransfer.expectedEntryCount == 0)
         guard
-            await waitUntilNotificationState(
-                "catalog begin observation waiter should register",
-                condition: {
-                    await harness.recorder.pendingObservationSequences == [begin.sequence]
-                })
+            await harness.recorder.waitUntil(
+                .pendingObservationSequences([begin.sequence])
+            )
         else {
             openTask.cancel()
             return
@@ -54,12 +46,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         #expect(await harness.recorder.eventCount == 1)
 
         await harness.recorder.acknowledge(sequence: begin.sequence)
-        guard
-            await waitUntilNotificationState(
-                "catalog commit should enqueue after begin observation",
-                condition: { await harness.recorder.eventCount == 2 }
-            )
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(2)) else {
             openTask.cancel()
             return
         }
@@ -77,11 +64,9 @@ struct WorktreeAnnotationNotificationSourceTests {
         #expect(commit.operationCorrelationID == begin.operationCorrelationID)
         #expect(commit.operationCorrelationID.count == 64)
         guard
-            await waitUntilNotificationState(
-                "catalog commit observation waiter should register",
-                condition: {
-                    await harness.recorder.pendingObservationSequences == [commit.sequence]
-                })
+            await harness.recorder.waitUntil(
+                .pendingObservationSequences([commit.sequence])
+            )
         else {
             openTask.cancel()
             return
@@ -89,13 +74,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         #expect(await harness.recorder.pendingObservationSequences == [commit.sequence])
 
         await harness.recorder.acknowledge(sequence: commit.sequence)
-        #expect(
-            await waitUntilNotificationState(
-                "source should enter its observation loop",
-                condition: {
-                    await harness.service.changeObserverCount() == 1
-                })
-        )
+        #expect(await harness.service.changeObserverCount() == 1)
         #expect(await harness.recorder.observedSequences == [begin.sequence, commit.sequence])
         openTask.cancel()
         _ = try? await openTask.value
@@ -115,25 +94,13 @@ struct WorktreeAnnotationNotificationSourceTests {
                 )
             )
         }
-        guard
-            await waitUntilNotificationState(
-                "bootstrap catalog should finish",
-                condition: {
-                    await harness.recorder.eventCount == 2
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(2)) else {
             openTask.cancel()
             return
         }
 
         _ = try await harness.service.createRootDraft(makeCreateRootDraftProps())
-        guard
-            await waitUntilNotificationState(
-                "replacement catalog should finish",
-                condition: {
-                    await harness.recorder.eventCount == 5
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(5)) else {
             openTask.cancel()
             return
         }
@@ -182,25 +149,13 @@ struct WorktreeAnnotationNotificationSourceTests {
                 )
             )
         }
-        guard
-            await waitUntilNotificationState(
-                "bootstrap catalog should finish",
-                condition: {
-                    await harness.recorder.eventCount == 2
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(2)) else {
             openTask.cancel()
             return
         }
 
         let draftDetail = try await harness.service.createRootDraft(makeCreateRootDraftProps())
-        guard
-            await waitUntilNotificationState(
-                "topology catalog should finish",
-                condition: {
-                    await harness.recorder.eventCount == 5
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(5)) else {
             openTask.cancel()
             return
         }
@@ -215,13 +170,7 @@ struct WorktreeAnnotationNotificationSourceTests {
                 now: Date(timeIntervalSince1970: 3)
             )
         )
-        guard
-            await waitUntilNotificationState(
-                "session change should enqueue",
-                condition: {
-                    await harness.recorder.eventCount == 6
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(6)) else {
             openTask.cancel()
             return
         }
@@ -257,13 +206,7 @@ struct WorktreeAnnotationNotificationSourceTests {
                 )
             )
         }
-        guard
-            await waitUntilNotificationState(
-                "bootstrap catalog should finish",
-                condition: {
-                    await harness.recorder.eventCount == 2
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(2)) else {
             openTask.cancel()
             return
         }
@@ -277,13 +220,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             ),
             operationCorrelationID: operationCorrelationID
         )
-        guard
-            await waitUntilNotificationState(
-                "recovery control change should enqueue",
-                condition: {
-                    await harness.recorder.eventCount == 3
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(3)) else {
             openTask.cancel()
             return
         }
@@ -318,13 +255,7 @@ struct WorktreeAnnotationNotificationSourceTests {
                 )
             )
         }
-        guard
-            await waitUntilNotificationState(
-                "bootstrap catalog should finish",
-                condition: {
-                    await harness.recorder.eventCount == 2
-                })
-        else {
+        guard await harness.recorder.waitUntil(.eventCount(2)) else {
             openTask.cancel()
             return
         }
@@ -333,13 +264,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         await #expect(throws: NotificationDeliveryFailure.injected) {
             try await openTask.value
         }
-        #expect(
-            await waitUntilNotificationState(
-                "delivery failure should remove observer",
-                condition: {
-                    await harness.service.changeObserverCount() == 0
-                })
-        )
+        #expect(await harness.service.changeObserverCount() == 0)
     }
 }
 
@@ -410,6 +335,16 @@ private func makeNotificationDelivery(
     )
 }
 
+private enum NotificationDeliveryStateExpectation: Hashable, Sendable {
+    case eventCount(Int)
+    case pendingObservationSequences([Int])
+}
+
+private struct NotificationDeliveryStateWaiter {
+    let expectation: NotificationDeliveryStateExpectation
+    let continuation: CheckedContinuation<Bool, Never>
+}
+
 private actor NotificationDeliveryRecorder {
     struct RecordedEvent: Sendable {
         let event: BridgeProductWorktreeAnnotationEvent
@@ -421,6 +356,7 @@ private actor NotificationDeliveryRecorder {
     private let failingSequence: Int?
     private var nextSequence = 1
     private var observationWaiterBySequence: [Int: CheckedContinuation<Bool, Never>] = [:]
+    private var notificationStateWaiters: [NotificationDeliveryStateWaiter] = []
     private(set) var events: [RecordedEvent] = []
     private(set) var observedSequences: [Int] = []
 
@@ -433,6 +369,15 @@ private actor NotificationDeliveryRecorder {
 
     var pendingObservationSequences: [Int] {
         observationWaiterBySequence.keys.sorted()
+    }
+
+    func waitUntil(_ expectation: NotificationDeliveryStateExpectation) async -> Bool {
+        if isSatisfied(expectation) { return true }
+        return await withCheckedContinuation { continuation in
+            notificationStateWaiters.append(
+                .init(expectation: expectation, continuation: continuation)
+            )
+        }
     }
 
     func enqueue(
@@ -451,6 +396,7 @@ private actor NotificationDeliveryRecorder {
                 sequence: sequence
             )
         )
+        resumeSatisfiedNotificationStateWaiters()
         return .enqueued(
             .init(
                 data: Data([UInt8(sequence)]),
@@ -468,26 +414,36 @@ private actor NotificationDeliveryRecorder {
         }
         return await withCheckedContinuation { continuation in
             observationWaiterBySequence[sequence] = continuation
+            resumeSatisfiedNotificationStateWaiters()
         }
     }
 
     func acknowledge(sequence: Int) {
         observedSequences.append(sequence)
         observationWaiterBySequence.removeValue(forKey: sequence)?.resume(returning: true)
+        resumeSatisfiedNotificationStateWaiters()
     }
-}
 
-private func waitUntilNotificationState(
-    _ description: String,
-    maximumTurns: Int = 20_000,
-    condition: () async -> Bool
-) async -> Bool {
-    for _ in 0..<maximumTurns {
-        if await condition() { return true }
-        await Task.yield()
+    private func isSatisfied(_ expectation: NotificationDeliveryStateExpectation) -> Bool {
+        switch expectation {
+        case .eventCount(let expectedCount):
+            events.count == expectedCount
+        case .pendingObservationSequences(let expectedSequences):
+            observationWaiterBySequence.keys.sorted() == expectedSequences
+        }
     }
-    Issue.record("Timed out waiting for \(description)")
-    return false
+
+    private func resumeSatisfiedNotificationStateWaiters() {
+        var pendingWaiters: [NotificationDeliveryStateWaiter] = []
+        for waiter in notificationStateWaiters {
+            if isSatisfied(waiter.expectation) {
+                waiter.continuation.resume(returning: true)
+            } else {
+                pendingWaiters.append(waiter)
+            }
+        }
+        notificationStateWaiters = pendingWaiters
+    }
 }
 
 private enum NotificationDeliveryFailure: Error {

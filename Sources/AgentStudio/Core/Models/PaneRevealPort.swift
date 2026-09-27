@@ -1,22 +1,10 @@
 import Foundation
 
-/// Reveal admission and settlement are separate. Agent admission can settle
-/// without a mounted page; human Open uses the later draft barrier.
-/// Implementations perform validation, scheduling and page work off MainActor.
-/// Throw `BridgeLinkPortFailure.unavailable` before dispatch or
-/// `.outcomeUnknown` when a dispatched effect cannot be confirmed.
+/// One agent request produces one answer. Background opens the file without
+/// page or focus work; take-over uses IPC human approval, then human activation.
+/// Implementations validate and perform I/O off MainActor.
 package protocol PaneRevealPort: Sendable {
-    func admitAgentReveal(
-        receiver: PaneId, target: BridgeRevealFileTarget, requestedBy: BridgeLinkContributor
-    ) async throws -> BridgeRevealAdmissionResult
-
-    func awaitAgentRevealSettlement(
-        receiver: PaneId, operationId: UUID
-    ) async throws -> BridgeAgentRevealSettlement
-
-    func openRetainedViewItem(
-        receiver: PaneId, target: BridgeRevealFileTarget
-    ) async throws -> BridgeHumanOpenSettlement
-
-    func retainedOpenViewItems(receiver: PaneId) async -> [BridgeRetainedOpenViewItem]
+    func show(
+        receiver: PaneId, target: BridgeRevealFileTarget, mode: BridgeAgentShowMode
+    ) async throws(BridgeLinkPortFailure) -> BridgeAgentShowResult
 }

@@ -1,4 +1,4 @@
-/// Shared failures outside the pane-link and reveal result unions.
+/// Shared failures outside the pane-link and agent-show result unions.
 ///
 /// `unavailable` means the mutation was not dispatched and had no effect.
 /// `outcomeUnknown` means a commit was dispatched but its durable result could

@@ -344,6 +344,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
     @Test("shared physical capacity rejection retains validation and pauses later admission")
     func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async {
+        let clock = TestPushClock()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
         let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
@@ -367,6 +368,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             bus: EventBus<RuntimeEnvelope>(),
             gitWorkingTreeProvider: projectorProvider,
             coalescingWindow: .zero,
+            sleepClock: clock,
             refreshPolicy: AppPolicies.GitRefresh.Policy(
                 maxConcurrentStatusComputes: 1,
                 openPaneMaxConcurrent: 1
@@ -375,6 +377,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 pathProbe.recordExistence(rootPath)
             }
         )
+        await actor.start()
 
         let blockingRead = Task {
             await blockingProvider.statusResult(
@@ -404,14 +407,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        #expect(
-            await admissionWaitUntil {
-                await !actor.capacityRetryWorktreeIds.isEmpty
-            }
-        )
-        for _ in 0..<300 {
-            await Task.yield()
-        }
+        await clock.waitForPendingSleepCount()
         let firstProbedRootPath = pathProbe.recordedRootPaths.first
         #expect(pathProbe.recordedRootPaths == firstProbedRootPath.map { [$0] } ?? [])
         #expect(await actor.capacityRetryWorktreeIds.count == 1)
@@ -419,16 +415,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         blockingReadGate.release()
         _ = await blockingRead.value
-        #expect(
-            await admissionWaitUntil {
-                await actor.lastAcceptedStatusAtByWorktreeId.count == worktreeIds.count
-            }
-        )
-        #expect(
-            await admissionWaitUntil {
-                await actor.worktreeTasks.isEmpty
-            }
-        )
+        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(await actor.lastAcceptedStatusAtByWorktreeId.count == worktreeIds.count)
+        #expect(await actor.worktreeTasks.isEmpty)
         #expect(pathProbe.recordedRootPaths.count == rootPaths.count)
         #expect(Set(pathProbe.recordedRootPaths) == Set(rootPaths))
         #expect(await actor.validatedRootPathByWorktreeId.isEmpty)

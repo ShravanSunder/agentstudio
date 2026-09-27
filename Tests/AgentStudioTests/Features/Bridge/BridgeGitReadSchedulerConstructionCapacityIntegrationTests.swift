@@ -13,244 +13,242 @@ struct BridgeCapacityIntegrationTests {
     // swiftlint:disable:next function_body_length
     func multiWorktreeAdmissionAndSharedReviewConstructionDrainExactly() async throws {
         // Arrange
-        try await BridgeCapacityIntegrationGitFixture.withFixture { fixture in
-            let worktreeKeys = fixture.worktreeURLs.map {
-                BridgeGitReadWorktreeKey(token: $0.standardizedFileURL.path)
-            }
-            let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
-            let schedulerEventProbe = BridgeGitReadSchedulerEventProbe()
-            let scheduler = BridgeGitReadScheduler(
-                topology: makeBridgeGitReadSchedulerTopology(
-                    metadataSlotCount: 1,
-                    contentSlotCount: 1,
-                    maximumQueuedOperationCountPerClass: 8
-                ),
-                deadlineScheduler: deadlineScheduler,
-                eventSink: schedulerEventProbe.eventSink
-            )
-            for (index, worktreeKey) in worktreeKeys.enumerated() {
-                await scheduler.updatePaneActivity(
-                    paneKey: BridgeGitReadPaneKey(token: "hidden-pane-\(index)"),
-                    worktreeKey: worktreeKey,
-                    rank: .loadedHidden
-                )
-            }
-            await scheduler.updatePaneActivity(
-                paneKey: BridgeGitReadPaneKey(token: "foreground-pane-a"),
-                worktreeKey: worktreeKeys[0],
-                rank: .foreground
-            )
-            await scheduler.updatePaneActivity(
-                paneKey: BridgeGitReadPaneKey(token: "foreground-pane-b"),
-                worktreeKey: worktreeKeys[0],
-                rank: .foreground
-            )
-
-            let heldMetadataGate = HeldStep<Void>("heldMetadataGate", cancellation: .holdThroughCancellation)
-            let heldMetadataRead = Task {
-                try await scheduler.read(
-                    request: makeCapacityIntegrationReadRequest(
-                        worktreeKey: worktreeKeys[0],
-                        key: "held-metadata"
-                    )
-                ) {
-                    try? await heldMetadataGate.arrive(())
-                    return "held-metadata"
-                }
-            }
-            try await heldMetadataGate.firstArrival()
-            _ = await schedulerEventProbe.waitFor(.started)
-            #expect(deadlineScheduler.fireNextActiveDeadline())
-            _ = await schedulerEventProbe.waitFor(.draining)
-            assertCapacityIntegrationTimedOut(await heldMetadataRead.result)
-
-            let queuedMetadata = await makeQueuedMetadataReads(
-                scheduler: scheduler,
-                eventProbe: schedulerEventProbe,
-                worktreeKeys: worktreeKeys
-            )
-
-            // Act
-            let blockedMetadataSnapshot = await scheduler.snapshot()
-            let blockedMetadataInvocationCounts = queuedMetadata.allGates.map { gate in
-                gate.recordedArrivals.count
-            }
-            let selectedContentGate = HeldStep<Void>("selectedContentGate", cancellation: .holdThroughCancellation)
-            let selectedContentRead = Task {
-                try await scheduler.read(
-                    request: makeCapacityIntegrationReadRequest(
-                        worktreeKey: worktreeKeys[0],
-                        operationClass: .selectedVisibleContent,
-                        key: "selected-content"
-                    )
-                ) {
-                    try? await selectedContentGate.arrive(())
-                    return "selected-content"
-                }
-            }
-            try await selectedContentGate.firstArrival()
-            let peakSchedulerSnapshot = await scheduler.snapshot()
-            let mainActorHeartbeat = await Task { @MainActor in
-                for _ in 0..<32 {
-                    await Task.yield()
-                }
-                return 32
-            }.value
-            selectedContentGate.release()
-            let selectedContent = try await selectedContentRead.value
-
-            heldMetadataGate.release()
-            let selectedMetadataStart = await schedulerEventProbe.waitFor(.started, occurrence: 3)
-            queuedMetadata.selectedForegroundGate.release()
-            let firstHiddenStart = await schedulerEventProbe.waitFor(.started, occurrence: 4)
-            queuedMetadata.firstHiddenWorktreeGate.release()
-            let fairPeerStart = await schedulerEventProbe.waitFor(.started, occurrence: 5)
-            for gate in queuedMetadata.allGates {
-                gate.release()
-            }
-            let queuedResults = try await queuedMetadata.tasks.asyncMap { task in
-                try await task.value
-            }
-            _ = await schedulerEventProbe.waitFor(.slotReleased, occurrence: 10)
-            await scheduler.shutdown()
-            let closedSchedulerSnapshot = await scheduler.snapshot()
-
-            let constructionEventProbe = BridgeWorktreeProductConstructionEventProbe()
-            let constructionCoordinator = BridgeWorktreeProductConstructionCoordinator(
-                eventSink: constructionEventProbe.eventSink
-            )
-            let backgroundOwner = makeBridgeConstructionOwner(
-                repo: fixture.repositoryURLs[4].standardizedFileURL.path,
-                worktree: fixture.worktreeURLs[4].standardizedFileURL.path,
-                root: fixture.repositoryURLs[4].standardizedFileURL.path,
-                provider: "capacity-integration-provider"
-            )
-            let duplicateReviewKey = makeBridgeReviewConstructionKey(owner: backgroundOwner)
-            let distinctReviewKey = makeBridgeReviewConstructionKey(
-                owner: backgroundOwner,
-                pathScope: ["Tests"]
-            )
-            let duplicateGate = BridgeWorktreeProductConstructionGate(
-                artifact: makeBridgeReviewConstructionArtifact()
-            )
-            let distinctGate = BridgeWorktreeProductConstructionGate(
-                artifact: makeBridgeReviewConstructionArtifact()
-            )
-            let oldDuplicateA = Task {
-                try await constructionCoordinator.acquire(
-                    key: duplicateReviewKey,
-                    build: duplicateGate.run
-                )
-            }
-            let oldDuplicateB = Task {
-                try await constructionCoordinator.acquire(
-                    key: duplicateReviewKey,
-                    build: duplicateGate.run
-                )
-            }
-            let oldDistinct = Task {
-                try await constructionCoordinator.acquire(
-                    key: distinctReviewKey,
-                    build: distinctGate.run
-                )
-            }
-            await duplicateGate.waitUntilStarted()
-            await distinctGate.waitUntilStarted()
-            _ = await constructionEventProbe.waitFor(.consumerJoined)
-            let firstConstructionPeak = await constructionCoordinator.snapshot()
-
-            _ = await constructionCoordinator.invalidate(worktree: duplicateReviewKey.worktree)
-            _ = await constructionCoordinator.invalidate(worktree: duplicateReviewKey.worktree)
-            _ = await constructionCoordinator.invalidate(worktree: duplicateReviewKey.worktree)
-            assertCapacityIntegrationInvalidated(await oldDuplicateA.result)
-            assertCapacityIntegrationInvalidated(await oldDuplicateB.result)
-            assertCapacityIntegrationInvalidated(await oldDistinct.result)
-            let invalidatedConstructionSnapshot = await constructionCoordinator.snapshot()
-
-            let currentDuplicateA = Task {
-                try await constructionCoordinator.acquire(
-                    key: duplicateReviewKey,
-                    build: duplicateGate.run
-                )
-            }
-            let currentDuplicateB = Task {
-                try await constructionCoordinator.acquire(
-                    key: duplicateReviewKey,
-                    build: duplicateGate.run
-                )
-            }
-            let currentDistinct = Task {
-                try await constructionCoordinator.acquire(
-                    key: distinctReviewKey,
-                    build: distinctGate.run
-                )
-            }
-            await duplicateGate.waitUntilStarted(count: 2)
-            await distinctGate.waitUntilStarted(count: 2)
-            _ = await constructionEventProbe.waitFor(.consumerJoined, occurrence: 2)
-            let rebuildingConstructionPeak = await constructionCoordinator.snapshot()
-
-            await duplicateGate.release(invocation: 1)
-            await distinctGate.release(invocation: 1)
-            _ = await constructionEventProbe.waitFor(.staleCompletionDropped, occurrence: 2)
-            await duplicateGate.release(invocation: 2)
-            await distinctGate.release(invocation: 2)
-            let duplicateLeaseA = try await currentDuplicateA.value
-            let duplicateLeaseB = try await currentDuplicateB.value
-            let distinctLease = try await currentDistinct.value
-            let readyConstructionSnapshot = await constructionCoordinator.snapshot()
-
-            // Assert
-            #expect(blockedMetadataSnapshot.drainingCountByOperationClass[.reviewMetadata] == 1)
-            #expect(blockedMetadataSnapshot.queuedCountByOperationClass[.reviewMetadata] == 8)
-            #expect(blockedMetadataSnapshot.occupiedSlotIds.count == 1)
-            #expect(blockedMetadataInvocationCounts.allSatisfy { $0 == 0 })
-            #expect(peakSchedulerSnapshot.drainingCountByOperationClass[.reviewMetadata] == 1)
-            #expect(peakSchedulerSnapshot.queuedCountByOperationClass[.reviewMetadata] == 8)
-            #expect(peakSchedulerSnapshot.runningCountByOperationClass[.selectedVisibleContent] == 1)
-            #expect(peakSchedulerSnapshot.occupiedSlotIds.count == 2)
-            #expect(peakSchedulerSnapshot.activeOperationIds.count == 10)
-            #expect(peakSchedulerSnapshot.admittedWorktreeKeys == Set(worktreeKeys))
-            #expect(mainActorHeartbeat == 32)
-            #expect(selectedContent == "selected-content")
-            #expect(selectedMetadataStart.worktreeKey == worktreeKeys[0])
-            #expect(firstHiddenStart.worktreeKey == worktreeKeys[1])
-            #expect(fairPeerStart.worktreeKey == worktreeKeys[2])
-            #expect(queuedResults.count == 8)
-            #expect(Set(queuedResults).count == 8)
-            assertCapacityIntegrationSchedulerClosedAndEmpty(closedSchedulerSnapshot)
-
-            #expect(firstConstructionPeak.entryCount == 2)
-            #expect(firstConstructionPeak.waiterCount == 3)
-            #expect(firstConstructionPeak.inFlightCount == 2)
-            #expect(invalidatedConstructionSnapshot.entryCount == 2)
-            #expect(invalidatedConstructionSnapshot.waiterCount == 0)
-            #expect(invalidatedConstructionSnapshot.inFlightCount == 2)
-            #expect(invalidatedConstructionSnapshot.drainingTombstoneCount == 2)
-            #expect(rebuildingConstructionPeak.entryCount == 4)
-            #expect(rebuildingConstructionPeak.waiterCount == 3)
-            #expect(rebuildingConstructionPeak.inFlightCount == 4)
-            #expect(rebuildingConstructionPeak.drainingTombstoneCount == 2)
-            #expect(duplicateLeaseA.entryNonce == duplicateLeaseB.entryNonce)
-            #expect(duplicateLeaseA.leaseNonce != duplicateLeaseB.leaseNonce)
-            #expect(distinctLease.entryNonce != duplicateLeaseA.entryNonce)
-            #expect(await duplicateGate.recordedInvocationCount() == 2)
-            #expect(await distinctGate.recordedInvocationCount() == 2)
-            #expect(readyConstructionSnapshot.entryCount == 2)
-            #expect(readyConstructionSnapshot.waiterCount == 0)
-            #expect(readyConstructionSnapshot.leaseCount == 3)
-            #expect(readyConstructionSnapshot.payloadCount == 2)
-            #expect(readyConstructionSnapshot.inFlightCount == 0)
-            #expect(readyConstructionSnapshot.drainingTombstoneCount == 0)
-            #expect(readyConstructionSnapshot.retainedArtifactByteCount == 256)
-
-            await constructionCoordinator.release(duplicateLeaseA)
-            await constructionCoordinator.release(duplicateLeaseB)
-            await constructionCoordinator.release(distinctLease)
-            await assertBridgeConstructionCoordinatorDrained(constructionCoordinator)
-            await constructionCoordinator.shutdown()
-            await assertBridgeConstructionCoordinatorDrained(constructionCoordinator)
+        let worktreeKeys = (0..<7).map { index in
+            BridgeGitReadWorktreeKey(token: "worktree-\(index)")
         }
+        let deadlineScheduler = BridgeGitReadManualDeadlineScheduler()
+        let schedulerEventProbe = BridgeGitReadSchedulerEventProbe()
+        let scheduler = BridgeGitReadScheduler(
+            topology: makeBridgeGitReadSchedulerTopology(
+                metadataSlotCount: 1,
+                contentSlotCount: 1,
+                maximumQueuedOperationCountPerClass: 8
+            ),
+            deadlineScheduler: deadlineScheduler,
+            eventSink: schedulerEventProbe.eventSink
+        )
+        for (index, worktreeKey) in worktreeKeys.enumerated() {
+            await scheduler.updatePaneActivity(
+                paneKey: BridgeGitReadPaneKey(token: "hidden-pane-\(index)"),
+                worktreeKey: worktreeKey,
+                rank: .loadedHidden
+            )
+        }
+        await scheduler.updatePaneActivity(
+            paneKey: BridgeGitReadPaneKey(token: "foreground-pane-a"),
+            worktreeKey: worktreeKeys[0],
+            rank: .foreground
+        )
+        await scheduler.updatePaneActivity(
+            paneKey: BridgeGitReadPaneKey(token: "foreground-pane-b"),
+            worktreeKey: worktreeKeys[0],
+            rank: .foreground
+        )
+
+        let heldMetadataGate = HeldStep<Void>("heldMetadataGate", cancellation: .holdThroughCancellation)
+        let heldMetadataRead = Task {
+            try await scheduler.read(
+                request: makeCapacityIntegrationReadRequest(
+                    worktreeKey: worktreeKeys[0],
+                    key: "held-metadata"
+                )
+            ) {
+                try? await heldMetadataGate.arrive(())
+                return "held-metadata"
+            }
+        }
+        try await heldMetadataGate.firstArrival()
+        _ = await schedulerEventProbe.waitFor(.started)
+        #expect(deadlineScheduler.fireNextActiveDeadline())
+        _ = await schedulerEventProbe.waitFor(.draining)
+        assertCapacityIntegrationTimedOut(await heldMetadataRead.result)
+
+        let queuedMetadata = await makeQueuedMetadataReads(
+            scheduler: scheduler,
+            eventProbe: schedulerEventProbe,
+            worktreeKeys: worktreeKeys
+        )
+
+        // Act
+        let blockedMetadataSnapshot = await scheduler.snapshot()
+        let blockedMetadataInvocationCounts = queuedMetadata.allGates.map { gate in
+            gate.recordedArrivals.count
+        }
+        let selectedContentGate = HeldStep<Void>("selectedContentGate", cancellation: .holdThroughCancellation)
+        let selectedContentRead = Task {
+            try await scheduler.read(
+                request: makeCapacityIntegrationReadRequest(
+                    worktreeKey: worktreeKeys[0],
+                    operationClass: .selectedVisibleContent,
+                    key: "selected-content"
+                )
+            ) {
+                try? await selectedContentGate.arrive(())
+                return "selected-content"
+            }
+        }
+        try await selectedContentGate.firstArrival()
+        let peakSchedulerSnapshot = await scheduler.snapshot()
+        let mainActorHeartbeat = await Task { @MainActor in
+            for _ in 0..<32 {
+                await Task.yield()
+            }
+            return 32
+        }.value
+        selectedContentGate.release()
+        let selectedContent = try await selectedContentRead.value
+
+        heldMetadataGate.release()
+        let selectedMetadataStart = await schedulerEventProbe.waitFor(.started, occurrence: 3)
+        queuedMetadata.selectedForegroundGate.release()
+        let firstHiddenStart = await schedulerEventProbe.waitFor(.started, occurrence: 4)
+        queuedMetadata.firstHiddenWorktreeGate.release()
+        let fairPeerStart = await schedulerEventProbe.waitFor(.started, occurrence: 5)
+        for gate in queuedMetadata.allGates {
+            gate.release()
+        }
+        let queuedResults = try await queuedMetadata.tasks.asyncMap { task in
+            try await task.value
+        }
+        _ = await schedulerEventProbe.waitFor(.slotReleased, occurrence: 10)
+        await scheduler.shutdown()
+        let closedSchedulerSnapshot = await scheduler.snapshot()
+
+        let constructionEventProbe = BridgeWorktreeProductConstructionEventProbe()
+        let constructionCoordinator = BridgeWorktreeProductConstructionCoordinator(
+            eventSink: constructionEventProbe.eventSink
+        )
+        let backgroundOwner = makeBridgeConstructionOwner(
+            repo: "background-repository",
+            worktree: "background-worktree",
+            root: "background-root",
+            provider: "capacity-integration-provider"
+        )
+        let duplicateReviewKey = makeBridgeReviewConstructionKey(owner: backgroundOwner)
+        let distinctReviewKey = makeBridgeReviewConstructionKey(
+            owner: backgroundOwner,
+            pathScope: ["Tests"]
+        )
+        let duplicateGate = BridgeWorktreeProductConstructionGate(
+            artifact: makeBridgeReviewConstructionArtifact()
+        )
+        let distinctGate = BridgeWorktreeProductConstructionGate(
+            artifact: makeBridgeReviewConstructionArtifact()
+        )
+        let oldDuplicateA = Task {
+            try await constructionCoordinator.acquire(
+                key: duplicateReviewKey,
+                build: duplicateGate.run
+            )
+        }
+        let oldDuplicateB = Task {
+            try await constructionCoordinator.acquire(
+                key: duplicateReviewKey,
+                build: duplicateGate.run
+            )
+        }
+        let oldDistinct = Task {
+            try await constructionCoordinator.acquire(
+                key: distinctReviewKey,
+                build: distinctGate.run
+            )
+        }
+        await duplicateGate.waitUntilStarted()
+        await distinctGate.waitUntilStarted()
+        _ = await constructionEventProbe.waitFor(.consumerJoined)
+        let firstConstructionPeak = await constructionCoordinator.snapshot()
+
+        _ = await constructionCoordinator.invalidate(worktree: duplicateReviewKey.worktree)
+        _ = await constructionCoordinator.invalidate(worktree: duplicateReviewKey.worktree)
+        _ = await constructionCoordinator.invalidate(worktree: duplicateReviewKey.worktree)
+        assertCapacityIntegrationInvalidated(await oldDuplicateA.result)
+        assertCapacityIntegrationInvalidated(await oldDuplicateB.result)
+        assertCapacityIntegrationInvalidated(await oldDistinct.result)
+        let invalidatedConstructionSnapshot = await constructionCoordinator.snapshot()
+
+        let currentDuplicateA = Task {
+            try await constructionCoordinator.acquire(
+                key: duplicateReviewKey,
+                build: duplicateGate.run
+            )
+        }
+        let currentDuplicateB = Task {
+            try await constructionCoordinator.acquire(
+                key: duplicateReviewKey,
+                build: duplicateGate.run
+            )
+        }
+        let currentDistinct = Task {
+            try await constructionCoordinator.acquire(
+                key: distinctReviewKey,
+                build: distinctGate.run
+            )
+        }
+        await duplicateGate.waitUntilStarted(count: 2)
+        await distinctGate.waitUntilStarted(count: 2)
+        _ = await constructionEventProbe.waitFor(.consumerJoined, occurrence: 2)
+        let rebuildingConstructionPeak = await constructionCoordinator.snapshot()
+
+        await duplicateGate.release(invocation: 1)
+        await distinctGate.release(invocation: 1)
+        _ = await constructionEventProbe.waitFor(.staleCompletionDropped, occurrence: 2)
+        await duplicateGate.release(invocation: 2)
+        await distinctGate.release(invocation: 2)
+        let duplicateLeaseA = try await currentDuplicateA.value
+        let duplicateLeaseB = try await currentDuplicateB.value
+        let distinctLease = try await currentDistinct.value
+        let readyConstructionSnapshot = await constructionCoordinator.snapshot()
+
+        // Assert
+        #expect(blockedMetadataSnapshot.drainingCountByOperationClass[.reviewMetadata] == 1)
+        #expect(blockedMetadataSnapshot.queuedCountByOperationClass[.reviewMetadata] == 8)
+        #expect(blockedMetadataSnapshot.occupiedSlotIds.count == 1)
+        #expect(blockedMetadataInvocationCounts.allSatisfy { $0 == 0 })
+        #expect(peakSchedulerSnapshot.drainingCountByOperationClass[.reviewMetadata] == 1)
+        #expect(peakSchedulerSnapshot.queuedCountByOperationClass[.reviewMetadata] == 8)
+        #expect(peakSchedulerSnapshot.runningCountByOperationClass[.selectedVisibleContent] == 1)
+        #expect(peakSchedulerSnapshot.occupiedSlotIds.count == 2)
+        #expect(peakSchedulerSnapshot.activeOperationIds.count == 10)
+        #expect(peakSchedulerSnapshot.admittedWorktreeKeys == Set(worktreeKeys))
+        #expect(mainActorHeartbeat == 32)
+        #expect(selectedContent == "selected-content")
+        #expect(selectedMetadataStart.worktreeKey == worktreeKeys[0])
+        #expect(firstHiddenStart.worktreeKey == worktreeKeys[1])
+        #expect(fairPeerStart.worktreeKey == worktreeKeys[2])
+        #expect(queuedResults.count == 8)
+        #expect(Set(queuedResults).count == 8)
+        assertCapacityIntegrationSchedulerClosedAndEmpty(closedSchedulerSnapshot)
+
+        #expect(firstConstructionPeak.entryCount == 2)
+        #expect(firstConstructionPeak.waiterCount == 3)
+        #expect(firstConstructionPeak.inFlightCount == 2)
+        #expect(invalidatedConstructionSnapshot.entryCount == 2)
+        #expect(invalidatedConstructionSnapshot.waiterCount == 0)
+        #expect(invalidatedConstructionSnapshot.inFlightCount == 2)
+        #expect(invalidatedConstructionSnapshot.drainingTombstoneCount == 2)
+        #expect(rebuildingConstructionPeak.entryCount == 4)
+        #expect(rebuildingConstructionPeak.waiterCount == 3)
+        #expect(rebuildingConstructionPeak.inFlightCount == 4)
+        #expect(rebuildingConstructionPeak.drainingTombstoneCount == 2)
+        #expect(duplicateLeaseA.entryNonce == duplicateLeaseB.entryNonce)
+        #expect(duplicateLeaseA.leaseNonce != duplicateLeaseB.leaseNonce)
+        #expect(distinctLease.entryNonce != duplicateLeaseA.entryNonce)
+        #expect(await duplicateGate.recordedInvocationCount() == 2)
+        #expect(await distinctGate.recordedInvocationCount() == 2)
+        #expect(readyConstructionSnapshot.entryCount == 2)
+        #expect(readyConstructionSnapshot.waiterCount == 0)
+        #expect(readyConstructionSnapshot.leaseCount == 3)
+        #expect(readyConstructionSnapshot.payloadCount == 2)
+        #expect(readyConstructionSnapshot.inFlightCount == 0)
+        #expect(readyConstructionSnapshot.drainingTombstoneCount == 0)
+        #expect(readyConstructionSnapshot.retainedArtifactByteCount == 256)
+
+        await constructionCoordinator.release(duplicateLeaseA)
+        await constructionCoordinator.release(duplicateLeaseB)
+        await constructionCoordinator.release(distinctLease)
+        await assertBridgeConstructionCoordinatorDrained(constructionCoordinator)
+        await constructionCoordinator.shutdown()
+        await assertBridgeConstructionCoordinatorDrained(constructionCoordinator)
     }
 }
 
@@ -259,88 +257,6 @@ private struct BridgeCapacityIntegrationQueuedMetadata {
     let selectedForegroundGate: HeldStep<Void>
     let firstHiddenWorktreeGate: HeldStep<Void>
     let allGates: [HeldStep<Void>]
-}
-
-private struct BridgeCapacityIntegrationGitFixture {
-    let repositoryURLs: [URL]
-    let linkedWorktreeURLs: [URL]
-
-    var worktreeURLs: [URL] {
-        repositoryURLs + linkedWorktreeURLs
-    }
-
-    static func withFixture(
-        _ body: (Self) async throws -> Void
-    ) async throws {
-        let fixture = try await make()
-        do {
-            try await body(fixture)
-        } catch {
-            await fixture.destroy()
-            throw error
-        }
-        await fixture.destroy()
-    }
-
-    private static func make() async throws -> Self {
-        var repositoryURLs: [URL] = []
-        var linkedWorktreeURLs: [URL] = []
-        do {
-            for repositoryIndex in 0..<5 {
-                let repositoryURL = try await FilesystemTestGitRepo.create(
-                    named: "bridge-capacity-repo-\(repositoryIndex)"
-                )
-                repositoryURLs.append(repositoryURL)
-                try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
-            }
-            for repositoryIndex in 0..<2 {
-                let linkedWorktreeURL = repositoryURLs[repositoryIndex]
-                    .deletingLastPathComponent()
-                    .appending(path: "bridge-capacity-linked-\(UUID().uuidString)")
-                try await FilesystemTestGitRepo.runGit(
-                    at: repositoryURLs[repositoryIndex],
-                    args: [
-                        "worktree", "add", "-b", "capacity-linked-\(UUID().uuidString)",
-                        linkedWorktreeURL.path,
-                    ]
-                )
-                linkedWorktreeURLs.append(linkedWorktreeURL)
-            }
-            return Self(
-                repositoryURLs: repositoryURLs,
-                linkedWorktreeURLs: linkedWorktreeURLs
-            )
-        } catch {
-            await destroy(
-                repositoryURLs: repositoryURLs,
-                linkedWorktreeURLs: linkedWorktreeURLs
-            )
-            throw error
-        }
-    }
-
-    private func destroy() async {
-        await Self.destroy(
-            repositoryURLs: repositoryURLs,
-            linkedWorktreeURLs: linkedWorktreeURLs
-        )
-    }
-
-    private static func destroy(
-        repositoryURLs: [URL],
-        linkedWorktreeURLs: [URL]
-    ) async {
-        for (repositoryURL, linkedWorktreeURL) in zip(repositoryURLs, linkedWorktreeURLs) {
-            _ = try? await FilesystemTestGitRepo.runGit(
-                at: repositoryURL,
-                args: ["worktree", "remove", "--force", linkedWorktreeURL.path]
-            )
-            FilesystemTestGitRepo.destroy(linkedWorktreeURL)
-        }
-        for repositoryURL in repositoryURLs {
-            FilesystemTestGitRepo.destroy(repositoryURL)
-        }
-    }
 }
 
 private func makeQueuedMetadataReads(

@@ -112,35 +112,36 @@ struct BridgePaneLinkContractTests {
         )
     }
 
-    @Test("reveal unions match every shared fixture")
-    func revealFixtures() throws {
+    @Test("agent show mode and result match every shared fixture")
+    func agentShowFixtures() throws {
         try assertFixtures(
-            union: "BridgeRevealAdmissionResult", folder: "reveal", prefix: "reveal-admission",
+            union: "BridgeAgentShowMode", folder: "reveal", prefix: "agent-show-mode",
             cases: [
-                ("admitted", .admitted(operationId: try fixtureOperationId())),
-                ("unsupported-target", .unsupportedTarget),
-                ("stale-owner", .staleOwner), ("stale-receiver", .staleReceiver),
-            ] as [(String, BridgeRevealAdmissionResult)]
+                ("background", .background), ("take-over", .takeOver),
+            ] as [(String, BridgeAgentShowMode)]
         )
         try assertFixtures(
-            union: "BridgeAgentRevealSettlement", folder: "reveal", prefix: "agent-reveal-settlement",
+            union: "BridgeAgentShowResult", folder: "reveal", prefix: "agent-show-result",
             cases: [
-                ("shown", .shown), ("waiting-in-open-view", .waitingInOpenView),
-                ("superseded", .superseded), ("unavailable", .unavailable),
-                ("not-found", .notFound), ("stale-owner", .staleOwner),
-                ("cancelled", .cancelled), ("outcome-unknown", .outcomeUnknown),
-            ] as [(String, BridgeAgentRevealSettlement)]
+                ("opened", .opened), ("shown", .shown), ("declined", .declined),
+                ("not-found", .notFound), ("pane-unavailable", .paneUnavailable),
+            ] as [(String, BridgeAgentShowResult)]
         )
-        try assertFixtures(
-            union: "BridgeHumanOpenSettlement", folder: "reveal", prefix: "human-open-settlement",
-            cases: [
-                ("shown", .shown), ("draft-kept-refused", .draftKept(reason: .refused)),
-                ("draft-kept-save-failed", .draftKept(reason: .saveFailed)),
-                ("draft-kept-save-outcome-unknown", .draftKept(reason: .saveOutcomeUnknown)),
-                ("superseded", .superseded), ("unavailable", .unavailable),
-                ("outcome-unknown", .outcomeUnknown),
-            ] as [(String, BridgeHumanOpenSettlement)]
-        )
+    }
+
+    @Test("agent show codecs reject unknown kinds and fields")
+    func agentShowRejectsInvalidWireShapes() {
+        let decoder = JSONDecoder()
+        for value in [#"{"kind":"automatic"}"#, #"{"kind":"background","extra":true}"#] {
+            #expect(throws: Error.self) {
+                try decoder.decode(BridgeAgentShowMode.self, from: Data(value.utf8))
+            }
+        }
+        for value in [#"{"kind":"waitingInOpenView"}"#, #"{"kind":"shown","line":12}"#] {
+            #expect(throws: Error.self) {
+                try decoder.decode(BridgeAgentShowResult.self, from: Data(value.utf8))
+            }
+        }
     }
 
     @Test("item identity and reveal paths validate before use")
@@ -168,7 +169,7 @@ struct BridgePaneLinkContractTests {
         }
     }
 
-    @Test("identity, removal fact and retained Open view fixtures round trip")
+    @Test("identity, removal fact and file target fixtures round trip")
     func valueFixtures() throws {
         let root = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let folder = "Tests/BridgeContractFixtures/"
@@ -207,22 +208,7 @@ struct BridgePaneLinkContractTests {
                     path: folder + "reveal/file-target.json"
                 )))
         #expect(target.line == 12)
-        let dateDecoder = JSONDecoder()
-        dateDecoder.dateDecodingStrategy = .iso8601
-        let dateEncoder = JSONEncoder()
-        dateEncoder.dateEncodingStrategy = .iso8601
-        let retained = try dateDecoder.decode(
-            BridgeRetainedOpenViewItem.self,
-            from: Data(
-                contentsOf: root.appending(
-                    path: folder + "reveal/retained-open-view-item.json"
-                )))
-        #expect(retained.target == target)
-        #expect(retained.requestedBy == agent)
-        #expect(
-            try dateDecoder.decode(
-                BridgeRetainedOpenViewItem.self, from: dateEncoder.encode(retained)
-            ) == retained)
+        #expect(try decoder.decode(BridgeRevealFileTarget.self, from: encoder.encode(target)) == target)
     }
 
     @Test("membership port accepts only typed worktree and PR identities")
@@ -250,6 +236,18 @@ struct BridgePaneLinkContractTests {
             try await port.removePullRequestReference(
                 receiver: receiver, reference: reference, contributor: .person
             ) == .alreadyAbsent)
+    }
+
+    @Test("agent show port takes one typed target and mode and returns one result")
+    func agentShowPortTypes() async throws {
+        let port: any PaneRevealPort = PaneRevealPortTypeWitness()
+        let target = try BridgeRevealFileTarget(
+            worktree: UUIDv7.generate(), relativePath: "src/file.swift", line: 12
+        )
+        #expect(
+            try await port.show(
+                receiver: PaneId.generateUUIDv7(), target: target, mode: .background
+            ) == .opened)
     }
 
     private func assertFixtures<Outcome: Codable & Equatable>(
@@ -321,4 +319,10 @@ private actor PaneLinkPortTypeWitness: PaneLinkMembershipPort {
         continuation.finish()
         return stream
     }
+}
+
+private actor PaneRevealPortTypeWitness: PaneRevealPort {
+    func show(
+        receiver _: PaneId, target _: BridgeRevealFileTarget, mode _: BridgeAgentShowMode
+    ) async throws(BridgeLinkPortFailure) -> BridgeAgentShowResult { .opened }
 }

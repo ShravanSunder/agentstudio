@@ -83,12 +83,13 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         await gitClock.waitForPendingSleepCount(atLeast: 1)
         gitClock.advance(by: refreshPolicy.backgroundCadence)
 
-        let baselinePublished = await eventually("unknown attended baseline should reach RepoCache") {
-            repoCache.worktreeEnrichment(for: worktree.id)?.snapshot?.summary
-                == expectedStatus.summary
-        }
-        #expect(baselinePublished)
-        let enrichment = try #require(repoCache.worktreeEnrichment(for: worktree.id))
+        let enrichment = try #require(
+            await waitForCacheOutcome(
+                observe: { repoCache.worktreeEnrichment(for: worktree.id) },
+                matching: { $0?.snapshot?.summary == expectedStatus.summary }
+            )
+        )
+        #expect(enrichment.snapshot?.summary == expectedStatus.summary)
         #expect(enrichment.branch == "feature/sidebar-admission")
         #expect(await remoteReferenceProvider.currentStageFetchCallCount() == 0)
         #expect(await forgeProvider.currentCallCount() == 0)
@@ -192,15 +193,23 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         demandCoordinator.accept(initialDemand)
         await demandCoordinator.waitUntilIdle()
 
-        let allFactsArrived = await eventually("local, remote-reference, and Forge facts should settle") {
-            let remoteFetchCallCount = await remoteReferenceProvider.currentStageFetchCallCount()
-            let forgeCallCount = await forgeProvider.currentCallCount()
-            return repoCache.worktreeEnrichment(for: worktreeId)?.branch == "main"
-                && repoCache.pullRequestFactsForTest(worktreeId: worktreeId)?.openCount == 1
-                && remoteFetchCallCount == 1
-                && forgeCallCount == 1
-        }
-        #expect(allFactsArrived)
+        let observedRemoteCalls = await remoteReferenceProvider.waitForCallCounts(
+            atLeast: DemandIntegrationRemoteCallCounts(capture: 0, fetch: 1, promote: 0, cleanup: 0)
+        )
+        let observedForgeCallCount = await forgeProvider.waitForCallCount(atLeast: 1)
+        let observedCacheFacts = await waitForCacheOutcome(
+            observe: {
+                (
+                    worktree: repoCache.worktreeEnrichment(for: worktreeId),
+                    pullRequests: repoCache.pullRequestFactsForTest(worktreeId: worktreeId)
+                )
+            },
+            matching: { $0.worktree?.branch == "main" && $0.pullRequests?.openCount == 1 }
+        )
+        #expect(observedCacheFacts.worktree?.branch == "main")
+        #expect(observedCacheFacts.pullRequests?.openCount == 1)
+        #expect(observedRemoteCalls.fetch == 1)
+        #expect(observedForgeCallCount == 1)
 
         await expectInitialSourceWorkSettled(
             gitProvider: gitProvider,
@@ -417,33 +426,34 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         context.fseventStreamClient.send(
             FSEventBatch(worktreeId: context.worktreeId, paths: ["Sources/ColdMutation.swift"])
         )
-        let coldMutationSettled = await eventually("cold mutation should run local Git only") {
-            let sourceCalls = await sourceCallCounts(
-                gitProvider: context.gitProvider,
-                remoteReferenceProvider: context.remoteReferenceProvider,
-                forgeProvider: context.forgeProvider
-            )
-            return sourceCalls.gitStatus == sourceCallsAfterInactivity.gitStatus + 1
-                && sourceCalls.remoteFetch == sourceCallsAfterInactivity.remoteFetch
-                && sourceCalls.forge == sourceCallsAfterInactivity.forge
-        }
-        #expect(coldMutationSettled)
+        let observedGitStatusCallCount = await context.gitProvider.waitForStatusCallCount(
+            atLeast: sourceCallsAfterInactivity.gitStatus + 1
+        )
+        let observedRemoteCalls = await context.remoteReferenceProvider.currentCallCounts()
+        let observedForgeCallCount = await context.forgeProvider.currentCallCount()
+        #expect(observedGitStatusCallCount == sourceCallsAfterInactivity.gitStatus + 1)
+        #expect(observedRemoteCalls.fetch == sourceCallsAfterInactivity.remoteFetch)
+        #expect(observedForgeCallCount == sourceCallsAfterInactivity.forge)
         #expect(await context.pipeline.gitLogicalDebtSnapshot().futureAutomaticCount == 0)
     }
 
-    private func eventually(
-        _ description: String,
-        maxTurns: Int = 50_000,
-        condition: @escaping @MainActor () async -> Bool
-    ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if await condition() {
-                return true
+    private func waitForCacheOutcome<TObservation>(
+        observe: @escaping @MainActor () -> TObservation,
+        matching matches: (TObservation) -> Bool
+    ) async -> TObservation {
+        while true {
+            let observation = observe()
+            if matches(observation) {
+                return observation
             }
-            await Task.yield()
+            await withCheckedContinuation { continuation in
+                withObservationTracking {
+                    _ = observe()
+                } onChange: {
+                    continuation.resume()
+                }
+            }
         }
-        Issue.record("\(description) timed out")
-        return false
     }
 
     private func sourceCallCounts(
@@ -480,19 +490,33 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             remoteCleanup: 1,
             forge: 1
         )
-        let settled = await eventually("initial source work should settle completely") {
-            await sourceCallCounts(
-                gitProvider: gitProvider,
-                remoteReferenceProvider: remoteReferenceProvider,
-                forgeProvider: forgeProvider
-            ) == expectedCounts
-        }
-        let actualCounts = await sourceCallCounts(
-            gitProvider: gitProvider,
-            remoteReferenceProvider: remoteReferenceProvider,
-            forgeProvider: forgeProvider
+        let observedGitStatusCallCount = await gitProvider.waitForStatusCallCount(
+            atLeast: expectedCounts.gitStatus
         )
-        #expect(settled, Comment(rawValue: "initial source call counts: \(actualCounts)"))
+        let observedLineDetailCallCount = await gitProvider.waitForLineDetailCallCount(
+            atLeast: expectedCounts.gitLineDetail
+        )
+        let observedRemoteCallCounts = await remoteReferenceProvider.waitForCallCounts(
+            atLeast: DemandIntegrationRemoteCallCounts(
+                capture: expectedCounts.remoteCapture,
+                fetch: expectedCounts.remoteFetch,
+                promote: expectedCounts.remotePromote,
+                cleanup: expectedCounts.remoteCleanup
+            )
+        )
+        let observedForgeCallCount = await forgeProvider.waitForCallCount(
+            atLeast: expectedCounts.forge
+        )
+        let actualCounts = DemandIntegrationSourceCallCounts(
+            gitStatus: observedGitStatusCallCount,
+            gitLineDetail: observedLineDetailCallCount,
+            remoteCapture: observedRemoteCallCounts.capture,
+            remoteFetch: observedRemoteCallCounts.fetch,
+            remotePromote: observedRemoteCallCounts.promote,
+            remoteCleanup: observedRemoteCallCounts.cleanup,
+            forge: observedForgeCallCount
+        )
+        #expect(actualCounts == expectedCounts, Comment(rawValue: "initial source call counts: \(actualCounts)"))
     }
 
     private func shutdown(
@@ -620,17 +644,36 @@ private final class DemandIntegrationPerformanceRecorder:
     }
 }
 
+private struct DemandIntegrationCallCountWaiter {
+    let expectedCount: Int
+    let continuation: CheckedContinuation<Int, Never>
+}
+
+private struct DemandIntegrationRemoteCallCountWaiter {
+    let expectedCounts: DemandIntegrationRemoteCallCounts
+    let continuation: CheckedContinuation<DemandIntegrationRemoteCallCounts, Never>
+}
+
 private struct DemandIntegrationRemoteCallCounts: Equatable {
     let capture: Int
     let fetch: Int
     let promote: Int
     let cleanup: Int
+
+    func hasReached(_ expectedCounts: Self) -> Bool {
+        capture >= expectedCounts.capture
+            && fetch >= expectedCounts.fetch
+            && promote >= expectedCounts.promote
+            && cleanup >= expectedCounts.cleanup
+    }
 }
 
 private actor DemandIntegrationGitStatusProvider: GitWorkingTreeStatusProvider {
     private let status: GitWorkingTreeStatus
     private(set) var statusCallCount = 0
     private(set) var lineDetailCallCount = 0
+    private var statusCallCountWaiters: [DemandIntegrationCallCountWaiter] = []
+    private var lineDetailCallCountWaiters: [DemandIntegrationCallCountWaiter] = []
     private var lineDetailByRootPath: [URL: GitWorkingTreeLineDetail] = [:]
 
     init(
@@ -647,31 +690,80 @@ private actor DemandIntegrationGitStatusProvider: GitWorkingTreeStatusProvider {
         for rootPath: URL,
         pathspecs _: [String]?
     ) async -> GitWorkingTreeStatusResult {
-        .available(recordStatus(for: rootPath))
+        let status = recordStatus(for: rootPath)
+        return .available(status)
     }
 
     func statusFactsResult(
         for rootPath: URL,
         pathspecs _: [String]?
     ) async -> GitWorkingTreeStatusFactsResult {
-        .available(GitWorkingTreeStatusFacts(status: recordStatus(for: rootPath)))
+        let status = recordStatus(for: rootPath)
+        return .available(GitWorkingTreeStatusFacts(status: status))
     }
 
     func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
         lineDetailCallCount += 1
-        guard let detail = lineDetailByRootPath[rootPath.standardizedFileURL] else {
-            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        resumeSatisfiedWaiters(
+            waiters: &lineDetailCallCountWaiters,
+            observedCount: lineDetailCallCount
+        )
+        let result: GitWorkingTreeLineDetailResult
+        if let detail = lineDetailByRootPath[rootPath.standardizedFileURL] {
+            result = .available(detail)
+        } else {
+            result = .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
         }
-        return .available(detail)
+        return result
     }
 
     func currentStatusCallCount() -> Int { statusCallCount }
     func currentLineDetailCallCount() -> Int { lineDetailCallCount }
 
+    func waitForStatusCallCount(atLeast expectedCount: Int) async -> Int {
+        guard statusCallCount < expectedCount else { return statusCallCount }
+        return await withCheckedContinuation { continuation in
+            statusCallCountWaiters.append(
+                DemandIntegrationCallCountWaiter(
+                    expectedCount: expectedCount,
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
+    func waitForLineDetailCallCount(atLeast expectedCount: Int) async -> Int {
+        guard lineDetailCallCount < expectedCount else { return lineDetailCallCount }
+        return await withCheckedContinuation { continuation in
+            lineDetailCallCountWaiters.append(
+                DemandIntegrationCallCountWaiter(
+                    expectedCount: expectedCount,
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
     private func recordStatus(for rootPath: URL) -> GitWorkingTreeStatus {
         statusCallCount += 1
         lineDetailByRootPath[rootPath.standardizedFileURL] = GitWorkingTreeLineDetail(status: status)
+        resumeSatisfiedWaiters(waiters: &statusCallCountWaiters, observedCount: statusCallCount)
         return status
+    }
+
+    private func resumeSatisfiedWaiters(
+        waiters: inout [DemandIntegrationCallCountWaiter],
+        observedCount: Int
+    ) {
+        var remainingWaiters: [DemandIntegrationCallCountWaiter] = []
+        for waiter in waiters {
+            if observedCount >= waiter.expectedCount {
+                waiter.continuation.resume(returning: observedCount)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        waiters = remainingWaiters
     }
 }
 
@@ -681,13 +773,14 @@ private actor DemandIntegrationRemoteReferenceProvider: RemoteReferenceRefreshPr
     private(set) var stageFetchCallCount = 0
     private(set) var promoteCallCount = 0
     private(set) var cleanupCallCount = 0
+    private var callCountWaiters: [DemandIntegrationRemoteCallCountWaiter] = []
 
     func captureRemoteTrackingSnapshot(
         repositoryPath: URL,
         remoteName: String
     ) async throws -> GitRemoteTrackingSnapshot {
         captureCallCount += 1
-        return GitRemoteTrackingSnapshot(
+        let snapshot = GitRemoteTrackingSnapshot(
             repositoryPath: repositoryPath,
             repositoryCommonDirectory: repositoryPath.appending(path: ".git"),
             remoteName: remoteName,
@@ -695,6 +788,8 @@ private actor DemandIntegrationRemoteReferenceProvider: RemoteReferenceRefreshPr
             effectiveFetchURL: origin,
             references: []
         )
+        resumeSatisfiedCallCountWaiters()
+        return snapshot
     }
 
     func stageFetch(
@@ -702,7 +797,7 @@ private actor DemandIntegrationRemoteReferenceProvider: RemoteReferenceRefreshPr
         stagingId: UUID
     ) async throws -> GitStagedFetchResult {
         stageFetchCallCount += 1
-        return GitStagedFetchResult(
+        let stagedFetch = GitStagedFetchResult(
             snapshot: snapshot,
             handle: GitStagedFetchHandle(
                 repositoryCommonDirectory: snapshot.repositoryCommonDirectory,
@@ -713,14 +808,18 @@ private actor DemandIntegrationRemoteReferenceProvider: RemoteReferenceRefreshPr
             verifications: [],
             deletions: []
         )
+        resumeSatisfiedCallCountWaiters()
+        return stagedFetch
     }
 
     func promoteStagedFetch(_: GitStagedFetchResult) async throws {
         promoteCallCount += 1
+        resumeSatisfiedCallCountWaiters()
     }
 
     func cleanupStagedFetch(_: GitStagedFetchHandle) async throws {
         cleanupCallCount += 1
+        resumeSatisfiedCallCountWaiters()
     }
 
     func cleanupAbandonedStagedFetches(
@@ -738,11 +837,40 @@ private actor DemandIntegrationRemoteReferenceProvider: RemoteReferenceRefreshPr
             cleanup: cleanupCallCount
         )
     }
+
+    func waitForCallCounts(
+        atLeast expectedCounts: DemandIntegrationRemoteCallCounts
+    ) async -> DemandIntegrationRemoteCallCounts {
+        let observedCounts = currentCallCounts()
+        guard !observedCounts.hasReached(expectedCounts) else { return observedCounts }
+        return await withCheckedContinuation { continuation in
+            callCountWaiters.append(
+                DemandIntegrationRemoteCallCountWaiter(
+                    expectedCounts: expectedCounts,
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        let observedCounts = currentCallCounts()
+        var remainingWaiters: [DemandIntegrationRemoteCallCountWaiter] = []
+        for waiter in callCountWaiters {
+            if observedCounts.hasReached(waiter.expectedCounts) {
+                waiter.continuation.resume(returning: observedCounts)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        callCountWaiters = remainingWaiters
+    }
 }
 
 private actor DemandIntegrationForgeProvider: ForgeStatusProvider {
     private let expectedBranch: String
     private(set) var callCount = 0
+    private var callCountWaiters: [DemandIntegrationCallCountWaiter] = []
 
     init(expectedBranch: String = "main") {
         self.expectedBranch = expectedBranch
@@ -753,6 +881,7 @@ private actor DemandIntegrationForgeProvider: ForgeStatusProvider {
         demandedBranches: Set<String>
     ) async -> ForgePullRequestQueryOutcome {
         callCount += 1
+        resumeSatisfiedWaiters()
         guard demandedBranches == [expectedBranch] else {
             return .failed(message: "unexpected demanded branch scope")
         }
@@ -765,6 +894,30 @@ private actor DemandIntegrationForgeProvider: ForgeStatusProvider {
     }
 
     func currentCallCount() -> Int { callCount }
+
+    func waitForCallCount(atLeast expectedCount: Int) async -> Int {
+        guard callCount < expectedCount else { return callCount }
+        return await withCheckedContinuation { continuation in
+            callCountWaiters.append(
+                DemandIntegrationCallCountWaiter(
+                    expectedCount: expectedCount,
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
+    private func resumeSatisfiedWaiters() {
+        var remainingWaiters: [DemandIntegrationCallCountWaiter] = []
+        for waiter in callCountWaiters {
+            if callCount >= waiter.expectedCount {
+                waiter.continuation.resume(returning: callCount)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        callCountWaiters = remainingWaiters
+    }
 }
 
 private final class DemandIntegrationSilentFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {

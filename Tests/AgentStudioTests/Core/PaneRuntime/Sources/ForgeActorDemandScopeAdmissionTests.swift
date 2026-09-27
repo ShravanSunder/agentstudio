@@ -22,8 +22,8 @@ struct ForgeActorDemandScopeAdmissionTests {
         await fixture.fixture.actor.setDemand(
             worktreeIds: [fixture.confirmedWorktreeId, fixture.unconfirmedWorktreeId]
         )
-        await Task.yield()
 
+        #expect(await fixture.fixture.provider.waitForCallCount(2))
         #expect(await fixture.fixture.provider.callCount == 2)
         #expect(
             await fixture.fixture.provider.demandedBranchSets.last
@@ -101,10 +101,13 @@ struct ForgeActorDemandScopeAdmissionTests {
                 expected: PullRequestFacts(openCount: 0, exactOpenURL: nil)
             ))
 
+        let nextFreshnessSleepGeneration = fixture.clock.scheduledSleepGeneration
         await fixture.actor.setDemand(worktreeIds: [secondWorktreeId])
-        await Task.yield()
+        await fixture.clock.waitForPendingSleepCount(
+            atLeast: 1,
+            fromGeneration: nextFreshnessSleepGeneration
+        )
         #expect(await fixture.provider.callCount == 1)
-        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
         fixture.advance(by: AppPolicies.Forge.automaticRefreshMinimumInterval)
 
         #expect(await fixture.provider.waitForCallCount(2))
@@ -121,12 +124,15 @@ struct ForgeActorDemandScopeAdmissionTests {
         await fixture.fixture.provider.resolve(callAt: 1, with: .failed(message: "offline"))
         #expect(await fixture.fixture.events.waitForRefreshFailure(repoId: fixture.repoId))
 
+        let nextBackoffSleepGeneration = fixture.fixture.clock.scheduledSleepGeneration
         await fixture.fixture.actor.setDemand(
             worktreeIds: [fixture.confirmedWorktreeId, fixture.unconfirmedWorktreeId]
         )
-        await Task.yield()
+        await fixture.fixture.clock.waitForPendingSleepCount(
+            atLeast: 1,
+            fromGeneration: nextBackoffSleepGeneration
+        )
         #expect(await fixture.fixture.provider.callCount == 2)
-        await fixture.fixture.clock.waitForPendingSleepCount(atLeast: 1)
         fixture.fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffBaseDelay)
 
         #expect(await fixture.fixture.provider.waitForCallCount(3))

@@ -1,0 +1,6 @@
+{
+  "union": "BridgeAgentShowResult",
+  "value": {
+    "kind": "shown"
+  }
+}

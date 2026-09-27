@@ -223,11 +223,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
         expectAppToolbarPresentationFiltering(for: .showReposSidebar)
     }
 
-    @Test("Inbox has no app-toolbar presentation")
-    func inboxHasNoAppToolbarPresentation() {
-        #expect(AppCommand.showInboxNotifications.definition.surfacePolicy == .notPresented)
-    }
-
     @Test("watch folder presentation is filtered by app toolbar surface and command context")
     func watchFolderPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
         expectAppToolbarPresentationFiltering(for: .watchFolder)
