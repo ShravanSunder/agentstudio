@@ -6,6 +6,25 @@ import Testing
 
 @Suite("RepoExplorerSelectionReconciliationTests")
 struct RepoExplorerSelectionReconciliationTests {
+    @Test("a disappearing selected drawer chooses its owner before a later pane")
+    func hiddenDrawerReconcilesToOwner() {
+        let tabID = UUIDv7.generate()
+        let ownerID = UUIDv7.generate()
+        let drawerID = UUIDv7.generate()
+        let laterID = UUIDv7.generate()
+        let ownerRow = navigationTabPaneRow(groupID: "panes", paneID: ownerID, tabID: tabID)
+        let drawerRow = navigationDrawerPaneRow(
+            groupID: "panes", paneID: drawerID, tabID: tabID, ownerPaneID: ownerID
+        )
+        let laterRow = navigationTabPaneRow(groupID: "panes", paneID: laterID, tabID: tabID)
+        let previous = RepoExplorerMaterializationSnapshot(rows: [ownerRow, drawerRow, laterRow])
+        let current = RepoExplorerMaterializationSnapshot(rows: [ownerRow, laterRow])
+
+        let reconciliation = selectionReconciliation(previous: previous, current: current)
+
+        #expect(reconciliation.targetRowID(for: drawerRow.id) == ownerRow.id)
+    }
+
     @Test("exact selectable identity wins before an earlier duplicate destination representation")
     func exactSelectableIdentityWinsBeforeSemanticDuplicate() {
         let repositoryID = UUIDv7.generate()
