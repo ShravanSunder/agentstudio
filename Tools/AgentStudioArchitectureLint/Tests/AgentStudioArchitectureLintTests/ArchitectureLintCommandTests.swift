@@ -1,8 +1,13 @@
-import Darwin
 import Foundation
 import Testing
 
 @testable import AgentStudioArchitectureLintCore
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 @Suite(.serialized)
 struct ArchitectureLintCommandTests {
@@ -413,8 +418,8 @@ struct ArchitectureLintCommandTests {
         let outputURL = temporaryDirectory.appendingPathComponent("stdout.log")
         let errorURL = temporaryDirectory.appendingPathComponent("stderr.log")
         try? FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        FileManager.default.createFile(atPath: errorURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: errorURL.path, contents: nil)
         defer {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
@@ -441,10 +446,10 @@ struct ArchitectureLintCommandTests {
 
 private func canonicalFileSystemPath(_ path: String) -> String {
     let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-    guard let resolvedPath = standardizedPath.withCString({ Darwin.realpath($0, nil) }) else {
+    guard let resolvedPath = standardizedPath.withCString({ realpath($0, nil) }) else {
         return standardizedPath
     }
-    defer { Darwin.free(resolvedPath) }
+    defer { free(resolvedPath) }
     return String(cString: resolvedPath)
 }
 

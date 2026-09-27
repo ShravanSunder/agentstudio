@@ -61,6 +61,11 @@ run_release_script_checks() {
 }
 
 lint_started_ms="$(now_ms)"
+run_portable_only=0
+if [[ "${1:-}" == "--portable" ]]; then
+  run_portable_only=1
+  shift
+fi
 
 if [[ $# -eq 0 ]]; then
   echo "--- swift-format lint ---"
@@ -86,8 +91,10 @@ if [[ $# -eq 0 ]]; then
   done < <(agent_documents)
   run_architecture_lint Sources Tests "${agent_document_paths[@]}"
   stage_started_ms="$(now_ms)"
-  run_release_script_checks
-  report_stage_time "release-script-checks" "$stage_started_ms"
+  if [[ $run_portable_only -eq 0 ]]; then
+    run_release_script_checks
+    report_stage_time "release-script-checks" "$stage_started_ms"
+  fi
   report_stage_time "total" "$lint_started_ms"
   exit 0
 fi
