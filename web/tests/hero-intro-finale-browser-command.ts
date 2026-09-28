@@ -50,6 +50,7 @@ interface FinaleSample {
 
 export interface FinaleObservation {
   readonly samples: readonly FinaleSample[];
+  readonly directSeekSpinnerVisible: boolean;
   readonly scrollProbe: {
     readonly overflow: number;
     readonly scrollTop: number;
@@ -212,7 +213,11 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
       const timelineProof = await page.evaluate(
         async (
           sampleTimes,
-        ): Promise<{ samples: FinaleSample[]; scrollProbe: FinaleObservation["scrollProbe"] }> => {
+        ): Promise<{
+          samples: FinaleSample[];
+          scrollProbe: FinaleObservation["scrollProbe"];
+          directSeekSpinnerVisible: boolean;
+        }> => {
           await document.fonts.ready;
           const control = await (
             window as Window & {
@@ -504,6 +509,22 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             };
           };
           const observations: FinaleSample[] = [];
+          control.seek(5.5);
+          const directSpinner = document.querySelector<HTMLElement>("[data-hero-intro-spinner]");
+          const directTranscript = directSpinner?.closest<HTMLElement>(".hero-terminal-transcript");
+          const directSeekSpinnerVisible =
+            directSpinner !== null &&
+            directSpinner !== undefined &&
+            directTranscript !== null &&
+            directTranscript !== undefined &&
+            Number(getComputedStyle(directSpinner).opacity) > 0.9 &&
+            directSpinner.getBoundingClientRect().bottom <=
+              directTranscript.getBoundingClientRect().bottom + 1;
+          control.seek(0);
+          for (const terminalTranscript of document.querySelectorAll<HTMLElement>(
+            ".hero-terminal-transcript",
+          ))
+            terminalTranscript.scrollTop = 0;
           for (const second of sampleTimes) {
             control.seek(second);
             observations.push(observe(second));
@@ -535,7 +556,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           windowNode.style.removeProperty("height");
           control.finish();
           observations.push(observe("settled"));
-          return { samples: observations, scrollProbe };
+          return { samples: observations, scrollProbe, directSeekSpinnerVisible };
         },
         sampleTimes,
       );
@@ -619,6 +640,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
       });
       return {
         samples: timelineProof.samples,
+        directSeekSpinnerVisible: timelineProof.directSeekSpinnerVisible,
         scrollProbe: timelineProof.scrollProbe,
         staircase,
         resizeRailClip: resize.clip,

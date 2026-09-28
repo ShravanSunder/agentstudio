@@ -285,7 +285,14 @@ export function buildHeroIntroScene(
       Number(getComputedStyle(row).opacity) < 0.05
     )
       return;
-    const rowBottom = row.getBoundingClientRect().bottom;
+    const newestVisible =
+      timeline.time() >= 3.95 &&
+      timeline.time() < 7 &&
+      transcript.contains(spinner) &&
+      Number(getComputedStyle(spinner).opacity) > 0.05
+        ? spinner
+        : row;
+    const rowBottom = newestVisible.getBoundingClientRect().bottom;
     const viewportBottom = transcript.getBoundingClientRect().bottom;
     transcript.scrollTop = Math.max(0, transcript.scrollTop + rowBottom - viewportBottom + 2);
   };

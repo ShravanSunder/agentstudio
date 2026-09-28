@@ -36,6 +36,7 @@ for (const [width, height] of [
     expect(at(0.9).secondLine).toBe(1);
     expect(at(4.5).claudeProgressOpacities[0]).toBeGreaterThan(0);
     expect(at(5.5).claudeSpinnerVisible).toBe(true);
+    expect(observation.directSeekSpinnerVisible).toBe(true);
     expect(at(5.5).codexHeaderVisible).toBe(true);
     expect(at(6.8).readyOpacity).toBe(0);
     expect(at(7.2).readyOpacity).toBe(1);
