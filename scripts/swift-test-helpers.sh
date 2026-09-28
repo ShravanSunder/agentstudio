@@ -678,6 +678,8 @@ large|BridgeReviewSmokeFrameLivenessTests|concurrent
 large|BridgeWorktreeRefreshSessionTests|concurrent
 large|CIFastLaneWorkflowTests|concurrent
 large|CIFirstAttemptGateWorkflowTests|concurrent
+large|CISwiftBuildCachePublishScriptTests|concurrent
+large|CISwiftBuildInputsScriptTests|concurrent
 large|CursorPackageInstallerTests|concurrent
 large|DarwinCompositeFSEventContinuityTests|process-global
 large|DarwinFSEventStreamClientTests|process-global

@@ -3,6 +3,32 @@ import Testing
 
 @Suite("CI topology workflow")
 struct CITopologyWorkflowTests {
+    @Test("Swift cache stays PR restore only, main publish only, and prune only for saved seed")
+    func swiftBuildCacheOwnershipAndOrder() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let swiftJob = try topologyJob(named: "swift-test-suite", in: workflow)
+        let pruneJob = try topologyJob(named: "prune-swift-build-cache", in: workflow)
+        let restore = try topologyBlock(
+            startingWith: "      - name: Restore Swift build seed\n", endingBefore: "\n      - ", in: swiftJob)
+        let save = try topologyBlock(
+            startingWith: "      - name: Save Swift build seed\n", endingBefore: "\n      - ", in: swiftJob)
+        #expect(restore.contains("if: github.event_name == 'pull_request'"))
+        #expect(restore.contains("uses: actions/cache/restore@v4"))
+        #expect(save.contains("if: github.event_name == 'push' && github.ref == 'refs/heads/main'"))
+        #expect(save.contains("uses: actions/cache/save@v4"))
+        let webKitStep = try #require(swiftJob.range(of: "name: Test WebKit lane"))
+        let saveStep = try #require(swiftJob.range(of: "name: Save Swift build seed"))
+        #expect(webKitStep.lowerBound < saveStep.lowerBound)
+        #expect(swiftJob.contains("actions: read"))
+        #expect(!swiftJob.contains("actions: write"))
+        #expect(pruneJob.contains("needs: swift-test-suite"))
+        #expect(pruneJob.contains("actions: write"))
+        #expect(pruneJob.contains("needs.swift-test-suite.outputs.swift_cache_disposition"))
+        #expect(pruneJob.contains("ci-swift-build-cache-publish.sh prune"))
+        let inputScript = try String(contentsOfFile: "scripts/ci-swift-build-inputs.sh", encoding: .utf8)
+        #expect(inputScript.contains("swift-build-v1-"))
+        #expect(workflow.contains("steps.swift-cache-prefix.outputs.prefix"))
+    }
     @Test("CI jobs start independently without cross-job dependencies")
     func ciJobsStartIndependentlyWithoutCrossJobDependencies() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
