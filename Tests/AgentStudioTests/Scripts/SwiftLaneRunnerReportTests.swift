@@ -361,6 +361,7 @@ struct SwiftLaneRunnerReportTests {
                 // the lane's own child group was actually reaped on the way out.
                 "event_stream",
                 "exit_status",
+                "fact_expected",
                 "failed_isolated_suite",
                 "failed_isolated_suites",
                 "head_sha",

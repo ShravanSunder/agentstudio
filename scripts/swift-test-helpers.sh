@@ -719,6 +719,7 @@ e2e|E2ESerializedTests|serial
 e2e|E2ESerializedTests/FilesystemSourceE2ETests|serial
 e2e|E2ESerializedTests/ZmxBackendIntegrationTests|serial
 zmx|E2ESerializedTests/ZmxE2ETests|serial
+large|ExpectationLogTests|process-global
 large|FilesystemActorActivityTests|process-global
 large|FilesystemActorShellGitIntegrationTests|concurrent
 large|FilesystemFetchHeadGitPipelineIntegrationTests|process-global
