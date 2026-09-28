@@ -52,7 +52,7 @@ export type BridgeProductBatchAcceptance =
 	| {
 			readonly kind: 'staged';
 			readonly receivedThroughDeliverySequence?: number;
-			readonly replacedIncompleteStage?: boolean;
+			readonly replacementSnapshotStarted?: boolean;
 	  }
 	| { readonly kind: 'installed'; readonly domain: string; readonly targetRevision: number }
 	| { readonly kind: 'resnapshot'; readonly domain: string };
@@ -233,6 +233,7 @@ export class BridgeProductViewBatchReceiver {
 			return { kind: 'resnapshot', domain: frame.domain };
 		}
 		const priorStage = domainState.stage;
+		const replacesExpiredStage = domainState.expiredBatchId !== null;
 		if (priorStage?.begin.batchId === frame.batchId) {
 			if (sameJSON(priorStage.begin, frame)) return { kind: 'staged' };
 			domainState.stage = null;
@@ -243,10 +244,11 @@ export class BridgeProductViewBatchReceiver {
 			return { kind: 'resnapshot', domain: frame.domain };
 		}
 		domainState.stage = { begin: frame, complete: null, partsByIndex: new Map() };
+		domainState.expiredBatchId = null;
 		if (frame.mode === 'snapshot') domainState.receiptBaselinePending = true;
 		return {
 			kind: 'staged',
-			...(priorStage === null ? {} : { replacedIncompleteStage: true }),
+			...(priorStage === null && !replacesExpiredStage ? {} : { replacementSnapshotStarted: true }),
 		};
 	}
 

@@ -8,8 +8,10 @@ import {
 	type BridgeProductBatchFrame,
 } from './bridge-product-batch-wire-contracts.js';
 import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
+import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
 import { BridgeProductViewBatchReceiver } from './bridge-product-view-batch-receiver.js';
+import { BridgeProductViewScopeOwner } from './bridge-product-view-scope-owner.js';
 
 const noDeadlineClock: BridgeProductDeadlineClock = { schedule: () => (): void => {} };
 
@@ -194,6 +196,89 @@ function complete(props: {
 }
 
 describe('Bridge product W4 per-domain batch receiver', () => {
+	it('an expired bank releases W2 for each successor resnapshot until the view budget is exhausted', async () => {
+		const clock = new ControlledBatchDeadlineClock();
+		const requests: string[] = [];
+		const admissions: Promise<void>[] = [];
+		const installations: string[] = [];
+		const identities = ['handle-1', 'incarnation-1'];
+		let nextIdentity = 0;
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => ({
+					...props,
+					kind: 'subscription.scopeAccepted' as const,
+					paneSessionId: 'pane-1',
+					requestId: 'scope-request',
+					requestSequence: 1,
+					wireVersion: 2 as const,
+					workerInstanceId: 'worker-1',
+				}),
+				resnapshotView: async (props) => {
+					requests.push(props.domain);
+					return {
+						...props,
+						kind: 'subscription.resnapshotAccepted' as const,
+						paneSessionId: 'pane-1',
+						requestId: 'resnapshot-request',
+						requestSequence: requests.length,
+						wireVersion: 2 as const,
+						workerInstanceId: 'worker-1',
+					};
+				},
+			} satisfies Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>,
+			createIdentifier: (): string => identities[nextIdentity++] ?? 'unexpected-identity',
+			maximumConsecutiveResnapshots: 3,
+		});
+		owner.register({
+			scope: { kind: 'review', interests: [] },
+			subscriptionId: identity.subscriptionId,
+			subscriptionKind: identity.subscriptionKind,
+		});
+		const router = new BridgeProductBatchFrameRouter({
+			deadlineClock: clock,
+			progressDeadlineMilliseconds: 5_000,
+		});
+		router.setSinks({
+			install: (installation): void => {
+				installations.push(installation.begin.batchId);
+				owner.recordCertifiedInstall(installation.begin);
+			},
+			receipt: (): void => {},
+			resnapshot: (): void => {},
+			replacementSnapshot: (frame): void => owner.observeReplacementSnapshot(frame),
+			resnapshotLatest: (subscriptionId, domain): void => {
+				admissions.push(owner.resnapshot(subscriptionId, domain));
+			},
+		});
+		for (const [batchId, target] of [
+			['first', 1],
+			['second', 2],
+			['third', 3],
+			['fourth', 4],
+		] as const) {
+			router.accept(begin({ batchId, partCount: 1, target }));
+			router.accept(part({ batchId, key: batchId, revision: target, value: batchId }));
+			clock.activeDeadline().fire();
+			await Promise.all(admissions.splice(0));
+		}
+		expect(requests).toEqual(['default', 'default', 'default']);
+		expect(owner.recoveryState(identity.subscriptionId)).toEqual({
+			consecutiveResnapshots: 3,
+			status: 'failedRetryable',
+		});
+		expect(installations).toEqual([]);
+		await owner.retryView(identity.subscriptionId);
+		expect(requests).toHaveLength(4);
+		router.accept(begin({ batchId: 'retry', partCount: 1, target: 5 }));
+		router.accept(part({ batchId: 'retry', key: 'retry', revision: 5, value: 'ready' }));
+		router.accept(complete({ batchId: 'retry' }));
+		expect(installations).toEqual(['retry']);
+		expect(owner.recoveryState(identity.subscriptionId)).toEqual({
+			consecutiveResnapshots: 0,
+			status: 'ready',
+		});
+	});
 	it('expires only an incomplete bank, preserves last good, and ignores its late complete', () => {
 		const clock = new ControlledBatchDeadlineClock();
 		const router = new BridgeProductBatchFrameRouter({

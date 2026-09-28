@@ -136,7 +136,7 @@ export class BridgeProductBatchFrameRouter {
 		if (
 			frame.kind === 'subscription.batchBegin' &&
 			acceptance.kind === 'staged' &&
-			acceptance.replacedIncompleteStage === true
+			acceptance.replacementSnapshotStarted === true
 		)
 			sinks.replacementSnapshot?.(frame);
 		if (
