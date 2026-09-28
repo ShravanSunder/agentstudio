@@ -11,6 +11,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         case maximumQueuedStreamBytes
         case maximumQueuedStreamFrames
         case terminalFrameReserve
+        case streamKeepaliveIntervalMilliseconds
         case telemetryPreReadyBufferMaxBytes
         case telemetryPreReadyBufferMaxSamples
         case viewAcknowledgementDeadlineMilliseconds
@@ -30,6 +31,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     let maximumQueuedStreamBytes: Int
     let maximumQueuedStreamFrames: Int
     let terminalFrameReserve: Int
+    let streamKeepaliveIntervalMilliseconds: Int
     let telemetryPreReadyBufferMaxBytes: Int
     let telemetryPreReadyBufferMaxSamples: Int
     let viewAcknowledgementDeadlineMilliseconds: Int
@@ -51,6 +53,10 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         maximumQueuedStreamBytes: BridgeProductWireContract.maximumQueuedStreamBytes,
         maximumQueuedStreamFrames: BridgeProductWireContract.maximumQueuedStreamFrames,
         terminalFrameReserve: BridgeProductWireContract.terminalFrameReserve,
+        streamKeepaliveIntervalMilliseconds: Int(
+            AppPolicies.Bridge.streamKeepaliveInterval.components.seconds * 1000
+                + AppPolicies.Bridge.streamKeepaliveInterval.components.attoseconds / 1_000_000_000_000_000
+        ),
         telemetryPreReadyBufferMaxBytes: BridgeTelemetryWorkerPolicy.live.producerPreReadyBufferMaxBytes,
         telemetryPreReadyBufferMaxSamples: BridgeTelemetryWorkerPolicy.live.producerPreReadyBufferMaxSamples,
         viewAcknowledgementDeadlineMilliseconds: Int(
@@ -77,6 +83,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         maximumQueuedStreamBytes: Int,
         maximumQueuedStreamFrames: Int,
         terminalFrameReserve: Int,
+        streamKeepaliveIntervalMilliseconds: Int,
         telemetryPreReadyBufferMaxBytes: Int,
         telemetryPreReadyBufferMaxSamples: Int,
         viewAcknowledgementDeadlineMilliseconds: Int,
@@ -95,6 +102,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         self.maximumQueuedStreamBytes = maximumQueuedStreamBytes
         self.maximumQueuedStreamFrames = maximumQueuedStreamFrames
         self.terminalFrameReserve = terminalFrameReserve
+        self.streamKeepaliveIntervalMilliseconds = streamKeepaliveIntervalMilliseconds
         self.telemetryPreReadyBufferMaxBytes = telemetryPreReadyBufferMaxBytes
         self.telemetryPreReadyBufferMaxSamples = telemetryPreReadyBufferMaxSamples
         self.viewAcknowledgementDeadlineMilliseconds = viewAcknowledgementDeadlineMilliseconds
@@ -123,6 +131,9 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         self.maximumQueuedStreamBytes = try container.decode(Int.self, forKey: .maximumQueuedStreamBytes)
         self.maximumQueuedStreamFrames = try container.decode(Int.self, forKey: .maximumQueuedStreamFrames)
         self.terminalFrameReserve = try container.decode(Int.self, forKey: .terminalFrameReserve)
+        self.streamKeepaliveIntervalMilliseconds = try container.decode(
+            Int.self, forKey: .streamKeepaliveIntervalMilliseconds
+        )
         self.telemetryPreReadyBufferMaxBytes = try container.decode(
             Int.self,
             forKey: .telemetryPreReadyBufferMaxBytes
@@ -178,6 +189,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
             codingPath: codingPath
         )
         for (name, value) in [
+            ("streamKeepaliveIntervalMilliseconds", streamKeepaliveIntervalMilliseconds),
             ("viewAcknowledgementDeadlineMilliseconds", viewAcknowledgementDeadlineMilliseconds),
             ("viewBatchProgressDeadlineMilliseconds", viewBatchProgressDeadlineMilliseconds),
             ("viewCreditBytes", viewCreditBytes),

@@ -33,7 +33,7 @@ private enum BridgeProductSchemeReplyContext {
 }
 
 private enum BridgeProductProducerRoute {
-    case metadata
+    case metadata(BridgeProductMetadataStreamCorrelation)
     case content
 }
 
@@ -583,7 +583,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         }
         try await routeProducerRegistration(
             registration,
-            producerRoute: .metadata,
+            producerRoute: .metadata(metadataRequest.correlation),
             responseURL: request.url,
             productAdmission: productAdmission,
             continuation: continuation
@@ -696,20 +696,64 @@ struct BridgeProductSchemeAdapter: Sendable {
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
     ) async throws {
+        guard case .metadata(let correlation) = producerRoute else {
+            try await pumpFrameDeliveryLoop(
+                pump,
+                producerRoute: producerRoute,
+                metadataSender: nil,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+            return
+        }
+        let sender = BridgeProductMetadataKeepaliveSender(correlation: correlation) { data in
+            try emit(.data(data), productAdmission: productAdmission, continuation: continuation)
+        }
+        let heartbeat = Task { await sender.run() }
+        do {
+            try await pumpFrameDeliveryLoop(
+                pump,
+                producerRoute: producerRoute,
+                metadataSender: sender,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
+        } catch {
+            await sender.stop()
+            heartbeat.cancel()
+            await heartbeat.value
+            throw error
+        }
+        await sender.stop()
+        heartbeat.cancel()
+        await heartbeat.value
+    }
+
+    private func pumpFrameDeliveryLoop(
+        _ pump: BridgeProductSchemeFramePump,
+        producerRoute: BridgeProductProducerRoute,
+        metadataSender: BridgeProductMetadataKeepaliveSender?,
+        productAdmission: BridgeProductAdmissionContext,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async throws {
         while true {
             switch await pump.nextFrame() {
             case .frame(let delivery):
-                try emit(
-                    .data(delivery.frame.data),
-                    productAdmission: productAdmission,
-                    continuation: continuation
-                )
-                let frameAccepted =
-                    if producerRoute == .content {
-                        await pump.waitUntilFrameObserved(delivery.receipt)
-                    } else {
-                        await pump.acknowledgeFrameConsumed(delivery.receipt)
-                    }
+                if let metadataSender {
+                    try await metadataSender.send(delivery.frame)
+                } else {
+                    try emit(
+                        .data(delivery.frame.data),
+                        productAdmission: productAdmission,
+                        continuation: continuation
+                    )
+                }
+                let frameAccepted: Bool
+                if case .content = producerRoute {
+                    frameAccepted = await pump.waitUntilFrameObserved(delivery.receipt)
+                } else {
+                    frameAccepted = await pump.acknowledgeFrameConsumed(delivery.receipt)
+                }
                 guard frameAccepted else {
                     if productAdmission.withValidAdmission({ true }) != true {
                         throw BridgeProductSchemeAdapterError.admissionInvalid

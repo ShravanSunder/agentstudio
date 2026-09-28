@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import validProductSessionCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
+import { BridgeProductBatchFrameRouter } from './bridge-product-batch-frame-router.js';
 import { BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES } from './bridge-product-contract-primitives.js';
 import { encodeBridgeProductMetadataFrame } from './bridge-product-metadata-frame-codec.js';
 import {
@@ -29,6 +30,59 @@ const primaryNonterminalFrames = primaryMetadataFrames.filter(
 );
 
 describe('Bridge product metadata stream decoder', () => {
+	test('ignores a keepalive while W4 holds a staged batch, then installs the complete batch', () => {
+		const acceptedFrame = requiredPrimaryFrame(0);
+		const decoder = createMetadataStreamDecoder();
+		const installedBatchIds: string[] = [];
+		const router = new BridgeProductBatchFrameRouter({
+			deadlineClock: { schedule: () => (): void => {} },
+			progressDeadlineMilliseconds: 5_000,
+		});
+		router.setSinks({
+			install: (installation): void => {
+				installedBatchIds.push(installation.begin.batchId);
+			},
+			receipt: (): void => {},
+			resnapshot: (): void => {
+				throw new Error('Expected the staged batch to remain valid.');
+			},
+			resnapshotLatest: (): void => {},
+		});
+		const batchFrames = validProductSessionCorpus.transportV2.batchFrames
+			.slice(0, 5)
+			.map((frame, index) =>
+				bridgeProductMetadataFrameSchema.parse({ ...frame, streamSequence: index + 1 }),
+			);
+		const route = (frame: BridgeProductMetadataFrame): void => {
+			for (const decoded of decoder.push(encodeBridgeProductMetadataFrame(frame))) {
+				if (
+					decoded.kind === 'subscription.batchBegin' ||
+					decoded.kind === 'subscription.batchPart' ||
+					decoded.kind === 'subscription.batchComplete'
+				)
+					router.accept(decoded);
+			}
+		};
+		const firstBatchFrame = batchFrames[0];
+		if (firstBatchFrame === undefined) throw new Error('Expected the Review batch begin fixture.');
+		const keepalive = bridgeProductMetadataFrameSchema.parse({
+			kind: 'stream.keepalive',
+			metadataStreamId: acceptedFrame.metadataStreamId,
+			paneSessionId: acceptedFrame.paneSessionId,
+			streamSequence: firstBatchFrame.streamSequence,
+			wireVersion: acceptedFrame.wireVersion,
+			workerInstanceId: acceptedFrame.workerInstanceId,
+		});
+
+		route(acceptedFrame);
+		route(firstBatchFrame);
+		expect(decoder.push(encodeBridgeProductMetadataFrame(keepalive))).toEqual([]);
+		expect(installedBatchIds).toEqual([]);
+		expect(decoder.diagnostics.expectedNextStreamSequence).toBe(2);
+		for (const frame of batchFrames.slice(1)) route(frame);
+		expect(installedBatchIds).toEqual(['review-batch-1']);
+	});
+
 	test('decodes one-byte and 4 KiB fragmentation without retaining unbounded residue', () => {
 		const frames = primaryNonterminalFrames;
 		const encodedStream = concatenateBytes(...frames.map(encodeBridgeProductMetadataFrame));

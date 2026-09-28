@@ -74,6 +74,7 @@ struct BridgeProductQueuedProducerFrame: Equatable, Sendable {
     let sequence: Int
     let terminal: Bool
     let requiredOpening: Bool
+    let batchComplete: Bool
 }
 
 struct BridgeProductProducerFrameReceipt: Hashable, Sendable {
@@ -188,6 +189,7 @@ extension BridgeProductMetadataFrame {
     var producerFrameIdentity: BridgeProductMetadataFrameIdentity {
         switch self {
         case .metadataStreamAccepted(let frame): frame.frameIdentity
+        case .streamKeepalive(let frame): frame.frameIdentity
         case .panePresentation(let frame): frame.frameIdentity
         case .paneSurfaceSelectionRequested(let frame): frame.frameIdentity
         case .subscriptionAccepted(let frame): frame.frameIdentity

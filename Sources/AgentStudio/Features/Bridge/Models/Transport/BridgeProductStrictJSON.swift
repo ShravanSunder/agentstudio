@@ -422,6 +422,7 @@ enum BridgeProductStrictJSON {
             "targetInterestSha256",
             "targetRevision",
             "terminalFrameReserve",
+            "streamKeepaliveIntervalMilliseconds",
             "contentProgressDeadlineMilliseconds",
             "workerSettlementDeadlineMilliseconds",
             "viewAcknowledgementDeadlineMilliseconds",

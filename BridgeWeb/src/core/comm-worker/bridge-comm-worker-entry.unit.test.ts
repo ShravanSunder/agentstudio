@@ -889,6 +889,7 @@ function makePaneWorkerInstall(
 				admissionRetryCount: 2,
 				contentProgressDeadlineMilliseconds: 5_000,
 				viewBatchProgressDeadlineMilliseconds: 5_000,
+				streamKeepaliveIntervalMilliseconds: 350,
 				telemetryPreReadyBufferMaxBytes: 64 * 1024,
 				telemetryPreReadyBufferMaxSamples,
 				workerSettlementDeadlineMilliseconds: 5_000,

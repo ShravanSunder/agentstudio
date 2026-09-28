@@ -778,6 +778,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 
 	#routeMetadataFrame(frame: BridgeProductMetadataFrame): void {
 		switch (frame.kind) {
+			case 'stream.keepalive':
+				return;
 			case 'metadataStream.accepted':
 				this.#physicalMetadataReady?.resolve();
 				return;

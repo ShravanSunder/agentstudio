@@ -151,6 +151,7 @@ struct BridgeProductSessionContractTests {
             ])
         #expect(bootstrap.paneSessionId == "pane-session-1")
         #expect(bootstrap.policy.viewBatchProgressDeadlineMilliseconds == 5000)
+        #expect(bootstrap.policy.streamKeepaliveIntervalMilliseconds == 350)
         #expect(
             BridgeProductBootstrapPolicy.productContract.viewBatchProgressDeadlineMilliseconds
                 == Int(AppPolicies.Bridge.productViewBatchProgressDeadline.components.seconds * 1000)

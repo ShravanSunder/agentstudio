@@ -128,7 +128,7 @@ struct DevelopmentDisplayMetadataStream {
                 }
             case .metadataStreamError, .subscriptionReset, .subscriptionEnd:
                 throw DevelopmentDisplayWorkerClientError.reviewMetadataTerminatedBeforeFinalWindow
-            case .contentCancelled, .metadataStreamAccepted, .panePresentation,
+            case .contentCancelled, .metadataStreamAccepted, .streamKeepalive, .panePresentation,
                 .paneSurfaceSelectionRequested, .subscriptionCancelled:
                 continue
             }

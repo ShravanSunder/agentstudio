@@ -144,7 +144,8 @@ struct BridgeProductProducerRegistry {
             data: encodedFrame.data,
             sequence: sequence,
             terminal: false,
-            requiredOpening: true
+            requiredOpening: true,
+            batchComplete: false
         )
         state.queuedFrames.append(frame)
         state.queuedByteCount = encodedFrame.data.count
@@ -541,7 +542,8 @@ struct BridgeProductProducerRegistry {
             data: validatedFrame.data,
             sequence: sequence,
             terminal: terminal,
-            requiredOpening: false
+            requiredOpening: false,
+            batchComplete: validatedFrame.batchComplete
         )
         state.queuedFrames.append(frame)
         state.queuedByteCount += validatedFrame.data.count
@@ -563,7 +565,8 @@ struct BridgeProductProducerRegistry {
             data: validatedFrame.data,
             sequence: sequence,
             terminal: true,
-            requiredOpening: false
+            requiredOpening: false,
+            batchComplete: false
         )
         state.queuedFrames = [frame]
         state.queuedByteCount = validatedFrame.data.count

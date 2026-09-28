@@ -20,6 +20,7 @@ final class AppPoliciesBridgeTests {
         )
         #expect(bootstrapPolicy.viewCreditParts == AppPolicies.Bridge.productViewCreditParts)
         #expect(bootstrapPolicy.viewCreditBytes == AppPolicies.Bridge.productViewCreditBytes)
+        #expect(bootstrapPolicy.streamKeepaliveIntervalMilliseconds == 350)
         #expect(bootstrapPolicy.viewMaximumDirtyKeys == AppPolicies.Bridge.productViewMaximumDirtyKeys)
         #expect(
             bootstrapPolicy.viewAcknowledgementDeadlineMilliseconds

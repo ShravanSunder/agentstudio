@@ -102,11 +102,11 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: 'e890c03bfa4a6d1208981308fec41342cd9a3319158e8f529fe21aae4e5f1581',
+				expectedHash: 'eb5d86db85248ba1f12650a30fe5b99cc1767e5271aacc8caa5740b17eca47be',
 				kind: 'valid',
 			},
 			{
-				expectedHash: '9fad3b3741281ce17c0d7f24d13bee3b87b2d2e037ab0886aa224f1a1f9d40b7',
+				expectedHash: 'd5d35607700ac778e2ead7bb0e4653463076be301a120bbb899863eb054967db',
 				kind: 'invalid',
 			},
 		] as const;
@@ -146,6 +146,9 @@ describe('Bridge product session contracts', () => {
 			}).success,
 		).toBe(false);
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('initialSurface');
+		expect(validProductSessionCorpus.bootstrap.policy.streamKeepaliveIntervalMilliseconds).toBe(
+			350,
+		);
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('productCapabilityBytes');
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('routes');
 		expect(BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES).toBe(256 * 1024);

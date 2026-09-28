@@ -358,6 +358,12 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 	z
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
+			kind: z.literal('stream.keepalive'),
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductMetadataFrameIdentityShape,
 			kind: z.literal('metadataStream.accepted'),
 			resumeDisposition: z.enum(['resumed', 'snapshot_required']),
 			streamSequence: bridgeProductNonnegativeSequenceSchema,
@@ -510,6 +516,7 @@ export const bridgeProductBootstrapPolicySchema = z
 			.positive()
 			.max(BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES),
 		terminalFrameReserve: z.literal(BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE),
+		streamKeepaliveIntervalMilliseconds: bridgeProductPositiveSequenceSchema,
 		telemetryPreReadyBufferMaxBytes: bridgeProductPositiveSequenceSchema,
 		telemetryPreReadyBufferMaxSamples: bridgeProductPositiveSequenceSchema,
 		viewAcknowledgementDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,

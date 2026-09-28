@@ -33,6 +33,7 @@ const bootstrap: BridgeProductSessionBootstrap = {
 		admissionRetryCount: 2,
 		contentProgressDeadlineMilliseconds: 5_000,
 		viewBatchProgressDeadlineMilliseconds: 5_000,
+		streamKeepaliveIntervalMilliseconds: 350,
 		maximumContentBytes: 2 * 1024 * 1024,
 		maximumMetadataFrameBytes: 128 * 1024,
 		maximumQueuedStreamBytes: 4 * 1024 * 1024,

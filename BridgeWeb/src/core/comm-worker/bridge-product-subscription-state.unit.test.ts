@@ -494,6 +494,7 @@ function requireSubscriptionFrame(
 			return frame;
 		case 'content.cancelled':
 		case 'metadataStream.accepted':
+		case 'stream.keepalive':
 		case 'metadataStream.error':
 		case 'pane.presentation':
 		case 'pane.surfaceSelectionRequested':

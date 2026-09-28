@@ -204,6 +204,7 @@ struct BridgeProductSubscriptionFrameIdentity: Codable, Equatable, Sendable {
 
 enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     case metadataStreamAccepted(BridgeProductMetadataStreamAcceptedFrame)
+    case streamKeepalive(BridgeProductStreamKeepaliveFrame)
     case panePresentation(BridgeProductPanePresentationFrame)
     case paneSurfaceSelectionRequested(BridgeProductPaneSurfaceSelectionRequestedFrame)
     case subscriptionAccepted(BridgeProductSubscriptionAcceptedFrame)
@@ -221,6 +222,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     var kind: String {
         switch self {
         case .metadataStreamAccepted: "metadataStream.accepted"
+        case .streamKeepalive: "stream.keepalive"
         case .panePresentation: "pane.presentation"
         case .paneSurfaceSelectionRequested: "pane.surfaceSelectionRequested"
         case .subscriptionAccepted: "subscription.accepted"
@@ -243,6 +245,8 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
         switch try container.decode(String.self, forKey: .kind) {
         case "metadataStream.accepted":
             self = .metadataStreamAccepted(try BridgeProductMetadataStreamAcceptedFrame(from: decoder))
+        case "stream.keepalive":
+            self = .streamKeepalive(try BridgeProductStreamKeepaliveFrame(from: decoder))
         case "pane.presentation":
             self = .panePresentation(try BridgeProductPanePresentationFrame(from: decoder))
         case "pane.surfaceSelectionRequested":
@@ -275,6 +279,7 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         switch self {
         case .metadataStreamAccepted(let frame): try frame.encode(to: encoder)
+        case .streamKeepalive(let frame): try frame.encode(to: encoder)
         case .panePresentation(let frame): try frame.encode(to: encoder)
         case .paneSurfaceSelectionRequested(let frame): try frame.encode(to: encoder)
         case .subscriptionAccepted(let frame): try frame.encode(to: encoder)

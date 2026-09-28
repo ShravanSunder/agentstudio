@@ -188,6 +188,8 @@ package enum AppPolicies {
         package static let productViewAcknowledgementDeadline: Duration = .seconds(4)
         /// An incomplete W4 side bank must make begin/part/complete progress.
         package static let productViewBatchProgressDeadline: Duration = .seconds(5)
+        /// Keeps an open WebKit metadata response moving after its last product frame.
+        package static let streamKeepaliveInterval: Duration = .milliseconds(350)
         package static let productViewMaximumConsecutiveResnapshots: Int = 3
         /// PR1 interim: metadata budget for issued File descriptors that are no
         /// longer newest. PR2's installed-selection lease replaces this cache.

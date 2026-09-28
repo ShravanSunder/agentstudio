@@ -890,6 +890,7 @@
           "admissionRetryCount": 2,
           "contentProgressDeadlineMilliseconds": 5000,
           "viewBatchProgressDeadlineMilliseconds": 5000,
+          "streamKeepaliveIntervalMilliseconds": 350,
           "workerSettlementDeadlineMilliseconds": 5000,
           "maximumQueuedStreamFrames": 64,
           "terminalFrameReserve": 1
