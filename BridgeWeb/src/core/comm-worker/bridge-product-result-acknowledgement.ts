@@ -4,6 +4,7 @@ import {
 	BridgeProductRequestTransportError,
 	postBridgeProductCommandBody,
 } from './bridge-product-command-post.js';
+import { bridgeProductAmbiguousControlReply } from './bridge-product-control-reply-classification.js';
 import {
 	BridgeProductRequestDeadlineError,
 	postBridgeProductExactAdmissionWithRetry,
@@ -86,14 +87,19 @@ export async function postBridgeProductResultAcknowledgement(props: {
 					error instanceof BridgeProductAckAttemptTransportError
 				)
 					throw error;
-				signal.throwIfAborted();
 				if (observedReply.response !== null && !observedReply.response.ok) {
 					throw new BridgeProductAckAttemptTransportError(
 						await bridgeProductAckHTTPFailureOutcome(observedReply.response, props.acknowledgement),
 					);
 				}
+				const ambiguous = bridgeProductAmbiguousControlReply({
+					error,
+					failureKind: error instanceof BridgeProductStrictJSONError ? 'parse' : 'transport',
+					response: observedReply.response,
+					signal,
+				});
 				throw new BridgeProductAckAttemptTransportError({
-					kind: error instanceof BridgeProductStrictJSONError ? 'parseFailure' : 'transportFailure',
+					kind: ambiguous.outcome.kind === 'parse' ? 'parseFailure' : 'transportFailure',
 					requestSequence: props.acknowledgement.requestSequence,
 				});
 			}

@@ -517,6 +517,24 @@ describe('Bridge product session authority', () => {
 						'review-subscription-correlation',
 					),
 				),
+			)
+			.mockResolvedValueOnce(
+				responseWithJSON(
+					subscriptionCancelAcceptedResponse(
+						'wrong-correlation',
+						5,
+						'review-subscription-correlation',
+					),
+				),
+			)
+			.mockResolvedValueOnce(
+				responseWithJSON(
+					subscriptionCancelAcceptedResponse(
+						'wrong-correlation',
+						5,
+						'review-subscription-correlation',
+					),
+				),
 			);
 		const requestIds = [
 			'subscription-open-kind',
@@ -534,8 +552,11 @@ describe('Bridge product session authority', () => {
 		).rejects.toThrow(/subscription\.openAccepted/iu);
 		await expect(
 			mux.cancelSubscription(reviewSubscriptionCancelProps('review-subscription-correlation', 1)),
-		).rejects.toThrow(/does not match.*issued request/iu);
-		expect(fetchSpy).toHaveBeenCalledTimes(7);
+		).rejects.toThrow(/did not settle within its bounded retry window/iu);
+		expect(fetchSpy).toHaveBeenCalledTimes(9);
+		const firstCancel = requireUint8Array(fetchSpy.mock.calls[6]?.[1]?.body);
+		expect([...requireUint8Array(fetchSpy.mock.calls[7]?.[1]?.body)]).toEqual([...firstCancel]);
+		expect([...requireUint8Array(fetchSpy.mock.calls[8]?.[1]?.body)]).toEqual([...firstCancel]);
 	});
 
 	test('consumes a correlated request.error sequence before admitting the next request', async () => {

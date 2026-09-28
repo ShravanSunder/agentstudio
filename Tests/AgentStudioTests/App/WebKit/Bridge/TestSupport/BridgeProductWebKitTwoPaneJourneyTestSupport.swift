@@ -756,23 +756,18 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 "native Review activation did not settle its control admission"
             )
         }
-        while await installation.session.waitUntilProducerFramesQuiescent() {
-            let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
-            if native.inFlightFrameReceiptCount == 0, native.queuedFrameCount == 0 { return }
-            let activeProducer = await installation.session.producerSnapshot()
-            let owner = await controller.productSessionOwner.snapshot()
-            if activeProducer.queuedFrameCount == 0,
-                activeProducer.inFlightFrameReceiptCount == 0
-            {
-                throw JourneyError.conditionFailed(
-                    "native Review activation left frame delivery outside the active producer "
-                        + "(ownerQueued=\(owner.queuedFrameCount), "
-                        + "ownerReceipts=\(owner.inFlightFrameReceiptCount), "
-                        + "retiring=\(owner.retiringInstallationCount))"
-                )
-            }
+        guard await installation.session.waitUntilProducerFramesQuiescent() else {
+            throw JourneyError.conditionFailed("native Review activation lost its producer session")
         }
-        throw JourneyError.conditionFailed("native Review activation lost its producer session")
+        let owner = await controller.productSessionOwner.snapshot()
+        guard owner.queuedFrameCount == 0, owner.inFlightFrameReceiptCount == 0 else {
+            throw JourneyError.conditionFailed(
+                "native Review activation left frame delivery queued after producer quiescence "
+                    + "(ownerQueued=\(owner.queuedFrameCount), "
+                    + "ownerReceipts=\(owner.inFlightFrameReceiptCount), "
+                    + "retiring=\(owner.retiringInstallationCount))"
+            )
+        }
     }
 
     private static func requireHiddenRefreshSettled(

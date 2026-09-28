@@ -132,7 +132,7 @@ async function callOnSession(props: {
 	readonly loseAcknowledgements: boolean;
 	readonly acknowledgementReply?: (body: string) => Response;
 	readonly onSessionSuspect?: (
-		reason: 'resultAcknowledgementExhausted',
+		reason: 'admissionReplyExhausted' | 'resultAcknowledgementExhausted',
 		ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
 		priorControlRequests: readonly BridgeWorkerPriorControlRequest[],
 		droppedPriorControlRequestCount: number,
@@ -189,7 +189,9 @@ describe('Bridge product result acknowledgement owner', () => {
 					code: 502,
 					requestSequence: 4,
 				})),
-				priorControls: [{ kind: 'product.call', requestSequence: 3, outcome: 'ok' }],
+				priorControls: [
+					{ kind: 'product.call', requestSequence: 3, outcome: 'ok', attemptOutcomes: [] },
+				],
 			},
 		]);
 		expect(oldSession.diagnosticSnapshot.pendingAcknowledgementCount).toBe(0);
@@ -311,14 +313,287 @@ describe('Bridge product result acknowledgement owner', () => {
 		expect(snapshots[0]?.dropped).toBe(2);
 		expect(snapshots[0]?.priorControls).toHaveLength(16);
 		expect(snapshots[0]?.priorControls[0]).toEqual({
+			attemptOutcomes: [],
 			kind: 'product.call',
 			outcome: 'ok',
 			requestSequence: 7,
 		});
 		expect(snapshots[0]?.priorControls.at(-1)).toEqual({
+			attemptOutcomes: [],
 			kind: 'product.call',
 			outcome: 'ok',
 			requestSequence: 37,
 		});
 	});
+
+	test('a malformed accepted escape reply replays before a pending result ack takes its sequence', async () => {
+		const baseExecutor = createExecutor({ acknowledgementBodies: [], loseAcknowledgements: false });
+		let nativeNextSequence = 1;
+		let cancelAttempts = 0;
+		const ackSequences: number[] = [];
+		const suspectAttempts: BridgeWorkerAckAttemptOutcome[][] = [];
+		let releaseResult: () => void = (): void => {};
+		const resultMaySettle = new Promise<void>((resolve): void => {
+			releaseResult = resolve;
+		});
+		let reportCallAdmitted: () => void = (): void => {};
+		const callAdmitted = new Promise<void>((resolve): void => {
+			reportCallAdmitted = resolve;
+		});
+		const executor: BridgeProductRequestExecutor = async (
+			route,
+			requestInit,
+		): Promise<Response> => {
+			if (!(requestInit.body instanceof Uint8Array)) throw new Error('Expected encoded body.');
+			const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
+			if (command.kind === 'operation.result' && command.operationId === 'operation-save') {
+				await resultMaySettle;
+			}
+			if (command.kind === 'operation.resultAcknowledgement') {
+				ackSequences.push(command.requestSequence);
+				if (command.requestSequence !== nativeNextSequence) {
+					return new Response(
+						JSON.stringify({
+							kind: 'operation.resultAckRefused',
+							nextExpectedRequestSequence: nativeNextSequence,
+							operationId: command.operationId,
+							paneSessionId: command.paneSessionId,
+							replayRejectionKind: 'sequenceConflict',
+							refusalKind: 'requestSequenceRejected',
+							requestId: command.requestId,
+							requestSequence: command.requestSequence,
+							wireVersion: command.wireVersion,
+							workerInstanceId: command.workerInstanceId,
+						}),
+						{ status: 400 },
+					);
+				}
+				nativeNextSequence += 1;
+			}
+			if (command.kind === 'workerSession.open' || command.kind === 'product.call') {
+				expect(command.requestSequence).toBe(nativeNextSequence);
+				nativeNextSequence += 1;
+				if (command.kind === 'product.call') reportCallAdmitted();
+			}
+			if (command.kind === 'subscription.cancel') {
+				expect(command.requestSequence).toBe(nativeNextSequence - (cancelAttempts > 0 ? 1 : 0));
+				cancelAttempts += 1;
+				if (cancelAttempts === 1) {
+					nativeNextSequence += 1;
+					return new Response('{', { status: 200 });
+				}
+				return jsonResponse({
+					kind: 'subscription.cancelAccepted',
+					paneSessionId: command.paneSessionId,
+					requestId: command.requestId,
+					requestSequence: command.requestSequence,
+					subscriptionId: command.subscriptionId,
+					subscriptionKind: command.subscriptionKind,
+					wireVersion: command.wireVersion,
+					workerInstanceId: command.workerInstanceId,
+				});
+			}
+			return await baseExecutor(route, requestInit);
+		};
+		const authority = new BridgeProductSessionAuthorityStore(executor, clock).install({
+			bootstrap,
+			productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		});
+		const mux = new BridgeProductControlMux({
+			authority,
+			deadlineClock: clock,
+			executeProductRequest: executor,
+			onSessionSuspect: (_reason, attempts): void => {
+				suspectAttempts.push([...attempts]);
+			},
+		});
+		await authority.open;
+		const call = mux.call({
+			method: 'review.markFileViewed',
+			request: { itemId: 'review-item-1' },
+			workerDerivationEpoch: 1,
+		});
+		await callAdmitted;
+		const cancelOutcome = mux
+			.cancelSubscription({
+				subscriptionId: 'review-subscription-1',
+				subscriptionKind: 'review.metadata',
+				workerDerivationEpoch: 1,
+			})
+			.then(
+				(): 'accepted' => 'accepted',
+				(): 'rejected' => 'rejected',
+			);
+		const cancellation = await cancelOutcome;
+		releaseResult();
+		await call;
+		await mux.waitForAcknowledgementsQuiescent();
+		expect(ackSequences.at(-1)).toBe(5);
+		expect(cancellation).toBe('accepted');
+		expect(cancelAttempts).toBe(2);
+		expect(suspectAttempts).toEqual([]);
+	});
+
+	test.each(['wrongCorrelationThenReplay', 'exhaustedLostReply'] as const)(
+		'an ambiguous setScope %s preserves the pending result ack sequence',
+		async (faultKind) => {
+			const baseExecutor = createExecutor({
+				acknowledgementBodies: [],
+				loseAcknowledgements: false,
+			});
+			let nativeNextSequence = 1;
+			let setScopeAttempts = 0;
+			const ackSequences: number[] = [];
+			const suspectFacts: Array<{
+				readonly reason: string;
+				readonly priorControls: readonly BridgeWorkerPriorControlRequest[];
+			}> = [];
+			let releaseResult: () => void = (): void => {};
+			const resultMaySettle = new Promise<void>((resolve): void => {
+				releaseResult = resolve;
+			});
+			let reportCallAdmitted: () => void = (): void => {};
+			const callAdmitted = new Promise<void>((resolve): void => {
+				reportCallAdmitted = resolve;
+			});
+			let acceptedScope: ReturnType<typeof bridgeProductControlRequestSchema.parse> | null = null;
+			const executor: BridgeProductRequestExecutor = async (
+				route,
+				requestInit,
+			): Promise<Response> => {
+				if (!(requestInit.body instanceof Uint8Array)) throw new Error('Expected encoded body.');
+				const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
+				if (command.kind === 'operation.result' && command.operationId === 'operation-save') {
+					await resultMaySettle;
+				}
+				if (command.kind === 'operation.result' && command.operationId === 'operation-scope') {
+					if (acceptedScope?.kind !== 'subscription.setScope')
+						throw new Error('Expected scope admission.');
+					const scope = acceptedScope;
+					return jsonResponse({
+						failureCode: null,
+						kind: 'operation.result',
+						operationId: command.operationId,
+						outcome: 'succeeded',
+						result: {
+							domain: scope.domain,
+							handle: scope.handle,
+							incarnation: scope.incarnation,
+							kind: 'subscription.scopeAccepted',
+							paneSessionId: scope.paneSessionId,
+							requestId: scope.requestId,
+							requestSequence: scope.requestSequence,
+							scopeRevision: scope.scopeRevision,
+							subscriptionId: scope.subscriptionId,
+							subscriptionKind: scope.subscriptionKind,
+							wireVersion: scope.wireVersion,
+							workerInstanceId: scope.workerInstanceId,
+						},
+					});
+				}
+				if (command.kind === 'operation.resultAcknowledgement') {
+					ackSequences.push(command.requestSequence);
+					if (command.requestSequence !== nativeNextSequence) {
+						return new Response(
+							JSON.stringify({
+								kind: 'operation.resultAckRefused',
+								nextExpectedRequestSequence: nativeNextSequence,
+								operationId: command.operationId,
+								paneSessionId: command.paneSessionId,
+								replayRejectionKind: 'sequenceConflict',
+								refusalKind: 'requestSequenceRejected',
+								requestId: command.requestId,
+								requestSequence: command.requestSequence,
+								wireVersion: command.wireVersion,
+								workerInstanceId: command.workerInstanceId,
+							}),
+							{ status: 400 },
+						);
+					}
+					nativeNextSequence += 1;
+				}
+				if (command.kind === 'workerSession.open' || command.kind === 'product.call') {
+					expect(command.requestSequence).toBe(nativeNextSequence);
+					nativeNextSequence += 1;
+					if (command.kind === 'product.call') reportCallAdmitted();
+				}
+				if (command.kind === 'subscription.setScope') {
+					expect(command.requestSequence).toBe(4);
+					setScopeAttempts += 1;
+					if (setScopeAttempts === 1) {
+						expect(nativeNextSequence).toBe(4);
+						nativeNextSequence = 5;
+						acceptedScope = command;
+					}
+					if (faultKind === 'exhaustedLostReply') return new Response('lost', { status: 502 });
+					return jsonResponse({
+						kind: 'operation.admitted',
+						operationId: 'operation-scope',
+						paneSessionId: command.paneSessionId,
+						requestId: setScopeAttempts === 1 ? 'wrong-correlation' : command.requestId,
+						requestSequence: command.requestSequence,
+						waitKind: 'ordinary',
+						wireVersion: command.wireVersion,
+						workerInstanceId: command.workerInstanceId,
+					});
+				}
+				return await baseExecutor(route, requestInit);
+			};
+			const authority = new BridgeProductSessionAuthorityStore(executor, clock).install({
+				bootstrap,
+				productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+			});
+			const mux = new BridgeProductControlMux({
+				authority,
+				deadlineClock: clock,
+				executeProductRequest: executor,
+				onSessionSuspect: (reason, _ackAttempts, priorControls): void => {
+					suspectFacts.push({ reason, priorControls });
+				},
+			});
+			await authority.open;
+			const call = mux.call({
+				method: 'review.markFileViewed',
+				request: { itemId: 'review-item-1' },
+				workerDerivationEpoch: 1,
+			});
+			await callAdmitted;
+			const scopeOutcome = mux
+				.setViewScope({
+					domain: 'review',
+					handle: 'view-handle-1',
+					incarnation: 'incarnation-1',
+					scope: { kind: 'review', interests: [] },
+					scopeRevision: 1,
+					subscriptionId: 'review-subscription-1',
+					subscriptionKind: 'review.metadata',
+				})
+				.then(
+					(): 'accepted' => 'accepted',
+					(): 'rejected' => 'rejected',
+				);
+			const scope = await scopeOutcome;
+			releaseResult();
+			await call;
+			await mux.waitForAcknowledgementsQuiescent();
+			if (faultKind === 'wrongCorrelationThenReplay') {
+				expect(scope).toBe('accepted');
+				expect(setScopeAttempts).toBe(2);
+				expect(ackSequences).toEqual([2, 5, 6]);
+				expect(suspectFacts).toEqual([]);
+			} else {
+				expect(scope).toBe('rejected');
+				expect(setScopeAttempts).toBe(bootstrap.policy.admissionRetryCount + 1);
+				expect(ackSequences).toEqual([2]);
+				expect(suspectFacts).toHaveLength(1);
+				expect(suspectFacts[0]?.reason).toBe('admissionReplyExhausted');
+				expect(suspectFacts[0]?.priorControls.at(-1)).toEqual({
+					attemptOutcomes: Array.from({ length: 3 }, () => ({ kind: 'httpStatus', code: 502 })),
+					kind: 'subscription.setScope',
+					outcome: 'ambiguous',
+					requestSequence: 4,
+				});
+			}
+		},
+	);
 });

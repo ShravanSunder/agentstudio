@@ -45,6 +45,21 @@ export const bridgeWorkerAckAttemptOutcomeSchema = z.discriminatedUnion('kind', 
 
 export type BridgeWorkerAckAttemptOutcome = z.infer<typeof bridgeWorkerAckAttemptOutcomeSchema>;
 
+export const bridgeWorkerControlAttemptOutcomeSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('parse') }).strict(),
+	z.object({ kind: z.literal('identity') }).strict(),
+	z.object({ kind: z.literal('transport') }).strict(),
+	z.object({ kind: z.literal('deadline') }).strict(),
+	z.object({ kind: z.literal('httpStatus'), code: z.number().int().min(100).max(599) }).strict(),
+	z
+		.object({ kind: z.literal('nativeRefusal'), refusalKind: bridgeProductRequestErrorCodeSchema })
+		.strict(),
+]);
+
+export type BridgeWorkerControlAttemptOutcome = z.infer<
+	typeof bridgeWorkerControlAttemptOutcomeSchema
+>;
+
 export const bridgeWorkerPriorControlRequestSchema = z
 	.object({
 		kind: z.enum([
@@ -58,6 +73,7 @@ export const bridgeWorkerPriorControlRequestSchema = z
 			'operation.lateOutcomeAcknowledgement',
 		]),
 		outcome: z.enum(['ok', 'ambiguous', 'refused']),
+		attemptOutcomes: z.array(bridgeWorkerControlAttemptOutcomeSchema).max(64).readonly(),
 		requestSequence: z.number().int().positive(),
 	})
 	.strict();

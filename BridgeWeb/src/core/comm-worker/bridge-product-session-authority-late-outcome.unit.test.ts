@@ -155,134 +155,161 @@ describe('Bridge product in-session late mutation outcome', () => {
 		},
 	);
 
-	test('stillUnknown can be observed again, and revision two is acknowledged without replay', async () => {
-		const secondObservationRequested = createBridgeProductDeferred<void>();
-		const lateResponse = createBridgeProductDeferred<Response>();
-		let productCallCount = 0;
-		let observationCount = 0;
-		let lateAcknowledgements = 0;
-		let callRequestId = '';
-		let callRequestSequence = 0;
-		const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
-			if (!(requestInit.body instanceof Uint8Array)) throw new Error('Missing command body.');
-			const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
-			if (command.kind === 'operation.result') {
-				return command.operationId === 'operation-open'
-					? jsonResponse({
-							failureCode: null,
-							kind: 'operation.result',
-							operationId: command.operationId,
-							outcome: 'succeeded',
-							result: {
-								kind: 'workerSession.accepted',
-								paneSessionId: bootstrap.paneSessionId,
-								requestId: 'worker-session-open-1',
-								requestSequence: 1,
+	test.each(['accepted', 'lost'] as const)(
+		'stillUnknown can be observed again, and revision two acknowledgement is %s',
+		async (ackReply) => {
+			const secondObservationRequested = createBridgeProductDeferred<void>();
+			const lateResponse = createBridgeProductDeferred<Response>();
+			let productCallCount = 0;
+			let observationCount = 0;
+			let lateAcknowledgements = 0;
+			let controlPostCount = 0;
+			const suspectReasons: string[] = [];
+			let callRequestId = '';
+			let callRequestSequence = 0;
+			const executeProductRequest: BridgeProductRequestExecutor = async (_route, requestInit) => {
+				if (!(requestInit.body instanceof Uint8Array)) throw new Error('Missing command body.');
+				const command = commandSchema.parse(JSON.parse(new TextDecoder().decode(requestInit.body)));
+				controlPostCount += 1;
+				if (command.kind === 'operation.result') {
+					return command.operationId === 'operation-open'
+						? jsonResponse({
+								failureCode: null,
+								kind: 'operation.result',
+								operationId: command.operationId,
+								outcome: 'succeeded',
+								result: {
+									kind: 'workerSession.accepted',
+									paneSessionId: bootstrap.paneSessionId,
+									requestId: 'worker-session-open-1',
+									requestSequence: 1,
+									result: null,
+									wireVersion: bootstrap.wireVersion,
+									workerInstanceId: bootstrap.workerInstanceId,
+								},
+							})
+						: jsonResponse({
+								failureCode: null,
+								kind: 'operation.result',
+								operationId: command.operationId,
+								outcome: 'outcomeUnknown',
 								result: null,
-								wireVersion: bootstrap.wireVersion,
-								workerInstanceId: bootstrap.workerInstanceId,
-							},
-						})
-					: jsonResponse({
-							failureCode: null,
-							kind: 'operation.result',
-							operationId: command.operationId,
-							outcome: 'outcomeUnknown',
-							result: null,
-						});
-			}
-			if (command.kind === 'operation.resultAcknowledgement') {
-				return jsonResponse({ ...command, kind: 'operation.resultAcknowledged' });
-			}
-			if (command.kind === 'operation.observe') {
-				observationCount += 1;
-				if (observationCount === 1) {
-					return jsonResponse({
-						kind: 'operation.stillUnknown',
-						operationId: command.operationId,
-						revision: command.after,
-					});
+							});
 				}
-				secondObservationRequested.resolve();
-				return await lateResponse.promise;
-			}
-			if (command.kind === 'operation.lateOutcomeAcknowledgement') {
-				lateAcknowledgements += 1;
-				return new Response(null, { status: 204 });
-			}
-			if (command.kind === 'product.call') {
-				productCallCount += 1;
-				callRequestId = command.requestId;
-				callRequestSequence = command.requestSequence;
-			}
-			return jsonResponse({
-				kind: 'operation.admitted',
-				operationId: command.kind === 'workerSession.open' ? 'operation-open' : 'operation-save',
-				paneSessionId: command.paneSessionId,
-				requestId: command.requestId,
-				requestSequence: command.requestSequence,
-				waitKind: 'ordinary',
-				wireVersion: command.wireVersion,
-				workerInstanceId: command.workerInstanceId,
+				if (command.kind === 'operation.resultAcknowledgement') {
+					return jsonResponse({ ...command, kind: 'operation.resultAcknowledged' });
+				}
+				if (command.kind === 'operation.observe') {
+					observationCount += 1;
+					if (observationCount === 1) {
+						return jsonResponse({
+							kind: 'operation.stillUnknown',
+							operationId: command.operationId,
+							revision: command.after,
+						});
+					}
+					secondObservationRequested.resolve();
+					return await lateResponse.promise;
+				}
+				if (command.kind === 'operation.lateOutcomeAcknowledgement') {
+					lateAcknowledgements += 1;
+					return ackReply === 'lost'
+						? new Response('lost', { status: 502 })
+						: new Response(null, { status: 204 });
+				}
+				if (command.kind === 'product.call') {
+					productCallCount += 1;
+					callRequestId = command.requestId;
+					callRequestSequence = command.requestSequence;
+				}
+				return jsonResponse({
+					kind: 'operation.admitted',
+					operationId: command.kind === 'workerSession.open' ? 'operation-open' : 'operation-save',
+					paneSessionId: command.paneSessionId,
+					requestId: command.requestId,
+					requestSequence: command.requestSequence,
+					waitKind: 'ordinary',
+					wireVersion: command.wireVersion,
+					workerInstanceId: command.workerInstanceId,
+				});
+			};
+			const authority = new BridgeProductSessionAuthorityStore(
+				executeProductRequest,
+				noDeadlineClock,
+			).install({
+				bootstrap,
+				productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
 			});
-		};
-		const authority = new BridgeProductSessionAuthorityStore(
-			executeProductRequest,
-			noDeadlineClock,
-		).install({
-			bootstrap,
-			productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
-		});
-		await authority.open;
-		const mux = new BridgeProductControlMux({
-			authority,
-			createRequestId: (() => {
-				let requestCount = 0;
-				return (): string => `late-request-${++requestCount}`;
-			})(),
-			deadlineClock: noDeadlineClock,
-			executeProductRequest,
-		});
-		let unknownError: unknown = null;
-		try {
-			await mux.call({
-				method: 'review.markFileViewed',
-				request: { itemId: 'item-save' },
-				workerDerivationEpoch: 1,
-			});
-		} catch (error: unknown) {
-			unknownError = error;
-		}
-		expect(unknownError).toMatchObject({ outcome: 'outcomeUnknown' });
-		if (!(unknownError instanceof BridgeProductControlRequestError)) return;
-		const observeLateOutcome = unknownError.observeLateOutcome;
-		expect(observeLateOutcome).toBeDefined();
-		if (observeLateOutcome === undefined) return;
-		const pendingLate = observeLateOutcome();
-		await secondObservationRequested.promise;
-		lateResponse.resolve(
-			jsonResponse({
-				failureCode: null,
-				kind: 'operation.lateOutcome',
-				operationId: 'operation-save',
-				outcome: 'succeeded',
-				result: {
-					call: { method: 'review.markFileViewed', result: null },
-					kind: 'call.completed',
-					paneSessionId: bootstrap.paneSessionId,
-					requestId: callRequestId,
-					requestSequence: callRequestSequence,
-					wireVersion: bootstrap.wireVersion,
-					workerInstanceId: bootstrap.workerInstanceId,
+			await authority.open;
+			const mux = new BridgeProductControlMux({
+				authority,
+				createRequestId: (() => {
+					let requestCount = 0;
+					return (): string => `late-request-${++requestCount}`;
+				})(),
+				deadlineClock: noDeadlineClock,
+				executeProductRequest,
+				onSessionSuspect: (reason): void => {
+					suspectReasons.push(reason);
 				},
-				revision: 2,
-			}),
-		);
-		const observed = await pendingLate;
-		expect(observed.evidence.revision).toBe(2);
-		expect(observationCount).toBe(2);
-		expect(productCallCount).toBe(1);
-		await observed.acknowledge();
-		expect(lateAcknowledgements).toBe(1);
-	});
+			});
+			let unknownError: unknown = null;
+			try {
+				await mux.call({
+					method: 'review.markFileViewed',
+					request: { itemId: 'item-save' },
+					workerDerivationEpoch: 1,
+				});
+			} catch (error: unknown) {
+				unknownError = error;
+			}
+			expect(unknownError).toMatchObject({ outcome: 'outcomeUnknown' });
+			if (!(unknownError instanceof BridgeProductControlRequestError)) return;
+			const observeLateOutcome = unknownError.observeLateOutcome;
+			expect(observeLateOutcome).toBeDefined();
+			if (observeLateOutcome === undefined) return;
+			const pendingLate = observeLateOutcome();
+			await secondObservationRequested.promise;
+			lateResponse.resolve(
+				jsonResponse({
+					failureCode: null,
+					kind: 'operation.lateOutcome',
+					operationId: 'operation-save',
+					outcome: 'succeeded',
+					result: {
+						call: { method: 'review.markFileViewed', result: null },
+						kind: 'call.completed',
+						paneSessionId: bootstrap.paneSessionId,
+						requestId: callRequestId,
+						requestSequence: callRequestSequence,
+						wireVersion: bootstrap.wireVersion,
+						workerInstanceId: bootstrap.workerInstanceId,
+					},
+					revision: 2,
+				}),
+			);
+			const observed = await pendingLate;
+			expect(observed.evidence.revision).toBe(2);
+			expect(observationCount).toBe(2);
+			expect(productCallCount).toBe(1);
+			if (ackReply === 'accepted') {
+				await observed.acknowledge();
+				expect(lateAcknowledgements).toBe(1);
+				expect(suspectReasons).toEqual([]);
+			} else {
+				await expect(observed.acknowledge()).rejects.toMatchObject({ phase: 'admission' });
+				expect(lateAcknowledgements).toBe(bootstrap.policy.admissionRetryCount + 1);
+				expect(suspectReasons).toEqual(['admissionReplyExhausted']);
+				const postsBeforeFencedCall = controlPostCount;
+				await expect(
+					mux.call({
+						method: 'review.markFileViewed',
+						request: { itemId: 'item-after-lost-ack' },
+						workerDerivationEpoch: 1,
+					}),
+				).rejects.toMatchObject({ phase: 'admission' });
+				expect(controlPostCount).toBe(postsBeforeFencedCall);
+			}
+		},
+	);
 });

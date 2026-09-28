@@ -30,9 +30,11 @@ export async function postBridgeProductAdmissionBody(props: {
 	readonly body: object;
 	readonly capabilityHeader: string;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
+	readonly observeResponse?: (response: Response) => void;
 	readonly signal?: AbortSignal;
 }): Promise<{ readonly bytes: Uint8Array; readonly status: number }> {
 	const response = await executeBridgeProductCommand(props);
+	props.observeResponse?.(response);
 	if (!response.ok && (response.status < 400 || response.status >= 500)) {
 		throw new BridgeProductRequestTransportError(
 			`Bridge product admission reply was ambiguous: HTTP ${response.status}.`,

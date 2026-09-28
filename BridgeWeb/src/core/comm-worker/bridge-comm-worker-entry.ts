@@ -66,7 +66,7 @@ export interface BridgeCommWorkerEntryDependencies {
 	readonly installProductSession: (
 		input: BridgeProductSessionAuthorityInstallInput & {
 			readonly publishSessionSuspect?: (
-				reason: 'resultAcknowledgementExhausted',
+				reason: 'admissionReplyExhausted' | 'resultAcknowledgementExhausted',
 				ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
 				priorControlRequests: readonly BridgeWorkerPriorControlRequest[],
 				droppedPriorControlRequestCount: number,

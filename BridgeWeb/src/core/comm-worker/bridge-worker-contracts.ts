@@ -18,6 +18,7 @@ import {
 } from './bridge-worker-ack-diagnostic-contracts.js';
 export type {
 	BridgeWorkerAckAttemptOutcome,
+	BridgeWorkerControlAttemptOutcome,
 	BridgeWorkerPriorControlRequest,
 } from './bridge-worker-ack-diagnostic-contracts.js';
 import { bridgeProductReviewFileChangeKindSchema } from './bridge-product-review-primitives.js';
