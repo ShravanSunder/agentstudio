@@ -29,6 +29,8 @@ RESOURCE_ROOTS = (
     "Sources/AgentStudio/Resources/BridgeWeb",
     "Tests/AgentStudioIPCClientTests/Fixtures",
 )
+FRAMEWORK_ROOT = "Frameworks/GhosttyKit.xcframework"
+STRICT_TREE_ROOTS = RESOURCE_ROOTS + (FRAMEWORK_ROOT,)
 
 
 def digest_bytes(data):
@@ -110,8 +112,9 @@ def fingerprint():
     return digest_bytes(canonical(values))
 
 
-def is_resource(path):
-    return any(path == root or path.startswith(root + "/") for root in RESOURCE_ROOTS)
+def is_strict_tree_input(path):
+    return path == "Frameworks" or any(
+        path == root or path.startswith(root + "/") for root in STRICT_TREE_ROOTS)
 
 
 def admitted_paths():
@@ -129,7 +132,7 @@ def admitted_paths():
         raw = subprocess.check_output(["git", "ls-files", "-z", "--", "Sources", "Tests"], cwd=ROOT)
         names.update(name.decode() for name in raw.split(b"\0") if name)
     names.update(("Package.swift", "Package.resolved"))
-    for root_name in RESOURCE_ROOTS:
+    for root_name in STRICT_TREE_ROOTS:
         path = ROOT / root_name
         if path.exists() or path.is_symlink():
             names.add(root_name)
@@ -156,6 +159,7 @@ def record(path_name):
         if not resolved.is_relative_to(ROOT) or not resolved.exists() or not (
             resolved.relative_to(ROOT).parts[0] in ("Sources", "Tests")
             or resolved.relative_to(ROOT).as_posix() in ("Package.swift", "Package.resolved")
+            or is_strict_tree_input(resolved.relative_to(ROOT).as_posix())
         ):
             raise ValueError("symlink leaves inventory: " + path_name)
         referent = tree_digest(resolved)
@@ -204,8 +208,9 @@ def validated_manifest(path):
         name = item.get("path")
         if not isinstance(name, str) or not name or Path(name).is_absolute() or \
                 ".." in Path(name).parts or name != Path(name).as_posix() or not (
-                    name in ("Package.swift", "Package.resolved", "Sources", "Tests")
+                    name in ("Package.swift", "Package.resolved", "Sources", "Tests", "Frameworks")
                     or name.startswith("Sources/") or name.startswith("Tests/")
+                    or name == FRAMEWORK_ROOT or name.startswith(FRAMEWORK_ROOT + "/")
                 ):
             raise ValueError("path escapes inventory")
         if item.get("kind") not in ("file", "directory", "symlink") or \
@@ -241,7 +246,7 @@ def compare(seed, current):
         old = previous.get(name)
         new = fresh.get(name)
         if old is None:
-            if is_resource(name) or new["kind"] != "file" or not name.endswith(".swift"):
+            if is_strict_tree_input(name) or new["kind"] != "file" or not name.endswith(".swift"):
                 raise ValueError("unsafe added input: " + name)
             continue
         if new is None:
@@ -251,7 +256,7 @@ def compare(seed, current):
         if old["kind"] == "symlink" and (old.get("target") != new.get("target") or
                                            old.get("referent") != new.get("referent")):
             raise ValueError("symlink transition: " + name)
-        if is_resource(name) and old["kind"] == "directory" and old["digest"] != new["digest"]:
+        if is_strict_tree_input(name) and old["kind"] == "directory" and old["digest"] != new["digest"]:
             raise ValueError("resource membership transition: " + name)
         if old["kind"] == "directory":
             if old["digest"] == new["digest"]:

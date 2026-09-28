@@ -75,6 +75,37 @@ struct CISwiftBuildInputsScriptTests {
         #expect(after == before)
     }
 
+    @Test("unchanged generated resource files regain their seed time")
+    func generatedResourceRestamp() async throws {
+        try await assertUnchangedInputRestamped("Sources/AgentStudio/Resources/BridgeWeb/index.html")
+    }
+
+    @Test("unchanged copied framework files regain their seed time")
+    func copiedFrameworkRestamp() async throws {
+        try await assertUnchangedInputRestamped("Frameworks/GhosttyKit.xcframework/binary")
+    }
+
+    private func assertUnchangedInputRestamped(_ relativePath: String) async throws {
+        let fixture = try SwiftInputFixture()
+        defer { fixture.remove() }
+        try await fixture.trackOnlySourceFile()
+        let environment = ["CI_SWIFT_ALL_FILES": "0"]
+        let seed = try await fixture.inventory("seed", extra: environment)
+        let seedTime = try #require(seed.modificationTimes[relativePath])
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_700_000_777)],
+            ofItemAtPath: fixture.root.appendingPathComponent(relativePath).path)
+        let current = try await fixture.inventory("current", extra: environment)
+        #expect(current.modificationTimes[relativePath] != seedTime)
+
+        let result = try await fixture.run(
+            "restamp", seed.path.path, current.path.path, extra: environment)
+        #expect(result.hasPrefix("warm "))
+        let restored = try await fixture.inventory("restored", extra: environment)
+        #expect(restored.modificationTimes[relativePath] == seedTime)
+    }
+
     @Test("verification follows the independent transition table")
     func transitionTable() async throws {
         let rows: [(String, Bool)] = [
@@ -190,6 +221,7 @@ private struct SwiftInputManifest {
     let path: URL
     let prefix: String
     let digest: String
+    let modificationTimes: [String: Int64]
 }
 
 private final class SwiftInputFixture {
@@ -225,6 +257,25 @@ private final class SwiftInputFixture {
     }
 
     func remove() { try? FileManager.default.removeItem(at: root) }
+
+    func trackOnlySourceFile() async throws {
+        let rootPath = root.path
+        let gitCommands = [
+            ["-C", rootPath, "init", "-q"],
+            ["-C", rootPath, "add", "Sources/Example.swift"],
+        ]
+        let exitCodes = try await withoutBlockingCooperativePool {
+            try gitCommands.map { arguments in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                process.arguments = arguments
+                try process.run()
+                process.waitUntilExit()
+                return process.terminationStatus
+            }
+        }
+        #expect(exitCodes == [0, 0])
+    }
 
     func run(_ arguments: String..., extra: [String: String] = [:], expectedExitCode: Int32 = 0) async throws -> String
     {
@@ -264,9 +315,18 @@ private final class SwiftInputFixture {
         _ = try await run("inventory", path.path, extra: extra)
         let data = try Data(contentsOf: path)
         let value = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let records = try #require(value["records"] as? [[String: Any]])
+        let modificationTimes = Dictionary(
+            uniqueKeysWithValues: records.compactMap { record -> (String, Int64)? in
+                guard let name = record["path"] as? String,
+                    let time = record["mtime_ns"] as? NSNumber
+                else { return nil }
+                return (name, time.int64Value)
+            })
         return SwiftInputManifest(
             path: path, prefix: try #require(value["prefix"] as? String),
-            digest: try #require(value["manifest_digest"] as? String))
+            digest: try #require(value["manifest_digest"] as? String),
+            modificationTimes: modificationTimes)
     }
 
     func apply(_ transition: String, seed: SwiftInputManifest) throws {
