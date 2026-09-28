@@ -99,6 +99,8 @@ After restore, before any compilation:
 
 ## Acceptance proof (before relying on it)
 
+**Trusted identity is an input.** `scripts/ci-swift-build-inputs.sh` and `scripts/ci-swift-build-cache-publish.sh` take the trusted producer ref (`CI_SWIFT_TRUSTED_PRODUCER_REF`, default `refs/heads/main`) and the key namespace (`CI_SWIFT_CACHE_NAMESPACE`, default `swift-build-v1-`). The verification and publication logic is identical in every mode; only which producer and namespace are trusted changes. Production `ci.yml` never sets either variable, and a topology contract test asserts that. The acceptance workflow sets them to its exact branch ref and `swift-build-exp-`, so its seeds carry true provenance. Tests prove that with the defaults, a seed from any other ref or namespace is rejected. This doesn't widen trust: whoever could set these could already edit the workflow.
+
 An experiment workflow on a scratch branch with its own namespace (`swift-build-exp-`). A seed job builds cold and saves. Each scenario job runs on a **fresh runner** using the real restore path (normal vendor restores, full BridgeWeb regeneration, the same stats flags) and the **production verifier**, and is compared with a cold job whose build path is empty. Scenarios are committed revisions on the branch, and the evidence is labeled experimental.
 
 | Case | Change | Required observation |
