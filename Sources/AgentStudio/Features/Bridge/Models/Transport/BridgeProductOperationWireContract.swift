@@ -276,3 +276,64 @@ struct BridgeProductOperationResultAcknowledgedResponse: Codable, Equatable, Sen
         try container.encode(operationId, forKey: .operationId)
     }
 }
+
+enum BridgeProductOperationResultAckRefusalKind: String, Codable, Equatable, Sendable, Error {
+    case paneSessionMismatch
+    case workerInstanceMismatch
+    case admissionInvalid
+    case requestSequenceRejected
+    case unknownOperation
+    case responseEncodingFailed
+    case replayCompletionRejected
+}
+
+struct BridgeProductOperationResultAckRefusedResponse: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case kind
+        case operationId
+        case refusalKind
+    }
+
+    let correlation: BridgeProductControlCorrelation
+    let operationId: String
+    let refusalKind: BridgeProductOperationResultAckRefusalKind
+
+    init(
+        correlation: BridgeProductControlCorrelation,
+        operationId: String,
+        refusalKind: BridgeProductOperationResultAckRefusalKind
+    ) {
+        self.correlation = correlation
+        self.operationId = operationId
+        self.refusalKind = refusalKind
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: BridgeProductControlCorrelation.codingKeyNames.union(
+                CodingKeys.allCases.map(\.rawValue)
+            ),
+            contract: "operation.resultAckRefused response"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "operation.resultAckRefused" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid operation.resultAckRefused response kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        correlation = try BridgeProductControlCorrelation(from: decoder)
+        operationId = try container.decode(String.self, forKey: .operationId)
+        refusalKind = try container.decode(BridgeProductOperationResultAckRefusalKind.self, forKey: .refusalKind)
+        try BridgeProductContractDecoding.validateIdentifier(operationId, codingPath: decoder.codingPath)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try correlation.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("operation.resultAckRefused", forKey: .kind)
+        try container.encode(operationId, forKey: .operationId)
+        try container.encode(refusalKind, forKey: .refusalKind)
+    }
+}

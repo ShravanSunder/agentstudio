@@ -6,6 +6,7 @@ import validStartupTranscript from '../../test-fixtures/bridge-contract-fixtures
 import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
 import {
 	bridgeProductOperationAdmittedResponseSchema,
+	bridgeProductOperationResultAckRefusedResponseSchema,
 	bridgeProductOperationResultAcknowledgementSchema,
 	bridgeProductOperationResultAcknowledgedResponseSchema,
 	bridgeProductOperationResultRequestSchema,
@@ -60,6 +61,7 @@ describe('Bridge product v2 kind-agnostic wire envelopes', () => {
 				bridgeProductOperationResultAcknowledgedResponseSchema,
 				transport.resultAcknowledgedResponses,
 			],
+			[bridgeProductOperationResultAckRefusedResponseSchema, transport.resultAckRefusedResponses],
 			[bridgeProductViewScopeRequestSchema, transport.viewScopeRequests],
 			[bridgeProductViewResnapshotRequestSchema, transport.viewResnapshotRequests],
 			[bridgeProductViewAcknowledgementRequestSchema, transport.viewAcknowledgements],

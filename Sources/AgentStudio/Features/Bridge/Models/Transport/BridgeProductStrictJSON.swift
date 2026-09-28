@@ -340,6 +340,7 @@ enum BridgeProductStrictJSON {
             "requestId",
             "repositoryDefaultTarget",
             "requestSequence",
+            "refusalKind",
             "result",
             "results",
             "resolution",

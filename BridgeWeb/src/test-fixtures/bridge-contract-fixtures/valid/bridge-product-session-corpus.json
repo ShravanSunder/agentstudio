@@ -77,6 +77,18 @@
         "operationId": "operation-ordinary-1"
       }
     ],
+    "resultAckRefusedResponses": [
+      {
+        "kind": "operation.resultAckRefused",
+        "wireVersion": 2,
+        "paneSessionId": "pane-session-1",
+        "workerInstanceId": "worker-instance-1",
+        "requestId": "ack-result-1",
+        "requestSequence": 10,
+        "operationId": "operation-ordinary-1",
+        "refusalKind": "requestSequenceRejected"
+      }
+    ],
     "viewScopeRequests": [
       {
         "kind": "subscription.setScope",

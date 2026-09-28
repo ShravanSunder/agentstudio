@@ -1,5 +1,11 @@
 import AgentStudioInfrastructure
 import Foundation
+import os.log
+
+private let bridgeProductResultAcknowledgementLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "BridgeProductResultAcknowledgement"
+)
 
 extension BridgeProductSession {
     func operationIsMutation(_ request: BridgeProductControlRequest) -> Bool {
@@ -353,23 +359,29 @@ extension BridgeProductSession {
         _ request: BridgeProductOperationResultAcknowledgement,
         exactRequestBytes: Data,
         productAdmission: BridgeProductAdmissionContext
-    ) -> Data? {
-        guard request.correlation.paneSessionId == paneSessionId,
-            request.correlation.workerInstanceId == workerInstanceId,
-            productAdmission.withValidAdmission({ true }) == true
-        else { return nil }
+    ) -> Result<Data, BridgeProductOperationResultAckRefusalKind> {
+        guard request.correlation.paneSessionId == paneSessionId else {
+            return .failure(.paneSessionMismatch)
+        }
+        guard request.correlation.workerInstanceId == workerInstanceId else {
+            return .failure(.workerInstanceMismatch)
+        }
+        guard productAdmission.withValidAdmission({ true }) == true else {
+            bridgeProductResultAcknowledgementLogger.notice("Ack refused reason=admissionInvalid")
+            return .failure(.admissionInvalid)
+        }
         switch controlReplay.begin(
             requestSequence: request.correlation.requestSequence,
             exactRequestBytes: exactRequestBytes
         ) {
         case .replay(let exactResponseBytes):
-            return exactResponseBytes
+            return .success(exactResponseBytes)
         case .rejected:
-            return nil
+            return .failure(.requestSequenceRejected)
         case .execute(let token):
             guard operationTable.entriesById[request.operationId]?.settlement != nil else {
                 try? controlReplay.abandon(token: token)
-                return nil
+                return .failure(.unknownOperation)
             }
             let response = BridgeProductOperationResultAcknowledgedResponse(
                 correlation: request.correlation,
@@ -377,14 +389,16 @@ extension BridgeProductSession {
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            guard let bytes = try? encoder.encode(response),
-                (try? controlReplay.complete(token: token, exactResponseBytes: bytes)) != nil
-            else {
+            guard let bytes = try? encoder.encode(response) else {
                 try? controlReplay.abandon(token: token)
-                return nil
+                return .failure(.responseEncodingFailed)
+            }
+            guard (try? controlReplay.complete(token: token, exactResponseBytes: bytes)) != nil else {
+                try? controlReplay.abandon(token: token)
+                return .failure(.replayCompletionRejected)
             }
             _ = operationTable.acknowledge(operationId: request.operationId)
-            return bytes
+            return .success(bytes)
         }
     }
 

@@ -390,26 +390,35 @@ struct BridgeProductSchemeAdapter: Sendable {
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
     ) async throws {
-        guard
-            let responseBytes = await session.acknowledgeOperationResult(
-                acknowledgement,
-                exactRequestBytes: exactRequestBytes,
-                productAdmission: productAdmission
-            )
-        else {
-            try await sendRejectedBody(
-                url: responseURL,
+        let result = await session.acknowledgeOperationResult(
+            acknowledgement,
+            exactRequestBytes: exactRequestBytes,
+            productAdmission: productAdmission
+        )
+        switch result {
+        case .success(let responseBytes):
+            try await sendOperationResponse(
+                responseBytes,
+                responseURL: responseURL,
                 productAdmission: productAdmission,
                 continuation: continuation
             )
-            return
+        case .failure(let refusalKind):
+            let responseBytes = try JSONEncoder().encode(
+                BridgeProductOperationResultAckRefusedResponse(
+                    correlation: acknowledgement.correlation,
+                    operationId: acknowledgement.operationId,
+                    refusalKind: refusalKind
+                )
+            )
+            try await sendOperationResponse(
+                responseBytes,
+                statusCode: 400,
+                responseURL: responseURL,
+                productAdmission: productAdmission,
+                continuation: continuation
+            )
         }
-        try await sendOperationResponse(
-            responseBytes,
-            responseURL: responseURL,
-            productAdmission: productAdmission,
-            continuation: continuation
-        )
     }
 
     private func routeViewAcknowledgement(
@@ -502,12 +511,13 @@ struct BridgeProductSchemeAdapter: Sendable {
 
     private func sendOperationResponse(
         _ responseBytes: Data,
+        statusCode: Int = 200,
         responseURL: URL,
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
     ) async throws {
         try await sendResponse(
-            statusCode: 200,
+            statusCode: statusCode,
             url: responseURL,
             contentType: "application/json",
             contentLength: responseBytes.count,

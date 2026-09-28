@@ -58,6 +58,10 @@ struct BridgeProductTransportV2ContractTests {
             BridgeProductOperationResultAcknowledgedResponse.self,
             from: try fixtureArray(named: "resultAcknowledgedResponses", in: transport)
         )
+        _ = try decodeAndVerifyRoundTrips(
+            BridgeProductOperationResultAckRefusedResponse.self,
+            from: try fixtureArray(named: "resultAckRefusedResponses", in: transport)
+        )
         let scopeRequests = try decodeAndVerifyRoundTrips(
             BridgeProductViewScopeRequest.self,
             from: try fixtureArray(named: "viewScopeRequests", in: transport)

@@ -112,6 +112,25 @@ export const bridgeProductOperationResultAcknowledgedResponseSchema = z
 	})
 	.strict();
 
+export const bridgeProductOperationResultAckRefusalKindSchema = z.enum([
+	'paneSessionMismatch',
+	'workerInstanceMismatch',
+	'admissionInvalid',
+	'requestSequenceRejected',
+	'unknownOperation',
+	'responseEncodingFailed',
+	'replayCompletionRejected',
+]);
+
+export const bridgeProductOperationResultAckRefusedResponseSchema = z
+	.object({
+		...controlCorrelationShape,
+		kind: z.literal('operation.resultAckRefused'),
+		operationId: bridgeProductIdentifierSchema,
+		refusalKind: bridgeProductOperationResultAckRefusalKindSchema,
+	})
+	.strict();
+
 export type BridgeProductOperationAdmittedResponse = z.infer<
 	typeof bridgeProductOperationAdmittedResponseSchema
 >;

@@ -2,7 +2,10 @@ import {
 	BridgeProductResponseSizeLimitError,
 	readBridgeProductControlResponseBytes,
 } from './bridge-product-command-post.js';
-import { bridgeProductOperationResultAcknowledgementSchema } from './bridge-product-operation-wire-contracts.js';
+import {
+	bridgeProductOperationResultAckRefusedResponseSchema,
+	bridgeProductOperationResultAcknowledgementSchema,
+} from './bridge-product-operation-wire-contracts.js';
 import { bridgeProductControlResponseSchema } from './bridge-product-session-contracts.js';
 import {
 	BridgeProductStrictJSONError,
@@ -21,9 +24,20 @@ export async function bridgeProductAckHTTPFailureOutcome(
 	try {
 		const bytes = await readBridgeProductControlResponseBytes(response);
 		if (bytes.byteLength === 0) return { kind: 'httpStatus', code: response.status };
-		const parsed = bridgeProductControlResponseSchema.safeParse(
-			parseBridgeProductStrictJSON(bytes),
-		);
+		const body = parseBridgeProductStrictJSON(bytes);
+		const refusal = bridgeProductOperationResultAckRefusedResponseSchema.safeParse(body);
+		if (refusal.success) {
+			if (
+				refusal.data.requestId !== acknowledgement.requestId ||
+				refusal.data.requestSequence !== acknowledgement.requestSequence ||
+				refusal.data.paneSessionId !== acknowledgement.paneSessionId ||
+				refusal.data.workerInstanceId !== acknowledgement.workerInstanceId ||
+				refusal.data.operationId !== acknowledgement.operationId
+			)
+				return { kind: 'identityMismatch' };
+			return { kind: 'nativeRefusal', refusalKind: refusal.data.refusalKind };
+		}
+		const parsed = bridgeProductControlResponseSchema.safeParse(body);
 		if (!parsed.success) return { kind: 'parseFailure' };
 		if (
 			parsed.data.requestId !== acknowledgement.requestId ||

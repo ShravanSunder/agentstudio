@@ -4,6 +4,40 @@ import Testing
 @testable import AgentStudioBridge
 
 struct BridgeProductSubscriptionRollingReplayTests {
+    @Test("result acknowledgement distinguishes exact replay, sequence conflict, and unknown operation")
+    func resultAcknowledgementRefusalBranches() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let metadataLease = try await harness.admitMetadataFrames(through: 0)
+        try await harness.openSubscription(
+            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 1)
+        )
+        do {
+            #expect(
+                await consumeNextBridgeProductProducerFrame(
+                    for: metadataLease,
+                    from: harness.session,
+                    productAdmission: harness.productAdmission.context
+                )?.sequence == 1
+            )
+            let request = try makeRequest(revision: 1)
+            #expect(
+                try await acceptAndReplayScope(
+                    request,
+                    requestBytes: encode(request),
+                    revision: 1,
+                    harness: harness,
+                    verifyAckRefusals: true
+                )
+            )
+        } catch {
+            try await harness.closeProducer(metadataLease)
+            await close(harness)
+            throw error
+        }
+        try await harness.closeProducer(metadataLease)
+        await close(harness)
+    }
+
     @Test("many typed E4 scopes preserve exact replay and stale sequence rejection through the session")
     func typedScopeReplayOutlivesRecentOperations() async throws {
         // Arrange: real native session, control replay, and subscription transitions.
@@ -64,7 +98,8 @@ struct BridgeProductSubscriptionRollingReplayTests {
         _ request: BridgeProductControlRequest,
         requestBytes: Data,
         revision: Int,
-        harness: BridgeProductSessionLifecycleHarness
+        harness: BridgeProductSessionLifecycleHarness,
+        verifyAckRefusals: Bool = false
     ) async throws -> Bool {
         let admission = await harness.session.beginControl(
             exactRequestBytes: requestBytes,
@@ -133,14 +168,78 @@ struct BridgeProductSubscriptionRollingReplayTests {
             ),
             operationId: admitted.operationId
         )
-        #expect(
-            await harness.session.acknowledgeOperationResult(
-                acknowledgement,
-                exactRequestBytes: try encode(acknowledgement),
-                productAdmission: harness.productAdmission.context
-            ) != nil
+        let ackResult = await harness.session.acknowledgeOperationResult(
+            acknowledgement,
+            exactRequestBytes: try encode(acknowledgement),
+            productAdmission: harness.productAdmission.context
         )
+        guard case .success = ackResult else {
+            Issue.record("Expected result acknowledgement success, got \(ackResult)")
+            return false
+        }
+        if verifyAckRefusals {
+            guard
+                try await verifyAckRefusalBranches(
+                    acknowledgement: acknowledgement,
+                    harness: harness,
+                    revision: revision
+                )
+            else { return false }
+        }
         #expect(await harness.session.subscriptionSnapshot(subscriptionId: "review-subscription-1") == after)
+        return true
+    }
+
+    private func verifyAckRefusalBranches(
+        acknowledgement: BridgeProductOperationResultAcknowledgement,
+        harness: BridgeProductSessionLifecycleHarness,
+        revision: Int
+    ) async throws -> Bool {
+        let exactReplay = await harness.session.acknowledgeOperationResult(
+            acknowledgement,
+            exactRequestBytes: try encode(acknowledgement),
+            productAdmission: harness.productAdmission.context
+        )
+        guard case .success = exactReplay else {
+            Issue.record("Expected an exact acknowledgement replay, got \(exactReplay)")
+            return false
+        }
+        let conflictingAcknowledgement = BridgeProductOperationResultAcknowledgement(
+            correlation: try .init(
+                paneSessionId: acknowledgement.correlation.paneSessionId,
+                requestId: "rolling-result-ack-conflict-\(revision)",
+                requestSequence: acknowledgement.correlation.requestSequence,
+                workerInstanceId: acknowledgement.correlation.workerInstanceId
+            ),
+            operationId: acknowledgement.operationId
+        )
+        let sequenceConflict = await harness.session.acknowledgeOperationResult(
+            conflictingAcknowledgement,
+            exactRequestBytes: try encode(conflictingAcknowledgement),
+            productAdmission: harness.productAdmission.context
+        )
+        guard case .failure(.requestSequenceRejected) = sequenceConflict else {
+            Issue.record("Expected a typed request-sequence refusal, got \(sequenceConflict)")
+            return false
+        }
+        let unknownAcknowledgement = BridgeProductOperationResultAcknowledgement(
+            correlation: try .init(
+                paneSessionId: acknowledgement.correlation.paneSessionId,
+                requestId: "rolling-result-ack-unknown-\(revision)",
+                requestSequence: acknowledgement.correlation.requestSequence + 1,
+                workerInstanceId: acknowledgement.correlation.workerInstanceId
+            ),
+            operationId: acknowledgement.operationId
+        )
+        let unknownOperation = await harness.session.acknowledgeOperationResult(
+            unknownAcknowledgement,
+            exactRequestBytes: try encode(unknownAcknowledgement),
+            productAdmission: harness.productAdmission.context
+        )
+        guard case .failure(.unknownOperation) = unknownOperation else {
+            Issue.record("Expected a typed unknown-operation refusal, got \(unknownOperation)")
+            return false
+        }
         return true
     }
 

@@ -197,22 +197,19 @@ describe('Bridge product result acknowledgement owner', () => {
 				const request = bridgeProductOperationResultAcknowledgementSchema.parse(JSON.parse(body));
 				return new Response(
 					JSON.stringify({
-						code: 'invalid_request',
-						kind: 'request.error',
-						nextExpectedRequestSequence: null,
+						kind: 'operation.resultAckRefused',
+						operationId: request.operationId,
 						paneSessionId: request.paneSessionId,
 						requestId: request.requestId,
 						requestSequence: request.requestSequence,
-						retryAfterMilliseconds: null,
-						retryable: false,
-						safeMessage: null,
+						refusalKind: 'requestSequenceRejected',
 						wireVersion: request.wireVersion,
 						workerInstanceId: request.workerInstanceId,
 					}),
 					{ status: 400 },
 				);
 			},
-			expected: { kind: 'nativeRefusal', refusalKind: 'invalid_request' },
+			expected: { kind: 'nativeRefusal', refusalKind: 'requestSequenceRejected' },
 		},
 		{
 			name: 'malformed success',

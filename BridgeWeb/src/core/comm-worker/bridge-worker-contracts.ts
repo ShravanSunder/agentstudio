@@ -13,6 +13,7 @@ import {
 	bridgeActiveViewerModeUpdateSchema,
 	bridgeProductControlIntakeReadyParamsSchema,
 } from './bridge-product-control-contracts.js';
+import { bridgeProductOperationResultAckRefusalKindSchema } from './bridge-product-operation-wire-contracts.js';
 import { bridgeProductReviewFileChangeKindSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductNavigationCommandSchema } from './bridge-product-session-contracts.js';
 import { bridgeProductSubscriptionFrameFailureCodes } from './bridge-product-subscription-frame-failure.js';
@@ -648,7 +649,13 @@ export const bridgeWorkerAckAttemptOutcomeSchema = z.discriminatedUnion('kind', 
 	z.object({ kind: z.literal('parseFailure') }).strict(),
 	z.object({ kind: z.literal('identityMismatch') }).strict(),
 	z
-		.object({ kind: z.literal('nativeRefusal'), refusalKind: bridgeProductRequestErrorCodeSchema })
+		.object({
+			kind: z.literal('nativeRefusal'),
+			refusalKind: z.union([
+				bridgeProductOperationResultAckRefusalKindSchema,
+				bridgeProductRequestErrorCodeSchema,
+			]),
+		})
 		.strict(),
 	z.object({ kind: z.literal('responseSizeLimit') }).strict(),
 ]);
