@@ -32,7 +32,7 @@ extension WebKitSerializedTests {
 
         enum LiveProofError: Error {
             case appDidNotMount
-            case workerReinstalledDuringHappyPath
+            case workerReinstalledDuringHappyPath(String)
             case initialReviewPublicationMissing
             case successorReviewPublicationMissing
         }
@@ -182,12 +182,12 @@ extension WebKitSerializedTests {
             #expect(proof.updatingFileStatus.reviewStatusText == nil)
             #expect(
                 proof.paneOneWorkerIdBeforeHide == proof.paneOneWorkerIdAfterReturn,
-                Comment(rawValue: "pane one replacement reason: \(proof.paneOneWorkerReplacementReason)")
+                Comment(rawValue: "pane one replacement facts: \(proof.paneOneWorkerReplacementFacts)")
             )
             #expect(proof.paneOneWorkerIdAfterReturn != proof.paneTwoWorkerIdAfterJourney)
             #expect(
                 proof.paneTwoWorkerIdBeforeJourney == proof.paneTwoWorkerIdAfterJourney,
-                Comment(rawValue: "pane two replacement reason: \(proof.paneTwoWorkerReplacementReason)")
+                Comment(rawValue: "pane two replacement facts: \(proof.paneTwoWorkerReplacementFacts)")
             )
             #expect(proof.paneTwoActivityAfterJourney == .foreground)
             #expect(proof.paneTwoStateAfterJourney.activeMode == proof.paneTwoStateBeforeJourney.activeMode)

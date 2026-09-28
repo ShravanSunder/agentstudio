@@ -11,6 +11,8 @@ export interface BridgeReviewSelectionDiagnostic {
 	latestFileSelectLifecycleState?: BridgeSelectLifecycleState;
 	latestReviewSelectDispatchDisposition?: BridgeDiagnosticDispatchDisposition | null;
 	lastWorkerReplacementReason?: BridgeWorkerReplacementReason | null;
+	workerReplacementFacts?: readonly BridgeWorkerReplacementDiagnosticFact[];
+	droppedWorkerReplacementFactCount?: number;
 	latestReviewSelectLifecycleState?: BridgeSelectLifecycleState;
 	nativeBootstrapInstallAcceptedCount?: number;
 	nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds?: number;
@@ -28,6 +30,13 @@ export interface BridgeReviewSelectionDiagnostic {
 	selectionDroppedCount: number;
 	sessionState?: BridgePaneCommWorkerSessionDiagnosticState;
 }
+
+export interface BridgeWorkerReplacementDiagnosticFact {
+	readonly requestCount: number;
+	readonly reason: BridgeWorkerReplacementReason;
+}
+
+const maximumRetainedWorkerReplacementFacts = 128;
 
 export type BridgeDiagnosticDispatchDisposition =
 	| 'dropped_detached'
@@ -172,6 +181,26 @@ export function recordBridgePaneCommWorkerSessionDiagnosticSnapshot(
 ): void {
 	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
 	if (diagnostic === null) return;
+	const previousRequestCount = diagnostic.replacementRequestCount ?? 0;
+	if (
+		snapshot.replacementRequestCount > previousRequestCount &&
+		snapshot.lastReplacementReason !== null
+	) {
+		const facts = [...(diagnostic.workerReplacementFacts ?? [])];
+		for (
+			let requestCount = previousRequestCount + 1;
+			requestCount <= snapshot.replacementRequestCount;
+			requestCount += 1
+		) {
+			facts.push({ requestCount, reason: snapshot.lastReplacementReason });
+			if (facts.length > maximumRetainedWorkerReplacementFacts) {
+				facts.shift();
+				diagnostic.droppedWorkerReplacementFactCount =
+					(diagnostic.droppedWorkerReplacementFactCount ?? 0) + 1;
+			}
+		}
+		diagnostic.workerReplacementFacts = facts;
+	}
 	diagnostic.latestFileModeDispatchDisposition = snapshot.latestFileModeDispatchDisposition;
 	diagnostic.latestFileSelectDispatchDisposition = snapshot.latestFileSelectDispatchDisposition;
 	diagnostic.latestReviewSelectDispatchDisposition = snapshot.latestReviewSelectDispatchDisposition;

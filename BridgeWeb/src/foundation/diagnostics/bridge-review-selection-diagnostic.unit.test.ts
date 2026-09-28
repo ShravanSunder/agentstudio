@@ -153,6 +153,31 @@ describe('Bridge Review selection diagnostic', () => {
 		expect(readBridgeReviewSelectionDiagnostic()?.lastWorkerReplacementReason).toEqual(
 			snapshot.lastReplacementReason,
 		);
+		recordBridgePaneCommWorkerSessionDiagnosticSnapshot({
+			...snapshot,
+			lastReplacementReason: {
+				kind: 'runtimeRecovery',
+				source: 'renderDispositionProbeExhausted',
+			},
+			replacementRequestCount: 2,
+		});
+		expect(readBridgeReviewSelectionDiagnostic()?.workerReplacementFacts).toEqual([
+			{ requestCount: 1, reason: snapshot.lastReplacementReason },
+			{
+				requestCount: 2,
+				reason: { kind: 'runtimeRecovery', source: 'renderDispositionProbeExhausted' },
+			},
+		]);
+		for (let requestCount = 3; requestCount <= 129; requestCount += 1) {
+			recordBridgePaneCommWorkerSessionDiagnosticSnapshot({
+				...snapshot,
+				replacementRequestCount: requestCount,
+			});
+		}
+		const diagnostic = readBridgeReviewSelectionDiagnostic();
+		expect(diagnostic?.workerReplacementFacts).toHaveLength(128);
+		expect(diagnostic?.workerReplacementFacts?.[0]?.requestCount).toBe(2);
+		expect(diagnostic?.droppedWorkerReplacementFactCount).toBe(1);
 	});
 
 	test('records each readiness timestamp once until the diagnostic lifecycle resets', () => {

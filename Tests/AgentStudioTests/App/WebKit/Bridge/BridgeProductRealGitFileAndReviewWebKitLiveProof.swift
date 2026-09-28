@@ -48,7 +48,9 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     await installation.session.waitUntilActive()
                 else { throw LiveProofError.appDidNotMount }
                 guard installation.bootstrap.workerInstanceId == initialWorkerInstanceId else {
-                    throw LiveProofError.workerReinstalledDuringHappyPath
+                    throw LiveProofError.workerReinstalledDuringHappyPath(
+                        await BridgeProductWebKitReplacementFactTestSupport.read(hostedController.page)
+                    )
                 }
                 guard await installation.session.waitUntilControlReplayIdle()
                 else { throw LiveProofError.appDidNotMount }
