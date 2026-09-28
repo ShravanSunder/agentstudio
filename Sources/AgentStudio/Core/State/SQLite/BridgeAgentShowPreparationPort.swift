@@ -10,7 +10,7 @@ package enum BridgeAgentShowPreparation: Sendable {
 /// changed. The repository actor owns admission; this port never writes rows.
 package protocol BridgeAgentShowPreparationPort: Sendable {
     func prepareAgentShow(
-        workspaceID: UUID, receiver: BridgeReceiver, target: BridgeRevealFileTarget,
+        workspaceID: UUID, receiver: BridgeReceiver, target: BridgeAgentShowTarget,
         topologySnapshot: BridgeReceiverTopologySnapshot
     ) async throws -> BridgeAgentShowPreparation
 }

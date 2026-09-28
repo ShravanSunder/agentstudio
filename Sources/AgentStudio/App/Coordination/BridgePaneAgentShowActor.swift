@@ -20,9 +20,15 @@ struct BridgeUnavailableBackgroundOpenNotificationPoster: BridgeBackgroundOpenNo
     }
 }
 
-/// The IPC layer gates take-over before it calls this port. One call opens one
-/// inventory entry, then optionally follows the ordinary human activation.
-actor BridgePaneAgentShowActor: PaneRevealPort {
+/// The IPC layer gates take-over before it calls this port. Both methods open
+/// an inventory entry; take-over then follows ordinary human activation.
+actor BridgePaneAgentShowActor: PaneAgentShowPort {
+    private enum OpenOutcome {
+        case opened(BridgeReceiver, BridgeOpenedDocument)
+        case notFound
+        case paneUnavailable
+    }
+
     private let workspaceID: UUID
     private let handler: BridgeNavigationCommandHandler
     private let preparationPort: any BridgeAgentShowPreparationPort
@@ -39,9 +45,36 @@ actor BridgePaneAgentShowActor: PaneRevealPort {
         self.notificationPort = notificationPort
     }
 
-    func show(
-        receiver: PaneId, target: BridgeRevealFileTarget, mode: BridgeAgentShowMode
-    ) async throws(BridgeLinkPortFailure) -> BridgeAgentShowResult {
+    func openInBackground(
+        receiver: PaneId, target: BridgeAgentShowTarget
+    ) async throws(BridgeLinkPortFailure) -> BridgeAgentBackgroundOpenResult {
+        switch try await open(receiver: receiver, target: target) {
+        case .opened: .opened
+        case .notFound: .notFound
+        case .paneUnavailable: .paneUnavailable
+        }
+    }
+
+    func takeOver(
+        receiver: PaneId, target: BridgeAgentShowTarget
+    ) async throws(BridgeLinkPortFailure) -> BridgeAgentTakeOverResult {
+        switch try await open(receiver: receiver, target: target) {
+        case .notFound: return .notFound
+        case .paneUnavailable: return .paneUnavailable
+        case .opened(let resolved, let document):
+            let arrival = await handler.activateFile(
+                document.location, in: resolved, line: document.openedLine)
+            switch arrival {
+            case .applied, .appliedUnsaved: return .shown
+            case .failed(.receiverUnavailable): return .paneUnavailable
+            default: return .opened
+            }
+        }
+    }
+
+    private func open(
+        receiver: PaneId, target: BridgeAgentShowTarget
+    ) async throws(BridgeLinkPortFailure) -> OpenOutcome {
         let topology = await handler.captureLinkTopology(sourcePaneID: receiver.uuid)
         guard
             let resolved = BridgeReceiverResolution.receiver(
@@ -66,19 +99,11 @@ actor BridgePaneAgentShowActor: PaneRevealPort {
             guard await handler.applyPreparedBackgroundOpen(document, in: resolved) else {
                 return .paneUnavailable
             }
-            _ = await handler.persistedOutcome()
-            await postBackgroundOpenNotification(receiver: resolved, location: document.location)
-            if mode == .takeOver {
-                let arrival = await handler.activateFile(
-                    document.location, in: resolved, line: document.openedLine)
-                switch arrival {
-                case .applied, .appliedUnsaved: return .shown
-                case .failed(.receiverUnavailable):
-                    return .paneUnavailable
-                default: break
-                }
+            guard await handler.persistedOutcome() == .applied else {
+                throw .outcomeUnknown
             }
-            return .opened
+            await postBackgroundOpenNotification(receiver: resolved, location: document.location)
+            return .opened(resolved, document)
         }
     }
 

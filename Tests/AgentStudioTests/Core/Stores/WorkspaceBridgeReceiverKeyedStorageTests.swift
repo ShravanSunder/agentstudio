@@ -87,7 +87,7 @@ struct BridgeReceiverKeyedStorageTests {
         ).makeDatastore()
         _ = await datastore.prepareDatabasesForBoot()
 
-        let target = try BridgeRevealFileTarget(
+        let target = try BridgeAgentShowTarget(
             worktree: worktree, relativePath: "show.swift", line: 9)
         let loose = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
@@ -112,7 +112,7 @@ struct BridgeReceiverKeyedStorageTests {
         #expect(memberDocument.provenance?.worktreeId == worktree)
         #expect(memberDocument.location == looseDocument.location)
 
-        let missing = try BridgeRevealFileTarget(worktree: worktree, relativePath: "missing.swift")
+        let missing = try BridgeAgentShowTarget(worktree: worktree, relativePath: "missing.swift")
         let missingOutcome = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
             target: missing, topologySnapshot: topology)
@@ -120,7 +120,7 @@ struct BridgeReceiverKeyedStorageTests {
             Issue.record("Missing file was accepted")
             return
         }
-        let escaped = try BridgeRevealFileTarget(worktree: worktree, relativePath: "escape.swift")
+        let escaped = try BridgeAgentShowTarget(worktree: worktree, relativePath: "escape.swift")
         let escapedOutcome = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
             target: escaped, topologySnapshot: topology)

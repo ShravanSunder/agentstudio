@@ -2,7 +2,7 @@ import Foundation
 
 extension WorkspaceSQLiteDatastoreActor {
     package func prepareAgentShow(
-        workspaceID: UUID, receiver: BridgeReceiver, target: BridgeRevealFileTarget,
+        workspaceID: UUID, receiver: BridgeReceiver, target: BridgeAgentShowTarget,
         topologySnapshot: BridgeReceiverTopologySnapshot
     ) async throws -> BridgeAgentShowPreparation {
         switch topologySnapshot.ownerDisposition(for: receiver) {

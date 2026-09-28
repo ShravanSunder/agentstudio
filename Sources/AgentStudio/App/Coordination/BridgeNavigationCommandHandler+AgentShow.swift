@@ -3,12 +3,13 @@ import Foundation
 
 @MainActor
 extension BridgeNavigationCommandHandler {
-    /// The prepared file is validated off-main. This uses the same atom-first
-    /// inventory write and Q9 save path as human background opening.
+    /// The prepared file is validated off-main. The inventory write follows
+    /// the same atom-first and Q9 save shape as human close and selection.
     func applyPreparedBackgroundOpen(
         _ document: BridgeOpenedDocument, in receiver: BridgeReceiver
     ) -> Bool {
-        guard let existing = ensureRecord(for: receiver, seedingKnownWorktreeId: nil) else {
+        let knownCWD = presentationPorts?.knownCWDWorktreeId(receiver)
+        guard let existing = ensureRecord(for: receiver, seedingKnownWorktreeId: knownCWD) else {
             return false
         }
         navigationAtom.setRecord(
