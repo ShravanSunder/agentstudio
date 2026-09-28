@@ -15,6 +15,7 @@ import {
   assignTopologyRowOwners,
   measureTopologyGutterColumns,
   measureTopologyRows,
+  topologyRowUnit,
   type TopologyRowWorktree,
 } from "./full-page-topology-model";
 import {
@@ -175,7 +176,12 @@ export function composeFullPageTopology(
     anchorYs: page.anchors.map((anchor) => anchor.lineY ?? topologyRectCenterY(anchor.rect)),
     forcedYs: [
       ...page.anchors.flatMap((anchor) =>
-        anchor.stepLine === undefined ? [] : [topologyRectCenterY(anchor.stepLine)],
+        anchor.stepLine === undefined
+          ? []
+          : [
+              topologyRectCenterY(anchor.stepLine) - topologyRowUnit,
+              topologyRectCenterY(anchor.stepLine),
+            ],
       ),
       ...(terminalAnchor?.surface === undefined ? [] : [terminalAnchor.surface.top + 2]),
     ],

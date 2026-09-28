@@ -98,7 +98,7 @@ describe("topology node vocabulary on the home page", () => {
     }
     for (const port of stepLinePorts) {
       expect(port.sourceLaneStroke).toBeDefined();
-      expect(port.stroke).toBe(port.sourceLaneStroke);
+      expect(port.stroke).toBe(result.primaryColor);
       expect(port.firstStopColor).toBeUndefined();
     }
   });

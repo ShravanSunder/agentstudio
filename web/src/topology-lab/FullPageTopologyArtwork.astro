@@ -148,6 +148,10 @@
     stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
   }
 
+  :global([data-route-kind="attach"].accent-main > path:not(.topology-clearance)) {
+    stroke: var(--color-primary);
+  }
+
   /* Attach branches enter a target edge, shifting hue from their source lane
      to primary blue along the same weight as the other lines. */
   :global(.accent-port) {

@@ -11,6 +11,7 @@ import {
   verifyChapterStepHop,
   verifyReducedMotionStepLine,
 } from "./tests/chapter-step-hop-browser-command.ts";
+import { verifyStepLineJoins } from "./tests/chapter-step-join-browser-command.ts";
 import {
   verifyChapterStepRow,
   verifySingleStepChapter,
@@ -69,6 +70,7 @@ export default defineConfig({
           include: ["tests/**/*.browser.test.ts"],
           browser: {
             commands: {
+              verifyStepLineJoins,
               buildSceneBundlesForBrowserTest,
               verifyRailViewportBands,
               verifyChapterAnchorLanding,
