@@ -1,6 +1,7 @@
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
+import { verifyChapterActivity } from "./tests/chapter-activity-browser-command.ts";
 import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-command.ts";
 import {
   verifyChapterAutoplayAtNaturalFraming,
@@ -70,6 +71,7 @@ export default defineConfig({
           include: ["tests/**/*.browser.test.ts"],
           browser: {
             commands: {
+              verifyChapterActivity,
               verifyStepLineJoins,
               buildSceneBundlesForBrowserTest,
               verifyRailViewportBands,

@@ -539,6 +539,23 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   renderPhase("settled", "instant");
 
   return {
+    restart: (): void => {
+      clearReplayTimer();
+      state.timeline?.pause(0);
+      state.awaitingReplay = false;
+      state.intent = "auto";
+      state.lastReportedStepId = undefined;
+      state.suspendedWhileHidden = false;
+      renderPhase("paused", "instant");
+    },
+    deactivate: (): void => {
+      clearReplayTimer();
+      state.intent = "auto";
+      if (state.phase === "playing" || state.phase === "awaiting-replay") {
+        state.timeline?.pause();
+        renderPhase("paused");
+      }
+    },
     dispose: (): void => {
       lifecycle.abort();
       activeStepPreview?.remove();
