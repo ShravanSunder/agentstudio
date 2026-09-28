@@ -1,3 +1,5 @@
+import type { BridgeWorkerReplacementReason } from './bridge-worker-replacement-reason.js';
+
 export interface BridgeReviewSelectionDiagnostic {
 	commWorkerSessionReadyFirstObservedAtEpochMilliseconds?: number;
 	fileModeSendAttemptCount?: number;
@@ -8,6 +10,7 @@ export interface BridgeReviewSelectionDiagnostic {
 	latestFileSelectDispatchDisposition?: BridgeDiagnosticDispatchDisposition | null;
 	latestFileSelectLifecycleState?: BridgeSelectLifecycleState;
 	latestReviewSelectDispatchDisposition?: BridgeDiagnosticDispatchDisposition | null;
+	lastWorkerReplacementReason?: BridgeWorkerReplacementReason | null;
 	latestReviewSelectLifecycleState?: BridgeSelectLifecycleState;
 	nativeBootstrapInstallAcceptedCount?: number;
 	nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds?: number;
@@ -52,6 +55,7 @@ export interface BridgePaneCommWorkerSessionDiagnosticSnapshot {
 	readonly latestFileModeDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
 	readonly latestFileSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
 	readonly latestReviewSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
+	readonly lastReplacementReason: BridgeWorkerReplacementReason | null;
 	readonly nativeBootstrapInstallCount: number;
 	readonly queuedCommandCount: number;
 	readonly replacementRequestCount: number;
@@ -171,6 +175,7 @@ export function recordBridgePaneCommWorkerSessionDiagnosticSnapshot(
 	diagnostic.latestFileModeDispatchDisposition = snapshot.latestFileModeDispatchDisposition;
 	diagnostic.latestFileSelectDispatchDisposition = snapshot.latestFileSelectDispatchDisposition;
 	diagnostic.latestReviewSelectDispatchDisposition = snapshot.latestReviewSelectDispatchDisposition;
+	diagnostic.lastWorkerReplacementReason = snapshot.lastReplacementReason;
 	diagnostic.nativeBootstrapInstallCount = snapshot.nativeBootstrapInstallCount;
 	diagnostic.queuedCommandCount = snapshot.queuedCommandCount;
 	diagnostic.replacementRequestCount = snapshot.replacementRequestCount;

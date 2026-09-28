@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
+import type { BridgeWorkerRuntimeRecoverySource } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import type {
 	BridgeMainReviewCandidateRole,
 	BridgeMainReviewCandidateStore,
@@ -511,6 +512,7 @@ describe('Bridge main Review presentation installation gate', () => {
 		// Assert — bounded attempts retain the displayed bank and delegate recovery to the pane service.
 		expect(port.receiptAttempts).toEqual([CANDIDATE.publicationId, CANDIDATE.publicationId]);
 		expect(port.replacementRequestCount).toBe(1);
+		expect(port.replacementSource).toBe('reviewInstalledReceiptFailed');
 		expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
 	});
 
@@ -689,8 +691,10 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 
 class ImmediateInstallationPort implements BridgeMainReviewPresentationInstallationPort {
 	replacementRequestCount = 0;
-	requestWorkerReplacement = (): void => {
+	replacementSource: BridgeWorkerRuntimeRecoverySource | null = null;
+	requestWorkerReplacement = (source: BridgeWorkerRuntimeRecoverySource): void => {
 		this.replacementRequestCount += 1;
+		this.replacementSource = source;
 	};
 	readonly receiptAttempts: string[] = [];
 	readonly receipts: string[] = [];

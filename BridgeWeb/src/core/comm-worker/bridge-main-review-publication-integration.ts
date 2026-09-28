@@ -1,3 +1,4 @@
+import type { BridgeWorkerRuntimeRecoverySource } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { prepareBridgeMainPierreItemForPresentation } from './bridge-main-pierre-item-adapter.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from './bridge-main-render-fulfillment-coordinator.js';
@@ -21,7 +22,7 @@ import type { BridgeWorkerRpcCommandInput } from './bridge-worker-rpc-client.js'
 import type { BridgeWorkerRpcLifecycleSnapshot } from './bridge-worker-rpc-lifecycle-store.js';
 
 export interface BridgeMainReviewPublicationClient {
-	readonly requestWorkerReplacement: () => void;
+	readonly requestWorkerReplacement: (source: BridgeWorkerRuntimeRecoverySource) => void;
 	readonly lifecycle: {
 		readonly getSnapshot: () => BridgeWorkerRpcLifecycleSnapshot;
 		readonly subscribe: (listener: () => void) => () => void;

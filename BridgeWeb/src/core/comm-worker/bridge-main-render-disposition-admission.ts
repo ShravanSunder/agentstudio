@@ -1,3 +1,4 @@
+import type { BridgeWorkerRuntimeRecoverySource } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import { bridgeRenderDispositionAdmissionPolicy } from '../demand/bridge-content-demand-policy.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import {
@@ -42,7 +43,7 @@ export interface CreateBridgeMainRenderDispositionAdmissionProps {
 	readonly maximumBatchSize?: number;
 	readonly maximumPendingReceiptCount?: number;
 	readonly now?: () => number;
-	readonly requestWorkerReplacement: () => void;
+	readonly requestWorkerReplacement: (source: BridgeWorkerRuntimeRecoverySource) => void;
 	readonly surface: BridgePaneSurface;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
@@ -204,7 +205,7 @@ export function createBridgeMainRenderDispositionAdmission(
 			phase: 'render_disposition_batch_terminal',
 		});
 		if (shouldRequestWorkerReplacement) {
-			props.requestWorkerReplacement();
+			props.requestWorkerReplacement('renderDispositionProbeExhausted');
 			return;
 		}
 		dispatchNextBatch();
@@ -256,7 +257,7 @@ export function createBridgeMainRenderDispositionAdmission(
 				recordAdmissionTelemetry({
 					phase: 'render_disposition_admission_overloaded',
 				});
-				props.requestWorkerReplacement();
+				props.requestWorkerReplacement('renderDispositionOverload');
 				return;
 			}
 			dispatchNextBatch();

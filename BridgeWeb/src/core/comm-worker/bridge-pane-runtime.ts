@@ -3,6 +3,10 @@ import {
 	recordBridgePaneRuntimeDiagnosticSnapshot,
 	type BridgePaneRuntimeDiagnosticSnapshot,
 } from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import type {
+	BridgeWorkerReplacementReason,
+	BridgeWorkerRuntimeRecoverySource,
+} from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { encodeBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
@@ -52,7 +56,7 @@ export interface BridgePaneSessionPort {
 	readonly installTelemetryProducer?: (
 		install: BridgePaneCommWorkerTelemetryProducerInstall,
 	) => void;
-	readonly requestWorkerReplacement?: () => void;
+	readonly requestWorkerReplacement?: (reason: BridgeWorkerReplacementReason) => void;
 	readonly setNativeBootstrapRequester?: (requester: (reason: 'workerReplacement') => void) => void;
 	readonly setWorkerReplacementPreparer?: (prepare: () => void) => void;
 }
@@ -64,7 +68,7 @@ export interface BridgePaneSurfaceLifecycleView {
 }
 
 export interface BridgePaneSurfaceClient {
-	readonly requestWorkerReplacement: () => void;
+	readonly requestWorkerReplacement: (source: BridgeWorkerRuntimeRecoverySource) => void;
 	readonly lifecycle: BridgePaneSurfaceLifecycleView;
 	readonly renderFulfillmentCoordinator: BridgeMainRenderFulfillmentCoordinator;
 	readonly renderStore: BridgeMainRenderSnapshotStore;
@@ -225,13 +229,13 @@ export function createBridgePaneRuntime(
 		},
 	});
 
-	const requestWorkerReplacement = (): void => {
+	const requestWorkerReplacement = (source: BridgeWorkerRuntimeRecoverySource): void => {
 		if (isDisposed) return;
 		if (session.requestWorkerReplacement === undefined) {
 			throw new Error('Bridge pane runtime session cannot replace an overloaded worker.');
 		}
 		prepareRuntimeForWorkerReplacement();
-		session.requestWorkerReplacement();
+		session.requestWorkerReplacement({ kind: 'runtimeRecovery', source });
 	};
 
 	for (const surface of ['fileView', 'review'] as const) {
@@ -493,7 +497,7 @@ function createDefaultBridgePaneSessionPort(
 		handleNativeBootstrapFailure: (): void => session.handleNativeBootstrapFailure(),
 		installNativeBootstrap: (bootstrap): void => session.installNativeBootstrap(bootstrap),
 		installTelemetryProducer: (install): void => session.installTelemetryProducer(install),
-		requestWorkerReplacement: (): void => session.requestWorkerReplacement(),
+		requestWorkerReplacement: (reason): void => session.requestWorkerReplacement(reason),
 		setNativeBootstrapRequester: (requester): void =>
 			session.setNativeBootstrapRequester(requester),
 		setWorkerReplacementPreparer: (prepare): void => session.setWorkerReplacementPreparer(prepare),

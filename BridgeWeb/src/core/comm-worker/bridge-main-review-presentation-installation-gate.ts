@@ -1,3 +1,4 @@
+import type { BridgeWorkerRuntimeRecoverySource } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import type {
 	BridgeMainReviewEffectivePresentationClass,
 	BridgeMainReviewCandidatePresentation,
@@ -25,7 +26,7 @@ export interface BridgeMainReviewInstallAdmissionResult {
 }
 
 export interface BridgeMainReviewPresentationInstallationPort {
-	readonly requestWorkerReplacement: () => void;
+	readonly requestWorkerReplacement: (source: BridgeWorkerRuntimeRecoverySource) => void;
 	readonly requestInstallAdmission: (
 		request: BridgeMainReviewInstallAdmissionRequest,
 	) => Promise<BridgeMainReviewInstallAdmissionResult>;
@@ -339,7 +340,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				requestLifecycleRevision === lifecycleRevision &&
 				pendingInstalledReceiptCandidate === candidate
 			) {
-				props.installationPort.requestWorkerReplacement();
+				props.installationPort.requestWorkerReplacement('reviewInstalledReceiptFailed');
 				return;
 			}
 		}

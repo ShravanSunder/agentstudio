@@ -3,6 +3,7 @@ import type {
 	BridgePaneCommWorkerSessionDiagnosticState,
 	BridgeDiagnosticDispatchDisposition,
 } from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import type { BridgeWorkerReplacementReason } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { postBridgeCommTelemetryProducerInstall } from '../telemetry-worker/bridge-comm-telemetry-producer-install.js';
@@ -79,6 +80,7 @@ export class BridgePaneCommWorkerSession {
 	#latestFileModeDispatchDisposition: BridgeDiagnosticDispatchDisposition | null = null;
 	#latestFileSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null = null;
 	#latestReviewSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null = null;
+	#lastReplacementReason: BridgeWorkerReplacementReason | null = null;
 	#mainPort: MessagePort | null = null;
 	#nativeBootstrap: BridgePaneCommWorkerNativeBootstrap | null = null;
 	#nativeBootstrapInstallCount = 0;
@@ -147,8 +149,9 @@ export class BridgePaneCommWorkerSession {
 		this.#prepareForWorkerReplacement = prepareForWorkerReplacement;
 	}
 
-	requestWorkerReplacement(): void {
+	requestWorkerReplacement(reason: BridgeWorkerReplacementReason): void {
 		if (this.#isDisposed || this.#isRestartRequested) return;
+		this.#lastReplacementReason = reason;
 		this.#prepareForWorkerReplacement();
 		this.#retireCurrentWorker();
 		this.#requestWorkerReplacementBootstrap();
@@ -195,6 +198,7 @@ export class BridgePaneCommWorkerSession {
 
 	dispose(): void {
 		this.#isDisposed = true;
+		this.#lastReplacementReason = { kind: 'explicitDispose' };
 		this.#clearBootstrapTimeout();
 		this.#clients.clear();
 		this.#queuedCommands.splice(0, this.#queuedCommands.length);
@@ -255,7 +259,10 @@ export class BridgePaneCommWorkerSession {
 							installed.paneSessionId === parsedMessage.data.paneSessionId &&
 							installed.workerInstanceId === parsedMessage.data.workerInstanceId
 						) {
-							this.requestWorkerReplacement();
+							this.requestWorkerReplacement({
+								kind: 'sessionSuspect',
+								reason: parsedMessage.data.reason,
+							});
 						}
 						return;
 					}
@@ -274,8 +281,12 @@ export class BridgePaneCommWorkerSession {
 					this.#publishWorkerMessages([parsedMessage.data]);
 				});
 				mainPort.start();
-				worker.addEventListener('error', (): void => this.#handleWorkerFailure(worker));
-				worker.addEventListener('messageerror', (): void => this.#handleWorkerFailure(worker));
+				worker.addEventListener('error', (): void =>
+					this.#handleWorkerFailure(worker, { kind: 'workerError' }),
+				);
+				worker.addEventListener('messageerror', (): void =>
+					this.#handleWorkerFailure(worker, { kind: 'messageError' }),
+				);
 				postBridgePaneCommWorkerInstall(worker, {
 					bootstrap: nativeBootstrap.bootstrap,
 					kind: 'bridgePaneCommWorker.install',
@@ -289,7 +300,7 @@ export class BridgePaneCommWorkerSession {
 				this.#worker = worker;
 				this.#workerPromise = null;
 				this.#bootstrapTimeout = globalThis.setTimeout((): void => {
-					this.#handleWorkerFailure(worker);
+					this.#handleWorkerFailure(worker, { kind: 'bootstrapTimeout' });
 				}, this.#bootstrapTimeoutMilliseconds);
 				return worker;
 			})
@@ -299,9 +310,7 @@ export class BridgePaneCommWorkerSession {
 					candidateWorker.terminate();
 				}
 				if (this.#workerPromise === workerPromise) {
-					this.#prepareForWorkerReplacement();
-					this.#retireCurrentWorker();
-					this.#requestWorkerReplacementBootstrap();
+					this.requestWorkerReplacement({ kind: 'workerError' });
 				}
 				throw error;
 			});
@@ -354,11 +363,11 @@ export class BridgePaneCommWorkerSession {
 		this.#bootstrapTimeout = null;
 	}
 
-	#handleWorkerFailure(worker: Worker): void {
+	#handleWorkerFailure(worker: Worker, reason: BridgeWorkerReplacementReason): void {
 		if (this.#isDisposed || this.#worker !== worker) {
 			return;
 		}
-		this.requestWorkerReplacement();
+		this.requestWorkerReplacement(reason);
 	}
 
 	#requestWorkerReplacementBootstrap(): void {
@@ -405,6 +414,7 @@ export class BridgePaneCommWorkerSession {
 				latestFileModeDispatchDisposition: this.#latestFileModeDispatchDisposition,
 				latestFileSelectDispatchDisposition: this.#latestFileSelectDispatchDisposition,
 				latestReviewSelectDispatchDisposition: this.#latestReviewSelectDispatchDisposition,
+				lastReplacementReason: this.#lastReplacementReason,
 				nativeBootstrapInstallCount: this.#nativeBootstrapInstallCount,
 				queuedCommandCount: this.#queuedCommands.length,
 				replacementRequestCount: this.#replacementRequestCount,

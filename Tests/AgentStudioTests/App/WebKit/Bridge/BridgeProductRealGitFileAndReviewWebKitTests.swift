@@ -180,9 +180,15 @@ extension WebKitSerializedTests {
             #expect(proof.updatingReviewStatus.fileStatusText == nil)
             #expect(proof.updatingFileStatus.fileStatusText == "Updating files…")
             #expect(proof.updatingFileStatus.reviewStatusText == nil)
-            #expect(proof.paneOneWorkerIdBeforeHide == proof.paneOneWorkerIdAfterReturn)
+            #expect(
+                proof.paneOneWorkerIdBeforeHide == proof.paneOneWorkerIdAfterReturn,
+                Comment(rawValue: "pane one replacement reason: \(proof.paneOneWorkerReplacementReason)")
+            )
             #expect(proof.paneOneWorkerIdAfterReturn != proof.paneTwoWorkerIdAfterJourney)
-            #expect(proof.paneTwoWorkerIdBeforeJourney == proof.paneTwoWorkerIdAfterJourney)
+            #expect(
+                proof.paneTwoWorkerIdBeforeJourney == proof.paneTwoWorkerIdAfterJourney,
+                Comment(rawValue: "pane two replacement reason: \(proof.paneTwoWorkerReplacementReason)")
+            )
             #expect(proof.paneTwoActivityAfterJourney == .foreground)
             #expect(proof.paneTwoStateAfterJourney.activeMode == proof.paneTwoStateBeforeJourney.activeMode)
             #expect(

@@ -1,6 +1,7 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept a target origin.
 import { describe, expect, test, vi } from 'vitest';
 
+import type { BridgeWorkerReplacementReason } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import {
 	BridgePaneCommWorkerSession,
@@ -30,6 +31,7 @@ import {
 } from './bridge-worker-contracts.js';
 
 interface ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot {
+	readonly lastReplacementReason: BridgeWorkerReplacementReason | null;
 	readonly latestFileModeDispatchDisposition:
 		| 'dropped_detached'
 		| 'queued_not_ready'
@@ -336,6 +338,7 @@ describe('Bridge pane comm worker session', () => {
 					nativeBootstrapInstallCount: 1,
 					queuedCommandCount: 3,
 					replacementRequestCount: 1,
+					lastReplacementReason: { kind: 'workerError' },
 					state: 'replacement_requested',
 				}),
 			);
@@ -483,7 +486,16 @@ describe('Bridge pane comm worker session', () => {
 				return worker;
 			});
 			const restartReasons: string[] = [];
+			const replacementFacts: BridgeWorkerReplacementReason[] = [];
 			const session = new BridgePaneCommWorkerSession({
+				recordDiagnosticSnapshot: (snapshot): void => {
+					if (
+						snapshot.state === 'replacement_requested' &&
+						snapshot.lastReplacementReason !== null
+					) {
+						replacementFacts.push(snapshot.lastReplacementReason);
+					}
+				},
 				requestNativeBootstrap: (reason): void => {
 					restartReasons.push(reason);
 				},
@@ -514,6 +526,9 @@ describe('Bridge pane comm worker session', () => {
 			await flushMicrotasks();
 
 			expect(restartReasons).toEqual(['workerReplacement']);
+			expect(replacementFacts[0]).toEqual({
+				kind: failureEventName === 'error' ? 'workerError' : 'messageError',
+			});
 			expect(workers[0]?.terminateCount).toBe(1);
 			expect(workers[1]?.globalPosts).toHaveLength(1);
 			expect(secondBootstrap.productCapability.byteLength).toBe(0);
@@ -625,7 +640,13 @@ describe('Bridge pane comm worker session', () => {
 		vi.useFakeTimers();
 		const worker = new RecordingPaneCommWorker();
 		const restartReasons: string[] = [];
+		const replacementFacts: BridgeWorkerReplacementReason[] = [];
 		const session = new BridgePaneCommWorkerSession({
+			recordDiagnosticSnapshot: (snapshot): void => {
+				if (snapshot.state === 'replacement_requested' && snapshot.lastReplacementReason !== null) {
+					replacementFacts.push(snapshot.lastReplacementReason);
+				}
+			},
 			bootstrapTimeoutMilliseconds: 25,
 			requestNativeBootstrap: (reason): void => {
 				restartReasons.push(reason);
@@ -644,6 +665,7 @@ describe('Bridge pane comm worker session', () => {
 
 			expect(worker.terminateCount).toBe(1);
 			expect(restartReasons).toEqual(['workerReplacement']);
+			expect(replacementFacts[0]).toEqual({ kind: 'bootstrapTimeout' });
 		} finally {
 			dispatcher.dispose();
 			session.dispose();

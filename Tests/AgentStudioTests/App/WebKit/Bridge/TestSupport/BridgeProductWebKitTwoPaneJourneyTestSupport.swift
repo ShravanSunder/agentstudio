@@ -41,11 +41,13 @@ struct BridgeProductWebKitTwoPaneJourneyProof: Sendable {
     let paneOneForegroundRefreshPassCount: Int
     let paneOneWorkerIdAfterReturn: String?
     let paneOneWorkerIdBeforeHide: String?
+    let paneOneWorkerReplacementReason: String
     let paneTwoActivityAfterJourney: BridgePaneActivity
     let paneTwoStateAfterJourney: BridgeProductWebKitTwoPanePositionSnapshot
     let paneTwoStateBeforeJourney: BridgeProductWebKitTwoPanePositionSnapshot
     let paneTwoWorkerIdAfterJourney: String?
     let paneTwoWorkerIdBeforeJourney: String?
+    let paneTwoWorkerReplacementReason: String
     let reviewStateAfterReturn: BridgeProductWebKitTwoPanePositionSnapshot
     let staleForegroundAdmissionWasRejected: Bool
     let updatingFileStatus: BridgeProductWebKitTwoPanePositionSnapshot
@@ -429,12 +431,14 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             paneOneForegroundRefreshPassCount: updatingState.foregroundRefreshPassCount,
             paneOneWorkerIdAfterReturn: paneOneNativeAfterReturn.workerInstanceId,
             paneOneWorkerIdBeforeHide: preparation.paneOneNativeBeforeHide.workerInstanceId,
+            paneOneWorkerReplacementReason: await workerReplacementReason(input.paneOne.page),
             paneTwoActivityAfterJourney:
                 input.paneTwo.refreshAdmissionCoordinator.diagnosticSnapshot.activity,
             paneTwoStateAfterJourney: paneTwoStateAfterJourney,
             paneTwoStateBeforeJourney: preparation.paneTwoStateBeforeJourney,
             paneTwoWorkerIdAfterJourney: paneTwoNativeAfterJourney.workerInstanceId,
             paneTwoWorkerIdBeforeJourney: preparation.paneTwoNativeBeforeJourney.workerInstanceId,
+            paneTwoWorkerReplacementReason: await workerReplacementReason(input.paneTwo.page),
             reviewStateAfterReturn: reviewStateAfterReturn,
             staleForegroundAdmissionWasRejected: staleForegroundAdmissionWasRejected,
             updatingFileStatus: updatingState.fileStatus,
@@ -642,6 +646,13 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             atomically: true,
             encoding: .utf8
         )
+    }
+
+    private static func workerReplacementReason(_ page: WebPage) async -> String {
+        let encoded = try? await page.callJavaScript(
+            "return JSON.stringify(window.__bridgeReviewSelectionDiagnostic?.lastWorkerReplacementReason ?? null);"
+        )
+        return encoded as? String ?? "unavailable"
     }
 
     private static func makeChangeset(

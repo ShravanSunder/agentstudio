@@ -138,6 +138,7 @@ describe('Bridge Review selection diagnostic', () => {
 			latestFileModeDispatchDisposition: 'posted',
 			latestFileSelectDispatchDisposition: 'queued_not_ready',
 			latestReviewSelectDispatchDisposition: null,
+			lastReplacementReason: { kind: 'sessionSuspect', reason: 'admissionReplyExhausted' },
 			nativeBootstrapInstallCount: 1,
 			queuedCommandCount: 2,
 			replacementRequestCount: 1,
@@ -149,6 +150,9 @@ describe('Bridge Review selection diagnostic', () => {
 		recordBridgePaneCommWorkerSessionDiagnosticSnapshot({ ...snapshot, state: 'bootstrapping' });
 
 		expect(snapshots).toEqual([snapshot]);
+		expect(readBridgeReviewSelectionDiagnostic()?.lastWorkerReplacementReason).toEqual(
+			snapshot.lastReplacementReason,
+		);
 	});
 
 	test('records each readiness timestamp once until the diagnostic lifecycle resets', () => {
@@ -159,6 +163,7 @@ describe('Bridge Review selection diagnostic', () => {
 			latestFileModeDispatchDisposition: null,
 			latestFileSelectDispatchDisposition: null,
 			latestReviewSelectDispatchDisposition: null,
+			lastReplacementReason: null,
 			nativeBootstrapInstallCount: 0,
 			queuedCommandCount: 0,
 			replacementRequestCount: 0,

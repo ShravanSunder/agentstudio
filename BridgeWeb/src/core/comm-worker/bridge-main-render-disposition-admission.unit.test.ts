@@ -41,6 +41,7 @@ describe('Bridge main render disposition admission', () => {
 		expect(harness.dispatched).toHaveLength(2);
 		expect(harness.admission.snapshot().deliveryState).toBe('stalled');
 		expect(requestWorkerReplacement).toHaveBeenCalledOnce();
+		expect(requestWorkerReplacement).toHaveBeenCalledWith('renderDispositionProbeExhausted');
 	});
 
 	test('clears unknown debt when the FIFO recovery probe reaches a worker terminal', () => {
@@ -70,6 +71,7 @@ describe('Bridge main render disposition admission', () => {
 			retainedReceiptCount: 3,
 		});
 		expect(requestWorkerReplacement).toHaveBeenCalledOnce();
+		expect(requestWorkerReplacement).toHaveBeenCalledWith('renderDispositionOverload');
 		harness.admission.enqueue(makeQueuedReceipt(4));
 		expect(requestWorkerReplacement).toHaveBeenCalledOnce();
 	});

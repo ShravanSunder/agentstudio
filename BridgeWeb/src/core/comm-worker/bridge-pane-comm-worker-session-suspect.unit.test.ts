@@ -26,7 +26,13 @@ describe('Bridge pane comm worker session suspect recovery', () => {
 			.mockReturnValueOnce(secondWorker);
 		const replacementRequest = createDeferredVoid();
 		const replacementReasons: string[] = [];
+		const replacementFacts: unknown[] = [];
 		const session = new BridgePaneCommWorkerSession({
+			recordDiagnosticSnapshot: (snapshot): void => {
+				if (snapshot.state === 'replacement_requested') {
+					replacementFacts.push(snapshot.lastReplacementReason);
+				}
+			},
 			requestNativeBootstrap: (reason): void => {
 				replacementReasons.push(reason);
 				replacementRequest.resolve();
@@ -69,6 +75,9 @@ describe('Bridge pane comm worker session suspect recovery', () => {
 			]);
 			expect(suspectDisposition).toBe('replacement');
 			expect(replacementReasons).toEqual(['workerReplacement']);
+			expect(replacementFacts).toEqual([
+				{ kind: 'sessionSuspect', reason: 'admissionReplyExhausted' },
+			]);
 			expect(firstWorker.terminateCount).toBe(1);
 
 			session.installNativeBootstrap(makeNativeBootstrap('suspect-worker-2'));
