@@ -359,16 +359,16 @@ extension BridgeProductSession {
         _ request: BridgeProductOperationResultAcknowledgement,
         exactRequestBytes: Data,
         productAdmission: BridgeProductAdmissionContext
-    ) -> Result<Data, BridgeProductOperationResultAckRefusalKind> {
+    ) -> Result<Data, BridgeProductOperationResultAckRefusal> {
         guard request.correlation.paneSessionId == paneSessionId else {
-            return .failure(.paneSessionMismatch)
+            return .failure(.init(.paneSessionMismatch))
         }
         guard request.correlation.workerInstanceId == workerInstanceId else {
-            return .failure(.workerInstanceMismatch)
+            return .failure(.init(.workerInstanceMismatch))
         }
         guard productAdmission.withValidAdmission({ true }) == true else {
             bridgeProductResultAcknowledgementLogger.notice("Ack refused reason=admissionInvalid")
-            return .failure(.admissionInvalid)
+            return .failure(.init(.admissionInvalid))
         }
         switch controlReplay.begin(
             requestSequence: request.correlation.requestSequence,
@@ -376,12 +376,24 @@ extension BridgeProductSession {
         ) {
         case .replay(let exactResponseBytes):
             return .success(exactResponseBytes)
-        case .rejected:
-            return .failure(.requestSequenceRejected)
+        case .rejected(let rejection):
+            let rejectionKind: BridgeProductOperationResultAckReplayRejectionKind
+            switch rejection {
+            case .payloadTooLarge: rejectionKind = .payloadTooLarge
+            case .requestInFlight: rejectionKind = .requestInFlight
+            case .sequenceExhausted: rejectionKind = .sequenceExhausted
+            case .sequenceConflict: rejectionKind = .sequenceConflict
+            }
+            return .failure(
+                .init(
+                    replayRejectionKind: rejectionKind,
+                    nextExpectedRequestSequence: controlReplay.snapshot.nextExpectedRequestSequence
+                )
+            )
         case .execute(let token):
             guard operationTable.entriesById[request.operationId]?.settlement != nil else {
                 try? controlReplay.abandon(token: token)
-                return .failure(.unknownOperation)
+                return .failure(.init(.unknownOperation))
             }
             let response = BridgeProductOperationResultAcknowledgedResponse(
                 correlation: request.correlation,
@@ -391,11 +403,11 @@ extension BridgeProductSession {
             encoder.outputFormatting = [.sortedKeys]
             guard let bytes = try? encoder.encode(response) else {
                 try? controlReplay.abandon(token: token)
-                return .failure(.responseEncodingFailed)
+                return .failure(.init(.responseEncodingFailed))
             }
             guard (try? controlReplay.complete(token: token, exactResponseBytes: bytes)) != nil else {
                 try? controlReplay.abandon(token: token)
-                return .failure(.replayCompletionRejected)
+                return .failure(.init(.replayCompletionRejected))
             }
             _ = operationTable.acknowledge(operationId: request.operationId)
             return .success(bytes)

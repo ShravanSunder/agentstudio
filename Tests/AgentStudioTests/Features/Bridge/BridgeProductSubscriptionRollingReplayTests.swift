@@ -218,7 +218,11 @@ struct BridgeProductSubscriptionRollingReplayTests {
             exactRequestBytes: try encode(conflictingAcknowledgement),
             productAdmission: harness.productAdmission.context
         )
-        guard case .failure(.requestSequenceRejected) = sequenceConflict else {
+        guard case .failure(let sequenceRefusal) = sequenceConflict,
+            sequenceRefusal.kind == .requestSequenceRejected,
+            sequenceRefusal.replayRejectionKind == .sequenceConflict,
+            sequenceRefusal.nextExpectedRequestSequence == acknowledgement.correlation.requestSequence + 1
+        else {
             Issue.record("Expected a typed request-sequence refusal, got \(sequenceConflict)")
             return false
         }
@@ -236,7 +240,9 @@ struct BridgeProductSubscriptionRollingReplayTests {
             exactRequestBytes: try encode(unknownAcknowledgement),
             productAdmission: harness.productAdmission.context
         )
-        guard case .failure(.unknownOperation) = unknownOperation else {
+        guard case .failure(let unknownRefusal) = unknownOperation,
+            unknownRefusal.kind == .unknownOperation
+        else {
             Issue.record("Expected a typed unknown-operation refusal, got \(unknownOperation)")
             return false
         }

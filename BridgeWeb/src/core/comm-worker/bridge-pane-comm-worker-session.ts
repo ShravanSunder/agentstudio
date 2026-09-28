@@ -261,7 +261,9 @@ export class BridgePaneCommWorkerSession {
 						) {
 							this.requestWorkerReplacement({
 								ackAttemptOutcomes: parsedMessage.data.ackAttemptOutcomes,
+								droppedPriorControlRequestCount: parsedMessage.data.droppedPriorControlRequestCount,
 								kind: 'sessionSuspect',
+								priorControlRequests: parsedMessage.data.priorControlRequests,
 								reason: parsedMessage.data.reason,
 							});
 						}

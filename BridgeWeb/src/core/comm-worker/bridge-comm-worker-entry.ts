@@ -34,6 +34,7 @@ import {
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeCommWorkerBootstrapRequest,
 	type BridgeWorkerAckAttemptOutcome,
+	type BridgeWorkerPriorControlRequest,
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerServerToMainWireMessage,
 	type BridgeWorkerViewRecoveryStatusEvent,
@@ -67,6 +68,8 @@ export interface BridgeCommWorkerEntryDependencies {
 			readonly publishSessionSuspect?: (
 				reason: 'resultAcknowledgementExhausted',
 				ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
+				priorControlRequests: readonly BridgeWorkerPriorControlRequest[],
+				droppedPriorControlRequestCount: number,
 			) => void;
 			readonly publishViewRecoveryStatus?: (
 				status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>,
@@ -210,12 +213,19 @@ export function bootstrapBridgeCommWorkerEntry(
 			const productSession = dependencies.installProductSession({
 				bootstrap: parsedInstall.data.bootstrap,
 				productCapability: parsedInstall.data.productCapability,
-				publishSessionSuspect: (reason, ackAttemptOutcomes): void =>
+				publishSessionSuspect: (
+					reason,
+					ackAttemptOutcomes,
+					priorControlRequests,
+					droppedPriorControlRequestCount,
+				): void =>
 					parsedInstall.data.productPort.postMessage({
 						ackAttemptOutcomes,
+						droppedPriorControlRequestCount,
 						direction: 'serverWorkerToMain',
 						kind: 'sessionSuspect',
 						paneSessionId: parsedInstall.data.bootstrap.paneSessionId,
+						priorControlRequests,
 						reason,
 						transferDescriptors: [],
 						wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -357,9 +367,11 @@ function bootstrapBridgeCommWorkerRuntimeEntry(
 					if (error instanceof BridgeProductSessionSuspectError && error.shouldNotify) {
 						port.postMessage({
 							ackAttemptOutcomes: [],
+							droppedPriorControlRequestCount: 0,
 							direction: 'serverWorkerToMain',
 							kind: 'sessionSuspect',
 							paneSessionId: renderFulfillmentContext.paneSessionId,
+							priorControlRequests: [],
 							reason:
 								error.phase === 'admission' ? 'admissionReplyExhausted' : 'resultDeadlineExhausted',
 							transferDescriptors: [],

@@ -140,6 +140,8 @@ describe('Bridge Review selection diagnostic', () => {
 			latestReviewSelectDispatchDisposition: null,
 			lastReplacementReason: {
 				ackAttemptOutcomes: [],
+				droppedPriorControlRequestCount: 0,
+				priorControlRequests: [],
 				kind: 'sessionSuspect',
 				reason: 'admissionReplyExhausted',
 			},

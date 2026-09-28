@@ -287,25 +287,60 @@ enum BridgeProductOperationResultAckRefusalKind: String, Codable, Equatable, Sen
     case replayCompletionRejected
 }
 
+enum BridgeProductOperationResultAckReplayRejectionKind: String, Codable, Equatable, Sendable {
+    case payloadTooLarge
+    case requestInFlight
+    case sequenceExhausted
+    case sequenceConflict
+}
+
+struct BridgeProductOperationResultAckRefusal: Error, Equatable, Sendable {
+    let kind: BridgeProductOperationResultAckRefusalKind
+    let replayRejectionKind: BridgeProductOperationResultAckReplayRejectionKind?
+    let nextExpectedRequestSequence: Int?
+
+    init(_ kind: BridgeProductOperationResultAckRefusalKind) {
+        precondition(kind != .requestSequenceRejected)
+        self.kind = kind
+        replayRejectionKind = nil
+        nextExpectedRequestSequence = nil
+    }
+
+    init(
+        replayRejectionKind: BridgeProductOperationResultAckReplayRejectionKind,
+        nextExpectedRequestSequence: Int
+    ) {
+        kind = .requestSequenceRejected
+        self.replayRejectionKind = replayRejectionKind
+        self.nextExpectedRequestSequence = nextExpectedRequestSequence
+    }
+}
+
 struct BridgeProductOperationResultAckRefusedResponse: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
+        case nextExpectedRequestSequence
         case operationId
+        case replayRejectionKind
         case refusalKind
     }
 
     let correlation: BridgeProductControlCorrelation
     let operationId: String
     let refusalKind: BridgeProductOperationResultAckRefusalKind
+    let replayRejectionKind: BridgeProductOperationResultAckReplayRejectionKind?
+    let nextExpectedRequestSequence: Int?
 
     init(
         correlation: BridgeProductControlCorrelation,
         operationId: String,
-        refusalKind: BridgeProductOperationResultAckRefusalKind
+        refusal: BridgeProductOperationResultAckRefusal
     ) {
         self.correlation = correlation
         self.operationId = operationId
-        self.refusalKind = refusalKind
+        refusalKind = refusal.kind
+        replayRejectionKind = refusal.replayRejectionKind
+        nextExpectedRequestSequence = refusal.nextExpectedRequestSequence
     }
 
     init(from decoder: Decoder) throws {
@@ -326,6 +361,19 @@ struct BridgeProductOperationResultAckRefusedResponse: Codable, Equatable, Senda
         correlation = try BridgeProductControlCorrelation(from: decoder)
         operationId = try container.decode(String.self, forKey: .operationId)
         refusalKind = try container.decode(BridgeProductOperationResultAckRefusalKind.self, forKey: .refusalKind)
+        replayRejectionKind = try container.decodeIfPresent(
+            BridgeProductOperationResultAckReplayRejectionKind.self,
+            forKey: .replayRejectionKind
+        )
+        nextExpectedRequestSequence = try container.decodeIfPresent(Int.self, forKey: .nextExpectedRequestSequence)
+        let hasReplayDetails = replayRejectionKind != nil && nextExpectedRequestSequence != nil
+        let hasAnyReplayDetail = replayRejectionKind != nil || nextExpectedRequestSequence != nil
+        guard refusalKind == .requestSequenceRejected ? hasReplayDetails : !hasAnyReplayDetail else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid operation.resultAckRefused replay fields",
+                codingPath: decoder.codingPath
+            )
+        }
         try BridgeProductContractDecoding.validateIdentifier(operationId, codingPath: decoder.codingPath)
     }
 
@@ -335,5 +383,7 @@ struct BridgeProductOperationResultAckRefusedResponse: Codable, Equatable, Senda
         try container.encode("operation.resultAckRefused", forKey: .kind)
         try container.encode(operationId, forKey: .operationId)
         try container.encode(refusalKind, forKey: .refusalKind)
+        try container.encodeIfPresent(replayRejectionKind, forKey: .replayRejectionKind)
+        try container.encodeIfPresent(nextExpectedRequestSequence, forKey: .nextExpectedRequestSequence)
     }
 }

@@ -403,12 +403,12 @@ struct BridgeProductSchemeAdapter: Sendable {
                 productAdmission: productAdmission,
                 continuation: continuation
             )
-        case .failure(let refusalKind):
+        case .failure(let refusal):
             let responseBytes = try JSONEncoder().encode(
                 BridgeProductOperationResultAckRefusedResponse(
                     correlation: acknowledgement.correlation,
                     operationId: acknowledgement.operationId,
-                    refusalKind: refusalKind
+                    refusal: refusal
                 )
             )
             try await sendOperationResponse(

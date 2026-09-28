@@ -86,7 +86,9 @@
         "requestId": "ack-result-1",
         "requestSequence": 10,
         "operationId": "operation-ordinary-1",
-        "refusalKind": "requestSequenceRejected"
+        "refusalKind": "requestSequenceRejected",
+        "replayRejectionKind": "sequenceConflict",
+        "nextExpectedRequestSequence": 11
       }
     ],
     "viewScopeRequests": [

@@ -1,4 +1,3 @@
-import { bridgeProductAckHTTPFailureOutcome } from './bridge-product-ack-failure-classification.js';
 import {
 	bridgeProductCallRequestSchema,
 	bridgeProductCallResultForMethod,
@@ -18,6 +17,12 @@ import { BridgeProductControlAdmissionQueue } from './bridge-product-control-adm
 import { BridgeProductControlRequestError } from './bridge-product-control-request-error.js';
 import { assertBridgeProductResponseCorrelation } from './bridge-product-control-response-correlation.js';
 import {
+	BridgeProductRequestDeadlineError,
+	BridgeProductSessionSuspectError,
+	postBridgeProductExactAdmissionWithRetry,
+	withBridgeProductDeadline,
+} from './bridge-product-control-retry.js';
+import {
 	defaultBridgeProductDeadlineClock,
 	type BridgeProductDeadlineClock,
 } from './bridge-product-deadline-clock.js';
@@ -29,13 +34,13 @@ import {
 } from './bridge-product-operation-observation-wire-contracts.js';
 import {
 	bridgeProductAdmissionResponseSchema,
-	bridgeProductOperationResultAcknowledgedResponseSchema,
 	bridgeProductOperationResultAcknowledgementSchema,
 	bridgeProductOperationResultRequestSchema,
 	bridgeProductOperationResultResponseSchema,
 	type BridgeProductOperationAdmittedResponse,
 } from './bridge-product-operation-wire-contracts.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
+import { postBridgeProductResultAcknowledgement } from './bridge-product-result-acknowledgement.js';
 import {
 	assertBridgeProductResyncReconciliationMatchesRequest,
 	bridgeProductControlRequestSchema,
@@ -45,17 +50,17 @@ import {
 	type BridgeProductControlResponse,
 	type BridgeProductSessionBootstrap,
 } from './bridge-product-session-contracts.js';
-import {
-	BridgeProductStrictJSONError,
-	parseBridgeProductStrictJSON,
-} from './bridge-product-strict-json.js';
+import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
 import {
 	viewResnapshotAdmission,
 	viewScopeAdmission,
 	type ViewResnapshotAdmissionProps,
 	type ViewScopeAdmissionProps,
 } from './bridge-product-view-control-admission.js';
-import type { BridgeWorkerAckAttemptOutcome } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerAckAttemptOutcome,
+	BridgeWorkerPriorControlRequest,
+} from './bridge-worker-contracts.js';
 
 export interface BridgeProductSessionAuthorityInstallInput {
 	readonly bootstrap: BridgeProductSessionBootstrap;
@@ -76,6 +81,8 @@ export interface BridgeProductControlMuxProps {
 	readonly onSessionSuspect?: (
 		reason: 'resultAcknowledgementExhausted',
 		ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
+		priorControlRequests: readonly BridgeWorkerPriorControlRequest[],
+		droppedPriorControlRequestCount: number,
 	) => void;
 }
 
@@ -123,22 +130,7 @@ export interface BridgeProductLateOutcomeObservation {
 
 export { BridgeProductControlRequestError } from './bridge-product-control-request-error.js';
 
-export class BridgeProductSessionSuspectError extends Error {
-	shouldNotify = true;
-
-	constructor(readonly phase: 'admission' | 'result') {
-		super(`Bridge product session ${phase} did not settle within its bounded retry window.`);
-		this.name = 'BridgeProductSessionSuspectError';
-	}
-}
-
-class BridgeProductRequestDeadlineError extends Error {}
-
-class BridgeProductAckAttemptTransportError extends BridgeProductRequestTransportError {
-	constructor(readonly outcome: BridgeWorkerAckAttemptOutcome) {
-		super('Bridge acknowledgement reply ambiguous.');
-	}
-}
+export { BridgeProductSessionSuspectError } from './bridge-product-control-retry.js';
 
 export class BridgeProductControlMux {
 	readonly deadlineClock: BridgeProductDeadlineClock;
@@ -149,11 +141,15 @@ export class BridgeProductControlMux {
 		| ((
 				reason: 'resultAcknowledgementExhausted',
 				ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
+				priorControlRequests: readonly BridgeWorkerPriorControlRequest[],
+				droppedPriorControlRequestCount: number,
 		  ) => void)
 		| undefined;
 	#nextRequestSequence = 3;
 	#didDeclareSessionSuspect = false;
 	readonly #admissionQueue = new BridgeProductControlAdmissionQueue();
+	readonly #priorControlRequests: BridgeWorkerPriorControlRequest[] = [];
+	#droppedPriorControlRequestCount = 0;
 	readonly #pendingAcknowledgements = new Set<Promise<void>>();
 	readonly #acknowledgementIdleWaiters: Array<() => void> = [];
 
@@ -178,6 +174,14 @@ export class BridgeProductControlMux {
 	async waitForAcknowledgementsQuiescent(): Promise<void> {
 		if (this.#pendingAcknowledgements.size === 0) return;
 		await new Promise<void>((resolve) => this.#acknowledgementIdleWaiters.push(resolve));
+	}
+
+	#recordControlRequest(record: BridgeWorkerPriorControlRequest): void {
+		if (this.#priorControlRequests.length === 16) {
+			this.#priorControlRequests.shift();
+			this.#droppedPriorControlRequestCount += 1;
+		}
+		this.#priorControlRequests.push(record);
 	}
 
 	call<TCallKind extends BridgeProductCallKind>(props: {
@@ -347,16 +351,31 @@ export class BridgeProductControlMux {
 					wireVersion: this.#authority.bootstrap.wireVersion,
 					workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 				});
-				const response = await postBridgeProductControlRequestWithExactRetry({
-					policy: this.#authority.bootstrap.policy,
-					capabilityHeader: this.#authority.capabilityHeader,
-					deadlineClock: this.deadlineClock,
-					executeProductRequest: this.#executeProductRequest,
-					request,
-					...(props.signal === undefined ? {} : { signal: props.signal }),
-				});
-				assertBridgeProductResponseCorrelation({ request, response });
+				let response: ReturnType<typeof bridgeProductAdmissionResponseSchema.parse>;
+				try {
+					response = await postBridgeProductControlRequestWithExactRetry({
+						policy: this.#authority.bootstrap.policy,
+						capabilityHeader: this.#authority.capabilityHeader,
+						deadlineClock: this.deadlineClock,
+						executeProductRequest: this.#executeProductRequest,
+						request,
+						...(props.signal === undefined ? {} : { signal: props.signal }),
+					});
+					assertBridgeProductResponseCorrelation({ request, response });
+				} catch (error: unknown) {
+					this.#recordControlRequest({
+						kind: request.kind,
+						requestSequence: request.requestSequence,
+						outcome: 'ambiguous',
+					});
+					throw error;
+				}
 				if (response.kind === 'request.error') {
+					this.#recordControlRequest({
+						kind: request.kind,
+						requestSequence: request.requestSequence,
+						outcome: 'refused',
+					});
 					// Admission rejection may leave the sequence unconsumed; only native knows its floor.
 					this.#nextRequestSequence =
 						response.nextExpectedRequestSequence ?? this.#nextRequestSequence;
@@ -370,6 +389,11 @@ export class BridgeProductControlMux {
 						retryable: response.retryable,
 					});
 				}
+				this.#recordControlRequest({
+					kind: request.kind,
+					requestSequence: request.requestSequence,
+					outcome: 'ok',
+				});
 				this.#nextRequestSequence += 1;
 				return { request, response };
 			},
@@ -426,7 +450,11 @@ export class BridgeProductControlMux {
 
 	#scheduleResultAcknowledgement(operationId: string): void {
 		const ackAttemptOutcomes: BridgeWorkerAckAttemptOutcome[] = [];
+		let priorControlRequests: readonly BridgeWorkerPriorControlRequest[] = [];
+		let droppedPriorControlRequestCount = 0;
 		const acknowledgement = this.#admissionQueue.enqueue(async (): Promise<void> => {
+			priorControlRequests = [...this.#priorControlRequests];
+			droppedPriorControlRequestCount = this.#droppedPriorControlRequestCount;
 			const request = bridgeProductOperationResultAcknowledgementSchema.parse({
 				kind: 'operation.resultAcknowledgement',
 				operationId,
@@ -457,7 +485,12 @@ export class BridgeProductControlMux {
 				if (this.#didDeclareSessionSuspect) return;
 				this.#didDeclareSessionSuspect = true;
 				try {
-					this.#onSessionSuspect?.('resultAcknowledgementExhausted', ackAttemptOutcomes);
+					this.#onSessionSuspect?.(
+						'resultAcknowledgementExhausted',
+						ackAttemptOutcomes,
+						priorControlRequests,
+						droppedPriorControlRequestCount,
+					);
 				} catch {
 					// The old worker may already be fenced; the delivered outcome stays final.
 				}
@@ -508,17 +541,35 @@ export class BridgeProductControlMux {
 							wireVersion: this.#authority.bootstrap.wireVersion,
 							workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 						});
-						await postBridgeProductExactAdmissionWithRetry({
-							policy: this.#authority.bootstrap.policy,
-							deadlineClock: this.deadlineClock,
-							run: async (signal): Promise<void> => {
-								await postBridgeProductCommandBody({
-									body: acknowledgement,
-									capabilityHeader: this.#authority.capabilityHeader,
-									executeProductRequest: this.#executeProductRequest,
-									signal,
-								});
-							},
+						try {
+							await postBridgeProductExactAdmissionWithRetry({
+								policy: this.#authority.bootstrap.policy,
+								deadlineClock: this.deadlineClock,
+								run: async (signal): Promise<void> => {
+									await postBridgeProductCommandBody({
+										body: acknowledgement,
+										capabilityHeader: this.#authority.capabilityHeader,
+										executeProductRequest: this.#executeProductRequest,
+										signal,
+									});
+								},
+							});
+						} catch (error: unknown) {
+							this.#recordControlRequest({
+								kind: acknowledgement.kind,
+								requestSequence: acknowledgement.requestSequence,
+								outcome:
+									error instanceof BridgeProductRequestTransportError ||
+									error instanceof BridgeProductRequestDeadlineError
+										? 'ambiguous'
+										: 'refused',
+							});
+							throw error;
+						}
+						this.#recordControlRequest({
+							kind: acknowledgement.kind,
+							requestSequence: acknowledgement.requestSequence,
+							outcome: 'ok',
 						});
 						this.#nextRequestSequence += 1;
 					}, 'escape'),
@@ -538,16 +589,31 @@ export class BridgeProductControlMux {
 					wireVersion: this.#authority.bootstrap.wireVersion,
 					workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 				});
-				const response = await postBridgeProductEscapeControlRequest({
-					policy: this.#authority.bootstrap.policy,
-					capabilityHeader: this.#authority.capabilityHeader,
-					deadlineClock: this.deadlineClock,
-					executeProductRequest: this.#executeProductRequest,
-					request,
-					...(props.signal === undefined ? {} : { signal: props.signal }),
-				});
-				assertBridgeProductResponseCorrelation({ request, response });
+				let response: BridgeProductControlResponse;
+				try {
+					response = await postBridgeProductEscapeControlRequest({
+						policy: this.#authority.bootstrap.policy,
+						capabilityHeader: this.#authority.capabilityHeader,
+						deadlineClock: this.deadlineClock,
+						executeProductRequest: this.#executeProductRequest,
+						request,
+						...(props.signal === undefined ? {} : { signal: props.signal }),
+					});
+					assertBridgeProductResponseCorrelation({ request, response });
+				} catch (error: unknown) {
+					this.#recordControlRequest({
+						kind: request.kind,
+						requestSequence: request.requestSequence,
+						outcome: 'ambiguous',
+					});
+					throw error;
+				}
 				if (response.kind === 'request.error') {
+					this.#recordControlRequest({
+						kind: request.kind,
+						requestSequence: request.requestSequence,
+						outcome: 'refused',
+					});
 					this.#nextRequestSequence =
 						response.nextExpectedRequestSequence ?? this.#nextRequestSequence;
 					throw new BridgeProductControlRequestError({
@@ -557,6 +623,11 @@ export class BridgeProductControlMux {
 						retryable: response.retryable,
 					});
 				}
+				this.#recordControlRequest({
+					kind: request.kind,
+					requestSequence: request.requestSequence,
+					outcome: 'ok',
+				});
 				this.#nextRequestSequence += 1;
 				return props.acceptResponse(response, request);
 			}, 'escape')
@@ -590,59 +661,6 @@ async function postBridgeProductControlRequestWithExactRetry(props: {
 			}),
 		...(props.signal === undefined ? {} : { signal: props.signal }),
 	});
-}
-
-async function postBridgeProductExactAdmissionWithRetry<TResult>(props: {
-	readonly policy: BridgeProductSessionBootstrap['policy'];
-	readonly deadlineClock: BridgeProductDeadlineClock;
-	readonly onAttemptFailure?: (error: unknown) => void;
-	readonly run: (signal: AbortSignal) => Promise<TResult>;
-	readonly signal?: AbortSignal;
-}): Promise<TResult> {
-	for (let attempt = 0; attempt <= props.policy.admissionRetryCount; attempt += 1) {
-		try {
-			return await withBridgeProductDeadline({
-				clock: props.deadlineClock,
-				delayMilliseconds: props.policy.workerSettlementDeadlineMilliseconds,
-				run: props.run,
-				...(props.signal === undefined ? {} : { signal: props.signal }),
-			});
-		} catch (error: unknown) {
-			props.onAttemptFailure?.(error);
-			props.signal?.throwIfAborted();
-			if (
-				!(error instanceof BridgeProductRequestDeadlineError) &&
-				!(error instanceof BridgeProductRequestTransportError)
-			)
-				throw error;
-		}
-	}
-	throw new BridgeProductSessionSuspectError('admission');
-}
-
-async function withBridgeProductDeadline<TResult>(props: {
-	readonly clock: BridgeProductDeadlineClock;
-	readonly delayMilliseconds: number;
-	readonly run: (signal: AbortSignal) => Promise<TResult>;
-	readonly signal?: AbortSignal;
-}): Promise<TResult> {
-	props.signal?.throwIfAborted();
-	const controller = new AbortController();
-	const abortForCaller = (): void => controller.abort(props.signal?.reason);
-	props.signal?.addEventListener('abort', abortForCaller, { once: true });
-	let cancelDeadline = (): void => {};
-	const deadline = new Promise<never>((_resolve, reject): void => {
-		cancelDeadline = props.clock.schedule(props.delayMilliseconds, (): void => {
-			controller.abort();
-			reject(new BridgeProductRequestDeadlineError());
-		});
-	});
-	try {
-		return await Promise.race([props.run(controller.signal), deadline]);
-	} finally {
-		cancelDeadline();
-		props.signal?.removeEventListener('abort', abortForCaller);
-	}
 }
 
 export class BridgeProductSessionAuthorityStore {
@@ -904,76 +922,4 @@ async function postBridgeProductOutcomeReadWithRetry<TResult>(props: {
 		}
 	}
 	throw new BridgeProductSessionSuspectError('result');
-}
-
-async function postBridgeProductResultAcknowledgement(props: {
-	readonly policy: BridgeProductSessionBootstrap['policy'];
-	readonly acknowledgement: ReturnType<
-		typeof bridgeProductOperationResultAcknowledgementSchema.parse
-	>;
-	readonly capabilityHeader: string;
-	readonly deadlineClock: BridgeProductDeadlineClock;
-	readonly executeProductRequest: BridgeProductRequestExecutor;
-	readonly recordAttemptFailure?: (outcome: BridgeWorkerAckAttemptOutcome) => void;
-}): Promise<ReturnType<typeof bridgeProductOperationResultAcknowledgedResponseSchema.parse>> {
-	return await postBridgeProductExactAdmissionWithRetry({
-		policy: props.policy,
-		deadlineClock: props.deadlineClock,
-		onAttemptFailure: (error): void => {
-			props.recordAttemptFailure?.(bridgeProductAckAttemptOutcome(error));
-		},
-		run: async (
-			signal,
-		): Promise<ReturnType<typeof bridgeProductOperationResultAcknowledgedResponseSchema.parse>> => {
-			const observedReply: { response: Response | null } = { response: null };
-			try {
-				const responseBytes = await postBridgeProductCommandBody({
-					body: props.acknowledgement,
-					capabilityHeader: props.capabilityHeader,
-					executeProductRequest: props.executeProductRequest,
-					observeResponse: (response): void => {
-						observedReply.response = response;
-					},
-					signal,
-				});
-				const parsed = bridgeProductOperationResultAcknowledgedResponseSchema.safeParse(
-					parseBridgeProductStrictJSON(responseBytes),
-				);
-				if (!parsed.success) {
-					throw new BridgeProductAckAttemptTransportError({ kind: 'parseFailure' });
-				}
-				const response = parsed.data;
-				if (
-					response.operationId !== props.acknowledgement.operationId ||
-					response.requestSequence !== props.acknowledgement.requestSequence ||
-					response.requestId !== props.acknowledgement.requestId
-				) {
-					throw new BridgeProductAckAttemptTransportError({ kind: 'identityMismatch' });
-				}
-				return response;
-			} catch (error: unknown) {
-				if (
-					error instanceof BridgeProductResponseSizeLimitError ||
-					error instanceof BridgeProductAckAttemptTransportError
-				)
-					throw error;
-				signal.throwIfAborted();
-				if (observedReply.response !== null && !observedReply.response.ok) {
-					throw new BridgeProductAckAttemptTransportError(
-						await bridgeProductAckHTTPFailureOutcome(observedReply.response, props.acknowledgement),
-					);
-				}
-				throw new BridgeProductAckAttemptTransportError({
-					kind: error instanceof BridgeProductStrictJSONError ? 'parseFailure' : 'transportFailure',
-				});
-			}
-		},
-	});
-}
-
-function bridgeProductAckAttemptOutcome(error: unknown): BridgeWorkerAckAttemptOutcome {
-	if (error instanceof BridgeProductRequestDeadlineError) return { kind: 'deadlineExpired' };
-	if (error instanceof BridgeProductAckAttemptTransportError) return error.outcome;
-	if (error instanceof BridgeProductResponseSizeLimitError) return { kind: 'responseSizeLimit' };
-	return { kind: 'transportFailure' };
 }

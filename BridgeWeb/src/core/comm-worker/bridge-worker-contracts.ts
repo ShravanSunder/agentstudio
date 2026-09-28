@@ -5,7 +5,6 @@ import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
-	bridgeProductRequestErrorCodeSchema,
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
@@ -13,7 +12,14 @@ import {
 	bridgeActiveViewerModeUpdateSchema,
 	bridgeProductControlIntakeReadyParamsSchema,
 } from './bridge-product-control-contracts.js';
-import { bridgeProductOperationResultAckRefusalKindSchema } from './bridge-product-operation-wire-contracts.js';
+import {
+	bridgeWorkerAckAttemptOutcomeSchema,
+	bridgeWorkerPriorControlRequestSchema,
+} from './bridge-worker-ack-diagnostic-contracts.js';
+export type {
+	BridgeWorkerAckAttemptOutcome,
+	BridgeWorkerPriorControlRequest,
+} from './bridge-worker-ack-diagnostic-contracts.js';
 import { bridgeProductReviewFileChangeKindSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductNavigationCommandSchema } from './bridge-product-session-contracts.js';
 import { bridgeProductSubscriptionFrameFailureCodes } from './bridge-product-subscription-frame-failure.js';
@@ -642,31 +648,13 @@ export const bridgeWorkerHealthEventSchema = bridgeWorkerServerToMainBaseSchema
 	})
 	.strict();
 
-export const bridgeWorkerAckAttemptOutcomeSchema = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal('deadlineExpired') }).strict(),
-	z.object({ kind: z.literal('transportFailure') }).strict(),
-	z.object({ kind: z.literal('httpStatus'), code: z.number().int().min(100).max(599) }).strict(),
-	z.object({ kind: z.literal('parseFailure') }).strict(),
-	z.object({ kind: z.literal('identityMismatch') }).strict(),
-	z
-		.object({
-			kind: z.literal('nativeRefusal'),
-			refusalKind: z.union([
-				bridgeProductOperationResultAckRefusalKindSchema,
-				bridgeProductRequestErrorCodeSchema,
-			]),
-		})
-		.strict(),
-	z.object({ kind: z.literal('responseSizeLimit') }).strict(),
-]);
-
-export type BridgeWorkerAckAttemptOutcome = z.infer<typeof bridgeWorkerAckAttemptOutcomeSchema>;
-
 export const bridgeWorkerSessionSuspectEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		ackAttemptOutcomes: z.array(bridgeWorkerAckAttemptOutcomeSchema).max(64).readonly(),
+		droppedPriorControlRequestCount: z.number().int().nonnegative(),
 		kind: z.literal('sessionSuspect'),
 		paneSessionId: bridgeProductIdentifierSchema,
+		priorControlRequests: z.array(bridgeWorkerPriorControlRequestSchema).max(16).readonly(),
 		reason: z.enum([
 			'admissionReplyExhausted',
 			'resultAcknowledgementExhausted',

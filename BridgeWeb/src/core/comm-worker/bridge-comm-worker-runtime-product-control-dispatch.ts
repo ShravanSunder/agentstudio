@@ -140,9 +140,11 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 				) {
 					props.publishSessionSuspect({
 						ackAttemptOutcomes: [],
+						droppedPriorControlRequestCount: 0,
 						direction: 'serverWorkerToMain',
 						kind: 'sessionSuspect',
 						paneSessionId: props.sessionIdentity.paneSessionId,
+						priorControlRequests: [],
 						reason:
 							error.phase === 'admission' ? 'admissionReplyExhausted' : 'resultDeadlineExhausted',
 						transferDescriptors: [],

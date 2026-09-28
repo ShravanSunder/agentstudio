@@ -19,7 +19,10 @@ import {
 	bridgeProductControlRequestSchema,
 	type BridgeProductSessionBootstrap,
 } from './bridge-product-session-contracts.js';
-import type { BridgeWorkerAckAttemptOutcome } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerAckAttemptOutcome,
+	BridgeWorkerPriorControlRequest,
+} from './bridge-worker-contracts.js';
 
 const commandSchema = z.union([
 	bridgeProductControlRequestSchema,
@@ -66,6 +69,7 @@ function createExecutor(props: {
 	readonly loseAcknowledgements: boolean;
 	readonly acknowledgementReply?: (body: string) => Response;
 }): BridgeProductRequestExecutor {
+	let lastAdmittedRequest = { requestId: 'worker-session-open-1', requestSequence: 1 };
 	return async (_route, requestInit): Promise<Response> => {
 		if (!(requestInit.body instanceof Uint8Array)) throw new Error('Expected encoded body.');
 		const body = new TextDecoder().decode(requestInit.body);
@@ -80,16 +84,16 @@ function createExecutor(props: {
 				result: opening
 					? {
 							kind: 'workerSession.accepted',
-							requestId: 'worker-session-open-1',
-							requestSequence: 1,
+							requestId: lastAdmittedRequest.requestId,
+							requestSequence: lastAdmittedRequest.requestSequence,
 							result: null,
 							...sessionIdentity,
 						}
 					: {
 							call: { method: 'review.markFileViewed', result: null },
 							kind: 'call.completed',
-							requestId: 'request-1',
-							requestSequence: 3,
+							requestId: lastAdmittedRequest.requestId,
+							requestSequence: lastAdmittedRequest.requestSequence,
 							...sessionIdentity,
 						},
 			});
@@ -102,6 +106,10 @@ function createExecutor(props: {
 			}
 			return jsonResponse({ ...command, kind: 'operation.resultAcknowledged' });
 		}
+		lastAdmittedRequest = {
+			requestId: command.requestId,
+			requestSequence: command.requestSequence,
+		};
 		return jsonResponse({
 			kind: 'operation.admitted',
 			operationId: command.kind === 'workerSession.open' ? 'operation-open' : 'operation-save',
@@ -126,6 +134,8 @@ async function callOnSession(props: {
 	readonly onSessionSuspect?: (
 		reason: 'resultAcknowledgementExhausted',
 		ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
+		priorControlRequests: readonly BridgeWorkerPriorControlRequest[],
+		droppedPriorControlRequestCount: number,
 	) => void;
 }): Promise<BridgeProductControlMux> {
 	const executeProductRequest = createExecutor(props);
@@ -157,12 +167,14 @@ describe('Bridge product result acknowledgement owner', () => {
 		const suspectEvents: {
 			readonly reason: string;
 			readonly outcomes: readonly BridgeWorkerAckAttemptOutcome[];
+			readonly priorControls: readonly BridgeWorkerPriorControlRequest[];
+			readonly dropped: number;
 		}[] = [];
 		const oldSession = await callOnSession({
 			acknowledgementBodies,
 			loseAcknowledgements: true,
-			onSessionSuspect: (reason, outcomes): void => {
-				suspectEvents.push({ reason, outcomes });
+			onSessionSuspect: (reason, outcomes, priorControls, dropped): void => {
+				suspectEvents.push({ reason, outcomes, priorControls, dropped });
 			},
 		});
 		await oldSession.waitForAcknowledgementsQuiescent();
@@ -170,8 +182,14 @@ describe('Bridge product result acknowledgement owner', () => {
 		expect(new Set(acknowledgementBodies).size).toBe(1);
 		expect(suspectEvents).toEqual([
 			{
+				dropped: 0,
 				reason: 'resultAcknowledgementExhausted',
-				outcomes: Array.from({ length: 3 }, () => ({ kind: 'httpStatus', code: 502 })),
+				outcomes: Array.from({ length: 3 }, () => ({
+					kind: 'httpStatus',
+					code: 502,
+					requestSequence: 4,
+				})),
+				priorControls: [{ kind: 'product.call', requestSequence: 3, outcome: 'ok' }],
 			},
 		]);
 		expect(oldSession.diagnosticSnapshot.pendingAcknowledgementCount).toBe(0);
@@ -189,7 +207,7 @@ describe('Bridge product result acknowledgement owner', () => {
 		{
 			name: 'empty native HTTP refusal',
 			reply: (): Response => new Response(null, { status: 400 }),
-			expected: { kind: 'httpStatus', code: 400 },
+			expected: { kind: 'httpStatus', code: 400, requestSequence: 4 },
 		},
 		{
 			name: 'typed native refusal',
@@ -203,18 +221,26 @@ describe('Bridge product result acknowledgement owner', () => {
 						requestId: request.requestId,
 						requestSequence: request.requestSequence,
 						refusalKind: 'requestSequenceRejected',
+						replayRejectionKind: 'sequenceConflict',
+						nextExpectedRequestSequence: 5,
 						wireVersion: request.wireVersion,
 						workerInstanceId: request.workerInstanceId,
 					}),
 					{ status: 400 },
 				);
 			},
-			expected: { kind: 'nativeRefusal', refusalKind: 'requestSequenceRejected' },
+			expected: {
+				kind: 'nativeRefusal',
+				refusalKind: 'requestSequenceRejected',
+				replayRejectionKind: 'sequenceConflict',
+				nextExpectedRequestSequence: 5,
+				requestSequence: 4,
+			},
 		},
 		{
 			name: 'malformed success',
 			reply: (): Response => new Response('{', { status: 200 }),
-			expected: { kind: 'parseFailure' },
+			expected: { kind: 'parseFailure', requestSequence: 4 },
 		},
 		{
 			name: 'mismatched success',
@@ -226,12 +252,12 @@ describe('Bridge product result acknowledgement owner', () => {
 					operationId: 'other',
 				});
 			},
-			expected: { kind: 'identityMismatch' },
+			expected: { kind: 'identityMismatch', requestSequence: 4 },
 		},
 		{
 			name: 'over-limit success',
 			reply: (): Response => new Response('x'.repeat(300_000), { status: 200 }),
-			expected: { kind: 'responseSizeLimit' },
+			expected: { kind: 'responseSizeLimit', requestSequence: 4 },
 			expectedAttempts: 1,
 		},
 	])('records each $name attempt before declaring suspect', async (scenario) => {
@@ -249,5 +275,50 @@ describe('Bridge product result acknowledgement owner', () => {
 		await session.waitForAcknowledgementsQuiescent();
 		expect(acknowledgementBodies).toHaveLength(expectedAttempts);
 		expect(outcomes).toEqual([Array.from({ length: expectedAttempts }, () => scenario.expected)]);
+	});
+
+	test('retains the last sixteen control outcomes and reports dropped history before a failed ack', async () => {
+		let successfulAcknowledgements = 0;
+		const snapshots: {
+			readonly priorControls: readonly BridgeWorkerPriorControlRequest[];
+			readonly dropped: number;
+		}[] = [];
+		const session = await callOnSession({
+			acknowledgementBodies: [],
+			loseAcknowledgements: false,
+			acknowledgementReply: (body): Response => {
+				if (successfulAcknowledgements === 17) return new Response('lost', { status: 502 });
+				successfulAcknowledgements += 1;
+				const request = bridgeProductOperationResultAcknowledgementSchema.parse(JSON.parse(body));
+				return jsonResponse({ ...request, kind: 'operation.resultAcknowledged' });
+			},
+			onSessionSuspect: (_reason, _outcomes, priorControls, dropped): void => {
+				snapshots.push({ priorControls, dropped });
+			},
+		});
+		await session.waitForAcknowledgementsQuiescent();
+		for (let index = 0; index < 17; index += 1) {
+			// oxlint-disable-next-line eslint/no-await-in-loop -- Each result ack establishes the next wire sequence.
+			await session.call({
+				method: 'review.markFileViewed',
+				request: { itemId: 'review-item-1' },
+				workerDerivationEpoch: 1,
+			});
+			// oxlint-disable-next-line eslint/no-await-in-loop -- The ack owner announces quiescence without a timer.
+			await session.waitForAcknowledgementsQuiescent();
+		}
+		expect(snapshots).toHaveLength(1);
+		expect(snapshots[0]?.dropped).toBe(2);
+		expect(snapshots[0]?.priorControls).toHaveLength(16);
+		expect(snapshots[0]?.priorControls[0]).toEqual({
+			kind: 'product.call',
+			outcome: 'ok',
+			requestSequence: 7,
+		});
+		expect(snapshots[0]?.priorControls.at(-1)).toEqual({
+			kind: 'product.call',
+			outcome: 'ok',
+			requestSequence: 37,
+		});
 	});
 });

@@ -122,14 +122,39 @@ export const bridgeProductOperationResultAckRefusalKindSchema = z.enum([
 	'replayCompletionRejected',
 ]);
 
+export const bridgeProductOperationResultAckReplayRejectionKindSchema = z.enum([
+	'payloadTooLarge',
+	'requestInFlight',
+	'sequenceExhausted',
+	'sequenceConflict',
+]);
+
 export const bridgeProductOperationResultAckRefusedResponseSchema = z
 	.object({
 		...controlCorrelationShape,
 		kind: z.literal('operation.resultAckRefused'),
+		nextExpectedRequestSequence: bridgeProductPositiveSequenceSchema.optional(),
 		operationId: bridgeProductIdentifierSchema,
+		replayRejectionKind: bridgeProductOperationResultAckReplayRejectionKindSchema.optional(),
 		refusalKind: bridgeProductOperationResultAckRefusalKindSchema,
 	})
-	.strict();
+	.strict()
+	.superRefine((response, context): void => {
+		const hasReplayDetails =
+			response.replayRejectionKind !== undefined &&
+			response.nextExpectedRequestSequence !== undefined;
+		const hasAnyReplayDetail =
+			response.replayRejectionKind !== undefined ||
+			response.nextExpectedRequestSequence !== undefined;
+		if (
+			response.refusalKind === 'requestSequenceRejected' ? !hasReplayDetails : hasAnyReplayDetail
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Only request-sequence refusals carry complete replay rejection details.',
+			});
+		}
+	});
 
 export type BridgeProductOperationAdmittedResponse = z.infer<
 	typeof bridgeProductOperationAdmittedResponseSchema
