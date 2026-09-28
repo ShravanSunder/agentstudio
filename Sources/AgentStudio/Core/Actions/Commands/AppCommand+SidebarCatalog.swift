@@ -143,7 +143,7 @@ extension AppCommand {
             command: self,
             shortcut: .togglePanesShowsDrawers,
             label: "Show Drawers",
-            icon: .system(.rectangleSplit3x1),
+            icon: .system(.rectangleBottomhalfFilled),
             helpText: "Show or hide drawer panes in the Panes sidebar",
             surfacePolicy: .exposed([.commandBar, .inlineControl]),
             targeting: .contextual,

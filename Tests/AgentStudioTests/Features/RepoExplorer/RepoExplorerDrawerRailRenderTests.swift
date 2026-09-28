@@ -20,7 +20,9 @@ struct RepoExplorerDrawerRailRenderTests {
             return max(layout.metrics.minimumHeight, layout.metrics.fallbackHeight)
         }
         let rowInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
-        let railX = AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth / 2
+        let railX = AppStyles.Shell.Sidebar.rowIdentityIconSize / 2
+        let childIconLeadingX = RepoExplorerPaneRowContent.leadingContentInset(for: .drawer(isLast: false))
+        let elbowEndX = childIconLeadingX - AppStyles.Shell.Sidebar.drawerRailIconGap
         let titleMidpoint = rowInset + AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight / 2
         let ownerLineCount = try #require(rows[0].variants?.compact.lines.count)
         let ownerLastGlyphBottom =
@@ -55,15 +57,17 @@ struct RepoExplorerDrawerRailRenderTests {
                 CGPoint(x: railX, y: 0),
                 CGPoint(x: railX, y: allocatedHeights[1]),
                 CGPoint(x: railX, y: titleMidpoint),
-                CGPoint(x: railX + AppStyles.Shell.Sidebar.drawerRailElbowWidth, y: titleMidpoint),
+                CGPoint(x: elbowEndX, y: titleMidpoint),
             ])
         #expect(
             lastDrawer == [
                 CGPoint(x: railX, y: 0),
                 CGPoint(x: railX, y: titleMidpoint),
                 CGPoint(x: railX, y: titleMidpoint),
-                CGPoint(x: railX + AppStyles.Shell.Sidebar.drawerRailElbowWidth, y: titleMidpoint),
+                CGPoint(x: elbowEndX, y: titleMidpoint),
             ])
+        #expect(middleDrawer[3].x == childIconLeadingX - AppStyles.Shell.Sidebar.drawerRailIconGap)
+        #expect(lastDrawer[3].x == childIconLeadingX - AppStyles.Shell.Sidebar.drawerRailIconGap)
         #expect(owner[1].y == allocatedHeights[0] + middleDrawer[0].y)
         #expect(
             allocatedHeights[0] + middleDrawer[1].y

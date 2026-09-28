@@ -3,6 +3,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioSharedComponents
 
 @MainActor
 @Suite("AppCommand sidebar commands", .serialized)
@@ -40,7 +41,7 @@ struct AppCommandSidebarCommandsTests {
             (.toggleReposSortDirection, "Direction", .system(.arrowUpArrowDown)),
             (.toggleReposShowsPinned, "Show Pinned", .system(.pin)),
             (.togglePanesShowsPinned, "Show Pinned", .system(.pin)),
-            (.togglePanesShowsDrawers, "Show Drawers", .system(.rectangleSplit3x1)),
+            (.togglePanesShowsDrawers, "Show Drawers", .system(.rectangleBottomhalfFilled)),
         ]
 
         for (command, label, icon) in expectedCommands {
@@ -58,6 +59,8 @@ struct AppCommandSidebarCommandsTests {
         let definition = AppCommandDispatcher.shared.definition(for: command)
 
         #expect(definition.shortcut == .togglePanesShowsDrawers)
+        #expect(definition.icon == .system(.rectangleBottomhalfFilled))
+        #expect(AppEntityIcon.drawer.symbolName == "rectangle.bottomhalf.filled")
         #expect(definition.helpText == "Show or hide drawer panes in the Panes sidebar")
         #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
         #expect(command.ipcSpec.exposure == .debugTesting)

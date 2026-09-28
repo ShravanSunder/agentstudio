@@ -110,13 +110,14 @@ package enum AppStyles {
             package static let shadowOffsetY: CGFloat = 0
             package static let rowContentSpacing: CGFloat = 4
             package static let drawerRailLineWidth: CGFloat = 1
-            package static let drawerRailElbowWidth: CGFloat = 5
-            package static let drawerRailOpacity: Double = 0.55
+            package static let drawerRailIconGap: CGFloat = 1
+            package static let drawerRailOpacity: Double = 0.8
             package static let rowVerticalInset: CGFloat = 6
             package static let listRowLeadingInset: CGFloat = Header.contentPadding
             package static let groupIconSize: CGFloat = 14
             package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let rowLeadingIconColumnWidth: CGFloat = groupIconSize
+            package static let drawerChildLeadingInset: CGFloat = rowLeadingIconColumnWidth
             package static let groupIconColumnWidth: CGFloat = rowLeadingIconColumnWidth
             package static let rowIdentityIconSize: CGFloat = 11
             package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase

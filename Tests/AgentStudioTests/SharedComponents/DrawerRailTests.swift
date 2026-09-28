@@ -11,7 +11,7 @@ struct DrawerRailTests {
     func twoDrawerRailContinuity() {
         let rowSize = CGSize(width: 14, height: 64)
         let contentInset = AppStyles.Shell.Sidebar.rowVerticalInset
-        let railX = AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth / 2
+        let railX = AppStyles.Shell.Sidebar.rowIdentityIconSize / 2
         let titleY = contentInset + AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight / 2
 
         let owner = points(
@@ -44,10 +44,15 @@ struct DrawerRailTests {
         #expect(firstDrawer.first == CGPoint(x: railX, y: 0))
         #expect(firstDrawer[1] == CGPoint(x: railX, y: rowSize.height))
         #expect(firstDrawer[2] == CGPoint(x: railX, y: titleY))
-        #expect(firstDrawer[3].x == railX + AppStyles.Shell.Sidebar.drawerRailElbowWidth)
+        #expect(
+            firstDrawer[3].x
+                == AppStyles.Shell.Sidebar.drawerChildLeadingInset
+                - AppStyles.Shell.Sidebar.drawerRailIconGap
+        )
         #expect(lastDrawer.first == CGPoint(x: railX, y: 0))
         #expect(lastDrawer[1] == CGPoint(x: railX, y: titleY))
         #expect(lastDrawer[2] == CGPoint(x: railX, y: titleY))
+        #expect(lastDrawer[3].x == firstDrawer[3].x)
     }
 
     private func points(in path: Path) -> [CGPoint] {

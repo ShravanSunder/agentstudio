@@ -1,5 +1,24 @@
 # Panes list Escape focus diagnosis — 2026-09-26
 
+## 2026-09-28 production-path correction
+
+The original host-only test did not exercise the window controller's held pane preview. A new
+`MainSplitViewControllerCompositeCommandTests.panesEscapeReturnsToMountedPane` test uses the
+Panes surface, a mounted terminal responder, the real `NSWindow.sendEvent` Escape path, and an
+active held preview. It failed before the correction: the saved terminal responder regained first
+responder status, but `HeldPanePreviewState.isHeld` remained true. The shared
+`restoreSidebarReturnFocusOrigin()` method, used by both Escape's callback and a second
+focus-sidebar command, restored the responder without cancelling the preview. It now calls the
+existing `cancelIfHeld()` operation before restoring the responder. This makes both exit routes
+settle the same focus and preview state.
+
+The owner's live observation that Escape did not return typing still needs a post-fix native
+check. The current PR A debug window is on the primary display; Peekaboo could capture it but
+reported the window unavailable for resize/move, and System Events exposed no AX windows for
+that process. We did not send keys to the primary display. A separate, already-running debug
+instance on the second display belongs to another task and was left untouched. This limits the
+claim to the production-window test until a PID-targeted second-display run is available.
+
 ## Question
 
 R32 requires Escape while the Panes list has keyboard focus to leave list navigation and return typing to the previous pane. The owner reported that Escape did not return focus.

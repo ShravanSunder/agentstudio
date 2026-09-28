@@ -43,7 +43,7 @@ package struct DrawerRail: View {
         size: CGSize
     ) -> Path {
         Path { path in
-            let railX = AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth / 2
+            let railX = AppStyles.Shell.Sidebar.rowIdentityIconSize / 2
             let titleMidpoint = rowVerticalInset + AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight / 2
             switch segment {
             case .none:
@@ -61,7 +61,8 @@ package struct DrawerRail: View {
                 path.move(to: CGPoint(x: railX, y: titleMidpoint))
                 path.addLine(
                     to: CGPoint(
-                        x: railX + AppStyles.Shell.Sidebar.drawerRailElbowWidth,
+                        x: AppStyles.Shell.Sidebar.drawerChildLeadingInset
+                            - AppStyles.Shell.Sidebar.drawerRailIconGap,
                         y: titleMidpoint
                     )
                 )

@@ -98,7 +98,7 @@ struct RepoExplorerPaneRowContent: View {
     static func leadingContentInset(for drawerRail: RepoExplorerDrawerRail) -> CGFloat {
         switch drawerRail {
         case .drawer:
-            AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+            AppStyles.Shell.Sidebar.drawerChildLeadingInset
         case .none, .ownerWithDrawers:
             0
         }
