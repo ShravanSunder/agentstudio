@@ -139,6 +139,7 @@ export function dispatchBridgeCommWorkerRuntimeProductControl(props: {
 					props.publishSessionSuspect !== undefined
 				) {
 					props.publishSessionSuspect({
+						ackAttemptOutcomes: [],
 						direction: 'serverWorkerToMain',
 						kind: 'sessionSuspect',
 						paneSessionId: props.sessionIdentity.paneSessionId,

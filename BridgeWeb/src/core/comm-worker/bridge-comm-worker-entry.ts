@@ -33,6 +33,7 @@ import {
 	bridgeCommWorkerBootstrapRequestSchema,
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeCommWorkerBootstrapRequest,
+	type BridgeWorkerAckAttemptOutcome,
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerServerToMainWireMessage,
 	type BridgeWorkerViewRecoveryStatusEvent,
@@ -63,7 +64,10 @@ export interface BridgeCommWorkerGlobalScope {
 export interface BridgeCommWorkerEntryDependencies {
 	readonly installProductSession: (
 		input: BridgeProductSessionAuthorityInstallInput & {
-			readonly publishSessionSuspect?: (reason: 'admissionReplyExhausted') => void;
+			readonly publishSessionSuspect?: (
+				reason: 'resultAcknowledgementExhausted',
+				ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
+			) => void;
 			readonly publishViewRecoveryStatus?: (
 				status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>,
 			) => void;
@@ -206,8 +210,9 @@ export function bootstrapBridgeCommWorkerEntry(
 			const productSession = dependencies.installProductSession({
 				bootstrap: parsedInstall.data.bootstrap,
 				productCapability: parsedInstall.data.productCapability,
-				publishSessionSuspect: (reason): void =>
+				publishSessionSuspect: (reason, ackAttemptOutcomes): void =>
 					parsedInstall.data.productPort.postMessage({
+						ackAttemptOutcomes,
 						direction: 'serverWorkerToMain',
 						kind: 'sessionSuspect',
 						paneSessionId: parsedInstall.data.bootstrap.paneSessionId,
@@ -351,6 +356,7 @@ function bootstrapBridgeCommWorkerRuntimeEntry(
 					pendingMessagesBeforeBootstrap.splice(0, pendingMessagesBeforeBootstrap.length);
 					if (error instanceof BridgeProductSessionSuspectError && error.shouldNotify) {
 						port.postMessage({
+							ackAttemptOutcomes: [],
 							direction: 'serverWorkerToMain',
 							kind: 'sessionSuspect',
 							paneSessionId: renderFulfillmentContext.paneSessionId,

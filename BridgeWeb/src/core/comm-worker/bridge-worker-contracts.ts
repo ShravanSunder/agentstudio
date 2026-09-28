@@ -5,6 +5,7 @@ import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
+	bridgeProductRequestErrorCodeSchema,
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
@@ -640,11 +641,30 @@ export const bridgeWorkerHealthEventSchema = bridgeWorkerServerToMainBaseSchema
 	})
 	.strict();
 
+export const bridgeWorkerAckAttemptOutcomeSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('deadlineExpired') }).strict(),
+	z.object({ kind: z.literal('transportFailure') }).strict(),
+	z.object({ kind: z.literal('httpStatus'), code: z.number().int().min(100).max(599) }).strict(),
+	z.object({ kind: z.literal('parseFailure') }).strict(),
+	z.object({ kind: z.literal('identityMismatch') }).strict(),
+	z
+		.object({ kind: z.literal('nativeRefusal'), refusalKind: bridgeProductRequestErrorCodeSchema })
+		.strict(),
+	z.object({ kind: z.literal('responseSizeLimit') }).strict(),
+]);
+
+export type BridgeWorkerAckAttemptOutcome = z.infer<typeof bridgeWorkerAckAttemptOutcomeSchema>;
+
 export const bridgeWorkerSessionSuspectEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
+		ackAttemptOutcomes: z.array(bridgeWorkerAckAttemptOutcomeSchema).max(64).readonly(),
 		kind: z.literal('sessionSuspect'),
 		paneSessionId: bridgeProductIdentifierSchema,
-		reason: z.enum(['admissionReplyExhausted', 'resultDeadlineExhausted']),
+		reason: z.enum([
+			'admissionReplyExhausted',
+			'resultAcknowledgementExhausted',
+			'resultDeadlineExhausted',
+		]),
 		workerInstanceId: bridgeProductIdentifierSchema,
 	})
 	.strict();

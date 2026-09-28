@@ -260,6 +260,7 @@ export class BridgePaneCommWorkerSession {
 							installed.workerInstanceId === parsedMessage.data.workerInstanceId
 						) {
 							this.requestWorkerReplacement({
+								ackAttemptOutcomes: parsedMessage.data.ackAttemptOutcomes,
 								kind: 'sessionSuspect',
 								reason: parsedMessage.data.reason,
 							});

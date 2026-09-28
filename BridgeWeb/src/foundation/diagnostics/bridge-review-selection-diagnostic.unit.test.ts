@@ -138,7 +138,11 @@ describe('Bridge Review selection diagnostic', () => {
 			latestFileModeDispatchDisposition: 'posted',
 			latestFileSelectDispatchDisposition: 'queued_not_ready',
 			latestReviewSelectDispatchDisposition: null,
-			lastReplacementReason: { kind: 'sessionSuspect', reason: 'admissionReplyExhausted' },
+			lastReplacementReason: {
+				ackAttemptOutcomes: [],
+				kind: 'sessionSuspect',
+				reason: 'admissionReplyExhausted',
+			},
 			nativeBootstrapInstallCount: 1,
 			queuedCommandCount: 2,
 			replacementRequestCount: 1,

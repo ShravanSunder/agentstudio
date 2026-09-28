@@ -61,6 +61,7 @@ describe('Bridge pane comm worker session suspect recovery', () => {
 			await firstReady;
 
 			firstInstall.productPort.postMessage({
+				ackAttemptOutcomes: [],
 				direction: 'serverWorkerToMain',
 				kind: 'sessionSuspect',
 				paneSessionId: firstInstall.bootstrap.paneSessionId,
@@ -76,7 +77,7 @@ describe('Bridge pane comm worker session suspect recovery', () => {
 			expect(suspectDisposition).toBe('replacement');
 			expect(replacementReasons).toEqual(['workerReplacement']);
 			expect(replacementFacts).toEqual([
-				{ kind: 'sessionSuspect', reason: 'admissionReplyExhausted' },
+				{ ackAttemptOutcomes: [], kind: 'sessionSuspect', reason: 'admissionReplyExhausted' },
 			]);
 			expect(firstWorker.terminateCount).toBe(1);
 

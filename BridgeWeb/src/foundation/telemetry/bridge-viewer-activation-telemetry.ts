@@ -135,10 +135,11 @@ function bridgeWorkerReplacementTelemetryFacts(reason: BridgeWorkerReplacementRe
 		case 'sessionSuspect':
 			return {
 				reason: 'session_suspect',
-				source:
-					reason.reason === 'admissionReplyExhausted'
-						? 'admission_reply_exhausted'
-						: 'result_deadline_exhausted',
+				source: {
+					admissionReplyExhausted: 'admission_reply_exhausted',
+					resultAcknowledgementExhausted: 'result_acknowledgement_exhausted',
+					resultDeadlineExhausted: 'result_deadline_exhausted',
+				}[reason.reason],
 			};
 		case 'runtimeRecovery':
 			return {

@@ -263,6 +263,7 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 			'none',
 			'render_disposition_overload',
 			'render_disposition_probe_exhausted',
+			'result_acknowledgement_exhausted',
 			'result_deadline_exhausted',
 			'review_installed_receipt_failed',
 		]),

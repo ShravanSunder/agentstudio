@@ -8,9 +8,11 @@ export async function postBridgeProductCommandBody(props: {
 	readonly body: object;
 	readonly capabilityHeader: string;
 	readonly executeProductRequest: BridgeProductRequestExecutor;
+	readonly observeResponse?: (response: Response) => void;
 	readonly signal?: AbortSignal;
 }): Promise<Uint8Array> {
 	const response = await executeBridgeProductCommand(props);
+	props.observeResponse?.(response);
 	if (!response.ok) {
 		if (response.status < 400 || response.status >= 500) {
 			throw new BridgeProductRequestTransportError(
@@ -75,7 +77,9 @@ async function executeBridgeProductCommand(props: {
 	return response;
 }
 
-async function readBridgeProductControlResponseBytes(response: Response): Promise<Uint8Array> {
+export async function readBridgeProductControlResponseBytes(
+	response: Response,
+): Promise<Uint8Array> {
 	if (response.body === null) {
 		throw new Error('Bridge product control response did not expose a body stream.');
 	}

@@ -19,6 +19,7 @@ import {
 	bridgeProductControlRequestSchema,
 	type BridgeProductSessionBootstrap,
 } from './bridge-product-session-contracts.js';
+import type { BridgeWorkerAckAttemptOutcome } from './bridge-worker-contracts.js';
 
 const commandSchema = z.union([
 	bridgeProductControlRequestSchema,
@@ -63,6 +64,7 @@ function jsonResponse(value: object): Response {
 function createExecutor(props: {
 	readonly acknowledgementBodies: string[];
 	readonly loseAcknowledgements: boolean;
+	readonly acknowledgementReply?: (body: string) => Response;
 }): BridgeProductRequestExecutor {
 	return async (_route, requestInit): Promise<Response> => {
 		if (!(requestInit.body instanceof Uint8Array)) throw new Error('Expected encoded body.');
@@ -95,6 +97,7 @@ function createExecutor(props: {
 		if (command.kind === 'operation.resultAcknowledgement') {
 			if (command.operationId === 'operation-save') {
 				props.acknowledgementBodies.push(body);
+				if (props.acknowledgementReply !== undefined) return props.acknowledgementReply(body);
 				if (props.loseAcknowledgements) return new Response('lost', { status: 502 });
 			}
 			return jsonResponse({ ...command, kind: 'operation.resultAcknowledged' });
@@ -119,7 +122,11 @@ const sessionIdentity = {
 async function callOnSession(props: {
 	readonly acknowledgementBodies: string[];
 	readonly loseAcknowledgements: boolean;
-	readonly onSessionSuspect?: (reason: 'admissionReplyExhausted') => void;
+	readonly acknowledgementReply?: (body: string) => Response;
+	readonly onSessionSuspect?: (
+		reason: 'resultAcknowledgementExhausted',
+		ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[],
+	) => void;
 }): Promise<BridgeProductControlMux> {
 	const executeProductRequest = createExecutor(props);
 	const authority = new BridgeProductSessionAuthorityStore(executeProductRequest, clock).install({
@@ -147,18 +154,26 @@ async function callOnSession(props: {
 describe('Bridge product result acknowledgement owner', () => {
 	test('exhausted exact ack replay declares suspect once after delivering success', async () => {
 		const acknowledgementBodies: string[] = [];
-		const suspectReasons: string[] = [];
+		const suspectEvents: {
+			readonly reason: string;
+			readonly outcomes: readonly BridgeWorkerAckAttemptOutcome[];
+		}[] = [];
 		const oldSession = await callOnSession({
 			acknowledgementBodies,
 			loseAcknowledgements: true,
-			onSessionSuspect: (reason): void => {
-				suspectReasons.push(reason);
+			onSessionSuspect: (reason, outcomes): void => {
+				suspectEvents.push({ reason, outcomes });
 			},
 		});
 		await oldSession.waitForAcknowledgementsQuiescent();
 		expect(acknowledgementBodies).toHaveLength(bootstrap.policy.admissionRetryCount + 1);
 		expect(new Set(acknowledgementBodies).size).toBe(1);
-		expect(suspectReasons).toEqual(['admissionReplyExhausted']);
+		expect(suspectEvents).toEqual([
+			{
+				reason: 'resultAcknowledgementExhausted',
+				outcomes: Array.from({ length: 3 }, () => ({ kind: 'httpStatus', code: 502 })),
+			},
+		]);
 		expect(oldSession.diagnosticSnapshot.pendingAcknowledgementCount).toBe(0);
 
 		const successorBodies: string[] = [];
@@ -168,5 +183,74 @@ describe('Bridge product result acknowledgement owner', () => {
 		});
 		await successor.waitForAcknowledgementsQuiescent();
 		expect(successorBodies).toHaveLength(1);
+	});
+
+	test.each([
+		{
+			name: 'empty native HTTP refusal',
+			reply: (): Response => new Response(null, { status: 400 }),
+			expected: { kind: 'httpStatus', code: 400 },
+		},
+		{
+			name: 'typed native refusal',
+			reply: (body: string): Response => {
+				const request = bridgeProductOperationResultAcknowledgementSchema.parse(JSON.parse(body));
+				return new Response(
+					JSON.stringify({
+						code: 'invalid_request',
+						kind: 'request.error',
+						nextExpectedRequestSequence: null,
+						paneSessionId: request.paneSessionId,
+						requestId: request.requestId,
+						requestSequence: request.requestSequence,
+						retryAfterMilliseconds: null,
+						retryable: false,
+						safeMessage: null,
+						wireVersion: request.wireVersion,
+						workerInstanceId: request.workerInstanceId,
+					}),
+					{ status: 400 },
+				);
+			},
+			expected: { kind: 'nativeRefusal', refusalKind: 'invalid_request' },
+		},
+		{
+			name: 'malformed success',
+			reply: (): Response => new Response('{', { status: 200 }),
+			expected: { kind: 'parseFailure' },
+		},
+		{
+			name: 'mismatched success',
+			reply: (body: string): Response => {
+				const request = bridgeProductOperationResultAcknowledgementSchema.parse(JSON.parse(body));
+				return jsonResponse({
+					...request,
+					kind: 'operation.resultAcknowledged',
+					operationId: 'other',
+				});
+			},
+			expected: { kind: 'identityMismatch' },
+		},
+		{
+			name: 'over-limit success',
+			reply: (): Response => new Response('x'.repeat(300_000), { status: 200 }),
+			expected: { kind: 'responseSizeLimit' },
+			expectedAttempts: 1,
+		},
+	])('records each $name attempt before declaring suspect', async (scenario) => {
+		const expectedAttempts = 'expectedAttempts' in scenario ? scenario.expectedAttempts : 3;
+		const acknowledgementBodies: string[] = [];
+		const outcomes: BridgeWorkerAckAttemptOutcome[][] = [];
+		const session = await callOnSession({
+			acknowledgementBodies,
+			acknowledgementReply: scenario.reply,
+			loseAcknowledgements: false,
+			onSessionSuspect: (_reason, attempts): void => {
+				outcomes.push([...attempts]);
+			},
+		});
+		await session.waitForAcknowledgementsQuiescent();
+		expect(acknowledgementBodies).toHaveLength(expectedAttempts);
+		expect(outcomes).toEqual([Array.from({ length: expectedAttempts }, () => scenario.expected)]);
 	});
 });

@@ -1,3 +1,5 @@
+import type { BridgeWorkerAckAttemptOutcome } from '../../core/comm-worker/bridge-worker-contracts.js';
+
 export type BridgeWorkerRuntimeRecoverySource =
 	| 'renderDispositionProbeExhausted'
 	| 'renderDispositionOverload'
@@ -5,8 +7,12 @@ export type BridgeWorkerRuntimeRecoverySource =
 
 export type BridgeWorkerReplacementReason =
 	| {
+			readonly ackAttemptOutcomes: readonly BridgeWorkerAckAttemptOutcome[];
 			readonly kind: 'sessionSuspect';
-			readonly reason: 'admissionReplyExhausted' | 'resultDeadlineExhausted';
+			readonly reason:
+				| 'admissionReplyExhausted'
+				| 'resultAcknowledgementExhausted'
+				| 'resultDeadlineExhausted';
 	  }
 	| { readonly kind: 'workerError' }
 	| { readonly kind: 'messageError' }
