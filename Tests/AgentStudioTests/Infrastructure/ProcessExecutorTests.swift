@@ -1,5 +1,7 @@
+import AgentStudioTestHarness
 import Darwin
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AgentStudioInfrastructure
@@ -273,10 +275,10 @@ final class ProcessExecutorTests {
         let processIdentifierURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-process-\(UUIDv7.generate().uuidString).pid")
         defer { try? FileManager.default.removeItem(at: processIdentifierURL) }
-        let launchBarrier = ProcessLaunchBarrier()
+        let launchStep = HeldStep<Void>("before-process-launch", cancellation: .holdThroughCancellation)
         let cancellationExecutor = DefaultProcessExecutor(
             timeout: 20,
-            beforeLaunch: launchBarrier.pauseBeforeLaunch
+            beforeLaunch: { try? launchStep.arriveBlocking(()) }
         )
         let task = Task {
             try await cancellationExecutor.execute(
@@ -291,12 +293,12 @@ final class ProcessExecutorTests {
                 environment: nil
             )
         }
-        defer { launchBarrier.resumeLaunchDecision() }
-        try await launchBarrier.waitUntilPaused()
+        defer { launchStep.release() }
+        _ = try await launchStep.firstArrival()
 
         // Act
         task.cancel()
-        launchBarrier.resumeLaunchDecision()
+        launchStep.release()
 
         // Assert
         do {
@@ -313,24 +315,45 @@ final class ProcessExecutorTests {
     @Test
     func test_execute_cancellationReturnsOnlyAfterChildExit() async throws {
         // Arrange
-        let processIdentifierURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-process-\(UUIDv7.generate().uuidString).pid")
-        defer { try? FileManager.default.removeItem(at: processIdentifierURL) }
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-process-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+        let processIdentifierFIFO = fixtureDirectory.appendingPathComponent("process-identifier.fifo")
+        guard mkfifo(processIdentifierFIFO.path, 0o600) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        let readerDescriptor = open(processIdentifierFIFO.path, O_RDONLY | O_NONBLOCK)
+        guard readerDescriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        let processIdentifierReader = FileHandle(fileDescriptor: readerDescriptor, closeOnDealloc: true)
+        defer { try? processIdentifierReader.close() }
+        // Keep one writer open so the nonblocking reader does not see EOF before the child starts.
+        let writerDescriptor = open(processIdentifierFIFO.path, O_WRONLY | O_NONBLOCK)
+        guard writerDescriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        let keepaliveWriter = FileHandle(fileDescriptor: writerDescriptor, closeOnDealloc: true)
+        defer { try? keepaliveWriter.close() }
         let cancellationExecutor = DefaultProcessExecutor(timeout: 20)
         let task = Task {
             try await cancellationExecutor.execute(
                 command: "sh",
                 args: [
                     "-c",
-                    "printf '%s' \"$$\" > \"$1\"; trap '' TERM; while :; do :; done",
+                    "printf '%s\\n' \"$$\" > \"$1\"; trap '' TERM; while :; do :; done",
                     "agentstudio-process-executor-test",
-                    processIdentifierURL.path,
+                    processIdentifierFIFO.path,
                 ],
                 cwd: nil,
                 environment: nil
             )
         }
-        let childProcessIdentifier = try await waitForProcessIdentifier(at: processIdentifierURL)
+        let childProcessIdentifier = try await receiveProcessIdentifier(
+            from: processIdentifierReader,
+            keepingOpenWith: keepaliveWriter
+        )
 
         // Act
         task.cancel()
@@ -395,58 +418,48 @@ final class ProcessExecutorTests {
         #expect(result.stderr.count == byteCount - 1)  // decodeAndTrim drops the single trailing newline
     }
 
-    private func waitForProcessIdentifier(at url: URL) async throws -> pid_t {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(3))
-        while clock.now < deadline {
-            if let contents = try? String(contentsOf: url, encoding: .utf8),
-                let processIdentifier = pid_t(contents),
-                processIdentifier > 0
-            {
-                return processIdentifier
+    private func receiveProcessIdentifier(
+        from reader: FileHandle,
+        keepingOpenWith keepaliveWriter: FileHandle
+    ) async throws -> pid_t {
+        let receiptState = Mutex(ProcessIdentifierReceiptState())
+        return try await withCheckedThrowingContinuation { continuation in
+            reader.readabilityHandler = { handle in
+                let bytes = handle.availableData
+                guard !bytes.isEmpty else { return }
+                let result = receiptState.withLock { state -> Result<pid_t, ProcessExecutorTestError>? in
+                    guard !state.completed else { return nil }
+                    state.bytes.append(bytes)
+                    guard let newlineIndex = state.bytes.firstIndex(of: 0x0A) else { return nil }
+                    state.completed = true
+                    guard
+                        let identifierText = String(bytes: state.bytes[..<newlineIndex], encoding: .utf8),
+                        let processIdentifier = pid_t(identifierText), processIdentifier > 0
+                    else {
+                        return .failure(.invalidProcessIdentifier)
+                    }
+                    return .success(processIdentifier)
+                }
+                guard let result else { return }
+                handle.readabilityHandler = nil
+                try? handle.close()
+                try? keepaliveWriter.close()
+                switch result {
+                case .success(let processIdentifier):
+                    continuation.resume(returning: processIdentifier)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
             }
-            await Task.yield()
         }
-        throw ProcessExecutorTestError.processIdentifierNotPublished
     }
 }
 
 private enum ProcessExecutorTestError: Error {
-    case processIdentifierNotPublished
-    case launchBarrierNotReached
+    case invalidProcessIdentifier
 }
 
-private final class ProcessLaunchBarrier: @unchecked Sendable {
-    private let lock = NSLock()
-    private let resumeSemaphore = DispatchSemaphore(value: 0)
-    private var isPaused = false
-
-    func pauseBeforeLaunch() {
-        lock.lock()
-        isPaused = true
-        lock.unlock()
-        resumeSemaphore.wait()
-    }
-
-    func waitUntilPaused() async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(3))
-        while clock.now < deadline {
-            if pausedState() {
-                return
-            }
-            await Task.yield()
-        }
-        throw ProcessExecutorTestError.launchBarrierNotReached
-    }
-
-    func resumeLaunchDecision() {
-        resumeSemaphore.signal()
-    }
-
-    private func pausedState() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return isPaused
-    }
+private struct ProcessIdentifierReceiptState: Sendable {
+    var bytes = Data()
+    var completed = false
 }

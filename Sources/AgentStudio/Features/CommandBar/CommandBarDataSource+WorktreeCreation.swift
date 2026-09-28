@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioWorktreeOperations
 import Foundation
 
 @MainActor
@@ -204,7 +205,7 @@ extension CommandBarDataSource {
         switch branchName {
         case .success(let name):
             title = "Create \(name.rawValue)"
-            let slug = WorktreeDestinationPolicy.folderSlug(for: name) ?? name.rawValue
+            let slug = WorktreeDestinationNaming.folderSlug(for: name) ?? name.rawValue
             secondaryLine = CommandBarItemSecondaryLine(
                 text: "→ \(repository.repoPath.lastPathComponent).\(slug)",
                 icon: kind.command.definition.icon

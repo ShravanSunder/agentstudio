@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioWorktreeOperations
 import Foundation
 
 /// Where a new worktree lands and which watched folder will publish it.
@@ -49,12 +50,14 @@ package enum WorktreeDestinationPolicy {
         watchedPaths: [WatchedPath],
         probe: WorktreeDestinationProbe
     ) -> Result<WorktreeCreationDestination, WorktreeDestinationRejection> {
-        guard let slug = folderSlug(for: branchName) else { return .failure(.emptyFolderSlug) }
-        let repositoryFolder = repositoryPath.standardizedFileURL
-        let destination = repositoryFolder.deletingLastPathComponent().appending(
-            path: repositoryFolder.lastPathComponent + AppPolicies.WorktreeCreation.destinationSlugSeparator + slug,
-            directoryHint: .isDirectory
-        ).standardizedFileURL
+        guard
+            let destination = WorktreeDestinationNaming.siblingPath(
+                repositoryPath: repositoryPath,
+                branchName: branchName
+            )
+        else {
+            return .failure(.emptyFolderSlug)
+        }
         guard
             let discovery = discoveringWatchedPath(
                 for: destination, in: watchedPaths, canonicalWatchedRoot: probe.canonicalWatchedRoot)
@@ -67,25 +70,6 @@ package enum WorktreeDestinationPolicy {
         let watchedPath = discovery.watchedPath
         guard !probe.pathExists(destination) else { return .failure(.destinationExists(destination)) }
         return .success(WorktreeCreationDestination(path: destination, watchedPath: watchedPath))
-    }
-
-    /// Folder-safe form of a branch name: `feat/worktree-commands` becomes
-    /// `feat-worktree-commands`.
-    package static func folderSlug(for branchName: WorktreeBranchName) -> String? {
-        var slug = ""
-        for character in branchName.rawValue {
-            let isFolderSafe =
-                character.isASCII && (character.isLetter || character.isNumber || "._-".contains(character))
-            let mapped: Character = isFolderSafe ? character : "-"
-            guard !(mapped == "-" && slug.last == "-") else { continue }
-            slug.append(mapped)
-        }
-        slug = trimmedSlug(String(slug.prefix(AppPolicies.WorktreeCreation.maximumDestinationSlugLength)))
-        return slug.isEmpty ? nil : slug
-    }
-
-    private static func trimmedSlug(_ slug: String) -> String {
-        slug.trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
     }
 
     /// The deepest watched folder that strictly contains the destination through
