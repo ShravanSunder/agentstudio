@@ -146,6 +146,9 @@ extension AppDelegate {
         await runTerminationDrain("terminal activity trace") { [weak self] in
             await self?.terminalActivityRouter?.stop()
         }
+        await runTerminationDrain("pane activity clock") { [weak self] in
+            await self?.paneActivityClock?.shutdown()
+        }
         await runTerminationDrain("trace identity refresh") { [weak self] in
             await self?.waitForTraceIdentityRefreshIdle()
         }

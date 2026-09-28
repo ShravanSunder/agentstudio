@@ -60,6 +60,33 @@ struct RepoExplorerViewInjectionTests {
         #expect(view.repoExplorerPrefs.groupingMode(for: .repos) == .activity)
     }
 
+    @Test("drawer and pin tooltips share the list keyboard hint gate")
+    func drawerAndPinTooltipHintGating() {
+        for command in [AppCommand.togglePanesShowsDrawers, .togglePanesShowsPinned] {
+            let hidden = RepoExplorerSidebarShortcutPresentation.display(
+                for: command,
+                showsListKeyboardHints: false
+            )
+            let active = RepoExplorerSidebarShortcutPresentation.display(
+                for: command,
+                showsListKeyboardHints: true
+            )
+            #expect(hidden == nil)
+            #expect(
+                command.definition.controlTooltipRenderValue(shortcutTextOverride: hidden)
+                    .shortcutDisplayText == nil
+            )
+            #expect(active == command.definition.shortcut?.spec.displayTrigger(in: .sidebarList)?.displayText)
+            #expect(
+                command.definition.controlTooltipRenderValue(shortcutTextOverride: active)
+                    .shortcutDisplayText == active
+            )
+            if command == .togglePanesShowsDrawers {
+                #expect(active != nil)
+            }
+        }
+    }
+
     private func makeRepoExplorerView(
         store: WorkspaceStore = WorkspaceStore(startsObserving: false),
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,

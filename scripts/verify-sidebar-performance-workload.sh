@@ -2885,20 +2885,23 @@ try:
             time.sleep(step_delay)
 
     retired_panes_organization_commands = {
-        "setPanesGroupingRepo",
-        "setPanesGroupingTab",
-        "setPanesGroupingActivity",
-        "setPanesSubgroupNone",
-        "setPanesSubgroupActivity",
         "setPanesSortFieldName",
         "setPanesSortFieldActivity",
         "togglePanesSortDirection",
+    }
+    removed_panes_organization_commands = {
+        "setPanesGroupingRepo", "setPanesGroupingTab", "setPanesGroupingActivity",
+        "setPanesSubgroupNone", "setPanesSubgroupActivity",
     }
     command_list = require_success(
         session.request(next_id(), "command.list", {}),
         "command.list",
     )
     commands_by_id = {command.get("id"): command for command in command_list.get("commands", [])}
+    for command_id in removed_panes_organization_commands:
+        if command_id in commands_by_id:
+            print(f"removed Panes command remains in command.list: {command_id}", file=sys.stderr)
+            sys.exit(1)
     for command_id in sorted(retired_panes_organization_commands):
         command_entry = commands_by_id.get(command_id)
         if command_entry is None:

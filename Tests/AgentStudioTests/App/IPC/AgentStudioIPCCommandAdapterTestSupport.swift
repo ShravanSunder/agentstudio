@@ -125,11 +125,6 @@ func commandAdapterTestPrincipal() -> IPCPrincipal {
 }
 
 let retiredPanesOrganizationCommands: [AppCommand] = [
-    .setPanesGroupingRepo,
-    .setPanesGroupingTab,
-    .setPanesGroupingActivity,
-    .setPanesSubgroupNone,
-    .setPanesSubgroupActivity,
     .setPanesSortFieldName,
     .setPanesSortFieldActivity,
     .togglePanesSortDirection,

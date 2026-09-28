@@ -11,7 +11,7 @@ import Testing
 struct UIStateStoreTests {
     @Test
     func flushAndRestoreRoundTripsMainWindowSidebarState() async throws {
-        let workspaceId = UUID()
+        let workspaceId = UUIDv7.generate()
         let fixture = try makeEditorChooserWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let datastore = try await editorChooserWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let atom = WorkspaceSidebarState()
@@ -25,6 +25,7 @@ struct UIStateStoreTests {
         atom.setRepoSubgroupMode(.activity)
         atom.setPaneSubgroupMode(.ungrouped)
         atom.setShowsPinnedRepos(false)
+        atom.setShowsDrawerPanes(false)
         atom.setSidebarHasFocus(true)
 
         try await store.flushAsync(for: workspaceId)
@@ -41,6 +42,7 @@ struct UIStateStoreTests {
         #expect(restoredAtom.paneSubgroupMode == .ungrouped)
         #expect(!restoredAtom.showsPinnedRepos)
         #expect(restoredAtom.showsPinnedPanes)
+        #expect(!restoredAtom.showsDrawerPanes)
         #expect(restoredAtom.sidebarHasFocus == false)
     }
 

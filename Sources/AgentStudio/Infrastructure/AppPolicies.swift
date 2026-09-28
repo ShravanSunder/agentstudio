@@ -2,6 +2,10 @@ import CoreGraphics
 import Foundation
 
 package enum AppPolicies {
+    package enum Panes {
+        package static let activityTimePublishInterval: Duration = .seconds(10)
+    }
+
     package enum IPC {
         package static let maximumTerminalWaitSeconds: Double = 86_400
         /// One spooled notification is one wire frame, so the drainer accepts

@@ -18,6 +18,7 @@ struct WorkspaceSidebarStateTests {
         #expect(atom.paneSubgroupMode == .activity)
         #expect(atom.showsPinnedRepos)
         #expect(atom.showsPinnedPanes)
+        #expect(atom.showsDrawerPanes)
 
         atom.setFilterText("repo")
         atom.setFilterVisible(true)
@@ -27,6 +28,7 @@ struct WorkspaceSidebarStateTests {
         atom.setRepoSubgroupMode(.activity)
         atom.setPaneSubgroupMode(.ungrouped)
         atom.setShowsPinnedRepos(false)
+        atom.setShowsDrawerPanes(false)
 
         #expect(atom.filterText == "repo")
         #expect(atom.isFilterVisible == true)
@@ -37,6 +39,7 @@ struct WorkspaceSidebarStateTests {
         #expect(atom.paneSubgroupMode == .ungrouped)
         #expect(!atom.showsPinnedRepos)
         #expect(atom.showsPinnedPanes)
+        #expect(!atom.showsDrawerPanes)
     }
 
     @Test("sidebar focus runtime owns focus only")
