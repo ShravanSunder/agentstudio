@@ -6,6 +6,8 @@ struct CITopologyWorkflowTests {
     @Test("Swift cache stays PR restore only, main publish only, and prune only for saved seed")
     func swiftBuildCacheOwnershipAndOrder() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        #expect(!workflow.contains("CI_SWIFT_TRUSTED_PRODUCER_REF"))
+        #expect(!workflow.contains("CI_SWIFT_CACHE_NAMESPACE"))
         let swiftJob = try topologyJob(named: "swift-test-suite", in: workflow)
         let pruneJob = try topologyJob(named: "prune-swift-build-cache", in: workflow)
         let restore = try topologyBlock(

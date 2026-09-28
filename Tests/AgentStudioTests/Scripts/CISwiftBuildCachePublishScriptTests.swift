@@ -68,6 +68,51 @@ struct CISwiftBuildCachePublishScriptTests {
         #expect(try await fixture.run("prune", "saved", current, "10").exitCode != 0)
         #expect(try fixture.deletedIDs() == ["2"])
     }
+
+    @Test("publisher and pruner trust only the configured namespace and producer ref")
+    func trustedIdentityInputs() async throws {
+        let fixture = try CacheApiFixture()
+        defer { fixture.remove() }
+        let experimentRef = "refs/heads/ci-experiment/swift-build-cache-acceptance"
+        let experimentNamespace = "swift-build-exp-"
+        let experimentKey = fixture.key(run: 10, namespace: experimentNamespace)
+        let olderExperimentKey = fixture.key(run: 9, namespace: experimentNamespace)
+        let otherNamespaceKey = fixture.key(run: 10, namespace: "swift-build-other-")
+        try fixture.setEntries([fixture.entry(1, olderExperimentKey, ref: experimentRef)])
+
+        #expect(try await fixture.run("plan-save", experimentKey, "10", "100").exitCode != 0)
+        #expect(try await fixture.run("prune", "saved", experimentKey, "10").exitCode != 0)
+        let trustedEnvironment = [
+            "CI_SWIFT_TRUSTED_PRODUCER_REF": experimentRef,
+            "CI_SWIFT_CACHE_NAMESPACE": experimentNamespace,
+        ]
+        #expect(
+            try await fixture.run("plan-save", experimentKey, "10", "100", extra: trustedEnvironment).stdout
+                == "saved \(experimentKey)\n")
+        #expect(
+            try await fixture.run("plan-save", otherNamespaceKey, "10", "100", extra: trustedEnvironment)
+                .exitCode != 0)
+
+        try fixture.setEntries([
+            fixture.entry(1, experimentKey, ref: experimentRef),
+            fixture.entry(2, olderExperimentKey, ref: experimentRef),
+            fixture.entry(3, olderExperimentKey, ref: "refs/heads/main"),
+        ])
+        #expect(
+            try await fixture.run("prune", "saved", experimentKey, "10", extra: trustedEnvironment).stdout
+                == "pruned 1\n")
+        #expect(try fixture.deletedIDs() == ["2"])
+        try fixture.clearDeletes()
+        #expect(
+            try await fixture.run(
+                "prune", "saved", experimentKey, "10",
+                extra: [
+                    "CI_SWIFT_TRUSTED_PRODUCER_REF": "refs/heads/another-branch",
+                    "CI_SWIFT_CACHE_NAMESPACE": experimentNamespace,
+                ]
+            ).exitCode != 0)
+        #expect(try fixture.deletedIDs().isEmpty)
+    }
 }
 
 private struct CacheScriptResult {
@@ -107,8 +152,8 @@ private final class CacheApiFixture {
 
     func remove() { try? FileManager.default.removeItem(at: root) }
 
-    func key(run: Int, family: String = "a") -> String {
-        "swift-build-v1-macOS-ARM64-\(String(repeating: family, count: 64))-r\(run)-\(String(repeating: "a", count: 40))"
+    func key(run: Int, family: String = "a", namespace: String = "swift-build-v1-") -> String {
+        "\(namespace)macOS-ARM64-\(String(repeating: family, count: 64))-r\(run)-\(String(repeating: "a", count: 40))"
     }
 
     func entry(_ id: Int, _ key: String, ref: String = "refs/heads/main", bytes: Int = 1) -> [String: Any] {
@@ -122,12 +167,14 @@ private final class CacheApiFixture {
         }
     }
 
-    func run(_ arguments: String...) async throws -> CacheScriptResult {
-        let environment = ProcessInfo.processInfo.environment.merging([
-            "CI_CACHE_API": "bash \(root.appendingPathComponent("api.sh").path)",
-            "CI_CACHE_FIXTURE_ROOT": root.path,
-            "GITHUB_REPOSITORY": "owner/repo",
-        ]) { _, new in new }
+    func run(_ arguments: String..., extra: [String: String] = [:]) async throws -> CacheScriptResult {
+        let environment = ProcessInfo.processInfo.environment.merging(
+            [
+                "CI_CACHE_API": "bash \(root.appendingPathComponent("api.sh").path)",
+                "CI_CACHE_FIXTURE_ROOT": root.path,
+                "GITHUB_REPOSITORY": "owner/repo",
+            ].merging(extra) { _, new in new }
+        ) { _, new in new }
         let (exitCode, outputData) = try await withoutBlockingCooperativePool {
             let process = Process()
             let output = Pipe()

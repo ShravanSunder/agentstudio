@@ -12,9 +12,10 @@ import subprocess
 import sys
 from urllib.parse import quote
 
-OWNED = re.compile(r"^swift-build-v1-[^-]+-[^-]+-[a-f0-9]{64}-r([0-9]+)-[a-f0-9]+$")
+CACHE_NAMESPACE = os.environ.get("CI_SWIFT_CACHE_NAMESPACE", "swift-build-v1-")
+TRUSTED_PRODUCER_REF = os.environ.get("CI_SWIFT_TRUSTED_PRODUCER_REF", "refs/heads/main")
+OWNED = re.compile(r"^" + re.escape(CACHE_NAMESPACE) + r"[^-]+-[^-]+-[a-f0-9]{64}-r([0-9]+)-[a-f0-9]+$")
 LIMIT = 8_500_000_000
-MAIN = "refs/heads/main"
 
 
 def api(method, path):
@@ -53,7 +54,7 @@ def cache_entries():
 
 
 def owned_main(entry):
-    if entry["ref"] != MAIN:
+    if entry["ref"] != TRUSTED_PRODUCER_REF:
         return None
     match = OWNED.fullmatch(entry["key"])
     return int(match.group(1)) if match else None
@@ -78,9 +79,12 @@ def prune(disposition, key, run_number):
     if disposition != "saved":
         print("prune-skipped " + disposition)
         return
+    key_match = OWNED.fullmatch(key)
+    if key_match is None or int(key_match.group(1)) != run_number:
+        raise ValueError("prune key is outside the configured namespace or run")
     entries = cache_entries()
-    if not any(entry["key"] == key and entry["ref"] == MAIN for entry in entries):
-        raise ValueError("new seed key was not confirmed on main")
+    if not any(entry["key"] == key and entry["ref"] == TRUSTED_PRODUCER_REF for entry in entries):
+        raise ValueError("new seed key was not confirmed on trusted ref")
     older = [entry for entry in entries if (number := owned_main(entry)) is not None and number < run_number]
     failed = []
     for entry in older:

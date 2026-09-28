@@ -17,6 +17,8 @@ import sys
 SCHEME = 1
 ROOT = Path(os.environ.get("CI_SWIFT_ROOT", ".")).resolve()
 BUILD = Path(os.environ.get("CI_SWIFT_BUILD_PATH", ".build-ci"))
+CACHE_NAMESPACE = os.environ.get("CI_SWIFT_CACHE_NAMESPACE", "swift-build-v1-")
+TRUSTED_PRODUCER_REF = os.environ.get("CI_SWIFT_TRUSTED_PRODUCER_REF", "refs/heads/main")
 RESOURCE_ROOTS = (
     "Sources/AgentStudio/Resources/Icons.xcassets",
     "Sources/AgentStudio/Resources/AppIcon.icns",
@@ -175,7 +177,7 @@ def record(path_name):
 def inventory():
     records = [record(name) for name in admitted_paths()]
     fp = fingerprint()
-    prefix = "swift-build-v1-{}-{}-{}-".format(
+    prefix = CACHE_NAMESPACE + "{}-{}-{}-".format(
         os.environ.get("CI_SWIFT_OS", command_output(["uname", "-s"])),
         os.environ.get("CI_SWIFT_ARCH", command_output(["uname", "-m"])), fp)
     return {"scheme": SCHEME, "fingerprint": fp, "prefix": prefix,
@@ -217,8 +219,11 @@ def validated_manifest(path):
 
 
 def compare(seed, current):
+    prefix_pattern = re.compile(r"^" + re.escape(CACHE_NAMESPACE) + r"[^-]+-[^-]+-[a-f0-9]{64}-$")
     if not seed.get("producer_commit") or not str(seed.get("producer_run", "")).isdigit() or \
-            seed.get("producer_ref") != "refs/heads/main" or \
+            seed.get("producer_ref") != TRUSTED_PRODUCER_REF or \
+            not isinstance(seed.get("prefix"), str) or \
+            prefix_pattern.fullmatch(seed["prefix"]) is None or \
             seed.get("prefix") != current.get("prefix") or \
             seed.get("fingerprint") != current.get("fingerprint"):
         raise ValueError("seed provenance or prefix mismatch")
@@ -264,7 +269,7 @@ def main():
         raise ValueError("expected fingerprint, inventory, verify, or restamp")
     action = sys.argv[1]
     if action == "fingerprint" and len(sys.argv) == 2:
-        print("swift-build-v1-{}-{}-{}-".format(
+        print(CACHE_NAMESPACE + "{}-{}-{}-".format(
             os.environ.get("CI_SWIFT_OS", command_output(["uname", "-s"])),
             os.environ.get("CI_SWIFT_ARCH", command_output(["uname", "-m"])), fingerprint()))
     elif action == "inventory" and len(sys.argv) == 3:

@@ -106,6 +106,65 @@ struct CISwiftBuildInputsScriptTests {
         #expect(try await stampFixture.run("restamp", stampSeed.path.path, current.path.path).hasPrefix("cold "))
         #expect(!FileManager.default.fileExists(atPath: stampFixture.marker.path))
     }
+
+    @Test("trusted producer ref and cache namespace default closed and accept only configured identity")
+    func trustedIdentityInputs() async throws {
+        let experimentRef = "refs/heads/ci-experiment/swift-build-cache-acceptance"
+        let experimentNamespace = "swift-build-exp-"
+        let rows: [TrustedIdentityScenario] = [
+            .init(
+                producerRef: experimentRef, seedNamespace: "swift-build-v1-",
+                verifierEnvironment: [:], shouldWarm: false),
+            .init(
+                producerRef: "refs/heads/main", seedNamespace: experimentNamespace,
+                verifierEnvironment: [:], shouldWarm: false),
+            .init(
+                producerRef: experimentRef, seedNamespace: experimentNamespace,
+                verifierEnvironment: [
+                    "CI_SWIFT_TRUSTED_PRODUCER_REF": experimentRef,
+                    "CI_SWIFT_CACHE_NAMESPACE": experimentNamespace,
+                ], shouldWarm: true),
+            .init(
+                producerRef: experimentRef, seedNamespace: experimentNamespace,
+                verifierEnvironment: [
+                    "CI_SWIFT_TRUSTED_PRODUCER_REF": "refs/heads/another-branch",
+                    "CI_SWIFT_CACHE_NAMESPACE": experimentNamespace,
+                ], shouldWarm: false),
+            .init(
+                producerRef: experimentRef, seedNamespace: experimentNamespace,
+                verifierEnvironment: [
+                    "CI_SWIFT_TRUSTED_PRODUCER_REF": experimentRef,
+                    "CI_SWIFT_CACHE_NAMESPACE": "swift-build-other-",
+                ], shouldWarm: false),
+        ]
+
+        for row in rows {
+            let fixture = try SwiftInputFixture()
+            defer { fixture.remove() }
+            let seed = try await fixture.inventory(
+                "seed",
+                extra: [
+                    "CI_SWIFT_PRODUCER_REF": row.producerRef,
+                    "CI_SWIFT_CACHE_NAMESPACE": row.seedNamespace,
+                ])
+            let current = try await fixture.inventory(
+                "current",
+                extra: [
+                    "CI_SWIFT_CACHE_NAMESPACE": row.seedNamespace
+                ])
+            let result = try await fixture.run(
+                "verify", seed.path.path, current.path.path, extra: row.verifierEnvironment)
+            #expect(result.hasPrefix(row.shouldWarm ? "warm " : "cold "))
+            #expect(FileManager.default.fileExists(atPath: fixture.marker.path) == row.shouldWarm)
+        }
+    }
+}
+
+private struct TrustedIdentityScenario {
+    let producerRef: String
+    let seedNamespace: String
+    let verifierEnvironment: [String: String]
+    let shouldWarm: Bool
 }
 
 private struct SwiftInputManifest {
