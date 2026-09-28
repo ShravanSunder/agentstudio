@@ -88,13 +88,7 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
   const lastAnchor = anchors.at(-1);
   const lastGlassBottom =
     lastAnchor?.surface === undefined ? 0 : lastAnchor.surface.top + lastAnchor.surface.height;
-  const finalRailAlignmentShift = clamp((viewportWidth - 1600) * 0.3, 0, 192);
-  const starButton = rect(
-    contentLeft - finalRailAlignmentShift,
-    lastGlassBottom + 490,
-    phone ? 200 : 440,
-    48,
-  );
+  const starButton = rect(contentLeft, lastGlassBottom + 490, phone ? 200 : 440, 48);
   anchors.push({
     id: "final-cta",
     rect: starButton,
@@ -485,9 +479,10 @@ describe("composed topology", () => {
             const end = commands.at(-1)?.points.at(-1);
             expect(start).toBeDefined();
             expect(end).toBeDefined();
-            expect((end?.x ?? 0) - (start?.x ?? 0)).toBeLessThanOrEqual(composition.columnUnit * 2);
+            // Owner #55 permits three physical columns for the final branch only.
+            expect((end?.x ?? 0) - (start?.x ?? 0)).toBeLessThanOrEqual(composition.columnUnit * 3);
             expect(commands.map((command) => command.command)).toEqual(["M", "C"]);
-            expect(route.column).toBeLessThanOrEqual(route.parentColumn + 2);
+            expect(route.column).toBeLessThanOrEqual(route.parentColumn + 3);
             continue;
           }
           expect(route.column).toBe(route.parentColumn + 1);
@@ -620,7 +615,7 @@ describe("composed topology", () => {
       expect(composition.rowYs.at(-1)).toBe(button.top + button.height / 2);
       expect(
         (button.left - 6 - composition.mainlineX) / composition.columnUnit,
-      ).toBeLessThanOrEqual(2);
+      ).toBeLessThanOrEqual(3);
       expect(endDot?.y).toBeLessThan(button.top + button.height / 2);
       expect(endDot?.kind).toBe("fork");
       const lastChapterRoute = composition.routes.find((route) => route.anchorId === "chapter-5");
@@ -642,6 +637,54 @@ describe("composed topology", () => {
         Number(/ ([\d.]+)$/u.exec(composition.mainlinePath)?.[1]),
       );
       expect(lowestPoint).toBeLessThanOrEqual(button.top + button.height / 2 + 0.01);
+    }
+  });
+
+  it("steps only the temporary trunk variant before its one-bend final branch", () => {
+    for (const width of [390, 1280, 1920]) {
+      const fixture = homePageAt(width);
+      const glassLeft = fixture.page.anchors.at(-2)?.surface?.left;
+      if (glassLeft === undefined) throw new Error("Last chapter glass missing");
+      const alignedAnchors = fixture.page.anchors.map((anchor) =>
+        anchor.terminalTarget && anchor.surface !== undefined
+          ? {
+              ...anchor,
+              rect: { ...anchor.rect, left: glassLeft },
+              surface: { ...anchor.surface, left: glassLeft },
+            }
+          : anchor,
+      );
+      const defaultComposition = composeFullPageTopology({
+        ...fixture.page,
+        anchors: alignedAnchors,
+      });
+      const trunkComposition = composeFullPageTopology({
+        ...fixture.page,
+        anchors: alignedAnchors,
+        finaleRouteVariant: "trunk-step",
+      });
+      if (defaultComposition === undefined || trunkComposition === undefined)
+        throw new Error("Finale composition missing");
+      const defaultRoute = defaultComposition.routes.find((route) => route.terminal);
+      const trunkRoute = trunkComposition.routes.find((route) => route.terminal);
+      if (defaultRoute === undefined || trunkRoute === undefined)
+        throw new Error("Final branch missing");
+      expect(defaultComposition.mainlinePath).not.toContain(" C ");
+      expect(trunkComposition.mainlinePath).toContain(" C ");
+      expect((trunkComposition.rows.at(-1)?.x ?? 0) - trunkComposition.mainlineX).toBeCloseTo(
+        trunkComposition.columnUnit,
+        6,
+      );
+      expect(pathCommands(trunkRoute.pathData).map((command) => command.command)).toEqual([
+        "M",
+        "C",
+      ]);
+      expect(
+        (trunkRoute.targetPoint?.x ?? 0) - (trunkComposition.rows.at(-1)?.x ?? 0),
+      ).toBeLessThanOrEqual(trunkComposition.columnUnit * 2);
+      expect((defaultRoute.targetPoint?.x ?? 0) - defaultComposition.mainlineX).toBeLessThanOrEqual(
+        defaultComposition.columnUnit * 3,
+      );
     }
   });
 

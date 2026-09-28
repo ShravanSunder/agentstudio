@@ -306,6 +306,11 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
     viewportWidth: ownerWindow.innerWidth,
     height: artwork.clientHeight,
     anchors: measureAnchors(artwork),
+    // TEMPORARY A/B: owner compares the #55 finale routes.
+    finaleRouteVariant:
+      new URLSearchParams(ownerWindow.location.search).get("finale") === "trunk"
+        ? "trunk-step"
+        : "one-bend",
   });
   if (composition === undefined) {
     routeLayer.replaceChildren();

@@ -5,6 +5,7 @@ export interface TopologyEndObservation {
   readonly width: number;
   readonly captionToFinaleGap: number;
   readonly pillLeft: number;
+  readonly lastGlassLeft: number;
   readonly stageLeft: number;
   readonly titleLeft: number;
   readonly stageRight: number;
@@ -35,6 +36,10 @@ export interface TopologyEndObservation {
   readonly terminalNodeCount: number;
   readonly terminalRouteCount: number;
   readonly branchColumnSpan: number;
+  readonly branchBendCount: number;
+  readonly mainlineStepColumns: number;
+  readonly mainlineBendCount: number;
+  readonly mainlineStepStartY: number | undefined;
   readonly pathData: readonly { readonly kind: "rail" | "step"; readonly d: string }[];
 }
 
@@ -432,6 +437,7 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   const note = finaleRoot?.querySelector<HTMLElement>("p");
   const finalRoute = artwork?.querySelector<SVGGElement>("[data-topology-terminal-route]");
   const finalPath = finalRoute?.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+  const mainline = artwork?.querySelector<SVGPathElement>("[data-mainline]");
   const terminalNode = finalRoute?.querySelector<SVGGElement>("[data-topology-terminal-node]");
   const ring = terminalNode?.querySelector<SVGCircleElement>(".node-merge-ring");
   const core = terminalNode?.querySelector<SVGCircleElement>(".node-merge-core");
@@ -445,6 +451,8 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     pill === undefined ||
     finalPath === null ||
     finalPath === undefined ||
+    mainline === null ||
+    mainline === undefined ||
     ring === null ||
     ring === undefined ||
     core === null ||
@@ -470,6 +478,9 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   const matrix = finalPath.getScreenCTM();
   if (matrix === null) throw new Error("Terminal route has no screen transform");
   const routeLength = finalPath.getTotalLength();
+  const mainlineLength = mainline.getTotalLength();
+  const mainlineStart = mainline.getPointAtLength(0);
+  const mainlineEnd = mainline.getPointAtLength(mainlineLength);
   const start = finalPath.getPointAtLength(0).matrixTransform(matrix);
   const end = finalPath.getPointAtLength(routeLength).matrixTransform(matrix);
   const mergeYs = [...artwork.querySelectorAll<SVGGElement>('[data-node-kind="merge"]')]
@@ -504,6 +515,7 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     captionToFinaleGap:
       heading.getBoundingClientRect().top - lastCaption.getBoundingClientRect().bottom,
     pillLeft: buttonBox.left,
+    lastGlassLeft: glassBox.left,
     stageLeft: stageBox.left,
     titleLeft: titleBox.left,
     stageRight: stageBox.right,
@@ -533,6 +545,13 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     terminalNodeCount: artwork.querySelectorAll("[data-topology-terminal]").length,
     terminalRouteCount: artwork.querySelectorAll("[data-topology-terminal-route]").length,
     branchColumnSpan: (end.x - start.x) / Number(artwork.dataset["columnUnit"]),
+    branchBendCount: (finalPath.getAttribute("d")?.match(/\bC\b/gu) ?? []).length,
+    mainlineStepColumns: (mainlineEnd.x - mainlineStart.x) / Number(artwork.dataset["columnUnit"]),
+    mainlineBendCount: (mainline.getAttribute("d")?.match(/\bC\b/gu) ?? []).length,
+    mainlineStepStartY: (() => {
+      const match = /\bL\s+[-\d.]+\s+([-\d.]+)\s+C\b/u.exec(mainline.getAttribute("d") ?? "");
+      return match?.[1] === undefined ? undefined : artworkTop + Number(match[1]);
+    })(),
     pathData: [
       ...[...artwork.querySelectorAll<SVGPathElement>("path[d]")].map((path) => ({
         kind: "rail" as const,

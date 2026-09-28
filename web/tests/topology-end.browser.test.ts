@@ -72,6 +72,18 @@ describe("where the rail ends on the home page", () => {
     );
     for (const observation of observations) {
       expect(
+        Math.abs(observation.pillLeft - observation.lastGlassLeft),
+        `${observation.width}px pill/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.stageLeft - observation.lastGlassLeft),
+        `${observation.width}px row/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.noteLeft - observation.lastGlassLeft),
+        `${observation.width}px note/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
         observation.captionToFinaleGap,
         `${observation.width}px separation`,
       ).toBeGreaterThanOrEqual(Math.min(Math.max(observation.width * 0.12, 120), 200));
@@ -126,7 +138,10 @@ describe("where the rail ends on the home page", () => {
       expect(observation.terminalNodeCount).toBe(1);
       expect(observation.terminalRouteCount).toBe(1);
       expect(observation.branchViewportMaxFraction).toBeLessThan(0.75);
-      expect(observation.branchColumnSpan, String(observation.width)).toBeLessThanOrEqual(2);
+      // Owner #55 permits up to three columns for this final branch only.
+      expect(observation.branchColumnSpan, String(observation.width)).toBeLessThanOrEqual(3);
+      expect(observation.branchBendCount).toBe(1);
+      expect(observation.mainlineBendCount).toBe(0);
       expect(observation.minimumTitleClearance).toBeGreaterThanOrEqual(12);
       expect(observation.ringRadius).toBe(6);
       expect(observation.coreRadius).toBe(2.5);
@@ -139,6 +154,41 @@ describe("where the rail ends on the home page", () => {
         expect(mergeY).toBeGreaterThan(observation.lastGlassBottomY);
         expect(mergeY).toBeLessThan(observation.branchStartY);
       }
+    }
+  });
+  it("steps the trunk one column in the temporary finale route variant", async () => {
+    const observations = await commands.verifyTopologyEnd(
+      `${inject("siteHeaderBrowserTestUrl")}?finale=trunk`,
+      [390, 1280, 1920],
+    );
+    for (const observation of observations) {
+      expect(
+        Math.abs(observation.pillLeft - observation.lastGlassLeft),
+        `${observation.width}px pill/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.stageLeft - observation.lastGlassLeft),
+        `${observation.width}px row/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.noteLeft - observation.lastGlassLeft),
+        `${observation.width}px note/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(observation.mainlineStepColumns, `${observation.width}px trunk step`).toBeCloseTo(
+        1,
+        2,
+      );
+      expect(observation.mainlineBendCount).toBe(1);
+      if (observation.laneCount > 0) {
+        expect(observation.mainlineStepStartY).toBeGreaterThanOrEqual(
+          Math.max(...observation.laneMergeYs),
+        );
+        expect(observation.mainlineStepStartY).toBeLessThan(observation.branchStartY);
+      }
+      expect(observation.branchBendCount).toBe(1);
+      expect(Math.abs(observation.branchColumnSpan)).toBeLessThanOrEqual(2);
+      expect(Math.abs(observation.nodeRightX - observation.pillLeft)).toBeLessThanOrEqual(1);
+      for (const path of observation.pathData) expect(sharpCornerCount(path.d)).toBe(0);
     }
   });
 });
