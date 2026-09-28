@@ -190,6 +190,7 @@
      - end: the terminal node.
      Until the reveal reaches it, every glyph is a faint thin outline at its
      own size, so the size hierarchy shows before identity and color do. */
+  :global([data-topology-suppressed]) { display: none; }
   :global([data-node] .node-commit),
   :global([data-node] .node-chapter),
   :global([data-node] .node-merge-ring) {

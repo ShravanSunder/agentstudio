@@ -14,6 +14,7 @@ export interface StepLineJoinObservation {
     readonly titleBottom: number;
     readonly nodeDistance: number;
     readonly nodeCountAtFork: number;
+    readonly visibleInterveningNodeCount: number;
   }[];
 }
 
@@ -93,6 +94,15 @@ export const verifyStepLineJoins = defineBrowserCommand(
                         Number(circle.getAttribute("cy")) - sourceY,
                       );
                 });
+                const visibleInterveningNodeCount = [
+                  ...(artwork?.querySelectorAll<SVGGElement>("[data-node]") ?? []),
+                ].filter((node) => {
+                  const circle = node.querySelector<SVGCircleElement>("circle");
+                  if (circle === null || getComputedStyle(node).display === "none") return false;
+                  const x = Number(circle.getAttribute("cx"));
+                  const y = Number(circle.getAttribute("cy"));
+                  return Math.abs(x - sourceX) <= 0.5 && y > sourceY + 0.5 && y <= endY + 0.5;
+                }).length;
                 return {
                   anchorId,
                   stroke: getComputedStyle(path).stroke,
@@ -105,6 +115,7 @@ export const verifyStepLineJoins = defineBrowserCommand(
                   titleBottom: title.getBoundingClientRect().bottom + scrollY,
                   nodeDistance: Math.min(...distances),
                   nodeCountAtFork: distances.filter((distance) => distance <= 1).length,
+                  visibleInterveningNodeCount,
                 };
               }),
             };

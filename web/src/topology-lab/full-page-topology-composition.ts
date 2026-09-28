@@ -132,6 +132,8 @@ export interface TopologyRowDot {
   readonly incomingAccent?: TopologyAccent;
   /** A terminal merge also carries the final halo and one reveal pulse. */
   readonly terminal?: boolean;
+  /** The step line owns this row's visible dot while the rail keeps one row record. */
+  readonly suppressPaint?: boolean;
 }
 
 export interface TopologyComposition {
@@ -304,10 +306,26 @@ export function composeFullPageTopology(
   });
   const ownerByRow = new Map(owners.map((owner) => [owner.row, owner.ownerId]));
   const laneById = new Map(lanes.map((lane) => [lane.id, lane]));
+  const stepLineSpans = attachRoutes.flatMap((route) => {
+    const anchor = page.anchors.find((candidate) => candidate.id === route.anchorId);
+    return anchor?.stepLine === undefined
+      ? []
+      : [
+          {
+            x: columns.mainlineX + route.parentColumn * columns.columnUnit,
+            startY: route.startY,
+            endY: route.endY,
+          },
+        ];
+  });
   const rows = rowYs.slice(0, finalMainlineRow + 1).map((y, row): TopologyRowDot => {
     const reservedDot = reserved.get(row);
+    const suppressPaintFor = (x: number): boolean =>
+      stepLineSpans.some(
+        (span) => Math.abs(x - span.x) <= 0.5 && y > span.startY + 0.5 && y <= span.endY + 0.5,
+      );
     if (reservedDot !== undefined) {
-      return { row, y, ...reservedDot };
+      return { row, y, ...reservedDot, suppressPaint: suppressPaintFor(reservedDot.x) };
     }
     const lane = laneById.get(ownerByRow.get(row) ?? mainlineOwnerId);
     return lane === undefined
@@ -319,6 +337,7 @@ export function composeFullPageTopology(
           accent: "main",
           kind: "commit",
           anchorId: undefined,
+          suppressPaint: suppressPaintFor(columns.mainlineX),
         }
       : {
           row,
@@ -328,6 +347,7 @@ export function composeFullPageTopology(
           accent: lane.accent,
           kind: "commit",
           anchorId: undefined,
+          suppressPaint: suppressPaintFor(lane.x),
         };
   });
 

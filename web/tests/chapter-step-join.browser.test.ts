@@ -16,7 +16,7 @@ describe("chapter step-line joins", () => {
   it("uses one solid blue and one join geometry across chapters", async () => {
     const observations = await commands.verifyStepLineJoins(
       inject("siteHeaderBrowserTestUrl"),
-      [390, 1280, 1920],
+      [390, 1280, 1600, 1920],
     );
     for (const observation of observations) {
       expect(observation.joins).toHaveLength(3);
@@ -28,6 +28,10 @@ describe("chapter step-line joins", () => {
           `${observation.width}px ${join.anchorId} node`,
         ).toBeLessThanOrEqual(1);
         expect(join.nodeCountAtFork, `${observation.width}px ${join.anchorId} one node`).toBe(1);
+        expect(
+          join.visibleInterveningNodeCount,
+          `${observation.width}px ${join.anchorId} stray source-lane dots`,
+        ).toBe(0);
         if (observation.width >= 1024) {
           expect(
             join.sourceY,
