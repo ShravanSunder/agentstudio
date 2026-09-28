@@ -1,6 +1,20 @@
 import Foundation
 
 extension BridgePaneProductMetadataCoordinator {
+    func installViewResnapshotObserver(
+        session: BridgeProductSession,
+        lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        await session.setViewResnapshotNeededObserver { [weak self] signal in
+            await self?.recaptureAcceptedViewResnapshot(
+                signal,
+                expectedLease: lease,
+                productAdmission: productAdmission
+            )
+        }
+    }
+
     func publishFileViewSnapshot(
         subscriptionId: String,
         productAdmission: BridgeProductAdmissionContext
@@ -162,17 +176,11 @@ extension BridgePaneProductMetadataCoordinator {
             current.revision == request.scopeRevision,
             case .object(let members) = request.scope,
             case .string(let worktreeID)? = members["worktreeId"],
-            case .array(let sessionValues)? = members["sessionIds"]
+            case .array? = members["sessionIds"]
         else { return }
-        let sessionIDs = Set(
-            sessionValues.compactMap { value -> WorktreeAnnotationSessionID? in
-                guard case .string(let rawValue) = value else { return nil }
-                return UUID(uuidString: rawValue).map(WorktreeAnnotationSessionID.init(rawValue:))
-            })
         try? await annotationSource.acceptBatchScope(
             handle: request.handle,
             worktreeID: worktreeID,
-            sessionIDs: sessionIDs,
             scopeRevision: request.scopeRevision
         )
     }
@@ -189,33 +197,55 @@ extension BridgePaneProductMetadataCoordinator {
             productAdmission: productAdmission
         )
         guard refusal == nil else { return refusal }
+        let signal = BridgeProductViewResnapshotSignal(
+            viewDomain: .init(
+                viewId: request.subscriptionId,
+                domain: .singleDomain,
+                incarnation: request.incarnation
+            ),
+            handle: request.handle,
+            scopeRevision: request.scopeRevision,
+            subscriptionKind: request.subscriptionKind
+        )
         Task { [weak self] in
-            await self?.recaptureAcceptedViewResnapshot(request, productAdmission: productAdmission)
+            await self?.recaptureAcceptedViewResnapshot(
+                signal,
+                expectedLease: activeStream.lease,
+                productAdmission: productAdmission
+            )
         }
         return nil
     }
 
     private func recaptureAcceptedViewResnapshot(
-        _ request: BridgeProductViewResnapshotRequest,
+        _ signal: BridgeProductViewResnapshotSignal,
+        expectedLease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext
     ) async {
         guard let activeStream,
-            activeStream.productAdmission.matches(productAdmission)
+            activeStream.lease == expectedLease,
+            activeStream.productAdmission.matches(productAdmission),
+            let accepted = await activeStream.session.acceptedViewScope(
+                subscriptionId: signal.viewDomain.viewId
+            ),
+            accepted.viewDomain == signal.viewDomain,
+            accepted.handle == signal.handle,
+            accepted.revision == signal.scopeRevision
         else { return }
-        if request.subscriptionKind == .fileAnnotations || request.subscriptionKind == .reviewAnnotations {
-            await annotationSource.requestBatchResnapshot(handle: request.handle)
-        } else if request.subscriptionKind == .fileMetadata || request.subscriptionKind == .reviewMetadata {
-            if request.subscriptionKind == .reviewMetadata {
+        if signal.subscriptionKind == .fileAnnotations || signal.subscriptionKind == .reviewAnnotations {
+            await annotationSource.requestBatchResnapshot(handle: signal.handle)
+        } else if signal.subscriptionKind == .fileMetadata || signal.subscriptionKind == .reviewMetadata {
+            if signal.subscriptionKind == .reviewMetadata {
                 _ = try? await publishReviewViewSnapshot(
-                    subscriptionId: request.subscriptionId,
+                    subscriptionId: signal.viewDomain.viewId,
                     productAdmission: productAdmission
                 )
                 return
             }
             await applyAcceptedFileViewDemand(
-                subscriptionId: request.subscriptionId,
-                expectedHandle: request.handle,
-                expectedRevision: request.scopeRevision,
+                subscriptionId: signal.viewDomain.viewId,
+                expectedHandle: signal.handle,
+                expectedRevision: signal.scopeRevision,
                 forceRecapture: true,
                 productAdmission: productAdmission
             )

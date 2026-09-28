@@ -163,15 +163,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         guard let delivered = context.deliveredPublication,
             delivered.publicationId == request.expectedPublicationId
         else { return nil }
-        let demandedItemIds = Set(request.demand.interests.flatMap(\.itemIds))
         let orderedItemIds = BridgePaneProductReviewMetadataSource.orderedItemIds(in: delivered.package)
-        let itemIds = orderedItemIds.filter { demandedItemIds.contains($0) }
-        let itemRevisions = Dictionary(uniqueKeysWithValues: itemIds.map { ($0, delivered.viewRevision) })
         let revisionsForPackage = Dictionary(uniqueKeysWithValues: orderedItemIds.map { ($0, delivered.viewRevision) })
         let items = try BridgeProductReviewBatchItemProjection.initialItems(
             in: delivered.package,
             revisionByItemId: revisionsForPackage
-        ).filter { itemRevisions[$0.record.itemId] != nil }
+        )
         let publication = try BridgeProductReviewBatchPublicationProjection.record(
             from: .init(
                 classifiedRefreshImpact: delivered.classifiedRefreshImpact,

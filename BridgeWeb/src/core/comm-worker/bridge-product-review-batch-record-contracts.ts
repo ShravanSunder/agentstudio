@@ -84,7 +84,7 @@ const reviewDisplayedPublicationSchema = z
 		query: bridgeProductReviewQuerySchema,
 		reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable(),
 		reviewedSubjectLabel: bridgeProductSafeMessageSchema.nullable(),
-		revision: bridgeProductPositiveSequenceSchema,
+		revision: bridgeProductNonnegativeSequenceSchema,
 		summary: bridgeProductReviewPackageSummarySchema,
 	})
 	.strict();

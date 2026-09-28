@@ -137,7 +137,7 @@ private func sealReviewCapture(
             ),
             handle: capture.handle,
             scopeRevision: capture.scopeRevision,
-            scope: .object(["kind": .string("review")]),
+            scope: .object(["kind": .string("review"), "interests": .array([])]),
             firstDeliverySequence: 1,
             targetRevision: capture.snapshot.targetRevision,
             publication: capture.snapshot.publication,

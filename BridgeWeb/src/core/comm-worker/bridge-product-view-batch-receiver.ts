@@ -48,7 +48,11 @@ interface DomainState {
 
 export type BridgeProductBatchAcceptance =
 	| { readonly kind: 'ignored' }
-	| { readonly kind: 'staged'; readonly receivedThroughDeliverySequence?: number }
+	| {
+			readonly kind: 'staged';
+			readonly receivedThroughDeliverySequence?: number;
+			readonly replacedIncompleteStage?: boolean;
+	  }
 	| { readonly kind: 'installed'; readonly domain: string; readonly targetRevision: number }
 	| { readonly kind: 'resnapshot'; readonly domain: string };
 
@@ -207,11 +211,20 @@ export class BridgeProductViewBatchReceiver {
 		}
 		domainState.stage = { begin: frame, complete: null, partsByIndex: new Map() };
 		if (frame.mode === 'snapshot') domainState.receiptBaselinePending = true;
-		return { kind: 'staged' };
+		return {
+			kind: 'staged',
+			...(priorStage === null ? {} : { replacedIncompleteStage: true }),
+		};
 	}
 
 	#part(domainState: DomainState, frame: BatchPart): BridgeProductBatchAcceptance {
 		const stage = domainState.stage;
+		if (
+			stage !== null &&
+			stage.begin.batchId !== frame.batchId &&
+			frame.streamSequence < stage.begin.streamSequence
+		)
+			return { kind: 'ignored' };
 		if (
 			stage === null &&
 			(frame.batchId === domainState.lastInstalledBatchId ||
@@ -264,6 +277,12 @@ export class BridgeProductViewBatchReceiver {
 
 	#complete(domainState: DomainState, frame: BatchComplete): BridgeProductBatchAcceptance {
 		const stage = domainState.stage;
+		if (
+			stage !== null &&
+			stage.begin.batchId !== frame.batchId &&
+			frame.streamSequence < stage.begin.streamSequence
+		)
+			return { kind: 'ignored' };
 		if (
 			stage === null &&
 			(frame.batchId === domainState.lastInstalledBatchId ||

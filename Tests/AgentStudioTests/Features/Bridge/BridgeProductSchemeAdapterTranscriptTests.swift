@@ -204,7 +204,10 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                 pacedSnapshot.inFlightFrameReceiptCount == 1,
                 "Only finite content retains a frame observation receipt"
             )
-            #expect(pacedSnapshot.pendingFrameWaiterCount == 0)
+            #expect(
+                pacedSnapshot.pendingFrameWaiterCount == 1,
+                "The idle metadata response waits for its next frame while content owns its separate receipt"
+            )
             return contentReply
         } catch {
             contentReply.routingTask.cancel()
@@ -278,21 +281,60 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                 == controlCountBeforeContentObservation
         )
 
-        let reviewCancelReply = try await routeControl(
-            requestName: "review-subscription-cancel",
-            expectedResponseName: "review-subscription-cancel-accepted",
-            fixture: fixture,
-            harness: harness
+        let reviewCancelReply = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: harness.request(
+                route: BridgeProductWireContract.commandRoute,
+                body: try transcriptValueData(
+                    named: "review-subscription-cancel",
+                    fixture: fixture,
+                    requestSequence: 4
+                )
+            )
         )
         #expect(reviewCancelReply.response?.statusCode == 200)
+        let reviewCancelResponse = try BridgeProductStrictJSON.decode(
+            BridgeProductControlResponse.self,
+            from: reviewCancelReply.body
+        )
+        let expectedCancelResponse = try BridgeProductStrictJSON.decode(
+            BridgeProductControlResponse.self,
+            from: transcriptValueData(
+                named: "review-subscription-cancel-accepted",
+                fixture: fixture,
+                requestSequence: 4
+            )
+        )
+        #expect(reviewCancelResponse == expectedCancelResponse)
+        await harness.session.waitForOutstandingEscapeEffects()
+        #expect(
+            await harness.session.subscriptionSnapshot(
+                subscriptionId: "review-subscription-startup-1"
+            ) == nil
+        )
         #expect(
             await harness.provider.snapshot.controlRequestKinds == [
                 "workerSession.open",
                 "subscription.open",
                 "subscription.open",
-                "subscription.cancel",
             ]
         )
+    }
+
+    private func transcriptValueData(
+        named name: String,
+        fixture: BridgeProductSchemeTranscriptFixture,
+        requestSequence: Int
+    ) throws -> Data {
+        let original = try fixture.transcriptValueData(named: name)
+        guard var object = try JSONSerialization.jsonObject(with: original) as? [String: Any] else {
+            throw BridgeProductSchemeAdapterTranscriptTestError.unexpectedReplyEvent
+        }
+        // This journey has no E4 between File open (3) and Review cancel; content
+        // observation is slot-free. The shared transcript's ordinal 5 belongs to
+        // a longer journey, so adapt only this request/expected result pair.
+        object["requestSequence"] = requestSequence
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
     private func routeControl(

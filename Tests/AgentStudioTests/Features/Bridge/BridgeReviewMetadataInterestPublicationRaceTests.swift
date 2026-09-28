@@ -33,7 +33,7 @@ struct BridgeReviewMetadataInterestPublicationRaceTests {
                 productAdmission: admission.context
             )
         )
-        #expect(first.snapshot.items.count == 1)
+        #expect(first.snapshot.items.map(\.record.itemId) == initialPackage.orderedItemIds)
 
         let outcome = try await deliverReviewPackage(
             successor, publicationId: successorPublicationId,

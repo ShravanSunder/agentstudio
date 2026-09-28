@@ -8,6 +8,109 @@ import Testing
 @testable import AgentStudioBridge
 @testable import AgentStudioBridgeDevelopmentServer
 
+struct HTTPFileDescriptorObservation {
+    let descriptor: BridgeProductFileContentDescriptor
+    let partCount: Int
+}
+
+func waitForHTTPFileContentDescriptor(
+    path: String,
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    recorder: HTTPMetadataFrameRecorder,
+    minimumPartCount: Int
+) async throws -> HTTPFileDescriptorObservation {
+    while true {
+        let snapshot = try await nextHTTPFileBatchSnapshot(
+            client: client, connection: connection, recorder: recorder
+        )
+        if let descriptor = snapshot.descriptorByPath[path], snapshot.partCount >= minimumPartCount {
+            return .init(descriptor: descriptor, partCount: snapshot.partCount)
+        }
+    }
+}
+
+func waitForHTTPFileSourceIdentity(
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    recorder: HTTPMetadataFrameRecorder
+) async throws -> BridgeProductFileSourceIdentity {
+    try await nextHTTPFileBatchSnapshot(
+        client: client, connection: connection, recorder: recorder
+    ).source
+}
+
+private struct HTTPFileBatchSnapshot {
+    let source: BridgeProductFileSourceIdentity
+    let descriptorByPath: [String: BridgeProductFileContentDescriptor]
+    let partCount: Int
+}
+
+private func nextHTTPFileBatchSnapshot(
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    recorder: HTTPMetadataFrameRecorder
+) async throws -> HTTPFileBatchSnapshot {
+    var activeBegin: BridgeProductBatchBeginFrame?
+    var partsByIndex: [Int: BridgeProductBatchPart] = [:]
+    while true {
+        let frame = try await recorder.nextFrame()
+        try await acknowledgeHTTPMetadataFrame(client: client, connection: connection, frame: frame)
+        guard case .batch(let batch) = frame,
+            batch.identity.subscriptionKind == .fileMetadata
+        else { continue }
+        switch batch {
+        case .begin(let begin):
+            activeBegin = begin
+            partsByIndex.removeAll(keepingCapacity: true)
+        case .part(let part):
+            guard part.identity.batchId == activeBegin?.identity.batchId else {
+                throw HTTPAnnotationIntegrationError.incompleteFileBatch
+            }
+            partsByIndex[part.partIndex] = part.part
+        case .complete(let complete):
+            guard let begin = activeBegin,
+                complete.identity.batchId == begin.identity.batchId,
+                complete.coveredScope == begin.scope,
+                partsByIndex.count == begin.partCount
+            else { throw HTTPAnnotationIntegrationError.incompleteFileBatch }
+            var memberStatus: BridgeProductFileMemberStatusRecord?
+            var descriptorByPath: [String: BridgeProductFileContentDescriptor] = [:]
+            for index in 0..<begin.partCount {
+                guard let part = partsByIndex[index] else {
+                    throw HTTPAnnotationIntegrationError.incompleteFileBatch
+                }
+                guard case .put(let key, let revision, let value) = part else { continue }
+                guard revision <= begin.targetRevision else {
+                    throw HTTPAnnotationIntegrationError.invalidFileBatchRecord
+                }
+                let data = try JSONEncoder().encode(value)
+                if key == BridgeProductFileMemberStatusRecord.recordKey {
+                    memberStatus = try BridgeProductStrictJSON.decode(
+                        BridgeProductFileMemberStatusRecord.self, from: data
+                    )
+                    continue
+                }
+                let row = try BridgeProductStrictJSON.decode(BridgeProductFileBatchRow.self, from: data)
+                guard key.hasPrefix("/"),
+                    row.displayKey == "." || key.hasSuffix("/\(row.displayKey)")
+                else {
+                    throw HTTPAnnotationIntegrationError.invalidFileBatchRecord
+                }
+                if let descriptor = row.readDescriptor {
+                    descriptorByPath[row.displayKey] = descriptor
+                }
+            }
+            guard let memberStatus else { throw HTTPAnnotationIntegrationError.incompleteFileBatch }
+            return .init(
+                source: memberStatus.source,
+                descriptorByPath: descriptorByPath,
+                partCount: begin.partCount
+            )
+        }
+    }
+}
+
 struct HTTPAnnotationBatchObservation: Sendable {
     let batchId: String
     let putRecordKeys: Set<String>

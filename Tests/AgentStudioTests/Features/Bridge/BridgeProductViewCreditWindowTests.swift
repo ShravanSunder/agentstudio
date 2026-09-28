@@ -84,4 +84,22 @@ struct BridgeProductViewCreditWindowTests {
         #expect(credits.wasAlreadySatisfied(for: view, handle: "handle-1", through: 1))
         #expect(credits.outstandingPartCount(for: view) == 1)
     }
+
+    @Test("reserved but unissued parts advance the credit floor without crediting late receipts")
+    func reservedUnissuedSequencesDoNotBlockReplacement() {
+        var credits = BridgeProductViewCreditWindow(maximumParts: 1, maximumBytes: 8)
+        let view = BridgeProductViewDomainKey(viewId: "file-view", domain: .singleDomain, incarnation: "first")
+        credits.open(view, handle: "handle-1")
+        credits.abandonOutstanding(for: view, throughReservedSequence: 3)
+
+        #expect(credits.wasAlreadySatisfied(for: view, handle: "handle-1", through: 3))
+        let replacementAdmitted = credits.admitPart(for: view, handle: "handle-1", sequence: 4, byteCount: 8)
+        let lateReceiptReturnedCredit = credits.acknowledge(for: view, handle: "handle-1", through: 3)
+        #expect(replacementAdmitted)
+        #expect(!lateReceiptReturnedCredit)
+        #expect(credits.outstandingPartCount(for: view) == 1)
+        let replacementReceiptReturnedCredit = credits.acknowledge(for: view, handle: "handle-1", through: 4)
+        #expect(replacementReceiptReturnedCredit)
+        #expect(credits.outstandingPartCount(for: view) == 0)
+    }
 }

@@ -16,7 +16,13 @@ describe('Bridge product Review batch records', () => {
 				expect(recordKey).toBe('publication');
 				expect(parsed.revision).toBeGreaterThan(0);
 				if (parsed.displayed !== null) {
-					expect(parsed.displayed.revision).toBe(11);
+					expect(parsed.displayed.revision).toBe(0);
+					expect(
+						bridgeProductReviewBatchRecordSchema.safeParse({
+							...parsed,
+							displayed: { ...parsed.displayed, revision: -1 },
+						}).success,
+					).toBe(false);
 					expect(parsed.publicationId).not.toBe(parsed.displayed.publicationId);
 					expect(parsed.desired.status).toBe('failedRetryable');
 				}

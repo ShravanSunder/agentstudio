@@ -261,8 +261,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		null;
 	let currentFileMetadataSelectedPath: string | null | undefined;
 	let productController: BridgeCommWorkerProductController | null = null;
-	let productBatchApplication: ReturnType<typeof installBridgeCommWorkerProductBatchRuntime> | null =
-		null;
+	let productBatchApplication: ReturnType<
+		typeof installBridgeCommWorkerProductBatchRuntime
+	> | null = null;
 	let currentFileSourceWarmupKey: string | null = null;
 	let releasedReviewWarmupKey: string | null = null;
 	let reviewWarmupInFlightKey: string | null = null;
@@ -544,7 +545,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			},
 			applyFileRuntimeMutation: (epoch, mutation) =>
 				handler.applyFileViewRuntimeMutation({ epoch, mutation }),
-			applyReviewRuntimeApplication: (application) => {
+			prepareReviewRuntimeApplication: (application) => {
 				let messages: readonly BridgeWorkerServerToMainMessage[] = [];
 				const transaction = reviewOperationLifecycleTelemetry.wrapApplication(application, () =>
 					(() => {
@@ -553,16 +554,12 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						return prepared;
 					})(),
 				);
-				transaction.commit();
-				transaction.runPostCommitEffects();
-				for (const message of messages) {
-					try {
-						port.postMessage(message);
-					} catch {
-						publishReviewMetadataPostCommitFailure();
-					}
-				}
-				return [];
+				return {
+					commit: transaction.commit,
+					messages,
+					rollback: transaction.rollback,
+					runPostCommitEffects: transaction.runPostCommitEffects,
+				};
 			},
 			beforeApplyFile: (view): void => {
 				// Source mutation can schedule selected content before didInstallFile runs.
@@ -629,6 +626,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			publishReviewDisplay: publishReviewDisplayPatches,
 			reportResnapshotFailure: (): void =>
 				port.postMessage(buildBridgeWorkerRuntimeDegradedHealthEvent()),
+			reportReviewPostCommitFailure: publishReviewMetadataPostCommitFailure,
 		});
 	}
 	const renderFulfillmentLifecycleDriver = new BridgeCommWorkerRenderFulfillmentLifecycleDriver({

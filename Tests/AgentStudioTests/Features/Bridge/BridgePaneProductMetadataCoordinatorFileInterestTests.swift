@@ -38,7 +38,7 @@ struct BridgeFileInterestAdmissionTests {
         #expect(await harness.session.admitControlProviderExecution(token: openToken))
         let openResponse = try BridgeProductControlResponse.subscriptionOpenAccepted(
             correlating: openRequest,
-            worktreeId: "00000000-0000-4000-8000-000000000002"
+            worktreeId: nil
         )
         let openEffect = try await harness.session.completeAdmittedControl(
             token: openToken,
@@ -46,7 +46,7 @@ struct BridgeFileInterestAdmissionTests {
         )
         _ = try await pullMetadataFrame(from: pump)
         await coordinator.apply(openEffect, productAdmission: harness.productAdmission.context)
-        await source.waitUntilOpenStarted()
+        #expect(await source.waitUntilOpenStarted() == 1)
         await harness.session.settleControlProviderDispatch(token: openToken)
 
         let scopeRequest = try BridgeProductStrictJSON.decode(
@@ -70,15 +70,13 @@ struct BridgeFileInterestAdmissionTests {
             ) == nil
         )
 
-        await source.waitUntilUpdateStarted()
-        #expect(!(await source.updateObservedSourceAccepted))
-        #expect(!(await source.updateObservedOpenFinished))
+        let updateStart = await source.waitUntilUpdateStarted()
+        #expect(!updateStart.sourceAccepted)
+        #expect(!updateStart.openFinished)
         await source.releaseSourceAcceptance()
-        await source.waitUntilSourceAccepted()
+        #expect((await source.waitUntilSourceAccepted()).sourceId == "file-source-1")
         await source.releaseOpen()
-        await source.waitUntilOpenFinished()
-
-        #expect(!(await source.openObservedCancellation))
+        #expect(!(await source.waitUntilOpenFinished()))
         await coordinator.uninstall(lease: lease)
         #expect(await pump.cancel())
     }

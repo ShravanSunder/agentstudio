@@ -13,6 +13,7 @@ struct DevelopmentDisplayReviewReplayObservation {
 struct DevelopmentDisplayMetadataStream {
     private var frameIterator: AsyncThrowingStream<BridgeProductMetadataFrame, any Error>.Iterator
     private let consumer: Task<Void, Never>
+    private var acceptedReviewSubscription = false
 
     init(
         frameIterator: AsyncThrowingStream<BridgeProductMetadataFrame, any Error>.Iterator,
@@ -22,11 +23,8 @@ struct DevelopmentDisplayMetadataStream {
         self.consumer = consumer
     }
 
-    mutating func requireOpeningFrameAndAcknowledge(
-        using worker: DevelopmentDisplayWorkerClient
-    ) async throws {
+    mutating func requireOpeningFrame() async throws {
         let frame = try await nextFrame()
-        try await worker.acknowledge(frame.producerFrameIdentity)
         guard case .metadataStreamAccepted = frame else {
             throw DevelopmentDisplayWorkerClientError.expectedMetadataStreamOpening
         }
@@ -36,18 +34,17 @@ struct DevelopmentDisplayMetadataStream {
         expectedItemCount: Int,
         using worker: DevelopmentDisplayWorkerClient
     ) async throws -> DevelopmentDisplayReviewReplayObservation {
-        var acceptedReviewSubscription = false
         var activeBegin: BridgeProductBatchBeginFrame?
         var partsByIndex: [Int: BridgeProductBatchPart] = [:]
 
         while true {
             let frame = try await nextFrame()
             if case .batch(.part(let part)) = frame {
-                try await worker.acknowledge(part)
-            } else if case .batch = frame {
-                // Batch boundaries have no E3 stream-frame receipt.
-            } else {
-                try await worker.acknowledge(frame.producerFrameIdentity)
+                do {
+                    try await worker.acknowledge(part)
+                } catch {
+                    throw DevelopmentDisplayWorkerClientError.reviewCreditRejected(part.deliverySequence)
+                }
             }
             switch frame {
             case .subscriptionAccepted(let accepted):
@@ -62,7 +59,9 @@ struct DevelopmentDisplayMetadataStream {
                     partsByIndex.removeAll(keepingCapacity: true)
                 case .part(let part):
                     guard part.identity.batchId == activeBegin?.identity.batchId else {
-                        throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle
+                        throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle(
+                            "part without matching begin"
+                        )
                     }
                     partsByIndex[part.partIndex] = part.part
                 case .complete(let complete):
@@ -71,7 +70,9 @@ struct DevelopmentDisplayMetadataStream {
                         complete.coveredScope == begin.scope,
                         partsByIndex.count == begin.partCount
                     else {
-                        throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle
+                        throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle(
+                            "complete: begin=\(activeBegin != nil), parts=\(partsByIndex.count)/\(activeBegin?.partCount ?? -1)"
+                        )
                     }
                     var publication: BridgeProductReviewBatchPublicationRecord?
                     var itemIDs: Set<String> = []
@@ -80,20 +81,33 @@ struct DevelopmentDisplayMetadataStream {
                             case .put(let key, let revision, let value) = part,
                             revision <= begin.targetRevision
                         else {
-                            throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle
+                            throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle(
+                                "missing or non-put part at index \(index)"
+                            )
                         }
-                        let record = try BridgeProductStrictJSON.decode(
-                            BridgeProductReviewBatchRecord.self,
-                            from: JSONEncoder().encode(value)
-                        )
+                        let record: BridgeProductReviewBatchRecord
+                        do {
+                            record = try JSONDecoder().decode(
+                                BridgeProductReviewBatchRecord.self,
+                                from: JSONEncoder().encode(value)
+                            )
+                        } catch {
+                            throw DevelopmentDisplayWorkerClientError.invalidReviewBatchRecord(
+                                key, String(reflecting: error)
+                            )
+                        }
                         switch record {
                         case .item(let item):
                             guard key == item.itemId, itemIDs.insert(item.itemId).inserted else {
-                                throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle
+                                throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle(
+                                    "duplicate or mismatched Review item key"
+                                )
                             }
                         case .publication(let installedPublication):
                             guard key == "publication", publication == nil else {
-                                throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle
+                                throw DevelopmentDisplayWorkerClientError.incompleteReviewMetadataLifecycle(
+                                    "duplicate or mismatched Review publication key"
+                                )
                             }
                             publication = installedPublication
                         }
@@ -239,14 +253,18 @@ final class DevelopmentDisplayWorkerClient {
         }
     }
 
-    func openReviewMetadataSubscription(workerDerivationEpoch: Int = 1) async throws {
+    func openReviewMetadataSubscription(
+        itemIDs: [String],
+        workerDerivationEpoch: Int = 1
+    ) async throws {
+        let subscriptionID = "review-subscription-\(workerInstanceId.lowercased())"
         let response = try await sendControl(
             body: controlIdentity(
                 kind: "subscription.open",
                 workerDerivationEpoch: workerDerivationEpoch
             ).merging([
                 "subscription": ["subscriptionKind": "review.metadata"],
-                "subscriptionId": "review-subscription-\(workerInstanceId.lowercased())",
+                "subscriptionId": subscriptionID,
             ]) { _, new in new }
         )
         guard case .subscriptionOpenAccepted(let accepted) = response,
@@ -254,17 +272,32 @@ final class DevelopmentDisplayWorkerClient {
         else {
             throw DevelopmentDisplayWorkerClientError.unexpectedControlResponse
         }
+        try await setReviewMetadataScope(
+            itemIDs: itemIDs,
+            scopeRevision: 1,
+            subscriptionID: accepted.subscriptionId
+        )
+    }
+
+    private func setReviewMetadataScope(
+        itemIDs: [String],
+        scopeRevision: Int,
+        subscriptionID: String
+    ) async throws {
         let scopeResponse = try await sendControl(
             body: controlIdentity(
                 kind: "subscription.setScope",
-                workerDerivationEpoch: workerDerivationEpoch
+                workerDerivationEpoch: nil
             ).merging([
                 "domain": "default",
                 "handle": "review-view-\(workerInstanceId.lowercased())",
                 "incarnation": "review-incarnation-\(workerInstanceId.lowercased())",
-                "scopeRevision": 1,
-                "scope": ["kind": "review", "interests": []],
-                "subscriptionId": accepted.subscriptionId,
+                "scopeRevision": scopeRevision,
+                "scope": [
+                    "kind": "review",
+                    "interests": [["lane": "foreground", "itemIds": itemIDs]],
+                ],
+                "subscriptionId": subscriptionID,
                 "subscriptionKind": "review.metadata",
             ]) { _, new in new }
         )
@@ -317,26 +350,6 @@ final class DevelopmentDisplayWorkerClient {
             frameIterator: frames.makeAsyncIterator(),
             consumer: consumer
         )
-    }
-
-    func acknowledge(_ frameIdentity: BridgeProductMetadataFrameIdentity) async throws {
-        let response = try await collectRouteResponse(
-            try routedRequest(
-                route: BridgeProductWireContract.commandRoute,
-                body: [
-                    "kind": "stream.frameObserved",
-                    "metadataStreamId": frameIdentity.metadataStreamId,
-                    "paneSessionId": frameIdentity.paneSessionId,
-                    "streamKind": "metadata",
-                    "streamSequence": frameIdentity.streamSequence,
-                    "wireVersion": frameIdentity.wireVersion,
-                    "workerInstanceId": frameIdentity.workerInstanceId,
-                ]
-            )
-        )
-        guard response.statusCode == 204, response.body.isEmpty else {
-            throw DevelopmentDisplayWorkerClientError.unexpectedFrameAcknowledgementResponse
-        }
     }
 
     func acknowledge(_ part: BridgeProductBatchPartFrame) async throws {
@@ -480,17 +493,18 @@ final class DevelopmentDisplayWorkerClient {
 
     private func controlIdentity(
         kind: String,
-        workerDerivationEpoch: Int
+        workerDerivationEpoch: Int?
     ) -> [String: Any] {
-        [
+        var identity: [String: Any] = [
             "kind": kind,
             "paneSessionId": paneSessionId,
             "requestId": requestId(kind),
             "requestSequence": takeRequestSequence(),
             "wireVersion": BridgeProductWireContract.version,
-            "workerDerivationEpoch": workerDerivationEpoch,
             "workerInstanceId": workerInstanceId,
         ]
+        if let workerDerivationEpoch { identity["workerDerivationEpoch"] = workerDerivationEpoch }
+        return identity
     }
 
     private func takeRequestSequence() -> Int {
@@ -577,10 +591,12 @@ private func decodeDevelopmentDisplayBootstrapEnvelope(
 
 private enum DevelopmentDisplayWorkerClientError: Error {
     case expectedMetadataStreamOpening
-    case incompleteReviewMetadataLifecycle
+    case incompleteReviewMetadataLifecycle(String)
+    case invalidReviewBatchRecord(String, String)
     case invalidRoute
     case metadataStreamEndedBeforeExpectedFrame
     case reviewMetadataTerminatedBeforeFinalWindow
+    case reviewCreditRejected(Int)
     case unexpectedControlResponse
     case unexpectedFrameAcknowledgementResponse
     case unexpectedMetadataStreamResponse

@@ -1,20 +1,31 @@
 import AgentStudioInfrastructure
 import Foundation
 
+struct BridgeProductViewResnapshotSignal: Equatable, Sendable {
+    let viewDomain: BridgeProductViewDomainKey
+    let handle: String
+    let scopeRevision: Int
+    let subscriptionKind: BridgeProductSubscriptionKind
+}
+
 actor BridgeProductSession {
     typealias ProducerLifecycleAcknowledger =
         @Sendable (BridgeProductProducerLifecycleAcknowledgement) async -> Bool
     typealias ProducerObservationPacingRegistrationObserver =
         @Sendable (BridgeProductProducerLease, Int) -> Void
+    typealias ProducerFrameWaiterRegistrationObserver = @Sendable (BridgeProductProducerLease) -> Void
     typealias ResultWaiterRegistrationObserver = @Sendable (String) -> Void
     typealias ViewEmissionWaiterRegistrationObserver = @Sendable (BridgeProductViewDomainKey) -> Void
+    typealias ViewResnapshotNeededObserver = @Sendable (BridgeProductViewResnapshotSignal) async -> Void
 
     nonisolated let capabilityAuthenticator: BridgeProductCapabilityAuthenticator
     private let maximumRequestOrResponseBytes: Int
     let deadlineClock: any Clock<Duration> & Sendable
+    let viewDeadlineElapsed: @Sendable () -> Duration
     let operationDelay: AsyncDelay
     let paneSessionId: String
     let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
+    let producerFrameWaiterRegistrationObserver: ProducerFrameWaiterRegistrationObserver?
     let resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver?
     let viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver?
     var producerRegistry: BridgeProductProducerRegistry {
@@ -54,6 +65,9 @@ actor BridgeProductSession {
     var pendingFileSnapshotByViewDomain: [BridgeProductViewDomainKey: BridgeWorktreeFileKeyedSnapshot] = [:]
     var pendingReviewSnapshotByViewDomain: [BridgeProductViewDomainKey: BridgeProductReviewKeyedSnapshot] = [:]
     var viewEmissionWaiterByDomain: [BridgeProductViewDomainKey: BridgeProductViewEmissionWaiter] = [:]
+    var viewAcknowledgementDeadlineTask: Task<Void, Never>?
+    var viewAcknowledgementDeadlineGeneration = 0
+    var viewResnapshotNeededObserver: ViewResnapshotNeededObserver?
     var operationTable = BridgeProductOperationTable()
     var observationDeadlineTasksByWaiterId: [UUID: Task<Void, Never>] = [:]
     var activeEscapeEffectIds: Set<UUID> = []
@@ -75,6 +89,7 @@ actor BridgeProductSession {
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerObservationPacingRegistrationObserver:
             ProducerObservationPacingRegistrationObserver? = nil,
+        producerFrameWaiterRegistrationObserver: ProducerFrameWaiterRegistrationObserver? = nil,
         resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver? = nil,
         viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver? = nil
     ) throws {
@@ -94,10 +109,12 @@ actor BridgeProductSession {
         self.maximumRequestOrResponseBytes = maximumRequestOrResponseBytes
         let resolvedDeadlineClock: any Clock<Duration> & Sendable = deadlineClock ?? ContinuousClock()
         self.deadlineClock = resolvedDeadlineClock
+        self.viewDeadlineElapsed = Self.elapsedClock(resolvedDeadlineClock)
         self.operationDelay = deadlineClock.map(AsyncDelay.clock) ?? .taskSleep
         self.operationTable = BridgeProductOperationTable(maximumMutationWatches: maximumMutationWatches)
         self.producerObservationPacingRegistrationObserver =
             producerObservationPacingRegistrationObserver
+        self.producerFrameWaiterRegistrationObserver = producerFrameWaiterRegistrationObserver
         self.resultWaiterRegistrationObserver = resultWaiterRegistrationObserver
         self.viewEmissionWaiterRegistrationObserver = viewEmissionWaiterRegistrationObserver
         self.producerRegistry = BridgeProductProducerRegistry(
@@ -107,6 +124,17 @@ actor BridgeProductSession {
         self.controlReplay = .init(
             maximumRequestOrResponseBytes: maximumRequestOrResponseBytes
         )
+    }
+
+    private static func elapsedClock<ClockValue: Clock & Sendable>(
+        _ clock: ClockValue
+    ) -> @Sendable () -> Duration where ClockValue.Duration == Duration {
+        let origin = clock.now
+        return { origin.duration(to: clock.now) }
+    }
+
+    func setViewResnapshotNeededObserver(_ observer: ViewResnapshotNeededObserver?) {
+        viewResnapshotNeededObserver = observer
     }
 
     var snapshot: BridgeProductSessionSnapshot {
@@ -638,6 +666,9 @@ actor BridgeProductSession {
             return BridgeProductSessionRevocationBarrier(id: id, completedResult: true)
         }
         lifecycle = .revoked
+        viewAcknowledgementDeadlineTask?.cancel()
+        viewAcknowledgementDeadlineTask = nil
+        viewResnapshotNeededObserver = nil
         finishAllViewEmissionWaiters()
         let controlIdleWaiters = Array(controlReplayIdleWaiters.values)
         controlReplayIdleWaiters.removeAll(keepingCapacity: false)

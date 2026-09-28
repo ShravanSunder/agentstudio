@@ -35,19 +35,24 @@
     "resultResponses": [
       {
         "kind": "operation.result",
+        "failureCode": null,
         "operationId": "operation-ordinary-1",
-        "outcome": "succeeded"
+        "outcome": "succeeded",
+        "result": null
       },
       {
         "kind": "operation.result",
+        "failureCode": null,
         "operationId": "operation-unknown-1",
-        "outcome": "outcomeUnknown"
+        "outcome": "outcomeUnknown",
+        "result": null
       },
       {
         "kind": "operation.result",
         "operationId": "operation-refused-1",
         "outcome": "refused",
-        "failureCode": "result_capacity_exhausted"
+        "failureCode": "result_capacity_exhausted",
+        "result": null
       }
     ],
     "resultAcknowledgements": [
@@ -712,6 +717,7 @@
         "method": "file.source.current",
         "result": {
           "source": {
+            "cwdScope": null,
             "freshness": "live",
             "includeStatuses": true,
             "repoId": "00000000-0000-4000-8000-000000000001",
@@ -742,10 +748,14 @@
       "name": "cold-intake",
       "request": {
         "method": "review.intake.ready",
-        "request": {}
+        "request": {
+          "reason": null,
+          "streamId": null
+        }
       },
       "result": {
-        "method": "review.intake.ready"
+        "method": "review.intake.ready",
+        "result": null
       }
     },
     {
@@ -758,7 +768,8 @@
         }
       },
       "result": {
-        "method": "review.intake.ready"
+        "method": "review.intake.ready",
+        "result": null
       }
     }
   ],
@@ -772,7 +783,8 @@
         }
       },
       "result": {
-        "method": "review.publication.applied"
+        "method": "review.publication.applied",
+        "result": null
       }
     }
   ],
@@ -798,7 +810,8 @@
       "request": {
         "method": "review.publication.install.admit",
         "request": {
-          "candidatePublicationId": "00000000-0000-7000-8000-000000000018"
+          "candidatePublicationId": "00000000-0000-7000-8000-000000000018",
+          "expectedDisplayedPublicationId": null
         }
       },
       "result": {
@@ -812,6 +825,7 @@
   "controlRequests": [
     {
       "kind": "workerSession.open",
+      "request": null,
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
@@ -858,6 +872,7 @@
       "subscription": {
         "subscriptionKind": "file.metadata",
         "source": {
+          "cwdScope": null,
           "freshness": "live",
           "includeStatuses": true,
           "repoId": "00000000-0000-4000-8000-000000000001",
@@ -929,6 +944,7 @@
   "controlResponses": [
     {
       "kind": "workerSession.accepted",
+      "result": null,
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerInstanceId": "worker-instance-1",
@@ -943,7 +959,8 @@
       "requestId": "request-call-1",
       "requestSequence": 2,
       "call": {
-        "method": "review.markFileViewed"
+        "method": "review.markFileViewed",
+        "result": null
       }
     },
     {
@@ -1040,7 +1057,8 @@
       "requestId": "request-file-refresh-retry-1",
       "requestSequence": 10,
       "call": {
-        "method": "file.refresh.retry"
+        "method": "file.refresh.retry",
+        "result": null
       }
     }
   ],
@@ -1339,6 +1357,7 @@
       "workerInstanceId": "worker-instance-1",
       "contentRequestId": "comparison-targets-content-request-1",
       "leaseId": "comparison-targets-lease-1",
+      "operationCorrelationId": null,
       "contentKind": "review.comparisonTargets",
       "descriptor": {
         "contentKind": "review.comparisonTargets",
@@ -1350,6 +1369,7 @@
   "contentHeaders": [
     {
       "kind": "content.accepted",
+      "operationCorrelationId": null,
       "wireVersion": 2,
       "paneSessionId": "pane-session-1",
       "workerDerivationEpoch": 2,
@@ -1365,6 +1385,7 @@
         "descriptorId": "file-descriptor-1",
         "fileId": "file-1",
         "source": {
+          "rootRevisionToken": null,
           "repoId": "00000000-0000-4000-8000-000000000001",
           "sourceCursor": "source-cursor-1",
           "sourceId": "source-1",
@@ -1381,11 +1402,13 @@
     },
     {
       "kind": "content.data",
+      "operationCorrelationId": null,
       "contentSequence": 1,
       "offsetBytes": 0
     },
     {
       "kind": "content.end",
+      "operationCorrelationId": null,
       "contentSequence": 2,
       "endOfSource": true,
       "observedByteLength": 3,
@@ -1393,18 +1416,23 @@
     },
     {
       "kind": "content.error",
+      "operationCorrelationId": null,
       "contentSequence": 2,
       "code": "internal",
-      "retryable": false
+      "retryable": false,
+      "safeMessage": null
     },
     {
       "kind": "content.error",
+      "operationCorrelationId": null,
       "contentSequence": 2,
       "code": "superseded",
-      "retryable": true
+      "retryable": true,
+      "safeMessage": null
     },
     {
       "kind": "content.reset",
+      "operationCorrelationId": null,
       "contentSequence": 2,
       "reason": "stale_source"
     }

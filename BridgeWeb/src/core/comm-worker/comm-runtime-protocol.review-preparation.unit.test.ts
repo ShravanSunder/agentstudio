@@ -709,12 +709,18 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		const continuationDrain = assertBridgeCommWorkerPreparationDrain(scheduledDrains[1]);
 		const continuationDrainResult = await continuationDrain();
 		const firstDrainResult = await firstDrainCompletion;
+		const publishedReviewJob = postedMessages.find(
+			({ message }) => message.kind === 'reviewPierreRenderJob' && message.job.itemId === 'item-1',
+		)?.message;
+		if (publishedReviewJob?.kind !== 'reviewPierreRenderJob') {
+			throw new Error('Expected the selected Review render job.');
+		}
 
 		expect(continuationScheduledBeforeAwait).toBe(true);
 		expect(firstDrainResult.completedIds).toEqual([]);
 		expect(firstDrainResult.yielded).toBe(false);
 		expect(continuationDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:42',
+			`review-content-ready:item-1:review-ledger:item-1:${publishedReviewJob.renderReceiptIdentity.publicationSequence}`,
 		]);
 		expect(continuationDrainResult.yielded).toBe(false);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
@@ -748,7 +754,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		]);
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 42,
+			publicationSequence: publishedReviewJob.renderReceiptIdentity.publicationSequence,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -814,11 +820,16 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 		);
 
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'reviewCandidateStarted',
 			'reviewDisplayPatch',
+			'reviewCandidateReady',
 			'slicePatch',
 			'health',
 		]);
-		expect(postedMessages[1]?.message).toMatchObject({
+		const selectionPatch = postedMessages.find(
+			({ message }) => message.kind === 'slicePatch',
+		)?.message;
+		expect(selectionPatch).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 2,
 			sequence: 11,

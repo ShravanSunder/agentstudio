@@ -10,8 +10,8 @@ final class AvailabilityReviewPublicationProvider {
 actor AvailabilityHeldReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
     private let source = BridgePaneProductReviewMetadataSource()
     private let holdFirstDelivery: Bool
-    private var didStartFirstDelivery = false
-    private var firstDeliveryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstDeliveryPublicationId: UUID?
+    private var firstDeliveryWaiters: [CheckedContinuation<UUID, Never>] = []
     private var firstDeliveryRelease: CheckedContinuation<Void, Never>?
 
     init(holdFirstDelivery: Bool = false) {
@@ -40,11 +40,11 @@ actor AvailabilityHeldReviewMetadataSource: BridgePaneProductReviewMetadataProdu
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        if holdFirstDelivery && !didStartFirstDelivery {
-            didStartFirstDelivery = true
+        if holdFirstDelivery && firstDeliveryPublicationId == nil {
+            firstDeliveryPublicationId = reservation.publicationId
             let waiters = firstDeliveryWaiters
             firstDeliveryWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: reservation.publicationId) }
             await withCheckedContinuation { continuation in
                 firstDeliveryRelease = continuation
             }
@@ -54,9 +54,9 @@ actor AvailabilityHeldReviewMetadataSource: BridgePaneProductReviewMetadataProdu
         )
     }
 
-    func waitUntilFirstDeliveryStarted() async {
-        if didStartFirstDelivery { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilFirstDeliveryStarted() async -> UUID {
+        if let firstDeliveryPublicationId { return firstDeliveryPublicationId }
+        return await withCheckedContinuation { continuation in
             firstDeliveryWaiters.append(continuation)
         }
     }
@@ -81,26 +81,25 @@ actor AvailabilityReviewPublicationTraceRecorder:
     BridgeProductMetadataLifecycleTraceRecording
 {
     private(set) var publicationEvents: [BridgeProductReviewMetadataPublicationTraceEvent] = []
-    private var publicationCompletionWaiters: [CheckedContinuation<Void, Never>] = []
-    private var reviewBootstrapFinished = false
-    private var reviewBootstrapWaiters: [CheckedContinuation<Void, Never>] = []
+    private var reviewBootstrapFinished: BridgeProductMetadataLifecycleTraceEvent?
+    private var reviewBootstrapWaiters: [CheckedContinuation<BridgeProductMetadataLifecycleTraceEvent, Never>] = []
 
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) {
         guard case .bootstrapFinished = event.stage,
             case .reviewMetadata = event.subscriptionKind,
             case .success = event.result
         else { return }
-        reviewBootstrapFinished = true
+        reviewBootstrapFinished = event
         let waiters = reviewBootstrapWaiters
         reviewBootstrapWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: event) }
     }
 
-    func waitUntilReviewBootstrapFinished() async {
-        if reviewBootstrapFinished { return }
-        await withCheckedContinuation { continuation in
-            if reviewBootstrapFinished {
-                continuation.resume()
+    func waitUntilReviewBootstrapFinished() async -> BridgeProductMetadataLifecycleTraceEvent {
+        if let reviewBootstrapFinished { return reviewBootstrapFinished }
+        return await withCheckedContinuation { continuation in
+            if let reviewBootstrapFinished {
+                continuation.resume(returning: reviewBootstrapFinished)
             } else {
                 reviewBootstrapWaiters.append(continuation)
             }
@@ -109,29 +108,5 @@ actor AvailabilityReviewPublicationTraceRecorder:
 
     func record(_ event: BridgeProductReviewMetadataPublicationTraceEvent) {
         publicationEvents.append(event)
-        guard case .completed = event else { return }
-        let waiters = publicationCompletionWaiters
-        publicationCompletionWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    func waitUntilPublicationCompleted() async {
-        if hasCompletedPublication { return }
-        await withCheckedContinuation { continuation in
-            if hasCompletedPublication {
-                continuation.resume()
-            } else {
-                publicationCompletionWaiters.append(continuation)
-            }
-        }
-    }
-
-    private var hasCompletedPublication: Bool {
-        publicationEvents.contains { event in
-            if case .completed = event { return true }
-            return false
-        }
     }
 }

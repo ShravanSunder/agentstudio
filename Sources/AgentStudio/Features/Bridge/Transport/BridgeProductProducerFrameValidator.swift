@@ -12,7 +12,6 @@ enum BridgeProductProducerFrameValidationError: Error, Equatable {
 
 struct BridgeProductValidatedProducerFrame: Sendable {
     let data: Data
-    let requiresWorkerObservation: Bool
 }
 
 enum BridgeProductProducerFrameValidator {
@@ -35,10 +34,7 @@ enum BridgeProductProducerFrameValidator {
         guard frameMatchesIntent(frame, intent: intent) else {
             throw BridgeProductProducerFrameValidationError.rejected(.frameLifecycleMismatch)
         }
-        return try .init(
-            data: frame.encode(),
-            requiresWorkerObservation: frame.requiresWorkerObservation
-        )
+        return try .init(data: frame.encode())
     }
 
     private static func correlateContentFrame(

@@ -27,6 +27,7 @@ describe('initial E4 view scope admission', () => {
 				},
 			},
 			createIdentifier: (): string => `view-${++nextId}`,
+			maximumConsecutiveResnapshots: 3,
 		});
 		const openView = bridgeProductInitialViewOpening(owner, 'file.metadata');
 		if (openView === undefined) throw new Error('File view opening missing.');
@@ -73,6 +74,7 @@ describe('initial E4 view scope admission', () => {
 				let nextId = 0;
 				return (): string => `review-view-${++nextId}`;
 			})(),
+			maximumConsecutiveResnapshots: 3,
 		});
 		const review = bridgeProductInitialViewOpening(owner, 'review.metadata');
 		const comment = bridgeProductInitialViewOpening(owner, 'review.annotations');

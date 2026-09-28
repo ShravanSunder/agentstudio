@@ -165,6 +165,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
             acknowledgeLifecycle: { _ in true }
         )
         let reviewPackage = try coordinatorReviewPackageFixture()
+        let expectedItemIds = BridgePaneProductReviewMetadataSource.orderedItemIds(in: reviewPackage)
         let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let reviewSource = CoordinatorTrackingReviewMetadataSource()
         let replayProvider = AvailabilityReviewPublicationProvider()
@@ -200,8 +201,8 @@ struct BridgePaneProductMetadataCoordinatorTests {
             effect,
             productAdmission: harness.productAdmission.context
         )
-        await traceRecorder.waitUntilReviewBootstrapFinished()
-        let scopeRequest = try reviewTestViewScopeRequest(itemIds: reviewPackage.orderedItemIds)
+        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
+        let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
         #expect(
             await harness.session.acceptViewScope(
                 scopeRequest,
@@ -224,7 +225,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         )
         let publicationReceipt = await reviewSource.waitUntilPublicationReceipt()
         var batchFrames: [BridgeProductMetadataFrame] = []
-        for _ in 0..<(reviewPackage.orderedItemIds.count + 3) {
+        for _ in 0..<(expectedItemIds.count + 3) {
             batchFrames.append(try await pullMetadataFrame(from: pump))
         }
         await harness.session.settleControlProviderDispatch(token: token)
@@ -235,14 +236,17 @@ struct BridgePaneProductMetadataCoordinatorTests {
             case .batch(.begin(let begin)) = batchFrames[0],
             case .batch(.complete(let complete)) = lastBatchFrame
         else {
-            Issue.record("Expected Review accepted followed by one sealed batch")
+            Issue.record("Expected Review accepted followed by one sealed batch; observed \(batchFrames.map(\.kind))")
             return
         }
         #expect(accepted.frameIdentity.streamSequence == 1)
         #expect(begin.identity.frame.streamSequence == 2)
         #expect(begin.publicationId == publication.publicationId)
-        #expect(begin.partCount == reviewPackage.orderedItemIds.count + 1)
-        #expect(complete.identity.frame.streamSequence == reviewPackage.orderedItemIds.count + 4)
+        #expect(begin.partCount == expectedItemIds.count + 1)
+        #expect(begin.identity.handle == scopeRequest.handle)
+        #expect(complete.identity.batchId == begin.identity.batchId)
+        #expect(complete.identity.frame.streamSequence == expectedItemIds.count + 4)
+        #expect((await harness.session.producerSnapshot()).queuedFrameCount == 0)
         #expect(deliveryDisposition == .viewBatchSealed)
         #expect(publicationReceipt.publishedSubscriptions == 1)
         #expect(publicationReceipt.finalFrames.isEmpty)
@@ -513,7 +517,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
         // Act
         activityCoordinator.applyActivity(.foreground)
         await coordinator.resumeForegroundWork()
-        await fileSource.waitUntilOpened()
+        #expect(await fileSource.waitUntilOpened() == 1)
 
         // Assert
         #expect(await fileSource.openCount == 1)

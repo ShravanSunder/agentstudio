@@ -6,8 +6,8 @@ import Testing
 
 @Suite("Bridge product scheme frame pump")
 struct BridgeProductSchemeFramePumpTests {
-    @Test("early worker observation preserves the claimed metadata delivery policy")
-    func earlyWorkerObservationPreservesMetadataDeliveryPolicy() async throws {
+    @Test("metadata frame consumption releases its exact receipt and rejects duplicate consumption")
+    func metadataFrameConsumptionUsesExactReceipt() async throws {
         // Arrange
         let harness = try await BridgeProductSessionProducerHarness.opened()
         let operation = HeldStep<BridgeProductProducerLease>("operation")
@@ -43,18 +43,14 @@ struct BridgeProductSchemeFramePumpTests {
         let delivery = try #require(frameDelivery(await pump.nextFrame()))
 
         // Act
-        let exactAccepted = await harness.session.acknowledgeProducerFrameObserved(
-            delivery.receipt
-        )
-        let stillRequiresWorkerObservation = pump.frameRequiresWorkerObservation(
-            delivery.receipt
-        )
-        let observationCompleted = await pump.waitUntilFrameObserved(delivery.receipt)
+        let exactAccepted = await pump.acknowledgeFrameConsumed(delivery.receipt)
+        let duplicateAccepted = await pump.acknowledgeFrameConsumed(delivery.receipt)
+        let afterConsumption = await harness.session.producerSnapshot()
 
         // Assert
         #expect(exactAccepted)
-        #expect(stillRequiresWorkerObservation)
-        #expect(observationCompleted)
+        #expect(!duplicateAccepted)
+        #expect(afterConsumption.inFlightFrameReceiptCount == 0)
         #expect(await pump.cancel())
         try await operation.cancellationObserved()
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
@@ -74,7 +70,6 @@ struct BridgeProductSchemeFramePumpTests {
         let delivery = try #require(frameDelivery(await pump.nextFrame()))
         let forgedReceipt = BridgeProductProducerFrameReceipt(
             producerLease: fixture.lease,
-            requiresWorkerObservation: delivery.receipt.requiresWorkerObservation,
             sequence: delivery.receipt.sequence,
             nonce: UUID()
         )
@@ -94,7 +89,6 @@ struct BridgeProductSchemeFramePumpTests {
         let afterObservation = await fixture.harness.session.producerSnapshot()
 
         // Assert
-        #expect(delivery.receipt.requiresWorkerObservation)
         #expect(!forgedAccepted)
         #expect(afterForgery.queuedFrameCount == 1)
         #expect(afterForgery.inFlightFrameReceiptCount == 1)
@@ -296,7 +290,6 @@ struct BridgeProductSchemeFramePumpTests {
         let claimedSnapshot = await fixture.harness.session.producerSnapshot()
         let forgedReceipt = BridgeProductProducerFrameReceipt(
             producerLease: fixture.lease,
-            requiresWorkerObservation: delivery.receipt.requiresWorkerObservation,
             sequence: delivery.frame.sequence,
             nonce: UUID()
         )

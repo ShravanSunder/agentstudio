@@ -79,7 +79,6 @@ struct BridgeProductProducerObservationPacingTests {
         #expect(await fixture.waitUntilObservationWaiterRegistered(sequence: fixture.opening.sequence))
         let wrongReceipt = BridgeProductProducerFrameReceipt(
             producerLease: fixture.lease,
-            requiresWorkerObservation: fixture.delivery.receipt.requiresWorkerObservation,
             sequence: fixture.delivery.receipt.sequence,
             nonce: UUID()
         )

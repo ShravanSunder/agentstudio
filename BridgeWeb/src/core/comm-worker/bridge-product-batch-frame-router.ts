@@ -7,11 +7,17 @@ import type { BridgeProductViewAcknowledgementRequest } from './bridge-product-v
 
 export interface BridgeProductBatchFrameSinks {
 	readonly install: (installation: BridgeProductViewInstallation) => Promise<void> | void;
+	readonly certifiedInstallCompleted?: (
+		frame: Extract<BridgeProductBatchFrame, { readonly kind: 'subscription.batchBegin' }>,
+	) => void;
 	readonly receipt: (
 		frame: Extract<BridgeProductBatchFrame, { readonly kind: 'subscription.batchPart' }>,
 		through: number,
 	) => void;
 	readonly resnapshot: (frame: BridgeProductBatchFrame) => void;
+	readonly replacementSnapshot?: (
+		frame: Extract<BridgeProductBatchFrame, { readonly kind: 'subscription.batchBegin' }>,
+	) => void;
 }
 
 /** W4 routes certified installations; each application owns its typed install. */
@@ -72,6 +78,12 @@ export class BridgeProductBatchFrameRouter {
 		}
 		const acceptance = state.receiver.accept(frame);
 		if (acceptance.kind === 'resnapshot') sinks.resnapshot(frame);
+		if (
+			frame.kind === 'subscription.batchBegin' &&
+			acceptance.kind === 'staged' &&
+			acceptance.replacedIncompleteStage === true
+		)
+			sinks.replacementSnapshot?.(frame);
 		if (
 			frame.kind === 'subscription.batchPart' &&
 			acceptance.kind === 'staged' &&

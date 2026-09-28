@@ -32,6 +32,7 @@ import {
 	actUpdate,
 	actUpdateAndWaitForBridgeFileViewerWorkerPublication,
 	makeDeferredContent,
+	makeBrowserFileBatchPublisherObservation,
 	makeGeneratedFileBody,
 	openFileBodyPreview,
 	openFileState,
@@ -44,7 +45,6 @@ import {
 	waitForFileCodeViewScrollTopAtLeast,
 	visibleCodeText,
 	waitForFileViewerActiveState,
-	waitForBrowserFileBatchPublisher,
 	waitForBridgeFileViewerWorkerMessageDrain,
 	waitForOpenFileBodyPreview,
 	waitForOpenFileState,
@@ -152,7 +152,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			source: resetSourceIdentity,
 		});
 		const openedDescriptorIds: string[] = [];
-		let publishFileBatch: PublishBrowserFileBatch | null = null;
+		const publisherObservation = makeBrowserFileBatchPublisherObservation();
 
 		await render(
 			<BridgeFileViewerApp
@@ -165,20 +165,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
 						return Promise.resolve(makeFileContent('unexpected visible fetch\n'));
 					},
-					onFileBatchPublisher: (handler): (() => void) => {
-						publishFileBatch = handler;
-						return (): void => {
-							publishFileBatch = null;
-						};
+					onFileBatchPublisher: (handler): void => {
+						publisherObservation.observe(handler);
 					},
 				}}
 			/>,
 		);
 
 		expect(openedDescriptorIds).toEqual([]);
-		const publishRequiredFileBatch = await waitForBrowserFileBatchPublisher(
-			(): PublishBrowserFileBatch | null => publishFileBatch,
-		);
+		const publishRequiredFileBatch = await publisherObservation.publisher;
 		await actUpdate((): void => {
 			publishRequiredFileBatch(
 				makeCertifiedReplacementBatch(newFirstDescriptor, newSecondDescriptor),

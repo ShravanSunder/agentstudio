@@ -16,7 +16,7 @@ struct BridgeProductStartupTranscriptTests {
     private static let invalidMirrorPath =
         "BridgeWeb/src/test-fixtures/bridge-contract-fixtures/invalid/bridge-product-startup-transcript.json"
     private static let validFixtureSHA256 =
-        "cf00a51bddd35a7d9cfa682be944741eab07814887175d2c4378f61d99e96e90"
+        "c2396824c7282dbaf87a33dc11c65e20cd4bddc8b04f73c854a787932bc5c36b"
     private static let invalidFixtureSHA256 =
         "78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8"
 
@@ -55,25 +55,29 @@ struct BridgeProductStartupTranscriptTests {
             let codec = try #require(entry["codec"] as? String)
             let name = try #require(entry["name"] as? String)
             let value = try #require(entry["value"] as? [String: Any])
-            switch codec {
-            case "contentHeader":
-                try assertRoundTrip(BridgeProductContentHeader.self, object: value, name: name)
-            case "contentRequest":
-                try assertRoundTrip(BridgeProductContentRequest.self, object: value, name: name)
-            case "controlRequest":
-                try assertRoundTrip(BridgeProductControlRequest.self, object: value, name: name)
-            case "controlResponse":
-                try assertRoundTrip(BridgeProductControlResponse.self, object: value, name: name)
-            case "metadataFrame":
-                try assertRoundTrip(BridgeProductMetadataFrame.self, object: value, name: name)
-            case "metadataStreamRequest":
-                try assertRoundTrip(
-                    BridgeProductMetadataStreamRequest.self,
-                    object: value,
-                    name: name
-                )
-            default:
-                Issue.record("Unsupported startup transcript codec: \(codec)")
+            do {
+                switch codec {
+                case "contentHeader":
+                    try assertRoundTrip(BridgeProductContentHeader.self, object: value, name: name)
+                case "contentRequest":
+                    try assertRoundTrip(BridgeProductContentRequest.self, object: value, name: name)
+                case "controlRequest":
+                    try assertRoundTrip(BridgeProductControlRequest.self, object: value, name: name)
+                case "controlResponse":
+                    try assertRoundTrip(BridgeProductControlResponse.self, object: value, name: name)
+                case "metadataFrame":
+                    try assertRoundTrip(BridgeProductMetadataFrame.self, object: value, name: name)
+                case "metadataStreamRequest":
+                    try assertRoundTrip(
+                        BridgeProductMetadataStreamRequest.self,
+                        object: value,
+                        name: name
+                    )
+                default:
+                    Issue.record("Unsupported startup transcript codec: \(codec)")
+                }
+            } catch {
+                Issue.record("Startup transcript entry \(name) failed \(codec) decoding: \(error)")
             }
         }
     }
@@ -119,58 +123,6 @@ struct BridgeProductStartupTranscriptTests {
         #expect(cancelled.identity.subscriptionIdentity.subscriptionId == opened.subscriptionId)
         #expect(accepted.subscriptionIdentity.workerDerivationEpoch == opened.workerDerivationEpoch)
         #expect(cancelled.identity.subscriptionIdentity.workerDerivationEpoch == opened.workerDerivationEpoch)
-    }
-
-    @Test("observation identities and lifecycle outcomes are frozen")
-    func observationIdentitiesAndLifecycleOutcomesAreFrozen() throws {
-        // Arrange
-        let fixture = try loadFixture(relativePath: Self.validFixturePath)
-        let observationCases = try fixtureArray(named: "observationCases", in: fixture)
-        let lifecycle = try #require(fixture["lifecycleExpectations"] as? [String: Any])
-        let zeroResidue = try #require(lifecycle["zeroResidue"] as? [String: Any])
-
-        // Act
-        let metadataCase = try #require(
-            observationCases.first { observationCase in
-                (observationCase["request"] as? [String: Any])?["streamKind"] as? String
-                    == "metadata"
-            }
-        )
-        let contentCase = try #require(
-            observationCases.first { observationCase in
-                (observationCase["request"] as? [String: Any])?["streamKind"] as? String
-                    == "content"
-            }
-        )
-        let metadataKeys = Set(try #require(metadataCase["request"] as? [String: Any]).keys)
-        let contentKeys = Set(try #require(contentCase["request"] as? [String: Any]).keys)
-        let dispositions = Set(
-            try observationCases.map { try #require($0["expectedDisposition"] as? String) }
-        )
-
-        // Assert
-        #expect(observationCases.count == 16)
-        #expect(
-            metadataKeys == [
-                "kind", "metadataStreamId", "paneSessionId", "streamKind", "streamSequence",
-                "wireVersion", "workerInstanceId",
-            ]
-        )
-        #expect(
-            contentKeys == [
-                "contentRequestId", "contentSequence", "kind", "leaseId", "paneSessionId",
-                "streamKind", "wireVersion", "workerInstanceId",
-            ]
-        )
-        #expect(
-            dispositions == [
-                "accepted", "idempotentReplay", "rejectedChangedReuse",
-                "rejectedForeignIdentity", "rejectedPostTerminal", "rejectedSequenceGap",
-                "rejectedStaleWorker",
-            ]
-        )
-        #expect(zeroResidue.count == 7)
-        #expect(zeroResidue.values.allSatisfy { ($0 as? Int) == 0 })
     }
 
     @Test("retired metadata observation is rejected by the command package")

@@ -1,7 +1,3 @@
-import {
-	compareReviewMetadataLineages,
-	type ReviewMetadataLineage,
-} from './bridge-comm-worker-review-publication-transaction.js';
 import type {
 	BridgeMainCodeViewItem,
 	BridgeMainCodeViewItemPatch,
@@ -25,6 +21,10 @@ import {
 	BRIDGE_WORKER_REVIEW_AFFECTED_STABLE_FILE_IDENTITY_LIMIT,
 	type BridgeWorkerReviewPreDeliveryPresentationClass,
 } from './bridge-worker-review-publication-contracts.js';
+import {
+	compareReviewMetadataLineages,
+	type ReviewMetadataLineage,
+} from './bridge-worker-review-publication-lineage.js';
 
 export type BridgeMainReviewPublicationIdentity = ReviewMetadataLineage;
 export type BridgeMainReviewCandidateRole = 'installing' | 'provisional' | 'updateReady';

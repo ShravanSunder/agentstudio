@@ -19,7 +19,6 @@ private enum BridgePaneCommentBatchNotification: Sendable {
 actor BridgePaneAnnotationNotificationSource {
     private struct AdmittedBatchScope: Sendable {
         let revision: Int
-        let sessionIDs: Set<WorktreeAnnotationSessionID>
     }
 
     private let service: WorktreeAnnotationServiceActor?
@@ -54,7 +53,6 @@ actor BridgePaneAnnotationNotificationSource {
     func acceptBatchScope(
         handle: String,
         worktreeID scopedWorktreeID: String,
-        sessionIDs: Set<WorktreeAnnotationSessionID>,
         scopeRevision: Int
     ) async throws {
         guard service != nil, scopedWorktreeID == worktreeID, !handle.isEmpty, scopeRevision > 0,
@@ -65,10 +63,10 @@ actor BridgePaneAnnotationNotificationSource {
         if let current = admittedBatchScopeByHandle[handle], scopeRevision <= current.revision {
             return
         }
-        admittedBatchScopeByHandle[handle] = .init(revision: scopeRevision, sessionIDs: sessionIDs)
+        admittedBatchScopeByHandle[handle] = .init(revision: scopeRevision)
         firstScopeWaiterByHandle[handle]?.yield(())
         if let publisher = batchPublisherByHandle[handle] {
-            guard await publisher.acceptScope(sessionIDs: sessionIDs, revision: scopeRevision) else {
+            guard await publisher.acceptScope(revision: scopeRevision) else {
                 return
             }
             requestBatchResnapshot(handle: handle)
@@ -145,7 +143,6 @@ actor BridgePaneAnnotationNotificationSource {
         }
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: handle,
-            admittedSessionIDs: admittedScope.sessionIDs,
             scopeRevision: admittedScope.revision,
             readCurrent: { range in
                 try await service.captureCurrentCatalogRange(

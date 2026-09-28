@@ -40,6 +40,7 @@ import {
 	actUpdate,
 	interactAndWaitForBridgeFileViewerQueryCompletion,
 	metadataInterestPathsForLane,
+	makeBrowserFileBatchPublisherObservation,
 	makeTestTelemetryRecorder,
 	openFileBodyPreview,
 	openFilePath,
@@ -49,7 +50,6 @@ import {
 	waitForBridgeFileViewerWorkerMessageDrain,
 	selectedDisplayPath,
 	waitForMetadataInterestUpdateCount,
-	waitForBrowserFileBatchPublisher,
 	waitForMetadataTreeRowCount,
 	waitForOpenFileState,
 	waitForSelectedDisplayPath,
@@ -813,6 +813,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const openedDescriptorIds: string[] = [];
 		let publishMetadataEvents: PublishBrowserFileBatch | null = null;
 		const initialBatch = makeBrowserMetadataOnlyFileBatch();
+		const publisherObservation = makeBrowserFileBatchPublisherObservation();
 
 		await render(
 			<BridgeFileViewerApp
@@ -841,6 +842,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 					},
 					onFileBatchPublisher: (handler): (() => void) => {
 						publishMetadataEvents = handler;
+						publisherObservation.observe(handler);
 						return (): void => {
 							publishMetadataEvents = null;
 						};
@@ -849,7 +851,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBrowserFileBatchPublisher(() => publishMetadataEvents);
+		await publisherObservation.publisher;
 		await waitForBridgeFileViewerWorkerMessageDrain();
 		const fileButton = await waitForBridgeViewerTreeItemButton(
 			'Sources/AgentStudio/App/AppDelegate.swift',

@@ -517,30 +517,15 @@ describe('Bridge product call contracts', () => {
 
 	test('parses the shared File source discovery corpus through the closed call schemas', () => {
 		for (const testCase of validProductSessionCorpus.fileSourceCurrentCases) {
-			const result =
-				testCase.name === 'available'
-					? {
-							method: 'file.source.current',
-							result: { source: currentFileSource, status: 'available' as const },
-						}
-					: testCase.result;
 			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
-			expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+			expect(bridgeProductCallResultSchema.parse(testCase.result)).toEqual(testCase.result);
 		}
 	});
 
 	test('defines strict Review intake readiness request and null result contracts', () => {
 		for (const testCase of validProductSessionCorpus.reviewIntakeReadyCases) {
-			const request = {
-				method: 'review.intake.ready',
-				request:
-					testCase.name === 'cold-intake'
-						? { reason: null, streamId: null }
-						: testCase.request.request,
-			} as const;
-			const result = { method: 'review.intake.ready', result: null } as const;
-			expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
-			expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
+			expect(bridgeProductCallResultSchema.parse(testCase.result)).toEqual(testCase.result);
 		}
 		for (const invalidRequest of [
 			{ reason: null },
@@ -569,8 +554,7 @@ describe('Bridge product call contracts', () => {
 				bridgeProductReviewPublicationAppliedRequestSchema.parse(testCase.request.request),
 			).toEqual(testCase.request.request);
 			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
-			const result = { method: 'review.publication.applied', result: null } as const;
-			expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+			expect(bridgeProductCallResultSchema.parse(testCase.result)).toEqual(testCase.result);
 		}
 		for (const invalidRequest of [
 			{},
@@ -590,20 +574,10 @@ describe('Bridge product call contracts', () => {
 
 	test('defines exact strict Review publication install admission contracts', () => {
 		for (const testCase of validProductSessionCorpus.reviewPublicationInstallAdmissionCases) {
-			const request = {
-				...testCase.request,
-				request: {
-					...testCase.request.request,
-					expectedDisplayedPublicationId:
-						testCase.name === 'rejected-without-displayed-predecessor'
-							? null
-							: '00000000-0000-7000-8000-000000000017',
-				},
-			};
 			expect(
-				bridgeProductReviewPublicationInstallAdmissionRequestSchema.parse(request.request),
-			).toEqual(request.request);
-			expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
+				bridgeProductReviewPublicationInstallAdmissionRequestSchema.parse(testCase.request.request),
+			).toEqual(testCase.request.request);
+			expect(bridgeProductCallRequestSchema.parse(testCase.request)).toEqual(testCase.request);
 			expect(
 				bridgeProductReviewPublicationInstallAdmissionResultSchema.parse(testCase.result.result),
 			).toEqual(testCase.result.result);

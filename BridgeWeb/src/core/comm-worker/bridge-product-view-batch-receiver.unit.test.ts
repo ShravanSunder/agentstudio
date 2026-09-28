@@ -159,6 +159,44 @@ function complete(props: {
 }
 
 describe('Bridge product W4 per-domain batch receiver', () => {
+	it('reports an accepted replacement snapshot once and ignores late parts from its abandoned stage', () => {
+		const router = new BridgeProductBatchFrameRouter();
+		const replacements: string[] = [];
+		const resnapshots: string[] = [];
+		const installations: string[] = [];
+		router.setSinks({
+			install: (installation): void => {
+				installations.push(installation.begin.batchId);
+			},
+			receipt: (): void => {},
+			replacementSnapshot: (frame): void => {
+				replacements.push(frame.batchId);
+			},
+			resnapshot: (frame): void => {
+				resnapshots.push(frame.batchId);
+			},
+		});
+		router.accept(begin({ batchId: 'abandoned', partCount: 2, target: 2 }));
+		router.accept(part({ batchId: 'abandoned', key: 'a', revision: 1, value: 'old' }));
+		const latePart = part({
+			batchId: 'abandoned',
+			key: 'b',
+			partIndex: 1,
+			revision: 2,
+			value: 'late',
+		});
+		const lateComplete = complete({ batchId: 'abandoned' });
+		for (let index = 0; index < 12; index += 1) {
+			router.accept(begin({ batchId: `replacement-${index}`, partCount: 1, target: 3 + index }));
+		}
+		router.accept(latePart);
+		router.accept(lateComplete);
+		router.accept(part({ batchId: 'replacement-11', key: 'a', revision: 14, value: 'current' }));
+		router.accept(complete({ batchId: 'replacement-11' }));
+		expect(replacements).toEqual(Array.from({ length: 12 }, (_, index) => `replacement-${index}`));
+		expect(resnapshots).toEqual([]);
+		expect(installations).toEqual(['replacement-11']);
+	});
 	it('routes a received part credit before the certified bank install', () => {
 		const router = new BridgeProductBatchFrameRouter();
 		const events: string[] = [];

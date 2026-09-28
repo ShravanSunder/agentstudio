@@ -38,9 +38,10 @@ struct BridgeProductReviewAvailabilityTests {
             Issue.record("Expected the E3 Review subscription acceptance")
             return
         }
-        await traceRecorder.waitUntilReviewBootstrapFinished()
+        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
         let reviewPackage = try availabilityReviewPackageFixture()
-        let scopeRequest = try reviewTestViewScopeRequest(itemIds: reviewPackage.orderedItemIds)
+        let expectedItemIds = await AvailabilityBatchKeyProjection().orderedItemIds(in: reviewPackage)
+        let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
         #expect(
             await harness.session.acceptViewScope(
                 scopeRequest, productAdmission: harness.productAdmission.context
@@ -66,27 +67,24 @@ struct BridgeProductReviewAvailabilityTests {
             traceContext: traceContext
         )
         var frames: [BridgeProductMetadataFrame] = []
-        for _ in 0..<(reviewPackage.orderedItemIds.count + 3) {
+        for _ in 0..<(expectedItemIds.count + 3) {
             frames.append(try await pullAvailabilityMetadataFrame(from: pump))
         }
-        let itemKeys = frames.compactMap { frame -> String? in
-            guard case .batch(.part(let part)) = frame,
-                case .put(let key, _, _) = part.part
-            else { return nil }
-            return key
-        }
+        let itemKeys = await AvailabilityBatchKeyProjection().putKeys(in: frames)
         let firstFrame = try #require(frames.first)
         let lastFrame = try #require(frames.last)
         guard case .batch(.begin(let begin)) = firstFrame,
             case .batch(.complete) = lastFrame
         else {
-            Issue.record("Expected one complete W4 Review snapshot")
+            let observedKinds = await AvailabilityBatchKeyProjection().kindSummary(in: frames)
+            Issue.record("Expected one complete W4 Review snapshot; observed \(observedKinds)")
             return
         }
         #expect(accepted.frameIdentity.streamSequence == 1)
         #expect(begin.publicationId == publication.publicationId)
         #expect(begin.identity.handle == scopeRequest.handle)
-        #expect(Set(itemKeys) == Set(reviewPackage.orderedItemIds + ["publication"]))
+        #expect(itemKeys == (await AvailabilityBatchKeyProjection().expectedKeys(for: expectedItemIds)))
+        #expect((await harness.session.producerSnapshot()).queuedFrameCount == 0)
         #expect(disposition == .viewBatchSealed)
         #expect(
             await traceRecorder.publicationEvents == [
@@ -290,18 +288,23 @@ struct BridgeProductReviewAvailabilityTests {
             acknowledgeLifecycle: { _ in true }
         )
         let reviewPackage = try availabilityReviewPackageFixture()
+        let expectedItemIds = await AvailabilityBatchKeyProjection().orderedItemIds(in: reviewPackage)
         let publication = availabilityCommittedPublication(reviewPackage)
         let currentPublication = await CoordinatorCurrentReviewPublication(
             publicationId: publication.publicationId
         )
+        let replayProvider = AvailabilityReviewPublicationProvider()
         let source = CoordinatorRepairingReviewMetadataSource()
+        let traceRecorder = AvailabilityReviewPublicationTraceRecorder()
         let coordinator = BridgePaneProductMetadataCoordinator(
             fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
             reviewMetadataSource: source,
+            reviewPublicationReplay: { _ in replayProvider.publication },
             isReviewPublicationCurrent: { publicationId, productAdmission in
                 currentPublication.matches(publicationId, productAdmission: productAdmission)
             },
-            refreshWorkAdmissionSource: refreshWorkAdmission.source
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
+            lifecycleTraceRecorder: traceRecorder
         )
         await coordinator.install(
             request: try availabilityMetadataStreamRequest(),
@@ -309,11 +312,19 @@ struct BridgeProductReviewAvailabilityTests {
             productAdmission: harness.productAdmission.context,
             session: harness.session
         )
-        _ = try await openAvailabilityReviewSubscription(
+        let acceptedFrame = try await openAvailabilityReviewSubscription(
             coordinator: coordinator,
             harness: harness,
             pump: pump
         )
+        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
+        let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
+        #expect(
+            await harness.session.acceptViewScope(
+                scopeRequest, productAdmission: harness.productAdmission.context
+            ) == nil
+        )
+        await MainActor.run { replayProvider.publication = publication }
         let reservation = try await coordinator.reserveReviewPublication(
             package: reviewPackage,
             publicationId: publication.publicationId,
@@ -330,20 +341,41 @@ struct BridgeProductReviewAvailabilityTests {
                 foregroundWorkAdmission: refreshWorkAdmission.admission
             )
         }
-        await source.waitUntilDeliverAttempt(2)
+        let disposition = await delivery.value
         let deliveryAttempts = await source.deliveryAttempts
 
         #expect(deliveryAttempts == 2)
-        guard deliveryAttempts == 2 else {
+        #expect(disposition == .viewBatchSealed)
+        guard disposition == .viewBatchSealed else {
             await coordinator.uninstall(lease: lease)
             #expect(await pump.cancel())
             return
         }
-        _ = try await pullAvailabilityMetadataFrame(from: pump)
-        let disposition = await delivery.value
+        var frames: [BridgeProductMetadataFrame] = []
+        for _ in 0..<(expectedItemIds.count + 3) {
+            frames.append(try await pullAvailabilityMetadataFrame(from: pump))
+        }
+        guard case .subscriptionAccepted(let accepted) = acceptedFrame,
+            case .batch(.begin(let begin)) = frames.first,
+            case .batch(.complete(let complete)) = frames.last
+        else {
+            let observedKinds = await AvailabilityBatchKeyProjection().kindSummary(in: frames)
+            Issue.record("Expected acceptance and a complete repaired W4 batch; observed \(observedKinds)")
+            await coordinator.uninstall(lease: lease)
+            #expect(await pump.cancel())
+            return
+        }
+        let itemKeys = await AvailabilityBatchKeyProjection().putKeys(in: frames)
 
         // Assert
-        #expect(disposition == .viewBatchSealed)
+        #expect(begin.identity.frame.metadataStreamId == accepted.frameIdentity.metadataStreamId)
+        #expect(begin.identity.frame.streamSequence == accepted.frameIdentity.streamSequence + 1)
+        #expect(begin.identity.handle == scopeRequest.handle)
+        #expect(begin.publicationId == publication.publicationId)
+        #expect(begin.partCount == expectedItemIds.count + 1)
+        #expect(complete.identity.batchId == begin.identity.batchId)
+        #expect(itemKeys == (await AvailabilityBatchKeyProjection().expectedKeys(for: expectedItemIds)))
+        #expect((await harness.session.producerSnapshot()).queuedFrameCount == 0)
         #expect((await harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 0)
         await coordinator.uninstall(lease: lease)
         #expect(await pump.cancel())
@@ -362,6 +394,7 @@ struct BridgeProductReviewAvailabilityTests {
             acknowledgeLifecycle: { _ in true }
         )
         let reviewPackage = try availabilityReviewPackageFixture()
+        let expectedItemIds = await AvailabilityBatchKeyProjection().orderedItemIds(in: reviewPackage)
         let predecessor = availabilityCommittedPublication(reviewPackage)
         let successorPackage = replacingReviewSource(
             reviewPackage, packageId: "review-package-after-suspend",
@@ -389,8 +422,8 @@ struct BridgeProductReviewAvailabilityTests {
         _ = try await openAvailabilityReviewSubscription(
             coordinator: coordinator, harness: harness, pump: pump
         )
-        await traceRecorder.waitUntilReviewBootstrapFinished()
-        let scopeRequest = try reviewTestViewScopeRequest(itemIds: reviewPackage.orderedItemIds)
+        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
+        let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
         #expect(
             await harness.session.acceptViewScope(
                 scopeRequest, productAdmission: harness.productAdmission.context
@@ -409,7 +442,7 @@ struct BridgeProductReviewAvailabilityTests {
                 foregroundWorkAdmission: initialForegroundAdmission
             )
         }
-        await reviewSource.waitUntilFirstDeliveryStarted()
+        #expect(await reviewSource.waitUntilFirstDeliveryStarted() == predecessor.publicationId)
 
         activityCoordinator.applyActivity(.loadedHidden)
         await coordinator.suspendForegroundWork()
@@ -430,27 +463,25 @@ struct BridgeProductReviewAvailabilityTests {
         activityCoordinator.applyActivity(.foreground)
         await coordinator.resumeForegroundWork()
         var frames: [BridgeProductMetadataFrame] = []
-        for _ in 0..<(successorPackage.orderedItemIds.count + 3) {
+        for _ in 0..<(expectedItemIds.count + 3) {
             frames.append(try await pullAvailabilityMetadataFrame(from: pump))
         }
-        let itemKeys = frames.compactMap { frame -> String? in
-            guard case .batch(.part(let part)) = frame,
-                case .put(let key, _, _) = part.part
-            else { return nil }
-            return key
-        }
+        let itemKeys = await AvailabilityBatchKeyProjection().putKeys(in: frames)
         let firstFrame = try #require(frames.first)
         let lastFrame = try #require(frames.last)
         guard case .batch(.begin(let begin)) = firstFrame,
             case .batch(.complete) = lastFrame
         else {
-            Issue.record("Expected a complete current Review W4 snapshot after foreground return")
+            let observedKinds = await AvailabilityBatchKeyProjection().kindSummary(in: frames)
+            Issue.record(
+                "Expected a complete current Review W4 snapshot after foreground return; observed \(observedKinds)"
+            )
             return
         }
         #expect(begin.publicationId == successor.publicationId)
         #expect(begin.publicationId != predecessor.publicationId)
         #expect(begin.identity.handle == scopeRequest.handle)
-        #expect(Set(itemKeys) == Set(successorPackage.orderedItemIds + ["publication"]))
+        #expect(itemKeys == (await AvailabilityBatchKeyProjection().expectedKeys(for: expectedItemIds)))
         #expect((await harness.session.producerSnapshot()).queuedFrameCount == 0)
         await coordinator.uninstall(lease: lease)
         #expect(await pump.cancel())
@@ -500,7 +531,7 @@ struct BridgeProductReviewAvailabilityTests {
                 foregroundWorkAdmission: refreshWorkAdmission.admission
             )
         }
-        await source.waitUntilDeliverStarted()
+        #expect(await source.waitUntilDeliverStarted() == reservation.publicationId)
 
         let replacementHarness = try await BridgeProductSessionLifecycleHarness.opened()
         let replacementLease = try await replacementHarness.admitMetadataFrames(through: 0)
@@ -542,6 +573,29 @@ struct BridgeProductReviewAvailabilityTests {
 private enum AvailabilityCoordinatorTestError: Error {
     case expectedFrame
     case publicationFailed
+}
+
+private actor AvailabilityBatchKeyProjection {
+    func orderedItemIds(in package: BridgeReviewPackage) -> [String] {
+        BridgePaneProductReviewMetadataSource.orderedItemIds(in: package)
+    }
+
+    func kindSummary(in frames: [BridgeProductMetadataFrame]) -> [String] {
+        frames.map(\.kind)
+    }
+
+    func expectedKeys(for itemIds: [String]) -> [String] {
+        itemIds.sorted() + ["publication"]
+    }
+
+    func putKeys(in frames: [BridgeProductMetadataFrame]) -> [String] {
+        frames.compactMap { frame in
+            guard case .batch(.part(let part)) = frame,
+                case .put(let key, _, _) = part.part
+            else { return nil }
+            return key
+        }
+    }
 }
 
 private enum AvailabilityReviewPublicationFailureMode: Sendable {
@@ -604,8 +658,8 @@ private actor AvailabilityThrowingReviewMetadataSource:
 private actor AvailabilitySuspendedFailingReviewMetadataSource:
     BridgePaneProductReviewMetadataProducing
 {
-    private var deliverStarted = false
-    private var deliverStartedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startedPublicationId: UUID?
+    private var deliverStartedWaiters: [CheckedContinuation<UUID, Never>] = []
     private var deliverRelease: CheckedContinuation<Void, Never>?
 
     func open(
@@ -622,14 +676,14 @@ private actor AvailabilitySuspendedFailingReviewMetadataSource:
     }
 
     func deliver(
-        publication _: BridgeReviewCommittedPublication,
+        publication: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        deliverStarted = true
+        startedPublicationId = publication.publicationId
         let waiters = deliverStartedWaiters
         deliverStartedWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: publication.publicationId) }
         await withCheckedContinuation { continuation in
             deliverRelease = continuation
         }
@@ -638,9 +692,9 @@ private actor AvailabilitySuspendedFailingReviewMetadataSource:
 
     func cancel(subscriptionId _: String) {}
 
-    func waitUntilDeliverStarted() async {
-        if deliverStarted { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilDeliverStarted() async -> UUID {
+        if let startedPublicationId { return startedPublicationId }
+        return await withCheckedContinuation { continuation in
             deliverStartedWaiters.append(continuation)
         }
     }

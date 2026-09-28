@@ -10,6 +10,7 @@ struct BridgeProductSealedViewBatchTests {
     @Test("Comment producer receives the page's accepted E4 handle")
     func commentProducerWaitsForAcceptedScope() async throws {
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
         var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
         open["subscription"] = ["subscriptionKind": "file.annotations"]
         open["subscriptionId"] = "comment-scope-wait-1"
@@ -38,6 +39,7 @@ struct BridgeProductSealedViewBatchTests {
         #expect(accepted.handle == "page-comment-handle-1")
         #expect(accepted.revision == 1)
         #expect(accepted.viewDomain.incarnation == "page-comment-incarnation-1")
+        try await harness.closeProducer(lease)
     }
 
     @Test("a Review snapshot follows an empty Comment batch on the same metadata producer")
@@ -605,7 +607,12 @@ struct BridgeProductSealedViewBatchTests {
                 viewDomain: .init(viewId: "file-subscription-1", domain: .singleDomain, incarnation: "default"),
                 handle: "file-handle-1",
                 scopeRevision: 1,
-                scope: .object(["kind": .string("file"), "changeFilter": .object(["kind": .string("none")])]),
+                scope: .object([
+                    "kind": .string("file"),
+                    "changeFilter": .object(["kind": .string("none")]),
+                    "interests": .array([]),
+                    "pathScope": .array([]),
+                ]),
                 firstDeliverySequence: 1,
                 snapshot: snapshot
             )
@@ -648,7 +655,7 @@ struct BridgeProductSealedViewBatchTests {
             domain: .singleDomain,
             incarnation: "review-incarnation-1"
         )
-        let scope: BridgeProductJSONValue = .object(["kind": .string("review")])
+        let scope: BridgeProductJSONValue = .object(["kind": .string("review"), "interests": .array([])])
         let publicationId = UUIDv7.generate()
         var producerParts: [BridgeProductBatchPart] = [
             .put(key: "item/a", revision: 4, value: .object(["itemId": .string("a")])),

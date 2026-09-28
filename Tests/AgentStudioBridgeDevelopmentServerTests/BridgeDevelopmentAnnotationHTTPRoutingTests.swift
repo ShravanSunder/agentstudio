@@ -20,6 +20,13 @@ struct BridgeDevelopmentAnnotationHTTPRoutingTests {
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try await FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        for fileIndex in 0..<8 {
+            try "extra file \(fileIndex)\n".write(
+                to: repositoryURL.appending(path: "extra-\(fileIndex).txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
         let paneID = PaneId.generateUUIDv7().uuid
         let dataRoot = FileManager.default.temporaryDirectory.appending(
             path: "bridge-development-http-annotation-output-result-\(paneID.uuidString)",
@@ -218,8 +225,10 @@ private func assertHTTPAnnotationOutputResult(
     let preparation = try await prepareHTTPAnnotationAuthoring(
         client: client,
         runtime: runtime,
-        connection: connection
+        connection: connection,
+        minimumFileBatchPartCount: connection.bootstrap.policy.viewCreditParts + 1
     )
+    #expect(preparation.fileBatchPartCount > connection.bootstrap.policy.viewCreditParts)
     let createOutcome = try await executeHTTPAnnotationCommand(
         client: client,
         connection: connection,

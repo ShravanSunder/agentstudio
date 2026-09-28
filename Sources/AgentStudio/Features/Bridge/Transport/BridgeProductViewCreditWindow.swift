@@ -1,11 +1,21 @@
 import Foundation
 
+struct BridgeProductViewOutstandingPart: Sendable {
+    let viewDomain: BridgeProductViewDomainKey
+    let handle: String
+    let sequence: Int
+    let admittedAt: Duration
+    let admissionOrder: Int
+}
+
 /// Shares one transport credit budget across domains while retaining receipt
 /// attribution by view, domain and incarnation. The handle fences old acks.
 struct BridgeProductViewCreditWindow {
     private struct OutstandingPart {
         let sequence: Int
         let byteCount: Int
+        let admittedAt: Duration
+        let admissionOrder: Int
     }
 
     private struct ViewState {
@@ -21,6 +31,7 @@ struct BridgeProductViewCreditWindow {
     private var stateByViewDomain: [BridgeProductViewDomainKey: ViewState] = [:]
     private var outstandingPartCount = 0
     private var outstandingByteCount = 0
+    private var nextAdmissionOrder = 0
 
     init(maximumParts: Int, maximumBytes: Int) {
         precondition(maximumParts > 0 && maximumBytes > 0)
@@ -44,6 +55,24 @@ struct BridgeProductViewCreditWindow {
         stateByViewDomain[viewDomain]?.outstandingParts.count ?? 0
     }
 
+    func oldestUnacknowledgedPart() -> BridgeProductViewOutstandingPart? {
+        stateByViewDomain.compactMap { viewDomain, state in
+            state.outstandingParts.first.map { part in
+                BridgeProductViewOutstandingPart(
+                    viewDomain: viewDomain,
+                    handle: state.handle,
+                    sequence: part.sequence,
+                    admittedAt: part.admittedAt,
+                    admissionOrder: part.admissionOrder
+                )
+            }
+        }.min {
+            $0.admittedAt == $1.admittedAt
+                ? $0.admissionOrder < $1.admissionOrder
+                : $0.admittedAt < $1.admittedAt
+        }
+    }
+
     /// A late receipt for already returned or abandoned credits is a no-op.
     /// It may be answered without releasing any capacity a second time.
     func wasAlreadySatisfied(
@@ -57,15 +86,22 @@ struct BridgeProductViewCreditWindow {
 
     var maximumPartByteCount: Int { maximumBytes }
 
-    /// Abandoning one staging bank returns only its in-transit credits. A late
-    /// cumulative acknowledgement for those parts must not credit them again.
-    mutating func abandonOutstanding(for viewDomain: BridgeProductViewDomainKey) {
+    /// Abandoning one staging bank returns only its in-transit credits. Reserved
+    /// delivery sequences that never reached admission are skipped so the next
+    /// sealed batch can keep its monotonic sequence. A late receipt cannot
+    /// release successor capacity.
+    mutating func abandonOutstanding(
+        for viewDomain: BridgeProductViewDomainKey,
+        throughReservedSequence: Int? = nil
+    ) {
         guard var state = stateByViewDomain[viewDomain] else { return }
         outstandingPartCount -= state.outstandingParts.count
         outstandingByteCount -= state.outstandingBytes
         state.outstandingParts.removeAll()
         state.outstandingBytes = 0
-        state.receivedThroughSequence = state.lastAdmittedSequence
+        let abandonedThroughSequence = max(state.lastAdmittedSequence, throughReservedSequence ?? 0)
+        state.lastAdmittedSequence = abandonedThroughSequence
+        state.receivedThroughSequence = abandonedThroughSequence
         stateByViewDomain[viewDomain] = state
     }
 
@@ -73,7 +109,8 @@ struct BridgeProductViewCreditWindow {
         for viewDomain: BridgeProductViewDomainKey,
         handle: String,
         sequence: Int,
-        byteCount: Int
+        byteCount: Int,
+        admittedAt: Duration = .zero
     ) -> Bool {
         guard var state = stateByViewDomain[viewDomain],
             state.handle == handle,
@@ -84,7 +121,15 @@ struct BridgeProductViewCreditWindow {
         else {
             return false
         }
-        state.outstandingParts.append(.init(sequence: sequence, byteCount: byteCount))
+        nextAdmissionOrder += 1
+        state.outstandingParts.append(
+            .init(
+                sequence: sequence,
+                byteCount: byteCount,
+                admittedAt: admittedAt,
+                admissionOrder: nextAdmissionOrder
+            )
+        )
         state.outstandingBytes += byteCount
         state.lastAdmittedSequence = sequence
         outstandingPartCount += 1

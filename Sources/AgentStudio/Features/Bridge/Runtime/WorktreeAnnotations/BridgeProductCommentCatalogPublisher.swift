@@ -29,7 +29,6 @@ actor BridgeProductCommentCatalogPublisher {
 
     private var handle: String
     private let readCurrent: ReadCurrent
-    private var admittedSessionIDs: Set<WorktreeAnnotationSessionID>
     private var scopeRevision: Int
     private var dirtyRanges: Set<WorktreeAnnotationCatalogRange> = []
     private var installedEntries: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] = [:]
@@ -40,24 +39,18 @@ actor BridgeProductCommentCatalogPublisher {
 
     init(
         handle: String,
-        admittedSessionIDs: Set<WorktreeAnnotationSessionID>,
         scopeRevision: Int,
         readCurrent: @escaping ReadCurrent
     ) {
         precondition(!handle.isEmpty)
         self.handle = handle
-        self.admittedSessionIDs = admittedSessionIDs
         self.scopeRevision = scopeRevision
         self.readCurrent = readCurrent
     }
 
-    func acceptScope(
-        sessionIDs: Set<WorktreeAnnotationSessionID>,
-        revision: Int
-    ) -> Bool {
+    func acceptScope(revision: Int) -> Bool {
         guard !isRetired, revision > scopeRevision else { return false }
         scopeRevision = revision
-        admittedSessionIDs = sessionIDs
         return true
     }
 
@@ -153,9 +146,6 @@ actor BridgeProductCommentCatalogPublisher {
         let baseRevision = nextWireRevision
         let revision = baseRevision + 1
         let membership = try sessionMembership(for: rows)
-        let admittedRows = rows.filter { key, _ in
-            membership[key].map(admittedSessionIDs.contains) ?? false
-        }
         if case .session(let sessionID) = range,
             membership.values.contains(where: { $0 != sessionID })
         {
@@ -170,9 +160,9 @@ actor BridgeProductCommentCatalogPublisher {
                         owner == sessionID ? key : nil
                     })
             }
-        let currentKeys = Set(admittedRows.keys)
-        let puts = try admittedRows.keys.sorted { $0.recordKey < $1.recordKey }.map { key in
-            guard let entry = admittedRows[key] else { preconditionFailure("A selected catalog row disappeared") }
+        let currentKeys = Set(rows.keys)
+        let puts = try rows.keys.sorted { $0.recordKey < $1.recordKey }.map { key in
+            guard let entry = rows[key] else { preconditionFailure("A selected catalog row disappeared") }
             return try BridgeProductCommentCatalogRecord(entry: entry, revision: revision)
         }
         let deletes = previousKeys.subtracting(currentKeys)
@@ -183,7 +173,7 @@ actor BridgeProductCommentCatalogPublisher {
             installedEntries.removeValue(forKey: key)
             installedSessionByKey.removeValue(forKey: key)
         }
-        for (key, entry) in admittedRows {
+        for (key, entry) in rows {
             installedEntries[key] = entry
             installedSessionByKey[key] = membership[key]
         }

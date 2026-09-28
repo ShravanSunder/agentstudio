@@ -105,7 +105,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             _ = try await requireShareSnapshot(
                 hostedController.page,
                 stage: "review-history",
-                where: "return snapshot.shareVisible && snapshot.historyCount === 1;"
+                where: "return snapshot.shareVisible && snapshot.historyCount === 1 && snapshot.pendingCount === 0;"
             )
             try await clickButton(hostedController.page, label: "History (1)")
             try await clickButton(hostedController.page, label: "Inspect output attempt 1")
@@ -124,7 +124,7 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             let reviewAfterUnhandle = try await requireShareSnapshot(
                 hostedController.page,
                 stage: "review-unhandle",
-                where: "return snapshot.pendingCount === 1;"
+                where: "return snapshot.shareOpen && snapshot.shareVisible && snapshot.pendingCount === 1;"
             )
             try await clickButton(hostedController.page, label: "Close Annotations")
 

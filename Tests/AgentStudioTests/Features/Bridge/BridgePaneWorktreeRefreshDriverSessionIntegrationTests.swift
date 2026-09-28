@@ -14,6 +14,10 @@ struct BridgeWorktreeRefreshSessionTests {
         )
         defer { emissionWaiterContinuation.finish() }
         var emissionWaiterIterator = emissionWaiters.makeAsyncIterator()
+        let (firstSealResults, firstSealResultContinuation) = AsyncStream<RefreshSessionFirstSealResult>
+            .makeStream(bufferingPolicy: .bufferingOldest(1))
+        defer { firstSealResultContinuation.finish() }
+        var firstSealResultIterator = firstSealResults.makeAsyncIterator()
         let harness = try await BridgeProductSessionLifecycleHarness.opened(
             viewEmissionWaiterRegistrationObserver: { viewDomain in
                 _ = emissionWaiterContinuation.yield(viewDomain)
@@ -43,42 +47,35 @@ struct BridgeWorktreeRefreshSessionTests {
             session: harness.session,
             subscriptionId: viewScope.subscriptionId,
             viewDomain: viewDomain,
-            handle: viewScope.handle
+            handle: viewScope.handle,
+            firstSealResultContinuation: firstSealResultContinuation
         )
-        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
         let (terminalEvents, terminalContinuation) = AsyncStream<BridgeOperationLifecycleTraceEvent>.makeStream(
             bufferingPolicy: .bufferingNewest(2)
         )
         defer { terminalContinuation.finish() }
         var terminalIterator = terminalEvents.makeAsyncIterator()
-        let driver = BridgePaneWorktreeRefreshDriver(
-            coordinator: coordinator,
-            acquireProductAdmission: { harness.productAdmission.context },
-            publishFileChangeset: { changeset, admission, work, correlationID, attempt in
-                await publisher.publish(
-                    changeset,
-                    productAdmission: admission,
-                    foregroundWorkAdmission: work,
-                    operationCorrelationID: correlationID,
-                    operationStageAttempt: attempt
-                )
-            },
-            publishFileStatus: { _, _, _, _, _ in .notRequired },
-            publishPresentation: { _, _ in },
-            publishOperationLifecycle: { event in
-                if event.stage == .refreshOperationTerminal {
-                    _ = terminalContinuation.yield(event)
-                }
-            }
+        let (driver, coordinator) = makeSessionIntegrationDriver(
+            publisher: publisher,
+            harness: harness,
+            terminalContinuation: terminalContinuation
         )
         driver.recordFileSourceAccepted(try sessionIntegrationFileSource(generation: 1))
 
-        _ = driver.recordInvalidation(
+        let affectedLanes = driver.recordInvalidation(
             fileChangeset: sessionIntegrationChangeset(batchSequence: 1),
             latestFileStatus: nil,
             requiresReviewRefresh: false
         )
-        await publisher.waitForSealCount(1)
+        #expect(affectedLanes == [.file])
+        #expect(driver.hasActiveFileOperation)
+        let firstSealResult = try #require(await firstSealResultIterator.next())
+        guard case .sealed = firstSealResult else {
+            Issue.record("Expected the first File refresh to seal a certified batch, got \(firstSealResult)")
+            await driver.closeAndDrain()
+            try await harness.closeProducer(metadataLease)
+            return
+        }
         let firstFrame = try await pullMetadataFrame(from: pump)
         guard case .batch(.begin(let firstBegin)) = firstFrame else {
             Issue.record("Expected first certified File batch begin")
@@ -116,6 +113,43 @@ struct BridgeWorktreeRefreshSessionTests {
 }
 
 @MainActor
+private func makeSessionIntegrationDriver(
+    publisher: BridgeRefreshDriverSessionPublisher,
+    harness: BridgeProductSessionLifecycleHarness,
+    terminalContinuation: AsyncStream<BridgeOperationLifecycleTraceEvent>.Continuation
+) -> (BridgePaneWorktreeRefreshDriver, BridgePaneRefreshAdmissionCoordinator) {
+    let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+    let driver = BridgePaneWorktreeRefreshDriver(
+        coordinator: coordinator,
+        acquireProductAdmission: { harness.productAdmission.context },
+        publishFileChangeset: { changeset, admission, work, correlationID, attempt in
+            await publisher.publish(
+                changeset,
+                productAdmission: admission,
+                foregroundWorkAdmission: work,
+                operationCorrelationID: correlationID,
+                operationStageAttempt: attempt
+            )
+        },
+        publishFileStatus: { _, _, _, _, _ in .notRequired },
+        publishPresentation: { _, _ in },
+        publishOperationLifecycle: { event in
+            if event.stage == .refreshOperationTerminal {
+                await publisher.recordTerminalBeforeSeal(event.result)
+                _ = terminalContinuation.yield(event)
+            }
+        }
+    )
+    return (driver, coordinator)
+}
+
+private enum RefreshSessionFirstSealResult: Equatable, Sendable {
+    case sealed
+    case rejected(BridgePaneProductFileRefreshPublicationDisposition)
+    case terminal(BridgeOperationLifecycleTraceEvent.Result)
+}
+
+@MainActor
 private func assertFileStreamRecoveryIsPending(
     driver: BridgePaneWorktreeRefreshDriver,
     coordinator: BridgePaneRefreshAdmissionCoordinator
@@ -130,7 +164,7 @@ private func assertSessionIntegrationFileReplay(
 ) {
     #expect(replay.begin.identity.handle == handle)
     #expect(replay.complete.identity.batchId == replay.begin.identity.batchId)
-    #expect(replay.rows.map(\.displayKey) == ["Sources/App.swift"])
+    #expect(replay.rows.map(\.displayKey) == ["Sources", "Sources/App.swift"])
     #expect(replay.memberStatus.source.subscriptionGeneration == 2)
 }
 
@@ -154,6 +188,7 @@ private actor BridgeRefreshDriverSessionPublisher {
     private let subscriptionId: String
     private let viewDomain: BridgeProductViewDomainKey
     private let handle: String
+    private let firstSealResultContinuation: AsyncStream<RefreshSessionFirstSealResult>.Continuation
     private var sealWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var attemptCount = 0
     private(set) var sealCount = 0
@@ -164,12 +199,14 @@ private actor BridgeRefreshDriverSessionPublisher {
         session: BridgeProductSession,
         subscriptionId: String,
         viewDomain: BridgeProductViewDomainKey,
-        handle: String
+        handle: String,
+        firstSealResultContinuation: AsyncStream<RefreshSessionFirstSealResult>.Continuation
     ) {
         self.session = session
         self.subscriptionId = subscriptionId
         self.viewDomain = viewDomain
         self.handle = handle
+        self.firstSealResultContinuation = firstSealResultContinuation
     }
 
     func publish(
@@ -179,7 +216,10 @@ private actor BridgeRefreshDriverSessionPublisher {
         operationCorrelationID: String,
         operationStageAttempt: Int
     ) async -> BridgePaneProductFileRefreshPublicationDisposition {
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .stale }
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            _ = firstSealResultContinuation.yield(.rejected(.stale))
+            return .stale
+        }
         attemptCount += 1
         operationCorrelationIDs.append(operationCorrelationID)
         operationStageAttempts.append(operationStageAttempt)
@@ -189,9 +229,13 @@ private actor BridgeRefreshDriverSessionPublisher {
                 snapshot: try sessionIntegrationFileSnapshot(generation: attemptCount),
                 productAdmission: productAdmission
             )
-            guard sealed else { return .stale }
+            guard sealed else {
+                _ = firstSealResultContinuation.yield(.rejected(.stale))
+                return .stale
+            }
             sealCount += 1
             resumeSealWaiters()
+            if sealCount == 1 { _ = firstSealResultContinuation.yield(.sealed) }
             if attemptCount > 1 { return .applied }
             let outcome = await session.awaitViewEmissionCompletion(for: viewDomain, handle: handle)
             switch outcome {
@@ -200,7 +244,9 @@ private actor BridgeRefreshDriverSessionPublisher {
             case .retired: return .stale
             }
         } catch {
-            return BridgePaneProductMetadataCoordinator.fileRefreshDisposition(for: error)
+            let disposition = BridgePaneProductMetadataCoordinator.fileRefreshDisposition(for: error)
+            _ = firstSealResultContinuation.yield(.rejected(disposition))
+            return disposition
         }
     }
 
@@ -209,6 +255,11 @@ private actor BridgeRefreshDriverSessionPublisher {
         await withCheckedContinuation { continuation in
             sealWaiters.append((expectedCount, continuation))
         }
+    }
+
+    func recordTerminalBeforeSeal(_ result: BridgeOperationLifecycleTraceEvent.Result) {
+        guard sealCount == 0 else { return }
+        _ = firstSealResultContinuation.yield(.terminal(result))
     }
 
     private func resumeSealWaiters() {

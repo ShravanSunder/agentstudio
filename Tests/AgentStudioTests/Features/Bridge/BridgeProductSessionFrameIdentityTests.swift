@@ -277,7 +277,6 @@ struct BridgeProductSessionFrameIdentityTests {
         let afterReplay = await harness.session.producerSnapshot()
 
         // Assert
-        #expect(delivery.receipt.requiresWorkerObservation)
         #expect(beforeObservation.inFlightFrameReceiptCount == 1)
         #expect(!foreignRequestAccepted)
         #expect(!foreignLeaseAccepted)

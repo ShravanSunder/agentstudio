@@ -124,7 +124,6 @@ struct BridgeProductSessionContractTests {
                 "metadataStream.accepted",
                 "pane.presentation",
                 "subscription.accepted",
-                "subscription.reset",
                 "subscription.end",
                 "subscription.cancelled",
                 "content.cancelled",

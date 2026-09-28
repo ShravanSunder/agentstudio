@@ -417,10 +417,26 @@ function reviewProductBatchFromRuntimeSource(
 			contentHashesByRole,
 			deletions: 0,
 			extentByRole: {
-				base: contentItem.contentLineCountsByRole.base ?? null,
-				diff: contentItem.contentLineCountsByRole.diff ?? null,
-				file: contentItem.contentLineCountsByRole.file ?? null,
-				head: contentItem.contentLineCountsByRole.head ?? null,
+				base: source.contentRequestDescriptors.some(
+					(descriptor) => descriptor.itemId === contentItem.itemId && descriptor.role === 'base',
+				)
+					? (contentItem.contentLineCountsByRole.base ?? null)
+					: null,
+				diff: source.contentRequestDescriptors.some(
+					(descriptor) => descriptor.itemId === contentItem.itemId && descriptor.role === 'diff',
+				)
+					? (contentItem.contentLineCountsByRole.diff ?? null)
+					: null,
+				file: source.contentRequestDescriptors.some(
+					(descriptor) => descriptor.itemId === contentItem.itemId && descriptor.role === 'file',
+				)
+					? (contentItem.contentLineCountsByRole.file ?? null)
+					: null,
+				head: source.contentRequestDescriptors.some(
+					(descriptor) => descriptor.itemId === contentItem.itemId && descriptor.role === 'head',
+				)
+					? (contentItem.contentLineCountsByRole.head ?? null)
+					: null,
 			},
 			extension: reviewProductTestPathExtension(displayPath),
 			fileClass: 'source',

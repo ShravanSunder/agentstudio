@@ -38,7 +38,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         )
         try await firstWorker.openSession()
         var firstMetadataStream = try firstWorker.startMetadataStream()
-        try await firstMetadataStream.requireOpeningFrameAndAcknowledge(using: firstWorker)
+        try await firstMetadataStream.requireOpeningFrame()
 
         // Act — the old stream task still holds its physical claim.
         let secondDelivery = try await host.issueBootstrap(for: bootstrapRequest)
@@ -79,7 +79,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         }
         try await firstWorker.openSession()
         var firstMetadataStream = try firstWorker.startMetadataStream()
-        try await firstMetadataStream.requireOpeningFrameAndAcknowledge(using: firstWorker)
+        try await firstMetadataStream.requireOpeningFrame()
 
         await #expect(throws: BridgeDevelopmentProductHostError.sessionAlreadyOpen) {
             _ = try await host.issueBootstrap(for: competingRequest)
@@ -127,7 +127,7 @@ struct BridgeDevelopmentHostBootstrapAdmissionTests {
         let firstWorker = try DevelopmentDisplayWorkerClient(host: host, delivery: firstDelivery)
         try await firstWorker.openSession()
         var firstMetadataStream = try firstWorker.startMetadataStream()
-        try await firstMetadataStream.requireOpeningFrameAndAcknowledge(using: firstWorker)
+        try await firstMetadataStream.requireOpeningFrame()
 
         // Act — stop the stream, then wait for the hold to be ENTERED. At that
         // instant the census says terminated and no retirement is recorded.

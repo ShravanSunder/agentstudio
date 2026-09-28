@@ -126,9 +126,9 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
     }
 
     func deliver(
-        publication _: BridgeReviewCommittedPublication,
-        reservation _: BridgeReviewMetadataPublicationReservation,
-        productAdmission _: BridgeProductAdmissionContext
+        publication: BridgeReviewCommittedPublication,
+        reservation: BridgeReviewMetadataPublicationReservation,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         defer {
             deliveryFinished = true
@@ -178,51 +178,47 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
 }
 
 actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
+    private let source = BridgePaneProductReviewMetadataSource()
     private var deliverAttemptCount = 0
-    private var deliverAttemptWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     func open(
-        subscription _: BridgeProductSubscriptionSnapshot,
-        productAdmission _: BridgeProductAdmissionContext
-    ) {}
+        subscription: BridgeProductSubscriptionSnapshot,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws {
+        try await source.open(subscription: subscription, productAdmission: productAdmission)
+    }
 
     func reserve(
         package: BridgeReviewPackage,
         publicationId: UUID,
-        productAdmission _: BridgeProductAdmissionContext
-    ) -> BridgeReviewMetadataPublicationReservation {
-        coordinatorReviewReservation(for: package, publicationId: publicationId)
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewMetadataPublicationReservation {
+        try await source.reserve(
+            package: package, publicationId: publicationId, productAdmission: productAdmission
+        )
     }
 
     func deliver(
-        publication _: BridgeReviewCommittedPublication,
-        reservation _: BridgeReviewMetadataPublicationReservation,
-        productAdmission _: BridgeProductAdmissionContext
+        publication: BridgeReviewCommittedPublication,
+        reservation: BridgeReviewMetadataPublicationReservation,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         deliverAttemptCount += 1
-        let attempt = deliverAttemptCount
-        for waiter in deliverAttemptWaiters.removeValue(forKey: attempt) ?? [] {
-            waiter.resume()
-        }
-        if attempt == 1 {
+        if deliverAttemptCount == 1 {
             throw BridgePaneProductMetadataCoordinatorError.producerQueueReset
         }
-        return .delivered(
-            .init(
-                retained: 1,
-                publishedSubscriptions: 1,
-                emittedEvents: 0,
-                superseded: 0,
-                finalFrames: []
-            ))
+        return try await source.deliver(
+            publication: publication, reservation: reservation, productAdmission: productAdmission
+        )
     }
 
-    func cancel(subscriptionId _: String) {}
+    func applyViewDemand(_ request: BridgePaneProductReviewViewDemandRequest) async throws
+        -> BridgePaneProductReviewViewCapture?
+    {
+        try await source.applyViewDemand(request)
+    }
 
-    func waitUntilDeliverAttempt(_ attempt: Int) async {
-        guard deliverAttemptCount < attempt else { return }
-        await withCheckedContinuation { continuation in
-            deliverAttemptWaiters[attempt, default: []].append(continuation)
-        }
+    func cancel(subscriptionId: String) async {
+        await source.cancel(subscriptionId: subscriptionId)
     }
 
     var deliveryAttempts: Int { deliverAttemptCount }

@@ -1,4 +1,5 @@
 import type { BridgeCommWorkerAnnotationCatalog } from './bridge-comm-worker-annotation-catalog-applicator.js';
+import type { BridgeCommWorkerReviewMetadataApplicationTransaction } from './bridge-comm-worker-command-handler-contracts.js';
 import { applyBridgeCommWorkerFileBatchToRuntime } from './bridge-comm-worker-file-batch-runtime-application.js';
 import { BridgeCommWorkerFileDisplayEventAuthority } from './bridge-comm-worker-file-display-event-authority.js';
 import { BridgeCommWorkerFileQueryProjection } from './bridge-comm-worker-file-query-projection.js';
@@ -29,9 +30,9 @@ export function installBridgeCommWorkerProductBatchRuntime(props: {
 		epoch: number,
 		mutation: BridgeCommWorkerFileViewRuntimeMutation,
 	) => readonly BridgeWorkerServerToMainMessage[];
-	readonly applyReviewRuntimeApplication: (
+	readonly prepareReviewRuntimeApplication: (
 		application: BridgeCommWorkerReviewMetadataApplication,
-	) => readonly BridgeWorkerServerToMainMessage[];
+	) => BridgeCommWorkerReviewMetadataApplicationTransaction;
 	readonly beforeApplyFile: (view: BridgeProductInstalledFileView) => void;
 	readonly didInstallFile: (view: BridgeProductInstalledFileView, begin: BatchBegin) => void;
 	readonly didInstallReview: (
@@ -48,6 +49,7 @@ export function installBridgeCommWorkerProductBatchRuntime(props: {
 		readonly workerDerivationEpoch: number;
 	}) => void;
 	readonly reportResnapshotFailure: () => void;
+	readonly reportReviewPostCommitFailure: () => void;
 }): BridgeCommWorkerProductBatchApplication {
 	const application = new BridgeCommWorkerProductBatchApplication({
 		applyComment: (catalog: BridgeCommWorkerAnnotationCatalog, surface): void => {
@@ -74,14 +76,30 @@ export function installBridgeCommWorkerProductBatchRuntime(props: {
 				sourceEpoch,
 				workerDerivationEpoch,
 			});
-			for (const message of props.applyReviewRuntimeApplication(runtimeApplication)) {
-				props.publishMessage(message);
+			const transaction = props.prepareReviewRuntimeApplication(runtimeApplication);
+			try {
+				props.publishReviewDisplay({
+					patches: bridgeCommWorkerReviewDisplayPatchesFromBatch(presentation),
+					reviewPublicationIdentity: presentation.runtimeSource.reviewPublicationIdentity,
+					workerDerivationEpoch,
+				});
+				transaction.commit();
+			} catch (error) {
+				transaction.rollback();
+				throw error;
 			}
-			props.publishReviewDisplay({
-				patches: bridgeCommWorkerReviewDisplayPatchesFromBatch(presentation),
-				reviewPublicationIdentity: presentation.runtimeSource.reviewPublicationIdentity,
-				workerDerivationEpoch,
-			});
+			try {
+				transaction.runPostCommitEffects();
+			} catch {
+				props.reportReviewPostCommitFailure();
+			}
+			for (const message of transaction.messages) {
+				try {
+					props.publishMessage(message);
+				} catch {
+					props.reportReviewPostCommitFailure();
+				}
+			}
 			props.didInstallReview(presentation, begin);
 		},
 		requestResnapshot: (frame): void => {

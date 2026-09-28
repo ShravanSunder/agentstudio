@@ -372,7 +372,6 @@ struct BridgeProductMetadataFrameCodecTests {
         let frames = try #require(corpus["metadataFrames"] as? [[String: Any]])
         let surfaceFrameKinds: Set<String> = [
             "subscription.accepted",
-            "subscription.reset",
             "subscription.end",
             "subscription.cancelled",
             "content.cancelled",
@@ -399,8 +398,15 @@ struct BridgeProductMetadataFrameCodecTests {
                     && $0["subscriptionKind"] as? String == "review.metadata"
             }
         )
-        var oldReviewReset = try #require(
-            frames.first { $0["kind"] as? String == "subscription.reset" }
+        let runtimeFixture = try metadataRuntimeFixture()
+        var oldReviewReset = try encodedJSONObject(
+            BridgeProductMetadataFrame.subscriptionReset(
+                stream: runtimeFixture.stream,
+                streamSequence: 4,
+                subscription: runtimeFixture.updatedSubscription,
+                subscriptionSequence: 3,
+                reason: .staleSource
+            )
         )
         var oldFileCancellation = try #require(
             frames.first { $0["kind"] as? String == "content.cancelled" }

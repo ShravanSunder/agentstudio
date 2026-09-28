@@ -4,19 +4,16 @@ import {
 	buildBridgeWorkerReviewCandidateReadyEvent,
 	buildBridgeWorkerReviewCandidateStartedEvent,
 } from './bridge-comm-worker-protocol.js';
-import { reviewCandidateStartDispositionFromRefreshImpact } from './bridge-comm-worker-review-metadata-applicator-support.js';
-import {
-	compareReviewMetadataLineages,
-	type ReviewMetadataLineage,
-} from './bridge-comm-worker-review-publication-transaction.js';
-import type {
-	BridgeCommWorkerReviewSuccessorReExposureFence,
-	BridgeCommWorkerReviewSuccessorReExposureSettlement,
-} from './bridge-comm-worker-review-successor-re-exposure.js';
+import { bridgeCommWorkerReviewDisplayPatchesFromBatch } from './bridge-comm-worker-review-batch-display.js';
 import {
 	BridgeCommWorkerReviewBatchInstaller,
 	type BridgeCommWorkerReviewBatchPresentation,
 } from './bridge-comm-worker-review-batch-installer.js';
+import type {
+	BridgeCommWorkerReviewSuccessorReExposureFence,
+	BridgeCommWorkerReviewSuccessorReExposureSettlement,
+} from './bridge-comm-worker-review-publication-types.js';
+import { reviewCandidateStartDispositionFromRefreshImpact } from './bridge-comm-worker-review-refresh-impact.js';
 import type { BridgeProductBatchFrameSinks } from './bridge-product-batch-frame-router.js';
 import type { BridgeProductBatchFrame } from './bridge-product-batch-wire-contracts.js';
 import { installBridgeProductCommentBatch } from './bridge-product-comment-batch-installer.js';
@@ -25,13 +22,16 @@ import {
 	type BridgeProductInstalledFileView,
 } from './bridge-product-file-batch-installer.js';
 import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
-import { bridgeCommWorkerReviewDisplayPatchesFromBatch } from './bridge-comm-worker-review-batch-display.js';
 import type {
 	BridgeWorkerReviewCandidateStartDisposition,
 	BridgeWorkerReviewDisplayPatch,
 	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import {
+	compareReviewMetadataLineages,
+	type ReviewMetadataLineage,
+} from './bridge-worker-review-publication-lineage.js';
 
 type BatchBegin = Extract<BridgeProductBatchFrame, { readonly kind: 'subscription.batchBegin' }>;
 
@@ -72,7 +72,6 @@ export class BridgeCommWorkerProductBatchApplication {
 		readonly disposition: BridgeWorkerReviewCandidateStartDisposition;
 		readonly identity: ReviewMetadataLineage;
 	} | null = null;
-	#activeReviewDisplayStatus: 'ready' | 'stale' = 'ready';
 	#lastSuccessorReExposureFence: BridgeCommWorkerReviewSuccessorReExposureFence | null = null;
 
 	constructor(props: BridgeCommWorkerProductBatchApplicationProps) {
@@ -84,7 +83,6 @@ export class BridgeCommWorkerProductBatchApplication {
 		const presentation = this.#activeReviewPresentation;
 		const identity = presentation === null ? null : reviewLineage(presentation);
 		if (presentation === null || identity === null) return 'noActive';
-		this.#activeReviewDisplayStatus = 'stale';
 		this.#props.publishReviewDisplay({
 			patches: staleReviewSourcePatch(presentation),
 			reviewPublicationIdentity: reviewPublicationIdentity(identity),
@@ -194,24 +192,22 @@ export class BridgeCommWorkerProductBatchApplication {
 						records: installation.records,
 						applyPresentation: (presentation): void => {
 							const workerDerivationEpoch = this.#props.workerDerivationEpoch('review');
-							const identity = reviewLineage(presentation);
+							const identity = reviewCandidateLineage(presentation);
 							const readyFacts =
 								identity === null
 									? null
 									: {
-										disposition: reviewCandidateStartDispositionFromRefreshImpact(
-											presentation.publication.classifiedRefreshImpact,
-										),
-										identity,
-									};
+											disposition: reviewCandidateStartDispositionFromRefreshImpact(
+												presentation.publication.classifiedRefreshImpact,
+											),
+											identity,
+										};
 							if (readyFacts !== null)
 								this.#publishCandidateStarted(readyFacts, workerDerivationEpoch);
 							try {
 								this.#props.applyReview(presentation, begin, sourceEpoch, previous);
 								this.#activeReviewPresentation = presentation;
 								this.#activeReviewReadyFacts = readyFacts;
-								this.#activeReviewDisplayStatus =
-									presentation.publication.desired.status === 'ready' ? 'ready' : 'stale';
 								this.#reviewSourceEpochBySubscriptionId.set(begin.subscriptionId, sourceEpoch);
 								if (readyFacts !== null) {
 									this.#lastSuccessorReExposureFence = null;
@@ -249,15 +245,16 @@ export class BridgeCommWorkerProductBatchApplication {
 		},
 		workerDerivationEpoch: number,
 	): void {
+		const currentIdentity = reviewLineage(presentation);
+		if (
+			currentIdentity === null ||
+			compareReviewMetadataLineages(currentIdentity, readyFacts.identity) !== 'same'
+		) {
+			return;
+		}
 		this.#publishCandidateStarted(readyFacts, workerDerivationEpoch);
-		this.#props.publishReviewDisplay({
-			patches: reviewDisplayPatchesWithStatus(
-				presentation,
-				this.#activeReviewDisplayStatus,
-			),
-			reviewPublicationIdentity: reviewPublicationIdentity(readyFacts.identity),
-			workerDerivationEpoch,
-		});
+		// The certified W4 display bank was already published with this candidate.
+		// A settlement can re-expose its lifecycle identity, but cannot replay that bank.
 		this.#publishCandidateReady(readyFacts, workerDerivationEpoch);
 	}
 
@@ -329,7 +326,22 @@ function reviewLineage(
 	};
 }
 
-function reviewPublicationIdentity(identity: ReviewMetadataLineage): BridgeWorkerReviewPublicationIdentity {
+function reviewCandidateLineage(
+	presentation: BridgeCommWorkerReviewBatchPresentation,
+): ReviewMetadataLineage | null {
+	if (
+		presentation.publication.desired.status !== 'ready' ||
+		presentation.publication.displayed === null ||
+		presentation.publication.publicationId !== presentation.publication.displayed.publicationId
+	) {
+		return null;
+	}
+	return reviewLineage(presentation);
+}
+
+function reviewPublicationIdentity(
+	identity: ReviewMetadataLineage,
+): BridgeWorkerReviewPublicationIdentity {
 	return {
 		packageId: identity.packageId,
 		publicationId: identity.publicationId,
@@ -357,18 +369,6 @@ function staleReviewSourcePatch(
 	return bridgeCommWorkerReviewDisplayPatchesFromBatch(presentation).flatMap((patch) => {
 		if (patch.slice !== 'reviewSource' || patch.operation !== 'upsert') return [];
 		return [{ ...patch, payload: { ...patch.payload, status: 'stale' as const } }];
-	});
-}
-
-function reviewDisplayPatchesWithStatus(
-	presentation: BridgeCommWorkerReviewBatchPresentation,
-	status: 'ready' | 'stale',
-): readonly BridgeWorkerReviewDisplayPatch[] {
-	const patches = bridgeCommWorkerReviewDisplayPatchesFromBatch(presentation);
-	if (status === 'ready') return patches;
-	return patches.map((patch) => {
-		if (patch.slice !== 'reviewSource' || patch.operation !== 'upsert') return patch;
-		return { ...patch, payload: { ...patch.payload, status } };
 	});
 }
 

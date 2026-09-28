@@ -120,12 +120,6 @@ struct BridgeProductSchemeFramePump: Sendable {
         )
     }
 
-    func frameRequiresWorkerObservation(
-        _ receipt: BridgeProductProducerFrameReceipt
-    ) -> Bool {
-        receipt.requiresWorkerObservation
-    }
-
     func cancel() async -> Bool {
         let retirement = await session.beginProducerRetirement(
             producerLease,
@@ -179,6 +173,7 @@ extension BridgeProductSession {
                                 continuation: continuation,
                                 token: waiterToken
                             )
+                            producerFrameWaiterRegistrationObserver?(lease)
                         }
                         return true
                     } ?? false

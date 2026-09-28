@@ -83,10 +83,23 @@ export function requireBrowserFileBatchPublisher(
 	return publisher;
 }
 
-export async function waitForBrowserFileBatchPublisher(
-	getPublisher: () => PublishBrowserFileBatch | null,
-): Promise<PublishBrowserFileBatch> {
-	return waitForBrowserFileBatchPublisherAttempt({ attempt: 0, getPublisher });
+export function makeBrowserFileBatchPublisherObservation(): {
+	readonly publisher: Promise<PublishBrowserFileBatch>;
+	readonly observe: (publisher: PublishBrowserFileBatch) => void;
+} {
+	let resolvePublisher: ((publisher: PublishBrowserFileBatch) => void) | undefined;
+	const publisher = new Promise<PublishBrowserFileBatch>((resolve): void => {
+		resolvePublisher = resolve;
+	});
+	return {
+		publisher,
+		observe: (receivedPublisher): void => {
+			if (resolvePublisher === undefined) {
+				throw new Error('File batch publisher observation was not initialized.');
+			}
+			resolvePublisher(receivedPublisher);
+		},
+	};
 }
 
 export function metadataInterestPathsForLane(
@@ -336,22 +349,6 @@ export async function waitForOpenFileStateAttempt(props: {
 	await waitForOpenFileStateAttempt({
 		attempt: props.attempt + 1,
 		expectedState: props.expectedState,
-	});
-}
-
-async function waitForBrowserFileBatchPublisherAttempt(props: {
-	readonly attempt: number;
-	readonly getPublisher: () => PublishBrowserFileBatch | null;
-}): Promise<PublishBrowserFileBatch> {
-	const publisher = props.getPublisher();
-	if (publisher !== null) return publisher;
-	if (props.attempt >= 60) {
-		throw new Error('File metadata subscription was not initialized.');
-	}
-	await actFrame();
-	return waitForBrowserFileBatchPublisherAttempt({
-		attempt: props.attempt + 1,
-		getPublisher: props.getPublisher,
 	});
 }
 

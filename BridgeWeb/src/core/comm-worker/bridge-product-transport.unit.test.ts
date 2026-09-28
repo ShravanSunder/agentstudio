@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import validProductSessionCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
+import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
 import {
 	bridgeProductFileMetadataApplicationProtocol,
 	bridgeProductReviewAnnotationMetadataApplicationProtocol,
@@ -28,6 +29,116 @@ afterEach(async () => {
 });
 
 describe('Bridge product transport', () => {
+	test('W4 replacement snapshots exhaust W2 budget and a certified install rearms the same E3', async () => {
+		const harness = createTransportHarness();
+		let replacementCount = 0;
+		let notifyBudgetReached: (() => void) | undefined;
+		const budgetReached = new Promise<void>((resolve) => {
+			notifyBudgetReached = resolve;
+		});
+		let notifyInstalled: (() => void) | undefined;
+		const installed = new Promise<void>((resolve) => {
+			notifyInstalled = resolve;
+		});
+		harness.transport.setBatchFrameSinks?.({
+			install: (): void => {},
+			receipt: (): void => {},
+			replacementSnapshot: (): void => {
+				replacementCount += 1;
+				if (replacementCount === 3) notifyBudgetReached?.();
+			},
+			certifiedInstallCompleted: (): void => notifyInstalled?.(),
+			resnapshot: (): void => {},
+		});
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			source: fileSourceConfiguration(),
+		});
+		try {
+			const stream = await harness.server.waitForMetadataStreamOpened();
+			harness.server.emitMetadata(metadataAccepted(stream, 0));
+			harness.server.emitMetadata(
+				subscriptionAccepted({
+					epoch: 0,
+					kind: 'file.metadata',
+					request: stream,
+					streamSequence: 1,
+					subscriptionId: subscription.subscriptionId,
+				}),
+			);
+			const scopeRequest = await harness.server.waitForControlRequest('subscription.setScope');
+			if (scopeRequest.kind !== 'subscription.setScope')
+				throw new Error('Expected File view scope.');
+			const frameIdentity = {
+				domain: scopeRequest.domain,
+				handle: scopeRequest.handle,
+				incarnation: scopeRequest.incarnation,
+				metadataStreamId: stream.metadataStreamId,
+				paneSessionId: stream.paneSessionId,
+				scopeRevision: scopeRequest.scopeRevision,
+				subscriptionId: subscription.subscriptionId,
+				subscriptionKind: 'file.metadata',
+				wireVersion: stream.wireVersion,
+				workerInstanceId: stream.workerInstanceId,
+			} as const;
+			for (let index = 0; index < 4; index += 1) {
+				harness.server.emitMetadata(
+					bridgeProductBatchFrameSchema.parse({
+						...frameIdentity,
+						baseRevision: 0,
+						batchId: `transport-recovery-${index}`,
+						kind: 'subscription.batchBegin',
+						mode: 'snapshot',
+						partCount: 0,
+						scope: scopeRequest.scope,
+						streamSequence: index + 2,
+						targetRevision: 1,
+					}),
+				);
+			}
+			await budgetReached;
+			await harness.transport.resnapshotView?.({
+				domain: frameIdentity.domain,
+				handle: frameIdentity.handle,
+				incarnation: frameIdentity.incarnation,
+				scopeRevision: frameIdentity.scopeRevision,
+				subscriptionId: frameIdentity.subscriptionId,
+				subscriptionKind: frameIdentity.subscriptionKind,
+			});
+			expect(
+				harness.server.controlRequests.filter(
+					(request) => request.kind === 'subscription.resnapshot',
+				),
+			).toHaveLength(0);
+			harness.server.emitMetadata(
+				bridgeProductBatchFrameSchema.parse({
+					...frameIdentity,
+					batchId: 'transport-recovery-3',
+					coveredScope: scopeRequest.scope,
+					kind: 'subscription.batchComplete',
+					streamSequence: 6,
+				}),
+			);
+			await installed;
+			await harness.transport.resnapshotView?.({
+				domain: frameIdentity.domain,
+				handle: frameIdentity.handle,
+				incarnation: frameIdentity.incarnation,
+				scopeRevision: frameIdentity.scopeRevision,
+				subscriptionId: frameIdentity.subscriptionId,
+				subscriptionKind: frameIdentity.subscriptionKind,
+			});
+			const retry = await harness.server.waitForControlRequest('subscription.resnapshot');
+			expect(retry).toMatchObject({
+				handle: frameIdentity.handle,
+				incarnation: frameIdentity.incarnation,
+				subscriptionId: frameIdentity.subscriptionId,
+			});
+			expect(harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount).toBe(1);
+		} finally {
+			await subscription.cancel();
+			harness.server.shutdown();
+		}
+	});
 	test('opens the initial Comment scope with native worktree authority from openAccepted', async () => {
 		const harness = createTransportHarness();
 		const subscription = harness.transport.subscribe(

@@ -32,6 +32,11 @@ private enum BridgeProductSchemeReplyContext {
     @TaskLocal static var state: BridgeProductSchemeReplyState?
 }
 
+private enum BridgeProductProducerRoute {
+    case metadata
+    case content
+}
+
 struct BridgeProductSchemeAdapter: Sendable {
     let session: BridgeProductSession
     let provider: any BridgeProductSchemeProvider
@@ -578,6 +583,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         }
         try await routeProducerRegistration(
             registration,
+            producerRoute: .metadata,
             responseURL: request.url,
             productAdmission: productAdmission,
             continuation: continuation
@@ -622,6 +628,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         )
         try await routeProducerRegistration(
             registration,
+            producerRoute: .content,
             responseURL: request.url,
             productAdmission: productAdmission,
             continuation: continuation
@@ -631,6 +638,7 @@ struct BridgeProductSchemeAdapter: Sendable {
 
     private func routeProducerRegistration(
         _ registration: BridgeProductProducerRegistration,
+        producerRoute: BridgeProductProducerRoute,
         responseURL: URL,
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
@@ -669,6 +677,7 @@ struct BridgeProductSchemeAdapter: Sendable {
                 )
                 try await pumpFrames(
                     pump,
+                    producerRoute: producerRoute,
                     productAdmission: productAdmission,
                     continuation: continuation
                 )
@@ -683,6 +692,7 @@ struct BridgeProductSchemeAdapter: Sendable {
 
     private func pumpFrames(
         _ pump: BridgeProductSchemeFramePump,
+        producerRoute: BridgeProductProducerRoute,
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
     ) async throws {
@@ -695,7 +705,7 @@ struct BridgeProductSchemeAdapter: Sendable {
                     continuation: continuation
                 )
                 let frameAccepted =
-                    if pump.frameRequiresWorkerObservation(delivery.receipt) {
+                    if producerRoute == .content {
                         await pump.waitUntilFrameObserved(delivery.receipt)
                     } else {
                         await pump.acknowledgeFrameConsumed(delivery.receipt)

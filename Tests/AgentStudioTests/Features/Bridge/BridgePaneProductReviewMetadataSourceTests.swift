@@ -112,7 +112,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         #expect(snapshot.items.map(\.record.itemId) == successorPackage.orderedItemIds)
     }
 
-    @Test("large Review publication freezes 3,420 ordered keyed items in one sealed batch")
+    @Test("first empty-interest Review scope seals all 3,420 ordered keyed items")
     func opensWithCompleteOrderedWindows() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let package = makeReviewPackage(itemCount: 3420)
@@ -132,14 +132,20 @@ struct BridgePaneProductReviewMetadataSourceTests {
         let capture = try #require(
             try await applyReviewViewDemand(
                 through: source,
-                itemIds: package.orderedItemIds,
+                itemIds: [],
                 productAdmission: productAdmission.context
             )
         )
         let snapshot = capture.snapshot
         #expect(snapshot.items.count == 3420)
-        #expect(snapshot.items.map(\.record.itemId) == package.orderedItemIds)
-        let scope = BridgeProductJSONValue.object(["kind": .string("review")])
+        let preservesPackageOrder = zip(snapshot.items, package.orderedItemIds).allSatisfy {
+            $0.0.record.itemId == $0.1
+        }
+        #expect(preservesPackageOrder)
+        let scope = BridgeProductJSONValue.object([
+            "kind": .string("review"),
+            "interests": .array([]),
+        ])
         let batch = try BridgeProductReviewViewBatchFactory.sealSnapshot(
             .init(
                 viewDomain: .init(
@@ -156,6 +162,12 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         #expect(batch.parts.count == 3421)
         #expect(batch.frameCount == 3423)
+        let keyedItems = batch.parts.compactMap { part -> String? in
+            guard case .put(let key, _, _) = part, key != "publication" else { return nil }
+            return key
+        }
+        let hasExactItemKeys = Set(keyedItems) == Set(package.orderedItemIds)
+        #expect(hasExactItemKeys)
     }
 
     @Test("view publication records carry no operation correlation")
@@ -188,8 +200,8 @@ struct BridgePaneProductReviewMetadataSourceTests {
         #expect(!encoded.contains("operationCorrelationId"))
     }
 
-    @Test("new Review view demand replaces item membership in package order")
-    func changedViewDemandFiltersItemsAndPreservesPackageOrder() async throws {
+    @Test("new Review view demand preserves complete package order")
+    func changedViewDemandKeepsCompletePackageOrder() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
         let package = makeReviewPackage(itemCount: 4)
         let source = BridgePaneProductReviewMetadataSource()
@@ -213,7 +225,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 productAdmission: productAdmission.context
             )
         )
-        #expect(firstCapture.snapshot.items.map(\.record.itemId) == [lastItemId])
+        #expect(firstCapture.snapshot.items.map(\.record.itemId) == package.orderedItemIds)
 
         let changedCapture = try #require(
             try await applyReviewViewDemand(
@@ -223,8 +235,8 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 productAdmission: productAdmission.context
             )
         )
-        #expect(changedCapture.snapshot.items.map(\.record.itemId) == [firstItemId, lastItemId])
-        #expect(changedCapture.snapshot.items.map(\.record.sortKey) == [0, 3])
+        #expect(changedCapture.snapshot.items.map(\.record.itemId) == package.orderedItemIds)
+        #expect(changedCapture.snapshot.items.map(\.record.sortKey) == [0, 1, 2, 3])
     }
 
     @Test("Review view capture rejects stale scope revisions and superseded publications")
@@ -310,7 +322,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 productAdmission: productAdmission.context
             )
         )
-        #expect(current.snapshot.items.map(\.record.itemId) == [selectedItemId])
+        #expect(current.snapshot.items.map(\.record.itemId) == package.orderedItemIds)
 
         #expect(
             try await applyReviewViewDemand(
@@ -326,7 +338,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 productAdmission: productAdmission.context
             )
         )
-        #expect(retained.snapshot.items.map(\.record.itemId) == [selectedItemId])
+        #expect(retained.snapshot.items.map(\.record.itemId) == package.orderedItemIds)
     }
 
     @Test("diff statistics do not publish unverified full-content extent facts")
@@ -398,7 +410,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         let first = try #require(
             try await applyReviewViewDemand(
-                through: source, itemIds: initialPackage.orderedItemIds,
+                through: source, itemIds: [],
                 productAdmission: productAdmission.context
             )
         )
@@ -409,7 +421,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         let replacement = try #require(
             try await applyReviewViewDemand(
                 through: source, scopeRevision: 2,
-                itemIds: successor.orderedItemIds, productAdmission: productAdmission.context
+                itemIds: [], productAdmission: productAdmission.context
             )
         )
         #expect(try deliveredReviewReceipt(outcome).emittedEvents == 0)
@@ -469,7 +481,8 @@ struct BridgePaneProductReviewMetadataSourceTests {
                     incarnation: "review-incarnation-empty"
                 ),
                 handle: empty.handle, scopeRevision: empty.scopeRevision,
-                scope: .object(["kind": .string("review")]), firstDeliverySequence: 1,
+                scope: .object(["kind": .string("review"), "interests": .array([])]),
+                firstDeliverySequence: 1,
                 targetRevision: empty.snapshot.targetRevision,
                 publication: empty.snapshot.publication, items: empty.snapshot.items
             )

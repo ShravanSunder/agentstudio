@@ -162,7 +162,12 @@ func sealRefreshAdmissionFileProofBatch(
         "handle": "file-proof-handle-refresh-admission",
         "incarnation": "file-proof-incarnation-refresh-admission",
         "scopeRevision": 1,
-        "scope": ["kind": "file", "changeFilter": ["kind": "none"]],
+        "scope": [
+            "kind": "file",
+            "changeFilter": ["kind": "none"],
+            "interests": [],
+            "pathScope": [],
+        ] as [String: Any],
     ])
     let scopeRequest = try BridgeProductStrictJSON.decode(
         BridgeProductViewScopeRequest.self, from: scopeBytes

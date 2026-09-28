@@ -164,6 +164,12 @@ actor BridgePaneProductMetadataCoordinator {
                 staleSubscriptionIdsToRetire: staleSubscriptionIdsToRetire
             )
         }
+        guard activeStream?.lease == lease else { return }
+        await installViewResnapshotObserver(
+            session: session,
+            lease: lease,
+            productAdmission: productAdmission
+        )
     }
 
     func uninstall(lease: BridgeProductProducerLease) async {
@@ -190,7 +196,9 @@ actor BridgePaneProductMetadataCoordinator {
         guard streamTransitionGeneration == transitionGeneration,
             activeStream?.lease == lease
         else { return }
+        let sessionForRetiredStream = activeStream?.session
         activeStream = nil
+        await sessionForRetiredStream?.setViewResnapshotNeededObserver(nil)
     }
     func closeAndDrain() async {
         let precedingTransition = lifecycleTransitionTail
@@ -213,7 +221,9 @@ actor BridgePaneProductMetadataCoordinator {
         let producerTasks = producerTaskLifecycle.takeAndCancelEveryProducerTask()
         await cancelEverySubscription()
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
+        let sessionForClosedStream = activeStream?.session
         activeStream = nil
+        await sessionForClosedStream?.setViewResnapshotNeededObserver(nil)
     }
     func apply(
         _ effect: BridgeProductSessionCompletionEffect,

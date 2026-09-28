@@ -118,6 +118,17 @@ export function createTransportHarness(
 export class TestProductServer {
 	#closed = false;
 	readonly #shutdownSignal = createBridgeProductDeferred<never>();
+	readonly #metadataOpenWaiters: {
+		readonly count: number;
+		readonly resolve: (request: BridgeProductMetadataStreamRequest) => void;
+		readonly reject: (error: Error) => void;
+	}[] = [];
+	readonly #controlRequestWaiters: {
+		readonly kind: BridgeProductControlRequest['kind'];
+		readonly count: number;
+		readonly resolve: (request: BridgeProductControlRequest) => void;
+		readonly reject: (error: Error) => void;
+	}[] = [];
 
 	constructor() {
 		void this.#shutdownSignal.promise.catch((): void => {});
@@ -245,9 +256,34 @@ export class TestProductServer {
 		await waitForCondition(() => this.#metadataRequests.length >= count);
 	}
 
+	waitForMetadataStreamOpened(count = 1): Promise<BridgeProductMetadataStreamRequest> {
+		const existing = this.#metadataRequests[count - 1];
+		if (existing !== undefined) return Promise.resolve(existing);
+		return new Promise((resolve, reject) => {
+			this.#metadataOpenWaiters.push({ count, resolve, reject });
+		});
+	}
+
+	waitForControlRequest(
+		kind: BridgeProductControlRequest['kind'],
+		count = 1,
+	): Promise<BridgeProductControlRequest> {
+		const existing = this.controlRequests.filter((request) => request.kind === kind)[count - 1];
+		if (existing !== undefined) return Promise.resolve(existing);
+		return new Promise((resolve, reject) => {
+			this.#controlRequestWaiters.push({ kind, count, resolve, reject });
+		});
+	}
+
 	shutdown(): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		for (const waiter of this.#metadataOpenWaiters.splice(0)) {
+			waiter.reject(new Error('Test metadata server shut down before stream opened.'));
+		}
+		for (const waiter of this.#controlRequestWaiters.splice(0)) {
+			waiter.reject(new Error('Test metadata server shut down before control arrived.'));
+		}
 		this.#shutdownSignal.reject(new Error('Test product server is closed.'));
 		this.releaseHeldSubscriptionOpen();
 		for (const controller of this.#metadataControllers) {
@@ -262,8 +298,9 @@ export class TestProductServer {
 
 	#openMetadataStream(init?: RequestInit): Response {
 		this.metadataFetchCount += 1;
-		this.#metadataRequests.push(bridgeProductMetadataStreamRequestSchema.parse(parseBody(init)));
-		return new Response(
+		const request = bridgeProductMetadataStreamRequestSchema.parse(parseBody(init));
+		this.#metadataRequests.push(request);
+		const response = new Response(
 			new ReadableStream<Uint8Array>({
 				cancel: (): void => {
 					this.metadataReaderCancelCount += 1;
@@ -273,6 +310,20 @@ export class TestProductServer {
 				},
 			}),
 		);
+		for (const waiter of this.#metadataOpenWaiters.filter(
+			(candidate) => candidate.count <= this.#metadataRequests.length,
+		)) {
+			const observed = this.#metadataRequests[waiter.count - 1];
+			if (observed !== undefined) waiter.resolve(observed);
+		}
+		this.#metadataOpenWaiters.splice(
+			0,
+			this.#metadataOpenWaiters.length,
+			...this.#metadataOpenWaiters.filter(
+				(candidate) => candidate.count > this.#metadataRequests.length,
+			),
+		);
+		return response;
 	}
 
 	async #handleControl(body: unknown): Promise<Response> {
@@ -298,6 +349,24 @@ export class TestProductServer {
 		}
 		const request = bridgeProductControlRequestSchema.parse(body);
 		this.controlRequests.push(request);
+		for (const waiter of this.#controlRequestWaiters.filter(
+			(candidate) => candidate.kind === request.kind,
+		)) {
+			const observed = this.controlRequests.filter((candidate) => candidate.kind === waiter.kind)[
+				waiter.count - 1
+			];
+			if (observed !== undefined) waiter.resolve(observed);
+		}
+		this.#controlRequestWaiters.splice(
+			0,
+			this.#controlRequestWaiters.length,
+			...this.#controlRequestWaiters.filter(
+				(candidate) =>
+					this.controlRequests.filter(
+						(candidateRequest) => candidateRequest.kind === candidate.kind,
+					).length < candidate.count,
+			),
+		);
 		if (request.kind === 'subscription.open' && this.#holdOpen) {
 			this.#holdOpen = false;
 			await new Promise<void>((resolve): void => {

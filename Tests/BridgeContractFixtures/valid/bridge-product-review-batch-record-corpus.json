@@ -106,7 +106,7 @@
             "displayedSnapshot": {
               "packageId": "review-package-1",
               "reviewGeneration": 7,
-              "revision": 11,
+              "revision": 0,
               "status": "stale"
             },
             "repositoryDefaultTarget": null
@@ -174,7 +174,7 @@
           },
           "reviewComparison": null,
           "reviewedSubjectLabel": "feature/review",
-          "revision": 11,
+          "revision": 0,
           "summary": {
             "additions": 3,
             "deletions": 0,

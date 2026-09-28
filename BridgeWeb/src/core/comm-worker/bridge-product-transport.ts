@@ -129,9 +129,8 @@ export interface BridgeProductTransportSession extends BridgeProductTransport {
 		readonly subscriptionId: string;
 	}): Promise<BridgeProductViewScopeSettlement>;
 	setBatchFrameSinks?(sinks: BridgeProductBatchFrameSinks): void;
-	resnapshotView?(
-		props: ViewResnapshotAdmissionProps,
-	): ReturnType<BridgeProductControlMux['resnapshotView']>;
+	resnapshotView?(props: ViewResnapshotAdmissionProps): Promise<void>;
+	retryView?(subscriptionId: string): Promise<void>;
 	/**
 	 * Advances the surface to a new worker derivation epoch and returns it. Every
 	 * subscription admitted on that surface at an older epoch ends for its consumer
@@ -270,6 +269,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#viewScopeOwner = new BridgeProductViewScopeOwner({
 			controlMux: props.controlMux,
 			createIdentifier: (): string => this.#createIdentifier('subscription'),
+			maximumConsecutiveResnapshots:
+				props.authority.bootstrap.policy.viewMaximumConsecutiveResnapshots,
 		});
 		this.#executeProductRequest = props.executeProductRequest;
 		this.#deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;
@@ -322,14 +323,27 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			deadlineClock: this.#deadlineClock,
 			executeProductRequest: this.#executeProductRequest,
 			router: this.#batchFrameRouter,
-			sinks,
+			sinks: {
+				...sinks,
+				install: async (installation): Promise<void> => {
+					await sinks.install(installation);
+					this.#viewScopeOwner.recordCertifiedInstall(installation.begin);
+					sinks.certifiedInstallCompleted?.(installation.begin);
+				},
+				replacementSnapshot: (frame): void => {
+					this.#viewScopeOwner.observeReplacementSnapshot(frame);
+					sinks.replacementSnapshot?.(frame);
+				},
+			},
 		});
 	}
 
-	resnapshotView(
-		props: ViewResnapshotAdmissionProps,
-	): ReturnType<BridgeProductControlMux['resnapshotView']> {
-		return this.#controlMux.resnapshotView(props);
+	resnapshotView(props: ViewResnapshotAdmissionProps): Promise<void> {
+		return this.#viewScopeOwner.requestResnapshot(props);
+	}
+
+	retryView(subscriptionId: string): Promise<void> {
+		return this.#viewScopeOwner.retryView(subscriptionId);
 	}
 
 	setViewScopeForSubscription(props: {

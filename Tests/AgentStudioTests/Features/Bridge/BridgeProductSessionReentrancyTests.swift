@@ -237,13 +237,8 @@ struct BridgeProductSessionReentrancyTests {
         await heldProducer.waitUntilCancellationObserved()
         #expect((await harness.session.snapshot).workerDerivationEpochBySurface[.file] == 3)
 
-        let admittedBeforeOldProducerFinished = await waitForProducerCount(
-            atLeast: 2,
-            in: harness.session
-        )
-
         // Assert
-        #expect(admittedBeforeOldProducerFinished)
+        #expect((await harness.session.producerSnapshot()).activeProducerCount >= 2)
         await heldProducer.release()
         let newerLease = try #require(newerRegistration.lease)
         try await closeProducer(oldLease, in: harness.session)
@@ -373,19 +368,6 @@ private actor HeldProducerOperation {
         cancellationContinuation?.resume()
         cancellationContinuation = nil
     }
-}
-
-private func waitForProducerCount(
-    atLeast expectedCount: Int,
-    in session: BridgeProductSession
-) async -> Bool {
-    for _ in 0..<512 {
-        if await session.producerSnapshot().activeProducerCount >= expectedCount {
-            return true
-        }
-        await Task.yield()
-    }
-    return false
 }
 
 private func closeProducer(

@@ -113,7 +113,8 @@ private func runFreshStreamReplayScenario() async throws -> FreshStreamReplayObs
             induceReplayCommitOverlap: false
         )
         try await acceptBootstrapContextFileViewScope(resources)
-        await resources.frameCollector.waitUntilFileBatchComplete()
+        let fileComplete = await resources.frameCollector.waitUntilFileBatchComplete()
+        #expect(fileComplete.identity.subscriptionId == "file-subscription-1")
         await resources.harness.session.settleControlProviderDispatch(token: openedControl.token)
         pendingControlToken = nil
         try await cancelBootstrapContextFileSubscription(
@@ -121,7 +122,8 @@ private func runFreshStreamReplayScenario() async throws -> FreshStreamReplayObs
             coordinator: resources.coordinator
         )
         didCancelSubscription = true
-        await resources.frameCollector.waitUntilCurrentSubscriptionCancellation()
+        let cancellation = await resources.frameCollector.waitUntilCurrentSubscriptionCancellation()
+        #expect(cancellation.identity.subscriptionIdentity.subscriptionId == "file-subscription-1")
         let result = try await bootstrapContextScenarioResult(resources: resources)
         try await finishBootstrapContextScenario(resources)
         return FreshStreamReplayObservation(
@@ -173,7 +175,8 @@ private func runRealFileBootstrapScenario(
             induceReplayCommitOverlap: induceReplayCommitOverlap
         )
         try await acceptBootstrapContextFileViewScope(resources)
-        await resources.frameCollector.waitUntilFileBatchComplete()
+        let fileComplete = await resources.frameCollector.waitUntilFileBatchComplete()
+        #expect(fileComplete.identity.subscriptionId == "file-subscription-1")
         await resources.harness.session.settleControlProviderDispatch(token: openedControl.token)
         pendingControlToken = nil
         try await cancelBootstrapContextFileSubscription(
@@ -181,7 +184,8 @@ private func runRealFileBootstrapScenario(
             coordinator: resources.coordinator
         )
         didCancelSubscription = true
-        await resources.frameCollector.waitUntilCurrentSubscriptionCancellation()
+        let cancellation = await resources.frameCollector.waitUntilCurrentSubscriptionCancellation()
+        #expect(cancellation.identity.subscriptionIdentity.subscriptionId == "file-subscription-1")
         let result = try await bootstrapContextScenarioResult(resources: resources)
         try await finishBootstrapContextScenario(resources)
         return result
@@ -299,22 +303,23 @@ private func runBootstrapContextSchedule(
             openEffect,
             productAdmission: resources.harness.productAdmission.context
         )
-        await resources.lifecycleRecorder.waitUntilBootstrapFinished(count: 1)
+        #expect(await resources.lifecycleRecorder.waitUntilBootstrapFinished(count: 1) >= 1)
         return
     }
     let replay = Task {
         await resources.coordinator.replaySubscriptionsForInstalledStream()
     }
-    await resources.lifecycleRecorder.waitUntilFirstBootstrapStartIsHeld()
+    #expect(await resources.lifecycleRecorder.waitUntilFirstBootstrapStartIsHeld() == 1)
     await resources.coordinator.apply(
         openEffect,
         productAdmission: resources.harness.productAdmission.context
     )
-    await resources.sourceObserver.waitUntilFirstAcceptanceIsHeld()
+    let firstAcceptedSource = await resources.sourceObserver.waitUntilFirstAcceptanceIsHeld()
+    #expect(firstAcceptedSource.subscriptionGeneration == 1)
     await resources.lifecycleRecorder.releaseFirstBootstrapStart()
-    await resources.lifecycleRecorder.waitUntilBootstrapFinished(count: 1)
+    #expect(await resources.lifecycleRecorder.waitUntilBootstrapFinished(count: 1) >= 1)
     await resources.sourceObserver.releaseFirstAcceptance()
-    await resources.lifecycleRecorder.waitUntilBootstrapFinished(count: 2)
+    #expect(await resources.lifecycleRecorder.waitUntilBootstrapFinished(count: 2) >= 2)
     await replay.value
 }
 
@@ -388,10 +393,10 @@ private func cleanupFailedBootstrapContextScenario(
 private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleTraceRecording {
     private(set) var bootstrapStartedCount = 0
     private var bootstrapFinishedCount = 0
-    private var bootstrapFinishedWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var bootstrapFinishedWaiters: [(Int, CheckedContinuation<Int, Never>)] = []
     private let holdFirstBootstrapStart: Bool
     private var firstBootstrapStartHeld = false
-    private var firstBootstrapStartHeldWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstBootstrapStartHeldWaiters: [CheckedContinuation<Int, Never>] = []
     private var firstBootstrapStartRelease: CheckedContinuation<Void, Never>?
 
     init(holdFirstBootstrapStart: Bool) {
@@ -405,7 +410,7 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
             firstBootstrapStartHeld = true
             let waiters = firstBootstrapStartHeldWaiters
             firstBootstrapStartHeldWaiters.removeAll(keepingCapacity: false)
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: bootstrapStartedCount) }
             await withCheckedContinuation { continuation in
                 firstBootstrapStartRelease = continuation
             }
@@ -414,14 +419,14 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
         bootstrapFinishedCount += 1
         let readyWaiters = bootstrapFinishedWaiters.filter { bootstrapFinishedCount >= $0.0 }
         bootstrapFinishedWaiters.removeAll { bootstrapFinishedCount >= $0.0 }
-        for (_, waiter) in readyWaiters { waiter.resume() }
+        for (_, waiter) in readyWaiters { waiter.resume(returning: bootstrapFinishedCount) }
     }
 
     func record(_: BridgeProductReviewMetadataPublicationTraceEvent) async {}
 
-    func waitUntilFirstBootstrapStartIsHeld() async {
-        guard !firstBootstrapStartHeld else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilFirstBootstrapStartIsHeld() async -> Int {
+        guard !firstBootstrapStartHeld else { return bootstrapStartedCount }
+        return await withCheckedContinuation { continuation in
             firstBootstrapStartHeldWaiters.append(continuation)
         }
     }
@@ -431,9 +436,9 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
         firstBootstrapStartRelease = nil
     }
 
-    func waitUntilBootstrapFinished(count: Int) async {
-        guard bootstrapFinishedCount < count else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilBootstrapFinished(count: Int) async -> Int {
+        guard bootstrapFinishedCount < count else { return bootstrapFinishedCount }
+        return await withCheckedContinuation { continuation in
             bootstrapFinishedWaiters.append((count, continuation))
         }
     }
@@ -442,7 +447,7 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
 private actor BootstrapContextSourceAcceptedObserver {
     private(set) var acceptedSources: [BridgeProductFileSourceIdentity] = []
     private let holdFirstAcceptance: Bool
-    private var firstAcceptanceHeldWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstAcceptanceHeldWaiters: [CheckedContinuation<BridgeProductFileSourceIdentity, Never>] = []
     private var firstAcceptanceRelease: CheckedContinuation<Void, Never>?
 
     init(holdFirstAcceptance: Bool) {
@@ -458,18 +463,16 @@ private actor BootstrapContextSourceAcceptedObserver {
         guard holdFirstAcceptance, acceptedSources.count == 1 else { return }
         let waiters = firstAcceptanceHeldWaiters
         firstAcceptanceHeldWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: source) }
         await withCheckedContinuation { continuation in
             firstAcceptanceRelease = continuation
         }
     }
 
-    func waitUntilFirstAcceptanceIsHeld() async {
-        guard !acceptedSources.isEmpty else {
-            await withCheckedContinuation { continuation in
-                firstAcceptanceHeldWaiters.append(continuation)
-            }
-            return
+    func waitUntilFirstAcceptanceIsHeld() async -> BridgeProductFileSourceIdentity {
+        if let first = acceptedSources.first { return first }
+        return await withCheckedContinuation { continuation in
+            firstAcceptanceHeldWaiters.append(continuation)
         }
     }
 
@@ -481,40 +484,40 @@ private actor BootstrapContextSourceAcceptedObserver {
 
 private actor BootstrapContextMetadataFrameCollector {
     private(set) var frames: [BridgeProductMetadataFrame] = []
-    private var fileBatchCompleteObserved = false
-    private var fileBatchCompleteWaiters: [CheckedContinuation<Void, Never>] = []
-    private var cancellationObserved = false
-    private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var fileBatchComplete: BridgeProductBatchCompleteFrame?
+    private var fileBatchCompleteWaiters: [CheckedContinuation<BridgeProductBatchCompleteFrame, Never>] = []
+    private var cancellation: BridgeProductSubscriptionCancelledFrame?
+    private var cancellationWaiters: [CheckedContinuation<BridgeProductSubscriptionCancelledFrame, Never>] = []
 
     func append(_ frame: BridgeProductMetadataFrame) {
         frames.append(frame)
         if case .batch(.complete(let complete)) = frame,
             complete.identity.subscriptionId == "file-subscription-1"
         {
-            fileBatchCompleteObserved = true
+            fileBatchComplete = complete
             let waiters = fileBatchCompleteWaiters
             fileBatchCompleteWaiters.removeAll(keepingCapacity: false)
-            for waiter in waiters { waiter.resume() }
+            for waiter in waiters { waiter.resume(returning: complete) }
         }
         guard case .subscriptionCancelled(let cancelled) = frame,
             cancelled.identity.subscriptionIdentity.subscriptionId == "file-subscription-1"
         else { return }
-        cancellationObserved = true
+        cancellation = cancelled
         let waiters = cancellationWaiters
         cancellationWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: cancelled) }
     }
 
-    func waitUntilFileBatchComplete() async {
-        guard !fileBatchCompleteObserved else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilFileBatchComplete() async -> BridgeProductBatchCompleteFrame {
+        if let fileBatchComplete { return fileBatchComplete }
+        return await withCheckedContinuation { continuation in
             fileBatchCompleteWaiters.append(continuation)
         }
     }
 
-    func waitUntilCurrentSubscriptionCancellation() async {
-        guard !cancellationObserved else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilCurrentSubscriptionCancellation() async -> BridgeProductSubscriptionCancelledFrame {
+        if let cancellation { return cancellation }
+        return await withCheckedContinuation { continuation in
             cancellationWaiters.append(continuation)
         }
     }

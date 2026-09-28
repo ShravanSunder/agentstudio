@@ -118,7 +118,7 @@ const invalidStartupTranscriptSchema = z
 
 const frozenFixtureHashes = {
 	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: 'cf00a51bddd35a7d9cfa682be944741eab07814887175d2c4378f61d99e96e90',
+	valid: 'c2396824c7282dbaf87a33dc11c65e20cd4bddc8b04f73c854a787932bc5c36b',
 } as const;
 
 describe('Bridge product startup transcript', () => {
@@ -168,13 +168,15 @@ describe('Bridge product startup transcript', () => {
 					);
 					break;
 				case 'controlRequest': {
-					const request = currentStartupControlRequest(entry.value);
-					expect(bridgeProductControlRequestSchema.parse(request), entry.name).toEqual(request);
+					expect(bridgeProductControlRequestSchema.parse(entry.value), entry.name).toEqual(
+						entry.value,
+					);
 					break;
 				}
 				case 'controlResponse': {
-					const response = currentStartupControlResponse(entry.value);
-					expect(bridgeProductControlResponseSchema.parse(response), entry.name).toEqual(response);
+					expect(bridgeProductControlResponseSchema.parse(entry.value), entry.name).toEqual(
+						entry.value,
+					);
 					break;
 				}
 				case 'metadataFrame':
@@ -183,49 +185,13 @@ describe('Bridge product startup transcript', () => {
 					);
 					break;
 				case 'metadataStreamRequest': {
-					const request = currentStartupMetadataStreamRequest(entry.value);
-					expect(bridgeProductMetadataStreamRequestSchema.parse(request), entry.name).toEqual(
-						request,
+					expect(bridgeProductMetadataStreamRequestSchema.parse(entry.value), entry.name).toEqual(
+						entry.value,
 					);
 					break;
 				}
 			}
 		}
-	});
-
-	test('freezes content observation identities and lifecycle outcomes', () => {
-		// Arrange
-		const fixture = loadValidFixture();
-		const contentCases = fixture.observationCases.filter(
-			(observationCase) => observationStreamKind(observationCase.request) === 'content',
-		);
-		const contentCase = contentCases[0];
-
-		// Act
-		const contentKeys = sortedObjectKeys(contentCase?.request);
-		const dispositions = new Set(
-			contentCases.map((observationCase) => observationCase.expectedDisposition),
-		);
-
-		// Assert
-		// Metadata per-frame observation was replaced by cumulative view acknowledgement;
-		// that current replacement contract is exercised in bridge-product-transport-v2-contracts.unit.test.ts.
-		expect(contentCases).toHaveLength(10);
-		expect(contentKeys).toEqual([
-			'contentRequestId',
-			'contentSequence',
-			'kind',
-			'leaseId',
-			'paneSessionId',
-			'streamKind',
-			'wireVersion',
-			'workerInstanceId',
-		]);
-		expect(dispositions).toEqual(new Set(observationDispositionSchema.options));
-		expect(contentCases.find(({ name }) => name === 'content-exact-replay')?.request).toEqual(
-			contentCases.find(({ name }) => name === 'content-end-sequence-two')?.request,
-		);
-		expect(Object.values(fixture.lifecycleExpectations.zeroResidue)).toEqual([0, 0, 0, 0, 0, 0, 0]);
 	});
 
 	test('accepts content observations and rejects retired metadata observations', () => {
@@ -297,34 +263,4 @@ function observationStreamKind(value: unknown): string | undefined {
 		return undefined;
 	}
 	return typeof value.streamKind === 'string' ? value.streamKind : undefined;
-}
-
-function currentStartupControlRequest(value: unknown): unknown {
-	if (typeof value !== 'object' || value === null || !('kind' in value)) return value;
-	if (value.kind !== 'workerSession.open') return value;
-	// The frozen startup transcript predates the now-required null control payload.
-	return { ...value, request: null };
-}
-
-function currentStartupControlResponse(value: unknown): unknown {
-	if (!isRecord(value)) return value;
-	if (value['kind'] === 'workerSession.accepted') {
-		// The frozen startup transcript predates the now-required null acceptance result.
-		return { ...value, result: null };
-	}
-	if (value['kind'] !== 'call.completed' || !isRecord(value['call'])) return value;
-	return { ...value, call: { ...value['call'], result: value['call']['result'] ?? null } };
-}
-
-function currentStartupMetadataStreamRequest(value: unknown): unknown {
-	if (!isRecord(value) || value['kind'] !== 'metadataStream.open') return value;
-	return { ...value, resumeFromStreamSequence: value['resumeFromStreamSequence'] ?? null };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function sortedObjectKeys(value: unknown): string[] {
-	return typeof value === 'object' && value !== null ? Object.keys(value).toSorted() : [];
 }

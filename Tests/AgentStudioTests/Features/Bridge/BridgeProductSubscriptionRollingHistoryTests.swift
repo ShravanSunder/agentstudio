@@ -5,21 +5,21 @@ import Testing
 
 @Suite("Bridge product E3 subscription identity")
 struct BridgeProductSubscriptionRollingHistoryTests {
-    @Test("composed and decomposed UTF-8 subscription IDs remain distinct")
+    @Test("case-distinct valid subscription IDs remain distinct")
     func exactUTF8SubscriptionIdsStayDistinct() throws {
-        let composed = "caf\u{00E9}"
-        let decomposed = "cafe\u{0301}"
+        let uppercaseID = "review-A"
+        let lowercaseID = "review-a"
         var state = BridgeProductSubscriptionState(maximumSubscriptionCount: 2)
-        _ = try state.open(openRequest(id: composed))
-        _ = try state.open(openRequest(id: decomposed))
+        _ = try state.open(openRequest(id: uppercaseID))
+        _ = try state.open(openRequest(id: lowercaseID))
 
-        #expect(Data(composed.utf8) != Data(decomposed.utf8))
+        #expect(Data(uppercaseID.utf8) != Data(lowercaseID.utf8))
         #expect(state.subscriptionCount == 2)
-        #expect(state.snapshot(subscriptionId: composed)?.subscriptionId == composed)
-        #expect(state.snapshot(subscriptionId: decomposed)?.subscriptionId == decomposed)
-        _ = try state.cancel(cancelRequest(id: composed))
-        #expect(state.snapshot(subscriptionId: composed) == nil)
-        #expect(state.snapshot(subscriptionId: decomposed) != nil)
+        #expect(state.snapshot(subscriptionId: uppercaseID)?.subscriptionId == uppercaseID)
+        #expect(state.snapshot(subscriptionId: lowercaseID)?.subscriptionId == lowercaseID)
+        _ = try state.cancel(cancelRequest(id: uppercaseID))
+        #expect(state.snapshot(subscriptionId: uppercaseID) == nil)
+        #expect(state.snapshot(subscriptionId: lowercaseID) != nil)
     }
 
     @Test("many E3 open and cancel cycles leave no retained update history")

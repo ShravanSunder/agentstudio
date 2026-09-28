@@ -362,6 +362,7 @@ struct BridgeProductTransportV2ContractTests {
                 #expect(recordKey == "publication")
                 #expect(publication.revision > 0)
                 if let displayed = publication.displayed {
+                    #expect(displayed.revision == 0)
                     #expect(publication.publicationId != displayed.publicationId)
                     #expect(publication.desired.status == .failedRetryable)
                 }

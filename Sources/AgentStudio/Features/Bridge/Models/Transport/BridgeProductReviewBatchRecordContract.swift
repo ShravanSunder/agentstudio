@@ -268,7 +268,9 @@ struct BridgeProductReviewBatchDisplayedPublication: Codable, Equatable, Sendabl
         try BridgeProductContractDecoding.validateNonnegative(
             generation, name: "generation", codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validateIdentifier(packageId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validatePositive(revision, name: "revision", codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            revision, name: "revision", codingPath: decoder.codingPath
+        )
         if let reviewedSubjectLabel {
             try BridgeProductContractDecoding.validateSafeMessage(reviewedSubjectLabel, codingPath: decoder.codingPath)
         }

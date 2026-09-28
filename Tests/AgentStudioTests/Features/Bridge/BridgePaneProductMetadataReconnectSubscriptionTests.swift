@@ -6,10 +6,11 @@ import Testing
 
 @Suite("Bridge pane product metadata reconnect subscription")
 struct BridgeMetadataReconnectTests {
-    @Test("reconnection requires a fresh File subscription when a sealed batch was lost")
-    func reconnectDoesNotRetainUndeliverableBatch() async throws {
+    @Test("physical reconnect retains File E3 and resnapshots after a sealed batch was lost")
+    func reconnectResnapshotsLostFileBatchWithoutReopeningSubscription() async throws {
         let context = try await makeReconnectSubscriptionContext()
         let observedSequence = context.initialBatch.identity.frame.streamSequence
+        let initialSubscription = context.retainedSubscription
         let disposition = await context.provider.publishFileChangeset(
             try reconnectFileChangeset(),
             productAdmission: context.harness.productAdmission.context,
@@ -18,7 +19,16 @@ struct BridgeMetadataReconnectTests {
             operationStageAttempt: 1
         )
         #expect(disposition == .applied)
-        #expect(await context.harness.session.producerSnapshot().queuedFrameCount > 0)
+        guard case .batch(.begin(let lostBegin)) = try await pullMetadataFrame(from: context.firstStream.pump),
+            case .batch(.part(let lostPart)) = try await pullMetadataFrame(from: context.firstStream.pump)
+        else {
+            Issue.record("Expected a sealed File batch to begin before physical retirement")
+            await context.provider.closeAndDrain()
+            return
+        }
+        #expect(lostBegin.identity.frame.streamSequence > observedSequence)
+        #expect(lostPart.identity.batchId == lostBegin.identity.batchId)
+        #expect(lostPart.identity.subscriptionId == initialSubscription.subscriptionId)
         #expect(await context.firstStream.pump.cancel())
 
         let response = try await dispatchReconnectControl(
@@ -29,19 +39,41 @@ struct BridgeMetadataReconnectTests {
             dispatcher: context.dispatcher,
             capabilityHeader: context.harness.capabilityHeader
         )
-        await context.provider.closeAndDrain()
-        guard case .resyncAccepted(let accepted) = response,
-            case .reopenRequired(let reopened)? = accepted.reconciliation.first
-        else {
-            Issue.record("A lost W4 File batch must require a fresh subscription")
+        guard case .resyncAccepted(let accepted) = response else {
+            await context.provider.closeAndDrain()
+            Issue.record("Expected physical stream reconciliation after the lost File batch")
             return
         }
-        #expect(reopened.reason == .snapshotRequired)
+        #expect(accepted.reconciliation.map(\.dispositionName) == ["retained"])
         #expect(
             await context.harness.session.subscriptionSnapshot(
-                subscriptionId: context.retainedSubscription.subscriptionId
-            ) == nil
+                subscriptionId: initialSubscription.subscriptionId
+            ) == initialSubscription
         )
+        let replacement = try await installReconnectMetadataStream(
+            request: bridgeProductMetadataStreamRequest(
+                metadataStreamId: "metadata-after-lost-file-batch",
+                resumeFromStreamSequence: accepted.metadataStreamSequenceBarrier
+            ),
+            provider: context.provider,
+            harness: context.harness
+        )
+        let resnapshotResponse = try await dispatchReconnectControl(
+            reconnectFileResnapshotRequest(),
+            dispatcher: context.dispatcher,
+            capabilityHeader: context.harness.capabilityHeader
+        )
+        let replacementComplete = try await pullPostReconnectPublication(from: replacement.pump)
+        let sourceDiagnostics = await context.fileSource.diagnostics
+        #expect(await replacement.pump.cancel())
+        await context.provider.closeAndDrain()
+
+        #expect(resnapshotResponse.kind == "subscription.resnapshotAccepted")
+        #expect(replacementComplete.identity.frame.metadataStreamId == "metadata-after-lost-file-batch")
+        #expect(replacementComplete.identity.subscriptionId == initialSubscription.subscriptionId)
+        #expect(replacementComplete.identity.handle == lostBegin.identity.handle)
+        #expect(replacementComplete.identity.scopeRevision == lostBegin.identity.scopeRevision)
+        #expect(sourceDiagnostics.publicationCallCount == 1)
         #expect(await context.harness.session.producerSnapshot().hasZeroResidue)
     }
 
@@ -229,7 +261,7 @@ struct BridgeMetadataReconnectTests {
         #expect(afterReconciliation.openCallCount == before.openCallCount)
         #expect(afterReconciliation.updateCallCount == before.updateCallCount)
         #expect(after.openCallCount == before.openCallCount + 1)
-        #expect(after.updateCallCount == before.updateCallCount)
+        #expect(after.updateCallCount == before.updateCallCount + 1)
         #expect(after.cancellationCount == before.cancellationCount + 1)
         #expect(after.viewHandle == "file-reconnect-view-handle")
         #expect(after.scopeRevision == 1)

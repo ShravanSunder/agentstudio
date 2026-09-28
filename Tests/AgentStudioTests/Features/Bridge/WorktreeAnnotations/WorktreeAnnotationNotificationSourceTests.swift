@@ -26,7 +26,6 @@ struct WorktreeAnnotationNotificationSourceTests {
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
-            sessionIDs: [],
             scopeRevision: 1
         )
         var iterator = batches.makeAsyncIterator()
@@ -74,109 +73,6 @@ struct WorktreeAnnotationNotificationSourceTests {
         #expect(await harness.service.catalogInvalidationObserverCount() == 0)
     }
 
-    @Test("three session ranges stay in one dirty union while Comment delivery is held")
-    func heldCommentEmissionCoalescesThreeCurrentRanges() async throws {
-        let sourceHarness = try makeNotificationSourceHarness()
-        let drafts = [
-            try await sourceHarness.service.createRootDraft(makeCreateRootDraftProps()),
-            try await sourceHarness.service.createRootDraft(makeCreateRootDraftProps()),
-            try await sourceHarness.service.createRootDraft(makeCreateRootDraftProps()),
-        ]
-        let nativeHarness = try await BridgeProductSessionLifecycleHarness.opened()
-        let lease = try await nativeHarness.admitMetadataFrames(through: 0)
-        var open = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 2)
-        open["subscription"] = ["subscriptionKind": "file.annotations"]
-        open["subscriptionId"] = "comment-subscription-coalesced"
-        try await nativeHarness.openSubscription(open)
-        _ = try #require(
-            await consumeNextBridgeProductProducerFrame(
-                for: lease,
-                from: nativeHarness.session,
-                productAdmission: nativeHarness.productAdmission.context
-            )
-        )
-        let view = try #require(
-            try await nativeHarness.session.openNativeCommentView(
-                subscriptionId: "comment-subscription-coalesced",
-                worktreeID: "worktree-1",
-                productAdmission: nativeHarness.productAdmission.context
-            )
-        )
-        try await sourceHarness.source.acceptBatchScope(
-            handle: view.handle,
-            worktreeID: "worktree-1",
-            sessionIDs: Set(drafts.map(\.session.id)),
-            scopeRevision: 1
-        )
-        let session = nativeHarness.session
-        let productAdmission = nativeHarness.productAdmission.context
-        let initialSealed = HeldStep<Void>("initialCommentBatchSealed")
-        let (batches, continuation) = AsyncStream.makeStream(
-            of: BridgeProductCommentCatalogBatch.self,
-            bufferingPolicy: .bufferingOldest(2)
-        )
-        let openTask = Task {
-            defer { continuation.finish() }
-            try await sourceHarness.source.openBatch(handle: view.handle) { batch, mode in
-                guard
-                    try await session.sealCommentCatalogBatch(
-                        subscriptionId: "comment-subscription-coalesced",
-                        catalogBatch: batch,
-                        mode: mode,
-                        productAdmission: productAdmission
-                    )
-                else { throw WorktreeAnnotationServiceError.staleSourceEpoch }
-                continuation.yield(batch)
-                if batch.baseRevision == 0 { try await initialSealed.arrive(()) }
-                guard
-                    await session.awaitViewEmissionCompletion(
-                        for: view.viewDomain,
-                        handle: view.handle
-                    ) == .completed
-                else { throw WorktreeAnnotationServiceError.staleSourceEpoch }
-            }
-        }
-        var iterator = batches.makeAsyncIterator()
-        #expect(try #require(await iterator.next()).baseRevision == 0)
-        _ = try await initialSealed.firstArrival()
-
-        for draft in drafts {
-            let message = try #require(draft.threads.first?.messages.first)
-            _ = try await sourceHarness.service.saveDraft(
-                .init(
-                    sessionID: draft.session.id,
-                    messageID: message.id,
-                    editToken: "editor-1",
-                    expectedMessageRevision: message.semanticRevision,
-                    expectedDraftRevision: try #require(message.draft?.draftRevision),
-                    now: Date(timeIntervalSince1970: 3)
-                )
-            )
-        }
-        initialSealed.release()
-        for _ in 0..<2 {
-            _ = try #require(
-                await consumeNextBridgeProductProducerFrame(
-                    for: lease,
-                    from: session,
-                    productAdmission: productAdmission
-                )
-            )
-        }
-
-        let current = try #require(await iterator.next())
-        #expect(current.baseRevision == 1)
-        #expect(current.targetRevision == 2)
-        #expect(current.puts.count == 9)
-        #expect(current.deletes.isEmpty)
-        openTask.cancel()
-        _ = try? await openTask.value
-        continuation.finish()
-        try await nativeHarness.closeProducer(lease)
-        #expect(await sourceHarness.service.catalogInvalidationObserverCount() == 0)
-        #expect(await session.viewEmissionWaiterByDomain.isEmpty)
-    }
-
     @Test("batch source observes committed ranges after its initial current-row snapshot")
     func batchSourceObservesCommittedRanges() async throws {
         let harness = try makeNotificationSourceHarness()
@@ -184,7 +80,6 @@ struct WorktreeAnnotationNotificationSourceTests {
         try await harness.source.acceptBatchScope(
             handle: "comment-view-1",
             worktreeID: "worktree-1",
-            sessionIDs: [draft.session.id],
             scopeRevision: 1
         )
         let (batches, continuation) = AsyncStream.makeStream(
@@ -240,16 +135,14 @@ struct WorktreeAnnotationNotificationSourceTests {
         #expect(await harness.service.catalogInvalidationObserverCount() == 0)
     }
 
-    @Test("an accepted subject change recaptures the same Comment view handle")
-    func acceptedSubjectChangeRecapturesView() async throws {
+    @Test("same-handle Comment demand changes keep catalog membership")
+    func sameHandleDemandChangeKeepsCatalogMembership() async throws {
         let harness = try makeNotificationSourceHarness()
-        let firstDraft = try await harness.service.createRootDraft(makeCreateRootDraftProps())
-        let secondDraft = try await harness.service.createRootDraft(makeCreateRootDraftProps())
+        _ = try await harness.service.createRootDraft(makeCreateRootDraftProps())
         let handle = "comment-view-changing-subjects"
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
-            sessionIDs: [firstDraft.session.id],
             scopeRevision: 1
         )
         let (batches, continuation) = AsyncStream.makeStream(
@@ -271,7 +164,6 @@ struct WorktreeAnnotationNotificationSourceTests {
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
-            sessionIDs: [secondDraft.session.id],
             scopeRevision: 2
         )
         let replacement = try #require(await iterator.next())
@@ -280,7 +172,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         #expect(replacement.batch.scopeRevision == 2)
         #expect(replacement.batch.baseRevision == 1)
         #expect(replacement.batch.puts.count == 3)
-        #expect(replacement.batch.deletes.count == 3)
+        #expect(replacement.batch.deletes.isEmpty)
         openTask.cancel()
         _ = try? await openTask.value
         continuation.finish()
@@ -295,7 +187,6 @@ struct WorktreeAnnotationNotificationSourceTests {
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
-            sessionIDs: [draft.session.id],
             scopeRevision: 1
         )
         let initialDelivery = HeldStep<Void>("commentInitialDelivery")
@@ -352,12 +243,11 @@ struct WorktreeAnnotationNotificationSourceTests {
     @Test("recovery control invalidation recaptures one current Comment range")
     func recoveryControlRecapturesCurrentRange() async throws {
         let harness = try makeNotificationSourceHarness()
-        let draft = try await harness.service.createRootDraft(makeCreateRootDraftProps())
+        _ = try await harness.service.createRootDraft(makeCreateRootDraftProps())
         let handle = "comment-view-recovery-control"
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
-            sessionIDs: [draft.session.id],
             scopeRevision: 1
         )
         let (deliveries, continuation) = AsyncStream.makeStream(
@@ -374,8 +264,12 @@ struct WorktreeAnnotationNotificationSourceTests {
         let initial = try #require(await iterator.next())
         #expect(initial.mode == .snapshot)
 
+        let recoveryChange: WorktreeAnnotationCommittedChange = .control(
+            worktreeIDs: ["worktree-1"], reason: .recovery, sessionChanges: []
+        )
+        await harness.service.emitCommittedCatalogInvalidation(recoveryChange)
         await harness.service.applyCommittedChange(
-            .control(worktreeIDs: ["worktree-1"], reason: .recovery, sessionChanges: []),
+            recoveryChange,
             operationCorrelationID: String(repeating: "c", count: 64)
         )
         let recovered = try #require(await iterator.next())
@@ -404,7 +298,6 @@ struct WorktreeAnnotationNotificationSourceTests {
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
-            sessionIDs: [draft.session.id],
             scopeRevision: 1
         )
         let (initialDeliveries, continuation) = AsyncStream.makeStream(

@@ -15,6 +15,170 @@ const emptyFileScope = {
 } as const;
 
 describe('W2 desired view scope owner', () => {
+	test('counts unsuccessful page resnapshots per view, stops at the budget, and rearms on Retry', async () => {
+		const resnapshots: ViewResnapshotAdmissionProps[] = [];
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					resnapshots.push(props);
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (): string => 'view-identity',
+			maximumConsecutiveResnapshots: 2,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+		});
+		await owner.resnapshot('file-subscription-1');
+		expect(owner.recoveryState('file-subscription-1')).toEqual({
+			consecutiveResnapshots: 1,
+			status: 'recovering',
+		});
+		owner.observeReplacementSnapshot({
+			handle: 'view-identity',
+			incarnation: 'view-identity',
+			scopeRevision: 0,
+			subscriptionId: 'file-subscription-1',
+		});
+		await owner.resnapshot('file-subscription-1');
+		expect(owner.recoveryState('file-subscription-1')).toEqual({
+			consecutiveResnapshots: 2,
+			status: 'failedRetryable',
+		});
+		await owner.resnapshot('file-subscription-1');
+		expect(resnapshots).toHaveLength(2);
+		await owner.retryView('file-subscription-1');
+		expect(resnapshots).toHaveLength(3);
+		expect(owner.recoveryState('file-subscription-1')).toEqual({
+			consecutiveResnapshots: 1,
+			status: 'recovering',
+		});
+	});
+
+	test('coalesces overlapping admissions and fences their late settlement after retirement', async () => {
+		let resolveAdmission: (() => void) | undefined;
+		let requestCount = 0;
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					requestCount += 1;
+					await new Promise<void>((resolve) => {
+						resolveAdmission = resolve;
+					});
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (() => {
+				let nextIdentifier = 0;
+				return (): string => `view-${++nextIdentifier}`;
+			})(),
+			maximumConsecutiveResnapshots: 2,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+		});
+		const first = owner.resnapshot('file-subscription-1');
+		const second = owner.resnapshot('file-subscription-1');
+		expect(requestCount).toBe(1);
+		expect(owner.recoveryState('file-subscription-1')?.consecutiveResnapshots).toBe(1);
+		owner.retire('file-subscription-1');
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+		});
+		resolveAdmission?.();
+		await Promise.all([first, second]);
+		expect(owner.recoveryState('file-subscription-1')).toEqual({
+			consecutiveResnapshots: 0,
+			status: 'ready',
+		});
+	});
+
+	test('a new scope can resnapshot while the old scope admission remains unsettled', async () => {
+		const admissions: ViewResnapshotAdmissionProps[] = [];
+		const settleByRevision = new Map<
+			number,
+			{ resolve: () => void; reject: (error: Error) => void }
+		>();
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					admissions.push(props);
+					await new Promise<void>((resolve, reject) => {
+						settleByRevision.set(props.scopeRevision, { resolve, reject });
+					});
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (): string => 'view-identity',
+			maximumConsecutiveResnapshots: 3,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+		});
+		const oldScopeRecovery = owner.resnapshot('file-subscription-1');
+		await owner.setScope({ scope: emptyFileScope, subscriptionId: 'file-subscription-1' });
+		const currentRecovery = owner.resnapshot('file-subscription-1');
+		expect(admissions.map((admission) => admission.scopeRevision)).toEqual([0, 1]);
+		settleByRevision.get(0)?.reject(new Error('Superseded scope rejected.'));
+		await expect(oldScopeRecovery).rejects.toThrow('Superseded scope rejected.');
+		const duplicateCurrentRecovery = owner.resnapshot('file-subscription-1');
+		expect(admissions).toHaveLength(2);
+		settleByRevision.get(1)?.resolve();
+		await Promise.all([currentRecovery, duplicateCurrentRecovery]);
+		expect(owner.recoveryState('file-subscription-1')?.consecutiveResnapshots).toBe(2);
+	});
+
+	test('counts native replacement once and resets only after a certified install', async () => {
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => acceptedResnapshot(props),
+			},
+			createIdentifier: (): string => 'view-identity',
+			maximumConsecutiveResnapshots: 2,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+		});
+		owner.observeReplacementSnapshot({
+			handle: 'view-identity',
+			incarnation: 'view-identity',
+			scopeRevision: 0,
+			subscriptionId: 'file-subscription-1',
+		});
+		expect(owner.recoveryState('file-subscription-1')?.consecutiveResnapshots).toBe(1);
+		owner.recordCertifiedInstall({
+			handle: 'stale-handle',
+			incarnation: 'view-identity',
+			scopeRevision: 0,
+			subscriptionId: 'file-subscription-1',
+		});
+		expect(owner.recoveryState('file-subscription-1')?.consecutiveResnapshots).toBe(1);
+		owner.recordCertifiedInstall({
+			handle: 'view-identity',
+			incarnation: 'view-identity',
+			scopeRevision: 0,
+			subscriptionId: 'file-subscription-1',
+		});
+		expect(owner.recoveryState('file-subscription-1')).toEqual({
+			consecutiveResnapshots: 0,
+			status: 'ready',
+		});
+	});
 	test('a newer File scope cancels the unsettled operation and resnapshot uses the latest revision', async () => {
 		const scopes: ViewScopeAdmissionProps[] = [];
 		const resnapshots: ViewResnapshotAdmissionProps[] = [];
@@ -39,6 +203,7 @@ describe('W2 desired view scope owner', () => {
 		const owner = new BridgeProductViewScopeOwner({
 			controlMux,
 			createIdentifier: (): string => `view-identity-${++nextIdentifier}`,
+			maximumConsecutiveResnapshots: 3,
 		});
 		owner.register({
 			scope: emptyFileScope,
@@ -84,6 +249,7 @@ describe('W2 desired view scope owner', () => {
 		const owner = new BridgeProductViewScopeOwner({
 			controlMux,
 			createIdentifier: (): string => 'view-identity',
+			maximumConsecutiveResnapshots: 3,
 		});
 		owner.register({
 			scope: emptyFileScope,

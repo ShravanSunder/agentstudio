@@ -183,17 +183,11 @@ extension BridgePaneProductMetadataCoordinator {
             ),
             case .object(let scopeMembers) = view.scope,
             case .string(worktreeID)? = scopeMembers["worktreeId"],
-            case .array(let sessionValues)? = scopeMembers["sessionIds"]
+            case .array? = scopeMembers["sessionIds"]
         else { throw WorktreeAnnotationServiceError.unavailable }
-        let sessionIDs = Set(
-            sessionValues.compactMap { value -> WorktreeAnnotationSessionID? in
-                guard case .string(let rawValue) = value else { return nil }
-                return UUID(uuidString: rawValue).map(WorktreeAnnotationSessionID.init(rawValue:))
-            })
         try await annotationSource.acceptBatchScope(
             handle: view.handle,
             worktreeID: worktreeID,
-            sessionIDs: sessionIDs,
             scopeRevision: view.revision
         )
         let session = request.activeStream.session

@@ -105,7 +105,8 @@ struct BridgeProductViewSenderState {
     /// An out-of-credit domain yields its turn to a sibling.
     mutating func nextFrame(
         stream: BridgeProductMetadataStreamCorrelation,
-        streamSequence: Int
+        streamSequence: Int,
+        admittedAt: Duration = .zero
     ) throws -> BridgeProductMetadataFrame? {
         let candidateCount = schedulingOrder.count
         for _ in 0..<candidateCount {
@@ -129,7 +130,8 @@ struct BridgeProductViewSenderState {
                         for: viewDomain,
                         handle: emission.batch.handle,
                         sequence: partFrame.deliverySequence,
-                        byteCount: byteCount
+                        byteCount: byteCount,
+                        admittedAt: admittedAt
                     )
                 else {
                     schedulingOrder.removeFirst()
@@ -169,12 +171,19 @@ struct BridgeProductViewSenderState {
     mutating func resnapshot(_ viewDomain: BridgeProductViewDomainKey) {
         guard dirtyKeys.hasActiveIncarnation(viewDomain) else { return }
         dirtyKeys.requireSnapshot(for: viewDomain)
-        credits.abandonOutstanding(for: viewDomain)
+        let reservedThroughSequence = emissionByViewDomain[viewDomain].map { emission in
+            emission.batch.firstDeliverySequence + emission.batch.parts.count - 1
+        }
+        credits.abandonOutstanding(for: viewDomain, throughReservedSequence: reservedThroughSequence)
         emissionByViewDomain.removeValue(forKey: viewDomain)
         schedulingOrder.removeAll { $0 == viewDomain }
     }
 
     func outstandingPartCount(for viewDomain: BridgeProductViewDomainKey) -> Int {
         credits.outstandingPartCount(for: viewDomain)
+    }
+
+    func oldestUnacknowledgedPart() -> BridgeProductViewOutstandingPart? {
+        credits.oldestUnacknowledgedPart()
     }
 }

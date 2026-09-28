@@ -102,7 +102,7 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: '57b375030d4e480e5d21c0d0595f44206f0446eb5f759af5b9596f38d61f73da',
+				expectedHash: 'e027051b9a3053fc9ea2ba82046aab744836c1409aa49b22800aeaf2b0176992',
 				kind: 'valid',
 			},
 			{
@@ -195,16 +195,12 @@ describe('Bridge product session contracts', () => {
 		} as const;
 		const metadataFrames = [
 			...validProductSessionCorpus.metadataFrames.map((frame) =>
-				bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
+				bridgeProductMetadataFrameSchema.parse(frame),
 			),
 			bridgeProductMetadataFrameSchema.parse(resetFrame),
 		];
-		const contentRequests = validProductSessionCorpus.contentRequests.map(
-			withCurrentContentRequestFields,
-		);
-		const contentHeaders = validProductSessionCorpus.contentHeaders.map(
-			withCurrentContentHeaderFields,
-		);
+		const contentRequests = validProductSessionCorpus.contentRequests;
+		const contentHeaders = validProductSessionCorpus.contentHeaders;
 		expect(
 			new Set(validProductSessionCorpus.controlRequests.map((request) => request.kind)),
 		).toEqual(
@@ -250,13 +246,10 @@ describe('Bridge product session contracts', () => {
 			]),
 		);
 		for (const request of validProductSessionCorpus.controlRequests) {
-			const currentRequest =
-				request.kind === 'workerSession.open' ? { ...request, request: null } : request;
-			expect(bridgeProductControlRequestSchema.parse(currentRequest)).toEqual(currentRequest);
+			expect(bridgeProductControlRequestSchema.parse(request)).toEqual(request);
 		}
 		for (const response of validProductSessionCorpus.controlResponses) {
-			const currentResponse = withCurrentControlResponseFields(response);
-			expect(bridgeProductControlResponseSchema.parse(currentResponse)).toEqual(currentResponse);
+			expect(bridgeProductControlResponseSchema.parse(response)).toEqual(response);
 		}
 		for (const request of validProductSessionCorpus.metadataStreamRequests) {
 			expect(bridgeProductMetadataStreamRequestSchema.parse(request)).toEqual(request);
@@ -297,7 +290,6 @@ describe('Bridge product session contracts', () => {
 		if (workerSessionOpen === undefined) {
 			throw new Error('Shared corpus is missing workerSession.open.');
 		}
-		const currentWorkerSessionOpen = { ...workerSessionOpen, request: null };
 		const paneScopedCases = [
 			{
 				name: 'product session bootstrap',
@@ -307,12 +299,12 @@ describe('Bridge product session contracts', () => {
 			{
 				name: 'worker session open',
 				schema: bridgeProductControlRequestSchema,
-				value: currentWorkerSessionOpen,
+				value: workerSessionOpen,
 			},
 			...validProductSessionCorpus.controlResponses.map((response) => ({
 				name: response.kind,
 				schema: bridgeProductControlResponseSchema,
-				value: bridgeProductControlResponseSchema.parse(withCurrentControlResponseFields(response)),
+				value: bridgeProductControlResponseSchema.parse(response),
 			})),
 			...validProductSessionCorpus.metadataStreamRequests.map((request) => ({
 				name: request.kind,
@@ -329,7 +321,7 @@ describe('Bridge product session contracts', () => {
 				.map((frame) => ({
 					name: frame.kind,
 					schema: bridgeProductMetadataFrameSchema,
-					value: bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
+					value: bridgeProductMetadataFrameSchema.parse(frame),
 				})),
 		];
 
@@ -374,19 +366,19 @@ describe('Bridge product session contracts', () => {
 				.map((frame) => ({
 					name: frame.kind,
 					schema: bridgeProductMetadataFrameSchema,
-					value: bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
+					value: bridgeProductMetadataFrameSchema.parse(frame),
 				})),
 			...validProductSessionCorpus.contentRequests.map((request) => ({
 				name: request.kind,
 				schema: bridgeProductContentRequestSchema,
-				value: bridgeProductContentRequestSchema.parse(withCurrentContentRequestFields(request)),
+				value: bridgeProductContentRequestSchema.parse(request),
 			})),
 			...validProductSessionCorpus.contentHeaders
 				.filter((header) => header.kind === 'content.accepted')
 				.map((header) => ({
 					name: header.kind,
 					schema: bridgeProductContentHeaderSchema,
-					value: bridgeProductContentHeaderSchema.parse(withCurrentContentHeaderFields(header)),
+					value: bridgeProductContentHeaderSchema.parse(header),
 				})),
 		];
 
@@ -715,9 +707,7 @@ describe('Bridge product session contracts', () => {
 			.filter((frame) => frame.metadataStreamId === 'metadata-stream-1')
 			.slice(0, 5)
 			.map((frame) =>
-				encodeBridgeProductMetadataFrame(
-					bridgeProductMetadataFrameSchema.parse(withoutRetiredE3FrameState(frame)),
-				),
+				encodeBridgeProductMetadataFrame(bridgeProductMetadataFrameSchema.parse(frame)),
 			);
 		const wireBytes = concatenateBytes(...encodedFrames);
 		const decoder = new BridgeProductMetadataFrameDecoder();
@@ -795,24 +785,16 @@ describe('Bridge product session contracts', () => {
 		metadataDecoder.finish();
 
 		const contentRequest = bridgeProductContentRequestSchema.parse(
-			withCurrentContentRequestFields(validProductSessionCorpus.contentRequests[0]),
+			validProductSessionCorpus.contentRequests[0],
 		);
 		const contentAcceptedHeader = bridgeProductContentHeaderSchema.parse(
-			withCurrentContentHeaderFields(
-				validProductSessionCorpus.contentHeaders.find(
-					(header) => header.kind === 'content.accepted',
-				),
-			),
+			validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.accepted'),
 		);
 		const contentHeader = bridgeProductContentHeaderSchema.parse(
-			withCurrentContentHeaderFields(
-				validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.data'),
-			),
+			validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.data'),
 		);
 		const contentEndHeader = bridgeProductContentHeaderSchema.parse(
-			withCurrentContentHeaderFields(
-				validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.end'),
-			),
+			validProductSessionCorpus.contentHeaders.find((header) => header.kind === 'content.end'),
 		);
 		const contentPayload = Uint8Array.from(
 			Buffer.from(validProductSessionCorpus.wireVectors.contentData.payloadBase64, 'base64'),
@@ -916,66 +898,6 @@ function withoutWorkerDerivationEpoch(value: unknown): unknown {
 
 function withWorkerEpoch(value: unknown): unknown {
 	return isRecord(value) ? { ...value, workerEpoch: 3 } : value;
-}
-
-function withCurrentContentRequestFields(value: unknown): unknown {
-	if (!isRecord(value) || !isRecord(value['descriptor'])) return value;
-	const descriptor = value['descriptor'];
-	const source = descriptor['source'];
-	const currentDescriptor = isRecord(source)
-		? {
-				...descriptor,
-				source: { ...source, rootRevisionToken: source['rootRevisionToken'] ?? null },
-			}
-		: descriptor;
-	return {
-		...value,
-		descriptor: currentDescriptor,
-		operationCorrelationId: value['operationCorrelationId'] ?? null,
-	};
-}
-
-function withCurrentControlResponseFields(value: unknown): unknown {
-	if (!isRecord(value)) return value;
-	if (value['kind'] === 'workerSession.accepted') {
-		return { ...value, result: value['result'] ?? null };
-	}
-	if (value['kind'] !== 'call.completed' || !isRecord(value['call'])) return value;
-	return { ...value, call: { ...value['call'], result: value['call']['result'] ?? null } };
-}
-
-function withoutRetiredE3FrameState(value: unknown): unknown {
-	if (!isRecord(value)) return value;
-	if (
-		value['kind'] !== 'subscription.accepted' &&
-		value['kind'] !== 'subscription.reset' &&
-		value['kind'] !== 'subscription.end' &&
-		value['kind'] !== 'subscription.cancelled'
-	) {
-		return value;
-	}
-	// Frozen shared session-corpus bytes predate the E3 lifecycle frame cutover.
-	const { cursor: _cursor, sourceGeneration: _sourceGeneration, ...frame } = value;
-	return frame;
-}
-
-function withCurrentContentHeaderFields(value: unknown): unknown {
-	if (!isRecord(value)) return value;
-	const identity = value['identity'];
-	const source = isRecord(identity) ? identity['source'] : undefined;
-	const currentIdentity =
-		isRecord(identity) && isRecord(source)
-			? {
-					...identity,
-					source: { ...source, rootRevisionToken: source['rootRevisionToken'] ?? null },
-				}
-			: identity;
-	return {
-		...value,
-		...(identity === undefined ? {} : { identity: currentIdentity }),
-		operationCorrelationId: value['operationCorrelationId'] ?? null,
-		...(value['kind'] === 'content.error' ? { safeMessage: value['safeMessage'] ?? null } : {}),
-	};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

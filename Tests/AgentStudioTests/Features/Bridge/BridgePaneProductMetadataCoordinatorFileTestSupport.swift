@@ -3,19 +3,28 @@ import Foundation
 
 @testable import AgentStudioBridge
 
+struct CoordinatorFileUpdateStartObservation: Sendable {
+    let openFinished: Bool
+    let sourceAccepted: Bool
+}
+
+private enum CoordinatorFileTestError: Error {
+    case unexpectedSourceAcceptedEvent
+}
+
 actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private var didFinishOpen = false
-    private var didAcceptSource = false
-    private var didStartOpen = false
-    private var didStartUpdate = false
-    private var acceptanceWaiters: [CheckedContinuation<Void, Never>] = []
-    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+    private var acceptedSource: BridgeProductFileSourceIdentity?
+    private var openStartCount = 0
+    private var updateStartObservation: CoordinatorFileUpdateStartObservation?
+    private var acceptanceWaiters: [CheckedContinuation<BridgeProductFileSourceIdentity, Never>] = []
+    private var finishWaiters: [CheckedContinuation<Bool, Never>] = []
     private var isSourceAcceptanceReleased = false
     private var isOpenReleased = false
     private var openWaiters: [CheckedContinuation<Void, Never>] = []
     private var sourceAcceptanceWaiters: [CheckedContinuation<Void, Never>] = []
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var updateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startWaiters: [CheckedContinuation<Int, Never>] = []
+    private var updateWaiters: [CheckedContinuation<CoordinatorFileUpdateStartObservation, Never>] = []
     private(set) var openObservedCancellation = false
     private(set) var updateObservedOpenFinished = false
     private(set) var updateObservedSourceAccepted = false
@@ -30,17 +39,21 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         emit: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
-        didStartOpen = true
-        for waiter in startWaiters { waiter.resume() }
+        openStartCount += 1
+        for waiter in startWaiters { waiter.resume(returning: openStartCount) }
         startWaiters.removeAll(keepingCapacity: false)
         if !isSourceAcceptanceReleased {
             await withCheckedContinuation { continuation in
                 sourceAcceptanceWaiters.append(continuation)
             }
         }
-        try await emit(coordinatorSourceAcceptedEvent())
-        didAcceptSource = true
-        for waiter in acceptanceWaiters { waiter.resume() }
+        let sourceEvent = try coordinatorSourceAcceptedEvent()
+        try await emit(sourceEvent)
+        guard case .sourceAccepted(let accepted) = sourceEvent else {
+            throw CoordinatorFileTestError.unexpectedSourceAcceptedEvent
+        }
+        acceptedSource = accepted.source
+        for waiter in acceptanceWaiters { waiter.resume(returning: accepted.source) }
         acceptanceWaiters.removeAll(keepingCapacity: false)
         if !isOpenReleased {
             await withCheckedContinuation { continuation in
@@ -49,7 +62,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         }
         openObservedCancellation = Task.isCancelled
         didFinishOpen = true
-        for waiter in finishWaiters { waiter.resume() }
+        for waiter in finishWaiters { waiter.resume(returning: openObservedCancellation) }
         finishWaiters.removeAll(keepingCapacity: false)
     }
 
@@ -62,9 +75,13 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {
         updateObservedOpenFinished = didFinishOpen
-        updateObservedSourceAccepted = didAcceptSource
-        didStartUpdate = true
-        for waiter in updateWaiters { waiter.resume() }
+        updateObservedSourceAccepted = acceptedSource != nil
+        let observation = CoordinatorFileUpdateStartObservation(
+            openFinished: didFinishOpen,
+            sourceAccepted: acceptedSource != nil
+        )
+        updateStartObservation = observation
+        for waiter in updateWaiters { waiter.resume(returning: observation) }
         updateWaiters.removeAll(keepingCapacity: false)
     }
 
@@ -87,16 +104,16 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductFileContentReadPlan? { nil }
 
-    func waitUntilOpenStarted() async {
-        guard !didStartOpen else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilOpenStarted() async -> Int {
+        guard openStartCount == 0 else { return openStartCount }
+        return await withCheckedContinuation { continuation in
             startWaiters.append(continuation)
         }
     }
 
-    func waitUntilUpdateStarted() async {
-        guard !didStartUpdate else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilUpdateStarted() async -> CoordinatorFileUpdateStartObservation {
+        if let updateStartObservation { return updateStartObservation }
+        return await withCheckedContinuation { continuation in
             updateWaiters.append(continuation)
         }
     }
@@ -107,9 +124,9 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         sourceAcceptanceWaiters.removeAll(keepingCapacity: false)
     }
 
-    func waitUntilSourceAccepted() async {
-        guard !didAcceptSource else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilSourceAccepted() async -> BridgeProductFileSourceIdentity {
+        if let acceptedSource { return acceptedSource }
+        return await withCheckedContinuation { continuation in
             acceptanceWaiters.append(continuation)
         }
     }
@@ -120,9 +137,9 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         openWaiters.removeAll(keepingCapacity: false)
     }
 
-    func waitUntilOpenFinished() async {
-        guard !didFinishOpen else { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilOpenFinished() async -> Bool {
+        guard !didFinishOpen else { return openObservedCancellation }
+        return await withCheckedContinuation { continuation in
             finishWaiters.append(continuation)
         }
     }
@@ -131,7 +148,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
 actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private(set) var cancelledSubscriptionIds: [String] = []
     private(set) var openCount = 0
-    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+    private var openWaiters: [CheckedContinuation<Int, Never>] = []
 
     func captureKeyedSnapshot(
         subscriptionId: String,
@@ -173,7 +190,7 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
         openCount += 1
         let waiters = openWaiters
         openWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: openCount) }
         try await emit(
             .sourceAccepted(
                 .init(
@@ -190,9 +207,9 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
         )
     }
 
-    func waitUntilOpened() async {
-        if openCount > 0 { return }
-        await withCheckedContinuation { continuation in
+    func waitUntilOpened() async -> Int {
+        if openCount > 0 { return openCount }
+        return await withCheckedContinuation { continuation in
             openWaiters.append(continuation)
         }
     }

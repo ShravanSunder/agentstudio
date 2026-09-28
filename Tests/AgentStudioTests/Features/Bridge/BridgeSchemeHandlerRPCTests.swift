@@ -190,8 +190,7 @@ final class BridgeSchemeHandlerRPCTests {
         let paneSessionId = "pane-session-scheme-handler-metadata"
         let provider = BridgeProductSchemeProviderSpy(
             holdFirstControlResponse: false,
-            contentReturnsWithoutTerminal: false,
-            metadataProgressFrameCount: 2
+            contentReturnsWithoutTerminal: false
         )
         let productAdmissionGate = BridgeProductAdmissionGate()
         let installation = try BridgeProductSessionInstallation.make(
@@ -211,27 +210,9 @@ final class BridgeSchemeHandlerRPCTests {
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
             installation.capabilityBytes
         )
-        let openBody = try JSONSerialization.data(
-            withJSONObject: [
-                "kind": "workerSession.open",
-                "paneSessionId": paneSessionId,
-                "request": NSNull(),
-                "requestId": "request-open-scheme-handler-metadata",
-                "requestSequence": 1,
-                "wireVersion": BridgeProductWireContract.version,
-                "workerInstanceId": installation.bootstrap.workerInstanceId,
-            ],
-            options: [.sortedKeys]
+        try await openSchemeHandlerWorker(
+            handler: handler, installation: installation, capabilityHeader: capabilityHeader
         )
-        let openReply = try await collectBridgeSchemeHandlerReply(
-            handler: handler,
-            request: bridgeProductSchemeRequest(
-                route: BridgeProductWireContract.commandRoute,
-                capability: capabilityHeader,
-                body: openBody
-            )
-        )
-        #expect(openReply.response?.statusCode == 200)
         let metadataBody = try JSONSerialization.data(
             withJSONObject: [
                 "kind": "metadataStream.open",
@@ -250,7 +231,7 @@ final class BridgeSchemeHandlerRPCTests {
         )
         let recorder = BridgeProductSchemeReplyEventRecorder()
         let (observedFrames, observedFrameContinuation) =
-            AsyncStream<BridgeProductMetadataFrameIdentity>.makeStream()
+            AsyncStream<BridgeProductMetadataFrame>.makeStream()
 
         // Act
         let consumer = Task {
@@ -264,9 +245,11 @@ final class BridgeSchemeHandlerRPCTests {
         try await acknowledgeMetadataFrames(
             observedFrames,
             handler: handler,
-            capabilityHeader: capabilityHeader
+            capabilityHeader: capabilityHeader,
+            installation: installation,
+            productAdmission: try #require(productAdmissionGate.acquire())
         )
-        await recorder.waitUntilCount(4)
+        await recorder.waitUntilCount(15)
         consumer.cancel()
         _ = await consumer.value
         observedFrameContinuation.finish()
@@ -274,7 +257,7 @@ final class BridgeSchemeHandlerRPCTests {
         await provider.waitUntilAcknowledgedLifecycleCount(1)
 
         // Assert
-        #expect(await recorder.snapshot == [.response, .data, .data, .data])
+        #expect(await recorder.snapshot == [.response] + Array(repeating: .data, count: 14))
         #expect((await installation.session.producerSnapshot()).hasZeroResidue)
         #expect((await router.snapshot).hasZeroResidue)
         let providerSnapshot = await provider.snapshot
@@ -341,7 +324,7 @@ private struct BridgeSchemeMetadataReplyConsumer {
     let handler: BridgeSchemeHandler
     let request: URLRequest
     let recorder: BridgeProductSchemeReplyEventRecorder
-    let observedFrameContinuation: AsyncStream<BridgeProductMetadataFrameIdentity>.Continuation
+    let observedFrameContinuation: AsyncStream<BridgeProductMetadataFrame>.Continuation
 
     func consume() async {
         do {
@@ -357,7 +340,7 @@ private struct BridgeSchemeMetadataReplyConsumer {
                         continue
                     }
                     await recorder.record(.data)
-                    observedFrameContinuation.yield(frame.producerFrameIdentity)
+                    observedFrameContinuation.yield(frame)
                 @unknown default:
                     Issue.record("Unexpected URL scheme task result")
                 }
@@ -370,38 +353,242 @@ private struct BridgeSchemeMetadataReplyConsumer {
     }
 }
 
-private func acknowledgeMetadataFrames(
-    _ observedFrames: AsyncStream<BridgeProductMetadataFrameIdentity>,
+private func openSchemeHandlerWorker(
     handler: BridgeSchemeHandler,
+    installation: BridgeProductSessionInstallation,
     capabilityHeader: String
 ) async throws {
-    var observedFrameIterator = observedFrames.makeAsyncIterator()
-    for expectedStreamSequence in 0...2 {
-        let frameIdentity = try #require(await observedFrameIterator.next())
-        #expect(frameIdentity.streamSequence == expectedStreamSequence)
-        let acknowledgementBody = try JSONSerialization.data(
-            withJSONObject: [
-                "kind": "stream.frameObserved",
-                "metadataStreamId": frameIdentity.metadataStreamId,
-                "paneSessionId": frameIdentity.paneSessionId,
-                "streamKind": "metadata",
-                "streamSequence": frameIdentity.streamSequence,
-                "wireVersion": frameIdentity.wireVersion,
-                "workerInstanceId": frameIdentity.workerInstanceId,
-            ],
-            options: [.sortedKeys]
+    let paneSessionId = installation.bootstrap.paneSessionId
+    let openBody = try JSONSerialization.data(
+        withJSONObject: [
+            "kind": "workerSession.open",
+            "paneSessionId": paneSessionId,
+            "request": NSNull(),
+            "requestId": "request-open-scheme-handler-metadata",
+            "requestSequence": 1,
+            "wireVersion": BridgeProductWireContract.version,
+            "workerInstanceId": installation.bootstrap.workerInstanceId,
+        ],
+        options: [.sortedKeys]
+    )
+    let openReply = try await collectBridgeSchemeHandlerReply(
+        handler: handler,
+        request: bridgeProductSchemeRequest(
+            route: BridgeProductWireContract.commandRoute,
+            capability: capabilityHeader,
+            body: openBody
         )
-        let acknowledgementReply = try await collectBridgeSchemeHandlerReply(
-            handler: handler,
-            request: bridgeProductSchemeRequest(
-                route: BridgeProductWireContract.commandRoute,
-                capability: capabilityHeader,
-                body: acknowledgementBody
-            )
+    )
+    #expect(openReply.response?.statusCode == 200)
+    let openAdmission = try BridgeProductStrictJSON.decode(
+        BridgeProductOperationAdmittedResponse.self,
+        from: openReply.body
+    )
+    await installation.session.waitForOperationExecution(operationId: openAdmission.operationId)
+    let openResultBody = try JSONSerialization.data(withJSONObject: [
+        "kind": "operation.result",
+        "operationId": openAdmission.operationId,
+        "paneSessionId": paneSessionId,
+        "wireVersion": BridgeProductWireContract.version,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+    ])
+    let openResultReply = try await collectBridgeSchemeHandlerReply(
+        handler: handler,
+        request: bridgeProductSchemeRequest(
+            route: BridgeProductWireContract.commandRoute,
+            capability: capabilityHeader,
+            body: openResultBody
         )
-        #expect(acknowledgementReply.response?.statusCode == 204)
-        #expect(acknowledgementReply.body.isEmpty)
+    )
+    #expect(openResultReply.response?.statusCode == 200)
+    let openResult = try BridgeProductStrictJSON.decode(
+        BridgeProductOperationResultResponse.self,
+        from: openResultReply.body
+    )
+    #expect(openResult.outcome == .succeeded)
+    let openResponse = try BridgeProductStrictJSON.decode(
+        BridgeProductControlResponse.self,
+        from: JSONEncoder().encode(try #require(openResult.result))
+    )
+    guard case .workerSessionAccepted = openResponse else {
+        throw BridgeSchemeHandlerRPCSetupError.workerOpenNotCommitted
     }
+}
+
+private func acknowledgeMetadataFrames(
+    _ observedFrames: AsyncStream<BridgeProductMetadataFrame>,
+    handler: BridgeSchemeHandler,
+    capabilityHeader: String,
+    installation: BridgeProductSessionInstallation,
+    productAdmission: BridgeProductAdmissionContext
+) async throws {
+    var observedFrameIterator = observedFrames.makeAsyncIterator()
+    let openingFrame = try #require(await observedFrameIterator.next())
+    guard case .metadataStreamAccepted = openingFrame else {
+        throw BridgeSchemeHandlerRPCSetupError.metadataOpeningMissing
+    }
+    #expect(openingFrame.producerFrameIdentity.streamSequence == 0)
+    try await sealSchemeHandlerFileBatch(
+        installation: installation,
+        productAdmission: productAdmission,
+        capabilityHeader: capabilityHeader
+    )
+    var batchPartCount = 0
+    var batchCompleted = false
+    for expectedStreamSequence in 1...13 {
+        let frame = try #require(await observedFrameIterator.next())
+        #expect(frame.producerFrameIdentity.streamSequence == expectedStreamSequence)
+        switch frame {
+        case .subscriptionAccepted:
+            #expect(expectedStreamSequence == 1)
+        case .batch(.begin(let begin)):
+            #expect(begin.partCount == 10)
+            #expect(begin.mode == .snapshot)
+        case .batch(.part(let part)):
+            batchPartCount += 1
+            if part.deliverySequence == 8 {
+                let acknowledgementBody = try JSONSerialization.data(withJSONObject: [
+                    "kind": "subscription.acknowledge",
+                    "wireVersion": BridgeProductWireContract.version,
+                    "paneSessionId": part.identity.frame.paneSessionId,
+                    "workerInstanceId": part.identity.frame.workerInstanceId,
+                    "subscriptionId": part.identity.subscriptionId,
+                    "domain": part.identity.domain,
+                    "handle": part.identity.handle,
+                    "incarnation": part.identity.incarnation,
+                    "receivedThroughDeliverySequence": part.deliverySequence,
+                ])
+                let acknowledgementReply = try await collectBridgeSchemeHandlerReply(
+                    handler: handler,
+                    request: bridgeProductSchemeRequest(
+                        route: BridgeProductWireContract.commandRoute,
+                        capability: capabilityHeader,
+                        body: acknowledgementBody
+                    )
+                )
+                #expect(acknowledgementReply.response?.statusCode == 200)
+                let acknowledged = try BridgeProductStrictJSON.decode(
+                    BridgeProductViewAcknowledgedResponse.self,
+                    from: acknowledgementReply.body
+                )
+                #expect(acknowledged.subscriptionId == part.identity.subscriptionId)
+                #expect(acknowledged.receivedThroughDeliverySequence == part.deliverySequence)
+            }
+        case .batch(.complete):
+            batchCompleted = true
+        default:
+            Issue.record("Expected only opening, accepted, and sealed File batch frames")
+        }
+    }
+    #expect(batchPartCount == 10)
+    #expect(batchCompleted)
+}
+
+private func sealSchemeHandlerFileBatch(
+    installation: BridgeProductSessionInstallation,
+    productAdmission: BridgeProductAdmissionContext,
+    capabilityHeader: String
+) async throws {
+    let paneSessionId = installation.bootstrap.paneSessionId
+    let workerInstanceId = installation.bootstrap.workerInstanceId
+    let openBytes = try JSONSerialization.data(withJSONObject: [
+        "kind": "subscription.open",
+        "wireVersion": BridgeProductWireContract.version,
+        "paneSessionId": paneSessionId,
+        "workerInstanceId": workerInstanceId,
+        "requestId": "request-file-open-scheme-handler",
+        "requestSequence": 2,
+        "workerDerivationEpoch": 1,
+        "subscriptionId": "file-subscription-scheme-handler",
+        "subscription": [
+            "subscriptionKind": "file.metadata",
+            "source": [
+                "cwdScope": NSNull(), "freshness": "live", "includeStatuses": true,
+                "repoId": "00000000-0000-4000-8000-000000000001",
+                "rootPathToken": "root-token-scheme-handler",
+                "worktreeId": "00000000-0000-4000-8000-000000000002",
+            ],
+        ],
+    ])
+    let openRequest = try BridgeProductStrictJSON.decode(
+        BridgeProductControlRequest.self, from: openBytes
+    )
+    guard
+        case .execute(let token, _) = await installation.session.beginControl(
+            exactRequestBytes: openBytes,
+            presentedCapability: capabilityHeader,
+            productAdmission: productAdmission
+        )
+    else {
+        throw BridgeSchemeHandlerRPCSetupError.subscriptionNotAdmitted
+    }
+    let accepted = try BridgeProductControlResponse.subscriptionOpenAccepted(
+        correlating: openRequest, worktreeId: nil
+    )
+    _ = try await installation.session.completeAdmittedControl(
+        token: token, exactResponseBytes: JSONEncoder().encode(accepted)
+    )
+    let scopeBytes = try JSONSerialization.data(withJSONObject: [
+        "kind": "subscription.setScope",
+        "wireVersion": BridgeProductWireContract.version,
+        "paneSessionId": paneSessionId,
+        "workerInstanceId": workerInstanceId,
+        "requestId": "request-file-scope-scheme-handler",
+        "requestSequence": 3,
+        "subscriptionId": "file-subscription-scheme-handler",
+        "subscriptionKind": "file.metadata",
+        "domain": "default",
+        "handle": "file-handle-scheme-handler",
+        "incarnation": "file-incarnation-scheme-handler",
+        "scopeRevision": 1,
+        "scope": [
+            "kind": "file", "changeFilter": ["kind": "none"],
+            "interests": [], "pathScope": [],
+        ],
+    ])
+    let scope = try BridgeProductStrictJSON.decode(
+        BridgeProductViewScopeRequest.self, from: scopeBytes
+    )
+    try #require(await installation.session.acceptViewScope(scope, productAdmission: productAdmission) == nil)
+    let source = try BridgeProductFileSourceIdentity(
+        repoId: "00000000-0000-4000-8000-000000000001",
+        rootRevisionToken: "root-token-scheme-handler",
+        sourceCursor: "source-cursor-scheme-handler",
+        sourceId: "file-source-scheme-handler",
+        subscriptionGeneration: 1,
+        worktreeId: "00000000-0000-4000-8000-000000000002"
+    )
+    let snapshot = BridgeWorktreeFileKeyedSnapshot(
+        memberStatus: .init(record: .init(source: source), revision: 1),
+        records: (1...9).map { ordinal in
+            let path = "file-\(ordinal).swift"
+            return .init(
+                key: "/workspace/\(path)", revision: 1,
+                row: .init(
+                    rowId: "row-\(ordinal)", path: path, name: path, parentPath: nil,
+                    depth: 0, isDirectory: false, fileId: "file-\(ordinal)",
+                    fileClass: .source, sizeBytes: 1, lineCount: nil, changeStatus: nil
+                ),
+                descriptorOutcome: nil
+            )
+        },
+        targetRevision: 1,
+        tombstoneRevisionByKey: [:],
+        absenceFloorRevisionByRange: [:]
+    )
+    try #require(
+        try await installation.session.sealFileSnapshot(
+            subscriptionId: scope.subscriptionId,
+            snapshot: snapshot,
+            productAdmission: productAdmission
+        )
+    )
+}
+
+private enum BridgeSchemeHandlerRPCSetupError: Error {
+    case metadataOpeningMissing
+    case subscriptionNotAdmitted
+    case workerOpenNotCommitted
 }
 
 private func collectBridgeSchemeHandlerReply(

@@ -36,7 +36,7 @@ struct BridgeProductReviewViewBatchFactoryTests {
                 displayedComparison: nil
             )
         )
-        let scope: BridgeProductJSONValue = .object(["kind": .string("review")])
+        let scope: BridgeProductJSONValue = .object(["kind": .string("review"), "interests": .array([])])
 
         let batch = try BridgeProductReviewViewBatchFactory.sealSnapshot(
             .init(
@@ -74,7 +74,7 @@ struct BridgeProductReviewViewBatchFactoryTests {
             domain: .singleDomain,
             incarnation: "review-incarnation-1"
         )
-        let scope: BridgeProductJSONValue = .object(["kind": .string("review")])
+        let scope: BridgeProductJSONValue = .object(["kind": .string("review"), "interests": .array([])])
 
         let batch = try BridgeProductReviewViewBatchFactory.sealSnapshot(
             .init(
@@ -119,7 +119,7 @@ struct BridgeProductReviewViewBatchFactoryTests {
     @Test("an empty Review publication is a complete sealed snapshot")
     func emptyPublicationSnapshot() throws {
         let records = try reviewBatchFixtureRecords()
-        let scope: BridgeProductJSONValue = .object(["kind": .string("review")])
+        let scope: BridgeProductJSONValue = .object(["kind": .string("review"), "interests": .array([])])
         let batch = try BridgeProductReviewViewBatchFactory.sealSnapshot(
             .init(
                 viewDomain: .init(

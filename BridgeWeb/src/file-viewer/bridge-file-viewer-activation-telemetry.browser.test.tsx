@@ -13,12 +13,12 @@ import {
 	makeBrowserFileBatchWithDescriptors,
 	makeBrowserFileDescriptorOutcome,
 	makeBrowserFileDescriptorOutcomeForContent,
-	type PublishBrowserFileBatch,
 } from './bridge-file-viewer-browser-test-batches.js';
 import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actFrame,
 	actUpdate,
+	makeBrowserFileBatchPublisherObservation,
 	makeTestTelemetryRecorder,
 	settleBridgeFileViewerBrowserUpdates,
 	waitForOpenFileState,
@@ -39,7 +39,7 @@ describe('Bridge File activation telemetry', () => {
 	});
 
 	test('records File TTFI when metadata arrives after the mounted tree setup frame', async () => {
-		let publishFileBatch: PublishBrowserFileBatch | null = null;
+		const publisherObservation = makeBrowserFileBatchPublisherObservation();
 		const telemetrySamples: BridgeTelemetrySample[] = [];
 		await render(
 			<BridgeFileViewerApp
@@ -47,17 +47,16 @@ describe('Bridge File activation telemetry', () => {
 				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
 				fileProductSession={{
 					onFileBatchPublisher: (publisher) => {
-						publishFileBatch = publisher;
+						publisherObservation.observe(publisher);
 					},
 				}}
 			/>,
 		);
-		await expect.poll(() => publishFileBatch).not.toBeNull();
+		const publishFileBatch = await publisherObservation.publisher;
 		await actFrame();
 		await actFrame();
 
 		await actUpdate(() => {
-			if (publishFileBatch === null) throw new Error('Expected File batch publisher.');
 			publishFileBatch(
 				makeBrowserFileBatchWithDescriptors(
 					makeBrowserFileDescriptorOutcome({

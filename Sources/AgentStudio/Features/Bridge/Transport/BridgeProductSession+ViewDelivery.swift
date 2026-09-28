@@ -71,6 +71,7 @@ extension BridgeProductSession {
             pendingReviewSnapshotByViewDomain.removeValue(forKey: prior)
         }
         viewSenderState.open(viewDomain, handle: handle, scanGeneration: 0)
+        rescheduleViewAcknowledgementDeadline()
         viewScopeByDomain[viewDomain] = .init(
             handle: handle, revision: 0, admissionSequence: 0, scope: scope
         )
@@ -229,6 +230,57 @@ extension BridgeProductSession {
         }
     }
 
+    func rescheduleViewAcknowledgementDeadline() {
+        viewAcknowledgementDeadlineTask?.cancel()
+        viewAcknowledgementDeadlineTask = nil
+        viewAcknowledgementDeadlineGeneration += 1
+        guard lifecycle == .active,
+            let oldest = viewSenderState.oldestUnacknowledgedPart()
+        else { return }
+        let remaining = max(
+            .zero,
+            oldest.admittedAt + AppPolicies.Bridge.productViewAcknowledgementDeadline - viewDeadlineElapsed()
+        )
+        let generation = viewAcknowledgementDeadlineGeneration
+        let delay = operationDelay
+        viewAcknowledgementDeadlineTask = Task { [weak self] in
+            do { try await delay.wait(remaining) } catch { return }
+            await self?.expireViewAcknowledgementDeadline(generation: generation)
+        }
+    }
+
+    private func expireViewAcknowledgementDeadline(generation: Int) async {
+        guard generation == viewAcknowledgementDeadlineGeneration,
+            lifecycle == .active,
+            let oldest = viewSenderState.oldestUnacknowledgedPart()
+        else { return }
+        viewAcknowledgementDeadlineTask = nil
+        guard viewDeadlineElapsed() >= oldest.admittedAt + AppPolicies.Bridge.productViewAcknowledgementDeadline,
+            let scope = viewScopeByDomain[oldest.viewDomain],
+            scope.handle == oldest.handle,
+            let subscription = subscriptionState.snapshot(subscriptionId: oldest.viewDomain.viewId)
+        else {
+            rescheduleViewAcknowledgementDeadline()
+            return
+        }
+        viewSenderState.resnapshot(oldest.viewDomain)
+        pendingFileSnapshotByViewDomain.removeValue(forKey: oldest.viewDomain)
+        pendingReviewSnapshotByViewDomain.removeValue(forKey: oldest.viewDomain)
+        finishViewEmissionWaiter(for: oldest.viewDomain, outcome: .resnapshotRequired)
+        rescheduleViewAcknowledgementDeadline()
+        for lease in producerRegistry.metadataProducerLeases {
+            resumeProducerFrameWaiterIfPossible(for: lease)
+        }
+        await viewResnapshotNeededObserver?(
+            .init(
+                viewDomain: oldest.viewDomain,
+                handle: oldest.handle,
+                scopeRevision: scope.revision,
+                subscriptionKind: subscription.subscriptionKind
+            )
+        )
+    }
+
     func sealViewBatch(
         _ batch: BridgeProductSealedViewBatch,
         productAdmission: BridgeProductAdmissionContext
@@ -277,7 +329,8 @@ extension BridgeProductSession {
         guard
             let frame = try proposedSender.nextFrame(
                 stream: target.stream,
-                streamSequence: target.nextSequence
+                streamSequence: target.nextSequence,
+                admittedAt: viewDeadlineElapsed()
             )
         else { return }
         let result = try producerRegistry.enqueueNonterminalFrame(
@@ -303,6 +356,7 @@ extension BridgeProductSession {
         switch result {
         case .enqueued:
             viewSenderState = proposedSender
+            if frame.kind == "subscription.batchPart" { rescheduleViewAcknowledgementDeadline() }
             finishReadyViewEmissionWaiters()
         case .queueReset:
             break
@@ -366,6 +420,7 @@ extension BridgeProductSession {
             pendingFileSnapshotByViewDomain.removeValue(forKey: viewDomain)
             pendingReviewSnapshotByViewDomain.removeValue(forKey: viewDomain)
         }
+        rescheduleViewAcknowledgementDeadline()
     }
 
     func acceptedViewScope(
@@ -450,6 +505,7 @@ extension BridgeProductSession {
             handle: request.handle,
             scanGeneration: request.scopeRevision
         )
+        rescheduleViewAcknowledgementDeadline()
         viewScopeByDomain[viewDomain] = .init(
             handle: request.handle,
             revision: request.scopeRevision,
@@ -481,6 +537,7 @@ extension BridgeProductSession {
             current.revision == request.scopeRevision
         else { return .superseded }
         viewSenderState.resnapshot(viewDomain)
+        rescheduleViewAcknowledgementDeadline()
         finishViewEmissionWaiter(for: viewDomain, outcome: .resnapshotRequired)
         pendingFileSnapshotByViewDomain.removeValue(forKey: viewDomain)
         pendingReviewSnapshotByViewDomain.removeValue(forKey: viewDomain)
@@ -522,6 +579,7 @@ extension BridgeProductSession {
                     through: request.receivedThroughDeliverySequence
                 )
         else { return nil }
+        if returnedCredit { rescheduleViewAcknowledgementDeadline() }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

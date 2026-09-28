@@ -272,7 +272,6 @@ extension BridgeProductProducerRegistry {
     ) -> BridgeProductProducerFrameDelivery {
         let receipt = BridgeProductProducerFrameReceipt(
             producerLease: lease,
-            requiresWorkerObservation: frame.requiresWorkerObservation,
             sequence: frame.sequence,
             nonce: UUID()
         )

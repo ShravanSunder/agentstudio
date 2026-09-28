@@ -310,8 +310,6 @@ describe('Bridge comm worker runtime protocol', () => {
 			4,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
 		expect(reviewProductSource.viewScopes.map(({ scope }) => scope)).toEqual([
 			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'idle' }] },
 		]);
@@ -344,7 +342,7 @@ describe('Bridge comm worker runtime protocol', () => {
 			hasExpectedEvent: () =>
 				postedMessages.some(({ message }) => message.kind === 'reviewPierreRenderJob'),
 			scheduledDrains,
-			startIndex: 1,
+			startIndex: 0,
 		});
 		await flushBridgeWorkerRuntimeContinuations();
 
@@ -537,9 +535,6 @@ describe('Bridge comm worker runtime protocol', () => {
 			4,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-		await flushBridgeWorkerRuntimeContinuations();
-		scheduledDrains.splice(0, 1);
 		postedMessages.length = 0;
 
 		dispatch.message(
@@ -569,6 +564,12 @@ describe('Bridge comm worker runtime protocol', () => {
 			scheduledDrains,
 			startIndex: 0,
 		});
+		const publishedReviewJob = postedMessages.find(
+			({ message }) => message.kind === 'reviewPierreRenderJob' && message.job.itemId === 'item-1',
+		)?.message;
+		if (publishedReviewJob?.kind !== 'reviewPierreRenderJob') {
+			throw new Error('Expected the visible Review render job.');
+		}
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
@@ -585,7 +586,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 105,
+			publicationSequence: publishedReviewJob.renderReceiptIdentity.publicationSequence,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -678,9 +679,15 @@ describe('Bridge comm worker runtime protocol', () => {
 		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
 		const firstDrainResult = await firstDrainCompletion;
 
-		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:1']);
+		expect(firstDrainResult.completedIds).toEqual([]);
+		const publishedReviewJob = postedMessages.find(
+			({ message }) => message.kind === 'reviewPierreRenderJob' && message.job.itemId === 'item-1',
+		)?.message;
+		if (publishedReviewJob?.kind !== 'reviewPierreRenderJob') {
+			throw new Error('Expected the visible Review render job after source repair.');
+		}
 		expect(secondDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:206',
+			`review-content-ready:item-1:review-ledger:item-1:${publishedReviewJob.renderReceiptIdentity.publicationSequence}`,
 		]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
@@ -701,7 +708,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(postedMessages[6]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 206,
+			publicationSequence: publishedReviewJob.renderReceiptIdentity.publicationSequence,
 			workerDerivationEpoch: 1,
 			patches: [
 				{

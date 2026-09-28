@@ -7,8 +7,8 @@ import Testing
 
 @Suite("Bridge comment N10 current-row publisher")
 struct BridgeProductCommentCatalogPublisherTests {
-    @Test("accepted subject changes replace only the visible session rows")
-    func changedSubjectSetRecapturesCurrentRows() async throws {
+    @Test("empty body demand still publishes every worktree catalog key")
+    func emptyBodyDemandKeepsCatalogInventory() async throws {
         let firstSessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
         let secondSessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
         let firstKey = WorktreeAnnotationCatalogKey.session(firstSessionID)
@@ -22,19 +22,18 @@ struct BridgeProductCommentCatalogPublisherTests {
         let rows = CommentCurrentRowsGate([firstKey: firstEntry, secondKey: secondEntry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [firstSessionID],
             scopeRevision: 1,
             readCurrent: { range in try await rows.read(range) }
         )
 
         let initial = try #require(await publisher.captureSnapshot())
-        #expect(initial.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) } == [firstKey])
-        #expect(await publisher.acceptScope(sessionIDs: [secondSessionID], revision: 2))
+        #expect(Set(initial.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) }) == [firstKey, secondKey])
+        #expect(await publisher.acceptScope(revision: 2))
         let replacement = try #require(await publisher.captureSnapshot())
         #expect(replacement.baseRevision == 1)
-        #expect(replacement.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) } == [secondKey])
-        #expect(replacement.deletes.map(\.key) == [firstKey])
-        #expect(!(await publisher.acceptScope(sessionIDs: [firstSessionID], revision: 1)))
+        #expect(Set(replacement.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) }) == [firstKey, secondKey])
+        #expect(replacement.deletes.isEmpty)
+        #expect(!(await publisher.acceptScope(revision: 1)))
     }
 
     @Test("session range invalidation removes cascade-deleted thread and message rows")
@@ -58,7 +57,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         ])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await rows.read(range) }
         )
@@ -85,7 +83,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let rows = CommentCurrentRowsGate([key: firstEntry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "old-handle",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await rows.read(range) }
         )
@@ -116,7 +113,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let rows = CommentCurrentRowsGate([key: entry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await rows.read(range) }
         )
@@ -137,7 +133,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let rows = CommentCurrentRowsGate([key: entry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await rows.read(range) }
         )
@@ -164,7 +159,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let rows = CommentCurrentRowsGate([key: initial])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await rows.read(range) }
         )
@@ -191,7 +185,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let currentRows = CommentCurrentRowsGate([key: entry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await currentRows.read(range) }
         )
@@ -228,15 +221,15 @@ struct BridgeProductCommentCatalogPublisherTests {
         let rows = CommentCurrentRowsGate([key: entry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await rows.read(range) }
         )
         let capture = try #require(await publisher.captureSnapshot())
-        let scope = try JSONDecoder().decode(
-            BridgeProductJSONValue.self,
-            from: Data("{\"kind\":\"comment\",\"worktreeId\":\"worktree-1\"}".utf8)
-        )
+        let scope: BridgeProductJSONValue = .object([
+            "kind": .string("comment"),
+            "sessionIds": .array([.string(sessionID.rawValue.uuidString.lowercased())]),
+            "worktreeId": .string("worktree-1"),
+        ])
         let sealed = try BridgeProductCommentViewBatchFactory.seal(
             .init(
                 viewDomain: .init(
@@ -290,7 +283,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let currentRows = CommentCurrentRowsGate([key: oldEntry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await currentRows.read(range) }
         )
@@ -328,7 +320,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let currentRows = CommentCurrentRowsGate([key: entry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "old-handle",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await currentRows.read(range) }
         )
@@ -357,7 +348,6 @@ struct BridgeProductCommentCatalogPublisherTests {
         let currentRows = CommentCurrentRowsGate([key: entry])
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: "comment-handle-1",
-            admittedSessionIDs: [sessionID],
             scopeRevision: 1,
             readCurrent: { range in try await currentRows.read(range) }
         )

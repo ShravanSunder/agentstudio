@@ -32,8 +32,10 @@
       "codec": "operationResultResponse",
       "value": {
         "kind": "operation.result",
+        "failureCode": null,
         "operationId": "operation-review-open-1",
-        "outcome": "succeeded"
+        "outcome": "succeeded",
+        "result": null
       }
     },
     {
@@ -56,6 +58,7 @@
       "codec": "controlRequest",
       "value": {
         "kind": "workerSession.open",
+        "request": null,
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
@@ -163,6 +166,7 @@
         "subscription": {
           "subscriptionKind": "file.metadata",
           "source": {
+            "cwdScope": null,
             "freshness": "live",
             "includeStatuses": true,
             "repoId": "00000000-0000-4000-8000-000000000001",
@@ -350,6 +354,7 @@
       "codec": "controlRequest",
       "value": {
         "kind": "workerSession.open",
+        "request": null,
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-2",

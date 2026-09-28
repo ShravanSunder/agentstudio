@@ -79,7 +79,12 @@ struct BridgeProductSessionProducerOwnershipTests {
     @Test("higher surface epoch stops only stale content and preserves cleanup")
     func higherSurfaceEpochStopsOnlyMatchingStaleContent() async throws {
         // Arrange
-        let harness = try await ProducerSessionHarness.opened()
+        let waiterRegistration = HeldStep<BridgeProductProducerLease>("oldContentPullRegistered")
+        let harness = try await ProducerSessionHarness.opened(
+            producerFrameWaiterRegistrationObserver: { lease in
+                Task { try? await waiterRegistration.arrive(lease) }
+            }
+        )
         let metadataOperation = HeldStep<BridgeProductProducerLease>("metadataOperation")
         let metadataRegistration = await harness.session.registerMetadataProducer(
             request: try metadataStreamRequest(
@@ -124,12 +129,10 @@ struct BridgeProductSessionProducerOwnershipTests {
                 productAdmission: harness.productAdmission.context
             )
         }
-        var waitingSnapshot = await harness.session.producerSnapshot()
-        for _ in 0..<2000 where waitingSnapshot.pendingFrameWaiterCount != 1 {
-            await Task.yield()
-            waitingSnapshot = await harness.session.producerSnapshot()
-        }
-        #expect(waitingSnapshot.pendingFrameWaiterCount == 1)
+        let registeredLease = try await waiterRegistration.firstArrival()
+        #expect(registeredLease == oldContentLease)
+        #expect((await harness.session.producerSnapshot()).pendingFrameWaiterCount == 1)
+        waiterRegistration.release()
 
         // Act
         let currentContentOperation = HeldStep<BridgeProductProducerLease>("currentContentOperation")
@@ -302,13 +305,17 @@ private struct ProducerSessionHarness {
     let productAdmission: BridgeProductAdmissionTestContext
     let session: BridgeProductSession
 
-    static func opened() async throws -> Self {
+    static func opened(
+        producerFrameWaiterRegistrationObserver:
+            BridgeProductSession.ProducerFrameWaiterRegistrationObserver? = nil
+    ) async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
         let session = try BridgeProductSession(
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-1",
-            capabilityBytes: capabilityBytes
+            capabilityBytes: capabilityBytes,
+            producerFrameWaiterRegistrationObserver: producerFrameWaiterRegistrationObserver
         )
         let harness = try Self(
             capabilityHeader: capabilityHeader,
