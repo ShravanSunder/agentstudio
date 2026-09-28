@@ -8,6 +8,8 @@ export const sceneIds = [
   "chapter-many-agents",
   "chapter-context-with-task",
   "chapter-find-and-focus",
+  "chapter-review",
+  "chapter-come-back",
 ] as const;
 
 export type SceneId = (typeof sceneIds)[number];

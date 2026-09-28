@@ -1,94 +1,510 @@
 import { defineBrowserCommand } from "@vitest/browser-playwright";
 
-interface PageRect {
-  readonly left: number;
-  readonly top: number;
-  readonly right: number;
-  readonly bottom: number;
-}
-
-/** Where the rail ends on the served home page at one viewport width, in page coordinates. */
+/** The final branch, lane closures and rendered path extent in page coordinates. */
 export interface TopologyEndObservation {
   readonly width: number;
-  readonly endNodeY: number;
-  readonly lastGlassBottom: number;
-  readonly ctaIconTop: number;
-  readonly hasEndMark: boolean;
-  /** The lowest point of any rail path or node. */
+  readonly pillLeft: number;
+  readonly stageLeft: number;
+  readonly titleLeft: number;
+  readonly stageRight: number;
+  readonly titleFontSize: number;
+  readonly noteLeft: number;
+  readonly stageCenterY: number;
+  readonly titleCenterY: number;
+  readonly stageHeight: number;
+  readonly titleLineHeight: number;
+  readonly artworkStates: readonly FinaleArtworkObservation[];
+  readonly pillCenterY: number;
+  readonly branchEndX: number;
+  readonly branchEndY: number;
+  readonly nodeRightX: number;
+  readonly ringRadius: number;
+  readonly coreRadius: number;
+  readonly haloRadius: number;
+  readonly ringStroke: string;
+  readonly coreFill: string;
+  readonly branchStroke: string;
+  readonly branchStartY: number;
+  readonly branchViewportMaxFraction: number;
+  readonly minimumTitleClearance: number;
+  readonly lastGlassBottomY: number;
+  readonly laneMergeYs: readonly number[];
   readonly lowestRailY: number;
-  /** Rail path samples and nodes that fall inside a call-to-action or footer element's box. */
-  readonly pointsOverEndContent: number;
+  readonly laneCount: number;
+  readonly terminalNodeCount: number;
+  readonly terminalRouteCount: number;
+  readonly branchColumnSpan: number;
+  readonly pathData: readonly { readonly kind: "rail" | "step"; readonly d: string }[];
 }
 
-function observeEnd(width: number): TopologyEndObservation {
-  const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
-  const section = document.querySelector("[data-rail-end-section]");
-  const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
-  const endMark = section?.querySelector("[data-rail-end-mark]");
-  const ctaIcon = endMark ?? section?.querySelector("img");
-  const endNode = document.querySelector('[data-node-kind="end"] circle');
+export interface FinaleBookendObservation {
+  readonly transitionalFanAngles: readonly number[];
+  readonly transitionalPlaneBorderWidths: readonly number[];
+  readonly eventCount: number;
+  readonly href: string;
+  readonly finalState: string | undefined;
+  readonly logoOpacity: string;
+  readonly traceOpacity: string;
+  readonly starFillOpacity: string;
+  readonly railStartFraction: number;
+  readonly railArrivalFraction: number;
+  readonly nodeStartOpacity: string;
+  readonly nodeArrivalOpacity: string;
+  readonly sectionHeightDelta: number;
+  readonly footerTopDelta: number;
+  readonly oldInstallBoxCount: number;
+  readonly ctaParagraphCount: number;
+  readonly splitPillCount: number;
+  readonly starText: string;
+  readonly copyText: string;
+  readonly copiedText: string;
+  readonly copyCount: number;
+  readonly copiedLabel: string;
+  readonly phoneOneRow: boolean;
+  readonly phoneShortLabels: boolean;
+  readonly phoneOverflow: number;
+  readonly reducedMotionState: string | undefined;
+  readonly reducedMotionTimelineCreated: boolean;
+  readonly reducedMotionLogoOpacity: string;
+  readonly pointerSkipState: string | undefined;
+  readonly resizeSettleState: string | undefined;
+  readonly narrowTitleFontSize: number;
+  readonly narrowHeadingOverflow: number;
+}
+
+export interface FinaleArtworkObservation {
+  readonly width: number;
+  readonly state: "initial" | "settled";
+  readonly pillLeft: number;
+  readonly artworkLeft: number;
+  readonly artworkRight: number;
+  readonly artworkHeight: number;
+  readonly titleLeft: number;
+  readonly titleFontSize: number;
+  readonly titleCapHeight: number;
+}
+
+function observeFinaleArtwork(props: {
+  width: number;
+  state: "initial" | "settled";
+}): FinaleArtworkObservation {
+  const { width, state } = props;
+  const root = document.querySelector<HTMLElement>("[data-finale-root]");
+  const title = root?.querySelector<HTMLElement>("#final-cta-title");
+  const pill = root?.querySelector<HTMLElement>("[data-finale-split-pill]");
+  const logo = root?.querySelector<HTMLImageElement>("[data-finale-logo]");
   if (
-    artwork === null ||
-    section === null ||
-    lastGlass === null ||
-    ctaIcon === null ||
-    ctaIcon === undefined ||
-    endNode === null
-  ) {
-    throw new Error("The home page is missing its rail end hooks");
-  }
-  const origin = artwork.getBoundingClientRect();
-  const scrollPosition = { x: window.scrollX, y: window.scrollY };
-  const toPage = (bounds: DOMRect): PageRect => ({
-    left: bounds.left + scrollPosition.x,
-    top: bounds.top + scrollPosition.y,
-    right: bounds.right + scrollPosition.x,
-    bottom: bounds.bottom + scrollPosition.y,
-  });
-  const artworkTop = origin.top + window.scrollY;
-  const artworkLeft = origin.left + window.scrollX;
-  const points: { readonly x: number; readonly y: number }[] = [];
-  for (const path of artwork.querySelectorAll<SVGPathElement>("path[d]")) {
-    const total = path.getTotalLength();
-    for (let step = 0; step <= 200; step += 1) {
-      const point = path.getPointAtLength((total * step) / 200);
-      points.push({ x: artworkLeft + point.x, y: artworkTop + point.y });
+    root === null ||
+    title === null ||
+    title === undefined ||
+    pill === null ||
+    pill === undefined ||
+    logo === null ||
+    logo === undefined
+  )
+    throw new Error("Finale artwork proof markup is missing");
+  const titleStyle = getComputedStyle(title);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (context === null) throw new Error("Canvas context unavailable for artwork proof");
+  context.font = `${titleStyle.fontWeight} ${titleStyle.fontSize} ${titleStyle.fontFamily}`;
+  const titleCapHeight = context.measureText("H").actualBoundingBoxAscent;
+  let left: number;
+  let right: number;
+  let top: number;
+  let bottom: number;
+  if (state === "initial") {
+    const planes = [...root.querySelectorAll<HTMLElement>(".finale-plane, .finale-terminal")];
+    if (planes.length !== 4) throw new Error("Finale fan artwork is missing");
+    const boxes = planes.map((plane) => plane.getBoundingClientRect());
+    left = Math.min(...boxes.map((box) => box.left));
+    right = Math.max(...boxes.map((box) => box.right));
+    top = Math.min(...boxes.map((box) => box.top));
+    bottom = Math.max(...boxes.map((box) => box.bottom));
+  } else {
+    if (!logo.complete || logo.naturalWidth === 0) throw new Error("Finale logo is not loaded");
+    canvas.width = logo.naturalWidth;
+    canvas.height = logo.naturalHeight;
+    context.drawImage(logo, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let minX = canvas.width;
+    let maxX = 0;
+    let minY = canvas.height;
+    let maxY = 0;
+    for (let y = 0; y < canvas.height; y += 1) {
+      for (let x = 0; x < canvas.width; x += 1) {
+        if ((pixels[(y * canvas.width + x) * 4 + 3] ?? 0) < 26) continue;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
     }
+    if (minX > maxX || minY > maxY) throw new Error("Finale logo has no visible pixels");
+    const box = logo.getBoundingClientRect();
+    left = box.left + (minX / canvas.width) * box.width;
+    right = box.left + ((maxX + 1) / canvas.width) * box.width;
+    top = box.top + (minY / canvas.height) * box.height;
+    bottom = box.top + ((maxY + 1) / canvas.height) * box.height;
   }
-  for (const circle of artwork.querySelectorAll<SVGCircleElement>("circle")) {
-    points.push({
-      x: artworkLeft + circle.cx.baseVal.value,
-      y: artworkTop + circle.cy.baseVal.value,
-    });
-  }
-  const endContent = [
-    ...section.querySelectorAll(":scope > *"),
-    ...document.querySelectorAll("footer, footer *"),
-  ]
-    .filter((element) => element.getClientRects().length > 0)
-    .map((element) => toPage(element.getBoundingClientRect()));
-  const lastGlassBox = toPage(lastGlass.getBoundingClientRect());
-  const ctaIconBox = toPage(ctaIcon.getBoundingClientRect());
   return {
     width,
-    endNodeY: artworkTop + Number(endNode.getAttribute("cy")),
-    lastGlassBottom: lastGlassBox.bottom,
-    ctaIconTop: ctaIconBox.top,
-    hasEndMark: endMark !== null && endMark !== undefined,
-    lowestRailY: Math.max(...points.map((point) => point.y)),
-    pointsOverEndContent: points.filter((point) =>
-      endContent.some(
-        (box) =>
-          point.x >= box.left &&
-          point.x <= box.right &&
-          point.y >= box.top &&
-          point.y <= box.bottom,
-      ),
-    ).length,
+    state,
+    pillLeft: pill.getBoundingClientRect().left,
+    artworkLeft: left,
+    artworkRight: right,
+    artworkHeight: bottom - top,
+    titleLeft: title.getBoundingClientRect().left,
+    titleFontSize: Number.parseFloat(titleStyle.fontSize),
+    titleCapHeight,
   };
 }
 
-/** Loads the served home page at each width and reads where the rail ends. */
+export const verifyFinaleBookend = defineBrowserCommand(
+  async ({ context }, pageUrl: string): Promise<FinaleBookendObservation> => {
+    const applicationPage = await context.newPage();
+    const reducedMotionPage = await context.newPage();
+    const skipPage = await context.newPage();
+    const installEventCounter = (): void => {
+      const proofWindow = window as Window & {
+        topologyEndEventCount?: number;
+        finaleControl?: { pause(): void; seek(seconds: number): void };
+        copiedInstall?: string;
+        copyCount?: number;
+      };
+      proofWindow.topologyEndEventCount = 0;
+      proofWindow.copyCount = 0;
+      document.addEventListener("topology-end-reached", () => {
+        const pageWindow = window as Window & { topologyEndEventCount?: number };
+        pageWindow.topologyEndEventCount = (pageWindow.topologyEndEventCount ?? 0) + 1;
+      });
+      document.addEventListener("finale-bookend-ready", (event) => {
+        if (!(event instanceof CustomEvent)) return;
+        proofWindow.finaleControl = event.detail as { pause(): void; seek(seconds: number): void };
+        proofWindow.finaleControl.pause();
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: (value: string): Promise<void> => {
+            proofWindow.copyCount = (proofWindow.copyCount ?? 0) + 1;
+            proofWindow.copiedInstall = value;
+            return Promise.resolve();
+          },
+        },
+      });
+    };
+    try {
+      await applicationPage.setViewportSize({ width: 1600, height: 1000 });
+      await applicationPage.addInitScript(installEventCounter);
+      await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await applicationPage.evaluate(() => window.dispatchEvent(new WheelEvent("wheel")));
+      await applicationPage.waitForSelector('[data-hero-intro-state="settled"]');
+      await applicationPage.waitForSelector("[data-finale-timeline-created]");
+      await applicationPage.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight),
+      );
+      await applicationPage.waitForSelector("[data-topology-end-reached]");
+      const normal = await applicationPage.evaluate(async () => {
+        const proofWindow = window as Window & {
+          topologyEndEventCount?: number;
+          finaleControl?: { pause(): void; seek(seconds: number): void };
+          copiedInstall?: string;
+          copyCount?: number;
+        };
+        const root = document.querySelector<HTMLElement>("[data-finale-root]");
+        const button = document.querySelector<HTMLAnchorElement>("[data-final-star-button]");
+        const copy = document.querySelector<HTMLButtonElement>(
+          "[data-finale-split-pill] [data-install-copy]",
+        );
+        const footer = document.querySelector<HTMLElement>("footer");
+        const logo = root?.querySelector<HTMLElement>("[data-finale-logo]");
+        const trace = root?.querySelector<SVGPathElement>("[data-finale-border-trace]");
+        const fill = root?.querySelector<SVGPathElement>("[data-finale-star-fill]");
+        const terminalRoute = document.querySelector<SVGGElement>("[data-topology-terminal-route]");
+        const railPath = terminalRoute?.querySelector<SVGPathElement>(
+          '[data-topology-path-role="core"]',
+        );
+        const endNode = terminalRoute?.querySelector<SVGGElement>("[data-topology-terminal-node]");
+        if (
+          root === null ||
+          button === null ||
+          copy === null ||
+          footer === null ||
+          logo === null ||
+          logo === undefined ||
+          trace === null ||
+          trace === undefined ||
+          fill === null ||
+          fill === undefined ||
+          railPath === null ||
+          railPath === undefined ||
+          endNode === null ||
+          endNode === undefined ||
+          proofWindow.finaleControl === undefined
+        )
+          throw new Error("Finale proof markup or control is missing");
+        proofWindow.finaleControl.seek(0);
+        const fanFront = root.querySelector<HTMLElement>(".finale-plane--front");
+        const fanRearTwo = root.querySelector<HTMLElement>(".finale-plane--rear-two");
+        const fanRearOne = root.querySelector<HTMLElement>(".finale-plane--rear-one");
+        if (fanFront === null || fanRearTwo === null || fanRearOne === null)
+          throw new Error("Finale fan is missing");
+        const fanPlanes = [fanFront, fanRearTwo, fanRearOne];
+        const transitionalFanAngles = fanPlanes.map((plane) => {
+          const transform = new DOMMatrixReadOnly(getComputedStyle(plane).transform);
+          return Math.atan2(transform.b, transform.a) * (180 / Math.PI);
+        });
+        const finaleTerminal = root.querySelector<HTMLElement>(".finale-terminal");
+        if (finaleTerminal === null) throw new Error("Finale terminal card is missing");
+        const transitionalPlaneBorderWidths = [...fanPlanes, finaleTerminal].map((plane) =>
+          Number.parseFloat(getComputedStyle(plane).borderTopWidth),
+        );
+        const railStartFraction =
+          Number.parseFloat(railPath.style.strokeDashoffset) / railPath.getTotalLength();
+        const nodeStartOpacity = getComputedStyle(endNode).opacity;
+        const initialHeight = root.getBoundingClientRect().height;
+        const initialFooterTop = footer.getBoundingClientRect().top + scrollY;
+        const sampleShift = (): number =>
+          Math.max(
+            Math.abs(root.getBoundingClientRect().height - initialHeight),
+            Math.abs(footer.getBoundingClientRect().top + scrollY - initialFooterTop),
+          );
+        const starText = button.textContent?.trim() ?? "";
+        const copyText = copy.textContent?.trim() ?? "";
+        proofWindow.finaleControl.seek(0.35);
+        const railArrivalFraction =
+          Number.parseFloat(railPath.style.strokeDashoffset) / railPath.getTotalLength();
+        const nodeArrivalOpacity = getComputedStyle(endNode).opacity;
+        proofWindow.finaleControl.seek(0.8);
+        const midTraceShift = sampleShift();
+        proofWindow.finaleControl.seek(1.8);
+        const midFoldShift = sampleShift();
+        proofWindow.finaleControl.seek(2.4);
+        const finalShift = sampleShift();
+        copy.click();
+        await Promise.resolve();
+        return {
+          eventCount: proofWindow.topologyEndEventCount ?? 0,
+          transitionalFanAngles,
+          transitionalPlaneBorderWidths,
+          href: button.href,
+          finalState: root.dataset["finaleState"],
+          logoOpacity: getComputedStyle(logo).opacity,
+          traceOpacity: getComputedStyle(trace.closest("svg") ?? trace).opacity,
+          starFillOpacity: getComputedStyle(fill).opacity,
+          railStartFraction,
+          railArrivalFraction,
+          nodeStartOpacity,
+          nodeArrivalOpacity,
+          sectionHeightDelta: Math.max(midTraceShift, midFoldShift, finalShift),
+          footerTopDelta: footer.getBoundingClientRect().top + scrollY - initialFooterTop,
+          oldInstallBoxCount: root.querySelectorAll(".install-command").length,
+          ctaParagraphCount: root.querySelectorAll("p").length,
+          splitPillCount: root.querySelectorAll("[data-finale-split-pill]").length,
+          starText,
+          copyText,
+          copiedText: proofWindow.copiedInstall ?? "",
+          copyCount: proofWindow.copyCount ?? 0,
+          copiedLabel:
+            [...copy.querySelectorAll<HTMLElement>("[data-install-copy-feedback]")].find(
+              (label) => getComputedStyle(label).display !== "none",
+            )?.textContent ?? "",
+        };
+      });
+
+      await reducedMotionPage.emulateMedia({ reducedMotion: "reduce" });
+      await reducedMotionPage.setViewportSize({ width: 390, height: 844 });
+      await reducedMotionPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await reducedMotionPage.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight),
+      );
+      await reducedMotionPage.waitForSelector("[data-topology-end-reached]");
+      const reduced = await reducedMotionPage.evaluate(() => {
+        const root = document.querySelector<HTMLElement>("[data-finale-root]");
+        const pill = root?.querySelector<HTMLElement>("[data-finale-split-pill]");
+        const star = root?.querySelector<HTMLElement>("[data-final-star-button]");
+        const copy = root?.querySelector<HTMLElement>("[data-install-copy]");
+        const logo = root?.querySelector<HTMLElement>("[data-finale-logo]");
+        if (
+          root === null ||
+          pill === null ||
+          pill === undefined ||
+          star === null ||
+          star === undefined ||
+          copy === null ||
+          copy === undefined ||
+          logo === null ||
+          logo === undefined
+        )
+          throw new Error("Reduced-motion finale markup is missing");
+        return {
+          phoneOneRow:
+            Math.abs(star.getBoundingClientRect().top - copy.getBoundingClientRect().top) <= 0.5,
+          phoneShortLabels: root.hasAttribute("data-short-labels"),
+          phoneOverflow: pill.scrollWidth - pill.clientWidth,
+          reducedMotionState: root.dataset["finaleState"],
+          reducedMotionTimelineCreated: root.hasAttribute("data-finale-timeline-created"),
+          reducedMotionLogoOpacity: getComputedStyle(logo).opacity,
+        };
+      });
+      await skipPage.setViewportSize({ width: 390, height: 844 });
+      await skipPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await skipPage.waitForSelector("[data-finale-timeline-created]");
+      await skipPage.evaluate(() => {
+        document
+          .querySelector<HTMLElement>("[data-finale-root]")
+          ?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+      const pointerSkipState =
+        (await skipPage.locator("[data-finale-root]").getAttribute("data-finale-state")) ??
+        undefined;
+      await skipPage.reload({ waitUntil: "domcontentloaded" });
+      await skipPage.waitForSelector("[data-finale-timeline-created]");
+      await skipPage.setViewportSize({ width: 430, height: 844 });
+      await skipPage.waitForSelector('[data-finale-root][data-finale-state="settled"]');
+      const resizeSettleState =
+        (await skipPage.locator("[data-finale-root]").getAttribute("data-finale-state")) ??
+        undefined;
+      await skipPage.setViewportSize({ width: 320, height: 844 });
+      const narrow = await skipPage.evaluate(() => {
+        const heading = document.querySelector<HTMLElement>("[data-finale-heading]");
+        const title = heading?.querySelector<HTMLElement>("h2");
+        if (heading === null || title === null || title === undefined)
+          throw new Error("Narrow finale heading is missing");
+        return {
+          narrowTitleFontSize: Number.parseFloat(getComputedStyle(title).fontSize),
+          narrowHeadingOverflow: heading.getBoundingClientRect().right - window.innerWidth,
+        };
+      });
+      return { ...normal, ...reduced, ...narrow, pointerSkipState, resizeSettleState };
+    } finally {
+      await Promise.all([applicationPage.close(), reducedMotionPage.close(), skipPage.close()]);
+    }
+  },
+);
+
+function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"> {
+  const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+  const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
+  const button = document.querySelector<HTMLElement>("[data-final-star-button]");
+  const pill = button?.closest<HTMLElement>("[data-finale-split-pill]");
+  const finaleRoot = button?.closest<HTMLElement>("[data-finale-root]");
+  const stage = finaleRoot?.querySelector<HTMLElement>(".finale-stage");
+  const note = finaleRoot?.querySelector<HTMLElement>("p");
+  const finalRoute = artwork?.querySelector<SVGGElement>("[data-topology-terminal-route]");
+  const finalPath = finalRoute?.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+  const terminalNode = finalRoute?.querySelector<SVGGElement>("[data-topology-terminal-node]");
+  const ring = terminalNode?.querySelector<SVGCircleElement>(".node-merge-ring");
+  const core = terminalNode?.querySelector<SVGCircleElement>(".node-merge-core");
+  const halo = terminalNode?.querySelector<SVGCircleElement>(".node-terminal-halo");
+  if (
+    artwork === null ||
+    lastGlass === null ||
+    button === null ||
+    pill === null ||
+    pill === undefined ||
+    finalPath === null ||
+    finalPath === undefined ||
+    ring === null ||
+    ring === undefined ||
+    core === null ||
+    core === undefined ||
+    halo === null ||
+    halo === undefined
+  )
+    throw new Error("The home page is missing its final glass, button or terminal branch");
+  const origin = artwork.getBoundingClientRect();
+  const artworkTop = origin.top + window.scrollY;
+  const points: number[] = [];
+  for (const path of artwork.querySelectorAll<SVGPathElement>("path[d]")) {
+    const totalLength = path.getTotalLength();
+    for (let step = 0; step <= 200; step += 1) {
+      points.push(artworkTop + path.getPointAtLength((totalLength * step) / 200).y);
+    }
+  }
+  for (const circle of artwork.querySelectorAll<SVGCircleElement>("circle")) {
+    points.push(artworkTop + circle.cy.baseVal.value);
+  }
+  const glassBox = lastGlass.getBoundingClientRect();
+  const buttonBox = pill.getBoundingClientRect();
+  const matrix = finalPath.getScreenCTM();
+  if (matrix === null) throw new Error("Terminal route has no screen transform");
+  const routeLength = finalPath.getTotalLength();
+  const start = finalPath.getPointAtLength(0).matrixTransform(matrix);
+  const end = finalPath.getPointAtLength(routeLength).matrixTransform(matrix);
+  const mergeYs = [...artwork.querySelectorAll<SVGGElement>('[data-node-kind="merge"]')]
+    .filter((node) => !node.hasAttribute("data-topology-terminal-node"))
+    .map((node) => Number(node.querySelector("circle")?.getAttribute("cy")) + artworkTop);
+  const ctaTitle = button.closest("section")?.querySelector<HTMLElement>("#final-cta-title");
+  const titleBox = ctaTitle?.getBoundingClientRect();
+  if (
+    ctaTitle === null ||
+    ctaTitle === undefined ||
+    titleBox === undefined ||
+    stage === null ||
+    stage === undefined ||
+    note === null ||
+    note === undefined
+  )
+    throw new Error("Final CTA heading, icon stage or note missing");
+  const stageBox = stage.getBoundingClientRect();
+  const noteBox = note.getBoundingClientRect();
+  const minimumTitleClearance = Math.min(
+    ...Array.from({ length: 101 }, (_, index) => {
+      const point = finalPath.getPointAtLength((routeLength * index) / 100).matrixTransform(matrix);
+      const dx = Math.max(titleBox.left - point.x, 0, point.x - titleBox.right);
+      const dy = Math.max(titleBox.top - point.y, 0, point.y - titleBox.bottom);
+      return Math.hypot(dx, dy);
+    }),
+  );
+  return {
+    width,
+    pillLeft: buttonBox.left,
+    stageLeft: stageBox.left,
+    titleLeft: titleBox.left,
+    stageRight: stageBox.right,
+    titleFontSize: Number.parseFloat(getComputedStyle(ctaTitle).fontSize),
+    noteLeft: noteBox.left,
+    stageCenterY: (stageBox.top + stageBox.bottom) / 2,
+    titleCenterY: (titleBox.top + titleBox.bottom) / 2,
+    stageHeight: stageBox.height,
+    titleLineHeight: Number.parseFloat(getComputedStyle(ctaTitle).lineHeight),
+    pillCenterY: (buttonBox.top + buttonBox.bottom) / 2 + window.scrollY,
+    branchEndX: end.x,
+    branchEndY: end.y + window.scrollY,
+    nodeRightX: end.x + Number(ring.getAttribute("r")),
+    ringRadius: Number(ring.getAttribute("r")),
+    coreRadius: Number(core.getAttribute("r")),
+    haloRadius: Number(halo.getAttribute("r")),
+    ringStroke: getComputedStyle(ring).stroke,
+    coreFill: getComputedStyle(core).fill,
+    branchStroke: getComputedStyle(finalPath).stroke,
+    branchStartY: start.y + window.scrollY,
+    branchViewportMaxFraction: Math.max(start.y, end.y) / window.innerHeight,
+    minimumTitleClearance,
+    lastGlassBottomY: glassBox.bottom + window.scrollY,
+    laneMergeYs: mergeYs,
+    lowestRailY: Math.max(...points),
+    laneCount: Number(artwork.dataset["laneCount"]),
+    terminalNodeCount: artwork.querySelectorAll("[data-topology-terminal]").length,
+    terminalRouteCount: artwork.querySelectorAll("[data-topology-terminal-route]").length,
+    branchColumnSpan: (end.x - start.x) / Number(artwork.dataset["columnUnit"]),
+    pathData: [
+      ...[...artwork.querySelectorAll<SVGPathElement>("path[d]")].map((path) => ({
+        kind: "rail" as const,
+        d: path.getAttribute("d") ?? "",
+      })),
+      ...[...document.querySelectorAll<SVGPathElement>("[data-chapter-step-branch]")].map(
+        (path) => ({
+          kind: "step" as const,
+          d: path.getAttribute("d") ?? "",
+        }),
+      ),
+    ],
+  };
+}
+
 export const verifyTopologyEnd = defineBrowserCommand(
   async (
     { context },
@@ -98,16 +514,88 @@ export const verifyTopologyEnd = defineBrowserCommand(
     const applicationPage = await context.newPage();
     const observations: TopologyEndObservation[] = [];
     try {
-      /* eslint-disable no-await-in-loop -- one page owns the viewport; each width must settle before the next. */
-      for (const width of widths) {
-        await applicationPage.setViewportSize({ width, height: 900 });
-        await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
-        await applicationPage.waitForSelector('[data-full-page-topology] [data-node-kind="end"]', {
-          state: "attached",
+      await applicationPage.addInitScript(() => {
+        document.addEventListener("finale-bookend-ready", (event) => {
+          if (!(event instanceof CustomEvent)) return;
+          const control = event.detail as {
+            pause(): void;
+            seek(seconds: number): void;
+            finish(): void;
+          };
+          control.pause();
+          (window as Window & { finaleArtworkControl?: typeof control }).finaleArtworkControl =
+            control;
         });
-        observations.push(await applicationPage.evaluate(observeEnd, width));
+      });
+      for (const width of widths) {
+        await applicationPage.setViewportSize({
+          width,
+          height: width === 390 ? 844 : width === 1280 ? 800 : 1080,
+        });
+        await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+        await applicationPage.waitForSelector(
+          "[data-full-page-topology] [data-topology-terminal-route]",
+          { state: "attached" },
+        );
+        await applicationPage.evaluate(() => {
+          const button = document.querySelector<HTMLElement>("[data-final-star-button]");
+          if (button === null) throw new Error("Final star button is missing before scroll");
+          window.scrollTo({
+            top:
+              window.scrollY +
+              button.getBoundingClientRect().top +
+              button.offsetHeight / 2 -
+              window.innerHeight * 0.5,
+            behavior: "instant",
+          });
+        });
+        await applicationPage.waitForSelector(
+          "[data-topology-terminal-node][data-topology-node-revealed]",
+          {
+            state: "attached",
+          },
+        );
+        await applicationPage.evaluate(async () => {
+          const node = document.querySelector("[data-topology-terminal-node]");
+          if (node === null) throw new Error("Terminal node is missing after reveal");
+          const ring = node.querySelector(".node-merge-ring");
+          const core = node.querySelector(".node-merge-core");
+          await Promise.all(
+            [ring, core].flatMap(
+              (part) => part?.getAnimations().map((animation) => animation.finished) ?? [],
+            ),
+          );
+        });
+        await applicationPage.waitForSelector("[data-finale-timeline-created]");
+        await applicationPage.evaluate(() => {
+          const control = (
+            window as Window & { finaleArtworkControl?: { seek(seconds: number): void } }
+          ).finaleArtworkControl;
+          if (control === undefined) throw new Error("Finale artwork control is missing");
+          control.seek(0);
+        });
+        const initial = await applicationPage.evaluate(observeFinaleArtwork, {
+          width,
+          state: "initial" as const,
+        });
+        await applicationPage.locator("[data-finale-logo]").evaluate(async (element) => {
+          if (!(element instanceof HTMLImageElement))
+            throw new Error("Finale logo is not an image");
+          await element.decode();
+        });
+        await applicationPage.evaluate(() => {
+          const control = (window as Window & { finaleArtworkControl?: { finish(): void } })
+            .finaleArtworkControl;
+          if (control === undefined) throw new Error("Finale artwork control is missing");
+          control.finish();
+        });
+        const settled = await applicationPage.evaluate(observeFinaleArtwork, {
+          width,
+          state: "settled" as const,
+        });
+        const end = await applicationPage.evaluate(observeEnd, width);
+        observations.push({ ...end, artworkStates: [initial, settled] });
       }
-      /* eslint-enable no-await-in-loop */
       return observations;
     } finally {
       await applicationPage.close();

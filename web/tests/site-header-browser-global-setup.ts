@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
 import type { TestProject } from "vitest/node";
 
@@ -22,7 +21,6 @@ function isReadyMessage(message: unknown): message is ReadyMessage {
 async function waitForOwnedServer(childProcess: ChildProcess): Promise<number> {
   return await new Promise<number>((resolve, reject): void => {
     const cleanup = (): void => {
-      clearTimeout(timeout);
       childProcess.off("error", rejectOwnedServer);
       childProcess.off("exit", rejectExitedServer);
       childProcess.off("message", resolveReadyServer);
@@ -42,11 +40,8 @@ async function waitForOwnedServer(childProcess: ChildProcess): Promise<number> {
         resolve(message.port);
       }
     };
-    const timeout = setTimeout(
-      (): void =>
-        rejectOwnedServer(new Error("Astro header browser-test process did not report ready")),
-      5_000,
-    );
+    // Astro's cold import/optimizer can exceed five seconds while still starting
+    // correctly. Readiness is the IPC fact; the outer test job owns the hang bound.
     childProcess.once("error", rejectOwnedServer);
     childProcess.once("exit", rejectExitedServer);
     childProcess.on("message", resolveReadyServer);
@@ -57,13 +52,9 @@ async function stopOwnedServer(childProcess: ChildProcess): Promise<void> {
   if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
     return;
   }
-  const exitPromise = once(childProcess, "exit").then((): true => true);
+  const exitPromise = once(childProcess, "exit");
   childProcess.kill("SIGTERM");
-  const exited = await Promise.race([exitPromise, delay(2_000).then((): false => false)]);
-  if (!exited && childProcess.exitCode === null && childProcess.signalCode === null) {
-    childProcess.kill("SIGKILL");
-    await exitPromise;
-  }
+  await exitPromise;
 }
 
 export default async function setupSiteHeaderBrowserServer(
