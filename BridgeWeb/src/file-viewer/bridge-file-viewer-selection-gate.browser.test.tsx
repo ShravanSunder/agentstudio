@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
-import { cleanup, render } from 'vitest-browser-react';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
@@ -19,10 +19,14 @@ import {
 	actClick,
 	actFrame,
 	actUpdate,
+	cleanupBridgeFileViewerBrowserTestSurface,
+	installBridgeFileViewerNoopResizeObserver,
 	interactAndWaitForBridgeFileViewerQueryCompletion,
+	openFileState,
 	selectedDisplayPath,
 	settleBridgeFileViewerBrowserInteraction,
-	settleBridgeFileViewerBrowserUpdates,
+	visibleCodeText,
+	waitForBridgeFileViewerBrowserDomState,
 	waitForOpenFileState,
 	waitForSelectedDisplayPath,
 	waitForVisibleCodeText,
@@ -92,14 +96,17 @@ async function settleEditorPreparation(script: EditorPreparationScript): Promise
 }
 
 describe('Bridge File selection editor gate', () => {
+	beforeEach((): void => {
+		installBridgeFileViewerNoopResizeObserver();
+	});
+
 	afterEach(async () => {
-		await actUpdate(async (): Promise<void> => {
-			await cleanup();
-		});
-		await settleBridgeFileViewerBrowserUpdates();
-		await actFrame();
-		document.body.replaceChildren();
-		terminateBridgePierreWorkerPoolSingletonForTest();
+		try {
+			await cleanupBridgeFileViewerBrowserTestSurface();
+		} finally {
+			document.body.replaceChildren();
+			terminateBridgePierreWorkerPoolSingletonForTest();
+		}
 	});
 
 	test('keeps the displayed file while an active editor cannot be flushed, then follows once it can', async () => {
@@ -202,7 +209,10 @@ describe('Bridge File selection editor gate', () => {
 				initialMetadataEvents={makeFileMetadataEvents(firstDescriptor, targetDescriptor)}
 			/>,
 		);
-		await waitForOpenFileState('ready');
+		await waitForBridgeFileViewerBrowserDomState({
+			readState: openFileState,
+			isExpected: (state): boolean => state === 'ready',
+		});
 		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
 			window.dispatchEvent(
 				new CustomEvent('__bridge_review_control', {
@@ -238,9 +248,10 @@ describe('Bridge File selection editor gate', () => {
 			displayPath: 'packages/core/src/deep/target.ts',
 			outcome: 'displayed',
 		});
-		await waitForVisibleCodeText('deepTarget');
-		// Let the resizable shell's frame-bound measurement commit before teardown.
-		await settleBridgeFileViewerBrowserInteraction();
+		await waitForBridgeFileViewerBrowserDomState({
+			readState: visibleCodeText,
+			isExpected: (text): boolean => text.includes('deepTarget'),
+		});
 	});
 
 	test('a native navigation to a path the tree does not list settles as not listed', async () => {

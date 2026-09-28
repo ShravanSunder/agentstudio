@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { cleanup, render } from 'vitest-browser-react';
+import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode mounts the production File shell.
@@ -21,26 +21,32 @@ import {
 	actClick,
 	actFrame,
 	actUpdate,
+	cleanupBridgeFileViewerBrowserTestSurface,
 	interactAndWaitForBridgeFileViewerQueryCompletion,
 	installBridgeFileViewerNoopResizeObserver,
+	installBridgeFileViewerBrowserTestMotionOverride,
 	makeDeferredContent,
 	settleBridgeFileViewerBrowserUpdates,
 	waitForMetadataTreeRowCount,
 	waitForOpenFileState,
+	waitForBridgeFileViewerBrowserDomState,
 	selectedDisplayPath,
 	waitForSelectedDisplayPath,
-	waitForBridgeFileViewerWorkerMessageDrain,
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	beforeEach((): void => {
 		installBridgeFileViewerNoopResizeObserver();
+		installBridgeFileViewerBrowserTestMotionOverride();
 	});
 
 	afterEach(async (): Promise<void> => {
-		await actUpdate(cleanup);
-		await waitForBridgeFileViewerWorkerMessageDrain();
-		document.body.replaceChildren();
+		try {
+			await cleanupBridgeFileViewerBrowserTestSurface();
+		} finally {
+			document.head.querySelector('[data-bridge-file-viewer-test-motion]')?.remove();
+			document.body.replaceChildren();
+		}
 	});
 
 	test('does not reschedule the unchanged query when content publications update the snapshot', async () => {
@@ -448,10 +454,16 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 				initialMetadataEvents={makeMixedFileClassTreeMetadataEvents()}
 			/>,
 		);
-		await waitForMetadataTreeRowCount(19);
-		await expect
-			.poll((): readonly string[] => mountedFileTreePaths())
-			.toEqual(allClassifiedFileTreePaths);
+		const metadataTreeRowCount = await waitForBridgeFileViewerBrowserDomState({
+			readState: (): number => {
+				const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+				return Number(shell?.getAttribute('data-worktree-metadata-tree-row-count') ?? '0');
+			},
+			isExpected: (count): boolean => count === 19,
+		});
+		expect(metadataTreeRowCount).toBe(19);
+		const initialPaths = await waitForMountedFileTreePaths(allClassifiedFileTreePaths);
+		expect(initialPaths).toEqual(allClassifiedFileTreePaths);
 
 		// Act: Command-Option-F opens the production Base UI menu.
 		await dispatchFileViewerShortcut({ altKey: true });
@@ -492,7 +504,11 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		// Act: Base UI owns menu focus, highlighted-option navigation, and Return selection.
 		await waitForFileViewerMenuFocus();
 		await dispatchFileViewerMenuKey('ArrowDown');
-		await expect.poll(highlightedFileViewerMenuOptionLabel).toBe('All');
+		const highlightedAll = await waitForBridgeFileViewerBrowserDomState({
+			readState: highlightedFileViewerMenuOptionLabel,
+			isExpected: (label): boolean => label === 'All',
+		});
+		expect(highlightedAll).toBe('All');
 		await navigateFileViewerMenuTo('Test data');
 		const focusedFixtureOption = highlightedFileViewerMenuOption();
 		expect(focusedFixtureOption.textContent).toContain('Test data');
@@ -500,13 +516,15 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
 			dispatchFileViewerMenuEnter();
 		});
-		await actFrame();
-		await expect.poll(() => focusedFixtureOption.getAttribute('aria-checked')).toBe('true');
+		const fixtureOptionChecked = await waitForBridgeFileViewerBrowserDomState({
+			readState: (): string | null => focusedFixtureOption.getAttribute('aria-checked'),
+			isExpected: (checked): boolean => checked === 'true',
+		});
+		expect(fixtureOptionChecked).toBe('true');
 
 		// Assert: the matching file and only its required ancestor remain.
-		await expect
-			.poll((): readonly string[] => mountedFileTreePaths())
-			.toEqual(['Fixtures', 'Fixtures/sample.txt']);
+		const fixturePaths = await waitForMountedFileTreePaths(['Fixtures', 'Fixtures/sample.txt']);
+		expect(fixturePaths).toEqual(['Fixtures', 'Fixtures/sample.txt']);
 
 		// Act / Assert: every exposed category selects real metadata-backed rows.
 		// oxlint-disable no-await-in-loop -- Each selection mutates one shared Base UI menu and must settle before the next.
@@ -514,9 +532,8 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			await clickFileViewerMenuOptionAndWaitForQuery(
 				await waitForFileViewerMenuOptionContaining({ text: categoryCase.label }),
 			);
-			await expect
-				.poll((): readonly string[] => mountedFileTreePaths())
-				.toEqual(categoryCase.expectedPaths);
+			const categoryPaths = await waitForMountedFileTreePaths(categoryCase.expectedPaths);
+			expect(categoryPaths).toEqual(categoryCase.expectedPaths);
 		}
 		// oxlint-enable no-await-in-loop
 
@@ -526,9 +543,8 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		);
 
 		// Assert
-		await expect
-			.poll((): readonly string[] => mountedFileTreePaths())
-			.toEqual(allClassifiedFileTreePaths);
+		const clearedPaths = await waitForMountedFileTreePaths(allClassifiedFileTreePaths);
+		expect(clearedPaths).toEqual(allClassifiedFileTreePaths);
 	});
 });
 
@@ -575,7 +591,7 @@ async function dispatchFileViewerShortcut(
 			}),
 		);
 	});
-	await actFrame();
+	if (modifiers.altKey === true) await actFrame();
 }
 
 async function dispatchFileViewerSearchCommand(props: {
@@ -619,8 +635,6 @@ async function clickFileViewerMenuOptionAndWaitForQuery(element: HTMLElement): P
 	await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
 		element.click();
 	});
-	// Base UI advances one frame before committing popup mounted-state changes.
-	await actFrame();
 }
 
 function setBridgeFileViewerSearchInputValue(element: Element, value: string): void {
@@ -655,23 +669,22 @@ async function dispatchFileViewerMenuKey(key: 'ArrowDown' | 'Enter' | 'Escape'):
 	await act(async (): Promise<void> => {
 		await userEvent.keyboard(`{${key}}`);
 	});
-	// Base UI applies the selected value from an effect after the keyboard
-	// event returns. Commit that effect in an act-scoped frame before polling
-	// the resulting DOM state, so CI load cannot expose an unwrapped update.
 	await actFrame();
 }
 
 async function waitForFileViewerMenuFocus(): Promise<void> {
-	await expect
-		.poll((): boolean => {
+	const focusedElement = await waitForBridgeFileViewerBrowserDomState({
+		readState: (): Element | null => {
 			const openFilterMenu = document.querySelector(
 				'[data-testid="worktree-file-filter-menu-popover"][data-open]',
 			);
-			return (
-				document.activeElement !== null && openFilterMenu?.contains(document.activeElement) === true
-			);
-		})
-		.toBe(true);
+			return openFilterMenu?.contains(document.activeElement) === true
+				? document.activeElement
+				: null;
+		},
+		isExpected: (element): boolean => element !== null,
+	});
+	expect(focusedElement).toBeInstanceOf(HTMLElement);
 }
 
 async function navigateFileViewerMenuTo(label: string): Promise<void> {
@@ -711,6 +724,15 @@ function mountedFileTreePaths(): readonly string[] {
 		.filter((path): boolean => path.length > 0)
 		.filter((path, index, paths): boolean => paths.indexOf(path) === index)
 		.toSorted();
+}
+
+function waitForMountedFileTreePaths(expectedPaths: readonly string[]): Promise<readonly string[]> {
+	return waitForBridgeFileViewerBrowserDomState({
+		readState: mountedFileTreePaths,
+		isExpected: (paths): boolean =>
+			paths.length === expectedPaths.length &&
+			expectedPaths.every((expectedPath, index): boolean => paths[index] === expectedPath),
+	});
 }
 
 function mountedFileTreeRow(path: string): HTMLElement | null {

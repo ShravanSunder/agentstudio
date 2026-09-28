@@ -1,4 +1,5 @@
 import { act } from 'react';
+import { cleanup } from 'vitest-browser-react';
 
 import type { BridgeProductCallResult } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductSubscriptionUpdateOptions } from '../core/comm-worker/bridge-product-subscription-contracts.js';
@@ -24,6 +25,13 @@ export {
 	waitForBridgeFileViewerWorkerMessageDrain,
 };
 
+export {
+	bridgeFileViewerNoopResizeObserverIsInstalled,
+	installBridgeFileViewerBrowserTestMotionOverride,
+	installBridgeFileViewerNoopResizeObserver,
+	waitForBridgeFileViewerBrowserDomState,
+} from './bridge-file-viewer-browser-test-dom-state.js';
+
 export async function settleBridgeFileViewerBrowserUpdates(): Promise<void> {
 	await waitForBridgeFileViewerWorkerMessageDrain();
 	await actFrame();
@@ -40,6 +48,15 @@ export async function settleBridgeFileViewerBrowserUpdates(): Promise<void> {
 export async function settleBridgeFileViewerBrowserInteraction(): Promise<void> {
 	await waitForBridgeFileViewerWorkerMessageDrain();
 	await actFrame();
+	await waitForBridgeFileViewerWorkerMessageDrain();
+}
+
+export async function cleanupBridgeFileViewerBrowserTestSurface(): Promise<void> {
+	// Base UI and browser-owned layout work schedule their final state update on
+	// the next animation frame. Flush that queued update inside act before
+	// unmounting, then release the File Viewer worker queue.
+	await actFrame();
+	await actUpdate(cleanup);
 	await waitForBridgeFileViewerWorkerMessageDrain();
 }
 
@@ -63,14 +80,6 @@ export async function interactAndWaitForBridgeFileViewerQueryCompletion(
 		completion.cancel();
 		throw error;
 	}
-}
-
-export function installBridgeFileViewerNoopResizeObserver(): void {
-	Object.assign(globalThis, { ResizeObserver: BridgeFileViewerNoopResizeObserver });
-}
-
-export function bridgeFileViewerNoopResizeObserverIsInstalled(): boolean {
-	return globalThis.ResizeObserver === BridgeFileViewerNoopResizeObserver;
 }
 
 export function requireMetadataPublisher(
@@ -114,14 +123,6 @@ export function requireOpenSlowFile(openSlowFile: (() => void) | null): () => vo
 		throw new Error('Controlled FileViewer did not publish its open callback.');
 	}
 	return openSlowFile;
-}
-
-class BridgeFileViewerNoopResizeObserver implements ResizeObserver {
-	disconnect(): void {}
-
-	observe(_target: Element): void {}
-
-	unobserve(_target: Element): void {}
 }
 
 /**
