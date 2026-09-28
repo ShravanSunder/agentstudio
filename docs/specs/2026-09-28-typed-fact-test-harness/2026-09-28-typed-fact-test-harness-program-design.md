@@ -66,14 +66,14 @@ package protocol FactSourceHandle: Sendable {
 }
 
 package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Sendable {
-    package func expectNext(in scope: Scope, _ expected: Fact, sourceLocation: SourceLocation = #_sourceLocation) async throws
+    package func expectNext(in scope: Scope, _ expected: Fact, fileID: String = #fileID, line: Int = #line, function: String = #function) async throws
         where Fact: Equatable
     package func expectNext(in scope: Scope, where matches: @Sendable (Fact) -> Bool, _ description: String,
-                            sourceLocation: SourceLocation = #_sourceLocation) async throws -> Fact
+                            fileID: String = #fileID, line: Int = #line, function: String = #function) async throws -> Fact
     package func mark(_ scope: Scope) -> OpeningPosition<Scope>     // bound to this recorder + scope; taken before the stimulus
     package func expectNone(of forbidden: @Sendable (Fact) -> Bool, _ description: String,
                             from opening: OpeningPosition<Scope>, closedBy expectedClose: @Sendable (Fact) -> Bool,
-                            sourceLocation: SourceLocation = #_sourceLocation) async throws
+                            fileID: String = #fileID, line: Int = #line, function: String = #function) async throws
     package func finish() async throws                              // idempotent: stop source, join, settle, report violations
 }
 ```
@@ -81,6 +81,7 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
 - **Consumption and history.** The recorder keeps the full append-only history for its lifetime. It's test-scoped, so memory is bounded by the scenario. Each scope has one cursor, and cursors only move forward. `expectNone` reads history from its opening position without moving any other expectation's cursor. It then advances the scope's cursor past the close, never backwards.
 - **Terminal classification.** `FactVocabulary.isClosing` is the only definition of a closing fact, and it's used everywhere. In `expectNext`, a fact arriving in a scope after that scope's close fails with `FactAfterClose`. `expectNone` requires the first closing fact after the opening position both to satisfy `isClosing` and to match `expectedClose`: a different close, such as another generation's, fails. `finish()` reports duplicate closes.
 - **Opening-position linearization.** `mark` records the scope's current history index under the same lock the sink appends under, so every fact enqueued before `mark` is ordered before the interval. For the bus source, `mark` first awaits delivery of everything the subscription had enqueued at that moment: it uses the `EventBusDeliveryCheckpoint.enqueuedCount` read at `mark` as the boundary, and facts with a lower sequence count as before the interval.
+- **Call sites without `Testing`.** The harness depends only on the standard library, Foundation and Synchronization (`testing_architecture.md` §Test target ownership), so expectations capture `#fileID`, `#line` and `#function`, as `HeldStep` already does. They never use `Testing.SourceLocation`.
 - **Failures** are thrown errors: `UnexpectedFact`, `SourceEnded`, `FactsLost`, `Cancelled`, `ConcurrentExpectation`, `DuplicateClose`, `FactAfterClose`. Each names the expected fact, the actual fact, the scope and the call site.
 - **Cancellation.** The waiter is registered and cancelled under one lock, with exactly-once settlement; it's removed before being resumed.
 - **Sink shape.** The sink is nonisolated, synchronous and nonthrowing. A MainActor owner adapts at its own boundary: it passes values, never isolated state, and never re-enters the owner.
