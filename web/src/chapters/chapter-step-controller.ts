@@ -321,9 +321,18 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
         countdownStepId = stepId;
         countdownDurationMs = durationMs;
       }
-      countdown.pause();
-      countdown.currentTime = Math.min(Math.max(elapsedSeconds * 1000, 0), durationMs);
-      if (running) countdown.play();
+      const desiredTime = Math.min(Math.max(elapsedSeconds * 1000, 0), durationMs);
+      const currentTime = countdown.currentTime;
+      const keepRunning =
+        running &&
+        countdown.playState === "running" &&
+        typeof currentTime === "number" &&
+        Math.abs(currentTime - desiredTime) < 50;
+      if (!keepRunning) {
+        countdown.pause();
+        countdown.currentTime = desiredTime;
+        if (running) countdown.play();
+      }
       stepLine.dataset["stepPlayback"] = running ? "playing" : manualPause ? "paused" : "held";
       if (pauseGlyph !== undefined && pauseGlyph !== null) pauseGlyph.hidden = !manualPause;
     };

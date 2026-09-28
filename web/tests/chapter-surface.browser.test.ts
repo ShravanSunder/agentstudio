@@ -108,7 +108,6 @@ describe("chapter surfaces on the home page", () => {
       expect(layout.captionIconCount).toBe(observation.tabs.length);
       expect(layout.pillMaterialMatchesHeader).toBe(false);
       expect(layout.stepLineBackdrop).toBe("none");
-      expect(layout.activeLabelDotCount).toBe(0);
       for (const left of [layout.glass.left, layout.pill.left, layout.caption.left]) {
         expect(Math.abs(left - layout.title.left)).toBeLessThanOrEqual(1);
       }

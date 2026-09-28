@@ -1,7 +1,6 @@
 import { gsap } from "gsap";
 
 import { sceneRootAttribute } from "../chapters/chapter-dom-contract";
-import { computeStepDwellSeconds } from "../chapters/chapter-step-dwell";
 import {
   chapterStepRequestedEventName,
   chapterStepResumeRequestedEventName,
@@ -18,6 +17,7 @@ import {
 } from "../motion-scenes/scene-contract";
 import { resolveSceneModule } from "../motion-scenes/scene-registry";
 import { findSceneProofLayer, type SceneProofTransition } from "./scene-proof-layer";
+import { publishSceneStepTiming } from "./scene-step-timing-publisher";
 import { combineSurfacePlaybacks, type SurfacePlayback } from "./surface-playback";
 
 // Same thresholds and replay delay as the scroll-autoplay video, so a scene and
@@ -134,37 +134,22 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   let replayTimerStartedAt: number | undefined;
   const publishStepTiming = (): void => {
     const timeline = state.timeline;
-    const stepIndex =
-      sceneModule?.steps.findIndex((step) => step.stepId === state.lastReportedStepId) ?? -1;
-    if (timeline === undefined || sceneModule === undefined || stepIndex < 0) return;
-    const labelTimes = sceneModule.steps.map((step) => timeline.labels[step.timelineLabel] ?? 0);
-    const labelTime = labelTimes[stepIndex] ?? 0;
-    const dwellSeconds =
-      computeStepDwellSeconds({
-        labelTimes,
-        timelineDuration: timeline.duration(),
-        proofSeconds:
-          proofVideo !== null && Number.isFinite(proofVideo.duration) ? proofVideo.duration : 0,
-        replayDelaySeconds: sceneReplayDelayMs / 1000,
-      })[stepIndex] ?? 0;
-    const proofElapsed = state.awaitingReplay
-      ? (state.proofVideoEnded && proofVideo !== null && Number.isFinite(proofVideo.duration)
-          ? proofVideo.duration
-          : (proofVideo?.currentTime ?? 0)) +
-        (replayTimerStartedAt === undefined ? 0 : (performance.now() - replayTimerStartedAt) / 1000)
-      : 0;
-    sceneRoot.dispatchEvent(
-      createSceneStepTimingEvent({
-        stepId: sceneModule.steps[stepIndex]?.stepId ?? "",
-        dwellSeconds,
-        elapsedSeconds: Math.max(0, timeline.time() - labelTime + proofElapsed),
-        manualPause: state.intent === "manual-pause",
-        running:
-          (state.phase === "playing" && !timeline.paused()) ||
-          (state.phase === "awaiting-replay" &&
-            ((proofVideo !== null && !proofVideo.paused) || state.replayTimer !== undefined)),
-      }),
-    );
+    const stepId = state.lastReportedStepId;
+    if (timeline === undefined || sceneModule === undefined || stepId === undefined) return;
+    publishSceneStepTiming({
+      awaitingReplay: state.awaitingReplay,
+      manualPause: state.intent === "manual-pause",
+      playingScene: state.phase === "playing",
+      proofVideo,
+      proofVideoEnded: state.proofVideoEnded,
+      replayDelayMs: sceneReplayDelayMs,
+      replayTimerActive: state.replayTimer !== undefined,
+      replayTimerStartedAt,
+      sceneModule,
+      sceneRoot,
+      stepId,
+      timeline,
+    });
   };
   const pauseProofVideoAutomatically = (): void => {
     if (proofVideo === null || proofVideo.paused || proofVideoIntent === "manual-play") return;
@@ -303,8 +288,9 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
       return undefined;
     }
     timeline.eventCallback("onUpdate", (): void => {
+      const previousStepId = state.lastReportedStepId;
       reportStep(findStepAtTime(sceneModule, timeline));
-      publishStepTiming();
+      if (previousStepId === state.lastReportedStepId && timeline.paused()) publishStepTiming();
     });
     timeline.eventCallback("onComplete", handleTimelineComplete);
     state.timeline = timeline;

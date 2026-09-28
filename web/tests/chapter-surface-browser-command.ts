@@ -73,7 +73,6 @@ export interface ChapterGlassLayoutObservation {
   readonly captionIconCount: number;
   readonly pillMaterialMatchesHeader: boolean;
   readonly stepLineBackdrop: string;
-  readonly activeLabelDotCount: number;
   /** Elements in the chapter measured for autoplay centring, and whether the one is the stage. */
   readonly playbackStageCount: number;
   readonly playbackStageIsStage: boolean;
@@ -347,7 +346,6 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
       pillMaterial.borderColor === headerMaterial.borderColor &&
       pillMaterial.backdropFilter === headerMaterial.backdropFilter,
     stepLineBackdrop: getComputedStyle(pill).backdropFilter,
-    activeLabelDotCount: pill.querySelectorAll(".chapter-step-active-label__dot").length,
     playbackStageCount: playbackStages.length,
     playbackStageIsStage: playbackStages[0] === stage,
     branchEndpoint: { x: endpoint.x, y: endpoint.y },

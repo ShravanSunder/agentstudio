@@ -155,6 +155,38 @@ afterEach(() => {
 });
 
 describe("scene playback", () => {
+  it("publishes step timing on step changes, not on every playing frame", () => {
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const reachedSteps: string[] = [];
+    const timedSteps: string[] = [];
+    scene.sceneRoot.addEventListener(sceneStepReachedEventName, (event: Event): void => {
+      reachedSteps.push(readChapterStepEventStepId(event) ?? "unreadable");
+    });
+    scene.sceneRoot.addEventListener("agentstudio:scene-step-timing", (event: Event): void => {
+      if (event instanceof CustomEvent) timedSteps.push(event.detail.stepId);
+    });
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+
+    playback.synchronize(1, true);
+    reachedSteps.length = 0;
+    timedSteps.length = 0;
+    scene.timeline().time(0.1);
+    scene.timeline().time(0.2);
+    scene.timeline().time(0.3);
+    expect(reachedSteps).toEqual([]);
+    expect(timedSteps).toEqual([]);
+
+    scene.timeline().time((scene.timeline().labels["beat-watch"] ?? 0) + 0.1);
+    expect(reachedSteps).toEqual(["watch-folders"]);
+    expect(timedSteps).toEqual(["watch-folders"]);
+    playback.dispose();
+  });
+
   it("plays when centered and pauses with the video hysteresis when leaving", () => {
     stubReducedMotion(false);
     const scene = createFakeSceneFixture();
