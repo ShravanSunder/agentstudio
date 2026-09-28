@@ -166,6 +166,7 @@ describe('Bridge comm worker one-shot install lifecycle', () => {
 			bootstrap: install.bootstrap,
 			productCapability: install.productCapability,
 			publishSessionSuspect: expect.any(Function),
+			publishViewRecoveryStatus: expect.any(Function),
 		});
 		expect(install.productCapability.byteLength).toBe(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH);
 

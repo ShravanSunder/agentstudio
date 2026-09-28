@@ -86,6 +86,10 @@ import {
 	bridgeWorkerReviewPublicationIdentitySchema,
 } from './bridge-worker-review-publication-contracts.js';
 import {
+	bridgeWorkerViewRecoveryRetryCommandSchema,
+	bridgeWorkerViewRecoveryStatusEventSchema,
+} from './bridge-worker-view-recovery-contracts.js';
+import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerEpochSchema,
 	bridgeWorkerInteractionSurfaceSchema,
@@ -128,6 +132,17 @@ export type {
 } from './bridge-worker-review-publication-contracts.js';
 
 export { BRIDGE_WORKER_WIRE_VERSION } from './bridge-worker-wire-base-contracts.js';
+export {
+	bridgeWorkerViewRecoveryKindSchema,
+	bridgeWorkerViewRecoveryRetryCommandSchema,
+	bridgeWorkerViewRecoveryStatusEventSchema,
+	bridgeWorkerViewRecoveryViewSchema,
+} from './bridge-worker-view-recovery-contracts.js';
+export type {
+	BridgeWorkerViewRecoveryRetryCommand,
+	BridgeWorkerViewRecoveryStatusEvent,
+	BridgeWorkerViewRecoveryView,
+} from './bridge-worker-view-recovery-contracts.js';
 export {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerFileDisplayPatchSchema,
@@ -325,6 +340,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerReviewPublicationInstalledCommandSchema,
 	bridgeWorkerFileQueryUpdateCommandSchema,
 	bridgeWorkerFileRefreshRetryCommandSchema,
+	bridgeWorkerViewRecoveryRetryCommandSchema,
 	bridgeWorkerFileDisplayResyncCommandSchema,
 	bridgeWorkerRenderDispositionCommandSchema,
 ]);
@@ -834,6 +850,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerAnnotationOutputInspectionEventSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerHealthEventSchema,
+	bridgeWorkerViewRecoveryStatusEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,
 	bridgeWorkerReviewDisplayPatchEventSchema,
@@ -857,6 +874,7 @@ export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('k
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSessionSuspectEventSchema,
+	bridgeWorkerViewRecoveryStatusEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,
 	bridgeWorkerFileQueryOutcomeEventSchema,

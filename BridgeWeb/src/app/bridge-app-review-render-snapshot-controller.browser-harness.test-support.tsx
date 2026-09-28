@@ -41,6 +41,8 @@ import {
 	createBridgeReviewWorkerPierreCourier,
 	useBridgeReviewRenderSnapshotController,
 } from './bridge-app-review-render-snapshot-controller.js';
+import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
+import { BridgeReviewMetadataRecoveryWarning } from './bridge-review-metadata-recovery-warning.js';
 
 export { hierarchicalReviewDisplayEvent };
 
@@ -63,6 +65,29 @@ export function ReviewDirectDisplayProbe(props: {
 			data-review-tree-row-order-length={controller.catalogSnapshot.treeRowOrderLength}
 			data-testid="review-direct-display-probe"
 		/>
+	);
+}
+
+export function ReviewRecoveryRetryProbe(props: {
+	readonly comparisonTarget: BridgeReviewComparisonTarget | null;
+	readonly reviewClient: BridgePaneSurfaceClient;
+}): ReactElement {
+	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
+	const controller = useBridgeReviewRenderSnapshotController({
+		pierreCourier,
+		prepareActiveEditorsForInstallation: prepareNoActiveEditorsForInstallation,
+		reviewClient: props.reviewClient,
+	});
+	return (
+		<div>
+			<BridgeReviewMetadataRecoveryWarning
+				onRetry={(): void => controller.retryFailedMetadataView(props.comparisonTarget)}
+				status={controller.viewRecoveryStatus}
+			/>
+			<output data-testid="last-good-review">
+				{controller.displayStore.getReviewTreeRowAtIndex(0)?.path ?? ''}
+			</output>
+		</div>
 	);
 }
 

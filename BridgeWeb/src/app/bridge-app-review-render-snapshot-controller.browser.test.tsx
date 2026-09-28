@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { userEvent } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
@@ -17,6 +17,7 @@ import {
 import { createBridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	ReviewDirectDisplayProbe,
+	ReviewRecoveryRetryProbe,
 	hierarchicalReviewDisplayEvent,
 	makeReviewSurfaceHarness,
 	requireHTMLElement,
@@ -81,6 +82,66 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('review-direct-display-probe'))
 			.toHaveAttribute('data-review-later-row-path', 'Sources/Later.swift');
+	});
+
+	test('shows one Review metadata Retry and keeps the last good row while retrying both jobs', async () => {
+		const harness = makeReviewSurfaceHarness();
+		const target = {
+			basis: 'commonCommit',
+			branchName: 'master',
+			kind: 'localDefaultBranch',
+		} as const;
+		const lastGoodReviewPath = 'Sources/LastGood.swift';
+		harness.reviewClient.renderStore.applyReviewDisplayPatchEvent(
+			reviewDisplayEvent({
+				itemId: 'last-good-review-item',
+				path: lastGoodReviewPath,
+				projectionRevision: 1,
+				sequence: 1,
+				startIndex: 0,
+			}),
+		);
+		const panelChromePatch = reviewComparisonPanelChromeEvent().patches[0];
+		if (panelChromePatch?.slice !== 'panelChrome' || panelChromePatch.operation !== 'upsert') {
+			throw new Error('Expected the Review comparison panel chrome patch.');
+		}
+		harness.reviewClient.renderStore.applyWorkerPatch(panelChromePatch);
+		harness.reviewClient.renderStore.applyViewRecoveryStatusEvent({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'viewRecoveryStatus',
+			view: { kind: 'review.metadata', subscriptionId: 'review-view-retry-1' },
+			status: 'failedRetryable',
+		});
+
+		const rendered = await render(
+			<ReviewRecoveryRetryProbe comparisonTarget={target} reviewClient={harness.reviewClient} />,
+		);
+
+		await expect.element(rendered.getByText('Review metadata unavailable')).toBeVisible();
+		await expect.element(rendered.getByText(lastGoodReviewPath, { exact: true })).toBeVisible();
+		expect(document.querySelectorAll('button[aria-label="Retry"]')).toHaveLength(1);
+		const retryButton = rendered.getByRole('button', { name: 'Retry' }).element();
+		expect(retryButton.tagName).toBe('BUTTON');
+		expect(retryButton.getAttribute('type')).toBe('button');
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Retry' }).click();
+		});
+		await expect.element(rendered.getByText(lastGoodReviewPath, { exact: true })).toBeVisible();
+		expect(harness.sentCommands.slice(-2).map((command) => command.command)).toEqual([
+			'viewRecoveryRetry',
+			'reviewComparisonUpdate',
+		]);
+		expect(harness.sentCommands.at(-2)).toMatchObject({
+			command: 'viewRecoveryRetry',
+			view: { kind: 'review.metadata', subscriptionId: 'review-view-retry-1' },
+		});
+		expect(harness.sentCommands.at(-1)).toMatchObject({
+			command: 'reviewComparisonUpdate',
+			target,
+		});
+		await page.screenshot({ path: '../../../tmp/bridgeweb-review-view-retry.png' });
 	});
 
 	test('emits one initial Review intake-ready command and does not duplicate it on rerender', async () => {

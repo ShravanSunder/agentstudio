@@ -15,6 +15,83 @@ const emptyFileScope = {
 } as const;
 
 describe('W2 desired view scope owner', () => {
+	test('emits per-view recovery status only when it changes', async () => {
+		const statuses: Array<{
+			readonly view: { readonly kind: string; readonly subscriptionId: string };
+			readonly status: 'failedRetryable' | 'ready' | 'recovering';
+		}> = [];
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => acceptedResnapshot(props),
+			},
+			createIdentifier: (): string => 'view-identity',
+			maximumConsecutiveResnapshots: 2,
+			onViewRecoveryStatus: (status): void => {
+				statuses.push(status);
+			},
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+		});
+		owner.register({
+			scope: { kind: 'comment', sessionIds: ['session-1'], worktreeId: 'worktree-1' },
+			subscriptionId: 'comment-subscription-1',
+			subscriptionKind: 'file.annotations',
+		});
+
+		await owner.resnapshot('file-subscription-1');
+		owner.observeReplacementSnapshot({
+			handle: 'view-identity',
+			incarnation: 'view-identity',
+			scopeRevision: 0,
+			subscriptionId: 'file-subscription-1',
+		});
+		await owner.resnapshot('file-subscription-1');
+		await owner.resnapshot('file-subscription-1');
+		owner.recordCertifiedInstall({
+			handle: 'view-identity',
+			incarnation: 'view-identity',
+			scopeRevision: 0,
+			subscriptionId: 'file-subscription-1',
+		});
+		await owner.retryView('file-subscription-1');
+
+		const fileStatuses = statuses.filter(
+			(status): boolean => status.view.subscriptionId === 'file-subscription-1',
+		);
+		expect(fileStatuses).toEqual([
+			{ view: { kind: 'file.metadata', subscriptionId: 'file-subscription-1' }, status: 'ready' },
+			{
+				view: { kind: 'file.metadata', subscriptionId: 'file-subscription-1' },
+				status: 'recovering',
+			},
+			{
+				view: { kind: 'file.metadata', subscriptionId: 'file-subscription-1' },
+				status: 'failedRetryable',
+			},
+			{ view: { kind: 'file.metadata', subscriptionId: 'file-subscription-1' }, status: 'ready' },
+			{
+				view: { kind: 'file.metadata', subscriptionId: 'file-subscription-1' },
+				status: 'recovering',
+			},
+		]);
+		expect(owner.recoveryState('comment-subscription-1')).toEqual({
+			consecutiveResnapshots: 0,
+			status: 'ready',
+		});
+		expect(
+			statuses.filter((status) => status.view.subscriptionId === 'comment-subscription-1'),
+		).toEqual([
+			{
+				view: { kind: 'file.annotations', subscriptionId: 'comment-subscription-1' },
+				status: 'ready',
+			},
+		]);
+	});
+
 	test('counts unsuccessful page resnapshots per view, stops at the budget, and rearms on Retry', async () => {
 		const resnapshots: ViewResnapshotAdmissionProps[] = [];
 		const owner = new BridgeProductViewScopeOwner({

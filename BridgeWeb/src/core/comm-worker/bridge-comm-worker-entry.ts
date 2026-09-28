@@ -4,7 +4,10 @@ import {
 	type BridgeTelemetryWorkerEventProducer,
 } from '../telemetry-worker/bridge-telemetry-worker-event-adapter.js';
 // oxlint-disable unicorn/require-post-message-target-origin -- WorkerGlobalScope.postMessage does not accept a targetOrigin argument.
-import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
+import {
+	buildBridgeWorkerReadyHealthEvent,
+	buildBridgeWorkerViewRecoveryStatusEvent,
+} from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
@@ -32,6 +35,7 @@ import {
 	type BridgeCommWorkerBootstrapRequest,
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerServerToMainWireMessage,
+	type BridgeWorkerViewRecoveryStatusEvent,
 } from './bridge-worker-contracts.js';
 import type { PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
 
@@ -60,6 +64,9 @@ export interface BridgeCommWorkerEntryDependencies {
 	readonly installProductSession: (
 		input: BridgeProductSessionAuthorityInstallInput & {
 			readonly publishSessionSuspect?: (reason: 'admissionReplyExhausted') => void;
+			readonly publishViewRecoveryStatus?: (
+				status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>,
+			) => void;
 		},
 	) => BridgeCommWorkerInstalledProductSession;
 }
@@ -209,6 +216,10 @@ export function bootstrapBridgeCommWorkerEntry(
 						wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 						workerInstanceId: parsedInstall.data.bootstrap.workerInstanceId,
 					}),
+				publishViewRecoveryStatus: (status): void =>
+					parsedInstall.data.productPort.postMessage(
+						buildBridgeWorkerViewRecoveryStatusEvent(status),
+					),
 			});
 			installedProductPort = parsedInstall.data.productPort;
 			bootstrapBridgeCommWorkerRuntimeEntry(
@@ -267,6 +278,9 @@ function bridgeCommWorkerEntryDependencies(
 				...(input.publishSessionSuspect === undefined
 					? {}
 					: { onSessionSuspect: input.publishSessionSuspect }),
+				...(input.publishViewRecoveryStatus === undefined
+					? {}
+					: { onViewRecoveryStatus: input.publishViewRecoveryStatus }),
 			});
 			return {
 				open: authority.open,

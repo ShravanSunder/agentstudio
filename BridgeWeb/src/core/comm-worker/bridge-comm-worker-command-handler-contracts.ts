@@ -17,6 +17,7 @@ import type {
 	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerRenderDispositionCommand,
 	BridgeWorkerServerToMainMessage,
+	BridgeWorkerViewRecoveryRetryCommand,
 } from './bridge-worker-contracts.js';
 import type {
 	BridgeWorkerRenderFulfillmentIdentifierPurpose,
@@ -40,6 +41,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly renderReceiptLeaseDurationMilliseconds?: number;
 	readonly renderRetryBackoffMilliseconds?: number;
 	readonly retryAnnotationProjection?: (surface: 'file' | 'review') => void;
+	readonly retryView?: (view: BridgeWorkerViewRecoveryRetryCommand['view']) => void;
 	readonly scheduleDemandExecution?: (
 		request: BridgeCommWorkerDemandExecutionScheduleRequest,
 	) => void;

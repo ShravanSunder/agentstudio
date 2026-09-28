@@ -11,6 +11,7 @@ import {
 } from './bridge-product-session-contracts.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type {
+	BridgeCommWorkerBootstrapRequest,
 	BridgeWorkerReviewDisplayPatch,
 	BridgeWorkerReviewPublicationIdentity,
 	BridgeWorkerReviewRenderSemantics,
@@ -22,6 +23,33 @@ export interface MakeFetchedReviewContentResourceProps {
 	readonly contentHash: string;
 	readonly role: BridgeWorkerFetchedReviewContentResource['role'];
 	readonly text: string;
+}
+
+export function readyHealth(requestId: string): BridgeWorkerServerToMainMessage {
+	return {
+		direction: 'serverWorkerToMain',
+		kind: 'health',
+		requestId,
+		status: 'ready',
+		transferDescriptors: [],
+		wireVersion: 1,
+	};
+}
+
+export function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapRequest {
+	return {
+		schemaVersion: 1,
+		method: 'bridgeCommWorker.bootstrap',
+		requestId,
+		runtime: {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+		},
+	};
 }
 
 export function makeReviewContentDescriptor(props: {

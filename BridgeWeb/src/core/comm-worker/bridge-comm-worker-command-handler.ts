@@ -426,6 +426,7 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.retryAnnotationProjection === undefined
 					? {}
 					: { retryAnnotationProjection: props.retryAnnotationProjection }),
+				...(props.retryView === undefined ? {} : { retryView: props.retryView }),
 				...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 			});
 		},
@@ -459,6 +460,7 @@ interface HandleBridgeWorkerCommandProps {
 		command: BridgeWorkerFileDisplayResyncCommand,
 	) => readonly BridgeWorkerServerToMainMessage[];
 	readonly retryAnnotationProjection?: (surface: 'file' | 'review') => void;
+	readonly retryView?: CreateBridgeCommWorkerCommandHandlerProps['retryView'];
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 	readonly applyRenderDisposition?: (props: {
 		readonly command: BridgeWorkerRenderDispositionCommand;
@@ -552,6 +554,9 @@ function handleBridgeWorkerCommand(
 			return [];
 		case 'annotationProjectionRetry':
 			props.retryAnnotationProjection?.(props.message.surface === 'fileView' ? 'file' : 'review');
+			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
+		case 'viewRecoveryRetry':
+			props.retryView?.(props.message.view);
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'markFileViewed':
 		case 'fileRefreshRetry':

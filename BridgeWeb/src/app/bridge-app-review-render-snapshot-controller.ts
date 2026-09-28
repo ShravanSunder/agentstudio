@@ -8,6 +8,7 @@ import {
 	encodeBridgeWorkerReviewComparisonTargetsQueryCommand,
 	encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
+	encodeBridgeWorkerViewRecoveryRetryCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
@@ -16,6 +17,7 @@ import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker
 import {
 	type BridgeMainCodeViewItem,
 	type BridgeMainRenderSnapshotStore,
+	type BridgeMainViewRecoveryStatus,
 	type BridgeMainReviewCatalogSnapshot,
 	type BridgeMainReviewRefreshPresentation,
 	type BridgeMainReviewSourceDisplaySlice,
@@ -91,6 +93,7 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly reviewSourceSlice: BridgeMainReviewSourceDisplaySlice | null;
 	readonly reviewRefreshPresentation: BridgeMainReviewRefreshPresentation;
+	readonly viewRecoveryStatus: BridgeMainViewRecoveryStatus | null;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedItemId: string | null;
@@ -106,6 +109,9 @@ export interface BridgeReviewRenderSnapshotController {
 	) => void;
 	readonly updateReviewComparisonTarget: (
 		target: BridgeWorkerReviewComparisonUpdateCommand['target'],
+	) => void;
+	readonly retryFailedMetadataView: (
+		comparisonTarget: BridgeWorkerReviewComparisonUpdateCommand['target'] | null,
 	) => void;
 	readonly queryReviewComparisonTargets: () => void;
 	readonly cancelReviewComparisonTargetsQuery: () => void;
@@ -155,6 +161,13 @@ export function useBridgeReviewRenderSnapshotController(
 		displayStore.subscribeReviewRefreshPresentation,
 		displayStore.getReviewRefreshPresentation,
 		displayStore.getReviewRefreshPresentation,
+	);
+	const viewRecoveryStatus = useSyncExternalStore(
+		displayStore.subscribeViewRecoveryStatus,
+		(): BridgeMainViewRecoveryStatus | null =>
+			displayStore.getViewRecoveryStatus('review.metadata'),
+		(): BridgeMainViewRecoveryStatus | null =>
+			displayStore.getViewRecoveryStatus('review.metadata'),
 	);
 	const selectionSlice = useSyncExternalStore(
 		displayStore.subscribeReviewSelection,
@@ -395,6 +408,20 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[props.reviewClient],
 	);
+	const retryFailedMetadataView = useCallback(
+		(comparisonTarget: BridgeWorkerReviewComparisonUpdateCommand['target'] | null): void => {
+			if (viewRecoveryStatus?.status !== 'failedRetryable') return;
+			props.reviewClient.send(
+				encodeBridgeWorkerViewRecoveryRetryCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					requestId: 'review-view-recovery-retry',
+					view: viewRecoveryStatus.view,
+				}),
+			);
+			if (comparisonTarget !== null) updateReviewComparisonTarget(comparisonTarget);
+		},
+		[props.reviewClient, updateReviewComparisonTarget, viewRecoveryStatus],
+	);
 	const queryReviewComparisonTargets = useCallback((): void => {
 		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'loading' });
 		try {
@@ -521,6 +548,7 @@ export function useBridgeReviewRenderSnapshotController(
 		panelChromeSlice,
 		reviewSourceSlice,
 		reviewRefreshPresentation,
+		viewRecoveryStatus,
 		selectedCodeViewItem: selectedCodeViewItem ?? null,
 		selectedContentAvailability,
 		selectedItemId,
@@ -531,6 +559,7 @@ export function useBridgeReviewRenderSnapshotController(
 		setReviewRefreshSemanticAttention,
 		setReviewTreeVisibleItemIds,
 		updateReviewComparisonTarget,
+		retryFailedMetadataView,
 		updateReviewDisplayProjection,
 		visibleCodeViewItems,
 	};
@@ -666,6 +695,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'annotationOutputInspection':
 			case 'annotationProjectionConvergence':
 			case 'health':
+			case 'viewRecoveryStatus':
 			case 'nativeSurfaceSelectionRequest':
 			case 'reviewCandidateReady':
 			case 'reviewCandidateFailed':

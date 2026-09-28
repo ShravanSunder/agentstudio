@@ -26,6 +26,33 @@ import {
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 
 describe('BridgeWorkerContracts', () => {
+	test('carries strict per-view recovery status and retry commands', () => {
+		const event = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			kind: 'viewRecoveryStatus',
+			transferDescriptors: [],
+			view: { kind: 'review.annotations', subscriptionId: 'review-comments-1' },
+			status: 'failedRetryable',
+		} as const;
+		const retry = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'viewRecoveryRetry',
+			requestId: 'view-recovery-retry-1',
+			epoch: 3,
+			transferDescriptors: [],
+			view: { kind: 'review.annotations', subscriptionId: 'review-comments-1' },
+		} as const;
+
+		expect(bridgeWorkerServerToMainMessageSchema.parse(event)).toEqual(event);
+		expect(
+			bridgeWorkerServerToMainMessageSchema.safeParse({ ...event, status: 'retrying' }).success,
+		).toBe(false);
+		expect(bridgeWorkerMainToServerMessageSchema.parse(retry)).toEqual(retry);
+	});
+
 	test('carries strict annotation commands, acceptance correlation, and complete snapshots per surface', () => {
 		const command = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,

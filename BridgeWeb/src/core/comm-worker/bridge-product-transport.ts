@@ -120,6 +120,9 @@ export interface CreateBridgeProductTransportProps {
 	readonly initialWorkerDerivationEpochs?: Readonly<Partial<Record<BridgeProductSurface, number>>>;
 	readonly maximumConcurrentContentResponses?: number;
 	readonly metadataApplicationRegistry: BridgeProductMetadataApplicationRegistry;
+	readonly onViewRecoveryStatus?: ConstructorParameters<
+		typeof BridgeProductViewScopeOwner
+	>[0]['onViewRecoveryStatus'];
 	/** Maximum time an exact frame observation acknowledgement may remain pending. */
 	readonly frameAcknowledgementTimeoutMilliseconds?: number;
 }
@@ -273,6 +276,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			createIdentifier: (): string => this.#createIdentifier('subscription'),
 			maximumConsecutiveResnapshots:
 				props.authority.bootstrap.policy.viewMaximumConsecutiveResnapshots,
+			...(props.onViewRecoveryStatus === undefined
+				? {}
+				: { onViewRecoveryStatus: props.onViewRecoveryStatus }),
 		});
 		this.#executeProductRequest = props.executeProductRequest;
 		this.#deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;

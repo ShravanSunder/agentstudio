@@ -493,6 +493,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 				case 'filePierreRenderJob':
 				case 'fileRenderPatch':
 				case 'health':
+				case 'viewRecoveryStatus':
 				case 'nativeSurfaceSelectionRequest':
 				case 'reviewComparisonTargetsQuery':
 				case 'slicePatch':

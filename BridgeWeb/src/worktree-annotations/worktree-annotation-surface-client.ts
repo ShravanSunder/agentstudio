@@ -1,3 +1,5 @@
+import { encodeBridgeWorkerViewRecoveryRetryCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
+import type { BridgeMainViewRecoveryStatus } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from '../core/comm-worker/bridge-product-content-contracts.js';
@@ -60,9 +62,12 @@ export interface WorktreeAnnotationSurfaceClient {
 	readonly getServerSnapshot: () => WorktreeAnnotationProjectionSnapshot;
 	readonly getCatalogSnapshot: () => WorktreeAnnotationCatalogProjection;
 	readonly getSnapshot: () => WorktreeAnnotationProjectionSnapshot;
+	readonly getViewRecoveryStatus: () => BridgeMainViewRecoveryStatus | null;
 	readonly inspectOutput: (attemptId: string) => Promise<WorktreeAnnotationOutputInspection>;
 	readonly retryProjection: () => void;
+	readonly retryViewRecovery: () => void;
 	readonly subscribe: (listener: () => void) => () => void;
+	readonly subscribeViewRecoveryStatus: (listener: () => void) => () => void;
 	readonly waitForSnapshot: <TResult>(
 		select: (snapshot: WorktreeAnnotationProjectionSnapshot) => TResult | null,
 	) => Promise<TResult>;
@@ -114,12 +119,15 @@ export function createWorktreeAnnotationSurfaceClient(
 	let isDisposed = false;
 	let observedSurfaceEpoch = currentSurfaceEpoch(surfaceClient);
 	let nextSourceRefreshEpoch = 0;
+	let nextViewRecoveryRetryRequestId = 0;
 	let nextReviewAnnotationApplicationId = 0;
 	let completedReviewAnnotationApplicationCheckpoint: ReviewAnnotationApplicationCheckpoint | null =
 		null;
 	let pendingReviewAnnotationApplicationCheckpoint: PendingReviewAnnotationApplicationCheckpoint | null =
 		null;
 	const projectionStore = new WorktreeAnnotationProjectionStore();
+	const annotationSubscriptionKind =
+		surfaceClient.surface === 'fileView' ? 'file.annotations' : 'review.annotations';
 
 	const settleProductOutcome = (outcome: WorktreeAnnotationCommandOutcome): void => {
 		projectionStore.recordCommandOutcome(outcome);
@@ -598,6 +606,8 @@ export function createWorktreeAnnotationSurfaceClient(
 		getCatalogSnapshot: projectionStore.getCatalogSnapshot,
 		getServerSnapshot: projectionStore.getServerSnapshot,
 		getSnapshot: projectionStore.getSnapshot,
+		getViewRecoveryStatus: (): BridgeMainViewRecoveryStatus | null =>
+			surfaceClient.renderStore.getViewRecoveryStatus(annotationSubscriptionKind),
 		inspectOutput,
 		retryProjection: (): void => {
 			if (isDisposed) return;
@@ -607,7 +617,22 @@ export function createWorktreeAnnotationSurfaceClient(
 				surface: surfaceClient.surface,
 			});
 		},
+		retryViewRecovery: (): void => {
+			if (isDisposed) return;
+			const recoveryStatus = surfaceClient.renderStore.getViewRecoveryStatus(
+				annotationSubscriptionKind,
+			);
+			if (recoveryStatus?.status !== 'failedRetryable') return;
+			surfaceClient.send(
+				encodeBridgeWorkerViewRecoveryRetryCommand({
+					epoch: currentSurfaceEpoch(surfaceClient),
+					requestId: `annotation-view-recovery-retry-${++nextViewRecoveryRetryRequestId}`,
+					view: recoveryStatus.view,
+				}),
+			);
+		},
 		subscribe: projectionStore.subscribe,
+		subscribeViewRecoveryStatus: surfaceClient.renderStore.subscribeViewRecoveryStatus,
 		waitForSnapshot,
 	};
 }
