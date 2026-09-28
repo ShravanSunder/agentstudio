@@ -71,6 +71,10 @@ describe("where the rail ends on the home page", () => {
       [390, 1280, 1920],
     );
     for (const observation of observations) {
+      expect(
+        observation.captionToFinaleGap,
+        `${observation.width}px separation`,
+      ).toBeGreaterThanOrEqual(Math.min(Math.max(observation.width * 0.12, 120), 200));
       for (const artwork of observation.artworkStates) {
         const label = `${artwork.width}px ${artwork.state}`;
         expect(

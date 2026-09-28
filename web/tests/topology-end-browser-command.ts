@@ -3,6 +3,7 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
 /** The final branch, lane closures and rendered path extent in page coordinates. */
 export interface TopologyEndObservation {
   readonly width: number;
+  readonly captionToFinaleGap: number;
   readonly pillLeft: number;
   readonly stageLeft: number;
   readonly titleLeft: number;
@@ -420,10 +421,14 @@ export const verifyFinaleBookend = defineBrowserCommand(
 function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"> {
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
   const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
+  const lastCaption = document.querySelector<HTMLElement>(
+    '[data-chapter="come-back"] [data-chapter-caption]',
+  );
   const button = document.querySelector<HTMLElement>("[data-final-star-button]");
   const pill = button?.closest<HTMLElement>("[data-finale-split-pill]");
   const finaleRoot = button?.closest<HTMLElement>("[data-finale-root]");
   const stage = finaleRoot?.querySelector<HTMLElement>(".finale-stage");
+  const heading = finaleRoot?.querySelector<HTMLElement>("[data-finale-heading]");
   const note = finaleRoot?.querySelector<HTMLElement>("p");
   const finalRoute = artwork?.querySelector<SVGGElement>("[data-topology-terminal-route]");
   const finalPath = finalRoute?.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
@@ -434,6 +439,7 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   if (
     artwork === null ||
     lastGlass === null ||
+    lastCaption === null ||
     button === null ||
     pill === null ||
     pill === undefined ||
@@ -477,6 +483,8 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     titleBox === undefined ||
     stage === null ||
     stage === undefined ||
+    heading === null ||
+    heading === undefined ||
     note === null ||
     note === undefined
   )
@@ -493,6 +501,8 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   );
   return {
     width,
+    captionToFinaleGap:
+      heading.getBoundingClientRect().top - lastCaption.getBoundingClientRect().bottom,
     pillLeft: buttonBox.left,
     stageLeft: stageBox.left,
     titleLeft: titleBox.left,
