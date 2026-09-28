@@ -491,6 +491,24 @@ extension BridgeProductSession {
         {
             return .superseded
         }
+        if let current = viewScopeByDomain[viewDomain],
+            current.handle == request.handle,
+            BridgeProductViewScopeContract.hasSameMembershipFilter(current.scope, request.scope)
+        {
+            guard
+                viewSenderState.relabelScanGenerationPreservingEmission(
+                    for: viewDomain, to: request.scopeRevision
+                )
+            else { return .superseded }
+            viewScopeByDomain[viewDomain] = .init(
+                handle: request.handle,
+                revision: request.scopeRevision,
+                admissionSequence: request.correlation.requestSequence,
+                scope: request.scope
+            )
+            _ = viewScopeWaiterBySubscriptionId[request.subscriptionId]?.yield(())
+            return nil
+        }
         for prior in Array(viewScopeByDomain.keys)
         where prior.viewId == request.subscriptionId && prior.domain == .singleDomain {
             finishViewEmissionWaiter(for: prior, outcome: .retired)

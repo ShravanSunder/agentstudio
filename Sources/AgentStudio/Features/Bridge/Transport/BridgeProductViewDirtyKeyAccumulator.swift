@@ -87,6 +87,18 @@ struct BridgeProductViewDirtyKeyAccumulator {
         return true
     }
 
+    mutating func relabelScanGenerationPreservingPending(
+        for viewDomain: BridgeProductViewDomainKey, to scanGeneration: Int
+    ) -> Bool {
+        let identity = BridgeProductViewDomainIdentity(viewId: viewDomain.viewId, domain: viewDomain.domain)
+        guard let active = activeByViewDomain[identity],
+            active.incarnation == viewDomain.incarnation,
+            scanGeneration > active.scanGeneration
+        else { return false }
+        activeByViewDomain[identity] = (viewDomain.incarnation, scanGeneration)
+        return true
+    }
+
     mutating func recordChange(
         for viewDomain: BridgeProductViewDomainKey,
         scanGeneration: Int,

@@ -1,6 +1,15 @@
 import Foundation
 
 enum BridgeProductViewScopeContract {
+    static func hasSameMembershipFilter(_ previous: BridgeProductJSONValue, _ next: BridgeProductJSONValue) -> Bool {
+        guard case .object(let previousMembers) = previous,
+            case .object(let nextMembers) = next,
+            previousMembers["kind"] == nextMembers["kind"]
+        else { return false }
+        return previousMembers["kind"] != .string("file")
+            || previousMembers["changeFilter"] == nextMembers["changeFilter"]
+    }
+
     static func fileDemand(
         from scope: BridgeProductJSONValue
     ) throws -> BridgeProductFileMetadataInterestState {

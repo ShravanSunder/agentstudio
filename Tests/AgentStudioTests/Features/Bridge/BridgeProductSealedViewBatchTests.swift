@@ -7,6 +7,85 @@ import Testing
 
 @Suite("Bridge product sealed native batch")
 struct BridgeProductSealedViewBatchTests {
+    @Test("Review demand reprioritization preserves a sealed in-flight snapshot")
+    func reviewScopeChangePreservesInFlightBatch() async throws {
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        try await harness.openSubscription(
+            bridgeProductLifecycleReviewSubscriptionOpenObject(requestSequence: 2, epoch: 2)
+        )
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+            )
+        )
+        let initialScope = try BridgeProductStrictJSON.decode(
+            BridgeProductViewScopeRequest.self,
+            from: Data(
+                """
+                {"kind":"subscription.setScope","wireVersion":2,"paneSessionId":"pane-session-1",\
+                "workerInstanceId":"worker-instance-1","requestId":"review-in-flight-scope-1","requestSequence":3,\
+                "subscriptionId":"review-subscription-1","subscriptionKind":"review.metadata",\
+                "domain":"default","handle":"review-in-flight-handle","incarnation":"review-in-flight-incarnation",\
+                "scopeRevision":1,"scope":{"kind":"review","interests":[]}}
+                """.utf8
+            )
+        )
+        #expect(
+            await harness.session.acceptViewScope(initialScope, productAdmission: harness.productAdmission.context)
+                == nil)
+        let publication = try BridgeProductReviewBatchPublicationProjection.record(
+            from: .init(
+                classifiedRefreshImpact: nil,
+                publicationId: reviewMetadataTestPublicationId,
+                revision: 1,
+                desiredComparison: nil,
+                desiredStatus: .ready,
+                displayedPackage: makeReviewPackage(itemCount: 0),
+                displayedPublicationId: reviewMetadataTestPublicationId,
+                displayedComparison: nil
+            )
+        )
+        #expect(
+            try await harness.session.sealReviewSnapshot(
+                subscriptionId: initialScope.subscriptionId,
+                snapshot: .init(targetRevision: 1, publication: publication, items: []),
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        let viewDomain = BridgeProductViewDomainKey(
+            viewId: initialScope.subscriptionId, domain: .singleDomain, incarnation: initialScope.incarnation
+        )
+        try #require(await harness.session.viewSenderState.hasActiveEmission(for: viewDomain))
+        let reprioritizedScope = try BridgeProductStrictJSON.decode(
+            BridgeProductViewScopeRequest.self,
+            from: Data(
+                """
+                {"kind":"subscription.setScope","wireVersion":2,"paneSessionId":"pane-session-1",\
+                "workerInstanceId":"worker-instance-1","requestId":"review-in-flight-scope-2","requestSequence":4,\
+                "subscriptionId":"review-subscription-1","subscriptionKind":"review.metadata",\
+                "domain":"default","handle":"review-in-flight-handle","incarnation":"review-in-flight-incarnation",\
+                "scopeRevision":2,"scope":{"kind":"review","interests":[{"lane":"visible","itemIds":["a"]}]}}
+                """.utf8
+            )
+        )
+        #expect(
+            await harness.session.acceptViewScope(
+                reprioritizedScope, productAdmission: harness.productAdmission.context) == nil)
+        try #require(await harness.session.viewSenderState.hasActiveEmission(for: viewDomain))
+        var kinds: [String] = []
+        for _ in 0..<3 {
+            let delivery = try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+                )
+            )
+            kinds.append(try #require(BridgeProductMetadataFrameDecoder().append(delivery.data).first).kind)
+        }
+        #expect(kinds == ["subscription.batchBegin", "subscription.batchPart", "subscription.batchComplete"])
+        try await harness.closeProducer(lease)
+    }
+
     @Test("Comment producer receives the page's accepted E4 handle")
     func commentProducerWaitsForAcceptedScope() async throws {
         let harness = try await BridgeProductSessionLifecycleHarness.opened()

@@ -303,6 +303,24 @@ struct BridgeProductTransportV2ContractTests {
         #expect(fileDemand.interests.first?.lane == .foreground)
         #expect(fileDemand.interests.first?.paths == ["src/current.ts"])
         #expect(fileDemand.pathScope == ["src"])
+        let changedFileDemand = BridgeProductJSONValue.object([
+            "kind": .string("file"),
+            "changeFilter": .object(["kind": .string("none")]),
+            "interests": .array([]),
+            "pathScope": .array([]),
+        ])
+        let changedFileFilter = BridgeProductJSONValue.object([
+            "kind": .string("file"),
+            "changeFilter": .object([
+                "kind": .string("changes"),
+                "baseline": .object(["kind": .string("uncommitted")]),
+                "kinds": .array([.string("modified")]),
+            ]),
+            "interests": .array([]),
+            "pathScope": .array([]),
+        ])
+        #expect(BridgeProductViewScopeContract.hasSameMembershipFilter(fileScope, changedFileDemand))
+        #expect(!BridgeProductViewScopeContract.hasSameMembershipFilter(fileScope, changedFileFilter))
 
         let reviewScope = BridgeProductJSONValue.object([
             "kind": .string("review"),
@@ -317,6 +335,11 @@ struct BridgeProductTransportV2ContractTests {
         let reviewDemand = try BridgeProductViewScopeContract.reviewDemand(from: reviewScope)
         #expect(reviewDemand.interests.first?.lane == .active)
         #expect(reviewDemand.interests.first?.itemIds == ["review-item-1"])
+        #expect(
+            BridgeProductViewScopeContract.hasSameMembershipFilter(
+                reviewScope, .object(["kind": .string("review"), "interests": .array([])])
+            )
+        )
     }
 
     @Test("a deleted File row cannot carry a read descriptor")

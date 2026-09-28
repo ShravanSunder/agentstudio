@@ -39,6 +39,16 @@ export class BridgeProductBatchFrameRouter {
 			}
 		>
 	>();
+	readonly #acceptedScopeBySubscriptionId = new Map<
+		string,
+		{
+			readonly scope: Extract<
+				BridgeProductBatchFrame,
+				{ readonly kind: 'subscription.batchBegin' }
+			>['scope'];
+			readonly scopeRevision: number;
+		}
+	>();
 	readonly #receiversBySubscriptionId = new Map<
 		string,
 		{
@@ -70,23 +80,52 @@ export class BridgeProductBatchFrameRouter {
 		this.#sinks = sinks;
 	}
 
+	acceptScope(props: {
+		readonly scope: Extract<
+			BridgeProductBatchFrame,
+			{ readonly kind: 'subscription.batchBegin' }
+		>['scope'];
+		readonly scopeRevision: number;
+		readonly subscriptionId: string;
+	}): void {
+		const accepted = this.#acceptedScopeBySubscriptionId.get(props.subscriptionId);
+		if (accepted !== undefined && props.scopeRevision <= accepted.scopeRevision) return;
+		this.#acceptedScopeBySubscriptionId.set(props.subscriptionId, {
+			scope: props.scope,
+			scopeRevision: props.scopeRevision,
+		});
+		const state = this.#receiversBySubscriptionId.get(props.subscriptionId);
+		if (state === undefined || props.scopeRevision <= state.scopeRevision) return;
+		const filterChanged = state.receiver.setScope(props.scope, props.scopeRevision);
+		state.scopeRevision = props.scopeRevision;
+		if (filterChanged) {
+			this.#clearProgress(props.subscriptionId);
+			state.lastBeginByDomain.clear();
+		}
+	}
+
 	accept(frame: BridgeProductBatchFrame): void {
 		const sinks = this.#sinks;
 		if (sinks === null) throw new Error('Bridge product batch application owner is absent.');
 		let state = this.#receiversBySubscriptionId.get(frame.subscriptionId);
 		if (frame.kind === 'subscription.batchBegin') {
 			if (state === undefined) {
+				const acceptedScope = this.#acceptedScopeBySubscriptionId.get(frame.subscriptionId);
+				const initialScope =
+					acceptedScope !== undefined && acceptedScope.scopeRevision >= frame.scopeRevision
+						? acceptedScope
+						: { scope: frame.scope, scopeRevision: frame.scopeRevision };
 				state = {
 					receiver: new BridgeProductViewBatchReceiver({
 						handle: frame.handle,
-						scope: frame.scope,
-						scopeRevision: frame.scopeRevision,
+						scope: initialScope.scope,
+						scopeRevision: initialScope.scopeRevision,
 						subscriptionId: frame.subscriptionId,
 						subscriptionKind: frame.subscriptionKind,
 					}),
 					handle: frame.handle,
 					lastBeginByDomain: new Map(),
-					scopeRevision: frame.scopeRevision,
+					scopeRevision: initialScope.scopeRevision,
 				};
 				this.#receiversBySubscriptionId.set(frame.subscriptionId, state);
 			} else if (frame.handle !== state.handle) {
@@ -101,7 +140,6 @@ export class BridgeProductBatchFrameRouter {
 				state.lastBeginByDomain.clear();
 				state.scopeRevision = frame.scopeRevision;
 			}
-			state.lastBeginByDomain.set(frame.domain, frame);
 			state.receiver.admitDomain(frame.domain, frame.incarnation);
 		}
 		if (state === undefined) {
@@ -111,6 +149,9 @@ export class BridgeProductBatchFrameRouter {
 		const alreadyStaged =
 			frame.kind === 'subscription.batchPart' && state.receiver.hasStagedPart(frame);
 		const acceptance = state.receiver.accept(frame);
+		if (frame.kind === 'subscription.batchBegin' && acceptance.kind === 'staged') {
+			state.lastBeginByDomain.set(frame.domain, frame);
+		}
 		if (acceptance.kind === 'resnapshot') {
 			const tracked = this.#progressBySubscriptionId.get(frame.subscriptionId)?.get(frame.domain);
 			if (tracked !== undefined && !state.receiver.hasIncompleteStage(tracked.begin))
@@ -178,12 +219,14 @@ export class BridgeProductBatchFrameRouter {
 
 	retireSubscription(subscriptionId: string): void {
 		this.#clearProgress(subscriptionId);
+		this.#acceptedScopeBySubscriptionId.delete(subscriptionId);
 		this.#receiversBySubscriptionId.delete(subscriptionId);
 	}
 
 	clear(): void {
 		for (const subscriptionId of this.#progressBySubscriptionId.keys())
 			this.#clearProgress(subscriptionId);
+		this.#acceptedScopeBySubscriptionId.clear();
 		this.#receiversBySubscriptionId.clear();
 	}
 

@@ -363,11 +363,19 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		return this.#viewScopeOwner.retryView(subscriptionId);
 	}
 
-	setViewScopeForSubscription(props: {
+	async setViewScopeForSubscription(props: {
 		readonly scope: BridgeProductViewScopeRequest['scope'];
 		readonly subscriptionId: string;
 	}): Promise<BridgeProductViewScopeSettlement> {
-		return this.#viewScopeOwner.setScope(props);
+		const settlement = await this.#viewScopeOwner.setScope(props);
+		if (settlement.kind === 'accepted') {
+			this.#batchFrameRouter.acceptScope({
+				scope: props.scope,
+				scopeRevision: settlement.scopeRevision,
+				subscriptionId: props.subscriptionId,
+			});
+		}
+		return settlement;
 	}
 
 	setPaneSurfaceSelectionFrameSink(

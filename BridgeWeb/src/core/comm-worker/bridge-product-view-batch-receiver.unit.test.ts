@@ -158,22 +158,6 @@ function deletion(props: {
 	});
 }
 
-function eviction(props: {
-	readonly batchId: string;
-	readonly scopeRevision: number;
-}): BridgeProductBatchFrame {
-	return bridgeProductBatchFrameSchema.parse({
-		...identity,
-		streamSequence: fixtureStreamSequence(),
-		batchId: props.batchId,
-		deliverySequence: 2,
-		kind: 'subscription.batchPart',
-		part: { key: 'a', operation: 'evict' },
-		partIndex: 0,
-		scopeRevision: props.scopeRevision,
-	});
-}
-
 function complete(props: {
 	readonly batchId?: string;
 	readonly coveredScope?: Readonly<Record<string, unknown>>;
@@ -196,6 +180,16 @@ function complete(props: {
 }
 
 describe('Bridge product W4 per-domain batch receiver', () => {
+	it('installs an in-flight Review batch after demand advances to a newer scope revision', () => {
+		const state = receiver();
+		state.admitDomain('default', 'incarnation-1');
+		expect(state.accept(begin({ partCount: 1, target: 1 })).kind).toBe('staged');
+		state.setScope({ kind: 'review', interests: [{ lane: 'visible', itemIds: ['a'] }] }, 1);
+		expect(state.accept(part({ key: 'a', revision: 1, value: 'A' })).kind).toBe('staged');
+		expect(state.accept(complete({})).kind).toBe('installed');
+		expect(state.records('default')).toEqual([{ key: 'a', revision: 1, value: 'A' }]);
+	});
+
 	it('an expired bank releases W2 for each successor resnapshot until the view budget is exhausted', async () => {
 		const clock = new ControlledBatchDeadlineClock();
 		const requests: string[] = [];
@@ -904,43 +898,6 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			).kind,
 		).toBe('installed');
 		expect(state.staleRecords('default')).toEqual([]);
-	});
-
-	it('A to B to A coverage resends a key at its current revision after eviction', () => {
-		const state = receiver();
-		state.admitDomain('default', 'incarnation-1');
-		state.accept(begin({ partCount: 1, target: 1 }));
-		state.accept(part({ key: 'a', revision: 1, value: 'A' }));
-		state.accept(complete({}));
-		state.setScope({ kind: 'review', interests: [{ lane: 'active', itemIds: ['B'] }] }, 1);
-		state.accept(
-			begin({
-				batchId: 'scope-b',
-				base: 1,
-				mode: 'coverage',
-				partCount: 1,
-				scope: { kind: 'review', interests: [{ lane: 'active', itemIds: ['B'] }] },
-				scopeRevision: 1,
-				target: 2,
-			}),
-		);
-		state.accept(eviction({ batchId: 'scope-b', scopeRevision: 1 }));
-		expect(state.accept(complete({ batchId: 'scope-b', scopeRevision: 1 })).kind).toBe('installed');
-		expect(state.records('default')).toEqual([]);
-		state.setScope({ kind: 'review', interests: [] }, 2);
-		state.accept(
-			begin({
-				batchId: 'scope-a',
-				base: 2,
-				mode: 'coverage',
-				partCount: 1,
-				scopeRevision: 2,
-				target: 3,
-			}),
-		);
-		state.accept(part({ batchId: 'scope-a', key: 'a', revision: 1, scopeRevision: 2, value: 'A' }));
-		expect(state.accept(complete({ batchId: 'scope-a', scopeRevision: 2 })).kind).toBe('installed');
-		expect(state.records('default')).toEqual([{ key: 'a', revision: 1, value: 'A' }]);
 	});
 
 	it('a delayed complete or lower-target snapshot cannot replace a newer row', () => {

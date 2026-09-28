@@ -16,6 +16,51 @@ const emptyFileScope = {
 } as const;
 
 describe('W2 desired view scope owner', () => {
+	test('a certified Review install under older demand resets recovery without changing latest scope', async () => {
+		const scopes: ViewScopeAdmissionProps[] = [];
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => {
+					scopes.push(props);
+					return acceptedScope(props);
+				},
+				resnapshotView: async (props) => acceptedResnapshot(props),
+			},
+			createIdentifier: (): string => 'review-view-identity',
+			maximumConsecutiveResnapshots: 2,
+		});
+		owner.register({
+			scope: { kind: 'review', interests: [] },
+			subscriptionId: 'review-subscription-1',
+			subscriptionKind: 'review.metadata',
+		});
+		await owner.setScope({
+			scope: { kind: 'review', interests: [{ lane: 'visible', itemIds: ['item-1'] }] },
+			subscriptionId: 'review-subscription-1',
+		});
+		owner.observeReplacementSnapshot({
+			handle: 'review-view-identity',
+			incarnation: 'review-view-identity',
+			scopeRevision: 1,
+			subscriptionId: 'review-subscription-1',
+		});
+		await owner.setScope({
+			scope: { kind: 'review', interests: [{ lane: 'foreground', itemIds: ['item-1'] }] },
+			subscriptionId: 'review-subscription-1',
+		});
+		owner.recordCertifiedInstall({
+			handle: 'review-view-identity',
+			incarnation: 'review-view-identity',
+			scopeRevision: 1,
+			subscriptionId: 'review-subscription-1',
+		});
+		expect(owner.recoveryState('review-subscription-1')).toEqual({
+			consecutiveResnapshots: 0,
+			status: 'ready',
+		});
+		expect(scopes).toHaveLength(2);
+	});
+
 	test('two scopes superseded before dispatch consume one control sequence for the latest demand', async () => {
 		const queue = new BridgeProductControlAdmissionQueue();
 		let releaseHeldControl: () => void = (): void => {};

@@ -101,6 +101,12 @@ struct BridgeProductViewSenderState {
         emissionByViewDomain[viewDomain] != nil
     }
 
+    mutating func relabelScanGenerationPreservingEmission(
+        for viewDomain: BridgeProductViewDomainKey, to scanGeneration: Int
+    ) -> Bool {
+        dirtyKeys.relabelScanGenerationPreservingPending(for: viewDomain, to: scanGeneration)
+    }
+
     /// Returns one frame without materializing another batch-sized array.
     /// An out-of-credit domain yields its turn to a sibling.
     mutating func nextFrame(

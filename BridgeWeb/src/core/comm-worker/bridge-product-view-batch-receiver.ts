@@ -113,11 +113,13 @@ export class BridgeProductViewBatchReceiver {
 		});
 	}
 
-	setScope(scope: BatchBegin['scope'], scopeRevision: number): void {
-		if (scopeRevision <= this.#scopeRevision) return;
-		this.#completedInstallations.length = 0;
+	setScope(scope: BatchBegin['scope'], scopeRevision: number): boolean {
+		if (scopeRevision <= this.#scopeRevision) return false;
+		const filterChanged = !sameViewFilter(this.#scope, scope);
 		this.#scope = scope;
 		this.#scopeRevision = scopeRevision;
+		if (!filterChanged) return false;
+		this.#completedInstallations.length = 0;
 		for (const domain of this.#domains.values()) {
 			domain.stage = null;
 			domain.expiredBatchId = null;
@@ -125,6 +127,7 @@ export class BridgeProductViewBatchReceiver {
 			domain.receivedThroughDeliverySequence = 0;
 			domain.receiptBaselinePending = true;
 		}
+		return true;
 	}
 
 	replaceHandle(handle: string, scope: BatchBegin['scope'], scopeRevision: number): void {
@@ -149,7 +152,6 @@ export class BridgeProductViewBatchReceiver {
 			domainState === undefined ||
 			frame.incarnation !== domainState.incarnation ||
 			frame.handle !== this.#handle ||
-			frame.scopeRevision !== this.#scopeRevision ||
 			frame.subscriptionId !== this.#subscriptionId ||
 			frame.subscriptionKind !== this.#subscriptionKind
 		)
@@ -173,7 +175,6 @@ export class BridgeProductViewBatchReceiver {
 		if (
 			domain?.incarnation !== begin.incarnation ||
 			begin.handle !== this.#handle ||
-			begin.scopeRevision !== this.#scopeRevision ||
 			stage?.begin.batchId !== begin.batchId ||
 			stage.complete !== null
 		)
@@ -228,9 +229,9 @@ export class BridgeProductViewBatchReceiver {
 			domainState.stage = null;
 			return { kind: 'resnapshot', domain: frame.domain };
 		}
-		if (!sameJSON(frame.scope, this.#scope)) {
+		if (!sameViewFilter(frame.scope, this.#scope)) {
 			domainState.stage = null;
-			return { kind: 'resnapshot', domain: frame.domain };
+			return { kind: 'ignored' };
 		}
 		const priorStage = domainState.stage;
 		const replacesExpiredStage = domainState.expiredBatchId !== null;
@@ -375,10 +376,10 @@ export class BridgeProductViewBatchReceiver {
 				nextRecords.get(part.key)?.revision ?? 0,
 				nextTombstones.get(part.key) ?? 0,
 			);
-			if (stage.begin.mode !== 'coverage') {
-				for (const floor of state.certifiedAbsenceFloorsByScope.values()) {
-					if (this.#coversKey(floor.coveredScope, part.key))
-						priorRevision = Math.max(priorRevision, floor.revision);
+			if (stage.begin.mode === 'change') {
+				const floor = state.certifiedAbsenceFloorsByScope.get(viewFilterKey(stage.begin.scope));
+				if (floor !== undefined && this.#coversKey(floor.coveredScope, part.key)) {
+					priorRevision = Math.max(priorRevision, floor.revision);
 				}
 			}
 			if (part.revision <= priorRevision) continue;
@@ -404,7 +405,7 @@ export class BridgeProductViewBatchReceiver {
 					nextRecords.delete(key);
 			}
 			const coveredScope = stage.complete?.coveredScope ?? stage.begin.scope;
-			state.certifiedAbsenceFloorsByScope.set(canonicalJSON(coveredScope), {
+			state.certifiedAbsenceFloorsByScope.set(viewFilterKey(coveredScope), {
 				coveredScope,
 				revision: stage.begin.targetRevision,
 			});
@@ -437,6 +438,18 @@ export class BridgeProductViewBatchReceiver {
 
 function sameJSON(left: unknown, right: unknown): boolean {
 	return canonicalJSON(left) === canonicalJSON(right);
+}
+
+function sameViewFilter(left: BatchBegin['scope'], right: BatchBegin['scope']): boolean {
+	if (left.kind !== right.kind) return false;
+	if (left.kind !== 'file' || right.kind !== 'file') return true;
+	return sameJSON(left.changeFilter, right.changeFilter);
+}
+
+function viewFilterKey(scope: BatchBegin['scope']): string {
+	return scope.kind === 'file'
+		? canonicalJSON({ kind: scope.kind, changeFilter: scope.changeFilter })
+		: canonicalJSON({ kind: scope.kind });
 }
 
 function canonicalJSON(value: unknown): string {

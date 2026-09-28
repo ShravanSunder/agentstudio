@@ -21,7 +21,6 @@ import {
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
@@ -484,6 +483,51 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 });
 
 describe('Bridge comm worker Review production demand scheduling', () => {
+	test('keeps selected and visible Review interests through a content-ready install without active jobs', async () => {
+		const itemIds = ['selected-item', 'visible-item'] as const;
+		const contentItems = itemIds.map((itemId) => makeWorkerReviewContentMetadata({ itemId }));
+		const rows = itemIds.map((itemId, index) => ({ id: itemId, index, parentId: null }));
+		const store = createBridgeCommWorkerStore({ contentItems, rows, surface: 'review' });
+		store.actions.applySelectedFact({ epoch: 7, itemId: itemIds[0] });
+		store.actions.applyViewportFact({
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 1,
+			visibleItemIds: itemIds,
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
+		const publishedDemand: Array<readonly BridgeCommWorkerReviewCurrentActiveDemand[]> = [];
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		const scheduling = createBridgeCommWorkerReviewDemandScheduling({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 1024, maxWindowLines: 50 },
+			createSequence: (): number => 1,
+			markPreparationDrainRequired: () => {},
+			port: dispatch.port,
+			pump: createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 }),
+			recordPreparationCompletion: () => {},
+			replaceReviewMetadataInterests: ({ activeDemand }): Promise<void> => {
+				publishedDemand.push(activeDemand);
+				return Promise.resolve();
+			},
+			requestPreparationDrain: () => {},
+			usesProductTransport: true,
+		});
+		scheduling.updateWorkerDerivationEpoch(7);
+		scheduling.resume();
+		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 7, store });
+		await scheduling.publishCurrentMetadataInterests();
+		expect(publishedDemand.at(-1)).toEqual([
+			{ itemId: 'selected-item', role: 'selected' },
+			{ itemId: 'visible-item', role: 'visible' },
+		]);
+		const publicationCount = publishedDemand.length;
+		for (const itemId of itemIds) {
+			store.actions.applyContentReady({ contentCacheKey: `${itemId}-ready`, itemId });
+		}
+		scheduling.scheduleDemandExecution({ cause: 'viewport', epoch: 8, store });
+		expect(publishedDemand).toHaveLength(publicationCount);
+	});
+
 	test('retires membership and refill authority before a replacement generation is admitted', async () => {
 		// Arrange
 		const itemId = 'retired-authority-item';
@@ -547,7 +591,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 
 		// Assert
 		expect(openedSignals.every((signal) => signal.aborted)).toBe(true);
-		expect(activeDemandSnapshots.at(-1)).toEqual([]);
+		expect(activeDemandSnapshots.at(-1)).toEqual([{ itemId, role: 'visible' }]);
 		expect(openedSignals).toHaveLength(2);
 	});
 
@@ -727,7 +771,6 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 		const deferredStreamsByItemId = new Map<string, DeferredReviewContentStream[]>();
 		const signalsByItemId = new Map<string, AbortSignal[]>();
 		const activeDemandSnapshots: Array<readonly BridgeCommWorkerReviewCurrentActiveDemand[]> = [];
-		const refillInterestCommit = createBridgeProductDeferred<void>();
 		let requestedPreparationDrainCount = 0;
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 });
@@ -763,9 +806,7 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 			recordPreparationCompletion: () => {},
 			replaceReviewMetadataInterests: ({ activeDemand }): Promise<void> => {
 				activeDemandSnapshots.push(activeDemand);
-				return activeDemand.some(({ itemId }) => itemId === 'item-13')
-					? refillInterestCommit.promise
-					: Promise.resolve();
+				return Promise.resolve();
 			},
 			requestPreparationDrain: (): void => {
 				requestedPreparationDrainCount += 1;
@@ -832,15 +873,11 @@ describe('Bridge comm worker Review production demand scheduling', () => {
 		pump.runUntilBudget();
 		await flushBridgeWorkerRuntimeContinuations();
 
-		expect(activeDemandSnapshots.at(-1)).toHaveLength(12);
-		expect(activeDemandSnapshots.at(-1)).toContainEqual({
-			itemId: 'item-13',
-			role: 'background',
-		});
-		expect(deferredStreamsByItemId.has('item-13')).toBe(false);
-		refillInterestCommit.resolve();
-		await flushBridgeWorkerRuntimeContinuations();
-
+		expect(activeDemandSnapshots.at(-1)).toEqual([
+			{ itemId: 'item-2', role: 'selected' },
+			{ itemId: 'item-1', role: 'visible' },
+			{ itemId: 'item-3', role: 'visible' },
+		]);
 		expect(deferredStreamsByItemId.get('item-13')).toHaveLength(2);
 		expect(requestedPreparationDrainCount).toBe(14);
 	});

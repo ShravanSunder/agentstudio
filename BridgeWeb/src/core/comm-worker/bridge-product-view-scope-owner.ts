@@ -197,7 +197,11 @@ export class BridgeProductViewScopeOwner {
 	}
 
 	recordCertifiedInstall(identity: ViewIdentity): void {
-		const view = this.#matchingView(identity);
+		const candidate = this.#views.get(identity.subscriptionId);
+		const view =
+			candidate?.handle === identity.handle && candidate.incarnation === identity.incarnation
+				? candidate
+				: undefined;
 		if (view === undefined) return;
 		view.consecutiveResnapshots = 0;
 		view.resnapshotRequested = false;
