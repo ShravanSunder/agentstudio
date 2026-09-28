@@ -126,7 +126,7 @@ flowchart TB
 - Execution quiescence is tracked separately (see [Session end](#session-end-fence-then-release)).
 - W1's own deadline is longer than N2's by a fixed margin. It only covers a lost result request or a native side that stopped answering. On expiry, W2 resyncs the session, and recovers onto a new session if the resync also fails. **Human-wait operations are declared at admission and exempt from both N2's settlement deadline and W1's.** A pending human result never triggers recovery; only session end cancels it (N9).
 
-**Scope changes (W2, N3, N10).** Interest is the view's **scope**.
+**Scope changes (W2, N3, N10).** Interest is the view's **scope**. **Scope is demand, never membership** (PR1 Q54/Q55): a view's keyed inventory, meaning File rows, Review items and the Comment catalog, is always complete for the view's authority (its worktree or comparison). Scope fields only choose what gets fetched or enriched first (content, bodies, placement). A filter on membership creates a loop: the page can't ask for keys it hasn't been told exist.
 - `setScope(scope, scopeRevision)` is latest-wins, with at most one in flight.
 - Native answers with a sealed **coverage batch** for the new scope: newly included keys at their current value whatever their revision (R9b), and evictions for keys that left it. Completion of that batch is the barrier.
 - If the coverage batch doesn't complete within the finite-progress deadline, W2 asks for a resnapshot at the latest desired scope. There is no committed-base rebase to reason about, because the resnapshot establishes the base.
@@ -154,7 +154,7 @@ flowchart TB
 - When a view's oldest unacknowledged part passes the **ack deadline**, that view resnapshots. Its siblings are unaffected. The stream ends for everyone only on transport-level failure.
 - **Bounded resnapshot, without ending the subscription.** A resnapshot never ends the E3 and never clears the installed view. W2 counts consecutive unsuccessful resnapshots per view.
   - When the count reaches its budget, the view shows `failed(retryable)` on its surface. The E3 stays open, and the last installed state stays readable.
-  - Retry starts the resnapshot again.
+  - Retry starts the resnapshot again. **One Retry per surface** (owner 2026-09-27, PR1 Q52): it recovers everything that surface needs, meaning the view resnapshot plus the surface's own recovery job (File source refresh, the Comment body/placement query). Review gains its own metadata failure state for this, separate from its comparison-target Retry. The control and copy come from the command/display spec system.
   - The count resets on a successful install.
   - An abandoned staging bank is dropped, and its in-transit credits are returned.
   - Finite content reads are separate: their failures end only that read.
