@@ -7,6 +7,15 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ShortcutCatalogTests {
+    @Test("D in the sidebar list toggles drawer rows without changing Command-D")
+    func sidebarDrawerRowsUseScopedD() {
+        let bareD = ShortcutTrigger(key: .character(.d), modifiers: [])
+        let commandD = ShortcutTrigger(key: .character(.d), modifiers: [.command])
+        #expect(ShortcutDecoder.shortcut(for: bareD, in: .sidebarList) == .togglePanesShowsDrawers)
+        #expect(ShortcutDecoder.shortcut(for: bareD, in: .global) == nil)
+        #expect(ShortcutDecoder.shortcut(for: commandD, in: .global) == .toggleDrawer)
+    }
+
     @Test("superseded quarter-step identities have no aliases")
     func obsoleteQuarterStepIdentitiesAreRemoved() {
         for identifier in ["scrollQuarterPageUp", "scrollQuarterPageDown"] {

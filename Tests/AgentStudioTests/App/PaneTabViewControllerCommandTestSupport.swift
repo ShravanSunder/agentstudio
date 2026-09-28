@@ -91,6 +91,7 @@ struct PaneTabViewControllerCommandHarness {
 
 @MainActor
 func makeHarness(
+    store injectedStore: WorkspaceStore? = nil,
     createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
     arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
@@ -106,6 +107,7 @@ func makeHarness(
     interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
+        store: injectedStore,
         createSurfaceResult: createSurfaceResult,
         closeTransitionCoordinator: closeTransitionCoordinator,
         arrangementPanelPresentation: arrangementPanelPresentation,
@@ -122,6 +124,7 @@ func makeHarness(
 
 @MainActor
 func makePaneTabViewControllerCommandHarness(
+    store injectedStore: WorkspaceStore? = nil,
     createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
     arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
@@ -143,7 +146,7 @@ func makePaneTabViewControllerCommandHarness(
 
     let atomRegistry = AtomRegistry(core: CoreAtomScope.store)
     let tempDir = makePaneTabCommandHarnessTempDir()
-    let store = makeRequiredCommandHarnessStore()
+    let store = injectedStore ?? makeRequiredCommandHarnessStore()
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(store: store)
     let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)

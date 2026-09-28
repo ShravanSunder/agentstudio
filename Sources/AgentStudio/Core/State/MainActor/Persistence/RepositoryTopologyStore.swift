@@ -10,8 +10,10 @@ package final class RepositoryTopologyStore {
     private let atom: RepositoryTopologyAtom
     private let sqliteDatastore: WorkspaceSQLiteDatastoreActor?
     private let persistDebounceDuration: Duration
+    private let persistMaximumDelay: Duration
     private let delay: AsyncDelay
     private var debouncedSaveTask: Task<Void, Never>?
+    private var maximumDelaySaveTask: Task<Void, Never>?
     private var isObservingTopology = false
     private(set) var isDirty = false
     private var saveTail: Task<Void, Error>?
@@ -36,11 +38,13 @@ package final class RepositoryTopologyStore {
         atom: RepositoryTopologyAtom,
         sqliteDatastore: WorkspaceSQLiteDatastoreActor? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
+        persistMaximumDelay: Duration = AppPolicies.WorkspacePersistence.autosaveMaximumDelay,
         clock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.atom = atom
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
+        self.persistMaximumDelay = persistMaximumDelay
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
@@ -50,7 +54,9 @@ package final class RepositoryTopologyStore {
 
     package func flushAsync() async throws {
         debouncedSaveTask?.cancel()
+        maximumDelaySaveTask?.cancel()
         debouncedSaveTask = nil
+        maximumDelaySaveTask = nil
         try await persistNow()
     }
 
@@ -118,13 +124,33 @@ package final class RepositoryTopologyStore {
             try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            do {
-                try await self.persistNow()
-            } catch {
-                repositoryTopologyStoreLogger.warning(
-                    "Repository topology autosave failed: \(error.localizedDescription, privacy: .public)"
-                )
+            await self.autosave(fromMaximumDelay: false)
+        }
+        if maximumDelaySaveTask == nil {
+            let persistMaximumDelay = self.persistMaximumDelay
+            maximumDelaySaveTask = Task { @MainActor [weak self, delay, persistMaximumDelay] in
+                try? await delay.wait(persistMaximumDelay)
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                await self.autosave(fromMaximumDelay: true)
             }
+        }
+    }
+
+    private func autosave(fromMaximumDelay: Bool) async {
+        if fromMaximumDelay {
+            debouncedSaveTask?.cancel()
+        } else {
+            maximumDelaySaveTask?.cancel()
+        }
+        debouncedSaveTask = nil
+        maximumDelaySaveTask = nil
+        do {
+            try await persistNow()
+        } catch {
+            repositoryTopologyStoreLogger.warning(
+                "Repository topology autosave failed: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 

@@ -321,6 +321,70 @@ describe("scene bundles for HyperFrames", () => {
     delete window.AgentStudioScenes;
   });
 
+  it("keeps the quick-find overlay behind the settled panes and scopes its text occlusion", () => {
+    const bundle = requireBundle("chapter-find-and-focus");
+    const { width, height } = bundle.manifest.stage;
+    mountStyle(bundle.sceneCss);
+    const root = mountStage(bundle.sceneHtml, width, height);
+    runClassicScript(bundle.sceneJs);
+    const timeline = gsap.timeline({ paused: true });
+    window.AgentStudioScenes?.["chapter-find-and-focus"]?.buildScene(root, timeline, {
+      width,
+      height,
+      seed: bundle.manifest.seed,
+    });
+    const commandBar = root.querySelector<HTMLElement>('[data-scene-part="command-bar"]');
+    const paneTextContainers = [
+      ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal"),
+    ];
+    expect(paneTextContainers).toHaveLength(3);
+    const coveredRightLine = root.querySelector<HTMLElement>(
+      '.kit-pane-grid > .kit-pane:last-child [data-line="5"] [data-kit-typed]',
+    );
+
+    timeline.time(0.17);
+    expect(Number(gsap.getProperty(commandBar, "opacity"))).toBe(0);
+    expect(
+      paneTextContainers.every((pane) => !pane.hasAttribute("data-layout-allow-occlusion")),
+    ).toBe(true);
+    expect(coveredRightLine?.hasAttribute("data-layout-allow-overlap")).toBe(false);
+    timeline.time(0.8);
+    expect(Number(gsap.getProperty(commandBar, "opacity"))).toBeGreaterThan(0);
+    expect(
+      paneTextContainers.every((pane) => pane.hasAttribute("data-layout-allow-occlusion")),
+    ).toBe(true);
+    expect(coveredRightLine?.hasAttribute("data-layout-allow-overlap")).toBe(true);
+    timeline.time(2.6);
+    expect(
+      paneTextContainers.every((pane) => !pane.hasAttribute("data-layout-allow-occlusion")),
+    ).toBe(true);
+    expect(coveredRightLine?.hasAttribute("data-layout-allow-overlap")).toBe(false);
+    timeline.revert();
+    timeline.kill();
+  });
+
+  it("marks only the truthful truncated sidebar label as allowed overflow", () => {
+    const bundle = requireBundle("chapter-many-agents");
+    const { width, height } = bundle.manifest.stage;
+    mountStyle(bundle.sceneCss);
+    const root = mountStage(bundle.sceneHtml, width, height);
+    runClassicScript(bundle.sceneJs);
+    const timeline = gsap.timeline({ paused: true });
+    window.AgentStudioScenes?.["chapter-many-agents"]?.buildScene(root, timeline, {
+      width,
+      height,
+      seed: bundle.manifest.seed,
+    });
+    const labels = [...root.querySelectorAll(".kit-sidebar__ellipsis")];
+    const grouping = labels.find((label) => label.textContent === "agent-studio.sidebar-grouping");
+    expect(grouping?.hasAttribute("data-layout-allow-overflow")).toBe(true);
+    expect(labels.filter((label) => label.hasAttribute("data-layout-allow-overflow"))).toEqual([
+      grouping,
+    ]);
+    timeline.revert();
+    timeline.kill();
+  });
+
   it("emits exactly one bundle folder per scene", () => {
     // Arrange / Act
     const emittedSceneIds = Array.from(bundlesBySceneId.keys()).toSorted();

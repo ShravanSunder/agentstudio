@@ -351,6 +351,7 @@ package struct RepoExplorerToolbarCommandPresentation {
         .toggleReposSortDirection,
         .toggleReposShowsPinned,
         .togglePanesShowsPinned,
+        .togglePanesShowsDrawers,
     ]
 
     private let commandsByIdentity: [AppCommand: RepoExplorerPresentedCommand]

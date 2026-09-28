@@ -17,6 +17,8 @@ final class RepoExplorerProjectionInputCapture {
     let coreAtoms: CoreAtoms
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let latestPaneMessageSnapshot: LatestPaneMessageSnapshot
+    let continuousNow: @Sendable () -> ContinuousClock.Instant
+    let wallNow: @Sendable () -> Date
 
     private var paneDisplayTitleCache = RepoExplorerPaneDisplayTitleCache()
     private(set) var fullCaptureCount = 0
@@ -36,7 +38,9 @@ final class RepoExplorerProjectionInputCapture {
         sidebarCache: SidebarCacheState,
         coreAtoms: CoreAtoms,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
-        latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot
+        latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot,
+        continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
+        wallNow: @escaping @Sendable () -> Date = Date.init
     ) {
         self.store = store
         self.preferences = preferences
@@ -46,6 +50,8 @@ final class RepoExplorerProjectionInputCapture {
         self.coreAtoms = coreAtoms
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
+        self.continuousNow = continuousNow
+        self.wallNow = wallNow
     }
 
     static func observeRepoEnrichmentInputs(
@@ -88,7 +94,9 @@ final class RepoExplorerProjectionInputCapture {
             subgroupMode: preferences.subgroupMode(for: surface),
             sortField: preferences.sortField(for: surface),
             showsPinned: preferences.showsPinned(for: surface),
+            showsDrawerPanes: preferences.showsDrawerPanes,
             referenceDate: referenceDate,
+            referenceInstant: surface == .panes ? continuousNow() : nil,
             calendar: .current,
             sortOrder: preferences.sortDirection(for: surface),
             query: query
@@ -137,6 +145,7 @@ final class RepoExplorerProjectionInputCapture {
         let sortField = preferences.sortField(for: surface)
         let sortOrder = preferences.sortDirection(for: surface)
         let showsPinned = preferences.showsPinned(for: surface)
+        let showsDrawerPanes = preferences.showsDrawerPanes
         let presentationDemandChanged =
             surface != previous.snapshot.surface
             || groupingMode != previous.snapshot.groupingMode
@@ -160,7 +169,9 @@ final class RepoExplorerProjectionInputCapture {
             subgroupMode: subgroupMode,
             sortField: sortField,
             showsPinned: showsPinned,
+            showsDrawerPanes: showsDrawerPanes,
             referenceDate: referenceDate,
+            referenceInstant: surface == .panes ? continuousNow() : nil,
             calendar: .current,
             sortOrder: sortOrder,
             query: query
@@ -524,15 +535,18 @@ final class RepoExplorerProjectionInputCapture {
                 }
             }
         }
+        let referenceInstant = previous.snapshot.surface == .panes ? continuousNow() : nil
+        let captureReferenceDate = referenceInstant == nil ? referenceDate : wallNow()
         return RepoExplorerScopedCapture(
             request: previous.replacing(
                 snapshot: previous.snapshot.replacing(
-                    referenceDate: referenceDate,
+                    referenceDate: captureReferenceDate,
+                    referenceInstant: referenceInstant,
                     calendar: .current,
                     bridgePaneCommandCandidatesByWorktreeId: bridgeCandidates
                 ),
                 paneRowFactsByPaneId: paneFacts,
-                activityReferenceDate: referenceDate
+                activityReferenceDate: captureReferenceDate
             ),
             changes: changes,
             requiresFullProjection: false
@@ -610,7 +624,9 @@ final class RepoExplorerProjectionInputCapture {
         subgroupMode: SidebarSubgroupMode = .ungrouped,
         sortField: SidebarSortField = .name,
         showsPinned: Bool = true,
+        showsDrawerPanes: Bool = true,
         referenceDate: Date = .distantPast,
+        referenceInstant: ContinuousClock.Instant? = nil,
         calendar: Calendar = .current,
         sortOrder: RepoExplorerSortOrder,
         query: String
@@ -640,7 +656,9 @@ final class RepoExplorerProjectionInputCapture {
             subgroupMode: subgroupMode,
             sortField: sortField,
             showsPinned: showsPinned,
+            showsDrawerPanes: showsDrawerPanes,
             referenceDate: referenceDate,
+            referenceInstant: referenceInstant,
             calendar: calendar,
             sortOrder: sortOrder,
             query: query,
@@ -758,21 +776,19 @@ final class RepoExplorerProjectionInputCapture {
                 ? SessionConfiguration.defaultShell()
                 : nil
         )
-        let referenceDate =
-            coreAtoms.workspaceEntityRecency
-            .recency(for: .pane(paneID: paneID))?.lastInteractedAt
-            ?? pane.metadata.createdAt
         return RepoExplorerPaneRowFacts(
             terminalTitle: terminalTitle,
-            activityAt: activityFact?.observedAt,
+            activityAt: nil,
+            paneActivityTime: coreAtoms.paneActivityTime.value(for: paneID),
             isPinned: pane.metadata.isPinned,
             noteText: pane.metadata.note,
             latestMessageText: activityFact?.lastOutputLine,
-            recencyReferenceDate: referenceDate,
+            recencyReferenceDate: .distantPast,
             recencyText: "",
             recencyTier: .grey,
-            isActive: paneID == focusedPaneID(),
-            isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true
+            isActive: false,
+            isDrawerPane: store.paneAtom.graphAtom.paneState(paneID)?.isDrawerChild == true,
+            drawerOwnerPaneID: pane.parentPaneId
         )
     }
 

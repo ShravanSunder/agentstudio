@@ -113,7 +113,7 @@ struct RepoExplorerTableMaterializerContentOnlyTests {
             )
         ) { _ in }
         let tableView = try #require((materializer.view as? NSScrollView)?.documentView as? NSTableView)
-        materializer.scroll(to: .group(groupID: "C"), offset: 3)
+        materializer.scroll(to: .group(groupID: "C"), offset: -3)
         materializeVisibleCells(in: tableView, visibleRect: tableView.visibleRect)
 
         let forcedLayoutPassCountBeforeHeightChange = materializer.forcedLayoutPassCount
@@ -128,7 +128,7 @@ struct RepoExplorerTableMaterializerContentOnlyTests {
                     revision: 1,
                     visibleGeneration: 1
                 ),
-                snapshot: nativePlanSnapshot(identities, changedLayouts: ["C"]),
+                snapshot: nativePlanSnapshot(identities, changedLayouts: ["B"]),
                 requestGeneration: 2
             )
         ) { disposition = $0 }

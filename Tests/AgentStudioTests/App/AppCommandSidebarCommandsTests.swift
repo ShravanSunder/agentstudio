@@ -3,10 +3,21 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioSharedComponents
 
 @MainActor
 @Suite("AppCommand sidebar commands", .serialized)
 struct AppCommandSidebarCommandsTests {
+    @Test("retired Panes grouping command identities are absent")
+    func retiredPanesGroupingCommandsAreAbsent() {
+        for identifier in [
+            "setPanesGroupingRepo", "setPanesGroupingTab", "setPanesGroupingActivity",
+            "setPanesSubgroupNone", "setPanesSubgroupActivity",
+        ] {
+            #expect(AppCommand(rawValue: identifier) == nil)
+        }
+    }
+
     @Test("focus sidebar is an interactive UI-presentation command")
     func focusSidebarIsInteractiveUIPresentationCommand() {
         let definition = AppCommandDispatcher.shared.definition(for: .focusSidebar)
@@ -30,6 +41,7 @@ struct AppCommandSidebarCommandsTests {
             (.toggleReposSortDirection, "Direction", .system(.arrowUpArrowDown)),
             (.toggleReposShowsPinned, "Show Pinned", .system(.pin)),
             (.togglePanesShowsPinned, "Show Pinned", .system(.pin)),
+            (.togglePanesShowsDrawers, "Show Drawers", .system(.rectangleBottomhalfFilled)),
         ]
 
         for (command, label, icon) in expectedCommands {
@@ -39,6 +51,21 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.surfacePolicy.exposes(.inlineControl))
             #expect(definition.targeting == .contextual)
         }
+    }
+
+    @Test("drawer visibility is a scoped UI command with debug IPC classification")
+    func drawerVisibilityCommandClassification() {
+        let command = AppCommand.togglePanesShowsDrawers
+        let definition = AppCommandDispatcher.shared.definition(for: command)
+
+        #expect(definition.shortcut == .togglePanesShowsDrawers)
+        #expect(definition.icon == .system(.rectangleBottomhalfFilled))
+        #expect(AppEntityIcon.drawer.symbolName == "rectangle.bottomhalf.filled")
+        #expect(definition.helpText == "Show or hide drawer panes in the Panes sidebar")
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(command.ipcSpec.exposure == .debugTesting)
+        #expect(command.ipcSpec.argumentVariants == [.workspaceWindow])
+        #expect(command.ipcSpec.resultVariants == [.applied])
     }
 
     @Test("sidebar command specs own keyboard completion after accepted dispatch")
@@ -60,9 +87,7 @@ struct AppCommandSidebarCommandsTests {
     @Test("fixed Panes organization has no interactive or IPC setting commands")
     func fixedPanesOrganizationHasNoSettingCommands() {
         for command in [
-            AppCommand.setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
+            AppCommand.setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection,
         ] {
             let definition = AppCommandDispatcher.shared.definition(for: command)
             #expect(definition.surfacePolicy == .notPresented)

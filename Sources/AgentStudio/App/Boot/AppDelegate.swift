@@ -58,6 +58,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var inboxPaneFocusTracker: PaneFocusTracker!
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var terminalActivityRouter: TerminalActivityRouter!
+    var paneActivityClock: PaneActivityClock?
     var traceRuntime: AgentStudioTraceRuntime!
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!

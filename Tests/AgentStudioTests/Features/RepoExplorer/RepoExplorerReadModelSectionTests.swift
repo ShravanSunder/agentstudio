@@ -37,7 +37,7 @@ extension RepoExplorerReadModelTests {
         #expect(rowIndex.entries.isEmpty)
     }
 
-    @Test("repository-owned modes keep empty normal sections while By Tab keeps stored tab order")
+    @Test("Repos preserves pinned sections while Panes uses fixed Activity")
     func groupingModesKeepTheirOwnedSectionShape() {
         let repoId = UUIDv7.generate()
         let favoriteWorktree = worktree(repoId: repoId)
@@ -93,11 +93,11 @@ extension RepoExplorerReadModelTests {
         #expect(projections[2].sections.map(\.kind) == [.panes])
         #expect(
             projections[2].sections[0].resolvedGroups.map(\.id)
-                == ["panes:panes:tab:\(tabId.uuidString)"]
+                == ["panes:panes:activity:6"]
         )
     }
 
-    @Test("By Tab does not split panes by repository favorite state")
+    @Test("fixed Activity does not split panes by repository favorite state")
     func tabFavoritesDoNotPartitionPaneRows() {
         let favoriteRepoId = UUIDv7.generate()
         let regularRepoId = UUIDv7.generate()
@@ -169,7 +169,7 @@ extension RepoExplorerReadModelTests {
             Set(paneIdentities.map(\.paneId))
                 == Set(locations.values.flatMap { $0 }.map(\.paneId))
         )
-        #expect(projection.resolvedGroups.map(\.id) == ["panes:panes:tab:\(tabId.uuidString)"])
+        #expect(projection.resolvedGroups.map(\.id) == ["panes:panes:activity:6"])
     }
 
     @Test("repository-owned modes omit empty favorite partitions")

@@ -23,7 +23,8 @@ describe("topology node vocabulary on the home page", () => {
   it("draws each node kind with its own glyph, color, and size", async () => {
     // Act
     const result = await commands.verifyTopologyNodeVocabulary(inject("siteHeaderBrowserTestUrl"));
-
+    expect(result.routeFilters.length).toBeGreaterThan(0);
+    expect(result.routeFilters).toEqual(result.routeFilters.map(() => "none"));
     // Assert: before the reveal, every glyph is a faint thin outline at its own size.
     const unrevealed = result.beforeReveal.filter((glyph) => !glyph.revealed);
     expect(unrevealed.length).toBeGreaterThan(0);
@@ -79,19 +80,26 @@ describe("topology node vocabulary on the home page", () => {
       expect(chapter.glyph.fill).toBe(result.canvasColor);
     }
 
-    // Ports: the line has exactly the lanes' weight; a port leaving a worktree
-    // lane shifts hue along a gradient that starts in that lane's color; the
-    // node carries the emphasis and stays no larger than a chapter ring.
+    // Attach branches keep their lane weight and end on the target edge
+    // with no extra node. Step-line ports join their blue lane without a gradient.
     expect(result.ports.length).toBeGreaterThan(0);
-    const fromWorktree = result.ports.filter((port) => port.source !== "main");
-    expect(fromWorktree.length).toBeGreaterThan(0);
+    const fromWorktree = result.ports.filter((port) => !port.stepLine && port.source !== "main");
+    const stepLinePorts = result.ports.filter((port) => port.stepLine);
+    expect(result.stepLineCount).toBeGreaterThan(0);
+    expect(stepLinePorts).toHaveLength(result.stepLineCount);
     for (const port of result.ports) {
-      expect(port.strokeWidth).toBe(port.laneStrokeWidth);
-      expect(port.nodeRadius).toBeLessThanOrEqual(sizeOf("chapter") ?? 0);
+      expect(port.strokeWidth).toBe(port.terminal ? "2px" : port.laneStrokeWidth);
+      expect(port.nodeCount).toBe(0);
+      expect(port.endpointOffset).toBeLessThanOrEqual(port.terminal ? 6.5 : 1);
     }
     for (const port of fromWorktree) {
       expect(port.stroke).toMatch(/^url\("?#topology-port-gradient-/u);
       expect(port.firstStopColor).toBe(port.sourceLaneStroke);
+    }
+    for (const port of stepLinePorts) {
+      expect(port.sourceLaneStroke).toBeDefined();
+      expect(port.stroke).toBe(port.sourceLaneStroke);
+      expect(port.firstStopColor).toBeUndefined();
     }
   });
 });

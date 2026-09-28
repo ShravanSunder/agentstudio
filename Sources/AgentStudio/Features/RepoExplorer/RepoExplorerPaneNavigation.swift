@@ -3,6 +3,27 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
 
+enum RepoExplorerPaneChipDetailLevel {
+    case full
+    case withoutSync
+    case summaryOnly
+
+    var showsChanges: Bool { self != .summaryOnly }
+    var showsSync: Bool { self == .full }
+}
+
+struct RepoExplorerPaneChipOverflow<Content: View>: View {
+    @ViewBuilder let content: (RepoExplorerPaneChipDetailLevel) -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            content(.full).fixedSize(horizontal: true, vertical: true)
+            content(.withoutSync).fixedSize(horizontal: true, vertical: true)
+            content(.summaryOnly).fixedSize(horizontal: true, vertical: true)
+        }
+    }
+}
+
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
     let octiconLoader: OcticonLoader
@@ -23,8 +44,21 @@ struct RepoExplorerPaneRow: View {
                 isActive: row.isActive,
                 isDrawerPane: row.isDrawerPane,
                 octiconLoader: octiconLoader,
-                shortcutDisplay: keyboardPresentation.shortcutDisplay
+                shortcutDisplay: keyboardPresentation.shortcutDisplay,
+                showsExpandedChips: row.displayVariant == .expanded,
+                drawerRail: row.drawerRail
             )
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .topLeading) {
+            if row.drawerRail != .none {
+                DrawerRail(
+                    segment: row.drawerRail,
+                    ownerLineCount: row.variants?.compact.lines.count ?? 1
+                )
+                .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth)
+                .padding(.leading, AppStyles.Shell.Sidebar.rowHorizontalInset)
+            }
         }
         .onTapGesture(perform: onFocus)
         .accessibilityAddTraits(.isButton)
@@ -58,6 +92,17 @@ struct RepoExplorerPaneRowContent: View {
     let isDrawerPane: Bool
     let octiconLoader: OcticonLoader
     var shortcutDisplay: ShortcutDisplayText?
+    var showsExpandedChips = false
+    var drawerRail: RepoExplorerDrawerRail = .none
+
+    static func leadingContentInset(for drawerRail: RepoExplorerDrawerRail) -> CGFloat {
+        switch drawerRail {
+        case .drawer:
+            AppStyles.Shell.Sidebar.drawerChildLeadingInset
+        case .none, .ownerWithDrawers:
+            0
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
@@ -100,6 +145,7 @@ struct RepoExplorerPaneRowContent: View {
             }
             chipRow
         }
+        .padding(.leading, Self.leadingContentInset(for: drawerRail))
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -107,36 +153,49 @@ struct RepoExplorerPaneRowContent: View {
     @ViewBuilder
     private var chipRow: some View {
         SidebarStatusChipRow(
-            isPendingPullRequestFacts: branchStatus.map {
-                SidebarGitStatusChips.showsPendingPullRequestFacts(branchStatus: $0)
-            } ?? false
+            isPendingPullRequestFacts: false
         ) {
-            if let branchStatus,
-                SidebarGitStatusChips.hasContent(branchStatus: branchStatus)
-            {
-                SidebarGitStatusChips(branchStatus: branchStatus, octiconLoader: octiconLoader)
-            }
-            if isDrawerPane {
-                SidebarChip(
-                    icon: .system(.rectangleBottomhalfFilled),
-                    octiconLoader: octiconLoader,
-                    text: nil,
-                    style: .neutral
-                )
-            }
-            SidebarChip(
-                icon: .system(.clock),
-                octiconLoader: octiconLoader,
-                text: recencyText,
-                style: recencyChipStyle
-            )
-            if isActive {
-                SidebarChip(
-                    icon: .system(.playCircleFill),
-                    octiconLoader: octiconLoader,
-                    text: nil,
-                    style: .accent(.accentColor)
-                )
+            RepoExplorerPaneChipOverflow { detailLevel in
+                HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                    if isDrawerPane {
+                        SidebarChip(
+                            icon: .system(.rectangleBottomhalfFilled),
+                            octiconLoader: octiconLoader,
+                            text: "Drawer",
+                            style: .neutral
+                        )
+                    }
+                    if let branchStatus,
+                        SidebarGitStatusChips.hasContent(
+                            branchStatus: branchStatus,
+                            usesPanesLoadingChip: true,
+                            showsDetailedGitChips: showsExpandedChips
+                        )
+                    {
+                        SidebarGitStatusChips(
+                            branchStatus: branchStatus,
+                            octiconLoader: octiconLoader,
+                            usesPanesLoadingChip: true,
+                            showsDetailedGitChips: showsExpandedChips,
+                            showsDiffChip: detailLevel.showsChanges,
+                            showsSyncChip: detailLevel.showsSync
+                        )
+                    }
+                    SidebarChip(
+                        icon: .system(.clock),
+                        octiconLoader: octiconLoader,
+                        text: recencyText,
+                        style: recencyChipStyle
+                    )
+                    if isActive {
+                        SidebarChip(
+                            icon: .system(.playCircleFill),
+                            octiconLoader: octiconLoader,
+                            text: nil,
+                            style: .accent(.accentColor)
+                        )
+                    }
+                }
             }
         }
     }

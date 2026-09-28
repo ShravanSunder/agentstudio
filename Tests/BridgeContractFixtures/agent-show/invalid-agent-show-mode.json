@@ -1,0 +1,6 @@
+{
+  "union": "BridgeAgentShowMode",
+  "value": {
+    "kind": "automatic"
+  }
+}

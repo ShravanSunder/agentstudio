@@ -38,7 +38,7 @@ extension RepoExplorerReadModelTests {
         #expect(Set(group.repos.map(\.id)) == Set([firstRepoId, secondRepoId]))
     }
 
-    @Test("pane mode groups exact pane leaves by repo and omits inactive worktrees")
+    @Test("fixed Activity retains exact pane leaves and omits inactive worktrees")
     func paneModeGroupsExactPaneLeavesByRepoAndOmitsInactiveWorktrees() throws {
         let repoId = UUIDv7.generate()
         let activeWorktree = worktree(repoId: repoId, name: "feature")
@@ -66,7 +66,7 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        let expectedGroupId = "panes:panes:repo:\(repoId.uuidString)"
+        let expectedGroupId = "panes:panes:activity:6"
         #expect(projection.resolvedGroups.map(\.id) == [expectedGroupId])
         #expect(projection.worktreeRowsByGroupId.isEmpty)
 
@@ -108,7 +108,7 @@ extension RepoExplorerReadModelTests {
         #expect(context?.destination == paneRow.destination)
     }
 
-    @Test("By Tab projects pane rows only for located worktrees")
+    @Test("fixed Activity projects pane rows only for located worktrees")
     func tabModeProjectsPaneRowsOnlyForLocatedWorktrees() throws {
         let repoId = UUIDv7.generate()
         let locatedWorktree = worktree(repoId: repoId, name: "located")
@@ -136,10 +136,10 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        #expect(projection.resolvedGroups.map(\.id) == ["panes:panes:tab:\(tabId.uuidString)"])
+        #expect(projection.resolvedGroups.map(\.id) == ["panes:panes:activity:6"])
         #expect(projection.worktreeRowsByGroupId.isEmpty)
         #expect(
-            projection.paneRowsByGroupId["panes:panes:tab:\(tabId.uuidString)"]?.map(\.destination.worktreeId)
+            projection.paneRowsByGroupId["panes:panes:activity:6"]?.map(\.destination.worktreeId)
                 == [locatedWorktree.id]
         )
 
@@ -149,7 +149,7 @@ extension RepoExplorerReadModelTests {
             case .resolvedPaneRow(let groupId, let identity, let rowId) =
                 rowIndex.entries[2]
         else {
-            Issue.record("Expected one located pane row after the Tabs and tab headers")
+            Issue.record("Expected one located pane row after the Activity bucket header")
             return
         }
         let context = try #require(
@@ -165,7 +165,7 @@ extension RepoExplorerReadModelTests {
         #expect(context.destination.isActiveInTab == false)
     }
 
-    @Test("By Tab preserves one pane row per pane on the same worktree")
+    @Test("fixed Activity preserves one pane row per pane on the same worktree")
     func tabModePreservesPaneRowsOnSameWorktree() throws {
         let repoId = UUIDv7.generate()
         let duplicateWorktree = worktree(repoId: repoId, name: "feature")
@@ -201,7 +201,7 @@ extension RepoExplorerReadModelTests {
         )
 
         let group = try #require(projection.resolvedGroups.first)
-        #expect(group.id == "panes:panes:tab:\(tabId.uuidString)")
+        #expect(group.id == "panes:panes:activity:6")
         #expect(group.repos.first?.worktrees.map(\.id) == [duplicateWorktree.id])
 
         let rowIndex = RepoExplorerRowIndex(projection: projection, collapsedGroupIds: [], isFiltering: false)
@@ -233,8 +233,8 @@ extension RepoExplorerReadModelTests {
         #expect(Set(paneIds) == [firstPaneId, secondPaneId])
     }
 
-    @Test("pane groups preserve repository order independently from pane location order")
-    func paneGroupsPreserveRepositoryOrder() {
+    @Test("fixed Activity preserves panes from different repositories in one bucket")
+    func activityBucketPreservesPanesAcrossRepositories() {
         let firstRepoId = UUIDv7.generate()
         let secondRepoId = UUIDv7.generate()
         let laterWorktree = worktree(repoId: firstRepoId, name: "later")
@@ -278,16 +278,15 @@ extension RepoExplorerReadModelTests {
             )
         )
 
+        #expect(projection.resolvedGroups.map(\.id) == ["panes:panes:activity:6"])
         #expect(
-            projection.resolvedGroups.map(\.id) == [
-                "panes:panes:repo:\(firstRepoId.uuidString)",
-                "panes:panes:repo:\(secondRepoId.uuidString)",
-            ]
+            Set(projection.paneRowsByGroupId["panes:panes:activity:6", default: []].map(\.destination.paneId))
+                == Set([laterPaneId, earlierPaneId])
         )
     }
 
-    @Test("pane destinations and tab headers preserve stored workspace indices")
-    func paneDestinationsAndTabHeadersPreserveStoredWorkspaceIndices() throws {
+    @Test("pane destinations retain stored workspace indices under fixed Activity")
+    func paneDestinationsPreserveStoredWorkspaceIndices() throws {
         let repoId = UUIDv7.generate()
         let worktree = worktree(repoId: repoId, name: "feature")
         let location = WorkspacePaneLocation(
@@ -308,26 +307,18 @@ extension RepoExplorerReadModelTests {
 
         let paneProjection = RepoExplorerProjection.project(baseSnapshot)
         let paneDestination = try #require(paneProjection.paneDestinationsByWorktreeId[worktree.id]?.first)
-        let tabSnapshot = RepoExplorerSnapshot(
-            repos: baseSnapshot.repos,
-            repoEnrichmentByRepoId: baseSnapshot.repoEnrichmentSnapshotByRepoId,
-            surface: .panes,
-            groupingMode: .tab,
-            sortOrder: baseSnapshot.sortOrder,
-            query: baseSnapshot.query,
-            paneLocationsByWorktreeId: baseSnapshot.paneLocationsByWorktreeId
-        )
-        let tabGroup = try #require(RepoExplorerProjection.project(tabSnapshot).resolvedGroups.first)
 
         #expect(
             paneDestination.label(paneDisplayLabel: "Terminal")
                 == "feature — Terminal — Tab 7, Pane 4 — Active"
         )
-        #expect(tabGroup.repoTitle == "Tab 7")
+        #expect(paneProjection.resolvedGroups.first?.repoTitle == "No activity")
+        #expect(paneDestination.tabIndex == 6)
+        #expect(paneDestination.paneIndexInTab == 3)
     }
 
-    @Test("tab groups follow descending workspace location order")
-    func tabGroupsFollowDescendingWorkspaceLocationOrder() {
+    @Test("fixed Activity retains pane locations across tabs")
+    func activityBucketRetainsPaneLocationsAcrossTabs() {
         let repoId = UUIDv7.generate()
         let earlierWorktree = worktree(repoId: repoId, name: "earlier")
         let laterWorktree = worktree(repoId: repoId, name: "later")
@@ -364,11 +355,10 @@ extension RepoExplorerReadModelTests {
             )
         )
 
+        #expect(projection.resolvedGroups.map(\.id) == ["panes:panes:activity:6"])
         #expect(
-            projection.resolvedGroups.map(\.id) == [
-                "panes:panes:tab:\(earlierTabId.uuidString)",
-                "panes:panes:tab:\(laterTabId.uuidString)",
-            ]
+            Set(projection.paneRowsByGroupId["panes:panes:activity:6", default: []].map(\.destination.tabId))
+                == Set([earlierTabId, laterTabId])
         )
     }
 
@@ -441,10 +431,8 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        let paneRow = try #require(
-            paneProjection.paneRowsByGroupId["panes:panes:repo:\(secondRepoId.uuidString)"]?.first
-        )
-        let tabRow = try #require(tabProjection.paneRowsByGroupId["panes:panes:tab:\(tabId.uuidString)"]?.first)
+        let paneRow = try #require(paneProjection.paneRowsByGroupId["panes:panes:activity:6"]?.first)
+        let tabRow = try #require(tabProjection.paneRowsByGroupId["panes:panes:activity:6"]?.first)
         let repoRow = try #require(
             repoProjection.worktreeRowsByGroupId.values
                 .flatMap { $0 }
