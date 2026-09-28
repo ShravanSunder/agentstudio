@@ -2,8 +2,12 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
 
 export interface StepHopObservation {
   readonly ringFraction: number;
+  readonly autoHeldState: string | undefined;
+  readonly autoHeldGlyphVisible: boolean;
+  readonly autoHeldRingOpacity: string;
   readonly pausedState: string | undefined;
   readonly pauseGlyphVisible: boolean;
+  readonly glyphGlassClearance: number;
   readonly previewCount: number;
   readonly previewCountAfterFinish: number;
   readonly travelDuration: number;
@@ -44,14 +48,10 @@ export const verifyChapterStepHop = defineBrowserCommand(
       });
       await page.goto(`${pageUrl}#many-agents`, { waitUntil: "load" });
       await page.evaluate((): void => {
-        const toggle = document.querySelector<HTMLButtonElement>(
-          '[data-chapter="many-agents"] [data-scene-playback-toggle]',
-        );
-        if (toggle === null) throw new Error("Many-agents playback toggle missing");
-        toggle.click();
         document
           .querySelector('[data-chapter="many-agents"] [data-scroll-playback-stage]')
           ?.scrollIntoView({ block: "center", behavior: "instant" });
+        window.dispatchEvent(new Event("scroll"));
       });
       return await page.evaluate(async (): Promise<StepHopObservation> => {
         await (window as Window & { chapterHopReady?: Promise<void> }).chapterHopReady;
@@ -74,6 +74,42 @@ export const verifyChapterStepHop = defineBrowserCommand(
           steps.length !== 3
         )
           throw new Error("Step hop runtime parts missing");
+        const stepLine = root.querySelector<HTMLElement>("[data-chapter-step-line]");
+        const pauseGlyph = root.querySelector<HTMLElement>("[data-chapter-step-pause-glyph]");
+        if (stepLine === null || pauseGlyph === null)
+          throw new Error("Step playback state markup missing");
+        const held = new Promise<void>((resolve) => {
+          const observer = new MutationObserver((): void => {
+            if (
+              scene.dataset["scenePlaybackState"] !== "paused" ||
+              stepLine.dataset["stepPlayback"] !== "held"
+            )
+              return;
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(root, {
+            attributes: true,
+            attributeFilter: ["data-step-playback", "data-scene-playback-state"],
+            subtree: true,
+          });
+          if (
+            scene.dataset["scenePlaybackState"] === "paused" &&
+            stepLine.dataset["stepPlayback"] === "held"
+          ) {
+            observer.disconnect();
+            resolve();
+          }
+        });
+        window.scrollTo({ top: 0, behavior: "instant" });
+        window.dispatchEvent(new Event("scroll"));
+        await held;
+        const autoHeldState = stepLine.dataset["stepPlayback"];
+        const autoHeldGlyphVisible = !pauseGlyph.hidden;
+        const autoHeldRingOpacity = getComputedStyle(ring).opacity;
+        const toggle = root.querySelector<HTMLButtonElement>("[data-scene-playback-toggle]");
+        if (toggle === null) throw new Error("Many-agents playback toggle missing");
+        toggle.click();
         control.seek(1.4);
         const countdown = progress.getAnimations()[0];
         const timing = countdown?.effect?.getTiming();
@@ -114,6 +150,11 @@ export const verifyChapterStepHop = defineBrowserCommand(
         travel?.finish();
         previewAnimation?.finish();
         await Promise.all([travel?.finished, previewAnimation?.finished]);
+        const glass = root.querySelector<HTMLElement>("[data-rail-surface-target]");
+        const glyphGlassClearance =
+          glass === null
+            ? Number.NaN
+            : pauseGlyph.getBoundingClientRect().top - glass.getBoundingClientRect().bottom;
         const previewCountAfterFinish = root.querySelectorAll("[data-scene-step-preview]").length;
         const layoutShift = Math.abs(
           (nextChapter?.getBoundingClientRect().top ?? Number.NaN) - beforeY,
@@ -134,8 +175,12 @@ export const verifyChapterStepHop = defineBrowserCommand(
         );
         return {
           ringFraction,
+          autoHeldState,
+          autoHeldGlyphVisible,
+          autoHeldRingOpacity,
           pausedState,
           pauseGlyphVisible,
+          glyphGlassClearance,
           previewCount,
           previewCountAfterFinish,
           travelDuration,

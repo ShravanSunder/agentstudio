@@ -103,6 +103,9 @@ const { chapterId, steps } = Astro.props;
     .chapter-step-ring { width: 24px; height: 24px; top: 0; }
     .chapter-step-ring__track, .chapter-step-ring__progress { r: 10; }
   }
+  @media (width < 64rem) {
+    .chapter-step-pause-glyph { top: -7px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .chapter-step-progress-fill { transition: none; }
   }

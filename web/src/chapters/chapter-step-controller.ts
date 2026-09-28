@@ -281,9 +281,10 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
       dwellSeconds: number,
       elapsedSeconds: number,
       running: boolean,
+      manualPause: boolean,
     ): void => {
       if (ringTravel?.playState === "running") {
-        pendingTiming = { stepId, dwellSeconds, elapsedSeconds, running };
+        pendingTiming = { stepId, dwellSeconds, elapsedSeconds, running, manualPause };
         return;
       }
       if (
@@ -323,8 +324,8 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
       countdown.pause();
       countdown.currentTime = Math.min(Math.max(elapsedSeconds * 1000, 0), durationMs);
       if (running) countdown.play();
-      stepLine.dataset["stepPlayback"] = running ? "playing" : "paused";
-      if (pauseGlyph !== undefined && pauseGlyph !== null) pauseGlyph.hidden = running;
+      stepLine.dataset["stepPlayback"] = running ? "playing" : manualPause ? "paused" : "held";
+      if (pauseGlyph !== undefined && pauseGlyph !== null) pauseGlyph.hidden = !manualPause;
     };
     const selectStep = (stepIndex: number): void => {
       const changed = stepIndex !== selectedIndex;
@@ -354,7 +355,13 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
               const timing = pendingTiming;
               pendingTiming = undefined;
               if (timing !== undefined)
-                setRingTiming(timing.stepId, timing.dwellSeconds, 0, timing.running);
+                setRingTiming(
+                  timing.stepId,
+                  timing.dwellSeconds,
+                  0,
+                  timing.running,
+                  timing.manualPause,
+                );
             })
             .catch((): void => {
               if (ringTravel === travel) ringTravel = undefined;
@@ -459,7 +466,13 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
           timing.stepId !== validatedContract.steps[selectedIndex]?.stepId
         )
           return;
-        setRingTiming(timing.stepId, timing.dwellSeconds, timing.elapsedSeconds, timing.running);
+        setRingTiming(
+          timing.stepId,
+          timing.dwellSeconds,
+          timing.elapsedSeconds,
+          timing.running,
+          timing.manualPause,
+        );
       },
       { signal: lifecycle.signal },
     );

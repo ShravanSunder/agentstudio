@@ -16,6 +16,7 @@ export interface SceneStepTimingDetail {
   readonly dwellSeconds: number;
   readonly elapsedSeconds: number;
   readonly running: boolean;
+  readonly manualPause: boolean;
 }
 
 export function createSceneStepTimingEvent(
@@ -36,18 +37,21 @@ export function readSceneStepTiming(event: Event): SceneStepTimingDetail | undef
     !("stepId" in detail) ||
     !("dwellSeconds" in detail) ||
     !("elapsedSeconds" in detail) ||
-    !("running" in detail)
+    !("running" in detail) ||
+    !("manualPause" in detail)
   )
     return undefined;
   return typeof detail.stepId === "string" &&
     typeof detail.dwellSeconds === "number" &&
     typeof detail.elapsedSeconds === "number" &&
-    typeof detail.running === "boolean"
+    typeof detail.running === "boolean" &&
+    typeof detail.manualPause === "boolean"
     ? {
         stepId: detail.stepId,
         dwellSeconds: detail.dwellSeconds,
         elapsedSeconds: detail.elapsedSeconds,
         running: detail.running,
+        manualPause: detail.manualPause,
       }
     : undefined;
 }

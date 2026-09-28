@@ -158,6 +158,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
         stepId: sceneModule.steps[stepIndex]?.stepId ?? "",
         dwellSeconds,
         elapsedSeconds: Math.max(0, timeline.time() - labelTime + proofElapsed),
+        manualPause: state.intent === "manual-pause",
         running:
           (state.phase === "playing" && !timeline.paused()) ||
           (state.phase === "awaiting-replay" &&
@@ -263,6 +264,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
           dwellSeconds: 0,
           elapsedSeconds: 0,
           running: false,
+          manualPause: false,
         }),
       );
     }

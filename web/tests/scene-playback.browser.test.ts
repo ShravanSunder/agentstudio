@@ -158,6 +158,10 @@ describe("scene playback", () => {
   it("plays when centered and pauses with the video hysteresis when leaving", () => {
     stubReducedMotion(false);
     const scene = createFakeSceneFixture();
+    const timing: Array<{ manualPause?: boolean; running: boolean }> = [];
+    scene.surface.addEventListener("agentstudio:scene-step-timing", (event: Event): void => {
+      if (event instanceof CustomEvent) timing.push(event.detail);
+    });
     const playback = createScenePlayback({
       resolveModule: () => scene.module,
       sceneRoot: scene.sceneRoot,
@@ -180,6 +184,7 @@ describe("scene playback", () => {
     playback.synchronize(0.89, true);
     expect(scene.playbackState()).toBe("paused");
     expect(scene.timeline().paused()).toBe(true);
+    expect(timing.at(-1)).toMatchObject({ running: false, manualPause: false });
 
     playback.synchronize(0.95, true);
     expect(scene.playbackState()).toBe("playing");
@@ -312,6 +317,10 @@ describe("scene playback", () => {
       surface: scene.surface,
     });
     const reachedSteps: string[] = [];
+    const timing: Array<{ manualPause?: boolean }> = [];
+    scene.surface.addEventListener("agentstudio:scene-step-timing", (event: Event): void => {
+      if (event instanceof CustomEvent) timing.push(event.detail);
+    });
     scene.surface.addEventListener(sceneStepReachedEventName, (event: Event): void => {
       reachedSteps.push(readChapterStepEventStepId(event) ?? "unreadable");
     });
@@ -323,6 +332,7 @@ describe("scene playback", () => {
     );
 
     expect(scene.playbackState()).toBe("paused");
+    expect(timing.at(-1)?.manualPause).toBe(true);
     expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     expect(reachedSteps).toEqual(["watch-folders"]);
     playback.synchronize(1, true);

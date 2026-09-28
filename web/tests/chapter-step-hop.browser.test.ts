@@ -13,7 +13,7 @@ declare module "vitest/browser" {
   }
 }
 
-for (const width of [390, 1600]) {
+for (const width of [390, 820, 1600]) {
   it(`keeps the step line still and hides its ring under reduced motion at ${width}px`, async () => {
     const result = await commands.verifyReducedMotionStepLine(
       inject("siteHeaderBrowserTestUrl"),
@@ -24,12 +24,16 @@ for (const width of [390, 1600]) {
   });
 }
 
-for (const width of [390, 1600]) {
+for (const width of [390, 820, 1600]) {
   it(`shows a seekable countdown and a 250ms commit hop at ${width}px`, async () => {
     const result = await commands.verifyChapterStepHop(inject("siteHeaderBrowserTestUrl"), width);
     expect(result.ringFraction).toBeCloseTo(0.5, 1);
+    expect(result.autoHeldState).toBe("held");
+    expect(result.autoHeldGlyphVisible).toBe(false);
+    expect(result.autoHeldRingOpacity).toBe("1");
     expect(result.pausedState).toBe("paused");
     expect(result.pauseGlyphVisible).toBe(true);
+    if (width < 1024) expect(result.glyphGlassClearance).toBeGreaterThanOrEqual(6);
     expect(result.previewCount).toBe(1);
     expect(result.previewCountAfterFinish).toBe(0);
     expect(result.travelDuration).toBe(160);

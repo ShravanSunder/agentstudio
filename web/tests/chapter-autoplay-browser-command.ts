@@ -47,6 +47,13 @@ export const verifyChapterSceneClicks = defineBrowserCommand(
       );
       for (const stepId of ["parallel-agents", "watch-folders", "navigation"]) {
         await applicationPage.click(`#many-agents [data-chapter-step="${stepId}"]`);
+        await applicationPage.evaluate(async (): Promise<void> => {
+          const preview = document.querySelector<HTMLElement>(
+            "#many-agents [data-scene-step-preview]",
+          );
+          if (preview === null) return;
+          await Promise.all(preview.getAnimations().map((animation) => animation.finished));
+        });
         const geometry = await applicationPage.evaluate(() => {
           const stage = document.querySelector("#many-agents [data-scroll-playback-stage]");
           const scene = document.querySelector<HTMLElement>("#many-agents [data-scene-root]");

@@ -183,7 +183,13 @@ describe("chapter step tabs", () => {
     surface.dispatchEvent(
       new CustomEvent("agentstudio:scene-step-timing", {
         bubbles: true,
-        detail: { stepId: "task-drawers", dwellSeconds: 4, elapsedSeconds: 2, running: true },
+        detail: {
+          stepId: "task-drawers",
+          dwellSeconds: 4,
+          elapsedSeconds: 2,
+          running: true,
+          manualPause: false,
+        },
       }),
     );
     expect(ring.hasAttribute("data-ring-hidden")).toBe(false);

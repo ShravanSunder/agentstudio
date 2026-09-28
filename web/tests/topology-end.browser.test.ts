@@ -60,6 +60,21 @@ describe("where the rail ends on the home page", () => {
       [390, 1280, 1920],
     );
     for (const observation of observations) {
+      for (const artwork of observation.artworkStates) {
+        const label = `${artwork.width}px ${artwork.state}`;
+        expect(
+          Math.abs(artwork.artworkLeft - artwork.pillLeft),
+          `${label} left`,
+        ).toBeLessThanOrEqual(1);
+        expect(
+          Math.abs(artwork.artworkHeight / artwork.titleCapHeight - 1),
+          `${label} height`,
+        ).toBeLessThanOrEqual(0.1);
+        expect(
+          Math.abs(artwork.titleLeft - artwork.artworkRight - artwork.titleFontSize * 0.25),
+          `${label} gap`,
+        ).toBeLessThanOrEqual(2);
+      }
       expect(
         Math.abs(observation.stageLeft - observation.pillLeft),
         `${observation.width}px icon`,

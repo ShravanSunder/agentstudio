@@ -13,6 +13,7 @@ export interface TopologyEndObservation {
   readonly titleCenterY: number;
   readonly stageHeight: number;
   readonly titleLineHeight: number;
+  readonly artworkStates: readonly FinaleArtworkObservation[];
   readonly pillCenterY: number;
   readonly branchEndX: number;
   readonly branchEndY: number;
@@ -68,6 +69,94 @@ export interface FinaleBookendObservation {
   readonly resizeSettleState: string | undefined;
   readonly narrowTitleFontSize: number;
   readonly narrowHeadingOverflow: number;
+}
+
+export interface FinaleArtworkObservation {
+  readonly width: number;
+  readonly state: "initial" | "settled";
+  readonly pillLeft: number;
+  readonly artworkLeft: number;
+  readonly artworkRight: number;
+  readonly artworkHeight: number;
+  readonly titleLeft: number;
+  readonly titleFontSize: number;
+  readonly titleCapHeight: number;
+}
+
+function observeFinaleArtwork(props: {
+  width: number;
+  state: "initial" | "settled";
+}): FinaleArtworkObservation {
+  const { width, state } = props;
+  const root = document.querySelector<HTMLElement>("[data-finale-root]");
+  const title = root?.querySelector<HTMLElement>("#final-cta-title");
+  const pill = root?.querySelector<HTMLElement>("[data-finale-split-pill]");
+  const logo = root?.querySelector<HTMLImageElement>("[data-finale-logo]");
+  if (
+    root === null ||
+    title === null ||
+    title === undefined ||
+    pill === null ||
+    pill === undefined ||
+    logo === null ||
+    logo === undefined
+  )
+    throw new Error("Finale artwork proof markup is missing");
+  const titleStyle = getComputedStyle(title);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (context === null) throw new Error("Canvas context unavailable for artwork proof");
+  context.font = `${titleStyle.fontWeight} ${titleStyle.fontSize} ${titleStyle.fontFamily}`;
+  const titleCapHeight = context.measureText("H").actualBoundingBoxAscent;
+  let left: number;
+  let right: number;
+  let top: number;
+  let bottom: number;
+  if (state === "initial") {
+    const planes = [...root.querySelectorAll<HTMLElement>(".finale-plane, .finale-terminal")];
+    if (planes.length !== 4) throw new Error("Finale fan artwork is missing");
+    const boxes = planes.map((plane) => plane.getBoundingClientRect());
+    left = Math.min(...boxes.map((box) => box.left));
+    right = Math.max(...boxes.map((box) => box.right));
+    top = Math.min(...boxes.map((box) => box.top));
+    bottom = Math.max(...boxes.map((box) => box.bottom));
+  } else {
+    if (!logo.complete || logo.naturalWidth === 0) throw new Error("Finale logo is not loaded");
+    canvas.width = logo.naturalWidth;
+    canvas.height = logo.naturalHeight;
+    context.drawImage(logo, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let minX = canvas.width;
+    let maxX = 0;
+    let minY = canvas.height;
+    let maxY = 0;
+    for (let y = 0; y < canvas.height; y += 1) {
+      for (let x = 0; x < canvas.width; x += 1) {
+        if ((pixels[(y * canvas.width + x) * 4 + 3] ?? 0) < 26) continue;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (minX > maxX || minY > maxY) throw new Error("Finale logo has no visible pixels");
+    const box = logo.getBoundingClientRect();
+    left = box.left + (minX / canvas.width) * box.width;
+    right = box.left + ((maxX + 1) / canvas.width) * box.width;
+    top = box.top + (minY / canvas.height) * box.height;
+    bottom = box.top + ((maxY + 1) / canvas.height) * box.height;
+  }
+  return {
+    width,
+    state,
+    pillLeft: pill.getBoundingClientRect().left,
+    artworkLeft: left,
+    artworkRight: right,
+    artworkHeight: bottom - top,
+    titleLeft: title.getBoundingClientRect().left,
+    titleFontSize: Number.parseFloat(titleStyle.fontSize),
+    titleCapHeight,
+  };
 }
 
 export const verifyFinaleBookend = defineBrowserCommand(
@@ -289,7 +378,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
   },
 );
 
-function observeEnd(width: number): TopologyEndObservation {
+function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"> {
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
   const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
   const button = document.querySelector<HTMLElement>("[data-final-star-button]");
@@ -419,6 +508,19 @@ export const verifyTopologyEnd = defineBrowserCommand(
     const applicationPage = await context.newPage();
     const observations: TopologyEndObservation[] = [];
     try {
+      await applicationPage.addInitScript(() => {
+        document.addEventListener("finale-bookend-ready", (event) => {
+          if (!(event instanceof CustomEvent)) return;
+          const control = event.detail as {
+            pause(): void;
+            seek(seconds: number): void;
+            finish(): void;
+          };
+          control.pause();
+          (window as Window & { finaleArtworkControl?: typeof control }).finaleArtworkControl =
+            control;
+        });
+      });
       for (const width of widths) {
         await applicationPage.setViewportSize({
           width,
@@ -458,7 +560,35 @@ export const verifyTopologyEnd = defineBrowserCommand(
             ),
           );
         });
-        observations.push(await applicationPage.evaluate(observeEnd, width));
+        await applicationPage.waitForSelector("[data-finale-timeline-created]");
+        await applicationPage.evaluate(() => {
+          const control = (
+            window as Window & { finaleArtworkControl?: { seek(seconds: number): void } }
+          ).finaleArtworkControl;
+          if (control === undefined) throw new Error("Finale artwork control is missing");
+          control.seek(0);
+        });
+        const initial = await applicationPage.evaluate(observeFinaleArtwork, {
+          width,
+          state: "initial" as const,
+        });
+        await applicationPage.locator("[data-finale-logo]").evaluate(async (element) => {
+          if (!(element instanceof HTMLImageElement))
+            throw new Error("Finale logo is not an image");
+          await element.decode();
+        });
+        await applicationPage.evaluate(() => {
+          const control = (window as Window & { finaleArtworkControl?: { finish(): void } })
+            .finaleArtworkControl;
+          if (control === undefined) throw new Error("Finale artwork control is missing");
+          control.finish();
+        });
+        const settled = await applicationPage.evaluate(observeFinaleArtwork, {
+          width,
+          state: "settled" as const,
+        });
+        const end = await applicationPage.evaluate(observeEnd, width);
+        observations.push({ ...end, artworkStates: [initial, settled] });
       }
       return observations;
     } finally {
