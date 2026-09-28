@@ -478,6 +478,11 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
             throw JourneyError.conditionFailed("File mode did not activate during refresh")
         }
+        try await armStatusObservation(
+            input.paneOne.page,
+            activeMode: "file",
+            expectedText: "Updating files…"
+        )
         try appendTrackedChange(at: input.paneOneRepoURL)
         let fileChangeset = try makeChangeset(
             for: input.paneOne,
@@ -489,11 +494,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             requiresReviewRefresh: false
         )
         input.paneOne.worktreeRefreshDriver.scheduleFileCatchUpIfPossible()
-        let updatingFileStatus = try await requireStatus(
-            input.paneOne.page,
-            activeMode: "file",
-            expectedText: "Updating files…"
-        )
+        let updatingFileStatus = try await requireArmedStatus(input.paneOne.page)
         let nativeBeforeReviewActivation =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneOne)
         guard await activateReviewMode(input.paneOne.page) else {
@@ -792,36 +793,56 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         else { throw JourneyError.conditionFailed("foreground catch-up did not settle") }
     }
 
-    /// Suspends until the active surface shows `expectedText` and the inactive one
-    /// shows no status at all.
+    /// Arms the DOM observation before the File catch-up can publish a short-lived
+    /// updating status. The captured value is still the painted light-DOM state.
     ///
-    /// Both the active-mode marker and the two status texts live in the light DOM,
-    /// so the arrival of this state IS a mutation the observer sees. A deadline here
-    /// would be a verdict about machine speed on a page that renders no frames.
-    private static func requireStatus(
+    /// A deadline here would be a verdict about machine speed on a page that
+    /// renders no frames.
+    private static func armStatusObservation(
         _ page: WebPage,
         activeMode: String,
         expectedText: String
-    ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
+    ) async throws {
+        _ = try await page.callJavaScript(
+            """
+            window.__bridgeTwoPaneStatusObservation = new Promise(resolve => {
+              const capture = () => {
+                const encodedSnapshot = (() => { \(positionSnapshotReaderBody) })();
+                const snapshot = JSON.parse(encodedSnapshot);
+                if (snapshot.activeMode !== activeMode) return false;
+                const activeStatusText = activeMode === 'file'
+                  ? snapshot.fileStatusText
+                  : snapshot.reviewStatusText;
+                const inactiveStatusText = activeMode === 'file'
+                  ? snapshot.reviewStatusText
+                  : snapshot.fileStatusText;
+                if (activeStatusText !== expectedText || inactiveStatusText !== null) return false;
+                resolve(encodedSnapshot);
+                return true;
+              };
+              if (capture()) return;
+              const observer = new MutationObserver(() => {
+                if (capture()) observer.disconnect();
+              });
+              observer.observe(document.documentElement, {
+                attributes: true,
+                characterData: true,
+                childList: true,
+                subtree: true
+              });
+            });
+            return true;
+            """,
+            arguments: ["activeMode": activeMode, "expectedText": expectedText]
+        )
+    }
+
+    private static func requireArmedStatus(_ page: WebPage) async throws
+        -> BridgeProductWebKitTwoPanePositionSnapshot
+    {
         do {
-            let encoded = try await WebPageEventWaits.waitForDocumentValue(
-                page,
-                reader: """
-                    const encodedSnapshot = (() => { \(positionSnapshotReaderBody) })();
-                    const snapshot = JSON.parse(encodedSnapshot);
-                    if (snapshot.activeMode !== activeMode) { return null; }
-                    const inactiveMode = activeMode === 'file' ? 'review' : 'file';
-                    const activeStatusText = activeMode === 'file'
-                      ? snapshot.fileStatusText
-                      : snapshot.reviewStatusText;
-                    const inactiveStatusText = inactiveMode === 'file'
-                      ? snapshot.fileStatusText
-                      : snapshot.reviewStatusText;
-                    if (activeStatusText !== expectedText) { return null; }
-                    if (inactiveStatusText !== null) { return null; }
-                    return encodedSnapshot;
-                    """,
-                arguments: ["activeMode": activeMode, "expectedText": expectedText]
+            let encoded = try await page.callJavaScript(
+                "return await window.__bridgeTwoPaneStatusObservation;"
             )
             guard let encoded = encoded as? String,
                 let data = encoded.data(using: .utf8)
@@ -836,8 +857,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             )
         } catch {
             throw JourneyError.conditionFailed(
-                "active-surface updating chrome could not be read "
-                    + "(expectedActiveMode: \(activeMode), expectedText: \(expectedText)): \(error)"
+                "armed active-surface updating chrome could not be read: \(error)"
             )
         }
     }

@@ -65,6 +65,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             controller.page,
             "[data-testid=\"bridge-app-root\"]"
         )
+        await WebPageEventWaits.waitForBridgeReady(controller)
         guard let installation = await controller.productSessionOwner.activeInstallation,
             await installation.session.waitUntilActive()
         else { throw LiveProofError.appDidNotMount }
