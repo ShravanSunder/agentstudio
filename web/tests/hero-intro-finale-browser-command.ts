@@ -29,6 +29,8 @@ interface FinaleSample {
   readonly heroBranchDashOffset: number;
   readonly forkDashOffsets: readonly number[];
   readonly rowOpacity: readonly number[];
+  readonly tokenCount: number;
+  readonly tokenTextOverlaps: number;
   readonly appTop: number;
   readonly windowHeight: number;
   readonly chapterNodeY: number;
@@ -158,15 +160,18 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         6.8,
         7.0,
         7.2,
+        7.22,
         7.4,
         7.5,
         7.8,
+        7.76,
         7.9,
         8.3,
         8.8,
         9.9,
         10.7,
         11.4,
+        11.47,
         11.7,
         staircase.start,
         holdMiddle,
@@ -244,8 +249,35 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               .map((node) => node.textContent ?? "")
               .join(""),
           );
+          const tokens = [...root.querySelectorAll<SVGTextElement>("[data-hero-token-layer] text")];
+          const textRects = [
+            ...root.querySelectorAll<HTMLElement>(
+              ".hero-transcript-row, .hero-claude-input, .hero-codex-input",
+            ),
+          ]
+            .filter(
+              (row) =>
+                row.getClientRects().length > 0 && Number(getComputedStyle(row).opacity) > 0.05,
+            )
+            .flatMap((row) => {
+              const range = document.createRange();
+              range.selectNodeContents(row);
+              return [...range.getClientRects()];
+            });
+          const tokenTextOverlaps = tokens.filter((token) => {
+            const tokenRect = token.getBoundingClientRect();
+            return textRects.some(
+              (rect) =>
+                tokenRect.left < rect.right &&
+                tokenRect.right > rect.left &&
+                tokenRect.top < rect.bottom &&
+                tokenRect.bottom > rect.top,
+            );
+          }).length;
           return {
             time,
+            tokenCount: tokens.length,
+            tokenTextOverlaps,
             firstLine: opacity("[data-hero-intro-headline-first]"),
             secondLine: opacity("[data-hero-intro-headline-second]"),
             firstPayoff: opacity("[data-hero-intro-payoff-first]"),

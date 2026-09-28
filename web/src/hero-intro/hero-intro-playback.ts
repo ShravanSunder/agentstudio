@@ -49,6 +49,7 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
       target.removeAttribute("style");
     }
     root.querySelector(`[${heroIntroFourthPlaneAttribute}]`)?.remove();
+    root.querySelector("[data-hero-token-layer]")?.remove();
     const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
     if (rail !== null) {
       gsap.set(rail, { clearProps: "clipPath" }).kill();

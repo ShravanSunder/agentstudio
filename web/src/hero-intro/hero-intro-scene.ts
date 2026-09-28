@@ -22,6 +22,7 @@ import {
   heroTerminalWindowAttribute,
 } from "./hero-intro-dom-contract";
 import { addHeroRailStaircase } from "./hero-intro-rail-draw";
+import { addHeroTokenBursts } from "./hero-intro-token-bursts";
 
 function requiredTarget(root: HTMLElement, attribute: string): HTMLElement {
   const target = root.querySelector<HTMLElement>(`[${attribute}]`);
@@ -503,4 +504,5 @@ export function buildHeroIntroScene(
     { y: 0, opacity: 1, duration: 0.3, ease: "expo.out" },
     railTiming.finalHopStart,
   );
+  addHeroTokenBursts({ root, timeline, width: options.width });
 }

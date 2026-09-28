@@ -38,11 +38,15 @@ for (const [width, height] of [
     expect(at(6.8).readyOpacity).toBe(0);
     expect(at(7.2).readyOpacity).toBe(1);
     expect(at(7.2).installOpacity).toBe(0);
+    expect(at(7.22).tokenCount).toBeGreaterThan(0);
+    expect(at(7.22).tokenTextOverlaps).toBe(0);
     expect(at(7.5).installOpacity).toBeGreaterThan(0);
     expect(at(7.8).visibleDecodeLines).toBeGreaterThan(0);
     expect(at(8.3).visibleDecodeLines).toBe(0);
     expect(at(8.3).copyOpacity).toBe(1);
     if (width >= 1024) {
+      expect(at(7.76).tokenCount).toBeGreaterThan(0);
+      expect(at(7.76).tokenTextOverlaps).toBe(0);
       expect(at(7.9).codexTypedText.length).toBeGreaterThan(0);
       expect(at(7.9).codexTypedText.length).toBeLessThan("map the worktrees".length);
       expect(at(8.8).codexWorkingOpacity).toBeGreaterThan(0);
@@ -53,6 +57,8 @@ for (const [width, height] of [
     expect(at(10.7).worktreeRowOpacities.some((opacity) => opacity > 0)).toBe(true);
     expect(at(10.7).worktreeResultOpacity).toBe(0);
     expect(at(11.4).worktreeResultOpacity).toBe(1);
+    expect(at(11.47).tokenCount).toBeGreaterThan(0);
+    expect(at(11.47).tokenTextOverlaps).toBe(0);
     expect(at(11.4).railClip).toContain("100%");
     expect(at(11.7).railClip).not.toContain("100%");
     expect(at(11.4).firstPayoff).toBe(0);
