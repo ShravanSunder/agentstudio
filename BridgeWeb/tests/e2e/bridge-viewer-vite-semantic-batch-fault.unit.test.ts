@@ -64,6 +64,47 @@ describe('semantic metadata batch fault transform', () => {
 		},
 	);
 
+	test('keeps keepalive at the renumbered tail after dropping a part without consuming a sequence', () => {
+		const transformer = new BridgeSemanticBatchFaultTransformer();
+		transformer.arm({ mode: 'drop', subscriptionKind: 'file.metadata' });
+		const sourceBatch = makeThreePartBatch('file.metadata', 40);
+		const batchBegin = sourceBatch[0];
+		const droppedPart = sourceBatch[1];
+		if (
+			batchBegin?.kind !== 'subscription.batchBegin' ||
+			droppedPart?.kind !== 'subscription.batchPart'
+		)
+			throw new Error('Expected a File metadata batch begin and first part.');
+		const keepalive = bridgeProductMetadataFrameSchema.parse({
+			kind: 'stream.keepalive',
+			metadataStreamId: batchBegin.metadataStreamId,
+			paneSessionId: batchBegin.paneSessionId,
+			streamSequence: droppedPart.streamSequence,
+			wireVersion: batchBegin.wireVersion,
+			workerInstanceId: batchBegin.workerInstanceId,
+		});
+		const sourceFrames = [batchBegin, droppedPart, keepalive, ...sourceBatch.slice(2)];
+		const forwarded = decodeFrames(
+			transformer.push(concatenateBytes(...sourceFrames.map(encodeBridgeProductMetadataFrame))),
+		);
+		transformer.finish();
+
+		const forwardedKeepalive = forwarded.find((frame) => frame.kind === 'stream.keepalive');
+		expect(forwardedKeepalive?.streamSequence).toBe(batchBegin.streamSequence);
+		const partIndexes = forwarded.flatMap((frame) =>
+			frame.kind === 'subscription.batchPart' ? [frame.partIndex] : [],
+		);
+		expect(partIndexes).toEqual([1, 2]);
+		const keepaliveIndex = forwarded.findIndex((frame) => frame.kind === 'stream.keepalive');
+		const nextDataFrame = forwarded[keepaliveIndex + 1];
+		expect(nextDataFrame).toMatchObject({
+			kind: 'subscription.batchPart',
+			partIndex: 1,
+			streamSequence: (forwardedKeepalive?.streamSequence ?? -1) + 1,
+		});
+		expect(forwarded.map((frame) => frame.streamSequence)).toEqual([40, 40, 41, 42, 43]);
+	});
+
 	test('a stalled part released after complete cannot install the incomplete batch', () => {
 		const transformer = new BridgeSemanticBatchFaultTransformer();
 		transformer.arm({ mode: 'stall', subscriptionKind: 'file.metadata' });

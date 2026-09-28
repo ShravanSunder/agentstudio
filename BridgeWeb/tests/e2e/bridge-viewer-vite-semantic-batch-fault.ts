@@ -40,7 +40,7 @@ interface TargetBatch {
 	readonly subscriptionId: string;
 }
 
-/** Test-only semantic faults. Every forwarded envelope retains a contiguous physical sequence. */
+/** Test-only faults keep data sequences contiguous; keepalives repeat the last forwarded sequence. */
 export class BridgeSemanticBatchFaultTransformer {
 	readonly #decoder = new BridgeProductMetadataFrameDecoder();
 	readonly #onInputFrame: ((frame: BridgeProductMetadataFrame) => void) | undefined;
@@ -233,8 +233,13 @@ export class BridgeSemanticBatchFaultTransformer {
 	}
 
 	#encodeForwarded(frame: BridgeProductMetadataFrame): Uint8Array {
-		const streamSequence = this.#nextDownstreamSequence ?? frame.streamSequence;
-		this.#nextDownstreamSequence = streamSequence + 1;
+		const isKeepalive = frame.kind === 'stream.keepalive';
+		const streamSequence = isKeepalive
+			? this.#nextDownstreamSequence === null
+				? frame.streamSequence
+				: this.#nextDownstreamSequence - 1
+			: (this.#nextDownstreamSequence ?? frame.streamSequence);
+		if (!isKeepalive) this.#nextDownstreamSequence = streamSequence + 1;
 		this.#onForwardedFrame?.(frame);
 		return encodeBridgeProductMetadataFrame({ ...frame, streamSequence });
 	}
