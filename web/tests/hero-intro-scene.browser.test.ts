@@ -24,9 +24,11 @@ describe("hero intro scene contract", () => {
         <div data-hero-icon-front><span data-hero-icon-cursor>_</span></div>
       </div>
       <div data-hero-terminal-window><div data-hero-intro-content>
+        <div data-hero-pane-lift="claude"></div><div data-hero-pane-lift="codex"></div>
         <div class="hero-transcript-row hero-transcript-row--user-band">set up Agent Studio</div>
         <div class="hero-transcript-row hero-transcript-row--tool-result" data-hero-intro-ready>Ready. Copy it below <span data-hero-intro-ready-arrow>↓</span></div>
         <div data-hero-intro-spinner>Brewing</div><span data-hero-intro-typed-input></span>
+        <div data-hero-brew-bar></div><span data-hero-bash-dot>●</span><span data-hero-codex-verb>Running</span>
         <div class="hero-codex-footer">Ask Codex</div>
       </div></div>
       <div data-hero-intro-install><code><span>$ brew tap ShravanSunder/agentstudio<span data-install-decode-line aria-hidden="true"></span></span><span>$ brew install --cask agent-studio<span data-install-decode-line aria-hidden="true"></span></span></code><button data-install-copy>COPY</button></div><p data-hero-intro-description>Description</p>
@@ -42,6 +44,11 @@ describe("hero intro scene contract", () => {
       const settledStack = stack.getBoundingClientRect();
       const timeline = gsap.timeline({ paused: true });
       buildHeroIntroScene(fixture, timeline, { width: 1600, height: 1000, seed: 0 });
+      expect(timeline.labels["beat:claude-brew"]).toBe(3.95);
+      expect(timeline.labels["beat:codex-prompt"]).toBe(7.85);
+      expect(timeline.labels["beat:codex-result"]).toBe(11.25);
+      expect(timeline.labels["beat:rail-handoff"]).toBe(11.6);
+      expect(timeline.duration()).toBeLessThanOrEqual(13.5);
       const iconFront = fixture.querySelector<HTMLElement>("[data-hero-icon-front]");
       const iconRearTwo = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="two"]');
       const iconRearOne = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="one"]');
@@ -93,7 +100,7 @@ describe("hero intro scene contract", () => {
       expect(timeline.paused()).toBe(true);
       expect(
         Object.keys(timeline.labels).filter((label) => label.startsWith("beat:")).length,
-      ).toBeLessThanOrEqual(9);
+      ).toBeLessThanOrEqual(13);
       const tweenStarts = timeline
         .getChildren(false, true, false)
         .map((child) => child.startTime());
@@ -109,7 +116,7 @@ describe("hero intro scene contract", () => {
       expect(Number(getComputedStyle(headlineFirst).opacity)).toBeGreaterThan(0);
       timeline.time(5.8);
       expect(Number(getComputedStyle(payoffFirst).opacity)).toBe(0);
-      timeline.time(8.0);
+      timeline.time(13.4);
       for (const payoff of fixture.querySelectorAll<HTMLElement>(
         "[data-hero-intro-payoff-first], [data-hero-intro-payoff-second]",
       )) {
@@ -128,28 +135,43 @@ describe("hero intro scene contract", () => {
           settledWindow.height,
         );
       }
-      timeline.time(4.2);
+      timeline.time(5.2);
       const spinner = fixture.querySelector<HTMLElement>("[data-hero-intro-spinner]");
       expect(spinner === null ? "missing" : getComputedStyle(spinner).display).not.toBe("none");
+      const firstSpinner = spinner?.textContent;
+      timeline.time(5.33);
+      expect(spinner?.textContent).not.toBe(firstSpinner);
+      const brewBar = fixture.querySelector<HTMLElement>("[data-hero-brew-bar]");
+      timeline.time(5.4);
+      const earlyBar = brewBar?.textContent;
+      timeline.time(6.1);
+      expect(brewBar?.textContent).not.toBe(earlyBar);
+      const claudeLift = fixture.querySelector<HTMLElement>('[data-hero-pane-lift="claude"]');
+      expect(claudeLift?.style.boxShadow).toContain("inset");
+      const codexVerb = fixture.querySelector<HTMLElement>("[data-hero-codex-verb]");
+      timeline.time(10.5);
+      expect(codexVerb?.textContent).toBe("Running");
+      timeline.time(11.3);
+      expect(codexVerb?.textContent).toBe("Ran");
       const arrow = fixture.querySelector<HTMLElement>("[data-hero-intro-ready-arrow]");
       const install = fixture.querySelector<HTMLElement>("[data-hero-intro-install]");
       const glow = fixture.querySelector<HTMLElement>("[data-hero-intro-glow]");
       if (arrow === null || install === null || glow === null)
         throw new Error("Intro timing targets are missing");
-      timeline.time(5.98);
+      timeline.time(7.32);
       expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(0.35, 1);
-      timeline.time(4.7);
+      timeline.time(7.8);
       expect(Number(getComputedStyle(install).opacity)).toBeCloseTo(1, 1);
       expect(getComputedStyle(install).transform).toBe("none");
-      timeline.time(6.4);
+      timeline.time(7.7);
       expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(1, 1);
-      timeline.time(5.3);
+      timeline.time(8.2);
       const overlays = [...fixture.querySelectorAll<HTMLElement>("[data-install-decode-line]")];
       expect(overlays.every((line) => Number(getComputedStyle(line).opacity) === 0)).toBe(true);
       expect(overlays.map((line) => line.parentElement?.textContent).join(" ")).toContain(
         "brew tap ShravanSunder/agentstudio",
       );
-      for (const second of [0, 4.6, 4.9, 5.2, 5.3, 8.0]) {
+      for (const second of [0, 4.6, 6.9, 7.2, 7.8, 13.4]) {
         timeline.time(second);
         expect(install.textContent).toContain("brew tap ShravanSunder/agentstudio");
         expect(getComputedStyle(install).transform).toBe("none");

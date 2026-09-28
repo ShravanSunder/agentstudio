@@ -16,7 +16,7 @@ export type TranscriptRow = {
   readonly kind: TranscriptRowKind;
   readonly text: string;
   readonly tiers: readonly TranscriptTier[];
-  readonly beat?: "progress" | "working" | "prompt" | "command" | "worktree" | "result";
+  readonly beat?: "progress" | "working" | "prompt" | "running" | "command" | "worktree" | "result";
   readonly earlierContext?: true;
 };
 
@@ -79,6 +79,7 @@ export const codexFinaleTranscript: readonly TranscriptRow[] = [
     tiers: desktopTiers,
     beat: "working",
   },
+  { kind: "codex-action", text: "• Ran", tiers: desktopTiers, beat: "running" },
   { kind: "codex-detail", text: "  └ git worktree list", tiers: desktopTiers, beat: "command" },
   { kind: "codex-detail", text: "  └ ~/agent-studio  main", tiers: desktopTiers, beat: "worktree" },
   {

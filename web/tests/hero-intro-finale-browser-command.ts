@@ -115,7 +115,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         return ys.filter((y, index) => index === 0 || Math.abs(y - (ys[index - 1] ?? y)) > 0.5)
           .length;
       });
-      const staircase = planHeroRailStaircase(rowCount);
+      const staircase = planHeroRailStaircase(rowCount, 11.6);
       const firstHop = staircase.hops[0];
       const secondHop = staircase.hops[1];
       const finalHop = staircase.hops.at(-1);
@@ -157,12 +157,23 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         6.75,
         6.8,
         7.0,
+        7.2,
         7.4,
+        7.5,
+        7.8,
+        7.9,
+        8.3,
+        8.8,
+        9.9,
+        10.7,
+        11.4,
+        11.7,
         staircase.start,
         holdMiddle,
         finalHop.start,
         staircase.end,
         staircase.end + 0.3,
+        staircase.end + 0.4,
         staircase.end + 0.65,
       ];
       const samples = await page.evaluate(async (sampleTimes): Promise<FinaleSample[]> => {

@@ -1,7 +1,7 @@
 import type { SceneTimeline } from "../motion-scenes/scene-contract";
 import { layoutFullPageTopology } from "../topology-lab/full-page-topology-layout";
 
-const railDrawStart = 5.95;
+const defaultRailDrawStart = 5.95;
 const maximumDrawDuration = 1.6;
 const preferredHopDuration = 0.1;
 const preferredHoldDuration = 0.09;
@@ -26,7 +26,10 @@ export interface HeroRailDrawTiming {
   readonly end: number;
 }
 
-export function planHeroRailStaircase(hopCount: number): RailHopSchedule {
+export function planHeroRailStaircase(
+  hopCount: number,
+  railDrawStart = defaultRailDrawStart,
+): RailHopSchedule {
   if (!Number.isInteger(hopCount) || hopCount < 2)
     throw new Error("Hero rail staircase requires at least two hops");
   const holdCount = hopCount - 1;
@@ -50,6 +53,7 @@ export function planHeroRailStaircase(hopCount: number): RailHopSchedule {
 interface RailDrawOptions {
   readonly timeline: SceneTimeline;
   readonly artwork: SVGSVGElement;
+  readonly start?: number;
 }
 
 function requiredPath(artwork: SVGSVGElement, selector: string): SVGPathElement {
@@ -82,7 +86,11 @@ function paintPathFromStart(
 }
 
 /** Reveal existing rail geometry a row at a time; the hero attach is the last hop. */
-export function addHeroRailStaircase({ timeline, artwork }: RailDrawOptions): HeroRailDrawTiming {
+export function addHeroRailStaircase({
+  timeline,
+  artwork,
+  start = defaultRailDrawStart,
+}: RailDrawOptions): HeroRailDrawTiming {
   if (!layoutFullPageTopology(artwork)) {
     throw new Error("Hero rail draw could not lay out the topology");
   }
@@ -110,17 +118,16 @@ export function addHeroRailStaircase({ timeline, artwork }: RailDrawOptions): He
   }
   if (rows.length < 2) throw new Error("Hero rail staircase needs distinct rows");
 
-  const schedule = planHeroRailStaircase(rows.length);
-  timeline.addLabel("rail:start", railDrawStart);
+  const schedule = planHeroRailStaircase(rows.length, start);
+  timeline.addLabel("rail:start", start);
   timeline.addLabel("rail:end", schedule.end);
   timeline.set(artwork, { clipPath: "inset(0 0 100% 0)" }, 0);
-  timeline.set(artwork, { clipPath: clipAtY(artwork, rows[0]?.y ?? heroY) }, railDrawStart);
+  timeline.set(artwork, { clipPath: clipAtY(artwork, rows[0]?.y ?? heroY) }, start);
 
   for (const [rowIndex, row] of rows.entries()) {
     const hop = schedule.hops[rowIndex];
     if (hop === undefined) throw new Error("Hero rail staircase hop is missing");
-    const popStart =
-      rowIndex === 0 ? railDrawStart : (schedule.hops[rowIndex - 1]?.arrival ?? railDrawStart);
+    const popStart = rowIndex === 0 ? start : (schedule.hops[rowIndex - 1]?.arrival ?? start);
     timeline.fromTo(
       row.nodes,
       { opacity: 0, scale: 0.4 },

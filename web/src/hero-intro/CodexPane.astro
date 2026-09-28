@@ -7,6 +7,7 @@ const currentRows = codexTranscript.slice(6);
 ---
 
 <section class="hero-terminal-pane hero-terminal-pane--codex" aria-hidden="true">
+  <div class="hero-pane-lift" data-hero-pane-lift="codex"></div>
   <div class="hero-terminal-transcript">
     <div class="hero-codex-startup">
       <div><span class="hero-terminal-muted">&gt;_ </span><strong>OpenAI Codex</strong><span class="hero-terminal-muted"> (v0.156.1)</span></div>
@@ -55,9 +56,11 @@ const currentRows = codexTranscript.slice(6);
       <div class="hero-codex-finale-rows">
         {
           codexFinaleTranscript.map((row) => (
-            <div class={`hero-transcript-row hero-transcript-row--${row.kind}`} {...{ [heroTranscriptTierAttribute]: row.tiers.join(" "), [heroIntroFinaleRowAttribute]: "" }} {...(row.beat === "working" ? { "data-hero-codex-working": "" } : {})} {...(row.beat === "command" ? { "data-hero-worktree-command": "" } : {})} {...(row.beat === "worktree" ? { "data-hero-worktree-row": "" } : {})} {...(row.beat === "result" ? { "data-hero-worktree-result": "" } : {})}>
-              {row.kind === "codex-action" ? (
-                <><span class="hero-terminal-dim">•</span>{" "}<span class="hero-terminal-lavender">{row.text.slice(2)}</span></>
+            <div class={`hero-transcript-row hero-transcript-row--${row.kind}`} {...{ [heroTranscriptTierAttribute]: row.tiers.join(" "), [heroIntroFinaleRowAttribute]: "" }} {...(row.beat === "working" ? { "data-hero-codex-working": "" } : {})} {...(row.beat === "running" ? { "data-hero-codex-running": "" } : {})} {...(row.beat === "command" ? { "data-hero-worktree-command": "" } : {})} {...(row.beat === "worktree" ? { "data-hero-worktree-row": "" } : {})} {...(row.beat === "result" ? { "data-hero-worktree-result": "" } : {})}>
+              {row.beat === "working" ? (
+                <><span class="hero-terminal-dim">•</span>{" "}<span class="hero-working-shimmer">Working</span><span class="hero-terminal-dim" data-hero-codex-working-meta> (1s • esc to interrupt)</span></>
+              ) : row.kind === "codex-action" ? (
+                <><span class="hero-terminal-dim">•</span>{" "}<span class="hero-terminal-lavender" {...(row.beat === "running" ? { "data-hero-codex-verb": "" } : {})}>{row.text.slice(2)}</span></>
               ) : row.text}
             </div>
           ))

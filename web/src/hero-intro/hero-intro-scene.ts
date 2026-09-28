@@ -56,6 +56,9 @@ export function collectHeroIntroTargets(root: HTMLElement): HTMLElement[] {
     requiredTarget(root, heroIntroSpinnerAttribute),
     ...root.querySelectorAll<HTMLElement>(".hero-codex-footer"),
     ...root.querySelectorAll<HTMLElement>(".hero-transcript-row"),
+    ...root.querySelectorAll<HTMLElement>("[data-hero-bash-dot], [data-hero-brew-bar]"),
+    ...root.querySelectorAll<HTMLElement>("[data-hero-brew-check], [data-hero-codex-working-meta]"),
+    ...root.querySelectorAll<HTMLElement>("[data-hero-pane-lift], [data-hero-codex-verb]"),
     ...root.querySelectorAll<HTMLElement>(".hero-codex-current-rows, .hero-claude-current-rows"),
   ];
 }
@@ -125,6 +128,14 @@ export function buildHeroIntroScene(
   const progressRows = visibleRows([
     ...root.querySelectorAll<HTMLElement>("[data-hero-progress-row]"),
   ]);
+  const brewBar = root.querySelector<HTMLElement>("[data-hero-brew-bar]");
+  const bashDots = [...root.querySelectorAll<HTMLElement>("[data-hero-bash-dot]")];
+  const brewChecks = [...root.querySelectorAll<HTMLElement>("[data-hero-brew-check]")];
+  const codexWorkingMeta = root.querySelector<HTMLElement>("[data-hero-codex-working-meta]");
+  const claudeLift = root.querySelector<HTMLElement>('[data-hero-pane-lift="claude"]');
+  const codexLift = root.querySelector<HTMLElement>('[data-hero-pane-lift="codex"]');
+  const codexRunning = root.querySelector<HTMLElement>("[data-hero-codex-running]");
+  const codexVerb = root.querySelector<HTMLElement>("[data-hero-codex-verb]");
   const worktreeRows = visibleRows([
     ...root.querySelectorAll<HTMLElement>(
       `.hero-terminal-pane--${finalePane} [data-hero-worktree-row]`,
@@ -188,6 +199,7 @@ export function buildHeroIntroScene(
   if (finaleRows.length > 0) timeline.set(finaleRows, { opacity: 0 }, 0);
   timeline.set(ready, { opacity: 0 }, 0);
   timeline.set(spinner, { opacity: 0 }, 0);
+  timeline.set(brewChecks, { opacity: 0 }, 0);
   timeline.set(typedInput, { textContent: "" }, 0);
   if (codexTypedInput !== null) timeline.set(codexTypedInput, { textContent: "" }, 0);
   timeline.set(decodeLines, { opacity: 0 }, 0);
@@ -304,16 +316,29 @@ export function buildHeroIntroScene(
     visibleClaudeRows.find((row) => row.textContent?.includes("Bash(")),
     3.83,
   );
+  const activePaneStyle = {
+    boxShadow: "inset 0 0 0 1.5px rgb(137 180 250 / 55%)",
+    backgroundColor: "rgb(137 180 250 / 5%)",
+  };
+  if (claudeLift !== null) {
+    timeline.set(claudeLift, activePaneStyle, 3.62);
+    timeline.set(claudeLift, { boxShadow: "none", backgroundColor: "transparent" }, 7.85);
+  }
+  if (codexLift !== null && options.width >= 1024) {
+    timeline.set(codexLift, activePaneStyle, 7.85);
+    timeline.set(codexLift, { boxShadow: "none", backgroundColor: "transparent" }, 11.3);
+  }
 
+  timeline.addLabel("beat:codex-prompt", 7.85);
   if (codexTypedInput !== null && codexPlaceholder !== null && options.width >= 1024) {
     const codexPrompt = "map the worktrees";
     const codexTyping = { fraction: 0 };
-    timeline.set(codexPlaceholder, { opacity: 0 }, 3.65);
+    timeline.set(codexPlaceholder, { opacity: 0 }, 7.85);
     timeline.to(
       codexTyping,
       {
         fraction: 1,
-        duration: 0.61,
+        duration: 0.51,
         ease: "none",
         onUpdate: () => {
           codexTypedInput.textContent = codexPrompt.slice(
@@ -322,46 +347,66 @@ export function buildHeroIntroScene(
           );
         },
       },
-      3.65,
+      7.85,
     );
-    timeline.set(codexTypedInput, { textContent: "" }, 4.28);
-    timeline.set(codexPlaceholder, { opacity: 1 }, 4.28);
+    timeline.set(codexTypedInput, { textContent: "" }, 8.6);
+    timeline.set(codexPlaceholder, { opacity: 1 }, 8.6);
     if (codexCurrentRows !== null)
-      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 4.28);
-    revealRow(visibleCodexRows[0], 4.28);
-    revealRow(codexWorking, 4.3);
-    revealRow(worktreeCommand, 5.2);
+      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 8.6);
+    revealRow(visibleCodexRows[0], 8.6);
+    revealRow(codexWorking, 8.65);
+    revealRow(worktreeCommand, 9.5);
   }
 
   const spinnerGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
   const spinnerState = { fraction: 0 };
-  timeline.addLabel("beat:spinner", 3.85);
-  timeline.fromTo(spinner, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 3.85);
+  timeline.addLabel("beat:claude-brew", 3.95);
+  timeline.addLabel("beat:spinner", 3.95);
+  timeline.fromTo(spinner, { opacity: 0 }, { opacity: 1, duration: 0.01 }, 3.95);
   timeline.to(
     spinnerState,
     {
       fraction: 1,
-      duration: 1.7,
+      duration: 3,
       ease: "none",
       onUpdate: () => {
-        const glyphIndex = Math.min(
-          spinnerGlyphs.length - 1,
-          Math.floor(spinnerState.fraction * spinnerGlyphs.length),
-        );
-        spinner.textContent = `${spinnerGlyphs[glyphIndex]} Brewing… (esc to interrupt)`;
+        const elapsed = spinnerState.fraction * 3;
+        const glyphIndex = Math.floor((3.95 + elapsed) * 8) % spinnerGlyphs.length;
+        spinner.textContent = `${spinnerGlyphs[glyphIndex]} Brewing… (${Math.floor(elapsed + 1)}s · ↑ ${(0.3 + elapsed * 0.35).toFixed(1)}k tokens · esc to interrupt)`;
+        for (const dot of bashDots) {
+          dot.style.color =
+            elapsed >= 2.4
+              ? "#a6e3a1"
+              : Math.floor(elapsed * 2.5) % 2 === 0
+                ? "#f3f3f4"
+                : "#9ba1ad";
+        }
+        spinner.style.backgroundPosition = `${100 - ((elapsed * 60) % 100)}% 0`;
       },
     },
-    3.85,
+    3.95,
   );
-  progressRows.forEach((row, index) => revealRow(row, 4.05 + index * 0.3));
+  progressRows.forEach((row, index) => revealRow(row, [4.35, 5.05, 6.2][index] ?? 6.2));
+  brewChecks.forEach((check, index) => revealRow(check, [4.95, 6.35, 6.8, 6.8][index] ?? 6.8));
+  if (brewBar !== null) {
+    const barState = { fraction: 0 };
+    timeline.to(
+      barState,
+      {
+        fraction: 1,
+        duration: 1.3,
+        ease: "none",
+        onUpdate: () => {
+          const filled = Math.round(barState.fraction * 16);
+          brewBar.textContent = `${"#".repeat(filled)}${" ".repeat(16 - filled)} ${(barState.fraction * 100).toFixed(1)}%`;
+        },
+      },
+      5.05,
+    );
+  }
 
-  timeline.addLabel("beat:install-decode", 4.45);
-  timeline.fromTo(
-    install,
-    { opacity: 0 },
-    { opacity: 1, duration: 0.25, ease: "power1.out" },
-    4.45,
-  );
+  timeline.addLabel("beat:install-decode", 7.3);
+  timeline.fromTo(install, { opacity: 0 }, { opacity: 1, duration: 0.25, ease: "power1.out" }, 7.3);
   const decodeState = { fraction: 0 };
   const glyphs = "▓▒░█<>/\\#$";
   timeline.to(
@@ -392,42 +437,70 @@ export function buildHeroIntroScene(
         }
       },
     },
-    4.6,
+    7.3,
   );
 
-  timeline.addLabel("beat:ready", 5.6);
-  timeline.to(spinner, { opacity: 0, duration: 0.1 }, 5.55);
-  revealRow(ready, 5.6);
+  timeline.addLabel("beat:ready", 7.0);
+  timeline.to(spinner, { opacity: 0, duration: 0.05 }, 6.95);
+  revealRow(ready, 7.0);
   timeline.fromTo(
     readyArrow,
     { opacity: 1 },
     { opacity: 0.35, duration: 0.2, repeat: 1, yoyo: true, ease: "sine.inOut" },
-    5.78,
+    7.12,
   );
 
   if (options.width < 1024) {
     revealRow(
       visibleClaudeRows.find((row) => row.textContent?.includes("map the worktrees")),
-      5.7,
+      8.0,
     );
-    revealRow(worktreeCommand, 5.78);
+    revealRow(worktreeCommand, 9.2);
   }
-  worktreeRows.forEach((row, index) => revealRow(row, 5.82 + index * 0.45));
+  if (codexWorkingMeta !== null) {
+    const workingState = { seconds: 0 };
+    timeline.to(
+      workingState,
+      {
+        seconds: 0.85,
+        duration: 0.85,
+        ease: "none",
+        onUpdate: () => {
+          codexWorkingMeta.textContent = ` (${Math.floor(workingState.seconds + 1)}s • esc to interrupt)`;
+        },
+      },
+      8.65,
+    );
+  }
+  worktreeRows.forEach((row, index) => {
+    revealRow(row, 9.85 + index * 0.4);
+    timeline.fromTo(
+      row,
+      { "--hero-row-flash": 1 },
+      { "--hero-row-flash": 0, duration: 0.45, ease: "power1.out" },
+      9.85 + index * 0.4,
+    );
+  });
+  revealRow(codexRunning, 9.5);
+  if (codexVerb !== null) {
+    timeline.set(codexVerb, { textContent: "Running" }, 9.5);
+    timeline.set(codexVerb, { textContent: "Ran" }, 11.25);
+  }
+  if (codexWorking !== null && options.width >= 1024)
+    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 9.5);
+  timeline.addLabel("beat:codex-result", 11.25);
+  revealRow(worktreeResult, 11.25);
+  timeline.addLabel("beat:rail-handoff", 11.6);
   const railTiming =
     rail === null
-      ? { finalHopStart: 7.3, end: 7.4 }
-      : addHeroRailStaircase({ timeline, artwork: rail });
-  revealRow(worktreeResult, railTiming.end + 0.1);
+      ? { finalHopStart: 13.1, end: 13.2 }
+      : addHeroRailStaircase({ timeline, artwork: rail, start: 11.6 });
   if (codexWorking !== null && options.width >= 1024)
-    timeline.to(
-      codexWorking,
-      { opacity: 0, duration: 0.15, ease: "power2.out" },
-      railTiming.end + 0.1,
-    );
+    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 11.25);
   timeline.fromTo(
     [payoffFirst, payoffSecond],
     { y: 8, opacity: 0 },
-    { y: 0, opacity: 1, duration: 0.6, ease: "expo.out" },
+    { y: 0, opacity: 1, duration: 0.3, ease: "expo.out" },
     railTiming.finalHopStart,
   );
 }
