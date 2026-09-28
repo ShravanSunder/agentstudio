@@ -31,6 +31,17 @@ declare module "vitest/browser" {
 const chapterWithSteps = "many-agents";
 
 describe("chapter surfaces on the home page", () => {
+  it("ignores the retired step-control query and keeps the bare line", async () => {
+    const pageUrl = new URL(inject("siteHeaderBrowserTestUrl"));
+    pageUrl.searchParams.set("steps", ["cap", "sule"].join(""));
+    const observation = await commands.verifyChapterStepRow({
+      pageUrl: pageUrl.href,
+      width: 390,
+      height: 844,
+      chapterId: chapterWithSteps,
+    });
+    expect(observation.glassLayout.stepLineBackdrop).toBe("none");
+  });
   for (const width of [390, 1600]) {
     it(`keeps a single-step chapter aligned without a pill at ${width}px`, async () => {
       const chapter = await commands.verifySingleStepChapter({
@@ -96,6 +107,8 @@ describe("chapter surfaces on the home page", () => {
       expect(layout.captionTextColor).toBe("rgb(234, 234, 234)");
       expect(layout.captionIconCount).toBe(observation.tabs.length);
       expect(layout.pillMaterialMatchesHeader).toBe(false);
+      expect(layout.stepLineBackdrop).toBe("none");
+      expect(layout.activeLabelDotCount).toBe(0);
       for (const left of [layout.glass.left, layout.pill.left, layout.caption.left]) {
         expect(Math.abs(left - layout.title.left)).toBeLessThanOrEqual(1);
       }

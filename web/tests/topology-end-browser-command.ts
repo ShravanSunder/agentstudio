@@ -4,6 +4,15 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
 export interface TopologyEndObservation {
   readonly width: number;
   readonly pillLeft: number;
+  readonly stageLeft: number;
+  readonly titleLeft: number;
+  readonly stageRight: number;
+  readonly titleFontSize: number;
+  readonly noteLeft: number;
+  readonly stageCenterY: number;
+  readonly titleCenterY: number;
+  readonly stageHeight: number;
+  readonly titleLineHeight: number;
   readonly pillCenterY: number;
   readonly branchEndX: number;
   readonly branchEndY: number;
@@ -57,6 +66,8 @@ export interface FinaleBookendObservation {
   readonly reducedMotionLogoOpacity: string;
   readonly pointerSkipState: string | undefined;
   readonly resizeSettleState: string | undefined;
+  readonly narrowTitleFontSize: number;
+  readonly narrowHeadingOverflow: number;
 }
 
 export const verifyFinaleBookend = defineBrowserCommand(
@@ -256,10 +267,22 @@ export const verifyFinaleBookend = defineBrowserCommand(
       await skipPage.reload({ waitUntil: "domcontentloaded" });
       await skipPage.waitForSelector("[data-finale-timeline-created]");
       await skipPage.setViewportSize({ width: 430, height: 844 });
+      await skipPage.waitForSelector('[data-finale-root][data-finale-state="settled"]');
       const resizeSettleState =
         (await skipPage.locator("[data-finale-root]").getAttribute("data-finale-state")) ??
         undefined;
-      return { ...normal, ...reduced, pointerSkipState, resizeSettleState };
+      await skipPage.setViewportSize({ width: 320, height: 844 });
+      const narrow = await skipPage.evaluate(() => {
+        const heading = document.querySelector<HTMLElement>("[data-finale-heading]");
+        const title = heading?.querySelector<HTMLElement>("h2");
+        if (heading === null || title === null || title === undefined)
+          throw new Error("Narrow finale heading is missing");
+        return {
+          narrowTitleFontSize: Number.parseFloat(getComputedStyle(title).fontSize),
+          narrowHeadingOverflow: heading.getBoundingClientRect().right - window.innerWidth,
+        };
+      });
+      return { ...normal, ...reduced, ...narrow, pointerSkipState, resizeSettleState };
     } finally {
       await Promise.all([applicationPage.close(), reducedMotionPage.close(), skipPage.close()]);
     }
@@ -271,6 +294,9 @@ function observeEnd(width: number): TopologyEndObservation {
   const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
   const button = document.querySelector<HTMLElement>("[data-final-star-button]");
   const pill = button?.closest<HTMLElement>("[data-finale-split-pill]");
+  const finaleRoot = button?.closest<HTMLElement>("[data-finale-root]");
+  const stage = finaleRoot?.querySelector<HTMLElement>(".finale-stage");
+  const note = finaleRoot?.querySelector<HTMLElement>("p");
   const finalRoute = artwork?.querySelector<SVGGElement>("[data-topology-terminal-route]");
   const finalPath = finalRoute?.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
   const terminalNode = finalRoute?.querySelector<SVGGElement>("[data-topology-terminal-node]");
@@ -317,7 +343,18 @@ function observeEnd(width: number): TopologyEndObservation {
     .map((node) => Number(node.querySelector("circle")?.getAttribute("cy")) + artworkTop);
   const ctaTitle = button.closest("section")?.querySelector<HTMLElement>("#final-cta-title");
   const titleBox = ctaTitle?.getBoundingClientRect();
-  if (titleBox === undefined) throw new Error("Final CTA title missing");
+  if (
+    ctaTitle === null ||
+    ctaTitle === undefined ||
+    titleBox === undefined ||
+    stage === null ||
+    stage === undefined ||
+    note === null ||
+    note === undefined
+  )
+    throw new Error("Final CTA heading, icon stage or note missing");
+  const stageBox = stage.getBoundingClientRect();
+  const noteBox = note.getBoundingClientRect();
   const minimumTitleClearance = Math.min(
     ...Array.from({ length: 101 }, (_, index) => {
       const point = finalPath.getPointAtLength((routeLength * index) / 100).matrixTransform(matrix);
@@ -329,6 +366,15 @@ function observeEnd(width: number): TopologyEndObservation {
   return {
     width,
     pillLeft: buttonBox.left,
+    stageLeft: stageBox.left,
+    titleLeft: titleBox.left,
+    stageRight: stageBox.right,
+    titleFontSize: Number.parseFloat(getComputedStyle(ctaTitle).fontSize),
+    noteLeft: noteBox.left,
+    stageCenterY: (stageBox.top + stageBox.bottom) / 2,
+    titleCenterY: (titleBox.top + titleBox.bottom) / 2,
+    stageHeight: stageBox.height,
+    titleLineHeight: Number.parseFloat(getComputedStyle(ctaTitle).lineHeight),
     pillCenterY: (buttonBox.top + buttonBox.bottom) / 2 + window.scrollY,
     branchEndX: end.x,
     branchEndY: end.y + window.scrollY,

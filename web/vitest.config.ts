@@ -8,6 +8,10 @@ import {
 } from "./tests/chapter-autoplay-browser-command.ts";
 import { verifyChapterScrollGeometry } from "./tests/chapter-scroll-geometry-browser-command.ts";
 import {
+  verifyChapterStepHop,
+  verifyReducedMotionStepLine,
+} from "./tests/chapter-step-hop-browser-command.ts";
+import {
   verifyChapterStepRow,
   verifySingleStepChapter,
   verifyChapterTitleAnchors,
@@ -26,7 +30,6 @@ import { verifyRailViewportBands } from "./tests/rail-band-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
 import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
-import { verifyStepControlVariant } from "./tests/step-control-variant-browser-command.ts";
 import { verifyFinaleBookend, verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
 import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
@@ -68,6 +71,8 @@ export default defineConfig({
               verifyChapterAutoplayAtNaturalFraming,
               verifyChapterSceneClicks,
               verifyChapterScrollGeometry,
+              verifyChapterStepHop,
+              verifyReducedMotionStepLine,
               verifyHeroIntroLayout,
               verifyHeroIntroPlayback,
               verifyHeroIntroRefresh,
@@ -81,7 +86,6 @@ export default defineConfig({
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,
               verifySiteHeaderScrollStability,
-              verifyStepControlVariant,
               verifyTopologyEnd,
               verifyFinaleBookend,
               verifyTopologyNodeVocabulary,

@@ -2,9 +2,13 @@ import { localDropTurnPath } from "../topology-lab/full-page-topology-paths";
 import { isChapterStepId, type ChapterStepId } from "./chapter-ids";
 import {
   chapterStepRequestedEventName,
+  chapterStepResumeRequestedEventName,
   createChapterStepEvent,
   readChapterStepEventStepId,
+  readSceneStepTiming,
+  type SceneStepTimingDetail,
   sceneStepReachedEventName,
+  sceneStepTimingEventName,
 } from "./chapter-step-events";
 
 // Tab semantics follow the retired product plate's proven contract: static and
@@ -139,6 +143,7 @@ function renderSelectedStep(
       return (bounds.left + bounds.right) / 2 - lineBounds.left;
     };
     const currentCenter = center(currentDot);
+    stepLine.style.setProperty("--chapter-step-current-center", `${currentCenter}px`);
     stepLine.style.setProperty("--chapter-step-track-width", `${center(lastDot)}px`);
     stepLine.style.setProperty("--chapter-step-progress-width", `${currentCenter}px`);
 
@@ -150,7 +155,13 @@ function renderSelectedStep(
         outgoingLabel.removeAttribute("data-chapter-step-active-label");
         stepLine.append(outgoingLabel);
         void outgoingLabel
-          .animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150 })
+          .animate(
+            [
+              { opacity: 1, transform: "scale(1)" },
+              { opacity: 0, transform: "scale(0.2)" },
+            ],
+            { duration: 120, easing: "ease-in", fill: "forwards" },
+          )
           .finished.then(() => outgoingLabel.remove())
           .catch(() => outgoingLabel.remove());
       }
@@ -158,8 +169,15 @@ function renderSelectedStep(
       if (outgoingBranch instanceof SVGPathElement) {
         outgoingBranch.removeAttribute("data-chapter-step-branch");
         branch.parentElement?.append(outgoingBranch);
+        const outgoingLength = outgoingBranch.getTotalLength();
         void outgoingBranch
-          .animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150 })
+          .animate(
+            [
+              { strokeDasharray: outgoingLength, strokeDashoffset: 0 },
+              { strokeDasharray: outgoingLength, strokeDashoffset: outgoingLength },
+            ],
+            { duration: 120, easing: "ease-in", fill: "forwards" },
+          )
           .finished.then(() => outgoingBranch.remove())
           .catch(() => outgoingBranch.remove());
       }
@@ -191,12 +209,20 @@ function renderSelectedStep(
           { strokeDasharray: length, strokeDashoffset: length },
           { strokeDasharray: length, strokeDashoffset: 0 },
         ],
-        { duration: 240, easing: "ease-out" },
+        { duration: 100, delay: 120, easing: "ease-out", fill: "backwards" },
       );
-      label.animate([{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], {
-        duration: 390,
-        easing: "ease-out",
-      });
+      label.animate(
+        [
+          { opacity: 0, transform: "scale(0.55)" },
+          { opacity: 1, transform: "scale(1)" },
+        ],
+        {
+          duration: 100,
+          delay: 150,
+          fill: "backwards",
+          easing: "ease-out",
+        },
+      );
     }
   }
 }
@@ -236,15 +262,105 @@ function movedIndex(selectedIndex: number, movement: StepMovement, stepCount: nu
 export function initializeChapterSteps(root: HTMLElement): ChapterStepsController {
   const lifecycle = new AbortController();
   let contract: ChapterStepsDomContract | null = null;
+  let countdown: Animation | undefined;
+  let ringTravel: Animation | undefined;
+  let pendingTiming: SceneStepTimingDetail | undefined;
 
   try {
     const validatedContract = validateChapterStepsDom(root);
     contract = validatedContract;
     let selectedIndex = 0;
+    let countdownStepId: string | undefined;
+    let countdownDurationMs = 0;
+    const stepLine = root.querySelector<HTMLElement>("[data-chapter-step-line]");
+    const ring = stepLine?.querySelector<SVGSVGElement>("[data-chapter-step-ring]");
+    const progress = stepLine?.querySelector<SVGCircleElement>("[data-chapter-step-ring-progress]");
+    const pauseGlyph = stepLine?.querySelector<HTMLElement>("[data-chapter-step-pause-glyph]");
+    const setRingTiming = (
+      stepId: string,
+      dwellSeconds: number,
+      elapsedSeconds: number,
+      running: boolean,
+    ): void => {
+      if (ringTravel?.playState === "running") {
+        pendingTiming = { stepId, dwellSeconds, elapsedSeconds, running };
+        return;
+      }
+      if (
+        ring === undefined ||
+        ring === null ||
+        progress === undefined ||
+        progress === null ||
+        stepLine === null ||
+        stepLine === undefined
+      )
+        return;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || dwellSeconds <= 0) {
+        ring.setAttribute("data-ring-hidden", "");
+        countdown?.cancel();
+        countdown = undefined;
+        return;
+      }
+      ring.removeAttribute("data-ring-hidden");
+      const radius = window.matchMedia("(width < 38.75rem)").matches ? 10 : 11;
+      const circumference = 2 * Math.PI * radius;
+      progress.setAttribute("r", String(radius));
+      progress.style.strokeDasharray = String(circumference);
+      const durationMs = dwellSeconds * 1000;
+      if (
+        countdown === undefined ||
+        countdownStepId !== stepId ||
+        countdownDurationMs !== durationMs
+      ) {
+        countdown?.cancel();
+        countdown = progress.animate(
+          [{ strokeDashoffset: String(circumference) }, { strokeDashoffset: "0" }],
+          { duration: durationMs, fill: "both" },
+        );
+        countdownStepId = stepId;
+        countdownDurationMs = durationMs;
+      }
+      countdown.pause();
+      countdown.currentTime = Math.min(Math.max(elapsedSeconds * 1000, 0), durationMs);
+      if (running) countdown.play();
+      stepLine.dataset["stepPlayback"] = running ? "playing" : "paused";
+      if (pauseGlyph !== undefined && pauseGlyph !== null) pauseGlyph.hidden = running;
+    };
     const selectStep = (stepIndex: number): void => {
       const changed = stepIndex !== selectedIndex;
+      const priorCenter = stepLine?.style.getPropertyValue("--chapter-step-current-center") ?? "";
       selectedIndex = stepIndex;
       renderSelectedStep(validatedContract, selectedIndex, changed);
+      if (ring !== undefined && ring !== null && stepLine !== undefined && stepLine !== null) {
+        const nextCenter = stepLine.style.getPropertyValue("--chapter-step-current-center");
+        ring.style.left = nextCenter;
+        if (
+          changed &&
+          priorCenter !== "" &&
+          nextCenter !== "" &&
+          !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ) {
+          const delta = Number.parseFloat(priorCenter) - Number.parseFloat(nextCenter);
+          ringTravel?.cancel();
+          const travel = ring.animate(
+            [{ transform: `translateX(${delta}px)` }, { transform: "translateX(0px)" }],
+            { duration: 160, easing: "ease-in-out" },
+          );
+          ringTravel = travel;
+          void travel.finished
+            .then((): void => {
+              if (ringTravel !== travel) return;
+              ringTravel = undefined;
+              const timing = pendingTiming;
+              pendingTiming = undefined;
+              if (timing !== undefined)
+                setRingTiming(timing.stepId, timing.dwellSeconds, 0, timing.running);
+            })
+            .catch((): void => {
+              if (ringTravel === travel) ringTravel = undefined;
+            });
+        }
+      }
     };
     window.addEventListener("resize", () => selectStep(selectedIndex), {
       signal: lifecycle.signal,
@@ -253,7 +369,19 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
     // A visitor's choice enters on the glass, where the scene listens; the
     // event bubbles back to this root for other chapter observers.
     const chooseStep = (stepIndex: number): void => {
+      if (stepIndex === selectedIndex && stepLine?.dataset["stepPlayback"] === "paused") {
+        const currentStep = validatedContract.steps[stepIndex];
+        if (currentStep !== undefined)
+          root
+            .querySelector("[data-rail-surface-target]")
+            ?.dispatchEvent(
+              createChapterStepEvent(chapterStepResumeRequestedEventName, currentStep.stepId),
+            );
+        return;
+      }
       selectStep(stepIndex);
+      if (stepLine !== null && stepLine !== undefined) stepLine.dataset["stepPlayback"] = "paused";
+      if (pauseGlyph !== undefined && pauseGlyph !== null) pauseGlyph.hidden = false;
       const chosenStep = validatedContract.steps[stepIndex];
       if (chosenStep !== undefined) {
         root
@@ -283,6 +411,14 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
     validatedContract.list.addEventListener(
       "keydown",
       (event: KeyboardEvent): void => {
+        if (
+          (event.key === "Enter" || event.key === " ") &&
+          event.target === validatedContract.steps[selectedIndex]?.selector
+        ) {
+          event.preventDefault();
+          chooseStep(selectedIndex);
+          return;
+        }
         const movement = movementForKey(event.key);
         if (movement === null) {
           return;
@@ -314,6 +450,19 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
       },
       { signal: lifecycle.signal },
     );
+    root.addEventListener(
+      sceneStepTimingEventName,
+      (event: Event): void => {
+        const timing = readSceneStepTiming(event);
+        if (
+          timing === undefined ||
+          timing.stepId !== validatedContract.steps[selectedIndex]?.stepId
+        )
+          return;
+        setRingTiming(timing.stepId, timing.dwellSeconds, timing.elapsedSeconds, timing.running);
+      },
+      { signal: lifecycle.signal },
+    );
   } catch (error: unknown) {
     lifecycle.abort();
     if (contract !== null) {
@@ -327,6 +476,8 @@ export function initializeChapterSteps(root: HTMLElement): ChapterStepsControlle
   return {
     destroy: (): void => {
       lifecycle.abort();
+      countdown?.cancel();
+      ringTravel?.cancel();
       if (contract !== null) {
         renderStaticContract(contract);
       }

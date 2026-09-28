@@ -332,6 +332,75 @@ describe("scene playback", () => {
     playback.dispose();
   });
 
+  it("publishes exact step timing and resumes a paused step on request", () => {
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+    const timing: Array<{
+      stepId: string;
+      dwellSeconds: number;
+      elapsedSeconds: number;
+      running: boolean;
+    }> = [];
+    scene.surface.addEventListener("agentstudio:scene-step-timing", (event: Event): void => {
+      if (event instanceof CustomEvent) timing.push(event.detail);
+    });
+
+    playback.synchronize(1, true);
+    scene.timeline().pause().time(0.5);
+    expect(timing.at(-1)).toMatchObject({
+      stepId: "parallel-agents",
+      dwellSeconds: 1,
+      elapsedSeconds: 0.5,
+      running: false,
+    });
+
+    scene.surface.dispatchEvent(
+      new CustomEvent("agentstudio:chapter-step-requested", {
+        detail: { stepId: "watch-folders" },
+      }),
+    );
+    expect(timing.at(-1)).toMatchObject({ stepId: "watch-folders", running: false });
+    scene.surface.dispatchEvent(
+      new CustomEvent("agentstudio:chapter-step-resume-requested", {
+        detail: { stepId: "watch-folders" },
+      }),
+    );
+    expect(scene.playbackState()).toBe("playing");
+    expect(timing.at(-1)).toMatchObject({ stepId: "watch-folders", running: true });
+    playback.dispose();
+  });
+
+  it("crossfades exactly one inert preview on a manual step jump", async () => {
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+    playback.synchronize(1, true);
+    scene.surface.dispatchEvent(
+      new CustomEvent("agentstudio:chapter-step-requested", {
+        detail: { stepId: "watch-folders" },
+      }),
+    );
+    const previews = scene.surface.querySelectorAll<HTMLElement>("[data-scene-step-preview]");
+    expect(previews).toHaveLength(1);
+    expect(previews[0]?.getAttribute("aria-hidden")).toBe("true");
+    expect(previews[0]?.inert).toBe(true);
+    const previewAnimation = previews[0]?.getAnimations()[0];
+    expect(previewAnimation?.effect?.getTiming()).toMatchObject({ delay: 160, duration: 90 });
+    previewAnimation?.finish();
+    await previewAnimation?.finished;
+    expect(scene.surface.querySelectorAll("[data-scene-step-preview]")).toHaveLength(0);
+    playback.dispose();
+  });
+
   it("leaves the settled markup untouched under reduced motion", () => {
     stubReducedMotion(true);
     const scene = createFakeSceneFixture();
@@ -423,6 +492,7 @@ describe("scene playback", () => {
     if (!(video instanceof HTMLVideoElement)) throw new Error("Proof video is missing");
     let videoPaused = true;
     Object.defineProperty(video, "paused", { configurable: true, get: (): boolean => videoPaused });
+    Object.defineProperty(video, "duration", { configurable: true, get: (): number => 5 });
     const play = vi.spyOn(video, "play").mockImplementation((): Promise<void> => {
       videoPaused = false;
       video.dispatchEvent(new Event("play"));
@@ -437,6 +507,10 @@ describe("scene playback", () => {
       sceneRoot: scene.sceneRoot,
       surface: scene.surface,
     });
+    const proofTiming: Array<{ stepId: string; dwellSeconds: number; elapsedSeconds: number }> = [];
+    scene.surface.addEventListener("agentstudio:scene-step-timing", (event: Event): void => {
+      if (event instanceof CustomEvent) proofTiming.push(event.detail);
+    });
 
     playback.synchronize(1, true);
     expect(play).not.toHaveBeenCalled();
@@ -446,6 +520,8 @@ describe("scene playback", () => {
     vi.advanceTimersByTime(3000);
     expect(scene.playbackState()).toBe("awaiting-replay");
     video.dispatchEvent(new Event("ended"));
+    expect(proofTiming.at(-1)).toMatchObject({ stepId: "watch-folders", dwellSeconds: 9 });
+    expect(proofTiming.at(-1)?.elapsedSeconds).toBeCloseTo(6, 2);
     vi.advanceTimersByTime(3000);
     expect(scene.playbackState()).toBe("playing");
     expect(observeProof(scene.surface).state).toBe("hidden");

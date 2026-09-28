@@ -32,6 +32,7 @@ function createChapterStepsFixture(): HTMLElement {
   const fixture = document.createElement("div");
   fixture.innerHTML = `
     <section data-chapter-steps-root="context-with-task">
+      <div data-chapter-step-line><svg data-chapter-step-ring><circle data-chapter-step-ring-progress /></svg><span data-chapter-step-pause-glyph hidden>❚❚</span><span data-chapter-step-active-label><span data-chapter-step-active-label-text></span></span><svg><path data-chapter-step-branch /></svg></div>
       <div data-chapter-step-list>
         ${stepIds
           .map(
@@ -165,6 +166,38 @@ describe("chapter step tabs", () => {
     expect(requestedSteps).toEqual(["git-context"]);
     expect(receivedAtSurface).toEqual(["git-context"]);
 
+    controller.destroy();
+  });
+
+  it("tracks published dwell progress and resumes the selected paused step", async () => {
+    const root = createChapterStepsFixture();
+    const surface = requiredHtmlElement(root, "[data-rail-surface-target]");
+    const controller = initializeChapterSteps(root);
+    const ring = root.querySelector<SVGSVGElement>("[data-chapter-step-ring]");
+    const progress = root.querySelector<SVGCircleElement>("[data-chapter-step-ring-progress]");
+    if (ring === null || progress === null) throw new Error("Ring fixture missing");
+    const resumed: string[] = [];
+    surface.addEventListener("agentstudio:chapter-step-resume-requested", (event: Event): void => {
+      resumed.push(readChapterStepEventStepId(event) ?? "");
+    });
+    surface.dispatchEvent(
+      new CustomEvent("agentstudio:scene-step-timing", {
+        bubbles: true,
+        detail: { stepId: "task-drawers", dwellSeconds: 4, elapsedSeconds: 2, running: true },
+      }),
+    );
+    expect(ring.hasAttribute("data-ring-hidden")).toBe(false);
+    const countdown = progress.getAnimations()[0];
+    expect(countdown?.currentTime).toBe(2000);
+    expect(countdown?.playState).toBe("running");
+
+    requiredButton(root, '[data-chapter-step="git-context"]').click();
+    expect(root.querySelector("[data-chapter-step-line]")?.getAttribute("data-step-playback")).toBe(
+      "paused",
+    );
+    expect(requiredHtmlElement(root, "[data-chapter-step-pause-glyph]").hidden).toBe(false);
+    requiredButton(root, '[data-chapter-step="git-context"]').click();
+    expect(resumed).toEqual(["git-context"]);
     controller.destroy();
   });
 

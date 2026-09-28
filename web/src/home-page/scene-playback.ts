@@ -1,9 +1,12 @@
 import { gsap } from "gsap";
 
 import { sceneRootAttribute } from "../chapters/chapter-dom-contract";
+import { computeStepDwellSeconds } from "../chapters/chapter-step-dwell";
 import {
   chapterStepRequestedEventName,
+  chapterStepResumeRequestedEventName,
   createChapterStepEvent,
+  createSceneStepTimingEvent,
   readChapterStepEventStepId,
   sceneStepReachedEventName,
 } from "../chapters/chapter-step-events";
@@ -21,7 +24,7 @@ import { combineSurfacePlaybacks, type SurfacePlayback } from "./surface-playbac
 // a video on the page start, stop, and loop at the same scroll positions.
 const startProgress = 0.95;
 const stopProgress = 0.9;
-const replayDelayMs = 3000;
+export const sceneReplayDelayMs = 3000;
 const sceneSeed = 1;
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
@@ -127,6 +130,41 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   let proofVideoIntent: PlaybackIntent = "auto";
   let automaticVideoPlayPending = false;
   let automaticVideoPausePending = false;
+  let activeStepPreview: HTMLElement | undefined;
+  let replayTimerStartedAt: number | undefined;
+  const publishStepTiming = (): void => {
+    const timeline = state.timeline;
+    const stepIndex =
+      sceneModule?.steps.findIndex((step) => step.stepId === state.lastReportedStepId) ?? -1;
+    if (timeline === undefined || sceneModule === undefined || stepIndex < 0) return;
+    const labelTimes = sceneModule.steps.map((step) => timeline.labels[step.timelineLabel] ?? 0);
+    const labelTime = labelTimes[stepIndex] ?? 0;
+    const dwellSeconds =
+      computeStepDwellSeconds({
+        labelTimes,
+        timelineDuration: timeline.duration(),
+        proofSeconds:
+          proofVideo !== null && Number.isFinite(proofVideo.duration) ? proofVideo.duration : 0,
+        replayDelaySeconds: sceneReplayDelayMs / 1000,
+      })[stepIndex] ?? 0;
+    const proofElapsed = state.awaitingReplay
+      ? (state.proofVideoEnded && proofVideo !== null && Number.isFinite(proofVideo.duration)
+          ? proofVideo.duration
+          : (proofVideo?.currentTime ?? 0)) +
+        (replayTimerStartedAt === undefined ? 0 : (performance.now() - replayTimerStartedAt) / 1000)
+      : 0;
+    sceneRoot.dispatchEvent(
+      createSceneStepTimingEvent({
+        stepId: sceneModule.steps[stepIndex]?.stepId ?? "",
+        dwellSeconds,
+        elapsedSeconds: Math.max(0, timeline.time() - labelTime + proofElapsed),
+        running:
+          (state.phase === "playing" && !timeline.paused()) ||
+          (state.phase === "awaiting-replay" &&
+            ((proofVideo !== null && !proofVideo.paused) || state.replayTimer !== undefined)),
+      }),
+    );
+  };
   const pauseProofVideoAutomatically = (): void => {
     if (proofVideo === null || proofVideo.paused || proofVideoIntent === "manual-play") return;
     automaticVideoPausePending = true;
@@ -172,6 +210,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.phase = phase;
     sceneRoot.dataset["scenePlaybackState"] = phase;
     proofLayer.render(proofBelongsToPhase(phase), proofTransition);
+    publishStepTiming();
     if (phase === "awaiting-replay") {
       if (state.autoplayEnabled && state.latestProgress >= startProgress)
         playProofVideoAutomatically();
@@ -195,6 +234,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     }
     state.lastReportedStepId = stepId;
     sceneRoot.dispatchEvent(createChapterStepEvent(sceneStepReachedEventName, stepId));
+    publishStepTiming();
   };
 
   const clearReplayTimer = (): void => {
@@ -203,9 +243,11 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     }
     window.clearTimeout(state.replayTimer);
     state.replayTimer = undefined;
+    replayTimerStartedAt = undefined;
   };
 
   const settle = (): void => {
+    const priorStepId = state.lastReportedStepId;
     clearReplayTimer();
     state.timeline?.revert();
     state.timeline = undefined;
@@ -214,6 +256,16 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.lastReportedStepId = undefined;
     state.suspendedWhileHidden = false;
     renderPhase("settled");
+    if (priorStepId !== undefined) {
+      sceneRoot.dispatchEvent(
+        createSceneStepTimingEvent({
+          stepId: priorStepId,
+          dwellSeconds: 0,
+          elapsedSeconds: 0,
+          running: false,
+        }),
+      );
+    }
   };
 
   const handleTimelineComplete = (): void => {
@@ -250,6 +302,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     }
     timeline.eventCallback("onUpdate", (): void => {
       reportStep(findStepAtTime(sceneModule, timeline));
+      publishStepTiming();
     });
     timeline.eventCallback("onComplete", handleTimelineComplete);
     state.timeline = timeline;
@@ -316,8 +369,10 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     ) {
       return;
     }
+    replayTimerStartedAt = performance.now();
     state.replayTimer = window.setTimeout((): void => {
       state.replayTimer = undefined;
+      replayTimerStartedAt = undefined;
       if (
         !state.autoplayEnabled ||
         state.intent !== "auto" ||
@@ -326,7 +381,8 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
         return;
       }
       playAutomatically();
-    }, replayDelayMs);
+    }, sceneReplayDelayMs);
+    publishStepTiming();
   };
 
   const playManually = (timeline: SceneTimeline): void => {
@@ -340,6 +396,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   proofVideo?.addEventListener(
     "play",
     (): void => {
+      publishStepTiming();
       if (automaticVideoPlayPending) {
         automaticVideoPlayPending = false;
         return;
@@ -351,6 +408,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   proofVideo?.addEventListener(
     "pause",
     (): void => {
+      publishStepTiming();
       if (automaticVideoPausePending) {
         automaticVideoPausePending = false;
         return;
@@ -359,6 +417,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     },
     { signal: lifecycle.signal },
   );
+  proofVideo?.addEventListener("loadedmetadata", publishStepTiming, { signal: lifecycle.signal });
   proofVideo?.addEventListener(
     "ended",
     (): void => {
@@ -417,6 +476,45 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     if (step === undefined || timeline === undefined) {
       return;
     }
+    activeStepPreview?.remove();
+    activeStepPreview = undefined;
+    if (!motionPreference.matches && sceneRoot.getAttribute("aria-hidden") !== "true") {
+      const preview = sceneRoot.cloneNode(true);
+      const parent = sceneRoot.parentElement;
+      if (preview instanceof HTMLElement && parent !== null) {
+        const sceneBounds = sceneRoot.getBoundingClientRect();
+        const parentBounds = parent.getBoundingClientRect();
+        preview.removeAttribute(sceneRootAttribute);
+        preview.dataset["sceneStepPreview"] = "";
+        preview.setAttribute("aria-hidden", "true");
+        preview.inert = true;
+        Object.assign(preview.style, {
+          position: "absolute",
+          left: `${sceneBounds.left - parentBounds.left}px`,
+          top: `${sceneBounds.top - parentBounds.top}px`,
+          width: `${sceneBounds.width}px`,
+          height: `${sceneBounds.height}px`,
+          pointerEvents: "none",
+          zIndex: "3",
+        });
+        parent.append(preview);
+        activeStepPreview = preview;
+        const fade = preview.animate([{ opacity: 1 }, { opacity: 0 }], {
+          delay: 160,
+          duration: 90,
+          fill: "forwards",
+        });
+        void fade.finished
+          .then((): void => {
+            preview.remove();
+            if (activeStepPreview === preview) activeStepPreview = undefined;
+          })
+          .catch((): void => {
+            preview.remove();
+            if (activeStepPreview === preview) activeStepPreview = undefined;
+          });
+      }
+    }
     // A step chosen during the proof beat drops the proof at once, then seeks.
     proofLayer.render(false, "instant");
     clearReplayTimer();
@@ -428,8 +526,21 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     reportStep(step.stepId);
   };
 
+  const handleStepResumeRequest = (event: Event): void => {
+    const stepId = readChapterStepEventStepId(event);
+    if (stepId !== state.lastReportedStepId || state.intent !== "manual-pause") return;
+    const timeline = state.timeline;
+    if (timeline === undefined) return;
+    state.intent = "auto";
+    timeline.play();
+    renderPhase("playing");
+  };
+
   toggle?.addEventListener("click", handleToggle, { signal: lifecycle.signal });
   surface.addEventListener(chapterStepRequestedEventName, handleStepRequest, {
+    signal: lifecycle.signal,
+  });
+  surface.addEventListener(chapterStepResumeRequestedEventName, handleStepResumeRequest, {
     signal: lifecycle.signal,
   });
   renderPhase("settled", "instant");
@@ -437,6 +548,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   return {
     dispose: (): void => {
       lifecycle.abort();
+      activeStepPreview?.remove();
       settle();
     },
     synchronize: (progress: number, autoplayEnabled: boolean): void => {

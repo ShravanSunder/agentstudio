@@ -128,6 +128,29 @@ function composed(fixture: TopologyPageFixture): TopologyComposition {
 }
 
 describe("step line attachment", () => {
+  it("uses the main accent for a lane feeding a step line and its attach branch", () => {
+    const fixture = homePageAt(1600);
+    const chapter = fixture.page.anchors[1];
+    if (chapter?.surface === undefined) throw new Error("First chapter glass is missing");
+    const stepLine = rect(chapter.surface.left + 54, chapter.rect.top + 40, 300, 40);
+    const anchors = fixture.page.anchors.map((anchor, index) =>
+      index === 1 ? { ...anchor, stepLine } : anchor,
+    );
+    const composition = composeFullPageTopology({ ...fixture.page, anchors });
+    const attach = composition?.routes.find((route) => route.anchorId === chapter.id);
+    const sourceLane = composition?.routes.find(
+      (route) => route.kind === "worktree" && route.column === attach?.parentColumn,
+    );
+    expect(attach?.parentColumn).toBeGreaterThan(0);
+    expect(sourceLane?.accent).toBe("main");
+    expect(attach?.accent).toBe("main");
+    expect(attach?.sourceAccent).toBeUndefined();
+    expect(
+      composed(fixture).routes.some(
+        (route) => route.kind === "worktree" && route.accent !== "main",
+      ),
+    ).toBe(true);
+  });
   it("keeps the title chapter dot when the desktop step line follows its title", () => {
     const fixture = homePageAt(1600);
     const firstChapter = fixture.page.anchors[1];
@@ -641,6 +664,7 @@ describe("composed topology", () => {
         openRow: 1,
         endRow: 29,
         lastAttachRow: 20,
+        stepLineYs: [],
       });
       expect(plan?.lanes.map((lane) => lane.mergeRow)).toEqual(
         Array.from({ length: laneCount }, (_, index) => 29 - index),
@@ -658,6 +682,7 @@ describe("composed topology", () => {
       openRow: 1,
       endRow: 10,
       lastAttachRow: 8,
+      stepLineYs: [],
     });
     expect(plan).toBeUndefined();
   });

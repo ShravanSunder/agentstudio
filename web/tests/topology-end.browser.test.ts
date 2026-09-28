@@ -51,6 +51,8 @@ describe("where the rail ends on the home page", () => {
     expect(observation.reducedMotionLogoOpacity).toBe("1");
     expect(observation.pointerSkipState).toBe("settled");
     expect(observation.resizeSettleState).toBe("settled");
+    expect(observation.narrowTitleFontSize).toBeLessThan(36);
+    expect(observation.narrowHeadingOverflow).toBeLessThanOrEqual(0);
   });
   it("ends at the Star button after the lanes close below the final glass", async () => {
     const observations = await commands.verifyTopologyEnd(
@@ -58,6 +60,26 @@ describe("where the rail ends on the home page", () => {
       [390, 1280, 1920],
     );
     for (const observation of observations) {
+      expect(
+        Math.abs(observation.stageLeft - observation.pillLeft),
+        `${observation.width}px icon`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.titleLeft - observation.stageRight - observation.titleFontSize * 0.25),
+        `${observation.width}px title gap`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.noteLeft - observation.pillLeft),
+        `${observation.width}px note`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.stageCenterY - observation.titleCenterY),
+        `${observation.width}px row`,
+      ).toBeLessThanOrEqual(2);
+      expect(
+        Math.abs(observation.stageHeight - observation.titleLineHeight),
+        `${observation.width}px stage height`,
+      ).toBeLessThanOrEqual(2);
       expect(observation.pathData.length, String(observation.width)).toBeGreaterThan(0);
       for (const path of observation.pathData) {
         expect(sharpCornerCount(path.d), `${observation.width}px ${path.kind}: ${path.d}`).toBe(0);

@@ -72,6 +72,8 @@ export interface ChapterGlassLayoutObservation {
   readonly captionTextColor: string;
   readonly captionIconCount: number;
   readonly pillMaterialMatchesHeader: boolean;
+  readonly stepLineBackdrop: string;
+  readonly activeLabelDotCount: number;
   /** Elements in the chapter measured for autoplay centring, and whether the one is the stage. */
   readonly playbackStageCount: number;
   readonly playbackStageIsStage: boolean;
@@ -122,6 +124,7 @@ export const verifySingleStepChapter = defineBrowserCommand(
     const applicationPage = await context.newPage();
     try {
       await openChapter(applicationPage, request);
+      await applicationPage.waitForSelector('.site-header[data-visual-state="floating"]');
       await applicationPage.waitForSelector(
         `[data-route-kind="attach"][data-route-anchor="${request.chapterId}"]`,
         { state: "attached" },
@@ -343,6 +346,8 @@ function readGlassLayout(chapterId: string): ChapterGlassLayoutObservation {
       pillMaterial.background === headerMaterial.background &&
       pillMaterial.borderColor === headerMaterial.borderColor &&
       pillMaterial.backdropFilter === headerMaterial.backdropFilter,
+    stepLineBackdrop: getComputedStyle(pill).backdropFilter,
+    activeLabelDotCount: pill.querySelectorAll(".chapter-step-active-label__dot").length,
     playbackStageCount: playbackStages.length,
     playbackStageIsStage: playbackStages[0] === stage,
     branchEndpoint: { x: endpoint.x, y: endpoint.y },

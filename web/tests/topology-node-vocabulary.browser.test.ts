@@ -80,11 +80,13 @@ describe("topology node vocabulary on the home page", () => {
       expect(chapter.glyph.fill).toBe(result.canvasColor);
     }
 
-    // Attach branches keep their lane-weight gradient and end on the glass
-    // edge with no port circle.
+    // Attach branches keep their lane weight and end on the target edge
+    // with no extra node. Step-line ports join their blue lane without a gradient.
     expect(result.ports.length).toBeGreaterThan(0);
-    const fromWorktree = result.ports.filter((port) => port.source !== "main");
-    expect(fromWorktree.length).toBeGreaterThan(0);
+    const fromWorktree = result.ports.filter((port) => !port.stepLine && port.source !== "main");
+    const stepLinePorts = result.ports.filter((port) => port.stepLine);
+    expect(result.stepLineCount).toBeGreaterThan(0);
+    expect(stepLinePorts).toHaveLength(result.stepLineCount);
     for (const port of result.ports) {
       expect(port.strokeWidth).toBe(port.terminal ? "2px" : port.laneStrokeWidth);
       expect(port.nodeCount).toBe(0);
@@ -93,6 +95,11 @@ describe("topology node vocabulary on the home page", () => {
     for (const port of fromWorktree) {
       expect(port.stroke).toMatch(/^url\("?#topology-port-gradient-/u);
       expect(port.firstStopColor).toBe(port.sourceLaneStroke);
+    }
+    for (const port of stepLinePorts) {
+      expect(port.sourceLaneStroke).toBeDefined();
+      expect(port.stroke).toBe(port.sourceLaneStroke);
+      expect(port.firstStopColor).toBeUndefined();
     }
   });
 });

@@ -48,6 +48,7 @@ export function planWorktreeLanes(props: {
   readonly openRow: number;
   readonly endRow: number;
   readonly lastAttachRow: number;
+  readonly stepLineYs: readonly number[];
 }): LanePlan | undefined {
   const laneCount = props.laneXs.length;
   if (laneCount === 0) {
@@ -63,6 +64,9 @@ export function planWorktreeLanes(props: {
     return undefined;
   }
   const lanes: WorktreeLane[] = [];
+  const stepLineForkRows = props.stepLineYs.map(
+    (stepLineY) => props.rowYs.findIndex((rowY) => Math.abs(rowY - stepLineY) <= 0.5) - 1,
+  );
   const reserved = new Map<number, Omit<TopologyRowDot, "row" | "y">>();
   for (let laneIndex = 0; laneIndex < laneCount; laneIndex += 1) {
     const column = laneIndex + 1;
@@ -78,7 +82,12 @@ export function planWorktreeLanes(props: {
       x: props.laneXs[laneIndex] ?? props.mainlineX,
       parentId: parent?.id ?? mainlineOwnerId,
       parentX: parent?.x ?? props.mainlineX,
-      accent: worktreeAccents[laneIndex % worktreeAccents.length] ?? "peach",
+      accent: stepLineForkRows.some(
+        (stepLineForkRow) =>
+          stepLineForkRow > forkRow && stepLineForkRow < mergeRow && laneIndex === laneCount - 1,
+      )
+        ? "main"
+        : (worktreeAccents[laneIndex % worktreeAccents.length] ?? "peach"),
       forkRow,
       mergeRow,
     };

@@ -26,11 +26,12 @@ export interface TopologyGlyphObservation {
 
 /** One port's line, read with its real styles. */
 export interface TopologyPortObservation {
+  readonly stepLine: boolean;
   readonly source: string;
   readonly terminal: boolean;
   readonly strokeWidth: string;
   readonly laneStrokeWidth: string;
-  /** The computed `stroke`: a `url(#…)` gradient reference when the port leaves a worktree lane. */
+  /** The computed stroke, including a gradient reference for non-step worktree ports. */
   readonly stroke: string;
   readonly firstStopColor: string | undefined;
   /** The computed stroke of the lane the port leaves. */
@@ -45,6 +46,7 @@ export interface TopologyNodeVocabularyResult {
   readonly beforeReveal: readonly TopologyGlyphObservation[];
   readonly afterReveal: readonly TopologyGlyphObservation[];
   readonly ports: readonly TopologyPortObservation[];
+  readonly stepLineCount: number;
   readonly routeFilters: readonly string[];
 }
 
@@ -81,9 +83,16 @@ function readPorts(): TopologyPortObservation[] {
         ? Math.abs(endpoint.y - bounds.top)
         : Math.abs(endpoint.x - bounds.left);
     const source = group.dataset["routeSource"] ?? "";
+    const stepLine =
+      document.querySelector(`[data-rail-step-line-target="${anchorId ?? ""}"]`) !== null;
     const firstStop = group.querySelector("[data-topology-port-gradient] stop");
-    const sourceLane = laneCore(source);
+    const sourceLane = stepLine
+      ? artwork.querySelector<SVGPathElement>(
+          `[data-route-kind="worktree"][data-route-column="${group.dataset["routeParentColumn"] ?? ""}"] > [data-topology-path-role="core"]`,
+        )
+      : laneCore(source);
     return {
+      stepLine,
       source,
       terminal: group.hasAttribute("data-topology-terminal-route"),
       strokeWidth: getComputedStyle(core).strokeWidth,
@@ -201,7 +210,18 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
         };
       });
       const ports = await applicationPage.evaluate(readPorts);
-      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports, routeFilters };
+      const stepLineCount = await applicationPage.evaluate(
+        () => document.querySelectorAll("[data-rail-step-line-target]").length,
+      );
+      return {
+        canvasColor,
+        primaryColor,
+        beforeReveal,
+        afterReveal,
+        ports,
+        stepLineCount,
+        routeFilters,
+      };
     } finally {
       await applicationPage.close();
     }

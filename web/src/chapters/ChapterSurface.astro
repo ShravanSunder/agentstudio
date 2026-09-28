@@ -85,12 +85,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
 <script>
   import { initializeChapterSteps } from "./chapter-step-controller";
 
-  // TEMPORARY A/B: remove the losing step-control variant after the owner picks.
-  const stepControlVariant = new URLSearchParams(window.location.search).get("steps") === "capsule"
-    ? "capsule"
-    : "line";
   for (const root of document.querySelectorAll<HTMLElement>("[data-chapter-steps-root]")) {
-    root.dataset["stepControlVariant"] = stepControlVariant;
     if (root.querySelector("[data-chapter-step-list]") !== null) {
       initializeChapterSteps(root);
     }

@@ -212,6 +212,11 @@ export function composeFullPageTopology(
       }),
       endRow: closingEndRow,
       lastAttachRow: terminalAnchor === undefined ? (anchorRows.at(-1) ?? 0) : lastGlassRow,
+      stepLineYs: page.anchors.flatMap((anchor) =>
+        anchor.stepLine === undefined || anchor.surface === undefined
+          ? []
+          : [topologyRectCenterY(anchor.stepLine)],
+      ),
     });
     const heroTop = firstAnchor?.surface?.top;
     const heroForkRow = heroTop === undefined ? -1 : rowYs.findLastIndex((rowY) => rowY < heroTop);

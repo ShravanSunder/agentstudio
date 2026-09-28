@@ -143,7 +143,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       attachRoutes.push({
         id: `attach-${anchor.id}`,
         kind: "attach",
-        accent: "port",
+        accent: "main",
         pathData: leftEdgePortPath(source.x, attachX, forkY, centerY),
         parentColumn: source.column,
         column: source.column + 1,
@@ -152,7 +152,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
         anchorId: anchor.id,
         targetEdge: "left",
         targetPoint: { x: attachX, y: centerY },
-        sourceAccent: source.accent,
+        sourceAccent: undefined,
       });
       continue;
     }
