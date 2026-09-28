@@ -32,6 +32,7 @@ extension WebKitSerializedTests {
 
         enum LiveProofError: Error {
             case appDidNotMount
+            case workerReinstalledDuringHappyPath
             case initialReviewPublicationMissing
             case successorReviewPublicationMissing
         }

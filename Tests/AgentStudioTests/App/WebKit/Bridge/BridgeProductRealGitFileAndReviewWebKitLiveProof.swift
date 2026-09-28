@@ -24,10 +24,17 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         sourceOracle: LiveSourceOracle,
         traceRecorder: BridgeProductWebKitCarrierTraceRecorder
     ) async throws -> BridgeProductWebKitCarrierRunResult<LiveProof> {
-        try await BridgeProductWebKitCarrierTestSupport
+        guard let initialInstallation = await controller.productSessionOwner.activeInstallation else {
+            throw LiveProofError.appDidNotMount
+        }
+        let initialWorkerInstanceId = initialInstallation.bootstrap.workerInstanceId
+        return
+            try await BridgeProductWebKitCarrierTestSupport
             .withHostedController(controller) { hostedController in
                 hostedController.loadApp()
-                let installation = try await waitForLiveShell(hostedController)
+                guard try await waitForLiveShell(hostedController) else {
+                    throw LiveProofError.appDidNotMount
+                }
                 let reviewState = try await collectLiveReviewState(
                     hostedController,
                     sourceOracle: sourceOracle,
@@ -37,6 +44,12 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     hostedController,
                     sourceOracle: sourceOracle
                 )
+                guard let installation = await hostedController.productSessionOwner.activeInstallation,
+                    await installation.session.waitUntilActive()
+                else { throw LiveProofError.appDidNotMount }
+                guard installation.bootstrap.workerInstanceId == initialWorkerInstanceId else {
+                    throw LiveProofError.workerReinstalledDuringHappyPath
+                }
                 guard await installation.session.waitUntilControlReplayIdle()
                 else { throw LiveProofError.appDidNotMount }
                 let nativeCompletionSnapshot = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(
@@ -59,17 +72,14 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
     private func waitForLiveShell(
         _ controller: BridgePaneController
-    ) async throws -> BridgeProductSessionInstallation {
+    ) async throws -> Bool {
         await WebPageEventWaits.waitForNavigationToFinish(controller.page)
         try await WebPageEventWaits.waitForDocumentSelector(
             controller.page,
             "[data-testid=\"bridge-app-root\"]"
         )
         await WebPageEventWaits.waitForBridgeReady(controller)
-        guard let installation = await controller.productSessionOwner.activeInstallation,
-            await installation.session.waitUntilActive()
-        else { throw LiveProofError.appDidNotMount }
-        return installation
+        return controller.isBridgeReady
     }
 
     private func collectLiveReviewState(
