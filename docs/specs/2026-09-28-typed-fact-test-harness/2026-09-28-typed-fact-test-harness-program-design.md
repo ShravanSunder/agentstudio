@@ -57,12 +57,14 @@ package enum FactSourceEvent<Scope: Hashable & Sendable, Fact: Sendable>: Sendab
 package final class LocalFactSource<Scope: Hashable & Sendable, Fact: Sendable>: Sendable {
     package init(vocabulary: FactVocabulary<Scope, Fact>)
     package var sink: @Sendable (Scope, Fact) -> Void { get }  // bounded synchronous enqueue, matches owner signature
-    package func attach() -> FactRecorder<Scope, Fact>          // ready on return; a second attach traps as misuse
+    package func attach() throws -> FactRecorder<Scope, Fact>   // ready on return; a second attach throws FactSourceAlreadyAttached
 }
 
 /// What a recorder owns to stop its source; `finish()` calls it. Local: end + detach sink. Bus: cancel subscription + join.
 package protocol FactSourceHandle: Sendable {
     func stop() async
+    /// Returns once every fact the source had accepted at the call is appended to the recorder. Local: immediate. Bus: awaits the collector up to the checkpoint's enqueuedCount.
+    func settleEnqueued() async
 }
 
 package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Sendable {
@@ -70,7 +72,7 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
         where Fact: Equatable
     package func expectNext(in scope: Scope, where matches: @Sendable (Fact) -> Bool, _ description: String,
                             fileID: String = #fileID, line: Int = #line, function: String = #function) async throws -> Fact
-    package func mark(_ scope: Scope) -> OpeningPosition<Scope>     // bound to this recorder + scope; taken before the stimulus
+    package func mark(_ scope: Scope) async -> OpeningPosition<Scope>  // awaits settleEnqueued, then records; bound to recorder + scope
     package func expectNone(of forbidden: @Sendable (Fact) -> Bool, _ description: String,
                             from opening: OpeningPosition<Scope>, closedBy expectedClose: @Sendable (Fact) -> Bool,
                             fileID: String = #fileID, line: Int = #line, function: String = #function) async throws
@@ -80,7 +82,7 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
 
 - **Consumption and history.** The recorder keeps the full append-only history for its lifetime. It's test-scoped, so memory is bounded by the scenario. Each scope has one cursor, and cursors only move forward. `expectNone` reads history from its opening position without moving any other expectation's cursor. It then advances the scope's cursor past the close, never backwards.
 - **Terminal classification.** `FactVocabulary.isClosing` is the only definition of a closing fact, and it's used everywhere. In `expectNext`, a fact arriving in a scope after that scope's close fails with `FactAfterClose`. `expectNone` requires the first closing fact after the opening position both to satisfy `isClosing` and to match `expectedClose`: a different close, such as another generation's, fails. `finish()` reports duplicate closes.
-- **Opening-position linearization.** `mark` records the scope's current history index under the same lock the sink appends under, so every fact enqueued before `mark` is ordered before the interval. For the bus source, `mark` first awaits delivery of everything the subscription had enqueued at that moment: it uses the `EventBusDeliveryCheckpoint.enqueuedCount` read at `mark` as the boundary, and facts with a lower sequence count as before the interval.
+- **Opening-position linearization.** `mark` is `async` for every source. It first awaits `FactSourceHandle.settleEnqueued()`, then records the scope's current history index under the same lock the sink appends under. So every fact the source had accepted before `mark` is ordered before the interval. A local source settles immediately, because its sink appends synchronously. A bus source awaits its collector until it has appended everything up to the `EventBusDeliveryCheckpoint.enqueuedCount` read at the call.
 - **Call sites without `Testing`.** The harness depends only on the standard library, Foundation and Synchronization (`testing_architecture.md` §Test target ownership), so expectations capture `#fileID`, `#line` and `#function`, as `HeldStep` already does. They never use `Testing.SourceLocation`.
 - **Failures** are thrown errors: `UnexpectedFact`, `SourceEnded`, `FactsLost`, `Cancelled`, `ConcurrentExpectation`, `DuplicateClose`, `FactAfterClose`. Each names the expected fact, the actual fact, the scope and the call site.
 - **Cancellation.** The waiter is registered and cancelled under one lock, with exactly-once settlement; it's removed before being resumed.
@@ -105,7 +107,7 @@ The claim: while a status fetch for W is held, a deadline for W that fires is **
 let source = LocalFactSource(vocabulary: .projector)
 let provider = HeldStep<Void>("status provider")                      // the real dependency, held
 let projector = makeProjector(statusProvider: provider.gatedProvider, factSink: source.sink, clock: clock)
-let facts = source.attach()                                           // ready before any stimulus
+let facts = try source.attach()                                         // ready before any stimulus
 let fetch = ProjectorScope.refresh(worktree: W, generation: 1)
 let evaluation = ProjectorScope.deadline(worktree: W, generation: 1)
 
@@ -113,7 +115,7 @@ await projector.enqueue(change)                                       // act
 try await facts.expectNext(in: fetch, .refreshAdmitted)
 _ = try await provider.firstArrival()                                 // the fetch really reached the provider and is held
 try await facts.expectNext(in: evaluation, .deadlineRegistered)
-let opening = facts.mark(evaluation)
+let opening = await facts.mark(evaluation)
 clock.advance(by: interval)
 try await facts.expectNone(of: { $0 == .deadlineDisposition(.admitted) }, "second fetch admitted while one is held",
                            from: opening, closedBy: { $0 == .deadlineDisposition(.deferred) })
