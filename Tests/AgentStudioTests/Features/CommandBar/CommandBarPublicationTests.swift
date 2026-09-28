@@ -73,6 +73,7 @@ struct CommandBarPublicationTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hostingView
         window.makeKeyAndOrderFront(nil)
         defer {
