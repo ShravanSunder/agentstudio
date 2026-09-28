@@ -18,6 +18,61 @@ export interface SiteFooterResponsiveLayoutResult {
   readonly narrow: FooterLayoutState;
 }
 
+export interface FooterEndRoomObservation {
+  readonly width: number;
+  readonly bottomPadding: number;
+  readonly blankBelowCredits: number;
+  readonly finaleState: string | undefined;
+  readonly endReached: boolean;
+}
+
+export const verifyFooterEndRoom = defineBrowserCommand(
+  async (
+    { context },
+    pageUrl: string,
+    widths: readonly number[],
+  ): Promise<FooterEndRoomObservation[]> => {
+    const results: FooterEndRoomObservation[] = [];
+    for (const width of widths) {
+      const page = await context.newPage();
+      try {
+        await page.setViewportSize({
+          width,
+          height: width === 390 ? 844 : width === 1280 ? 800 : 1080,
+        });
+        await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+        await page.evaluate(() => window.dispatchEvent(new WheelEvent("wheel")));
+        await page.locator('[data-hero-intro-state="settled"]').waitFor();
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await page.locator("[data-topology-end-reached]").waitFor();
+        results.push(
+          await page.evaluate(() => {
+            const credits = document.querySelector<HTMLElement>(
+              'footer nav[aria-label="Product credits and links"]',
+            );
+            const footer = credits?.closest<HTMLElement>("footer");
+            const finale = document.querySelector<HTMLElement>("[data-finale-root]");
+            if (credits === null || footer === null || footer === undefined || finale === null)
+              throw new Error("Footer end-room proof markup is missing");
+            return {
+              width: innerWidth,
+              bottomPadding: Number.parseFloat(getComputedStyle(footer).paddingBottom),
+              blankBelowCredits:
+                document.documentElement.scrollHeight -
+                (credits.getBoundingClientRect().bottom + scrollY),
+              finaleState: finale.dataset["finaleState"],
+              endReached: document.querySelector("[data-topology-end-reached]") !== null,
+            };
+          }),
+        );
+      } finally {
+        await page.close();
+      }
+    }
+    return results;
+  },
+);
+
 export const verifySiteFooterResponsiveLayout = defineBrowserCommand(
   async ({ context }, pageUrl: string): Promise<SiteFooterResponsiveLayoutResult> => {
     const applicationPage = await context.newPage();

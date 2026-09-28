@@ -64,13 +64,11 @@ const terminalRailAttributes = {
 </section>
 
 <script>
-  import { initializeInstallCommand } from "@/install-command/install-command-controller";
   import { initializeFinaleBookend } from "@/finale-bookend/finale-bookend-playback";
 
   const root = document.querySelector<HTMLElement>("[data-finale-root]");
   const pill = root?.querySelector<HTMLElement>("[data-finale-split-pill]");
   if (root !== null && root !== undefined && pill !== null && pill !== undefined) {
-    initializeInstallCommand(pill);
     initializeFinaleBookend(root);
   }
 </script>

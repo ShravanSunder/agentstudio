@@ -7,6 +7,8 @@ interface InstallCommandControllerElements {
   readonly status: HTMLElement;
 }
 
+const activeInstallControllers = new WeakMap<HTMLElement, () => void>();
+
 function unexpectedInstallCommandState(state: never): never {
   throw new Error(`Unexpected install command state: ${JSON.stringify(state)}`);
 }
@@ -37,6 +39,8 @@ function resolveControllerElements(root: HTMLElement): InstallCommandControllerE
 }
 
 export function initializeInstallCommand(root: HTMLElement): () => void {
+  const existingDispose = activeInstallControllers.get(root);
+  if (existingDispose !== undefined) return existingDispose;
   const { button, code, status } = resolveControllerElements(root);
   const lifecycle = new AbortController();
   let state: InstallCommandState = { kind: "idle" };
@@ -115,9 +119,14 @@ export function initializeInstallCommand(root: HTMLElement): () => void {
     { signal: lifecycle.signal },
   );
 
-  return (): void => {
+  const dispose = (): void => {
     if (feedbackResetTimer !== undefined) window.clearTimeout(feedbackResetTimer);
     resizeObserver.disconnect();
     lifecycle.abort();
+    root.removeAttribute("data-install-command-initialized");
+    activeInstallControllers.delete(root);
   };
+  root.setAttribute("data-install-command-initialized", "");
+  activeInstallControllers.set(root, dispose);
+  return dispose;
 }

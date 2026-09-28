@@ -42,6 +42,7 @@ describe("where the rail ends on the home page", () => {
     expect(observation.starText).toContain(marketingCopy.finalCallToAction.starOnGitHub);
     expect(observation.copyText).toContain(marketingCopy.finalCallToAction.copyInstall);
     expect(observation.copiedText).toBe(installCommandText);
+    expect(observation.copyCount).toBe(1);
     expect(observation.copiedLabel).toBe(marketingCopy.finalCallToAction.copiedInstall);
     expect(observation.phoneOneRow).toBe(true);
     expect(observation.phoneShortLabels).toBe(true);

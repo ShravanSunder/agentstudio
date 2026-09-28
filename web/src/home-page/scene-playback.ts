@@ -132,6 +132,12 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   let automaticVideoPausePending = false;
   let activeStepPreview: HTMLElement | undefined;
   let replayTimerStartedAt: number | undefined;
+  const endFailedProofBeat = (): void => {
+    automaticVideoPlayPending = false;
+    if (!state.awaitingReplay || proofVideoIntent !== "auto") return;
+    state.proofVideoEnded = true;
+    replayIfEligible();
+  };
   const publishStepTiming = (): void => {
     const timeline = state.timeline;
     const stepId = state.lastReportedStepId;
@@ -165,9 +171,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     )
       return;
     automaticVideoPlayPending = true;
-    void proofVideo.play().catch((): void => {
-      automaticVideoPlayPending = false;
-    });
+    void proofVideo.play().catch(endFailedProofBeat);
   };
   const resetProofVideo = (): void => {
     if (proofVideo === null) return;
@@ -406,6 +410,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     { signal: lifecycle.signal },
   );
   proofVideo?.addEventListener("loadedmetadata", publishStepTiming, { signal: lifecycle.signal });
+  proofVideo?.addEventListener("error", endFailedProofBeat, { signal: lifecycle.signal });
   proofVideo?.addEventListener(
     "ended",
     (): void => {

@@ -58,6 +58,7 @@ export interface FinaleBookendObservation {
   readonly starText: string;
   readonly copyText: string;
   readonly copiedText: string;
+  readonly copyCount: number;
   readonly copiedLabel: string;
   readonly phoneOneRow: boolean;
   readonly phoneShortLabels: boolean;
@@ -169,8 +170,10 @@ export const verifyFinaleBookend = defineBrowserCommand(
         topologyEndEventCount?: number;
         finaleControl?: { pause(): void; seek(seconds: number): void };
         copiedInstall?: string;
+        copyCount?: number;
       };
       proofWindow.topologyEndEventCount = 0;
+      proofWindow.copyCount = 0;
       document.addEventListener("topology-end-reached", () => {
         const pageWindow = window as Window & { topologyEndEventCount?: number };
         pageWindow.topologyEndEventCount = (pageWindow.topologyEndEventCount ?? 0) + 1;
@@ -184,6 +187,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
         configurable: true,
         value: {
           writeText: (value: string): Promise<void> => {
+            proofWindow.copyCount = (proofWindow.copyCount ?? 0) + 1;
             proofWindow.copiedInstall = value;
             return Promise.resolve();
           },
@@ -206,6 +210,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
           topologyEndEventCount?: number;
           finaleControl?: { pause(): void; seek(seconds: number): void };
           copiedInstall?: string;
+          copyCount?: number;
         };
         const root = document.querySelector<HTMLElement>("[data-finale-root]");
         const button = document.querySelector<HTMLAnchorElement>("[data-final-star-button]");
@@ -300,6 +305,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
           starText,
           copyText,
           copiedText: proofWindow.copiedInstall ?? "",
+          copyCount: proofWindow.copyCount ?? 0,
           copiedLabel:
             [...copy.querySelectorAll<HTMLElement>("[data-install-copy-feedback]")].find(
               (label) => getComputedStyle(label).display !== "none",

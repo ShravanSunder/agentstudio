@@ -29,7 +29,10 @@ import { verifyHeroIntroFinale } from "./tests/hero-intro-finale-browser-command
 import { verifyInstallCommandLayout } from "./tests/install-command-layout-browser-command.ts";
 import { verifyRailViewportBands } from "./tests/rail-band-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
-import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
+import {
+  verifyFooterEndRoom,
+  verifySiteFooterResponsiveLayout,
+} from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
 import { verifyFinaleBookend, verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
@@ -87,6 +90,7 @@ export default defineConfig({
               verifySingleStepChapter,
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,
+              verifyFooterEndRoom,
               verifySiteHeaderScrollStability,
               verifyTopologyEnd,
               verifyFinaleBookend,

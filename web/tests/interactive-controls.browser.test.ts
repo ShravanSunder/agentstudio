@@ -254,6 +254,29 @@ describe("interactive website controllers", () => {
     dispose();
   });
 
+  it("initializes a shared install root once and copies once per click", async () => {
+    const fixture = addFixture(`
+      <div data-install-command="brew install --cask agent-studio" data-install-copied-label="Copied ✓">
+        <code data-install-code>brew install --cask agent-studio</code>
+        <button data-install-copy><span data-install-copy-feedback>Copy</span></button>
+        <span data-install-status></span>
+      </div>
+    `);
+    const root = requiredHtmlElement(fixture, "[data-install-command]");
+    const status = requiredHtmlElement(root, "[data-install-status]");
+    const label = requiredHtmlElement(root, "[data-install-copy-feedback]");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const firstDispose = initializeInstallCommand(root);
+    const secondDispose = initializeInstallCommand(root);
+    const copiedStatus = nextTextMutation(status, marketingCopy.installation.copiedStatus);
+    requiredButton(root, "[data-install-copy]").click();
+    await copiedStatus;
+    expect(secondDispose).toBe(firstDispose);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(label.textContent).toBe("Copied ✓");
+    secondDispose();
+  });
+
   it("reports copy failure when the Clipboard API is unavailable", async () => {
     const fixture = addFixture(`
       <div data-install-root data-install-command="brew install --cask agent-studio">

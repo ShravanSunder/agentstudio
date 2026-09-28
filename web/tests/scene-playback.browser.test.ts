@@ -571,6 +571,65 @@ describe("scene playback", () => {
     playback.dispose();
   });
 
+  it.each(["error", "rejected-play"])("replays after a proof video %s", async (failure) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    const proof = requiredHtmlElement(scene.surface, "[data-scene-proof]");
+    proof.innerHTML = "<video data-scene-proof-video controls muted playsinline></video>";
+    const video = proof.querySelector("video");
+    if (!(video instanceof HTMLVideoElement)) throw new Error("Proof video is missing");
+    vi.spyOn(video, "play").mockImplementation(() =>
+      failure === "rejected-play" ? Promise.reject(new Error("decode failed")) : Promise.resolve(),
+    );
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+    playback.synchronize(1, true);
+    scene.timeline().progress(1);
+    if (failure === "error") video.dispatchEvent(new Event("error"));
+    else await Promise.resolve();
+    vi.advanceTimersByTime(3000);
+    expect(scene.playbackState()).toBe("playing");
+    expect(observeProof(scene.surface).state).toBe("hidden");
+    playback.dispose();
+  });
+
+  it("keeps a visitor-paused proof video paused instead of treating it as a failure", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    stubReducedMotion(false);
+    const scene = createFakeSceneFixture();
+    requiredHtmlElement(scene.surface, "[data-scene-proof]").innerHTML =
+      "<video data-scene-proof-video controls muted playsinline></video>";
+    const video = scene.surface.querySelector("video");
+    if (!(video instanceof HTMLVideoElement)) throw new Error("Proof video is missing");
+    let paused = true;
+    Object.defineProperty(video, "paused", { configurable: true, get: () => paused });
+    vi.spyOn(video, "play").mockImplementation(() => {
+      paused = false;
+      video.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    });
+    vi.spyOn(video, "pause").mockImplementation(() => {
+      paused = true;
+      video.dispatchEvent(new Event("pause"));
+    });
+    const playback = createScenePlayback({
+      resolveModule: () => scene.module,
+      sceneRoot: scene.sceneRoot,
+      surface: scene.surface,
+    });
+    playback.synchronize(1, true);
+    scene.timeline().progress(1);
+    video.pause();
+    vi.advanceTimersByTime(3000);
+    expect(scene.playbackState()).toBe("awaiting-replay");
+    expect(observeProof(scene.surface).state).toBe("shown");
+    playback.dispose();
+  });
+
   it("hides the proof at once and seeks when a step is chosen during the proof beat", () => {
     // Arrange
     stubReducedMotion(false);
