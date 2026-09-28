@@ -32,20 +32,7 @@ struct BridgePaneAgentShowActorTests {
         #expect(record.openedDocuments.map(\.location) == [initialLoose, fixture.location, intervening])
         #expect(record.openedDocuments[1].openedLine == 23)
         #expect(record.selectedFilesDocument == nil)
-        #expect(await fixture.notifications.postedCount == 2)
-    }
-
-    @Test("notification failure does not change a successful background result")
-    func notificationFailure() async throws {
-        let fixture = try AgentShowFixture(notificationFails: true)
-        let result = try await fixture.actor.openInBackground(
-            receiver: fixture.paneID, target: fixture.target(line: 5))
-
-        #expect(result == .opened)
-        #expect(
-            fixture.navigation.handler.record(for: fixture.navigation.receiver)?
-                .openedDocument(at: fixture.location)?.openedLine == 5)
-        #expect(await fixture.notifications.postedCount == 1)
+        #expect(fixture.navigation.persistCount == 2)
     }
 
     @Test("already approved take-over reports display and forwards the stored line")
@@ -60,7 +47,7 @@ struct BridgePaneAgentShowActorTests {
         #expect(result == .shown)
         #expect(presentation.activatedLocations == [fixture.location])
         #expect(presentation.activatedLines == [42])
-        #expect(await fixture.notifications.postedCount == 1)
+        #expect(fixture.navigation.persistCount == 2)
     }
 
     @Test("an approved take-over kept by a draft remains opened")
@@ -92,7 +79,7 @@ struct BridgePaneAgentShowActorTests {
             try await fixture.actor.openInBackground(
                 receiver: fixture.paneID, target: fixture.target(line: 1)) == .paneUnavailable)
         #expect(fixture.navigation.handler.record(for: fixture.navigation.receiver) == before)
-        #expect(await fixture.notifications.postedCount == 0)
+        #expect(fixture.navigation.persistCount == 0)
     }
 
     @Test("take-over of a missing receiver has no inventory or activation effect")
@@ -107,7 +94,7 @@ struct BridgePaneAgentShowActorTests {
 
         #expect(result == .paneUnavailable)
         #expect(presentation.activatedLocations.isEmpty)
-        #expect(await fixture.notifications.postedCount == 0)
+        #expect(fixture.navigation.persistCount == 0)
     }
 
     @Test("preparation failure reports unavailable before an inventory effect")
@@ -124,7 +111,7 @@ struct BridgePaneAgentShowActorTests {
             #expect(failure == .unavailable)
         }
         #expect(fixture.navigation.handler.record(for: fixture.navigation.receiver) == before)
-        #expect(await fixture.notifications.postedCount == 0)
+        #expect(fixture.navigation.persistCount == 0)
     }
 
     @Test("failed inventory save reports an uncertain outcome")
@@ -142,7 +129,7 @@ struct BridgePaneAgentShowActorTests {
         #expect(
             fixture.navigation.handler.record(for: fixture.navigation.receiver)?
                 .openedDocument(at: fixture.location)?.openedLine == 4)
-        #expect(await fixture.notifications.postedCount == 0)
+        #expect(fixture.navigation.persistCount == 1)
     }
 
     @Test("conversion-unavailable receiver is not reseeded by agent show")
@@ -157,7 +144,7 @@ struct BridgePaneAgentShowActorTests {
 
         #expect(result == .paneUnavailable)
         #expect(fixture.navigation.handler.record(for: fixture.navigation.receiver) == nil)
-        #expect(await fixture.notifications.postedCount == 0)
+        #expect(fixture.navigation.persistCount == 0)
     }
 
     @Test("first agent show of a terminal receiver seeds its known current worktree")
@@ -183,12 +170,11 @@ private struct AgentShowFixture {
     let navigation: BridgeNavigationHandlerFixture
     let location: BridgeDocumentLocation
     let preparation: AgentShowPreparationStub
-    let notifications: AgentShowNotificationRecorder
     let actor: BridgePaneAgentShowActor
 
     var paneID: PaneId { PaneId(existingUUID: navigation.receiver.paneId) }
 
-    init(notificationFails: Bool = false, terminalReceiver: Bool = false) throws {
+    init(terminalReceiver: Bool = false) throws {
         navigation = try BridgeNavigationHandlerFixture(
             root: FileManager.default.temporaryDirectory.appending(
                 path: "bridge-agent-show-\(UUIDv7.generate().uuidString)", directoryHint: .isDirectory),
@@ -197,11 +183,9 @@ private struct AgentShowFixture {
         preparation = AgentShowPreparationStub(
             .prepared(
                 .init(location: location, provenance: nil, openedLine: 1)))
-        notifications = AgentShowNotificationRecorder(fails: notificationFails)
         actor = BridgePaneAgentShowActor(
             workspaceID: navigation.store.identityAtom.workspaceId,
-            handler: navigation.handler, preparationPort: preparation,
-            notificationPort: notifications)
+            handler: navigation.handler, preparationPort: preparation)
         navigation.handler.presentationPorts = BridgeReceiverPresentationPorts(
             mountedPresentation: { _ in nil },
             replaceReviewSource: { _, _ in false },
@@ -244,18 +228,5 @@ private actor AgentShowPreparationStub: BridgeAgentShowPreparationPort {
         case .notFound: return .notFound
         case .paneUnavailable: return .paneUnavailable
         }
-    }
-}
-
-private actor AgentShowNotificationRecorder: BridgeBackgroundOpenNotificationPosting {
-    private(set) var postedCount = 0
-    let fails: Bool
-
-    init(fails: Bool) { self.fails = fails }
-    func postBackgroundOpenNotification(
-        receiver _: BridgeReceiver, location _: BridgeDocumentLocation
-    ) async throws {
-        postedCount += 1
-        if fails { throw BridgeLinkPortFailure.unavailable }
     }
 }

@@ -166,16 +166,12 @@ final class WorkspaceSurfaceCoordinator {
     /// Serializes catalog-unregistration propagation into receivers.
     var bridgeCatalogUnregistrationTail: Task<Void, Never>?
     var bridgePaneLinkMembershipActor: BridgePaneLinkMembershipActor?
-    /// Panes replaces this poster when its background-open inbox kind lands.
-    var bridgeBackgroundOpenNotificationPoster: any BridgeBackgroundOpenNotificationPosting =
-        BridgeUnavailableBackgroundOpenNotificationPoster()
     lazy var bridgePaneAgentShowActor: BridgePaneAgentShowActor? = {
         guard let preparationPort = store.bridgeLinkDatastore else { return nil }
         return BridgePaneAgentShowActor(
             workspaceID: store.identityAtom.workspaceId,
             handler: bridgeNavigationCommandHandler,
-            preparationPort: preparationPort,
-            notificationPort: bridgeBackgroundOpenNotificationPoster
+            preparationPort: preparationPort
         )
     }()
     lazy var bridgeNavigationCommandHandler: BridgeNavigationCommandHandler = {
