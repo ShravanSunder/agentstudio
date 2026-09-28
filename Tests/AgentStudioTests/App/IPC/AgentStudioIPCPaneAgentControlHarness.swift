@@ -171,6 +171,55 @@ struct PaneAgentControlHarness {
     }
 }
 
+/// The stable catalog cases only observe named refusals; one pane-agent server
+/// serves all parameterized cases without changing their workspace facts.
+struct PaneAgentHarnessTrait: SuiteTrait, TestScoping {
+    var isRecursive: Bool { false }
+
+    func provideScope(
+        for _: Test,
+        testCase _: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        try await PaneAgentHarnessBox.withScope(performing: function)
+    }
+}
+
+enum PaneAgentHarnessContext {
+    @TaskLocal static var current: PaneAgentHarnessBox?
+}
+
+@MainActor
+final class PaneAgentHarnessBox {
+    let harness: PaneAgentControlHarness
+
+    private init(harness: PaneAgentControlHarness) {
+        self.harness = harness
+    }
+
+    static func make() async throws -> Self {
+        installTestCoreAtomsIfNeeded()
+        return Self(harness: try await PaneAgentControlHarness.make(channel: .stable))
+    }
+
+    static func withScope(performing function: @Sendable () async throws -> Void) async throws {
+        let fixture = try await make()
+        do {
+            try await PaneAgentHarnessContext.$current.withValue(fixture) {
+                try await function()
+            }
+        } catch {
+            fixture.tearDown()
+            throw error
+        }
+        fixture.tearDown()
+    }
+
+    func tearDown() {
+        harness.tearDown()
+    }
+}
+
 struct PaneAgentWorkspaceFacts: Equatable {
     let paneIds: Set<UUID>
     let activeTabId: UUID?

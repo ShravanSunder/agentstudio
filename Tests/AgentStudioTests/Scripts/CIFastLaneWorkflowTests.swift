@@ -384,7 +384,6 @@ struct CIFastLaneWorkflowTests {
         #expect(testHelperScript.contains("SourceScan"))
         #expect(testHelperScript.contains("large_serial_non_webkit_filter_pattern()"))
         #expect(testHelperScript.contains("AgentStudioIPCBridgeServiceTests"))
-        #expect(testHelperScript.contains("AgentStudioAppIPCServiceCommandTests"))
         #expect(testHelperScript.contains("AgentStudioAppIPCServiceContributionTests"))
         #expect(!largeSerialFilter.contains("PaneAgentLaunchOwnerTests"))
         #expect(fastLaneMode.contains("run_fast_non_webkit_swift_tests"))
@@ -608,29 +607,7 @@ struct CIFastLaneWorkflowTests {
             }
         )
 
-        for suiteName in [
-            "EagerDerivedAtomTests",
-            "EagerDerivedAtomFamilyTests",
-            "TerminalActivationSchedulerTests",
-            "TabBarAdapterTests",
-            "TabBarAdapterMaterializationTests",
-            "TabBarAffectedItemTelemetryTests",
-            "MainSplitViewControllerSidebarStateTests",
-            "FlatTabStripContainerAllMinimizedTests",
-            "InboxNotificationRouterTests",
-            "BackgroundFactApplyGovernorTests",
-            "TerminalPaneMountViewExitBehaviorTests",
-            "TerminalActivityProjectorTests",
-            "GitWorkingDirectoryProjectorTests",
-            "AgentStudioAppIPCServiceTests",
-            "AgentStudioAppIPCServiceAuthModeTests",
-            "AgentStudioAppIPCServiceCommandTests",
-            "AgentStudioAppIPCServiceContributionTests",
-            "AgentStudioIPCBridgeServiceTests",
-            "AgentStudioAppIPCCommandExecuteContractTests",
-            "WorkspaceStoreTests",
-            "WorkspaceComparisonIntentProcessRestartTests",
-        ] {
+        for suiteName in aggregateIsolatedSuiteNames() {
             #expect(discoveredSuiteFilters.contains("\(suiteName)\n"))
         }
         #expect(serializedSuitePattern.contains("@MainActor"))
@@ -643,6 +620,8 @@ struct CIFastLaneWorkflowTests {
         #expect(!discoveredSuiteFilters.contains("BridgePaneControllerTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemGitPipelineIntegrationTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemSourceE2ETests\n"))
+        #expect(!discoveredSuiteNames.contains("AgentStudioAppIPCServiceCommandTests"))
+        #expect(!discoveredSuiteNames.contains("AgentStudioAppIPCCommandExecuteContractTests"))
         #expect(
             discoveredSuiteNames.isDisjoint(with: webKitLeafSuiteNames),
             "Process-global non-WebKit discovery must exclude every suite owned by the WebKit lane"
@@ -678,6 +657,37 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("--skip \"$(fast_non_webkit_skip_pattern)\""))
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(fastRunner.contains("run_fast_serial_process_swift_tests"))
+    }
+
+    private func aggregateIsolatedSuiteNames() -> [String] {
+        [
+            "EagerDerivedAtomTests",
+            "EagerDerivedAtomFamilyTests",
+            "TerminalActivationSchedulerTests",
+            "TabBarAdapterTests",
+            "TabBarAdapterMaterializationTests",
+            "TabBarAffectedItemTelemetryTests",
+            "MainSplitViewControllerSidebarStateTests",
+            "FlatTabStripContainerAllMinimizedTests",
+            "InboxNotificationRouterTests",
+            "BackgroundFactApplyGovernorTests",
+            "TerminalPaneMountViewExitBehaviorTests",
+            "TerminalActivityProjectorTests",
+            "GitWorkingDirectoryProjectorTests",
+            "AgentStudioAppIPCServiceTests",
+            "AgentStudioAppIPCServiceAuthModeTests",
+            "AgentStudioAppIPCServiceContributionTests",
+            "AgentStudioIPCBridgeServiceTests",
+            "AgentStudioIPCBridgeRenderDiagnosticsTests",
+            "AgentStudioIPCBridgeSearchModeTests",
+            "AgentStudioIPCBridgeNonBridgeTargetTests",
+            "AgentStudioIPCBridgeDiagnosticTargetTests",
+            "AgentStudioIPCBridgePaneAgentTests",
+            "AgentStudioIPCBridgeRejectedControlTests",
+            "AgentStudioIPCStableCatalogRefusalTests",
+            "WorkspaceStoreTests",
+            "WorkspaceComparisonIntentProcessRestartTests",
+        ]
     }
 
     @Test("large lane process-isolates suites that retain process-global runtimes")

@@ -15,14 +15,11 @@ import Testing
 /// whole path: transport, authorization, canonical pane targeting, the App
 /// adapter's mapping and the durable Sessions reduction underneath it.
 @MainActor
-@Suite("App IPC sessions vertical", .serialized)
+@Suite("App IPC sessions vertical", .serialized, SessionsVerticalHarnessTrait(providerProfiles: .defaultProfiles))
 struct AgentStudioIPCSessionsVerticalTests {
-    init() { installTestCoreAtomsIfNeeded() }
-
     @Test("a qualified provider session start binds the pane and an unknown provider does not")
     func qualifiedSessionStartBindsThePane() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
 
         let admitted = try await harness.sessionEvent(
             paneId: harness.boundPaneId,
@@ -46,8 +43,7 @@ struct AgentStudioIPCSessionsVerticalTests {
 
     @Test("a needs-you report reaches the query as agent-reported state with a request identity")
     func needsYouReportReachesTheQuery() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         _ = try await harness.bindBoundPane()
 
         let report = try await harness.sessionReport(
@@ -68,8 +64,7 @@ struct AgentStudioIPCSessionsVerticalTests {
 
     @Test("a done report reaches the query as agent-reported done")
     func doneReportReachesTheQuery() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         _ = try await harness.bindBoundPane()
 
         let report = try await harness.sessionReport(paneId: harness.boundPaneId, kind: "done", explanation: nil)
@@ -83,8 +78,7 @@ struct AgentStudioIPCSessionsVerticalTests {
 
     @Test("a message with Unicode and an embedded newline round-trips exactly")
     func messageTextRoundTripsExactly() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         _ = try await harness.bindBoundPane()
         let text = "migration \u{1F680} done\nsecond line \u{00E9}\u{4E2D}"
 
@@ -99,8 +93,7 @@ struct AgentStudioIPCSessionsVerticalTests {
 
     @Test("the same message correlation sent twice stores one occurrence and returns the same result")
     func repeatedMessageCorrelationStoresOneOccurrence() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         _ = try await harness.bindBoundPane()
         let correlationId = UUIDv7.generate()
 
@@ -117,8 +110,7 @@ struct AgentStudioIPCSessionsVerticalTests {
 
     @Test("an unbound pane keeps a message durable and unattributed but refuses a deliberate report")
     func unboundPaneKeepsMessagesAndRefusesReports() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
 
         // The same awkward text as the bound case: an unattributed message is a
         // successful durable outcome, so it may not lose a byte either.
@@ -149,8 +141,7 @@ struct AgentStudioIPCSessionsVerticalTests {
     /// whatever the pane happens to be bound to when the event lands.
     @Test("a delayed event from a replaced conversation becomes history and leaves the new generation alone")
     func delayedEventFromReplacedConversationStaysHistorical() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         // Arrange: conversation A binds the pane, then conversation B replaces it.
         _ = try await harness.sessionEvent(
             paneId: harness.boundPaneId,
@@ -189,8 +180,7 @@ struct AgentStudioIPCSessionsVerticalTests {
     /// finished.
     @Test("a delayed session end from a replaced conversation leaves the live source alone")
     func delayedSessionEndFromReplacedConversationLeavesTheLiveSource() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         // Arrange
         _ = try await harness.sessionEvent(
             paneId: harness.boundPaneId,
@@ -236,8 +226,7 @@ struct AgentStudioIPCSessionsVerticalTests {
     /// one pane's state answer for a session that was never on it.
     @Test("an event naming a conversation the pane never bound is refused and stores nothing")
     func eventNamingAnUnknownConversationIsRefused() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         // Arrange
         _ = try await harness.sessionEvent(
             paneId: harness.boundPaneId,
@@ -267,8 +256,7 @@ struct AgentStudioIPCSessionsVerticalTests {
     /// is the case the delayed-event rule must not cost anything.
     @Test("an event from the conversation that owns the live generation still drives the pane")
     func eventFromTheLiveConversationStillDrivesThePane() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
         // Arrange
         _ = try await harness.sessionEvent(
             paneId: harness.boundPaneId,

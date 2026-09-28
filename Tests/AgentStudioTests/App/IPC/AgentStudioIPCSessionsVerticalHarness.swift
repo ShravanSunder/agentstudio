@@ -136,6 +136,25 @@ struct SessionsVerticalHarness {
         try? FileManager.default.removeItem(at: rootDirectory)
     }
 
+    /// A suite keeps its server and datastore, while each case gets panes with
+    /// independent durable Sessions rows and source generations.
+    func freshPanePair() -> Self {
+        let boundPane = commandHarness.store.createPane(title: "Bound pane")
+        let sparePane = commandHarness.store.createPane(title: "Spare pane")
+        commandHarness.store.appendTab(Tab(paneId: boundPane.id))
+        commandHarness.store.appendTab(Tab(paneId: sparePane.id))
+        return Self(
+            appDelegate: appDelegate,
+            commandHarness: commandHarness,
+            rootDirectory: rootDirectory,
+            socketPath: socketPath,
+            token: token,
+            boundPaneId: boundPane.id,
+            sparePaneId: sparePane.id,
+            workspaceWindowId: workspaceWindowId
+        )
+    }
+
     func bindBoundPane() async throws -> IPCSessionEventResult {
         try await sessionEvent(
             paneId: boundPaneId,
@@ -301,6 +320,84 @@ struct SessionsVerticalHarness {
         try connection.send(
             try NDJSONFrameEncoder.encode(JSONRPCCodec.encodeRequest(request), maxFrameBytes: 65_536)
         )
+    }
+}
+
+/// Swift Testing scopes this trait around the suite, not each test case.
+/// Task-local inheritance gives every case the same live server; freshPanePair
+/// keeps their persisted state independent. A filtered suite still tears down.
+struct SessionsVerticalHarnessTrait: SuiteTrait, TestScoping {
+    enum ProviderProfiles: Sendable {
+        case defaultProfiles
+        case shipped
+        case claudeCode
+    }
+
+    let providerProfiles: ProviderProfiles
+    var isRecursive: Bool { false }
+
+    func provideScope(
+        for _: Test,
+        testCase _: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        try await SessionsVerticalHarnessBox.withScope(
+            providerProfiles: providerProfiles,
+            performing: function
+        )
+    }
+}
+
+enum SessionsVerticalHarnessContext {
+    @TaskLocal static var current: SessionsVerticalHarnessBox?
+}
+
+@MainActor
+final class SessionsVerticalHarnessBox {
+    let harness: SessionsVerticalHarness
+
+    private init(harness: SessionsVerticalHarness) {
+        self.harness = harness
+    }
+
+    static func make(providerProfiles: SessionsVerticalHarnessTrait.ProviderProfiles) async throws -> Self {
+        installTestCoreAtomsIfNeeded()
+        let harness: SessionsVerticalHarness
+        switch providerProfiles {
+        case .defaultProfiles:
+            harness = try await SessionsVerticalHarness.make()
+        case .shipped:
+            harness = try await SessionsVerticalHarness.make(
+                providerProfiles: SessionsProviderProfile.shippedProfiles)
+        case .claudeCode:
+            harness = try await SessionsVerticalHarness.make(
+                additionalProviderProfiles: [.claudeCodeCommandLine])
+        }
+        return Self(harness: harness)
+    }
+
+    static func withScope(
+        providerProfiles: SessionsVerticalHarnessTrait.ProviderProfiles,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        let fixture = try await make(providerProfiles: providerProfiles)
+        do {
+            try await SessionsVerticalHarnessContext.$current.withValue(fixture) {
+                try await function()
+            }
+        } catch {
+            fixture.tearDown()
+            throw error
+        }
+        fixture.tearDown()
+    }
+
+    func freshPanePair() -> SessionsVerticalHarness {
+        harness.freshPanePair()
+    }
+
+    func tearDown() {
+        harness.tearDown()
     }
 }
 

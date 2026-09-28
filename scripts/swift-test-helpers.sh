@@ -809,17 +809,29 @@ aggregate_serial_non_webkit_suite_filters() {
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceAuthModeTests.swift' \
       'AgentStudioAppIPCServiceAuthModeTests'
     printf '%s:%s\n' \
-      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceCommandTests.swift' \
-      'AgentStudioAppIPCServiceCommandTests'
-    printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceContributionTests.swift' \
       'AgentStudioAppIPCServiceContributionTests'
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
       'AgentStudioIPCBridgeServiceTests'
     printf '%s:%s\n' \
-      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCCommandExecuteContractTests.swift' \
-      'AgentStudioAppIPCCommandExecuteContractTests'
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeRenderDiagnosticsTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeSearchModeTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeNonBridgeTargetTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeDiagnosticTargetTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgePaneAgentTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeRejectedControlTests'
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AppIPCDynamicCommandClientTests.swift' \
       'AppIPCDynamicCommandClientTests'
