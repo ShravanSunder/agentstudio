@@ -216,9 +216,7 @@ struct RepositoryCacheSaveLifetimeTests {
                 try await hideAndReturnRepository(scenario.lifecycleContext)
                 #expect(scenario.repoCache.repoEnrichmentByRepoId[scenario.repository.id] == baselineEnrichment)
                 #expect(scenario.repoCache.worktreeEnrichmentByWorktreeId[scenario.worktree.id] == nil)
-                await assertEventuallyAsync("corrective autosave registers debounce and maximum-delay waits") {
-                    scenario.clock.pendingSleepCount == 2
-                }
+                await scenario.clock.waitForPendingSleepCount(exactly: 2)
                 try #require(scenario.clock.pendingSleepCount == 2)
                 scenario.clock.advance(by: .milliseconds(10))
 
