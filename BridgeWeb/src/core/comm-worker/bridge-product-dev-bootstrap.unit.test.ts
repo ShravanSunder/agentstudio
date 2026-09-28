@@ -144,6 +144,7 @@ function productBootstrapDelivery(): BridgeProductDevBootstrapDelivery {
 				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 				admissionRetryCount: 2,
 				contentProgressDeadlineMilliseconds: 5_000,
+				viewBatchProgressDeadlineMilliseconds: 5_000,
 				telemetryPreReadyBufferMaxBytes: 64 * 1024,
 				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,

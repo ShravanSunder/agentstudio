@@ -65,6 +65,7 @@ describe('Bridge comm worker product batch application owner', () => {
 			publishMessage: (): void => {},
 			publishReviewDisplay: (): void => {},
 			requestResnapshot: (): void => {},
+			requestResnapshotLatest: (): void => {},
 			workerDerivationEpoch: (): number => 2,
 		});
 		const fileInstallation: BridgeProductViewInstallation = {
@@ -173,6 +174,7 @@ describe('Bridge comm worker product batch application owner', () => {
 				publishedDisplayPatches.push(patches);
 			},
 			requestResnapshot: (): void => {},
+			requestResnapshotLatest: (): void => {},
 			workerDerivationEpoch: (): number => 2,
 		});
 
@@ -257,6 +259,7 @@ describe('Bridge comm worker product batch application owner', () => {
 				publishedDisplayPatches.push(patches);
 			},
 			requestResnapshot: (): void => {},
+			requestResnapshotLatest: (): void => {},
 			workerDerivationEpoch: (): number => 2,
 		});
 

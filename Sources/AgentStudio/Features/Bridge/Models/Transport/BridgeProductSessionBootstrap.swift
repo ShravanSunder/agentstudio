@@ -14,6 +14,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         case telemetryPreReadyBufferMaxBytes
         case telemetryPreReadyBufferMaxSamples
         case viewAcknowledgementDeadlineMilliseconds
+        case viewBatchProgressDeadlineMilliseconds
         case viewCreditBytes
         case viewCreditParts
         case viewMaximumConsecutiveResnapshots
@@ -32,6 +33,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     let telemetryPreReadyBufferMaxBytes: Int
     let telemetryPreReadyBufferMaxSamples: Int
     let viewAcknowledgementDeadlineMilliseconds: Int
+    let viewBatchProgressDeadlineMilliseconds: Int
     let viewCreditBytes: Int
     let viewCreditParts: Int
     let viewMaximumConsecutiveResnapshots: Int
@@ -54,6 +56,9 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         viewAcknowledgementDeadlineMilliseconds: Int(
             AppPolicies.Bridge.productViewAcknowledgementDeadline.components.seconds * 1000
         ),
+        viewBatchProgressDeadlineMilliseconds: Int(
+            AppPolicies.Bridge.productViewBatchProgressDeadline.components.seconds * 1000
+        ),
         viewCreditBytes: AppPolicies.Bridge.productViewCreditBytes,
         viewCreditParts: AppPolicies.Bridge.productViewCreditParts,
         viewMaximumConsecutiveResnapshots: AppPolicies.Bridge.productViewMaximumConsecutiveResnapshots,
@@ -75,6 +80,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         telemetryPreReadyBufferMaxBytes: Int,
         telemetryPreReadyBufferMaxSamples: Int,
         viewAcknowledgementDeadlineMilliseconds: Int,
+        viewBatchProgressDeadlineMilliseconds: Int,
         viewCreditBytes: Int,
         viewCreditParts: Int,
         viewMaximumConsecutiveResnapshots: Int,
@@ -92,6 +98,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         self.telemetryPreReadyBufferMaxBytes = telemetryPreReadyBufferMaxBytes
         self.telemetryPreReadyBufferMaxSamples = telemetryPreReadyBufferMaxSamples
         self.viewAcknowledgementDeadlineMilliseconds = viewAcknowledgementDeadlineMilliseconds
+        self.viewBatchProgressDeadlineMilliseconds = viewBatchProgressDeadlineMilliseconds
         self.viewCreditBytes = viewCreditBytes
         self.viewCreditParts = viewCreditParts
         self.viewMaximumConsecutiveResnapshots = viewMaximumConsecutiveResnapshots
@@ -126,6 +133,9 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         )
         self.viewAcknowledgementDeadlineMilliseconds = try container.decode(
             Int.self, forKey: .viewAcknowledgementDeadlineMilliseconds
+        )
+        self.viewBatchProgressDeadlineMilliseconds = try container.decode(
+            Int.self, forKey: .viewBatchProgressDeadlineMilliseconds
         )
         self.viewCreditBytes = try container.decode(Int.self, forKey: .viewCreditBytes)
         self.viewCreditParts = try container.decode(Int.self, forKey: .viewCreditParts)
@@ -169,6 +179,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         )
         for (name, value) in [
             ("viewAcknowledgementDeadlineMilliseconds", viewAcknowledgementDeadlineMilliseconds),
+            ("viewBatchProgressDeadlineMilliseconds", viewBatchProgressDeadlineMilliseconds),
             ("viewCreditBytes", viewCreditBytes),
             ("viewCreditParts", viewCreditParts),
             ("viewMaximumConsecutiveResnapshots", viewMaximumConsecutiveResnapshots),

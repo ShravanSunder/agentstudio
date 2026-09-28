@@ -12,6 +12,7 @@ import {
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
 import type { BridgeProductContentStreamOpening } from './bridge-product-content-stream-opening.js';
 import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
+import { BridgeProductReadAhead } from './bridge-product-read-ahead.js';
 import { encodeBridgeProductRequestBody } from './bridge-product-request-body.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import type { BridgeProductSessionAuthority } from './bridge-product-session-authority.js';
@@ -68,6 +69,7 @@ export async function readBridgeProductContentResponse<
 			throw new Error(`Bridge product content stream failed with status ${response.status}.`);
 		}
 		const responseReader = response.body.getReader();
+		const readAhead = new BridgeProductReadAhead(responseReader);
 		reader = responseReader;
 		const decoder = new BridgeProductContentStreamDecoder(opening.request);
 		let terminalResult: BridgeProductContentTerminal<TContentKind> | null = null;
@@ -80,7 +82,7 @@ export async function readBridgeProductContentResponse<
 				},
 				clock: props.clock,
 				delayMilliseconds: props.authority.bootstrap.policy.contentProgressDeadlineMilliseconds,
-				pending: () => responseReader.read(),
+				pending: () => readAhead.next(),
 			});
 			if (chunk.done) break;
 			// eslint-disable-next-line no-await-in-loop -- Decoder digest validation is ordered.

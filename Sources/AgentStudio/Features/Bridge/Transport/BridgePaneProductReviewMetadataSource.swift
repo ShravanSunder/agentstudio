@@ -169,6 +169,7 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             in: delivered.package,
             revisionByItemId: revisionsForPackage
         )
+        let hasDisplayedItems = !orderedItemIds.isEmpty
         let publication = try BridgeProductReviewBatchPublicationProjection.record(
             from: .init(
                 classifiedRefreshImpact: delivered.classifiedRefreshImpact,
@@ -176,9 +177,9 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
                 revision: delivered.viewRevision,
                 desiredComparison: delivered.reviewComparison,
                 desiredStatus: .ready,
-                displayedPackage: delivered.package,
-                displayedPublicationId: delivered.publicationId,
-                displayedComparison: delivered.reviewComparison
+                displayedPackage: hasDisplayedItems ? delivered.package : nil,
+                displayedPublicationId: hasDisplayedItems ? delivered.publicationId : nil,
+                displayedComparison: hasDisplayedItems ? delivered.reviewComparison : nil
             )
         )
         let snapshot = BridgeProductReviewKeyedSnapshot(

@@ -30,6 +30,7 @@ describe('Bridge product transport metadata reconnection', () => {
 			install: (): void => resolveInstallation(),
 			receipt: (): void => {},
 			resnapshot: (): void => {},
+			resnapshotLatest: (): void => {},
 		});
 		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
 			source: fileSourceConfiguration(),

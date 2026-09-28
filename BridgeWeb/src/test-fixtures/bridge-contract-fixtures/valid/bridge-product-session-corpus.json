@@ -507,6 +507,7 @@
       "maximumQueuedStreamBytes": 4194304,
       "admissionRetryCount": 2,
       "contentProgressDeadlineMilliseconds": 5000,
+      "viewBatchProgressDeadlineMilliseconds": 5000,
       "viewAcknowledgementDeadlineMilliseconds": 4000,
       "viewCreditBytes": 524288,
       "viewCreditParts": 8,

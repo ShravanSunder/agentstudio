@@ -472,7 +472,8 @@ struct BridgePaneProductReviewMetadataSourceTests {
         )
         #expect(first.snapshot.items.count == 2)
         #expect(empty.snapshot.items.isEmpty)
-        #expect(empty.snapshot.publication.displayed?.packageId == emptyPackage.packageId)
+        #expect(empty.snapshot.publication.displayed == nil)
+        #expect(empty.snapshot.publication.desired.status == .ready)
         #expect(empty.snapshot.publication.publicationId == successorPublicationId)
         let batch = try BridgeProductReviewViewBatchFactory.sealSnapshot(
             .init(

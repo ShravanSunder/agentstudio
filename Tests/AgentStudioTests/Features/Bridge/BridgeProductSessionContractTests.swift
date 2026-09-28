@@ -150,6 +150,11 @@ struct BridgeProductSessionContractTests {
                 "content.reset",
             ])
         #expect(bootstrap.paneSessionId == "pane-session-1")
+        #expect(bootstrap.policy.viewBatchProgressDeadlineMilliseconds == 5000)
+        #expect(
+            BridgeProductBootstrapPolicy.productContract.viewBatchProgressDeadlineMilliseconds
+                == Int(AppPolicies.Bridge.productViewBatchProgressDeadline.components.seconds * 1000)
+        )
 
         for capabilityCase in try fixtureArray(named: "capabilityHeaderCases", in: corpus) {
             let byteValues = try #require(capabilityCase["bytes"] as? [Int])
@@ -640,7 +645,7 @@ extension BridgeProductSessionContractTests {
         #expect(decodingFails(BridgeProductContentRequest.self, object: invalidUUIDContentRequest))
     }
 
-    @Test("product-session bootstrap rejects capability, surface, and route fields")
+    @Test("product-session bootstrap rejects capability, surface, route, and missing deadline fields")
     func productSessionBootstrapRejectsMainOwnedOrSecretFields() throws {
         let corpus = try fixtureJSONObject(
             relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-session-corpus.json"
@@ -660,6 +665,12 @@ extension BridgeProductSessionContractTests {
             "command": ["method": "POST", "url": "agentstudio://rpc/command"]
         ]
         #expect(decodingFails(BridgeProductSessionBootstrap.self, object: routeBootstrap))
+
+        var missingDeadlineBootstrap = bootstrap
+        var policy = try #require(missingDeadlineBootstrap["policy"] as? [String: Any])
+        policy.removeValue(forKey: "viewBatchProgressDeadlineMilliseconds")
+        missingDeadlineBootstrap["policy"] = policy
+        #expect(decodingFails(BridgeProductSessionBootstrap.self, object: missingDeadlineBootstrap))
     }
 
     @Test("control response factories preserve correlation and typed subscription acknowledgement")

@@ -102,11 +102,11 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: 'e027051b9a3053fc9ea2ba82046aab744836c1409aa49b22800aeaf2b0176992',
+				expectedHash: 'e890c03bfa4a6d1208981308fec41342cd9a3319158e8f529fe21aae4e5f1581',
 				kind: 'valid',
 			},
 			{
-				expectedHash: 'b7cf49ae7b0a4fa0861b02e1710f6097485eec0ce3d70fa2cdced4b0608ca54b',
+				expectedHash: '9fad3b3741281ce17c0d7f24d13bee3b87b2d2e037ab0886aa224f1a1f9d40b7',
 				kind: 'invalid',
 			},
 		] as const;
@@ -134,6 +134,17 @@ describe('Bridge product session contracts', () => {
 		expect(bridgeProductSessionBootstrapSchema.parse(validProductSessionCorpus.bootstrap)).toEqual(
 			validProductSessionCorpus.bootstrap,
 		);
+		const policyWithoutBatchDeadline = Object.fromEntries(
+			Object.entries(validProductSessionCorpus.bootstrap.policy).filter(
+				([key]): boolean => key !== 'viewBatchProgressDeadlineMilliseconds',
+			),
+		);
+		expect(
+			bridgeProductSessionBootstrapSchema.safeParse({
+				...validProductSessionCorpus.bootstrap,
+				policy: policyWithoutBatchDeadline,
+			}).success,
+		).toBe(false);
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('initialSurface');
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('productCapabilityBytes');
 		expect(validProductSessionCorpus.bootstrap).not.toHaveProperty('routes');

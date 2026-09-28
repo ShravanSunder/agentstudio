@@ -49,6 +49,7 @@ describe('Bridge product transport', () => {
 			},
 			certifiedInstallCompleted: (): void => notifyInstalled?.(),
 			resnapshot: (): void => {},
+			resnapshotLatest: (): void => {},
 		});
 		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
 			source: fileSourceConfiguration(),
@@ -171,6 +172,7 @@ describe('Bridge product transport', () => {
 			install: (): void => {},
 			receipt: (): void => {},
 			resnapshot: (): void => {},
+			resnapshotLatest: (): void => {},
 		});
 		const subscription = harness.transport.subscribe(
 			bridgeProductReviewMetadataApplicationProtocol,

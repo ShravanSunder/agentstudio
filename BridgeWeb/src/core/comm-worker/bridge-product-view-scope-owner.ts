@@ -121,11 +121,11 @@ export class BridgeProductViewScopeOwner {
 		}
 	}
 
-	async resnapshot(subscriptionId: string): Promise<void> {
+	async resnapshot(subscriptionId: string, domain = 'default'): Promise<void> {
 		const view = this.#views.get(subscriptionId);
 		if (view === undefined) return;
 		await this.requestResnapshot({
-			domain: 'default',
+			domain,
 			handle: view.handle,
 			incarnation: view.incarnation,
 			scopeRevision: view.scopeRevision,

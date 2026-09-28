@@ -186,6 +186,8 @@ package enum AppPolicies {
         package static let productViewCreditBytes: Int = 512 * 1024
         package static let productViewMaximumDirtyKeys: Int = 4096
         package static let productViewAcknowledgementDeadline: Duration = .seconds(4)
+        /// An incomplete W4 side bank must make begin/part/complete progress.
+        package static let productViewBatchProgressDeadline: Duration = .seconds(5)
         package static let productViewMaximumConsecutiveResnapshots: Int = 3
         /// PR1 interim: metadata budget for issued File descriptors that are no
         /// longer newest. PR2's installed-selection lease replaces this cache.

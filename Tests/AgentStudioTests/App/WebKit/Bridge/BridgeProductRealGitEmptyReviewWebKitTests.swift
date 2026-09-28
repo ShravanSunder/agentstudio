@@ -30,35 +30,20 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         ) { hostedController in
             hostedController.loadApp()
             await WebPageEventWaits.waitForNavigationToFinish(hostedController.page)
+            // The bundled Review protocol starts in Review mode. Observe that
+            // active host instead of clicking its already-selected toggle.
             try await WebPageEventWaits.waitForDocumentSelector(
                 hostedController.page,
-                "[data-testid=\"bridge-viewer-context-review\"]"
+                "[data-testid=\"bridge-viewer-mode-host-review\"][data-bridge-viewer-mode-active=\"true\"]"
             )
-            let didActivateReview =
-                (try? await hostedController.page.callJavaScript(
-                    """
-                    const button = document.querySelector('[data-testid="bridge-viewer-context-review"]');
-                    if (!(button instanceof HTMLElement)) return false;
-                    button.click();
-                    return true;
-                    """
-                ) as? Bool) == true
-
-            // Each DOM step waits on the mutation that produces it. A deadline here
-            // would be a verdict about machine speed: the hosted page is hidden, so
-            // nothing it renders has a sound upper bound.
-            try await WebPageEventWaits.waitForDocumentSelector(
-                hostedController.page,
-                "[data-testid=\"bridge-viewer-mode-host-review\"]"
-            )
-            let didMountReviewMode = didActivateReview
-
-            // Wait for the empty canvas to exist, then read its copy ONCE. The
-            // barrier is the element's arrival; the text is the claim.
-            try await WebPageEventWaits.waitForDocumentSelector(
-                hostedController.page,
-                bridgeReviewShellSelector
-            )
+            // Native construction and page installation have separate owners.
+            // Observe the native ready package before asserting the page view.
+            _ = await BridgePaneControllerEventWaits.waitForValue {
+                hostedController.paneState.diff.status == .ready
+                    ? hostedController.paneState.diff.packageMetadata : nil
+            }
+            // Q43's ready-empty state renders the existing empty canvas in a
+            // fallback shell, without a regular Review viewer shell.
             try await WebPageEventWaits.waitForDocumentSelector(
                 hostedController.page,
                 "[data-testid=\"bridge-review-empty-canvas\"]"
@@ -73,7 +58,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     )?.textContent === 'Nothing to review';
                     """
                 ) as? Bool) == true
-            return (didLoadEmptyPackage && didMountReviewMode, didRenderEmptyShell)
+            return (didLoadEmptyPackage, didRenderEmptyShell)
         }
 
         // Assert

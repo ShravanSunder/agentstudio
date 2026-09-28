@@ -55,6 +55,7 @@ export interface BridgeCommWorkerProductBatchApplicationProps {
 	}) => void;
 	readonly publishMessage: (message: BridgeWorkerServerToMainMessage) => void;
 	readonly requestResnapshot: (frame: BridgeProductBatchFrame) => void;
+	readonly requestResnapshotLatest: (subscriptionId: string, domain: string) => void;
 	readonly workerDerivationEpoch: (surface: 'file' | 'review') => number;
 }
 
@@ -162,6 +163,8 @@ export class BridgeCommWorkerProductBatchApplication {
 			install: (installation): Promise<void> | void => this.#install(installation),
 			receipt: (): void => {},
 			resnapshot: (frame): void => this.#props.requestResnapshot(frame),
+			resnapshotLatest: (subscriptionId, domain): void =>
+				this.#props.requestResnapshotLatest(subscriptionId, domain),
 		};
 	}
 

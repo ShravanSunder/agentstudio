@@ -29,7 +29,10 @@ const receipt = {
 
 describe('Bridge product view receipt acknowledgement owner', () => {
 	test('the W4 receipt sink returns credit before installation', async () => {
-		const router = new BridgeProductBatchFrameRouter();
+		const router = new BridgeProductBatchFrameRouter({
+			deadlineClock: clock,
+			progressDeadlineMilliseconds: bootstrap.policy.viewBatchProgressDeadlineMilliseconds,
+		});
 		const acknowledged: number[] = [];
 		const installed: number[] = [];
 		const acknowledger = installBridgeProductBatchDelivery({
@@ -52,6 +55,7 @@ describe('Bridge product view receipt acknowledgement owner', () => {
 				},
 				receipt: (): void => {},
 				resnapshot: (): void => {},
+				resnapshotLatest: (): void => {},
 			},
 		});
 		const identity = {

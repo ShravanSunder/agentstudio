@@ -66,6 +66,16 @@ export function BridgeReviewViewerShellBoundary(
 		}
 	}, [isActive, presentationState]);
 
+	if (presentationState.status === 'readyEmpty') {
+		return (
+			<BridgeReviewReadyEmptyShell
+				isActive={isActive}
+				viewerContextSwitcher={viewerContextSwitcher}
+				viewerHeaderControls={viewerHeaderControls}
+			/>
+		);
+	}
+
 	if (
 		comparisonPaneState.kind === 'loadingInitial' ||
 		comparisonPaneState.kind === 'failedInitial'
@@ -82,14 +92,6 @@ export function BridgeReviewViewerShellBoundary(
 	}
 
 	switch (presentationState.status) {
-		case 'readyEmpty':
-			return (
-				<BridgeReviewReadyEmptyShell
-					isActive={isActive}
-					viewerContextSwitcher={viewerContextSwitcher}
-					viewerHeaderControls={viewerHeaderControls}
-				/>
-			);
 		case 'empty':
 			return (
 				<BridgeReviewEmptyShell

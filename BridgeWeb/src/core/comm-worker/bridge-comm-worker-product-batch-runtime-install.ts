@@ -117,6 +117,14 @@ export function installBridgeCommWorkerProductBatchRuntime(props: {
 			}
 			void admission.catch(props.reportResnapshotFailure);
 		},
+		requestResnapshotLatest: (subscriptionId, domain): void => {
+			const admission = props.productTransport.resnapshotLatestView?.(subscriptionId, domain);
+			if (admission === undefined) {
+				props.reportResnapshotFailure();
+				return;
+			}
+			void admission.catch(props.reportResnapshotFailure);
+		},
 		workerDerivationEpoch: (surface): number =>
 			props.productTransport.workerDerivationEpoch(surface),
 		createSequence: props.createSequence,

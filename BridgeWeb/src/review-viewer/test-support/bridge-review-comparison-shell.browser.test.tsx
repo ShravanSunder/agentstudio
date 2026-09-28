@@ -53,10 +53,10 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 		);
 	});
 
-	test('renders an installed empty-ready Review as no changes', async () => {
+	test('renders an installed empty-ready Review while initial comparison still reports loading', async () => {
 		const rendered = await render(
 			<BridgeReviewViewerShellBoundary
-				comparisonPaneState={{ kind: 'settled' }}
+				comparisonPaneState={{ kind: 'loadingInitial', requestedTargetLabel: 'clean worktree' }}
 				isActive
 				onRetryComparison={(): void => {}}
 				presentationState={{ status: 'readyEmpty' }}
@@ -67,6 +67,7 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 		await expect.element(rendered.getByTestId('bridge-review-empty-canvas')).toBeVisible();
 		await expect.element(rendered.getByText('Nothing to review')).toBeVisible();
 		expect(rendered.getByText('Waiting for review metadata').query()).toBeNull();
+		expect(rendered.getByTestId('bridge-review-comparison-initial-shell').query()).toBeNull();
 	});
 
 	test('keeps initial comparison loading inside the content pane while navigation remains available', async () => {

@@ -425,6 +425,7 @@ enum BridgeProductStrictJSON {
             "contentProgressDeadlineMilliseconds",
             "workerSettlementDeadlineMilliseconds",
             "viewAcknowledgementDeadlineMilliseconds",
+            "viewBatchProgressDeadlineMilliseconds",
             "viewCreditBytes",
             "viewCreditParts",
             "viewMaximumConsecutiveResnapshots",

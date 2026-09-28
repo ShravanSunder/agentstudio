@@ -7,8 +7,43 @@ import {
 	bridgeProductBatchFrameSchema,
 	type BridgeProductBatchFrame,
 } from './bridge-product-batch-wire-contracts.js';
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
 import { BridgeProductViewBatchReceiver } from './bridge-product-view-batch-receiver.js';
+
+const noDeadlineClock: BridgeProductDeadlineClock = { schedule: () => (): void => {} };
+
+function createRouter(): BridgeProductBatchFrameRouter {
+	return new BridgeProductBatchFrameRouter({
+		deadlineClock: noDeadlineClock,
+		progressDeadlineMilliseconds: 5_000,
+	});
+}
+
+class ControlledBatchDeadlineClock implements BridgeProductDeadlineClock {
+	readonly deadlines: Array<{ active: boolean; fire: () => void }> = [];
+
+	schedule(_delayMilliseconds: number, onDeadline: () => void): () => void {
+		const deadline = {
+			active: true,
+			fire: (): void => {
+				if (!deadline.active) throw new Error('Expected an armed batch deadline.');
+				deadline.active = false;
+				onDeadline();
+			},
+		};
+		this.deadlines.push(deadline);
+		return (): void => {
+			deadline.active = false;
+		};
+	}
+
+	activeDeadline(): (typeof this.deadlines)[number] {
+		const deadline = this.deadlines.find((entry) => entry.active);
+		if (deadline === undefined) throw new Error('Expected an armed batch deadline.');
+		return deadline;
+	}
+}
 
 const identity = {
 	batchId: 'batch-1',
@@ -159,8 +194,89 @@ function complete(props: {
 }
 
 describe('Bridge product W4 per-domain batch receiver', () => {
+	it('expires only an incomplete bank, preserves last good, and ignores its late complete', () => {
+		const clock = new ControlledBatchDeadlineClock();
+		const router = new BridgeProductBatchFrameRouter({
+			deadlineClock: clock,
+			progressDeadlineMilliseconds: 5_000,
+		});
+		const installations: string[] = [];
+		const latestScopeResnapshots: string[] = [];
+		router.setSinks({
+			install: (installation): void => {
+				installations.push(installation.begin.batchId);
+			},
+			receipt: (): void => {},
+			resnapshot: (): void => {},
+			resnapshotLatest: (subscriptionId): void => {
+				latestScopeResnapshots.push(subscriptionId);
+			},
+		});
+		router.accept(begin({ batchId: 'last-good', partCount: 1, target: 1 }));
+		router.accept(part({ batchId: 'last-good', key: 'a', revision: 1, value: 'A' }));
+		router.accept(complete({ batchId: 'last-good' }));
+		expect(clock.deadlines.every((deadline) => !deadline.active)).toBe(true);
+		router.accept(
+			begin({ batchId: 'incomplete', base: 1, mode: 'change', partCount: 1, target: 2 }),
+		);
+		router.accept(part({ batchId: 'incomplete', key: 'b', revision: 2, value: 'B' }));
+		clock.activeDeadline().fire();
+		router.accept(complete({ batchId: 'incomplete' }));
+		const siblingSubscriptionId = 'sibling-subscription';
+		for (const frame of [
+			begin({ batchId: 'sibling', partCount: 1, target: 1 }),
+			part({ batchId: 'sibling', key: 'sibling', revision: 1, value: 'S' }),
+			complete({ batchId: 'sibling' }),
+		]) {
+			router.accept(
+				bridgeProductBatchFrameSchema.parse({ ...frame, subscriptionId: siblingSubscriptionId }),
+			);
+		}
+		expect(installations).toEqual(['last-good', 'sibling']);
+		expect(latestScopeResnapshots).toEqual([identity.subscriptionId]);
+	});
+
+	it('rearms on verified parts and cancels on complete, replacement, and retirement', () => {
+		const clock = new ControlledBatchDeadlineClock();
+		const router = new BridgeProductBatchFrameRouter({
+			deadlineClock: clock,
+			progressDeadlineMilliseconds: 5_000,
+		});
+		const resnapshots: string[] = [];
+		router.setSinks({
+			install: (): void => {},
+			receipt: (): void => {},
+			resnapshot: (): void => {},
+			resnapshotLatest: (subscriptionId): void => {
+				resnapshots.push(subscriptionId);
+			},
+		});
+		const firstBegin = begin({ batchId: 'first', partCount: 1, target: 1 });
+		router.accept(firstBegin);
+		const first = clock.activeDeadline();
+		router.accept(firstBegin);
+		expect(clock.activeDeadline()).toBe(first);
+		router.accept(part({ batchId: 'first', key: 'a', revision: 1, value: 'A' }));
+		expect(first.active).toBe(false);
+		const afterPart = clock.activeDeadline();
+		router.accept(part({ batchId: 'first', key: 'a', revision: 1, value: 'A' }));
+		expect(clock.activeDeadline()).toBe(afterPart);
+		router.accept(complete({ batchId: 'first' }));
+		expect(afterPart.active).toBe(false);
+		router.accept(begin({ batchId: 'second', partCount: 1, target: 2 }));
+		const beforeReplacement = clock.activeDeadline();
+		router.accept(begin({ batchId: 'replacement', partCount: 1, target: 3 }));
+		expect(beforeReplacement.active).toBe(false);
+		const beforeHandleReplacement = clock.activeDeadline();
+		router.accept(begin({ batchId: 'new-handle', handle: 'handle-2', partCount: 1, target: 4 }));
+		expect(beforeHandleReplacement.active).toBe(false);
+		const beforeRetirement = clock.activeDeadline();
+		router.retireSubscription(identity.subscriptionId);
+		expect(beforeRetirement.active).toBe(false);
+		expect(resnapshots).toEqual([]);
+	});
 	it('reports an accepted replacement snapshot once and ignores late parts from its abandoned stage', () => {
-		const router = new BridgeProductBatchFrameRouter();
+		const router = createRouter();
 		const replacements: string[] = [];
 		const resnapshots: string[] = [];
 		const installations: string[] = [];
@@ -175,6 +291,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			resnapshot: (frame): void => {
 				resnapshots.push(frame.batchId);
 			},
+			resnapshotLatest: (): void => {},
 		});
 		router.accept(begin({ batchId: 'abandoned', partCount: 2, target: 2 }));
 		router.accept(part({ batchId: 'abandoned', key: 'a', revision: 1, value: 'old' }));
@@ -198,7 +315,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		expect(installations).toEqual(['replacement-11']);
 	});
 	it('routes a received part credit before the certified bank install', () => {
-		const router = new BridgeProductBatchFrameRouter();
+		const router = createRouter();
 		const events: string[] = [];
 		router.setSinks({
 			install: (installation): void => {
@@ -210,6 +327,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			resnapshot: (): void => {
 				events.push('resnapshot');
 			},
+			resnapshotLatest: (): void => {},
 		});
 		router.accept(begin({ partCount: 1, target: 1 }));
 		router.accept(part({ key: 'a', revision: 1, value: 'A' }));
@@ -219,7 +337,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 	});
 
 	it('an application rejection resnapshots only its subscription while a sibling installs', () => {
-		const router = new BridgeProductBatchFrameRouter();
+		const router = createRouter();
 		const resnapshots: string[] = [];
 		const installed: string[] = [];
 		router.setSinks({
@@ -233,6 +351,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			resnapshot: (frame): void => {
 				resnapshots.push(frame.subscriptionId);
 			},
+			resnapshotLatest: (): void => {},
 		});
 		router.accept(begin({ partCount: 1, target: 1 }));
 		router.accept(part({ key: 'a', revision: 1, value: 'A' }));
@@ -261,7 +380,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 	});
 
 	it('an asynchronous typed install rejection resnapshots after receipt credit', async () => {
-		const router = new BridgeProductBatchFrameRouter();
+		const router = createRouter();
 		const events: string[] = [];
 		let rejectInstallation: ((error: Error) => void) | undefined;
 		const installation = new Promise<void>((_resolve, reject): void => {
@@ -275,6 +394,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 			resnapshot: (): void => {
 				events.push('resnapshot');
 			},
+			resnapshotLatest: (): void => {},
 		});
 		router.accept(begin({ partCount: 1, target: 1 }));
 		router.accept(part({ key: 'a', revision: 1, value: 'A' }));

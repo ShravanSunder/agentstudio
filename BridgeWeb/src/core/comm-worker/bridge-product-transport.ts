@@ -51,6 +51,7 @@ import {
 	type BridgeProductMetadataStreamDecoderDiagnostics,
 	type BridgeProductMetadataStreamIdentityField,
 } from './bridge-product-metadata-stream-decoder.js';
+import { BridgeProductReadAhead } from './bridge-product-read-ahead.js';
 import { encodeBridgeProductRequestBody } from './bridge-product-request-body.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
@@ -130,6 +131,7 @@ export interface BridgeProductTransportSession extends BridgeProductTransport {
 	}): Promise<BridgeProductViewScopeSettlement>;
 	setBatchFrameSinks?(sinks: BridgeProductBatchFrameSinks): void;
 	resnapshotView?(props: ViewResnapshotAdmissionProps): Promise<void>;
+	resnapshotLatestView?(subscriptionId: string, domain: string): Promise<void>;
 	retryView?(subscriptionId: string): Promise<void>;
 	/**
 	 * Advances the surface to a new worker derivation epoch and returns it. Every
@@ -254,7 +256,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		streamOpenCount: 0,
 	};
 	readonly #subscriptions = new Map<string, BridgeProductSubscriptionFrameSink>();
-	readonly #batchFrameRouter = new BridgeProductBatchFrameRouter();
+	readonly #batchFrameRouter: BridgeProductBatchFrameRouter;
 	readonly #viewScopeOwner: BridgeProductViewScopeOwner;
 	#panePresentationFrameSink: (frame: BridgeProductPanePresentationFrame) => void =
 		ignoreBridgeProductPanePresentationFrame;
@@ -274,6 +276,11 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		});
 		this.#executeProductRequest = props.executeProductRequest;
 		this.#deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;
+		this.#batchFrameRouter = new BridgeProductBatchFrameRouter({
+			deadlineClock: this.#deadlineClock,
+			progressDeadlineMilliseconds:
+				props.authority.bootstrap.policy.viewBatchProgressDeadlineMilliseconds,
+		});
 		this.#metadataApplicationRegistry = props.metadataApplicationRegistry;
 		this.#frameAcknowledgementTimeoutMilliseconds =
 			props.frameAcknowledgementTimeoutMilliseconds ?? 5000;
@@ -340,6 +347,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 
 	resnapshotView(props: ViewResnapshotAdmissionProps): Promise<void> {
 		return this.#viewScopeOwner.requestResnapshot(props);
+	}
+
+	resnapshotLatestView(subscriptionId: string, domain: string): Promise<void> {
+		return this.#viewScopeOwner.resnapshot(subscriptionId, domain);
 	}
 
 	retryView(subscriptionId: string): Promise<void> {
@@ -610,6 +621,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			streamOpenCount: this.#metadataStreamHealthDiagnostics.streamOpenCount + 1,
 		};
 		const reader = response.body.getReader();
+		const readAhead = new BridgeProductReadAhead(reader);
 		const decoder = new BridgeProductMetadataStreamDecoder(request);
 		try {
 			while (true) {
@@ -621,7 +633,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				let chunk: ReadableStreamReadResult<Uint8Array>;
 				try {
 					// eslint-disable-next-line no-await-in-loop -- Stream chunks are ordered.
-					chunk = await reader.read();
+					chunk = await readAhead.next();
 				} catch (error) {
 					this.#recordMetadataStreamFailure('read');
 					throw error;

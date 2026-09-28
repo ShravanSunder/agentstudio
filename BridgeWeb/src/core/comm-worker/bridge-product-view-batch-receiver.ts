@@ -27,6 +27,7 @@ interface StagedBatch {
 
 interface DomainState {
 	readonly incarnation: string;
+	expiredBatchId: string | null;
 	cursor: number;
 	readonly receivedPartSequences: Set<number>;
 	receivedThroughDeliverySequence: number;
@@ -97,6 +98,7 @@ export class BridgeProductViewBatchReceiver {
 		}
 		this.#domains.set(domain, {
 			cursor: 0,
+			expiredBatchId: null,
 			receivedPartSequences: new Set(),
 			receivedThroughDeliverySequence: 0,
 			receiptBaselinePending: true,
@@ -118,6 +120,7 @@ export class BridgeProductViewBatchReceiver {
 		this.#scopeRevision = scopeRevision;
 		for (const domain of this.#domains.values()) {
 			domain.stage = null;
+			domain.expiredBatchId = null;
 			domain.receivedPartSequences.clear();
 			domain.receivedThroughDeliverySequence = 0;
 			domain.receiptBaselinePending = true;
@@ -151,6 +154,8 @@ export class BridgeProductViewBatchReceiver {
 			frame.subscriptionKind !== this.#subscriptionKind
 		)
 			return { kind: 'ignored' };
+		if (frame.kind !== 'subscription.batchBegin' && frame.batchId === domainState.expiredBatchId)
+			return { kind: 'ignored' };
 		switch (frame.kind) {
 			case 'subscription.batchBegin':
 				return this.#begin(domainState, frame);
@@ -159,6 +164,33 @@ export class BridgeProductViewBatchReceiver {
 			case 'subscription.batchComplete':
 				return this.#complete(domainState, frame);
 		}
+	}
+
+	/** Expiry cannot discard an installed bank or a later replacement stage. */
+	abandonIncompleteStage(begin: BatchBegin): boolean {
+		const domain = this.#domains.get(begin.domain);
+		const stage = domain?.stage;
+		if (
+			domain?.incarnation !== begin.incarnation ||
+			begin.handle !== this.#handle ||
+			begin.scopeRevision !== this.#scopeRevision ||
+			stage?.begin.batchId !== begin.batchId ||
+			stage.complete !== null
+		)
+			return false;
+		domain.stage = null;
+		domain.expiredBatchId = begin.batchId;
+		return true;
+	}
+
+	hasStagedPart(frame: BatchPart): boolean {
+		const stage = this.#domains.get(frame.domain)?.stage;
+		return stage?.begin.batchId === frame.batchId && stage.partsByIndex.has(frame.partIndex);
+	}
+
+	hasIncompleteStage(begin: BatchBegin): boolean {
+		const stage = this.#domains.get(begin.domain)?.stage;
+		return stage?.begin.batchId === begin.batchId && stage.complete === null;
 	}
 
 	cursor(domain: string): number {
@@ -183,6 +215,7 @@ export class BridgeProductViewBatchReceiver {
 	}
 
 	#begin(domainState: DomainState, frame: BatchBegin): BridgeProductBatchAcceptance {
+		if (domainState.expiredBatchId === frame.batchId) return { kind: 'ignored' };
 		if (domainState.lastInstalledBatchId === frame.batchId) return { kind: 'ignored' };
 		if (frame.streamSequence <= domainState.lastInstalledCompleteStreamSequence)
 			return { kind: 'ignored' };
