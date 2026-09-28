@@ -26,6 +26,7 @@ import {
   verifyHeroPhoneMidIntro,
 } from "./tests/hero-intro-browser-command.ts";
 import { verifyHeroIntroFinale } from "./tests/hero-intro-finale-browser-command.ts";
+import { verifyHeroWorkspace } from "./tests/hero-workspace-browser-command.ts";
 import { verifyInstallCommandLayout } from "./tests/install-command-layout-browser-command.ts";
 import { verifyRailViewportBands } from "./tests/rail-band-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
@@ -85,6 +86,7 @@ export default defineConfig({
               verifyHeroScrollCue,
               verifyHeroPhoneMidIntro,
               verifyHeroIntroFinale,
+              verifyHeroWorkspace,
               verifyInstallCommandLayout,
               verifyChapterStepRow,
               verifySingleStepChapter,
