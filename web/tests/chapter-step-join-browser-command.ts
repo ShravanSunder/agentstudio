@@ -12,6 +12,8 @@ export interface StepLineJoinObservation {
     readonly sourceY: number;
     readonly titleTop: number;
     readonly titleBottom: number;
+    readonly nodeDistance: number;
+    readonly nodeCountAtFork: number;
   }[];
 }
 
@@ -79,6 +81,18 @@ export const verifyStepLineJoins = defineBrowserCommand(
                   endX = 0,
                   endY = 0,
                 ] = numbers;
+                const artwork = group.closest<SVGSVGElement>("[data-full-page-topology]");
+                const distances = [
+                  ...(artwork?.querySelectorAll<SVGGElement>("[data-node]") ?? []),
+                ].map((node) => {
+                  const circle = node.querySelector<SVGCircleElement>("circle");
+                  return circle === null
+                    ? Number.POSITIVE_INFINITY
+                    : Math.hypot(
+                        Number(circle.getAttribute("cx")) - sourceX,
+                        Number(circle.getAttribute("cy")) - sourceY,
+                      );
+                });
                 return {
                   anchorId,
                   stroke: getComputedStyle(path).stroke,
@@ -89,6 +103,8 @@ export const verifyStepLineJoins = defineBrowserCommand(
                   sourceY,
                   titleTop: title.getBoundingClientRect().top + scrollY,
                   titleBottom: title.getBoundingClientRect().bottom + scrollY,
+                  nodeDistance: Math.min(...distances),
+                  nodeCountAtFork: distances.filter((distance) => distance <= 1).length,
                 };
               }),
             };

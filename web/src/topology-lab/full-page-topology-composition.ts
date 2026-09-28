@@ -178,10 +178,12 @@ export function composeFullPageTopology(
       ...page.anchors.flatMap((anchor) =>
         anchor.stepLine === undefined
           ? []
-          : [
-              topologyRectCenterY(anchor.stepLine) - topologyRowUnit,
-              topologyRectCenterY(anchor.stepLine),
-            ],
+          : stacked
+            ? [
+                topologyRectCenterY(anchor.stepLine) - topologyRowUnit,
+                topologyRectCenterY(anchor.stepLine),
+              ]
+            : [topologyRectCenterY(anchor.stepLine)],
       ),
       ...(terminalAnchor?.surface === undefined ? [] : [terminalAnchor.surface.top + 2]),
     ],

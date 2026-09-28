@@ -125,13 +125,20 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
     if (anchor.stepLine !== undefined) {
       const centerY = anchor.stepLine.top + anchor.stepLine.height / 2;
       const attachRow = rowYs.findIndex((rowY) => Math.abs(rowY - centerY) <= 0.5);
-      const forkRow = attachRow - 1;
+      const forkRow = stacked ? attachRow - 1 : anchorRow;
       const forkY = rowYs[forkRow];
       if (forkY === undefined) continue;
       const source = sourceAt(forkRow);
-      // In G7 the title precedes the pill, so its chapter row can also be
-      // the row above the pill. Keep that chapter marker when the branch forks.
-      if (!reserved.has(forkRow)) {
+      if (!stacked) {
+        // The desktop branch leaves the chapter's one title-row node.
+        reserved.set(forkRow, {
+          x: source.x,
+          ownerId: source.id,
+          accent: source.accent,
+          kind: "chapter",
+          anchorId: anchor.id,
+        });
+      } else if (!reserved.has(forkRow)) {
         reserved.set(forkRow, {
           x: source.x,
           ownerId: source.id,
