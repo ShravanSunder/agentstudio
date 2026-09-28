@@ -4,20 +4,19 @@ import Testing
 @testable import AgentStudioTestSupport
 
 /// The `agentstudio-cli` helper is shipped inside the app bundle as
-/// `Contents/Helpers/agentstudio`. It must stay a leaf-only binary: a single
-/// `import AgentStudioInfrastructure` drags GRDB, OTel, ServiceLifecycle and
-/// libgit2 — and with them AppKit, SwiftUI, WebKit and libsqlite3 — into a
-/// process that only speaks JSON-RPC over a Unix socket.
+/// `Contents/Helpers/agentstudio`. Worktree verbs intentionally link libgit2
+/// through `AgentStudioWorktreeOperations`; the helper must stay off
+/// `AgentStudioInfrastructure` and its GRDB/OTel base.
 ///
-/// These tests pin the allowed module imports of the four CLI-side targets, and
-/// of the two test targets that cover them, so that regression fails the suite
-/// instead of quietly adding ~50 MB to the helper and minutes to its build.
+/// These tests pin the allowed module imports of the CLI-side targets, the
+/// worktree-operation leaf, and the test targets that cover the CLI so a direct
+/// Infrastructure or SDK import cannot bypass the shared operation boundary.
 @Suite("Command-line client leaf targets")
 struct CommandLineClientLeafTargetArchitectureTests {
 
-    /// Every module the CLI-side targets are allowed to import. System modules
-    /// plus the leaf targets themselves — deliberately no AgentStudio product,
-    /// feature, app, or Infrastructure module.
+    /// Every module the CLI-side targets may import directly. The worktree
+    /// operation leaf is the only AgentStudio product boundary besides the
+    /// existing CLI modules; Infrastructure remains forbidden.
     private static let allowedImportedModules: Set<String> = [
         "Dispatch",
         "Foundation",
@@ -29,6 +28,13 @@ struct CommandLineClientLeafTargetArchitectureTests {
         "AgentStudioIPCTransport",
         "AgentStudioPrimitives",
         "AgentStudioProgrammaticControl",
+        "AgentStudioWorktreeOperations",
+    ]
+
+    private static let allowedWorktreeOperationsImportedModules: Set<String> = [
+        "AgentStudioGit",
+        "AgentStudioPrimitives",
+        "Foundation",
     ]
 
     private static let commandLineClientTargetPaths = [
@@ -53,8 +59,8 @@ struct CommandLineClientLeafTargetArchitectureTests {
         "Tests/AgentStudioProgrammaticControlTests",
     ]
 
-    @Test("CLI-side targets import only Foundation-level modules and each other")
-    func commandLineClientTargetsImportOnlyLeafModules() throws {
+    @Test("CLI-side targets import only their approved low-level modules")
+    func commandLineClientTargetsImportOnlyApprovedModules() throws {
         // Arrange
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
 
@@ -69,6 +75,28 @@ struct CommandLineClientLeafTargetArchitectureTests {
             disallowed.isEmpty,
             """
             The agentstudio-cli helper must build from leaf targets only. \
+            Disallowed imports: \
+            \(disallowed.map { "\($0.relativePath): import \($0.moduleName)" }.sorted().joined(separator: ", "))
+            """
+        )
+    }
+
+    @Test("worktree operations is bounded to the SDK and primitive leaf")
+    func worktreeOperationsTargetImportsOnlyItsDeclaredDependencies() throws {
+        // Arrange
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+
+        // Act
+        let disallowed = try Self.importedModules(
+            inTargetAt: "Sources/AgentStudioWorktreeOperations",
+            projectRoot: projectRoot
+        ).filter { !Self.allowedWorktreeOperationsImportedModules.contains($0.moduleName) }
+
+        // Assert
+        #expect(
+            disallowed.isEmpty,
+            """
+            AgentStudioWorktreeOperations must own its SDK access without reaching through Infrastructure. \
             Disallowed imports: \
             \(disallowed.map { "\($0.relativePath): import \($0.moduleName)" }.sorted().joined(separator: ", "))
             """
@@ -132,6 +160,7 @@ struct CommandLineClientLeafTargetArchitectureTests {
             "AgentStudioIPCClientCore",
             "AgentStudioIPCClientTests",
             "AgentStudioProgrammaticControlTests",
+            "AgentStudioWorktreeOperations",
         ]
         let commandLineClientDependencyBlocks =
             commandLineClientTargetNames
@@ -147,6 +176,13 @@ struct CommandLineClientLeafTargetArchitectureTests {
                 "\(targetName) must not depend on AgentStudioInfrastructure"
             )
         }
+
+        let cliDependencies = Self.dependencyBlock(forTargetNamed: "AgentStudioIPCClient", in: manifest)
+        let worktreeOperationsDependencies =
+            Self.dependencyBlock(forTargetNamed: "AgentStudioWorktreeOperations", in: manifest)
+        #expect(cliDependencies?.contains("\"AgentStudioWorktreeOperations\"") == true)
+        #expect(worktreeOperationsDependencies?.contains("\"AgentStudioPrimitives\"") == true)
+        #expect(worktreeOperationsDependencies?.contains("AgentStudioGit") == true)
     }
 
     // MARK: - Source scanning

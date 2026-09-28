@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioGit
 import AgentStudioInfrastructure
+import AgentStudioWorktreeOperations
 import Foundation
 import os
 

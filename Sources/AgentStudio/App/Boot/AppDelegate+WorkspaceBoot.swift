@@ -5,6 +5,7 @@ import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AgentStudioTerminal
+import AgentStudioWorktreeOperations
 import AppKit
 import Foundation
 import Observation

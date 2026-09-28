@@ -1,3 +1,4 @@
+import AgentStudioWorktreeOperations
 import Foundation
 
 /// The two creation operations reached from the New Worktree submenu.

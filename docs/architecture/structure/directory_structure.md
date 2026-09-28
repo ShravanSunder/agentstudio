@@ -180,13 +180,16 @@ AgentStudio executable
   ├── AgentStudioWebview
   ├── AgentStudioCore
   ├── AgentStudioSharedComponents
+  ├── AgentStudioWorktreeOperations
   └── AgentStudioInfrastructure
 
 Feature modules ──► AgentStudioCore
                 ├─► AgentStudioSharedComponents
+                ├─► AgentStudioWorktreeOperations
                 └─► AgentStudioInfrastructure
 
 AgentStudioCore ──► AgentStudioSharedComponents
+                ├─► AgentStudioWorktreeOperations
                 └─► AgentStudioInfrastructure
 
 AgentStudioSharedComponents ──► AgentStudioInfrastructure
@@ -194,6 +197,9 @@ AgentStudioInfrastructure     ──► AgentStudioPrimitives (re-exported)
                               └─► AgentStudioGit (external package; see [agentstudio-git](../state/agentstudio_git.md#agentstudio-git))
 
 AgentStudioPrimitives ──► (nothing; Foundation only)
+
+AgentStudioWorktreeOperations ──► AgentStudioPrimitives
+                              └─► AgentStudioGit (external package)
 
 AgentStudioSessions ──► AgentStudioCore
                     ├─► AgentStudioInfrastructure
@@ -248,10 +254,16 @@ of that shape belong. `AgentStudioInfrastructure` depends on it and re-exports i
 ([`AgentStudioPrimitivesReexport.swift`](../../../Sources/AgentStudio/Infrastructure/AgentStudioPrimitivesReexport.swift)),
 so app-side code keeps reaching these helpers through
 `import AgentStudioInfrastructure` unchanged. The CLI-side targets depend on
-`AgentStudioPrimitives` directly, which is what keeps the bundled helper off
-Infrastructure's GRDB/OTel/libgit2 base. Do not put I/O, logging, tracing,
-persistence, or anything with a package dependency here — that is
-Infrastructure's job.
+`AgentStudioPrimitives` directly.
+
+`AgentStudioWorktreeOperations` is an Infrastructure-depth product leaf that
+owns shared worktree naming and SDK-backed operations for Core, CommandBar, App
+and the CLI. It depends only on Foundation, `AgentStudioPrimitives`, and
+`AgentStudioGit`; it neither imports nor re-exports Infrastructure. The bundled
+CLI intentionally links libgit2 through this target for `agentstudio worktree`
+verbs, an owner-accepted binary-size and startup-cost tradeoff. Keep
+`AgentStudioPrimitives` dependency-free; the SDK-backed worktree behavior belongs
+in this separate target.
 
 The existing programmatic-control targets remain separate lower-level modules:
 
@@ -261,6 +273,11 @@ Sources/AgentStudioPrimitives/
   `agentstudio-cli` executable (today: UUIDv7).
   No package dependencies and nothing internal. Re-exported by
   AgentStudioInfrastructure for app-side consumers.
+
+Sources/AgentStudioWorktreeOperations/
+  Shared worktree naming, branch and default-start-point contracts, SDK-backed
+  operations, and CLI formatting. Depends on AgentStudioPrimitives and
+  AgentStudioGit, not AgentStudioInfrastructure.
 
 Sources/AgentStudioIPCTransport/
   Unix sockets, peer credentials, NDJSON framing, JSON-RPC codec.
@@ -286,9 +303,10 @@ Sources/AgentStudioIPCClientCore/
 Sources/AgentStudioIPCClient/
   Thin `agentstudio-cli` executable entrypoint, bundled as
   `Contents/Helpers/agentstudio`.
-  Depends only on the client core, primitives, and programmatic-control
-  contracts. Never on AgentStudioInfrastructure: that single edge relinks the
-  whole GRDB/OTel/libgit2 base into the helper. Pinned by
+  Depends on the client core, primitives, programmatic-control contracts, and
+  AgentStudioWorktreeOperations. It stays off AgentStudioInfrastructure; the
+  intentional libgit2 link for worktree verbs comes through the shared worktree
+  operations target. Pinned by
   Tests/AgentStudioTests/Architecture/CommandLineClientLeafTargetArchitectureTests.swift.
 
 Sources/AgentStudio/App/IPCComposition/

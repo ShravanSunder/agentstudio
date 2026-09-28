@@ -2,6 +2,7 @@ import AgentStudioCore
 import AgentStudioGit
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
+import AgentStudioWorktreeOperations
 import Foundation
 import Testing
 

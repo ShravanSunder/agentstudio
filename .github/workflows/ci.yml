@@ -94,6 +94,8 @@ jobs:
           # Lint needs only SwiftLint, which the next step installs by exact version.
           # Installing every .mise.toml tool here pulled zig, whose mirror rate-limits (HTTP 429).
           install: false
+          # Nothing is installed through mise in this job, so there is nothing to cache.
+          cache: false
 
       - name: Install lint tools
         run: bash scripts/install-ci-lint-tools.sh
@@ -337,14 +339,13 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v3
 
-      - name: Install lint tools for Swift test contracts
-        run: bash scripts/install-ci-lint-tools.sh
-
-      - name: Verify lint tools on PATH
+      # Setup mise installs the pinned SwiftLint that the contract tests run.
+      # No Swift test runs swift-format, so this job does not build it.
+      - name: Verify SwiftLint on PATH
         run: |
-          test "$(command -v swiftlint)" = "$(mise where swiftlint@0.65.1)/swiftlint"
-          swift-format --version
-          swiftlint version
+          echo "swiftlint resolves to: $(command -v swiftlint || echo missing)"
+          echo "mise pin installs at: $(mise where swiftlint@0.65.1)"
+          test "$(swiftlint version)" = "0.65.1"
 
       # --- Submodule SHAs for cache keys ---
 
