@@ -859,7 +859,7 @@ describe('Bridge product session authority', () => {
 		);
 
 		// Assert
-		await expect(firstCall).resolves.toBeNull();
+		await expect(firstCall).rejects.toThrow(/abort/iu);
 		expect(requestSequences).toEqual([1, 2, 3, 4, 5, 6]);
 	});
 });

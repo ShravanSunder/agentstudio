@@ -398,7 +398,6 @@ export class BridgeProductControlMux {
 						recordAttemptFailure: (outcome): void => {
 							attemptOutcomes.push(outcome);
 						},
-						...(props.signal === undefined ? {} : { signal: props.signal }),
 					});
 				} catch (error: unknown) {
 					if (error instanceof BridgeProductSessionSuspectError)
@@ -424,6 +423,7 @@ export class BridgeProductControlMux {
 					// Admission rejection may leave the sequence unconsumed; only native knows its floor.
 					this.#nextRequestSequence =
 						response.nextExpectedRequestSequence ?? this.#nextRequestSequence;
+					props.signal?.throwIfAborted();
 					throw new BridgeProductControlRequestError({
 						code: response.code,
 						message:
@@ -455,6 +455,7 @@ export class BridgeProductControlMux {
 					waitKind: response.waitKind,
 				});
 				try {
+					props.signal?.throwIfAborted();
 					if (operationResult.outcome !== 'succeeded') {
 						throw new BridgeProductControlRequestError({
 							code: operationResult.failureCode ?? 'internal',
@@ -655,6 +656,7 @@ export class BridgeProductControlMux {
 			.enqueue(async (): Promise<TResult> => {
 				props.signal?.throwIfAborted();
 				await this.#authority.open;
+				props.signal?.throwIfAborted();
 				if (this.#hasAmbiguousControlExhaustion)
 					throw new BridgeProductSessionSuspectError('admission');
 				const request = props.buildRequest({
@@ -676,7 +678,6 @@ export class BridgeProductControlMux {
 						recordAttemptFailure: (outcome): void => {
 							attemptOutcomes.push(outcome);
 						},
-						...(props.signal === undefined ? {} : { signal: props.signal }),
 					});
 				} catch (error: unknown) {
 					if (error instanceof BridgeProductSessionSuspectError)
@@ -701,6 +702,7 @@ export class BridgeProductControlMux {
 					});
 					this.#nextRequestSequence =
 						response.nextExpectedRequestSequence ?? this.#nextRequestSequence;
+					props.signal?.throwIfAborted();
 					throw new BridgeProductControlRequestError({
 						code: response.code,
 						message: response.safeMessage ?? `Bridge product escape control was rejected.`,
@@ -715,6 +717,7 @@ export class BridgeProductControlMux {
 					attemptOutcomes,
 				});
 				this.#nextRequestSequence += 1;
+				props.signal?.throwIfAborted();
 				return props.acceptResponse(response, request);
 			}, 'escape')
 			.catch((error: unknown): never => {

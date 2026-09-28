@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { BridgeProductControlAdmissionQueue } from './bridge-product-control-admission-queue.js';
 import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import type {
 	ViewResnapshotAdmissionProps,
@@ -15,6 +16,51 @@ const emptyFileScope = {
 } as const;
 
 describe('W2 desired view scope owner', () => {
+	test('two scopes superseded before dispatch consume one control sequence for the latest demand', async () => {
+		const queue = new BridgeProductControlAdmissionQueue();
+		let releaseHeldControl: () => void = (): void => {};
+		const heldControl = new Promise<void>((resolve): void => {
+			releaseHeldControl = resolve;
+		});
+		const blocker = queue.enqueue(async (): Promise<void> => {
+			await heldControl;
+		});
+		let nextSequence = 3;
+		const dispatched: Array<{
+			readonly sequence: number;
+			readonly scope: ViewScopeAdmissionProps['scope'];
+		}> = [];
+		const owner = new BridgeProductViewScopeOwner({
+			controlMux: {
+				setViewScope: (props) =>
+					queue.enqueue(async () => {
+						props.signal?.throwIfAborted();
+						const sequence = nextSequence;
+						nextSequence += 1;
+						dispatched.push({ sequence, scope: props.scope });
+						return { ...acceptedScope(props), requestSequence: sequence };
+					}),
+				resnapshotView: async (props) => acceptedResnapshot(props),
+			},
+			createIdentifier: (): string => 'view-identity',
+			maximumConsecutiveResnapshots: 2,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-subscription-1',
+			subscriptionKind: 'file.metadata',
+		});
+		const first = owner.setScope({ scope: emptyFileScope, subscriptionId: 'file-subscription-1' });
+		const latestScope = { ...emptyFileScope, pathScope: ['latest'] } as const;
+		const second = owner.setScope({ scope: latestScope, subscriptionId: 'file-subscription-1' });
+		releaseHeldControl();
+		await blocker;
+		expect(await first).toEqual({ kind: 'cancelled' });
+		expect(await second).toEqual({ kind: 'accepted', scopeRevision: 2 });
+		expect(dispatched).toEqual([{ sequence: 3, scope: latestScope }]);
+		expect(nextSequence).toBe(4);
+	});
+
 	test('emits per-view recovery status only when it changes', async () => {
 		const statuses: Array<{
 			readonly view: { readonly kind: string; readonly subscriptionId: string };
