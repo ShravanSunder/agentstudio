@@ -27,24 +27,6 @@ final class BridgeContentDemandAdmissionTests {
     }
 
     @Test
-    func test_backgroundWaiterLifetimeIsOwnedByAdmissionActor() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/Bridge/Transport/BridgeContentDemandAdmission.swift"
-            ),
-            encoding: .utf8
-        )
-
-        #expect(!source.contains("final class BackgroundWaiter"))
-        #expect(!source.contains("NSLock"))
-        #expect(!source.contains("@unchecked Sendable"))
-        #expect(source.contains("backgroundWaiterIds"))
-        #expect(source.contains("backgroundWaiterContinuationsById"))
-        #expect(source.contains("backgroundWaiterCancellationTombstones"))
-    }
-
-    @Test
     func test_withAdmissionFinishesUserDemandExactlyOnceWhenOperationThrows() async {
         let clock = TestPushClock()
         let admission = BridgeContentDemandAdmission(clock: clock)

@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioWorktreeOperations
 import Foundation
 import Testing
 

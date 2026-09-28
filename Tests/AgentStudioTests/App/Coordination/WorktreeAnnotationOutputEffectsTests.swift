@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 @testable import AgentStudio
 
 @MainActor
-@Suite(.serialized)
+@Suite
 struct WorktreeAnnotationOutputEffectsTests {
     @Test("clipboard output replaces stale contents with exact UTF-8 Markdown bytes")
     func clipboardOutputReplacesStaleContentsWithExactMarkdownBytes() async throws {
@@ -54,7 +54,10 @@ struct WorktreeAnnotationOutputEffectsTests {
     func jsonDestinationConfiguresSavePanel() async {
         let destination = URL(filePath: "/tmp/agentstudio-selected-review-comments.json")
         let panel = TestJSONDestinationPanel(response: .OK, selectedURL: destination)
-        let effect = WorktreeAnnotationOutputEffects(makeSavePanel: { panel })
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
+            makeSavePanel: { panel }
+        )
 
         let outcome = await effect.chooseJSONDestination(
             suggestedFilename: "AgentStudio Review Comments.json"
@@ -70,7 +73,10 @@ struct WorktreeAnnotationOutputEffectsTests {
     @Test("JSON destination cancellation is typed cancellation")
     func jsonDestinationCancellationIsTyped() async {
         let panel = TestJSONDestinationPanel(response: .cancel, selectedURL: nil)
-        let effect = WorktreeAnnotationOutputEffects(makeSavePanel: { panel })
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
+            makeSavePanel: { panel }
+        )
 
         let outcome = await effect.chooseJSONDestination(suggestedFilename: "comments.json")
 
@@ -84,7 +90,10 @@ struct WorktreeAnnotationOutputEffectsTests {
             selectedURL: nil,
             presentationError: TestOutputEffectFailure.forced
         )
-        let effect = WorktreeAnnotationOutputEffects(makeSavePanel: { panel })
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
+            makeSavePanel: { panel }
+        )
 
         let outcome = await effect.chooseJSONDestination(suggestedFilename: "comments.json")
 
@@ -106,7 +115,9 @@ struct WorktreeAnnotationOutputEffectsTests {
         let destination = temporaryRoot.appending(path: "review-comments.json")
         try Data("stale".utf8).write(to: destination)
         let exactBytes = Data("{\"formatVersion\":1,\"comments\":[]}".utf8)
-        let effect = WorktreeAnnotationOutputEffects()
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard()
+        )
 
         let outcome = await effect.perform(
             outputRequest(
@@ -122,7 +133,9 @@ struct WorktreeAnnotationOutputEffectsTests {
 
     @Test("JSON output fails without the persisted selected path")
     func jsonOutputRejectsMissingPersistedPath() async {
-        let effect = WorktreeAnnotationOutputEffects()
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard()
+        )
 
         let outcome = await effect.perform(
             outputRequest(kind: .jsonFile, exactBytes: Data("{}".utf8))
@@ -139,6 +152,7 @@ struct WorktreeAnnotationOutputEffectsTests {
     func jsonOutputDoesNotRetryKnownWriteFailure() async {
         let writer = RecordingFailingJSONWriter()
         let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
             writeJSONData: { data, destination in
                 try await writer.write(data, to: destination)
             }

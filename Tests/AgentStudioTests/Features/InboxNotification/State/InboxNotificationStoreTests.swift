@@ -182,9 +182,6 @@ struct InboxNotificationStoreTests {
         inboxAtom.append(second)
 
         try await store.save()
-        clock.advance(by: .milliseconds(10))
-        await Task.yield()
-
         #expect(clock.pendingSleepCount == 0)
         #expect(try fixture.repository.fetchNotifications().map(\.id) == [first.id, second.id])
     }

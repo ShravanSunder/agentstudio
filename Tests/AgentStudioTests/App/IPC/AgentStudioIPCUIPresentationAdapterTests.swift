@@ -7,7 +7,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("AgentStudio IPC UI presentation adapter", .serialized)
+@Suite("AgentStudio IPC UI presentation adapter")
 struct AgentStudioIPCUIPresentationAdapterTests {
     @Test("adapter does not retain the App-owned UI presenter")
     func adapterDoesNotRetainUIPresenter() throws {

@@ -17,10 +17,10 @@ struct SwiftLaneHangEvidenceTests {
 
         let laneOutput = try await laneBashAllowingFailure(
             "mkdir -p '\(workDirectory)'; "
-                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'dump probe' 2 /bin/bash -c "
+                + "run_swift_with_timeout 'dump probe' 0 /bin/bash -c "
                 + "'while true; do sleep 1; done' AgentStudioPackageTests "
                 + "|| returned=$?; echo \"RETURNED=${returned:-0}\""
         )
@@ -50,6 +50,7 @@ struct SwiftLaneHangEvidenceTests {
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
         printf 'arrived\\tstep-1\\tgate A\\n' \
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
+        touch "$LANE_WATCHDOG_ARM_PATH"
         while true; do sleep 1; done
 
         """.write(toFile: workDirectory + "/wedged-test.sh", atomically: true, encoding: .utf8)
@@ -61,10 +62,12 @@ struct SwiftLaneHangEvidenceTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: workDirectory + "/bin/xcrun")
 
         let laneOutput = try await laneBashAllowingFailure(
-            "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
-                + "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)'; export PATH='\(workDirectory)/bin':$PATH; "
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)'; "
+                + "export LANE_WATCHDOG_ARM_PATH='\(workDirectory)/watchdog-armed'; "
+                + "export PATH='\(workDirectory)/bin':$PATH; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'evidence probe' 2 /bin/bash '\(workDirectory)/wedged-test.sh' "
+                + "run_swift_with_timeout 'evidence probe' 0 /bin/bash '\(workDirectory)/wedged-test.sh' "
                 + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\""
         )
         let evidenceFiles = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory).sorted()
@@ -166,12 +169,12 @@ struct SwiftLaneHangEvidenceTests {
             )
         }
         func wedgedLane(inspectorDirectory: String) -> String {
-            "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/\(inspectorDirectory)-runs'; "
                 + "export LANE_STACK_SAMPLE_TOOL='\(workDirectory)/no-such-sample'; "
                 + "export PATH='\(workDirectory)/\(inspectorDirectory)':$PATH; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'no sample probe' 2 /bin/bash -c 'while true; do sleep 1; done' "
+                + "run_swift_with_timeout 'no sample probe' 0 /bin/bash -c 'while true; do sleep 1; done' "
                 + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\"; "
                 + "echo \"DUMPS=$(ls -1 '\(workDirectory)/\(inspectorDirectory)-runs' | grep -c task-dump || true)\""
         }

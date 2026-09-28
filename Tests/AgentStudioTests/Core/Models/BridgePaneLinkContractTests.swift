@@ -112,38 +112,48 @@ struct BridgePaneLinkContractTests {
         )
     }
 
-    @Test("reveal unions match every shared fixture")
-    func revealFixtures() throws {
+    @Test("agent show mode, native outcomes and IPC reply match every shared fixture")
+    func agentShowFixtures() throws {
         try assertFixtures(
-            union: "BridgeRevealAdmissionResult", folder: "reveal", prefix: "reveal-admission",
+            union: "BridgeAgentShowMode", folder: "agent-show", prefix: "agent-show-mode",
             cases: [
-                ("admitted", .admitted(operationId: try fixtureOperationId())),
-                ("unsupported-target", .unsupportedTarget),
-                ("stale-owner", .staleOwner), ("stale-receiver", .staleReceiver),
-            ] as [(String, BridgeRevealAdmissionResult)]
+                ("background", .background), ("take-over", .takeOver),
+            ] as [(String, BridgeAgentShowMode)]
         )
         try assertFixtures(
-            union: "BridgeAgentRevealSettlement", folder: "reveal", prefix: "agent-reveal-settlement",
+            union: "BridgeAgentShowReply", folder: "agent-show", prefix: "agent-show-reply",
             cases: [
-                ("shown", .shown), ("waiting-in-open-view", .waitingInOpenView),
-                ("superseded", .superseded), ("unavailable", .unavailable),
-                ("not-found", .notFound), ("stale-owner", .staleOwner),
-                ("cancelled", .cancelled), ("outcome-unknown", .outcomeUnknown),
-            ] as [(String, BridgeAgentRevealSettlement)]
+                ("opened", .opened), ("shown", .shown), ("declined", .declined),
+                ("not-found", .notFound), ("pane-unavailable", .paneUnavailable),
+            ] as [(String, BridgeAgentShowReply)]
         )
         try assertFixtures(
-            union: "BridgeHumanOpenSettlement", folder: "reveal", prefix: "human-open-settlement",
+            union: "BridgeAgentBackgroundOpenResult", folder: "agent-show", prefix: "background-open",
             cases: [
-                ("shown", .shown), ("draft-kept-refused", .draftKept(reason: .refused)),
-                ("draft-kept-save-failed", .draftKept(reason: .saveFailed)),
-                ("draft-kept-save-outcome-unknown", .draftKept(reason: .saveOutcomeUnknown)),
-                ("superseded", .superseded), ("unavailable", .unavailable),
-                ("outcome-unknown", .outcomeUnknown),
-            ] as [(String, BridgeHumanOpenSettlement)]
+                ("opened", .opened), ("not-found", .notFound), ("pane-unavailable", .paneUnavailable),
+            ] as [(String, BridgeAgentBackgroundOpenResult)]
+        )
+        try assertFixtures(
+            union: "BridgeAgentTakeOverResult", folder: "agent-show", prefix: "take-over",
+            cases: [
+                ("shown", .shown), ("opened", .opened), ("not-found", .notFound),
+                ("pane-unavailable", .paneUnavailable),
+            ] as [(String, BridgeAgentTakeOverResult)]
         )
     }
 
-    @Test("item identity and reveal paths validate before use")
+    @Test("native show results map exhaustively to the IPC reply")
+    func agentShowReplyMapping() {
+        #expect(bridgeAgentShowReply(for: BridgeAgentBackgroundOpenResult.opened) == .opened)
+        #expect(bridgeAgentShowReply(for: BridgeAgentBackgroundOpenResult.notFound) == .notFound)
+        #expect(bridgeAgentShowReply(for: BridgeAgentBackgroundOpenResult.paneUnavailable) == .paneUnavailable)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.shown) == .shown)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.opened) == .opened)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.notFound) == .notFound)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.paneUnavailable) == .paneUnavailable)
+    }
+
+    @Test("item identity and agent show paths validate before use")
     func valueValidation() throws {
         let worktree = UUIDv7.generate()
         let identity = try ForgePullRequestIdentity(
@@ -155,20 +165,20 @@ struct BridgePaneLinkContractTests {
                 BridgeLinkItem.self,
                 from: JSONEncoder().encode(BridgeLinkItem.pullRequest(identity))
             ) == .pullRequest(identity))
-        let target = try BridgeRevealFileTarget(worktree: worktree, relativePath: "src/file.swift", line: 12)
+        let target = try BridgeAgentShowTarget(worktree: worktree, relativePath: "src/file.swift", line: 12)
         #expect(
             try JSONDecoder().decode(
-                BridgeRevealFileTarget.self, from: JSONEncoder().encode(target)
+                BridgeAgentShowTarget.self, from: JSONEncoder().encode(target)
             ) == target)
         #expect(throws: BridgeLinkIdentityError.invalidRelativePath) {
-            try BridgeRevealFileTarget(worktree: worktree, relativePath: "../secret")
+            try BridgeAgentShowTarget(worktree: worktree, relativePath: "../secret")
         }
         #expect(throws: BridgeLinkIdentityError.invalidLine) {
-            try BridgeRevealFileTarget(worktree: worktree, relativePath: "file.swift", line: 0)
+            try BridgeAgentShowTarget(worktree: worktree, relativePath: "file.swift", line: 0)
         }
     }
 
-    @Test("identity, removal fact and retained Open view fixtures round trip")
+    @Test("identity, removal fact and file target fixtures round trip")
     func valueFixtures() throws {
         let root = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let folder = "Tests/BridgeContractFixtures/"
@@ -201,28 +211,12 @@ struct BridgePaneLinkContractTests {
         #expect(try decoder.decode(BridgeLinkContributionsRemoved.self, from: encoder.encode(fact)) == fact)
 
         let target = try decoder.decode(
-            BridgeRevealFileTarget.self,
+            BridgeAgentShowTarget.self,
             from: Data(
                 contentsOf: root.appending(
-                    path: folder + "reveal/file-target.json"
+                    path: folder + "agent-show/agent-show-target.json"
                 )))
         #expect(target.line == 12)
-        let dateDecoder = JSONDecoder()
-        dateDecoder.dateDecodingStrategy = .iso8601
-        let dateEncoder = JSONEncoder()
-        dateEncoder.dateEncodingStrategy = .iso8601
-        let retained = try dateDecoder.decode(
-            BridgeRetainedOpenViewItem.self,
-            from: Data(
-                contentsOf: root.appending(
-                    path: folder + "reveal/retained-open-view-item.json"
-                )))
-        #expect(retained.target == target)
-        #expect(retained.requestedBy == agent)
-        #expect(
-            try dateDecoder.decode(
-                BridgeRetainedOpenViewItem.self, from: dateEncoder.encode(retained)
-            ) == retained)
     }
 
     @Test("membership port accepts only typed worktree and PR identities")
@@ -276,7 +270,7 @@ struct BridgePaneLinkContractTests {
             contentsOf: root.appending(
                 path: "Tests/BridgeContractFixtures/\(folder)/invalid-\(prefix).json"
             ))
-        #expect(throws: Error.self) { try decoder.decode(Fixture<Outcome>.self, from: invalid) }
+        #expect(throws: DecodingError.self) { try decoder.decode(Fixture<Outcome>.self, from: invalid) }
     }
 
     private func fixtureAgent() throws -> BridgeLinkContributor {
