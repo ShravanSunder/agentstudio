@@ -200,7 +200,7 @@ describe('Bridge worker render fulfillment registry', () => {
 		).toMatchObject({ status: 'rejected' });
 	});
 
-	test('retains an active source-churn attempt until its exact first disposition', () => {
+	test('retains an active source-churn attempt until its first disposition or existing lease expiry', () => {
 		// Arrange
 		const registry = createRegistry(reviewContext);
 		const first = registry.beginPublication({
@@ -211,9 +211,11 @@ describe('Bridge worker render fulfillment registry', () => {
 
 		// Act
 		const requeuedItemIds = registry.requeuePublicationsForSourceChurn(1);
-		const expiredItemIds = registry.expireReceiptLeases(10_000);
+		const expiredItemIds = registry.expireReceiptLeases(99);
 		const nextWakeAtMilliseconds = registry.nextLifecycleWakeAtMilliseconds();
-		const queuedResult = registry.applyDisposition(disposition(first.receiptIdentity, 'queued', 2));
+		const queuedResult = registry.applyDisposition(
+			disposition(first.receiptIdentity, 'queued', 99),
+		);
 		const replacement = registry.beginPublication({
 			job: makeRenderJob('review-item-1', { lane: 'visible', priority: 1 }, 'b'.repeat(64)),
 			publicationSequence: 9,
@@ -223,10 +225,50 @@ describe('Bridge worker render fulfillment registry', () => {
 		// Assert
 		expect(requeuedItemIds).toEqual([]);
 		expect(expiredItemIds).toEqual([]);
-		expect(nextWakeAtMilliseconds).toBeNull();
+		expect(nextWakeAtMilliseconds).toBe(100);
 		expect(queuedResult).toMatchObject({ status: 'accepted' });
 		expect(replacement).toMatchObject({ shouldPublish: true, status: 'published' });
 		expect(replacement.receiptIdentity.publicationId).not.toBe(first.receiptIdentity.publicationId);
+	});
+
+	test('a changed selected item can publish its new content after the old first disposition is lost', () => {
+		let nowMilliseconds = 0;
+		const registry = createRegistry(reviewContext, (): number => nowMilliseconds);
+		const oldPublication = registry.beginPublication({
+			job: makeRenderJob('selected-item', { lane: 'selected', priority: 0 }, 'a'.repeat(64)),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		expect(oldPublication.shouldPublish).toBe(true);
+		registry.requeuePublicationsForSourceChurn();
+
+		// The old main-thread reply is lost. The existing render lease is the progress boundary.
+		nowMilliseconds = 100;
+		expect(registry.expireReceiptLeases()).toEqual(['selected-item']);
+		nowMilliseconds = 105;
+		expect(registry.releaseReadyRetries()).toEqual(['selected-item']);
+		const replacement = registry.beginPublication({
+			job: makeRenderJob('selected-item', { lane: 'selected', priority: 0 }, 'b'.repeat(64)),
+			publicationSequence: 9,
+			workerDerivationEpoch: 3,
+		});
+		expect(replacement).toMatchObject({ shouldPublish: true, status: 'published' });
+		expect(replacement.receiptIdentity.attemptId).not.toBe(
+			oldPublication.receiptIdentity.attemptId,
+		);
+		expect(
+			registry.applyDisposition(disposition(oldPublication.receiptIdentity, 'queued', 105)),
+		).toMatchObject({ status: 'rejected' });
+		expect(
+			registry.applyDisposition(disposition(replacement.receiptIdentity, 'queued', 106)),
+		).toMatchObject({ status: 'accepted' });
+		expect(
+			registry.applyDisposition(disposition(replacement.receiptIdentity, 'applied', 107)),
+		).toMatchObject({ status: 'accepted' });
+		expect(
+			registry.applyDisposition(disposition(replacement.receiptIdentity, 'painted', 108)),
+		).toMatchObject({ status: 'accepted' });
+		expect(registry.getItemState('selected-item')?.stage).toBe('painted');
 	});
 
 	test('retires a removed item immediately after its outstanding first disposition', () => {

@@ -71,20 +71,28 @@ describe('Bridge comm worker Review metadata reset', () => {
 		expect(scheduledPreparations.at(-1)).toMatchObject({ epoch: 8, itemId });
 	});
 
-	test('retains active render attempts for their exact receipt only after transaction commit', () => {
+	test('retains active render attempts through reset commit with a bounded receipt lease', () => {
 		// Arrange
 		const itemId = 'item-generation-refresh';
 		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
 		let reviewStore: ScheduledSelectedReviewPreparation['store'] | null = null;
-		let resetScheduledAfterAttemptRetention = false;
+		let resetScheduledWithBoundedLease = false;
+		let nowMilliseconds = 0;
+		const expiredPublicationItemIds: string[] = [];
 		const contentItems = [makeWorkerReviewContentMetadata(itemId)];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems,
+			renderFulfillmentNow: (): number => nowMilliseconds,
+			renderReceiptLeaseDurationMilliseconds: 10,
+			renderRetryBackoffMilliseconds: 5,
+			releaseExpiredReviewPublication: (expiredItemId): void => {
+				expiredPublicationItemIds.push(expiredItemId);
+			},
 			rows: [{ id: itemId, parentId: null, index: 0 }],
 			scheduleReviewMetadataReset: (): void => {
-				resetScheduledAfterAttemptRetention =
+				resetScheduledWithBoundedLease =
 					reviewStore?.renderFulfillmentRegistry.getItemState(itemId)?.stage === 'published' &&
-					reviewStore.renderFulfillmentRegistry.nextLifecycleWakeAtMilliseconds() === null;
+					reviewStore.renderFulfillmentRegistry.nextLifecycleWakeAtMilliseconds() !== null;
 			},
 			scheduleSelectedReviewContentReadyPreparation:
 				pushScheduledSelectedReviewPreparation(scheduledPreparations),
@@ -139,12 +147,18 @@ describe('Bridge comm worker Review metadata reset', () => {
 			shouldPublish: false,
 			status: 'duplicate',
 		});
-		expect(resetScheduledAfterAttemptRetention).toBe(true);
+		expect(resetScheduledWithBoundedLease).toBe(true);
 		expect(publicationAfterCommit).toMatchObject({
 			receiptIdentity: firstPublication.receiptIdentity,
 			shouldPublish: false,
 			status: 'duplicate',
 		});
+		nowMilliseconds = 9;
+		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+		expect(expiredPublicationItemIds).toEqual([]);
+		nowMilliseconds = 10;
+		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+		expect(expiredPublicationItemIds).toEqual([itemId]);
 	});
 });
 

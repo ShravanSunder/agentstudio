@@ -488,6 +488,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		scheduleSelectedReviewContentReadyPreparation:
 			reviewDemandScheduling.scheduleSelectedContentReadyPreparation,
 		scheduleReviewMetadataReset: reviewDemandScheduling.scheduleMetadataReset,
+		releaseExpiredReviewPublication: reviewDemandScheduling.releaseExpiredPublication,
 		scheduleSelectedFileViewContentReadyPreparation,
 		scheduleDemandExecution: (request): void => {
 			shouldRequestDrainAfterMessage =

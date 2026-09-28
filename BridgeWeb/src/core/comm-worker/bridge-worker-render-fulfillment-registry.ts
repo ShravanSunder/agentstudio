@@ -204,11 +204,18 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		for (const [itemId, currentState] of this.#fulfillmentByItemId) {
 			const activeAttempt = currentState.activeAttempt;
 			if (
-				this.#sourceChurnDispositionByItemId.has(itemId) ||
 				activeAttempt === null ||
 				activeAttempt.highestDisposition !== null ||
 				atMilliseconds < activeAttempt.receiptLeaseExpiresAtMilliseconds
 			) {
+				continue;
+			}
+			const sourceChurnDisposition = this.#sourceChurnDispositionByItemId.get(itemId);
+			this.#sourceChurnDispositionByItemId.delete(itemId);
+			if (sourceChurnDisposition === 'retire') {
+				this.#sourceRevalidationItemIds.delete(itemId);
+				this.#fulfillmentByItemId.delete(itemId);
+				expiredItemIds.push(itemId);
 				continue;
 			}
 			const nextState = reduceBridgeWorkerRenderFulfillment(currentState, {
@@ -294,11 +301,8 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 	nextLifecycleWakeAtMilliseconds(): number | null {
 		let nextWakeAtMilliseconds: number | null = null;
 		for (const currentState of this.#fulfillmentByItemId.values()) {
-			const candidateWakeAtMilliseconds = this.#sourceChurnDispositionByItemId.has(
-				currentState.itemId,
-			)
-				? null
-				: currentState.stage === 'retry_wait'
+			const candidateWakeAtMilliseconds =
+				currentState.stage === 'retry_wait'
 					? currentState.retryAtMilliseconds
 					: currentState.activeAttempt?.highestDisposition === null
 						? currentState.activeAttempt.receiptLeaseExpiresAtMilliseconds

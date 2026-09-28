@@ -61,6 +61,7 @@ export interface BridgeCommWorkerReviewDemandLedger {
 	) => boolean;
 	readonly releaseRejected: (itemId: string, attemptToken: number) => boolean;
 	readonly releasePublished: (receipt: BridgeWorkerRenderDispositionReceipt) => boolean;
+	readonly releaseExpiredPublication: (itemId: string) => boolean;
 	readonly restartPublished: (itemId: string) => boolean;
 }
 
@@ -368,6 +369,16 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 			}
 			reconcile(latestMembership);
 			observeOutstandingPublications('render_publication_outstanding_changed', 'released');
+			return true;
+		},
+		releaseExpiredPublication: (itemId): boolean => {
+			const activeRecord = activeRecordsByItemId.get(itemId);
+			if (activeRecord?.publishedReceiptIdentity === null || activeRecord === undefined) {
+				return false;
+			}
+			activeRecordsByItemId.delete(itemId);
+			observeOutstandingPublications('render_publication_outstanding_changed', 'cleared');
+			publishCurrentActiveDemand();
 			return true;
 		},
 		restartPublished: (itemId): boolean => {

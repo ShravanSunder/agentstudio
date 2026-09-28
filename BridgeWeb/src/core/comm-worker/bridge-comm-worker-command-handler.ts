@@ -289,7 +289,9 @@ export function createBridgeCommWorkerCommandHandler(
 		advanceReviewRenderFulfillmentLifecycle: (
 			atMilliseconds,
 		): BridgeCommWorkerRenderFulfillmentLifecycleAdvance => {
-			reviewStore.renderFulfillmentRegistry.expireReceiptLeases(atMilliseconds);
+			const expiredItemIds =
+				reviewStore.renderFulfillmentRegistry.expireReceiptLeases(atMilliseconds);
+			for (const itemId of expiredItemIds) props.releaseExpiredReviewPublication?.(itemId);
 			const releasedItemIds =
 				reviewStore.renderFulfillmentRegistry.releaseReadyRetries(atMilliseconds);
 			if (releasedItemIds.length > 0) {

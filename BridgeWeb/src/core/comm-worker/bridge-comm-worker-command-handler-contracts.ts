@@ -40,6 +40,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly renderFulfillmentNow?: () => number;
 	readonly renderReceiptLeaseDurationMilliseconds?: number;
 	readonly renderRetryBackoffMilliseconds?: number;
+	readonly releaseExpiredReviewPublication?: (itemId: string) => void;
 	readonly retryAnnotationProjection?: (surface: 'file' | 'review') => void;
 	readonly retryView?: (view: BridgeWorkerViewRecoveryRetryCommand['view']) => void;
 	readonly scheduleDemandExecution?: (
