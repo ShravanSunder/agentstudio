@@ -209,6 +209,10 @@ export function createBridgePaneRuntime(
 	const dispatcher = session.createDispatcher({
 		publishWorkerMessages: (messages): void => {
 			for (const message of messages) {
+				if (message.kind === 'viewRecoveryStatus') {
+					const targetSurface = bridgePaneSurfaceForViewRecoveryStatusKind(message.view.kind);
+					surfaceClients.get(targetSurface)?.renderStore.applyViewRecoveryStatusEvent(message);
+				}
 				for (const client of rpcClients.values()) client.receive(message);
 				if (
 					message.kind === 'health' &&
@@ -405,6 +409,12 @@ export function createBridgePaneRuntime(
 	};
 }
 
+function bridgePaneSurfaceForViewRecoveryStatusKind(
+	kind: 'file.annotations' | 'file.metadata' | 'review.annotations' | 'review.metadata',
+): BridgePaneSurface {
+	return kind === 'file.annotations' || kind === 'file.metadata' ? 'fileView' : 'review';
+}
+
 interface BridgePaneReplacementReplayEntry {
 	readonly command: BridgeWorkerRpcCommandInput;
 	readonly key: string;
@@ -436,6 +446,7 @@ function bridgePaneReplacementReplayIdentity(
 		case 'annotationCommand':
 		case 'annotationOutputInspect':
 		case 'annotationProjectionRetry':
+		case 'viewRecoveryRetry':
 		case 'fileDisplayResync':
 		case 'fileRefreshRetry':
 		case 'hover':

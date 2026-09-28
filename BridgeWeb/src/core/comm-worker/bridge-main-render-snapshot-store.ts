@@ -34,6 +34,7 @@ import type {
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerRowPaintPatchPayload,
 	BridgeWorkerSlicePatch,
+	BridgeWorkerViewRecoveryStatusEvent,
 } from './bridge-worker-contracts.js';
 export type {
 	BridgeMainFileItemDisplayPayload,
@@ -167,6 +168,11 @@ export interface BridgeMainRenderSnapshotUpdate {
 	readonly workerPatches?: readonly BridgeWorkerSlicePatch[];
 }
 
+export type BridgeMainViewRecoveryStatus = Pick<
+	BridgeWorkerViewRecoveryStatusEvent,
+	'status' | 'view'
+>;
+
 export interface BridgeMainRenderSnapshot
 	extends BridgeMainFileDisplayState, BridgeMainReviewDisplayState {
 	readonly selectionSlice: BridgeMainSelectionSlice;
@@ -229,6 +235,11 @@ export interface BridgeMainRenderSnapshotStore extends BridgeMainReviewCandidate
 	readonly applySnapshotUpdate: (update: BridgeMainRenderSnapshotUpdate) => void;
 	readonly applyFileDisplayPatchEvent: (event: BridgeWorkerFileDisplayPatchEvent) => void;
 	readonly applyReviewDisplayPatchEvent: (event: BridgeWorkerReviewDisplayPatchEvent) => void;
+	readonly applyViewRecoveryStatusEvent: (event: BridgeWorkerViewRecoveryStatusEvent) => void;
+	readonly getViewRecoveryStatus: (
+		kind: BridgeWorkerViewRecoveryStatusEvent['view']['kind'],
+	) => BridgeMainViewRecoveryStatus | null;
+	readonly subscribeViewRecoveryStatus: (listener: () => void) => () => void;
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 }
@@ -244,6 +255,11 @@ export function createBridgeMainRenderSnapshotStore(
 	const fileDisplayPatchApplier = new BridgeMainFileDisplayPatchApplier(fileDisplayApplierProps);
 	let snapshot = emptyBridgeMainRenderSnapshot(fileDisplayPatchApplier.state);
 	const listeners = new Set<() => void>();
+	const viewRecoveryStatusByKind = new Map<
+		BridgeWorkerViewRecoveryStatusEvent['view']['kind'],
+		BridgeMainViewRecoveryStatus
+	>();
+	const viewRecoveryStatusListeners = new Set<() => void>();
 	const reviewAvailabilityListeners = new BridgeMainKeyedListenerRegistry<string>();
 	const reviewCatalogListeners = new Set<() => void>();
 	const reviewCodeViewItemListeners = new BridgeMainKeyedListenerRegistry<string>();
@@ -413,6 +429,8 @@ export function createBridgeMainRenderSnapshotStore(
 			if (isDisposed) return;
 			isDisposed = true;
 			listeners.clear();
+			viewRecoveryStatusByKind.clear();
+			viewRecoveryStatusListeners.clear();
 			reviewAvailabilityListeners.clear();
 			reviewCatalogListeners.clear();
 			reviewCodeViewItemListeners.clear();
@@ -433,6 +451,26 @@ export function createBridgeMainRenderSnapshotStore(
 		},
 		getSnapshot: (): BridgeMainRenderSnapshot => snapshot,
 		getServerSnapshot: (): BridgeMainRenderSnapshot => snapshot,
+		getViewRecoveryStatus: (kind): BridgeMainViewRecoveryStatus | null =>
+			viewRecoveryStatusByKind.get(kind) ?? null,
+		subscribeViewRecoveryStatus: (listener): (() => void) => {
+			if (isDisposed) return (): void => {};
+			viewRecoveryStatusListeners.add(listener);
+			return (): void => {
+				viewRecoveryStatusListeners.delete(listener);
+			};
+		},
+		applyViewRecoveryStatusEvent: (event): void => {
+			if (isDisposed) return;
+			const previousStatus = viewRecoveryStatusByKind.get(event.view.kind);
+			if (
+				previousStatus?.view.subscriptionId === event.view.subscriptionId &&
+				previousStatus.status === event.status
+			)
+				return;
+			viewRecoveryStatusByKind.set(event.view.kind, { status: event.status, view: event.view });
+			publishBridgeMainListeners(viewRecoveryStatusListeners);
+		},
 		prepareForWorkerReplacement: (): void => {
 			if (isDisposed) return;
 			publishBridgeMainListeners(workerReplacementListeners);

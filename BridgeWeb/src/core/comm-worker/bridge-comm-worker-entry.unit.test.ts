@@ -18,6 +18,8 @@ import {
 	makeReviewContentDescriptor,
 	makeReviewPublicationIdentity,
 	makeRenderSemantics,
+	makeBootstrapRequest,
+	readyHealth,
 } from './bridge-comm-worker-entry.test-support.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
@@ -49,9 +51,10 @@ import {
 } from './bridge-product-session-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
-	bridgeWorkerServerToMainMessageSchema,
-	type BridgeCommWorkerBootstrapRequest,
+	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerServerToMainMessage,
+	type BridgeWorkerViewRecoveryStatusEvent,
+	bridgeWorkerServerToMainMessageSchema,
 } from './bridge-worker-contracts.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import { prepareBridgeWorkerReviewContentRenderJobEvent } from './bridge-worker-review-content-ready.js';
@@ -65,6 +68,9 @@ interface InstalledBridgeCommWorkerEntryHarness {
 	readonly close: () => void;
 	readonly globalPostedMessages: readonly PostedBridgeWorkerMessage[];
 	readonly globalStarted: () => boolean;
+	readonly publishViewRecoveryStatus: (
+		status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>,
+	) => void;
 	readonly productPort: BridgeWorkerMessagePortRecorder;
 }
 
@@ -358,6 +364,31 @@ describe('Bridge comm worker entry', () => {
 				},
 				readyHealth('request-after-bootstrap'),
 			]);
+		} finally {
+			harness.close();
+		}
+	});
+
+	test('posts view recovery status on the installed product port', async () => {
+		const harness = createInstalledBridgeCommWorkerEntryHarness();
+		try {
+			harness.publishViewRecoveryStatus({
+				status: 'failedRetryable',
+				view: { kind: 'file.metadata', subscriptionId: 'file-view-recovery-1' },
+			});
+			const postedMessages = await harness.productPort.waitForCount(1);
+
+			expect(postedMessages).toEqual([
+				{
+					wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'viewRecoveryStatus',
+					view: { kind: 'file.metadata', subscriptionId: 'file-view-recovery-1' },
+					status: 'failedRetryable',
+				},
+			]);
+			expect(harness.globalPostedMessages).toEqual([]);
 		} finally {
 			harness.close();
 		}
@@ -696,28 +727,20 @@ describe('Bridge comm worker entry', () => {
 	});
 });
 
-function readyHealth(requestId: string): BridgeWorkerServerToMainMessage {
-	return {
-		direction: 'serverWorkerToMain',
-		kind: 'health',
-		requestId,
-		status: 'ready',
-		transferDescriptors: [],
-		wireVersion: 1,
-	};
-}
-
 function createInstalledBridgeCommWorkerEntryHarness(
 	productTransport: BridgeProductTransportSession = makeUnavailableFileProductTransport(),
 ): InstalledBridgeCommWorkerEntryHarness {
 	const globalPort = createRecordingBridgeCommWorkerPort();
 	const productChannel = new MessageChannel();
 	const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
+	let publishViewRecoveryStatus:
+		| ((status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>) => void)
+		| undefined;
 	let didClose = false;
 	bootstrapBridgeCommWorkerEntry(globalPort.dispatch.port, {
 		installProductSession: (input): BridgeCommWorkerInstalledProductSession => {
 			const open = Promise.resolve();
-			void input;
+			publishViewRecoveryStatus = input.publishViewRecoveryStatus;
 			return {
 				open,
 				productTransport,
@@ -737,10 +760,22 @@ function createInstalledBridgeCommWorkerEntryHarness(
 		},
 		globalPostedMessages: globalPort.postedMessages,
 		globalStarted: globalPort.started,
+		publishViewRecoveryStatus: (status): void => {
+			if (publishViewRecoveryStatus === undefined) {
+				throw new Error(
+					'Expected the installed entry to provide a view recovery status publisher.',
+				);
+			}
+			publishViewRecoveryStatus(status);
+		},
 		productPort,
 	};
+	if (publishViewRecoveryStatus === undefined) {
+		harness.close();
+		throw new Error('Expected the installed entry to provide a view recovery status publisher.');
+	}
 	activeInstalledEntryHarnesses.add(harness);
-	return harness;
+	return { ...harness, publishViewRecoveryStatus };
 }
 
 function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
@@ -783,6 +818,7 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 	};
 }
 
+// oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept a target origin.
 class BridgeWorkerMessagePortRecorder {
 	readonly #messages: BridgeWorkerServerToMainMessage[] = [];
 	readonly #port: MessagePort;
@@ -908,22 +944,6 @@ function makePaneWorkerInstall(
 		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
 		productPort,
 	});
-}
-
-function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapRequest {
-	return {
-		schemaVersion: 1,
-		method: 'bridgeCommWorker.bootstrap',
-		requestId,
-		runtime: {
-			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			budget: {
-				className: 'interactive',
-				maxBytes: 512 * 1024,
-				maxWindowLines: 400,
-			},
-		},
-	};
 }
 
 function fileActiveViewerModeUpdate(requestLabel: string, epoch: number): unknown {

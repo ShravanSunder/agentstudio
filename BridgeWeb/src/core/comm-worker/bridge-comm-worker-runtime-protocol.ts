@@ -537,6 +537,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		retryAnnotationProjection: (surface): void => {
 			productController?.retryAnnotationProjection(surface);
 		},
+		retryView: (view): void => {
+			const productTransport = props.productTransport;
+			if (productTransport?.retryView === undefined) return;
+			void productTransport.retryView(view.subscriptionId).catch((): void => {
+				port.postMessage(buildBridgeWorkerRuntimeDegradedHealthEvent());
+			});
+		},
 	});
 	if (productTransport !== undefined) {
 		productBatchApplication = installBridgeCommWorkerProductBatchRuntime({

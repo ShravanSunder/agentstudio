@@ -1,9 +1,10 @@
 import { TriangleAlert } from 'lucide-react';
-import { useState, type ReactElement } from 'react';
+import { useState, useSyncExternalStore, type ReactElement } from 'react';
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Button } from '@/components/ui/button.js';
 
+import { BridgeViewerRecoveryRetryButton } from '../app/bridge-viewer-recovery-retry-button.js';
 import {
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSurfaceClient,
@@ -12,10 +13,17 @@ import {
 export function WorktreeAnnotationRecoveryWarning(): ReactElement | null {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const projection = useWorktreeAnnotationProjection();
+	const viewRecoveryStatus = useSyncExternalStore(
+		annotationClient.subscribeViewRecoveryStatus,
+		annotationClient.getViewRecoveryStatus,
+		annotationClient.getViewRecoveryStatus,
+	);
 	const [failureMessage, setFailureMessage] = useState<string | null>(null);
 	const [isAcknowledging, setIsAcknowledging] = useState(false);
+	const isViewRecoveryFailed = viewRecoveryStatus?.status === 'failedRetryable';
+	const isLocallyRecoveredDegraded = projection.recoveryStatus === 'recovered_degraded';
 
-	if (projection.recoveryStatus !== 'recovered_degraded') return null;
+	if (!isLocallyRecoveredDegraded && !isViewRecoveryFailed) return null;
 
 	const acknowledgeRecovery = async (): Promise<void> => {
 		if (isAcknowledging) return;
@@ -42,20 +50,37 @@ export function WorktreeAnnotationRecoveryWarning(): ReactElement | null {
 	return (
 		<Alert layout="banner" variant="warning">
 			<TriangleAlert />
-			<AlertTitle>Comments recovered with missing local history</AlertTitle>
+			<AlertTitle>
+				{isViewRecoveryFailed
+					? 'Comments unavailable'
+					: 'Comments recovered with missing local history'}
+			</AlertTitle>
 			<AlertDescription>
 				{failureMessage ??
-					'Review the recovery notice before creating or changing inline comments.'}
+					(isViewRecoveryFailed
+						? 'Showing the last available comments while this view recovers.'
+						: 'Review the recovery notice before creating or changing inline comments.')}
 			</AlertDescription>
 			<AlertAction>
-				<Button
-					disabled={isAcknowledging}
-					onClick={() => void acknowledgeRecovery()}
-					size="xs"
-					variant="outline"
-				>
-					Acknowledge
-				</Button>
+				{isViewRecoveryFailed ? (
+					<BridgeViewerRecoveryRetryButton
+						onClick={(): void => {
+							annotationClient.retryViewRecovery();
+							annotationClient.retryProjection();
+						}}
+						surface="comments"
+					/>
+				) : null}
+				{isLocallyRecoveredDegraded ? (
+					<Button
+						disabled={isAcknowledging}
+						onClick={() => void acknowledgeRecovery()}
+						size="xs"
+						variant="outline"
+					>
+						Acknowledge
+					</Button>
+				) : null}
 			</AlertAction>
 		</Alert>
 	);

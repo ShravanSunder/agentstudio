@@ -1,4 +1,3 @@
-import { RefreshCwIcon } from 'lucide-react';
 import {
 	lazy,
 	Suspense,
@@ -11,13 +10,13 @@ import {
 	type ReactElement,
 } from 'react';
 
+import { BridgeViewerRecoveryRetryButton } from '../app/bridge-viewer-recovery-retry-button.js';
 import { BridgeViewerViewSettingsMenu } from '../app/bridge-viewer-view-settings-menu.js';
 import type { BridgeFilesViewSettings } from '../app/bridge-viewer-view-settings.js';
 import { resolveBridgeFileMarkdownIntent } from '../app/markdown/bridge-file-markdown-intent.js';
 import { useBridgeMarkdownPresentation } from '../app/markdown/use-bridge-markdown-presentation.js';
 import { useBridgeMarkdownSelectionRetirement } from '../app/markdown/use-bridge-markdown-selection-retirement.js';
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
-import { Button } from '../components/ui/button.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import { recordBridgeFileSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
 import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
@@ -138,17 +137,13 @@ export function BridgeFileViewerAppImplementation(
 	const contentHeaderControls = (
 		<>
 			{isActive &&
-			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== undefined &&
-			renderSnapshotController.panelChromeSlice.fileRefreshFailure !== null ? (
-				<Button
+			((renderSnapshotController.panelChromeSlice.fileRefreshFailure !== undefined &&
+				renderSnapshotController.panelChromeSlice.fileRefreshFailure !== null) ||
+				renderSnapshotController.fileViewRecoveryStatus?.status === 'failedRetryable') ? (
+				<BridgeViewerRecoveryRetryButton
 					onClick={renderSnapshotController.retryUnavailableFileRefresh}
-					size="xs"
-					type="button"
-					variant="outline"
-				>
-					<RefreshCwIcon aria-hidden="true" data-icon="inline-start" />
-					Retry
-				</Button>
+					surface="file"
+				/>
 			) : null}
 			<WorktreeAnnotationShareHeaderControl />
 			{isActive ? (

@@ -1,9 +1,11 @@
 import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import type { ViewResnapshotAdmissionProps } from './bridge-product-view-control-admission.js';
 import type { BridgeProductViewScopeRequest } from './bridge-product-view-control-wire-contracts.js';
+import type { BridgeWorkerViewRecoveryStatusEvent } from './bridge-worker-contracts.js';
+import { bridgeWorkerViewRecoveryKindSchema } from './bridge-worker-view-recovery-contracts.js';
 
 type ViewScope = BridgeProductViewScopeRequest['scope'];
-type ViewKind = BridgeProductViewScopeRequest['subscriptionKind'];
+type ViewKind = BridgeWorkerViewRecoveryStatusEvent['view']['kind'];
 
 interface DesiredView {
 	consecutiveResnapshots: number;
@@ -16,6 +18,7 @@ interface DesiredView {
 	currentAdmission: AbortController | null;
 	scopeRevision: number;
 	desiredScope: ViewScope;
+	recoveryStatus: BridgeWorkerViewRecoveryStatusEvent['status'] | null;
 }
 
 type ViewIdentity = Pick<
@@ -25,7 +28,7 @@ type ViewIdentity = Pick<
 
 export interface BridgeProductViewRecoveryState {
 	readonly consecutiveResnapshots: number;
-	readonly status: 'failedRetryable' | 'ready' | 'recovering';
+	readonly status: BridgeWorkerViewRecoveryStatusEvent['status'];
 }
 
 export type BridgeProductViewScopeSettlement =
@@ -37,15 +40,22 @@ export class BridgeProductViewScopeOwner {
 	readonly #controlMux: Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>;
 	readonly #createIdentifier: () => string;
 	readonly #maximumConsecutiveResnapshots: number;
+	readonly #onViewRecoveryStatus:
+		| ((status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>) => void)
+		| undefined;
 	readonly #views = new Map<string, DesiredView>();
 
 	constructor(props: {
 		readonly controlMux: Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>;
 		readonly createIdentifier: () => string;
 		readonly maximumConsecutiveResnapshots: number;
+		readonly onViewRecoveryStatus?: (
+			status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>,
+		) => void;
 	}) {
 		this.#controlMux = props.controlMux;
 		this.#createIdentifier = props.createIdentifier;
+		this.#onViewRecoveryStatus = props.onViewRecoveryStatus;
 		if (
 			!Number.isSafeInteger(props.maximumConsecutiveResnapshots) ||
 			props.maximumConsecutiveResnapshots <= 0
@@ -58,23 +68,27 @@ export class BridgeProductViewScopeOwner {
 	register(props: {
 		readonly scope: ViewScope;
 		readonly subscriptionId: string;
-		readonly subscriptionKind: ViewKind;
+		readonly subscriptionKind: string;
 	}): void {
 		if (this.#views.has(props.subscriptionId)) {
 			throw new Error('A metadata view is already registered for this subscription.');
 		}
+		const subscriptionKind = bridgeWorkerViewRecoveryKindSchema.parse(props.subscriptionKind);
 		this.#views.set(props.subscriptionId, {
 			consecutiveResnapshots: 0,
 			currentAdmission: null,
 			desiredScope: props.scope,
+			recoveryStatus: null,
 			handle: this.#createIdentifier(),
 			incarnation: this.#createIdentifier(),
 			resnapshotInFlight: null,
 			resnapshotRequested: false,
 			scopeRevision: 0,
 			subscriptionId: props.subscriptionId,
-			subscriptionKind: props.subscriptionKind,
+			subscriptionKind,
 		});
+		const view = this.#views.get(props.subscriptionId);
+		if (view !== undefined) this.#emitRecoveryStatus(view, 'ready');
 	}
 
 	async setScope(props: {
@@ -136,12 +150,16 @@ export class BridgeProductViewScopeOwner {
 
 	requestResnapshot(request: ViewResnapshotAdmissionProps): Promise<void> {
 		const view = this.#matchingView(request);
-		if (view === undefined || view.consecutiveResnapshots >= this.#maximumConsecutiveResnapshots)
+		if (view === undefined) return Promise.resolve();
+		if (view.consecutiveResnapshots >= this.#maximumConsecutiveResnapshots) {
+			this.#emitRecoveryStatus(view, 'failedRetryable');
 			return Promise.resolve();
+		}
 		if (view.resnapshotInFlight !== null) return view.resnapshotInFlight;
 		if (view.resnapshotRequested) return Promise.resolve();
 		view.consecutiveResnapshots += 1;
 		view.resnapshotRequested = true;
+		this.#emitRecoveryStatus(view, this.#recoveryStatusFor(view));
 		try {
 			const admission = this.#controlMux.resnapshotView(request);
 			const inFlight = admission.then(
@@ -175,6 +193,7 @@ export class BridgeProductViewScopeOwner {
 			this.#maximumConsecutiveResnapshots,
 			view.consecutiveResnapshots + 1,
 		);
+		this.#emitRecoveryStatus(view, this.#recoveryStatusFor(view));
 	}
 
 	recordCertifiedInstall(identity: ViewIdentity): void {
@@ -182,6 +201,7 @@ export class BridgeProductViewScopeOwner {
 		if (view === undefined) return;
 		view.consecutiveResnapshots = 0;
 		view.resnapshotRequested = false;
+		this.#emitRecoveryStatus(view, 'ready');
 	}
 
 	recoveryState(subscriptionId: string): BridgeProductViewRecoveryState | null {
@@ -189,12 +209,7 @@ export class BridgeProductViewScopeOwner {
 		if (view === undefined) return null;
 		return {
 			consecutiveResnapshots: view.consecutiveResnapshots,
-			status:
-				view.consecutiveResnapshots === 0
-					? 'ready'
-					: view.consecutiveResnapshots >= this.#maximumConsecutiveResnapshots
-						? 'failedRetryable'
-						: 'recovering',
+			status: this.#recoveryStatusFor(view),
 		};
 	}
 
@@ -205,7 +220,28 @@ export class BridgeProductViewScopeOwner {
 		if (this.#views.get(subscriptionId) !== view) return;
 		view.consecutiveResnapshots = 0;
 		view.resnapshotRequested = false;
+		this.#emitRecoveryStatus(view, 'recovering');
 		await this.resnapshot(subscriptionId);
+	}
+
+	#recoveryStatusFor(view: DesiredView): BridgeWorkerViewRecoveryStatusEvent['status'] {
+		return view.consecutiveResnapshots === 0
+			? 'ready'
+			: view.consecutiveResnapshots >= this.#maximumConsecutiveResnapshots
+				? 'failedRetryable'
+				: 'recovering';
+	}
+
+	#emitRecoveryStatus(
+		view: DesiredView,
+		status: BridgeWorkerViewRecoveryStatusEvent['status'],
+	): void {
+		if (view.recoveryStatus === status) return;
+		view.recoveryStatus = status;
+		this.#onViewRecoveryStatus?.({
+			status,
+			view: { kind: view.subscriptionKind, subscriptionId: view.subscriptionId },
+		});
 	}
 
 	#matchingView(identity: ViewIdentity): DesiredView | undefined {

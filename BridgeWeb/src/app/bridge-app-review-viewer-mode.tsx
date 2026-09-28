@@ -55,6 +55,7 @@ import {
 	bridgeReviewComparisonPaneState,
 } from './bridge-review-comparison-pane-state.js';
 import { BridgeReviewHeaderPanels } from './bridge-review-header-panels.js';
+import { BridgeReviewMetadataRecoveryWarning } from './bridge-review-metadata-recovery-warning.js';
 import {
 	BridgeReviewRefreshHeaderGroup,
 	bridgeReviewRefreshHeaderPresentation,
@@ -412,6 +413,12 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 	});
 	const contentHeaderControls = (
 		<>
+			{isActive ? (
+				<BridgeReviewMetadataRecoveryWarning
+					onRetry={(): void => controller.retryFailedMetadataView(refreshRetryTarget)}
+					status={controller.viewRecoveryStatus}
+				/>
+			) : null}
 			<BridgeReviewRefreshHeaderGroup
 				onApplyNow={(): void => void controller.applyReviewRefreshNow()}
 				onRetry={(): void => {

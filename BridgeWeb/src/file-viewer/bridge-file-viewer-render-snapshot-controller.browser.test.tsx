@@ -7,7 +7,10 @@ import { page } from 'vitest/browser';
 
 import { BridgeViewerContextPanelProvider } from '../app/bridge-viewer-context-panel-host.js';
 import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
-import type { BridgeWorkerMainToServerMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import type {
+	BridgeWorkerMainToServerMessage,
+	BridgeWorkerViewRecoveryStatusEvent,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import { BridgeFileViewerAppImplementation } from './bridge-file-viewer-app.js';
 import {
@@ -41,12 +44,10 @@ describe('Bridge File viewer render snapshot controller Browser Mode', () => {
 		);
 
 		// Assert
-		await expect
-			.poll(() => dispatchedMessages.map(({ command }) => command))
-			.toEqual(['fileDisplayResync']);
+		expect(dispatchedMessages.map(({ command }) => command)).toEqual(['fileDisplayResync']);
 	});
 
-	test('shows the owned shadcn retry action and sends the typed File refresh command', async () => {
+	test('shows one File Retry for a failed view, runs both recovery jobs, and keeps last good content', async () => {
 		// Arrange
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
 		const paneRuntime = createBridgePaneRuntime({
@@ -62,14 +63,15 @@ describe('Bridge File viewer render snapshot controller Browser Mode', () => {
 			}),
 		});
 		const fileViewClient = paneRuntime.surfaceClient('fileView');
-		fileViewClient.renderStore.applyWorkerPatch({
-			operation: 'upsert',
-			payload: {
-				fileRefreshFailure: { failureKind: 'fileSourceUnavailable', retryable: true },
-				message: 'Files unavailable',
-			},
-			slice: 'panelChrome',
-		});
+		fileViewClient.renderStore.applyViewRecoveryStatusEvent({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'viewRecoveryStatus',
+			view: { kind: 'file.metadata', subscriptionId: 'file-view-retry-1' },
+			status: 'failedRetryable',
+		} satisfies BridgeWorkerViewRecoveryStatusEvent);
+		const existingFileContent = 'Last good file contents stay visible.';
 
 		// Act
 		const rendered = await render(
@@ -84,10 +86,13 @@ describe('Bridge File viewer render snapshot controller Browser Mode', () => {
 		await rendered.getByRole('button', { name: 'Retry' }).click();
 
 		// Assert
-		await expect
-			.poll(() => dispatchedMessages.map(({ command }) => command))
-			.toContain('fileRefreshRetry');
-		await page.screenshot({ path: '../../../tmp/bridgeweb-file-refresh-retry.png' });
+		expect(document.querySelectorAll('button[aria-label="Retry"]')).toHaveLength(1);
+		expect(dispatchedMessages.slice(-2).map(({ command }) => command)).toEqual([
+			'viewRecoveryRetry',
+			'fileRefreshRetry',
+		]);
+		await expect.element(rendered.getByText(existingFileContent, { exact: true })).toBeVisible();
+		await page.screenshot({ path: '../../../tmp/bridgeweb-file-view-retry.png' });
 	});
 });
 
@@ -97,5 +102,10 @@ function BridgeFileViewerRenderSnapshotProbe(): ReactElement {
 }
 
 function HeaderControlsProbe(props: BridgeFileViewerShellProps): ReactElement {
-	return <div className="flex items-center gap-1 p-3">{props.viewerHeaderControls}</div>;
+	return (
+		<div className="flex items-center gap-1 p-3">
+			<p>{'Last good file contents stay visible.'}</p>
+			{props.viewerHeaderControls}
+		</div>
+	);
 }
