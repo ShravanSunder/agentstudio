@@ -35,35 +35,42 @@ for (const [width, height] of [
     expect(at(0.45).secondLine).toBeGreaterThan(0);
     expect(at(0.9).secondLine).toBe(1);
     expect(at(4.5).claudeProgressOpacities[0]).toBeGreaterThan(0);
+    expect(at(5.5).claudeSpinnerVisible).toBe(true);
+    expect(at(5.5).codexHeaderVisible).toBe(true);
     expect(at(6.8).readyOpacity).toBe(0);
     expect(at(7.2).readyOpacity).toBe(1);
     expect(at(7.2).installOpacity).toBe(0);
     expect(at(7.22).tokenCount).toBeGreaterThan(0);
     expect(at(7.22).tokenTextOverlaps).toBe(0);
+    expect(at(7.5).tokenCount).toBeGreaterThan(0);
+    expect(at(7.56).tokenCount).toBe(0);
     expect(at(7.5).installOpacity).toBeGreaterThan(0);
     expect(at(7.8).visibleDecodeLines).toBeGreaterThan(0);
     expect(at(8.3).visibleDecodeLines).toBe(0);
     expect(at(8.3).copyOpacity).toBe(1);
     if (width >= 1024) {
-      expect(at(7.76).tokenCount).toBeGreaterThan(0);
-      expect(at(7.76).tokenTextOverlaps).toBe(0);
-      expect(at(7.9).codexTypedText.length).toBeGreaterThan(0);
-      expect(at(7.9).codexTypedText.length).toBeLessThan("map the worktrees".length);
-      expect(at(8.8).codexWorkingOpacity).toBeGreaterThan(0);
-      expect(at(9.9).worktreeRowOpacities[0]).toBeGreaterThan(0);
-      expect(at(9.9).worktreeResultOpacity).toBe(0);
+      expect(at(8.0).codexTypedText).toBe("");
+      expect(at(9.22).codexTypedText.length).toBeGreaterThan(0);
+      expect(at(8.82).tokenCount).toBeGreaterThan(0);
+      expect(at(8.82).tokenTextOverlaps).toBe(0);
+      expect(at(9.22).codexTypedText.length).toBeLessThan("map the worktrees".length);
+      expect(at(9.9).codexWorkingOpacity).toBeGreaterThan(0);
+      expect(at(11.0).worktreeRowOpacities[0]).toBeGreaterThan(0);
+      expect(at(11.0).worktreeResultOpacity).toBe(0);
       expect(at("settled").codexWorkingOpacity).toBe(0);
     }
-    expect(at(10.7).worktreeRowOpacities.some((opacity) => opacity > 0)).toBe(true);
-    expect(at(10.7).worktreeResultOpacity).toBe(0);
-    expect(at(11.4).worktreeResultOpacity).toBe(1);
-    expect(at(11.47).tokenCount).toBeGreaterThan(0);
-    expect(at(11.47).tokenTextOverlaps).toBe(0);
-    expect(at(11.4).railClip).toContain("100%");
-    expect(at(11.7).railClip).not.toContain("100%");
-    expect(at(11.4).firstPayoff).toBe(0);
+    expect(at(11.3).worktreeRowOpacities.some((opacity) => opacity > 0)).toBe(true);
+    expect(at(11.3).worktreeResultOpacity).toBe(0);
+    expect(at(12.3).worktreeResultOpacity).toBeGreaterThan(0.9);
+    expect(at(12.5).tokenCount).toBeGreaterThan(0);
+    expect(at(12.5).tokenTextOverlaps).toBe(0);
+    expect(at(12.5).railBurstTargetDistance).toBeLessThanOrEqual(2);
+    expect(at(12.3).railClip).toContain("100%");
+    expect(at(12.8).railClip).not.toContain("100%");
+    expect(at(12.3).firstPayoff).toBe(0);
     const { staircase } = observation;
-    expect(staircase.start).toBe(11.6);
+    expect(staircase.start).toBeGreaterThanOrEqual(12.75);
+    expect(staircase.start - 12.75).toBeLessThanOrEqual(0.05);
     expect(staircase.end - staircase.start).toBeLessThanOrEqual(1.600001);
     const finalHop = staircase.hops.at(-1);
     if (finalHop === undefined) throw new Error("Rail final hop missing");
@@ -75,6 +82,7 @@ for (const [width, height] of [
     expect(at("settled").payoffOverflow).toBeLessThanOrEqual(0);
     expect(at("settled").worktreeResultOpacity).toBe(1);
     expect(at("settled").resultVisibleInPane).toBe(true);
+    expect(at("settled").offscreenRowPaintLeaks).toBe(0);
     expect(observation.scrollProbe.overflow).toBeGreaterThan(0);
     expect(observation.scrollProbe.scrollTop).toBeGreaterThan(0);
     expect(observation.scrollProbe.resultVisible).toBe(true);
@@ -118,3 +126,47 @@ for (const [width, height] of [
     expect(observation.reducedFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
   });
 }
+
+it("keeps the hero Codex session in the Agent Studio workspace", async () => {
+  const observation = await commands.verifyHeroIntroFinale(
+    inject("siteHeaderBrowserTestUrl"),
+    1600,
+    1000,
+  );
+  const settled = observation.samples.find((sample) => sample.time === "settled");
+  if (settled === undefined) throw new Error("Settled hero sample missing");
+  expect(settled.heroText).not.toMatch(/tool-portal|fix\/lease-client/u);
+  expect(settled.codexHeaderText).toContain("directory: ~/agent-studio");
+  expect(settled.codexFooterText).toContain("main");
+  expect(settled.worktreeTexts).toEqual([
+    "└ ~/agent-studio  main",
+    "└ ~/agent-studio.drawer  drawer-improvements",
+    "└ ~/agent-studio.review  review-comments",
+  ]);
+});
+
+it("clips scrolled transcript rows inside their panes", async () => {
+  for (const [width, height] of [
+    [1600, 1000],
+    [390, 844],
+  ] as const) {
+    const observation = await commands.verifyHeroIntroFinale(
+      inject("siteHeaderBrowserTestUrl"),
+      width,
+      height,
+    );
+    const settled = observation.samples.find((sample) => sample.time === "settled");
+    if (settled === undefined) throw new Error("Settled hero sample missing");
+    expect(settled.offscreenRowPaintLeaks, `${width}px`).toBe(0);
+    expect(settled.resultVisibleInPane, `${width}px`).toBe(true);
+  }
+});
+
+it("reaches stillness by the owner-adjusted 15.0s ceiling", async () => {
+  const observation = await commands.verifyHeroIntroFinale(
+    inject("siteHeaderBrowserTestUrl"),
+    1600,
+    1000,
+  );
+  expect(observation.staircase.end + 0.2).toBeLessThanOrEqual(15);
+});

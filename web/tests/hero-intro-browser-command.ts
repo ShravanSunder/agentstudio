@@ -131,9 +131,14 @@ export interface HeroPhoneFlowObservation {
   readonly progressBeforeReady: boolean;
   readonly readyAfterDecode: boolean;
   readonly streamedBeforeResult: boolean;
+  readonly mapTypedBeforeWork: boolean;
+  readonly phoneWorkingBeforeRows: boolean;
+  readonly noCodexBurst: boolean;
+  readonly resultVisible: boolean;
   readonly settledRows: readonly string[];
   readonly largestTranscriptGap: number;
   readonly clippedAtAnySample: boolean;
+  readonly gapDebug: string;
 }
 
 export const verifyHeroPhoneMidIntro = defineBrowserCommand(
@@ -196,20 +201,36 @@ export const verifyHeroPhoneMidIntro = defineBrowserCommand(
           Number(getComputedStyle(ready).opacity) === 0 &&
           Number(getComputedStyle(install).opacity) === 0;
         let clippedAtAnySample = clipped();
-        control.seek(4.15);
+        control.seek(5.5);
         const progressBeforeReady =
           [...pane.querySelectorAll<HTMLElement>("[data-hero-progress-row]")].some(
             (row) =>
               getComputedStyle(row).display !== "none" && Number(getComputedStyle(row).opacity) > 0,
           ) && Number(getComputedStyle(ready).opacity) === 0;
         clippedAtAnySample ||= clipped();
-        control.seek(5.4);
+        control.seek(6.8);
         const readyBeforeDecodeEnds = Number(getComputedStyle(ready).opacity) > 0;
-        control.seek(5.8);
+        control.seek(7.2);
         const readyAfterDecode =
           !readyBeforeDecodeEnds && Number(getComputedStyle(ready).opacity) > 0.99;
         clippedAtAnySample ||= clipped();
-        control.seek(6.4);
+        control.seek(8.82);
+        const mapTypedBeforeWork =
+          (prompt.textContent ?? "").startsWith("map") &&
+          (prompt.textContent?.length ?? 0) < "map the worktrees".length;
+        const noCodexBurst =
+          pane.querySelectorAll("[data-hero-token-layer] text").length === 0 &&
+          document.querySelectorAll("[data-hero-token-layer] text").length === 0;
+        control.seek(9.3);
+        const phoneWorkingBeforeRows =
+          Number(
+            getComputedStyle(pane.querySelector<HTMLElement>("[data-hero-phone-working]") ?? pane)
+              .opacity,
+          ) > 0 &&
+          [...pane.querySelectorAll<HTMLElement>("[data-hero-worktree-row]")].every(
+            (row) => Number(getComputedStyle(row).opacity) === 0,
+          );
+        control.seek(11.3);
         const streamedBeforeResult =
           [...pane.querySelectorAll<HTMLElement>("[data-hero-worktree-row]")].some(
             (row) => Number(getComputedStyle(row).opacity) > 0,
@@ -232,6 +253,14 @@ export const verifyHeroPhoneMidIntro = defineBrowserCommand(
           .querySelector<HTMLElement>(".hero-claude-footer")
           ?.getBoundingClientRect().top;
         const rowRects = visibleRows.map((row) => row.getBoundingClientRect());
+        const transcript = pane.querySelector<HTMLElement>(".hero-terminal-transcript");
+        const result = pane.querySelector<HTMLElement>("[data-hero-worktree-result]");
+        const resultVisible =
+          transcript !== null &&
+          result !== null &&
+          result.getBoundingClientRect().bottom <=
+            transcript.getBoundingClientRect().bottom + 0.5 &&
+          result.getBoundingClientRect().bottom > transcript.getBoundingClientRect().top;
         const edges = [startupBottom, ...rowRects.map((rect) => rect.bottom)];
         const starts = [...rowRects.map((rect) => rect.top), footerTop];
         const largestTranscriptGap = Math.max(
@@ -245,8 +274,21 @@ export const verifyHeroPhoneMidIntro = defineBrowserCommand(
           progressBeforeReady,
           readyAfterDecode,
           streamedBeforeResult,
+          mapTypedBeforeWork,
+          phoneWorkingBeforeRows,
+          noCodexBurst,
+          resultVisible,
           settledRows: visibleRows.map((row) => row.textContent?.trim() ?? ""),
           largestTranscriptGap,
+          gapDebug: JSON.stringify({
+            transcriptHeight: transcript?.clientHeight,
+            scrollHeight: transcript?.scrollHeight,
+            scrollTop: transcript?.scrollTop,
+            startupBottom,
+            resultBottom: result?.getBoundingClientRect().bottom,
+            footerTop,
+            rows: visibleRows.length,
+          }),
           clippedAtAnySample: clippedAtAnySample || clipped(),
         };
       });
@@ -367,6 +409,20 @@ export const verifyHeroIntroLayout = defineBrowserCommand(
                 viewport: `${width}x${height}`,
                 rowsInsideWindow: paintedRows.every((row) => {
                   const rect = row.getBoundingClientRect();
+                  const transcript = row.closest<HTMLElement>(".hero-terminal-transcript");
+                  if (transcript !== null) {
+                    const clipStyle = getComputedStyle(transcript).overflowY;
+                    if (clipStyle !== "auto" && clipStyle !== "hidden") return false;
+                    const clip = transcript.getBoundingClientRect();
+                    const paintedTop = Math.max(rect.top, clip.top);
+                    const paintedBottom = Math.min(rect.bottom, clip.bottom);
+                    // The separate offscreenRowPaintLeaks assertion probes browser hit-testing.
+                    if (paintedTop >= paintedBottom) return true;
+                    return (
+                      paintedTop >= windowRect.top + padding - 1 &&
+                      paintedBottom <= windowRect.bottom - padding + 1
+                    );
+                  }
                   return (
                     rect.top >= windowRect.top + padding - 1 &&
                     rect.bottom <= windowRect.bottom - padding + 1

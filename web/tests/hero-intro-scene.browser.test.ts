@@ -45,10 +45,10 @@ describe("hero intro scene contract", () => {
       const timeline = gsap.timeline({ paused: true });
       buildHeroIntroScene(fixture, timeline, { width: 1600, height: 1000, seed: 0 });
       expect(timeline.labels["beat:claude-brew"]).toBe(3.95);
-      expect(timeline.labels["beat:codex-prompt"]).toBe(7.85);
-      expect(timeline.labels["beat:codex-result"]).toBe(11.25);
-      expect(timeline.labels["beat:rail-handoff"]).toBe(11.6);
-      expect(timeline.duration()).toBeLessThanOrEqual(13.5);
+      expect(timeline.labels["beat:codex-prompt"]).toBe(9.12);
+      expect(timeline.labels["beat:codex-result"]).toBe(12.2);
+      expect(timeline.labels["beat:rail-handoff"]).toBe(12.75);
+      expect(timeline.duration()).toBeLessThanOrEqual(15);
       const iconFront = fixture.querySelector<HTMLElement>("[data-hero-icon-front]");
       const iconRearTwo = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="two"]');
       const iconRearOne = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="one"]');
@@ -105,7 +105,12 @@ describe("hero intro scene contract", () => {
         .getChildren(false, true, false)
         .map((child) => child.startTime());
       expect(tweenStarts.filter((start) => start > 2.4 && start < 2.6)).toEqual([]);
+      expect(tweenStarts.filter((start) => start > 8.12 && start < 8.57)).toEqual([]);
       timeline.time(0.3);
+      timeline.time(3.38);
+      expect(
+        fixture.querySelector("[data-hero-intro-typed-input]")?.textContent?.length,
+      ).toBeGreaterThanOrEqual(25);
       expect(
         fixture.querySelector("[data-hero-intro-eyebrow-typed], [data-hero-intro-eyebrow-cursor]"),
       ).toBeNull();
@@ -151,7 +156,7 @@ describe("hero intro scene contract", () => {
       const codexVerb = fixture.querySelector<HTMLElement>("[data-hero-codex-verb]");
       timeline.time(10.5);
       expect(codexVerb?.textContent).toBe("Running");
-      timeline.time(11.3);
+      timeline.time(12.3);
       expect(codexVerb?.textContent).toBe("Ran");
       const arrow = fixture.querySelector<HTMLElement>("[data-hero-intro-ready-arrow]");
       const install = fixture.querySelector<HTMLElement>("[data-hero-intro-install]");

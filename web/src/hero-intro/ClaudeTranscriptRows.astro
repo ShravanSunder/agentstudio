@@ -18,7 +18,7 @@ const { rows, finale = false } = Astro.props;
 
 {
   rows.map((row) => {
-    const toolCall = row.kind === "tool-call" ? /^● (Bash|Update)(.*)$/u.exec(row.text) : null;
+    const toolCall = row.kind === "tool-call" ? /^● (Bash|Update|Search|Read)(.*)$/u.exec(row.text) : null;
     const toolArguments = toolCall?.[2] ?? "";
     const resultCheckIndex = row.kind === "tool-result" ? row.text.indexOf("✓") : -1;
     const readyArrowIndex = row.text.includes("Ready. Copy it below") ? row.text.lastIndexOf("↓") : -1;
@@ -31,8 +31,9 @@ const { rows, finale = false } = Astro.props;
         {...(row.beat === "command" ? { "data-hero-worktree-command": "" } : {})}
         {...(row.beat === "worktree" ? { "data-hero-worktree-row": "" } : {})}
         {...(row.beat === "result" ? { "data-hero-worktree-result": "" } : {})}
+        {...(row.beat === "working" ? { "data-hero-phone-working": "" } : {})}
         {...(row.earlierContext ? { "data-hero-earlier-context": "" } : {})}
-        {...(["prompt", "command", "worktree", "result"].includes(row.beat ?? "") ? { "data-hero-single-pane-row": "" } : {})}
+        {...(["prompt", "working", "command", "worktree", "result"].includes(row.beat ?? "") ? { "data-hero-single-pane-row": "" } : {})}
         {...(row.text.includes("Ready. Copy it below") ? { [heroIntroReadyAttribute]: "" } : {})}
       >
         {toolCall === null ? (

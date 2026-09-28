@@ -31,10 +31,18 @@ interface FinaleSample {
   readonly rowOpacity: readonly number[];
   readonly tokenCount: number;
   readonly tokenTextOverlaps: number;
+  readonly railBurstTargetDistance: number;
   readonly transcriptClearances: readonly number[];
   readonly transcriptScrollTops: readonly number[];
   readonly transcriptOverflows: readonly number[];
   readonly resultVisibleInPane: boolean;
+  readonly offscreenRowPaintLeaks: number;
+  readonly codexHeaderVisible: boolean;
+  readonly claudeSpinnerVisible: boolean;
+  readonly heroText: string;
+  readonly codexHeaderText: string;
+  readonly codexFooterText: string;
+  readonly worktreeTexts: readonly string[];
   readonly appTop: number;
   readonly windowHeight: number;
   readonly chapterNodeY: number;
@@ -126,7 +134,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         return ys.filter((y, index) => index === 0 || Math.abs(y - (ys[index - 1] ?? y)) > 0.5)
           .length;
       });
-      const staircase = planHeroRailStaircase(rowCount, 11.6);
+      const staircase = planHeroRailStaircase(rowCount, 12.75);
       const firstHop = staircase.hops[0];
       const secondHop = staircase.hops[1];
       const finalHop = staircase.hops.at(-1);
@@ -172,22 +180,35 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         7.22,
         7.4,
         7.5,
+        7.56,
         7.8,
         7.76,
         7.9,
+        8.0,
+        8.2,
+        8.82,
         8.3,
         8.8,
+        9.22,
+        9.9,
+        11.0,
+        11.3,
         9.9,
         10.7,
         11.4,
         11.47,
+        11.65,
+        11.9,
+        12.3,
+        12.5,
+        12.8,
         11.7,
         staircase.start,
         holdMiddle,
         finalHop.start,
         staircase.end,
         staircase.end + 0.1,
-      ];
+      ].sort((left, right) => left - right);
       const timelineProof = await page.evaluate(
         async (
           sampleTimes,
@@ -264,7 +285,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             ];
             const textRects = [
               ...root.querySelectorAll<HTMLElement>(
-                ".hero-transcript-row, .hero-claude-input, .hero-codex-input",
+                ".hero-transcript-row, .hero-claude-input, .hero-codex-input, [data-hero-intro-copy], [data-hero-intro-eyebrow-settled]",
               ),
             ]
               .filter(
@@ -286,6 +307,17 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                   tokenRect.bottom > rect.top,
               );
             }).length;
+            const tokenLayer = root.querySelector<SVGSVGElement>("[data-hero-token-layer]");
+            const targetX = Number(tokenLayer?.getAttribute("data-hero-burst-end-x"));
+            const targetY = Number(tokenLayer?.getAttribute("data-hero-burst-end-y"));
+            const topNodeBounds = heroNode?.getBoundingClientRect();
+            const railBurstTargetDistance =
+              topNodeBounds === undefined || topNodeBounds === null
+                ? Number.POSITIVE_INFINITY
+                : Math.hypot(
+                    targetX - (topNodeBounds.left + topNodeBounds.width / 2),
+                    targetY - (topNodeBounds.top + topNodeBounds.height / 2),
+                  );
             const transcriptMeasurements = [
               ...root.querySelectorAll<HTMLElement>(".hero-terminal-pane"),
             ]
@@ -330,10 +362,51 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                 activeTranscript.getBoundingClientRect().bottom + 0.5 &&
               activeResult.getBoundingClientRect().bottom >
                 activeTranscript.getBoundingClientRect().top;
+            const offscreenRowPaintLeaks = [
+              ...root.querySelectorAll<HTMLElement>(
+                ".hero-terminal-transcript .hero-transcript-row",
+              ),
+            ].filter((row) => {
+              const transcript = row.closest<HTMLElement>(".hero-terminal-transcript");
+              if (transcript === null || row.getClientRects().length === 0) return false;
+              const rowRect = row.getBoundingClientRect();
+              const clip = transcript.getBoundingClientRect();
+              const sampleY =
+                rowRect.bottom <= clip.top
+                  ? Math.max(0, rowRect.bottom - 1)
+                  : rowRect.top >= clip.bottom
+                    ? Math.min(innerHeight - 1, rowRect.top + 1)
+                    : null;
+              if (sampleY === null || sampleY < 0 || sampleY >= innerHeight) return false;
+              const hit = document.elementFromPoint(clip.left + clip.width / 2, sampleY);
+              return hit !== null && row.contains(hit);
+            }).length;
+            const codexTranscript = root.querySelector<HTMLElement>(
+              ".hero-terminal-pane--codex .hero-terminal-transcript",
+            );
+            const codexHeader = root.querySelector<HTMLElement>(".hero-codex-startup");
+            const codexHeaderVisible =
+              codexTranscript === null ||
+              codexHeader === null ||
+              innerWidth < 1024 ||
+              codexHeader.getBoundingClientRect().top >=
+                codexTranscript.getBoundingClientRect().top - 1;
+            const claudeTranscript = root.querySelector<HTMLElement>(
+              ".hero-terminal-pane--claude .hero-terminal-transcript",
+            );
+            const claudeSpinner = root.querySelector<HTMLElement>("[data-hero-intro-spinner]");
+            const claudeSpinnerVisible =
+              claudeTranscript !== null &&
+              claudeSpinner !== null &&
+              claudeSpinner.getBoundingClientRect().bottom <=
+                claudeTranscript.getBoundingClientRect().bottom + 1 &&
+              claudeSpinner.getBoundingClientRect().bottom >
+                claudeTranscript.getBoundingClientRect().top;
             return {
               time,
               tokenCount: tokens.length,
               tokenTextOverlaps,
+              railBurstTargetDistance,
               transcriptClearances: transcriptMeasurements.map(
                 (measurement) => measurement.clearance,
               ),
@@ -344,6 +417,17 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                 (measurement) => measurement.overflow,
               ),
               resultVisibleInPane,
+              offscreenRowPaintLeaks,
+              codexHeaderVisible,
+              claudeSpinnerVisible,
+              heroText: root.textContent ?? "",
+              codexHeaderText: root.querySelector(".hero-codex-startup")?.textContent ?? "",
+              codexFooterText: root.querySelector(".hero-codex-status")?.textContent ?? "",
+              worktreeTexts: [
+                ...root.querySelectorAll<HTMLElement>(
+                  `.hero-terminal-pane--${pane} [data-hero-worktree-row]`,
+                ),
+              ].map((row) => row.textContent?.trim() ?? ""),
               firstLine: opacity("[data-hero-intro-headline-first]"),
               secondLine: opacity("[data-hero-intro-headline-second]"),
               firstPayoff: opacity("[data-hero-intro-payoff-first]"),
@@ -440,7 +524,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             throw new Error("Constrained transcript proof is incomplete");
           windowNode.style.height = "180px";
           control.seek(9.9);
-          control.seek(11.4);
+          control.seek(12.35);
           const scrollProbe = {
             overflow: transcript.scrollHeight - transcript.clientHeight,
             scrollTop: transcript.scrollTop,

@@ -133,6 +133,7 @@ export function buildHeroIntroScene(
   const bashDots = [...root.querySelectorAll<HTMLElement>("[data-hero-bash-dot]")];
   const brewChecks = [...root.querySelectorAll<HTMLElement>("[data-hero-brew-check]")];
   const codexWorkingMeta = root.querySelector<HTMLElement>("[data-hero-codex-working-meta]");
+  const phoneWorking = root.querySelector<HTMLElement>("[data-hero-phone-working]");
   const claudeLift = root.querySelector<HTMLElement>('[data-hero-pane-lift="claude"]');
   const codexLift = root.querySelector<HTMLElement>('[data-hero-pane-lift="codex"]');
   const codexRunning = root.querySelector<HTMLElement>("[data-hero-codex-running]");
@@ -200,7 +201,7 @@ export function buildHeroIntroScene(
   if (finaleRows.length > 0) timeline.set(finaleRows, { opacity: 0 }, 0);
   timeline.set(ready, { opacity: 0 }, 0);
   timeline.set(spinner, { opacity: 0 }, 0);
-  timeline.set(brewChecks, { opacity: 0 }, 0);
+  if (brewChecks.length > 0) timeline.set(brewChecks, { opacity: 0 }, 0);
   timeline.set(typedInput, { textContent: "" }, 0);
   if (codexTypedInput !== null) timeline.set(codexTypedInput, { textContent: "" }, 0);
   timeline.set(decodeLines, { opacity: 0 }, 0);
@@ -278,7 +279,12 @@ export function buildHeroIntroScene(
 
   const scrollRowIntoTranscript = (row: HTMLElement): void => {
     const transcript = row.closest<HTMLElement>(".hero-terminal-transcript");
-    if (transcript === null || row.getClientRects().length === 0) return;
+    if (
+      transcript === null ||
+      row.getClientRects().length === 0 ||
+      Number(getComputedStyle(row).opacity) < 0.05
+    )
+      return;
     const rowBottom = row.getBoundingClientRect().bottom;
     const viewportBottom = transcript.getBoundingClientRect().bottom;
     transcript.scrollTop = Math.max(0, transcript.scrollTop + rowBottom - viewportBottom + 2);
@@ -305,7 +311,7 @@ export function buildHeroIntroScene(
     claudeTyping,
     {
       fraction: 1,
-      duration: 1,
+      duration: 0.78,
       ease: "none",
       onUpdate: () => {
         typedInput.textContent = claudePrompt.slice(
@@ -316,10 +322,10 @@ export function buildHeroIntroScene(
     },
     2.6,
   );
-  timeline.set(typedInput, { textContent: "" }, 3.62);
+  timeline.set(typedInput, { textContent: "" }, 3.4);
   revealRow(
     visibleClaudeRows.find((row) => row.textContent?.includes("set up Agent Studio")),
-    3.62,
+    3.4,
   );
   revealRow(
     visibleClaudeRows.find((row) => row.textContent?.includes("I'll install")),
@@ -338,15 +344,15 @@ export function buildHeroIntroScene(
     timeline.set(claudeLift, { boxShadow: "none", backgroundColor: "transparent" }, 7.85);
   }
   if (codexLift !== null && options.width >= 1024) {
-    timeline.set(codexLift, activePaneStyle, 7.85);
-    timeline.set(codexLift, { boxShadow: "none", backgroundColor: "transparent" }, 11.3);
+    timeline.set(codexLift, activePaneStyle, 9.12);
+    timeline.set(codexLift, { boxShadow: "none", backgroundColor: "transparent" }, 12.25);
   }
 
-  timeline.addLabel("beat:codex-prompt", 7.85);
+  timeline.addLabel("beat:codex-prompt", 9.12);
   if (codexTypedInput !== null && codexPlaceholder !== null && options.width >= 1024) {
     const codexPrompt = "map the worktrees";
     const codexTyping = { fraction: 0 };
-    timeline.set(codexPlaceholder, { opacity: 0 }, 7.85);
+    timeline.set(codexPlaceholder, { opacity: 0 }, 9.12);
     timeline.to(
       codexTyping,
       {
@@ -360,15 +366,15 @@ export function buildHeroIntroScene(
           );
         },
       },
-      7.85,
+      9.12,
     );
-    timeline.set(codexTypedInput, { textContent: "" }, 8.6);
-    timeline.set(codexPlaceholder, { opacity: 1 }, 8.6);
+    timeline.set(codexTypedInput, { textContent: "" }, 9.7);
+    timeline.set(codexPlaceholder, { opacity: 1 }, 9.7);
     if (codexCurrentRows !== null)
-      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 8.6);
-    revealRow(visibleCodexRows[0], 8.6);
-    revealRow(codexWorking, 8.65);
-    revealRow(worktreeCommand, 9.5);
+      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 9.7);
+    revealRow(visibleCodexRows[0], 9.7);
+    revealRow(codexWorking, 9.75);
+    revealRow(worktreeCommand, 10.55);
   }
 
   const spinnerGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
@@ -395,6 +401,7 @@ export function buildHeroIntroScene(
                 : "#9ba1ad";
         }
         spinner.style.backgroundPosition = `${100 - ((elapsed * 60) % 100)}% 0`;
+        scrollRowIntoTranscript(spinner);
       },
     },
     3.95,
@@ -464,52 +471,88 @@ export function buildHeroIntroScene(
   );
 
   if (options.width < 1024) {
+    const phonePrompt = "map the worktrees";
+    const phoneTyping = { fraction: 0 };
+    timeline.set(typedInput, { textContent: "" }, 8.57);
+    timeline.to(
+      phoneTyping,
+      {
+        fraction: 1,
+        duration: 0.51,
+        ease: "none",
+        onUpdate: () => {
+          typedInput.textContent = phonePrompt.slice(
+            0,
+            Math.floor(phoneTyping.fraction * phonePrompt.length),
+          );
+        },
+      },
+      8.57,
+    );
+    timeline.set(typedInput, { textContent: "" }, 9.12);
     revealRow(
       visibleClaudeRows.find((row) => row.textContent?.includes("map the worktrees")),
-      8.0,
+      9.12,
     );
-    revealRow(worktreeCommand, 9.2);
+    revealRow(phoneWorking, 9.2);
+    if (phoneWorking !== null) {
+      const phoneWorkState = { fraction: 0 };
+      const phoneGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
+      timeline.to(
+        phoneWorkState,
+        {
+          fraction: 1,
+          duration: 1.35,
+          ease: "none",
+          onUpdate: () => {
+            const elapsed = phoneWorkState.fraction * 1.35;
+            phoneWorking.textContent = `  ⎿ ${phoneGlyphs[Math.floor((9.2 + elapsed) * 8) % phoneGlyphs.length]} Working (${Math.floor(elapsed + 1)}s · esc to interrupt)`;
+          },
+        },
+        9.2,
+      );
+      timeline.set(phoneWorking, { textContent: "  ⎿ Ran git worktree list" }, 10.55);
+    }
+    revealRow(worktreeCommand, 10.55);
   }
   if (codexWorkingMeta !== null) {
     const workingState = { seconds: 0 };
     timeline.to(
       workingState,
       {
-        seconds: 0.85,
-        duration: 0.85,
+        seconds: 0.8,
+        duration: 0.8,
         ease: "none",
         onUpdate: () => {
           codexWorkingMeta.textContent = ` (${Math.floor(workingState.seconds + 1)}s • esc to interrupt)`;
         },
       },
-      8.65,
+      9.75,
     );
   }
   worktreeRows.forEach((row, index) => {
-    revealRow(row, 9.85 + index * 0.4);
+    revealRow(row, 10.75 + index * 0.45);
     timeline.fromTo(
       row,
       { "--hero-row-flash": 1 },
       { "--hero-row-flash": 0, duration: 0.45, ease: "power1.out" },
-      9.85 + index * 0.4,
+      10.75 + index * 0.45,
     );
   });
-  revealRow(codexRunning, 9.5);
+  revealRow(codexRunning, 10.55);
   if (codexVerb !== null) {
-    timeline.set(codexVerb, { textContent: "Running" }, 9.5);
-    timeline.set(codexVerb, { textContent: "Ran" }, 11.25);
+    timeline.set(codexVerb, { textContent: "Running" }, 10.55);
+    timeline.set(codexVerb, { textContent: "Ran" }, 12.2);
   }
   if (codexWorking !== null && options.width >= 1024)
-    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 9.5);
-  timeline.addLabel("beat:codex-result", 11.25);
-  revealRow(worktreeResult, 11.25);
-  timeline.addLabel("beat:rail-handoff", 11.6);
+    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 10.55);
+  timeline.addLabel("beat:codex-result", 12.2);
+  revealRow(worktreeResult, 12.2);
+  timeline.addLabel("beat:rail-handoff", 12.75);
   const railTiming =
     rail === null
-      ? { finalHopStart: 13.1, end: 13.2 }
-      : addHeroRailStaircase({ timeline, artwork: rail, start: 11.6 });
-  if (codexWorking !== null && options.width >= 1024)
-    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 11.25);
+      ? { finalHopStart: 13.15, end: 13.25 }
+      : addHeroRailStaircase({ timeline, artwork: rail, start: 12.75 });
   timeline.fromTo(
     [payoffFirst, payoffSecond],
     { y: 8, opacity: 0 },

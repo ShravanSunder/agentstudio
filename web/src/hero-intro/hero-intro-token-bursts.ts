@@ -84,6 +84,7 @@ function visibleTextRects(root: HTMLElement): DOMRect[] {
     ".hero-codex-input",
     ".install-command__line",
     "[data-hero-intro-copy]",
+    "[data-hero-intro-eyebrow-settled]",
   ];
   const rectangles: DOMRect[] = [];
   for (const element of root.querySelectorAll<HTMLElement>(selectors.join(","))) {
@@ -142,12 +143,19 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
       state,
       {
         fraction: 1,
-        duration: 0.34,
+        duration: 0.5,
         ease: "none",
         onUpdate: () => {
           layer.replaceChildren();
           const route = getRoute();
           if (route === null) return;
+          if (label === "burst:rail") {
+            const endpoint = route.at(-1);
+            if (endpoint !== undefined) {
+              layer.setAttribute("data-hero-burst-end-x", String(endpoint.x));
+              layer.setAttribute("data-hero-burst-end-y", String(endpoint.y));
+            }
+          }
           const blocked = visibleTextRects(root);
           tokens.forEach((token, index) => {
             const lag = (index / tokens.length) * 0.3;
@@ -190,7 +198,7 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
     ];
   });
   if (width >= 1024)
-    addBurst("burst:codex", 7.6, codexTokens, () => {
+    addBurst("burst:codex", 8.57, codexTokens, () => {
       if (readyArrow === null || windowNode === null || codexInput === null) return null;
       const source = textEnd(readyArrow);
       const windowRect = windowNode.getBoundingClientRect();
@@ -202,7 +210,7 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
         { x: target.left + 12, y: target.top + target.height / 2 },
       ];
     });
-  addBurst("burst:rail", 11.3, railTokens, () => {
+  addBurst("burst:rail", 12.25, railTokens, () => {
     if (result === null || windowNode === null || railNode === null) return null;
     const source = textEnd(result);
     const windowRect = windowNode.getBoundingClientRect();
@@ -213,6 +221,7 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
       { x: windowRect.right + 22, y: source.y + 6 },
       { x: windowRect.right + 22, y: clearY },
       { x: target.left + target.width / 2 + 24, y: clearY },
+      { x: target.left + target.width / 2, y: clearY },
       { x: target.left + target.width / 2, y: target.top + target.height / 2 },
     ];
   });
