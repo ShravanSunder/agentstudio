@@ -22,6 +22,16 @@ describe("where the rail ends on the home page", () => {
   it("plays the finale once at the rail end and copies both install commands", async () => {
     const observation = await commands.verifyFinaleBookend(inject("siteHeaderBrowserTestUrl"));
     expect(observation.eventCount).toBe(1);
+    const firstArc = /A ([\d.]+) ([\d.]+)/u.exec(observation.tracePathData);
+    expect(firstArc).not.toBeNull();
+    expect(Math.abs(Number(firstArc?.[1]) - observation.pillHeight / 2)).toBeLessThanOrEqual(0.5);
+    expect(firstArc?.[1]).toBe(firstArc?.[2]);
+    expect(observation.pillBorderColor).toBe("rgba(0, 0, 0, 0)");
+    expect(observation.pillBorderWidth).toBe("0px");
+    expect(observation.pillOverflowX).toBe("hidden");
+    expect(observation.starLeftOffset).toBeLessThanOrEqual(1);
+    expect(observation.copyRightRadius).not.toBe("0px");
+    expect(observation.terminalHaloDisplay).toBe("none");
     for (const [index, angle] of [0, 7, -12].entries())
       expect(observation.transitionalFanAngles[index]).toBeCloseTo(angle, 1);
     expect(observation.transitionalPlaneBorderWidths).toEqual([1, 1, 1, 1]);

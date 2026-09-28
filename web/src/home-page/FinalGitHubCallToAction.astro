@@ -37,7 +37,7 @@ const terminalRailAttributes = {
   </div>
 
   <div
-    class="finale-split-pill floating-glass-material relative inline-flex max-w-full items-stretch overflow-visible rounded-full border"
+    class="finale-split-pill floating-glass-material relative inline-flex max-w-full items-stretch overflow-hidden rounded-full"
     {...terminalRailAttributes}
     data-finale-split-pill
     data-install-command-root
@@ -92,10 +92,12 @@ const terminalRailAttributes = {
   .final-cta[data-finale-state="ready"] .finale-star-icon, .final-cta[data-finale-state="ready"] .finale-border-trace { opacity: 0; }
   .final-cta[data-finale-state="settled"] .finale-plane, .final-cta[data-finale-state="settled"] .finale-terminal { opacity: 0; }
   .final-cta[data-finale-state="settled"] .finale-border-trace { opacity: 0.6; }
-  .finale-split-pill { width: max-content; justify-self: start; margin-top: 19px; margin-left: var(--finale-left-inset); white-space: nowrap; }
+  .finale-split-pill { width: max-content; min-height: 50px; justify-self: start; margin-top: 19px; margin-left: var(--finale-left-inset); white-space: nowrap; }
+  .final-cta .finale-split-pill { border: 0; border-color: transparent; background: rgb(30 30 46 / 88%); box-shadow: 0 20px 46px rgb(8 9 14 / 28%), 0 6px 16px rgb(10 11 17 / 18%); }
+  .final-cta[data-finale-state="ready"] .finale-split-pill { box-shadow: inset 0 0 0 1px rgb(137 180 250 / 38%), 0 20px 46px rgb(8 9 14 / 28%), 0 6px 16px rgb(10 11 17 / 18%); }
   .final-cta > p { margin-top: 22px; margin-left: var(--finale-left-inset); }
   .final-star-button, .finale-copy-button { min-height: 48px; gap: 9px; padding: 0 22px; font-size: 14px; font-weight: 650; white-space: nowrap; }
-  .final-star-button { min-width: 260px; border-radius: 999px 0 0 999px; background: var(--color-primary); color: var(--color-canvas); }
+  .final-star-button { min-width: 260px; border-radius: 0; background: var(--color-primary); color: var(--color-canvas); }
   .final-star-button:hover { background: color-mix(in srgb, var(--color-primary) 86%, white); }
   .finale-copy-button { min-width: 180px; cursor: pointer; border-left: 1px solid rgb(255 255 255 / 16%); border-radius: 0 999px 999px 0; color: var(--color-ink-secondary); }
   .finale-copy-button:hover { background: rgb(255 255 255 / 7%); }
@@ -110,7 +112,7 @@ const terminalRailAttributes = {
   .final-cta[data-short-labels] .final-star-button, .final-cta[data-short-labels] .finale-copy-button { min-width: 0; }
   @media (width < 38.75rem) {
     .final-cta { gap: 9px; padding-top: 17px; padding-bottom: 20px; }
-    .finale-split-pill { margin-top: 16px; }
+    .finale-split-pill { min-height: 47px; margin-top: 16px; }
     .final-cta > p { margin-top: 25px; }
     .final-star-button, .finale-copy-button { min-width: 0; min-height: 45px; padding: 0 16px; }
     .finale-label-full { display: none; }

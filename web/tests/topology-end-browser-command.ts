@@ -38,6 +38,15 @@ export interface TopologyEndObservation {
 }
 
 export interface FinaleBookendObservation {
+  readonly pillWidth: number;
+  readonly pillHeight: number;
+  readonly tracePathData: string;
+  readonly pillBorderColor: string;
+  readonly pillBorderWidth: string;
+  readonly pillOverflowX: string;
+  readonly starLeftOffset: number;
+  readonly copyRightRadius: string;
+  readonly terminalHaloDisplay: string;
   readonly transitionalFanAngles: readonly number[];
   readonly transitionalPlaneBorderWidths: readonly number[];
   readonly eventCount: number;
@@ -286,6 +295,30 @@ export const verifyFinaleBookend = defineBrowserCommand(
         await Promise.resolve();
         return {
           eventCount: proofWindow.topologyEndEventCount ?? 0,
+          pillWidth:
+            copy.closest<HTMLElement>("[data-finale-split-pill]")?.getBoundingClientRect().width ??
+            0,
+          pillHeight:
+            copy.closest<HTMLElement>("[data-finale-split-pill]")?.getBoundingClientRect().height ??
+            0,
+          tracePathData: trace.getAttribute("d") ?? "",
+          pillBorderColor: getComputedStyle(
+            copy.closest<HTMLElement>("[data-finale-split-pill]") ?? root,
+          ).borderTopColor,
+          pillBorderWidth: getComputedStyle(
+            copy.closest<HTMLElement>("[data-finale-split-pill]") ?? root,
+          ).borderTopWidth,
+          pillOverflowX: getComputedStyle(
+            copy.closest<HTMLElement>("[data-finale-split-pill]") ?? root,
+          ).overflowX,
+          starLeftOffset:
+            button.getBoundingClientRect().left -
+            (copy.closest<HTMLElement>("[data-finale-split-pill]")?.getBoundingClientRect().left ??
+              0),
+          copyRightRadius: getComputedStyle(copy).borderTopRightRadius,
+          terminalHaloDisplay: getComputedStyle(
+            endNode.querySelector<SVGCircleElement>(".node-terminal-halo") ?? endNode,
+          ).display,
           transitionalFanAngles,
           transitionalPlaneBorderWidths,
           href: button.href,

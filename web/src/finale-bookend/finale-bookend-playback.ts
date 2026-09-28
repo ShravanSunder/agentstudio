@@ -46,11 +46,13 @@ function requiredPart<TElement extends Element>(root: HTMLElement, selector: str
 }
 
 function tracePillBorder(pill: HTMLElement, trace: SVGPathElement): number {
-  const width = pill.clientWidth;
-  const height = pill.clientHeight;
+  const { width, height } = pill.getBoundingClientRect();
+  const borderCenter = 0.5;
+  const radius = height / 2 - borderCenter;
+  const centreY = height / 2;
   trace.setAttribute(
     "d",
-    `M 1 ${height / 2} V 12 Q 1 1 12 1 H ${width - 12} Q ${width - 1} 1 ${width - 1} 12 V ${height - 12} Q ${width - 1} ${height - 1} ${width - 12} ${height - 1} H 12 Q 1 ${height - 1} 1 ${height - 12} V ${height / 2}`,
+    `M ${borderCenter} ${centreY} A ${radius} ${radius} 0 0 1 ${height / 2} ${borderCenter} H ${width - height / 2} A ${radius} ${radius} 0 0 1 ${width - height / 2} ${height - borderCenter} H ${height / 2} A ${radius} ${radius} 0 0 1 ${borderCenter} ${centreY}`,
   );
   trace.closest("svg")?.setAttribute("viewBox", `0 0 ${width} ${height}`);
   return trace.getTotalLength();
