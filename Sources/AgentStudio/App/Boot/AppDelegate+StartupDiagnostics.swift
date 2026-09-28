@@ -89,7 +89,7 @@ extension AppDelegate {
                 await Task.yield()
                 AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)
                 await Task.yield()
-                self.commandBarController.state.rawInput = "# repo"
+                self.commandBarController.setQueryText("# repo")
                 self.startupTraceRecorder.recordAppStartup(
                     "app.startup_diagnostic_action.command_exercised",
                     phase: "startup_diagnostic_action",

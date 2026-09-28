@@ -458,6 +458,22 @@ struct CommandBarAsyncSearchTests {
         #expect(controller.state.appliedSearchResult?.displayedItems.contains { $0.title.contains("Copy") } == true)
     }
 
+    @Test("programmatic query text searches a visible repository through the real service")
+    func programmaticQuerySearchesRepository() async throws {
+        let store = WorkspaceStore()
+        let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-repo-filter"))
+        let controller = makeController(service: SearchService(), store: store)
+        controller.state.show(defaultScope: .everything)
+
+        controller.setQueryText("# repo")
+        let searchTask = try #require(controller.pendingSearchTask)
+        await searchTask.value
+
+        #expect(controller.state.rawInput == "# repo")
+        let displayedIds = controller.state.appliedSearchResult?.displayedItems.map(\.id)
+        #expect(displayedIds?.contains("repo-\(repository.id.uuidString)") == true)
+    }
+
     @Test("the next real query sees a branch change on the same worktree")
     func branchChangeRefreshesSearchGeneration() async {
         let store = WorkspaceStore()

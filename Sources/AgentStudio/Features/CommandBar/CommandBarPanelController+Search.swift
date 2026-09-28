@@ -13,6 +13,11 @@ struct CommandBarSearchMeasurement {
 
 @MainActor
 extension CommandBarPanelController {
+    package func setQueryText(_ text: String) {
+        state.rawInput = text
+        queryChanged(text: text)
+    }
+
     func queryChanged(text _: String, inputAtNanoseconds: UInt64? = nil) {
         let inputAt = inputAtNanoseconds ?? searchNowNanoseconds()
         recordSupersededSearch(at: inputAt)
