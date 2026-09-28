@@ -1,5 +1,5 @@
 {
-  "union": "BridgeAgentShowResult",
+  "union": "BridgeAgentTakeOverResult",
   "value": {
     "kind": "shown"
   }

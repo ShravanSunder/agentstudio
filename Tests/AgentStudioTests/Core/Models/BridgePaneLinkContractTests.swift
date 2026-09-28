@@ -112,39 +112,48 @@ struct BridgePaneLinkContractTests {
         )
     }
 
-    @Test("agent show mode and result match every shared fixture")
+    @Test("agent show mode, native outcomes and IPC reply match every shared fixture")
     func agentShowFixtures() throws {
         try assertFixtures(
-            union: "BridgeAgentShowMode", folder: "reveal", prefix: "agent-show-mode",
+            union: "BridgeAgentShowMode", folder: "agent-show", prefix: "agent-show-mode",
             cases: [
                 ("background", .background), ("take-over", .takeOver),
             ] as [(String, BridgeAgentShowMode)]
         )
         try assertFixtures(
-            union: "BridgeAgentShowResult", folder: "reveal", prefix: "agent-show-result",
+            union: "BridgeAgentShowReply", folder: "agent-show", prefix: "agent-show-reply",
             cases: [
                 ("opened", .opened), ("shown", .shown), ("declined", .declined),
                 ("not-found", .notFound), ("pane-unavailable", .paneUnavailable),
-            ] as [(String, BridgeAgentShowResult)]
+            ] as [(String, BridgeAgentShowReply)]
+        )
+        try assertFixtures(
+            union: "BridgeAgentBackgroundOpenResult", folder: "agent-show", prefix: "background-open",
+            cases: [
+                ("opened", .opened), ("not-found", .notFound), ("pane-unavailable", .paneUnavailable),
+            ] as [(String, BridgeAgentBackgroundOpenResult)]
+        )
+        try assertFixtures(
+            union: "BridgeAgentTakeOverResult", folder: "agent-show", prefix: "take-over",
+            cases: [
+                ("shown", .shown), ("opened", .opened), ("not-found", .notFound),
+                ("pane-unavailable", .paneUnavailable),
+            ] as [(String, BridgeAgentTakeOverResult)]
         )
     }
 
-    @Test("agent show codecs reject unknown kinds and fields")
-    func agentShowRejectsInvalidWireShapes() {
-        let decoder = JSONDecoder()
-        for value in [#"{"kind":"automatic"}"#, #"{"kind":"background","extra":true}"#] {
-            #expect(throws: Error.self) {
-                try decoder.decode(BridgeAgentShowMode.self, from: Data(value.utf8))
-            }
-        }
-        for value in [#"{"kind":"waitingInOpenView"}"#, #"{"kind":"shown","line":12}"#] {
-            #expect(throws: Error.self) {
-                try decoder.decode(BridgeAgentShowResult.self, from: Data(value.utf8))
-            }
-        }
+    @Test("native show results map exhaustively to the IPC reply")
+    func agentShowReplyMapping() {
+        #expect(bridgeAgentShowReply(for: BridgeAgentBackgroundOpenResult.opened) == .opened)
+        #expect(bridgeAgentShowReply(for: BridgeAgentBackgroundOpenResult.notFound) == .notFound)
+        #expect(bridgeAgentShowReply(for: BridgeAgentBackgroundOpenResult.paneUnavailable) == .paneUnavailable)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.shown) == .shown)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.opened) == .opened)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.notFound) == .notFound)
+        #expect(bridgeAgentShowReply(for: BridgeAgentTakeOverResult.paneUnavailable) == .paneUnavailable)
     }
 
-    @Test("item identity and reveal paths validate before use")
+    @Test("item identity and agent show paths validate before use")
     func valueValidation() throws {
         let worktree = UUIDv7.generate()
         let identity = try ForgePullRequestIdentity(
@@ -156,16 +165,16 @@ struct BridgePaneLinkContractTests {
                 BridgeLinkItem.self,
                 from: JSONEncoder().encode(BridgeLinkItem.pullRequest(identity))
             ) == .pullRequest(identity))
-        let target = try BridgeRevealFileTarget(worktree: worktree, relativePath: "src/file.swift", line: 12)
+        let target = try BridgeAgentShowTarget(worktree: worktree, relativePath: "src/file.swift", line: 12)
         #expect(
             try JSONDecoder().decode(
-                BridgeRevealFileTarget.self, from: JSONEncoder().encode(target)
+                BridgeAgentShowTarget.self, from: JSONEncoder().encode(target)
             ) == target)
         #expect(throws: BridgeLinkIdentityError.invalidRelativePath) {
-            try BridgeRevealFileTarget(worktree: worktree, relativePath: "../secret")
+            try BridgeAgentShowTarget(worktree: worktree, relativePath: "../secret")
         }
         #expect(throws: BridgeLinkIdentityError.invalidLine) {
-            try BridgeRevealFileTarget(worktree: worktree, relativePath: "file.swift", line: 0)
+            try BridgeAgentShowTarget(worktree: worktree, relativePath: "file.swift", line: 0)
         }
     }
 
@@ -202,13 +211,12 @@ struct BridgePaneLinkContractTests {
         #expect(try decoder.decode(BridgeLinkContributionsRemoved.self, from: encoder.encode(fact)) == fact)
 
         let target = try decoder.decode(
-            BridgeRevealFileTarget.self,
+            BridgeAgentShowTarget.self,
             from: Data(
                 contentsOf: root.appending(
-                    path: folder + "reveal/file-target.json"
+                    path: folder + "agent-show/agent-show-target.json"
                 )))
         #expect(target.line == 12)
-        #expect(try decoder.decode(BridgeRevealFileTarget.self, from: encoder.encode(target)) == target)
     }
 
     @Test("membership port accepts only typed worktree and PR identities")
@@ -238,18 +246,6 @@ struct BridgePaneLinkContractTests {
             ) == .alreadyAbsent)
     }
 
-    @Test("agent show port takes one typed target and mode and returns one result")
-    func agentShowPortTypes() async throws {
-        let port: any PaneRevealPort = PaneRevealPortTypeWitness()
-        let target = try BridgeRevealFileTarget(
-            worktree: UUIDv7.generate(), relativePath: "src/file.swift", line: 12
-        )
-        #expect(
-            try await port.show(
-                receiver: PaneId.generateUUIDv7(), target: target, mode: .background
-            ) == .opened)
-    }
-
     private func assertFixtures<Outcome: Codable & Equatable>(
         union: String,
         folder: String,
@@ -274,7 +270,7 @@ struct BridgePaneLinkContractTests {
             contentsOf: root.appending(
                 path: "Tests/BridgeContractFixtures/\(folder)/invalid-\(prefix).json"
             ))
-        #expect(throws: Error.self) { try decoder.decode(Fixture<Outcome>.self, from: invalid) }
+        #expect(throws: DecodingError.self) { try decoder.decode(Fixture<Outcome>.self, from: invalid) }
     }
 
     private func fixtureAgent() throws -> BridgeLinkContributor {
@@ -319,10 +315,4 @@ private actor PaneLinkPortTypeWitness: PaneLinkMembershipPort {
         continuation.finish()
         return stream
     }
-}
-
-private actor PaneRevealPortTypeWitness: PaneRevealPort {
-    func show(
-        receiver _: PaneId, target _: BridgeRevealFileTarget, mode _: BridgeAgentShowMode
-    ) async throws(BridgeLinkPortFailure) -> BridgeAgentShowResult { .opened }
 }
