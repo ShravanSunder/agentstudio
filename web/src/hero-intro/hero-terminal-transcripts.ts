@@ -174,7 +174,7 @@ export const claudeFinaleTranscript: readonly TranscriptRow[] = [
   { kind: "tool-result", text: "  ⎿ Installing agent-studio", tiers: ["phone"], beat: "progress" },
   { kind: "tool-result", text: "  ⎿ ✓ Ready. Copy it below ↓", tiers: allTiers },
   { kind: "user-band", text: "› map the worktrees", tiers: allTiers, beat: "prompt" },
-  { kind: "tool-result", text: "  ⎿ Ran git worktree list", tiers: allTiers, beat: "working" },
+  { kind: "tool-result", text: "  ⎿ Ran", tiers: allTiers, beat: "working" },
   { kind: "tool-result", text: "  ⎿ git worktree list", tiers: allTiers, beat: "command" },
   {
     kind: "tool-result",

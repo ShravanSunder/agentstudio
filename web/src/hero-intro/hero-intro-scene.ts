@@ -518,7 +518,7 @@ export function buildHeroIntroScene(
         },
         9.2,
       );
-      timeline.set(phoneWorking, { textContent: "  ⎿ Ran git worktree list" }, 10.55);
+      timeline.set(phoneWorking, { textContent: "  ⎿ Ran" }, 10.55);
     }
     revealRow(worktreeCommand, 10.55);
   }
