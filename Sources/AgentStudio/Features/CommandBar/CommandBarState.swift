@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioSharedComponents
+import AgentStudioWorktreeOperations
 import Foundation
 import SwiftUI
 import os.log

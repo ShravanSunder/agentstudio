@@ -1,3 +1,4 @@
+import AgentStudioWorktreeOperations
 import Foundation
 import Testing
 

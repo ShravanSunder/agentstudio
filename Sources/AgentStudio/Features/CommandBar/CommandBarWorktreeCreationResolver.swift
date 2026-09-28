@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioWorktreeOperations
 import Foundation
 
 /// One branch-name entry has already selected its creation operation and target.
