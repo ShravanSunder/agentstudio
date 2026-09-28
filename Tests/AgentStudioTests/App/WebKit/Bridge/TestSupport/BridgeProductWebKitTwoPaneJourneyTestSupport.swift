@@ -177,6 +177,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
 
     private struct JourneyInput {
         let paneOne: BridgePaneController
+        let paneOneGitStatusProvider: BridgeProductWebKitGatedGitStatusProvider
         let paneOneRepoURL: URL
         let paneOneReviewProvider: BridgeProductWebKitGatedReviewSourceProvider
         let paneOneTrace: BridgeProductWebKitCarrierTraceRecorder
@@ -220,6 +221,9 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let gitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(
             physicalGate: AgentStudioGitStatusPhysicalGate()
         )
+        let paneOneGitStatusProvider = BridgeProductWebKitGatedGitStatusProvider(
+            base: gitWorkingTreeStatusProvider
+        )
         let paneOneGitReadContext = makeBridgeGitReadContext(rootURL: paneOneRepoURL)
         let paneTwoGitReadContext = makeBridgeGitReadContext(rootURL: paneTwoRepoURL)
         let paneOneReviewProvider = BridgeProductWebKitGatedReviewSourceProvider(
@@ -238,7 +242,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             ControllerInput(
                 gitReadContext: paneOneGitReadContext,
                 initialActivity: .foreground,
-                gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
+                gitWorkingTreeStatusProvider: paneOneGitStatusProvider,
                 repoURL: paneOneRepoURL,
                 reviewProvider: paneOneReviewProvider,
                 title: "Hosted Pane One",
@@ -263,6 +267,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             try await exerciseJourney(
                 JourneyInput(
                     paneOne: paneOne,
+                    paneOneGitStatusProvider: paneOneGitStatusProvider,
                     paneOneRepoURL: paneOneRepoURL,
                     paneOneReviewProvider: paneOneReviewProvider,
                     paneOneTrace: paneOneTrace,
@@ -337,6 +342,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             return try await exercisePreparedJourney(input)
         } catch {
             await input.paneOneReviewProvider.releaseBlockedComparisons()
+            await input.paneOneGitStatusProvider.releaseBlockedStatusRead()
             throw error
         }
     }
@@ -475,9 +481,11 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                     + "(observedActiveMode: \(observedActiveMode))"
             )
         }
-        guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
-            throw JourneyError.conditionFailed("File mode did not activate during refresh")
-        }
+        try await activateReadyFileMode(
+            input.paneOne,
+            failure: "File mode did not activate during refresh"
+        )
+        await input.paneOneGitStatusProvider.armNextStatusRead()
         try await armStatusObservation(
             input.paneOne.page,
             activeMode: "file",
@@ -487,14 +495,19 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let fileChangeset = try makeChangeset(
             for: input.paneOne,
             paths: ["tracked.txt"],
-            batchSequence: 704
+            batchSequence: 704,
+            containsGitInternalChanges: true
         )
         _ = input.paneOne.worktreeRefreshDriver.recordInvalidation(
             fileChangeset: fileChangeset,
             requiresReviewRefresh: false
         )
         input.paneOne.worktreeRefreshDriver.scheduleFileCatchUpIfPossible()
+        guard await input.paneOneGitStatusProvider.waitForBlockedStatusReadCount(1) == 1 else {
+            throw JourneyError.conditionFailed("File catch-up did not reach its held status read")
+        }
         let updatingFileStatus = try await requireArmedStatus(input.paneOne.page)
+        await input.paneOneGitStatusProvider.releaseBlockedStatusRead()
         let nativeBeforeReviewActivation =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneOne)
         guard await activateReviewMode(input.paneOne.page) else {
@@ -634,7 +647,8 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     private static func makeChangeset(
         for controller: BridgePaneController,
         paths: [String],
-        batchSequence: UInt64
+        batchSequence: UInt64,
+        containsGitInternalChanges: Bool = false
     ) throws -> FileChangeset {
         let worktreeId = try #require(controller.runtime.metadata.worktreeId)
         let rootPath = try #require(controller.runtime.metadata.cwd)
@@ -643,6 +657,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             repoId: controller.runtime.metadata.repoId,
             rootPath: rootPath,
             paths: paths,
+            containsGitInternalChanges: containsGitInternalChanges,
             timestamp: .now,
             batchSeq: batchSequence
         )
