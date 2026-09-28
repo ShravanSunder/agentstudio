@@ -3,10 +3,12 @@ import Synchronization
 /// One source's append-only fact history and per-scope consuming cursors.
 package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Sendable {
     private let vocabulary: FactVocabulary<Scope, Fact>
+    private let expectationLog: ExpectationLog
     private let state = Mutex(RecorderState<Scope, Fact>())
 
-    package init(vocabulary: FactVocabulary<Scope, Fact>) {
+    package init(vocabulary: FactVocabulary<Scope, Fact>, expectationLog: ExpectationLog = .environment) {
         self.vocabulary = vocabulary
+        self.expectationLog = expectationLog
     }
 
     package func installSourceHandle(_ handle: any FactSourceHandle) {
@@ -79,38 +81,50 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
         fileID: String = #fileID, line: Int = #line, function: String = #function
     ) async throws -> Fact {
         let callSite = "\(fileID):\(line) \(function)"
-        let expectationID = try beginExpectation(scope, description, callSite)
-        defer { endExpectation(scope, expectationID) }
-        while true {
-            try Task.checkCancellation()
-            let observation = state.withLock { state -> Observation<Fact> in
-                if let failure = stickyFailure(state, scope, description, callSite) { return .failure(failure) }
-                let cursor = state.cursors[scope, default: 0]
-                if let index = state.history.indices.first(where: { $0 >= cursor && state.history[$0].scope == scope })
-                {
-                    state.cursors[scope] = index + 1
-                    return .fact(state.history[index].fact)
+        let logID = expectationLog.expecting(
+            expectedCase: description, scope: vocabulary.describeScope(scope),
+            test: "\(fileID) \(function)", callSite: callSite
+        )
+        do {
+            let expectationID = try beginExpectation(scope, description, callSite)
+            defer { endExpectation(scope, expectationID) }
+            while true {
+                try Task.checkCancellation()
+                let observation = state.withLock { state -> Observation<Fact> in
+                    if let failure = stickyFailure(state, scope, description, callSite) { return .failure(failure) }
+                    let cursor = state.cursors[scope, default: 0]
+                    if let index = state.history.indices.first(where: {
+                        $0 >= cursor && state.history[$0].scope == scope
+                    }) {
+                        state.cursors[scope] = index + 1
+                        return .fact(state.history[index].fact)
+                    }
+                    if let terminal = state.sourceTerminal {
+                        return .failure(sourceFailure(terminal, scope, description, callSite))
+                    }
+                    if state.stopping {
+                        return .failure(
+                            SourceEnded(
+                                expected: description, scope: vocabulary.describeScope(scope), callSite: callSite))
+                    }
+                    return .waiting(state.revision)
                 }
-                if let terminal = state.sourceTerminal {
-                    return .failure(sourceFailure(terminal, scope, description, callSite))
+                switch observation {
+                case .fact(let fact):
+                    guard matches(fact) else {
+                        throw UnexpectedFact(
+                            expected: description, actual: vocabulary.describeFact(fact),
+                            scope: vocabulary.describeScope(scope), callSite: callSite)
+                    }
+                    expectationLog.settled(logID, outcome: .matched)
+                    return fact
+                case .failure(let failure): throw failure
+                case .waiting(let revision): try await waitForChange(after: revision)
                 }
-                if state.stopping {
-                    return .failure(
-                        SourceEnded(expected: description, scope: vocabulary.describeScope(scope), callSite: callSite))
-                }
-                return .waiting(state.revision)
             }
-            switch observation {
-            case .fact(let fact):
-                guard matches(fact) else {
-                    throw UnexpectedFact(
-                        expected: description, actual: vocabulary.describeFact(fact),
-                        scope: vocabulary.describeScope(scope), callSite: callSite)
-                }
-                return fact
-            case .failure(let failure): throw failure
-            case .waiting(let revision): try await waitForChange(after: revision)
-            }
+        } catch {
+            expectationLog.settled(logID, outcome: Self.settlement(for: error))
+            throw error
         }
     }
 
@@ -129,55 +143,77 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
     ) async throws {
         let scope = opening.scope
         let callSite = "\(fileID):\(line) \(function)"
-        guard opening.recorderIdentity == ObjectIdentifier(self) else {
-            throw OpeningPositionMisuse(scope: vocabulary.describeScope(scope), callSite: callSite)
-        }
-        let expectationID = try beginExpectation(scope, description, callSite)
-        defer { endExpectation(scope, expectationID) }
-        var nextIndex = opening.historyIndex
-        while true {
-            try Task.checkCancellation()
-            let snapshot = state.withLock { state -> ([RecordedFact<Scope, Fact>], UInt64, (any Error)?) in
-                (
-                    Array(state.history.dropFirst(nextIndex)), state.revision,
-                    stickyFailure(state, scope, description, callSite)
-                )
+        let logID = expectationLog.expecting(
+            expectedCase: "no \(description) until close", scope: vocabulary.describeScope(scope),
+            test: "\(fileID) \(function)", callSite: callSite
+        )
+        do {
+            guard opening.recorderIdentity == ObjectIdentifier(self) else {
+                throw OpeningPositionMisuse(scope: vocabulary.describeScope(scope), callSite: callSite)
             }
-            if let failure = snapshot.2 { throw failure }
-            for entry in snapshot.0 {
-                nextIndex += 1
-                guard entry.scope == scope else { continue }
-                if forbidden(entry.fact) {
-                    throw UnexpectedFact(
-                        expected: "no \(description)", actual: vocabulary.describeFact(entry.fact),
-                        scope: vocabulary.describeScope(scope), callSite: callSite)
+            let expectationID = try beginExpectation(scope, description, callSite)
+            defer { endExpectation(scope, expectationID) }
+            var nextIndex = opening.historyIndex
+            while true {
+                try Task.checkCancellation()
+                let snapshot = state.withLock { state -> ([RecordedFact<Scope, Fact>], UInt64, (any Error)?) in
+                    (
+                        Array(state.history.dropFirst(nextIndex)), state.revision,
+                        stickyFailure(state, scope, description, callSite)
+                    )
                 }
-                if vocabulary.isClosing(scope, entry.fact) {
-                    guard expectedClose(entry.fact) else {
+                if let failure = snapshot.2 { throw failure }
+                for entry in snapshot.0 {
+                    nextIndex += 1
+                    guard entry.scope == scope else { continue }
+                    if forbidden(entry.fact) {
                         throw UnexpectedFact(
-                            expected: "closing fact for \(description)", actual: vocabulary.describeFact(entry.fact),
+                            expected: "no \(description)", actual: vocabulary.describeFact(entry.fact),
                             scope: vocabulary.describeScope(scope), callSite: callSite)
                     }
-                    let failure = state.withLock { state -> (any Error)? in
-                        if let failure = stickyFailure(state, scope, description, callSite) { return failure }
-                        state.cursors[scope] = max(state.cursors[scope, default: 0], nextIndex)
-                        return nil
+                    if vocabulary.isClosing(scope, entry.fact) {
+                        guard expectedClose(entry.fact) else {
+                            throw UnexpectedFact(
+                                expected: "closing fact for \(description)",
+                                actual: vocabulary.describeFact(entry.fact),
+                                scope: vocabulary.describeScope(scope), callSite: callSite)
+                        }
+                        let failure = state.withLock { state -> (any Error)? in
+                            if let failure = stickyFailure(state, scope, description, callSite) { return failure }
+                            state.cursors[scope] = max(state.cursors[scope, default: 0], nextIndex)
+                            return nil
+                        }
+                        if let failure { throw failure }
+                        expectationLog.settled(logID, outcome: .matched)
+                        return
                     }
-                    if let failure { throw failure }
-                    return
                 }
-            }
-            let endFailure = state.withLock { state -> (any Error)? in
-                if let failure = stickyFailure(state, scope, description, callSite) { return failure }
-                if let terminal = state.sourceTerminal { return sourceFailure(terminal, scope, description, callSite) }
-                if state.stopping {
-                    return SourceEnded(
-                        expected: description, scope: vocabulary.describeScope(scope), callSite: callSite)
+                let endFailure = state.withLock { state -> (any Error)? in
+                    if let failure = stickyFailure(state, scope, description, callSite) { return failure }
+                    if let terminal = state.sourceTerminal {
+                        return sourceFailure(terminal, scope, description, callSite)
+                    }
+                    if state.stopping {
+                        return SourceEnded(
+                            expected: description, scope: vocabulary.describeScope(scope), callSite: callSite)
+                    }
+                    return nil
                 }
-                return nil
+                if let endFailure { throw endFailure }
+                try await waitForChange(after: snapshot.1)
             }
-            if let endFailure { throw endFailure }
-            try await waitForChange(after: snapshot.1)
+        } catch {
+            expectationLog.settled(logID, outcome: Self.settlement(for: error))
+            throw error
+        }
+    }
+
+    private static func settlement(for error: any Error) -> ExpectationLog.Settlement {
+        switch error {
+        case is FactsLost: .lost
+        case is SourceEnded: .ended
+        case is Cancelled, is CancellationError: .cancelled
+        default: .unexpected
         }
     }
 

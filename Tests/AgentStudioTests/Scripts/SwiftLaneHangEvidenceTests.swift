@@ -50,6 +50,8 @@ struct SwiftLaneHangEvidenceTests {
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
         printf 'arrived\\tstep-1\\tgate A\\n' \
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
+        printf 'expecting\\tchild-1\\trefreshClosed\\tworktree-1\\tSuite.swift test()\\tSuite.swift:42 test()\\n' \
+          >> "$AGENTSTUDIO_HELD_STEP_LOG"
         touch "$LANE_WATCHDOG_ARM_PATH"
         while true; do sleep 1; done
 
@@ -77,6 +79,7 @@ struct SwiftLaneHangEvidenceTests {
         let heldStepLog = evidenceStem + ".held-steps.log"
         let uploadGlobs = try ciUploadedEvidenceGlobs()
         let unarrivedRange = try #require(laneOutput.range(of: "lane-report held_step_unarrived "))
+        let missingFactRange = try #require(laneOutput.range(of: "lane-report fact_expected "))
         let reapRange = try #require(laneOutput.range(of: "lane-report timeout_reap="))
 
         // The hang verdict is failed whatever evidence was gathered.
@@ -87,6 +90,8 @@ struct SwiftLaneHangEvidenceTests {
         )
         #expect(!laneOutput.contains("held_step_unarrived name=gate A"))
         #expect(unarrivedRange.lowerBound < reapRange.lowerBound)
+        #expect(laneOutput.contains("lane-report fact_expected id=child-1 expected=refreshClosed scope=worktree-1"))
+        #expect(missingFactRange.lowerBound < reapRange.lowerBound)
         // Dump, held-step log and ledger share one stem, side by side.
         #expect(evidenceStem.hasPrefix("lane-evidence-probe-"))
         #expect(!taskDumps.isEmpty)
@@ -147,6 +152,57 @@ struct SwiftLaneHangEvidenceTests {
                 "UNSET:",
             ]
         )
+    }
+
+    @Test("expectation parser handles early settlements, duplicate lines and a partial final record")
+    func expectationParserIgnoresSettledAndPartialRecords() async throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-receipt-facts-\(UUIDv7.generate()).log")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        try """
+        settled\tchild-2\tmatched
+        expecting\tchild-2\talreadyClosed\tscope\tSuite.swift done()\tSuite.swift:3 done()
+        expecting\tchild-1\trefreshClosed\tscope\tSuite.swift pending()\tSuite.swift:4 pending()
+        expecting\tchild-1\trefreshClosed\tscope\tSuite.swift pending()\tSuite.swift:4 pending()
+        """.appending("expecting\tchild-3\tpartial\tscope\tSuite.swift pending()\tFile:5")
+            .write(to: logURL, atomically: true, encoding: .utf8)
+
+        let report = try await laneBash(
+            "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
+                + "print_held_steps_unarrived_at_timeout '\(logURL.path)'"
+        )
+
+        #expect(
+            laneOutputLines(report) == [
+                "[lane] lane-report fact_expected id=child-1 expected=refreshClosed scope=scope "
+                    + "test=Suite.swift pending() site=Suite.swift:4 pending()"
+            ])
+    }
+
+    @Test("the timeout report names an unavailable log before reaping the child")
+    func unavailableLogAppearsBeforeReap() async throws {
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-unavailable-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        try FileManager.default.createDirectory(atPath: workDirectory, withIntermediateDirectories: true)
+        try """
+        echo '[agentstudio-test-log] unavailable path=/missing/events.log errno=2' >&2
+        touch "$LANE_WATCHDOG_ARM_PATH"
+        while true; do sleep 1; done
+
+        """.write(toFile: workDirectory + "/wedged-test.sh", atomically: true, encoding: .utf8)
+
+        let report = try await laneBashAllowingFailure(
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
+                + "export LANE_WATCHDOG_ARM_PATH='\(workDirectory)/armed'; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'unavailable probe' 0 /bin/bash '\(workDirectory)/wedged-test.sh' "
+                + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\""
+        )
+        let unavailableRange = try #require(report.range(of: "lane-report held_step_log_unavailable"))
+        let reapRange = try #require(report.range(of: "lane-report timeout_reap="))
+        #expect(report.contains("RETURNED=124"))
+        #expect(unavailableRange.lowerBound < reapRange.lowerBound)
     }
 
     @Test("a missing stack sampler does not cost the task dump, and each missing tool says why")
