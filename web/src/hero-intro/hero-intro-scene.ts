@@ -276,12 +276,24 @@ export function buildHeroIntroScene(
   timeline.set(iconStack, { zIndex: 1 }, 2.34);
   timeline.fromTo(glow, { opacity: 0 }, { opacity: 1, duration: 2.66, ease: "sine.inOut" }, 2.34);
 
+  const scrollRowIntoTranscript = (row: HTMLElement): void => {
+    const transcript = row.closest<HTMLElement>(".hero-terminal-transcript");
+    if (transcript === null || row.getClientRects().length === 0) return;
+    const rowBottom = row.getBoundingClientRect().bottom;
+    const viewportBottom = transcript.getBoundingClientRect().bottom;
+    transcript.scrollTop = Math.max(0, transcript.scrollTop + rowBottom - viewportBottom + 2);
+  };
   const revealRow = (row: HTMLElement | null | undefined, start: number): void => {
     if (row !== null && row !== undefined)
       timeline.fromTo(
         row,
         { opacity: 0 },
-        { opacity: 1, duration: 0.15, ease: "power2.out" },
+        {
+          opacity: 1,
+          duration: 0.15,
+          ease: "power2.out",
+          onUpdate: () => scrollRowIntoTranscript(row),
+        },
         start,
       );
   };

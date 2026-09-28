@@ -31,6 +31,10 @@ interface FinaleSample {
   readonly rowOpacity: readonly number[];
   readonly tokenCount: number;
   readonly tokenTextOverlaps: number;
+  readonly transcriptClearances: readonly number[];
+  readonly transcriptScrollTops: readonly number[];
+  readonly transcriptOverflows: readonly number[];
+  readonly resultVisibleInPane: boolean;
   readonly appTop: number;
   readonly windowHeight: number;
   readonly chapterNodeY: number;
@@ -38,6 +42,11 @@ interface FinaleSample {
 
 export interface FinaleObservation {
   readonly samples: readonly FinaleSample[];
+  readonly scrollProbe: {
+    readonly overflow: number;
+    readonly scrollTop: number;
+    readonly resultVisible: boolean;
+  };
   readonly staircase: ReturnType<typeof planHeroRailStaircase>;
   readonly resizeRailClip: string;
   readonly resizeRailStyle: string | null;
@@ -177,189 +186,275 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         holdMiddle,
         finalHop.start,
         staircase.end,
-        staircase.end + 0.3,
-        staircase.end + 0.4,
-        staircase.end + 0.65,
+        staircase.end + 0.1,
       ];
-      const samples = await page.evaluate(async (sampleTimes): Promise<FinaleSample[]> => {
-        await document.fonts.ready;
-        const control = await (
-          window as Window & {
-            finaleReady?: Promise<{ seek(seconds: number): void; finish(): void }>;
-          }
-        ).finaleReady;
-        if (control === undefined) throw new Error("Finale control missing");
-        const observe = (time: number | "settled"): FinaleSample => {
-          const root = document.querySelector<HTMLElement>("[data-hero-intro-root]");
-          const rail = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
-          const app = document.querySelector<HTMLElement>("[data-hero-app-frame]");
-          const windowNode = root?.querySelector<HTMLElement>("[data-hero-terminal-window]");
-          const chapterNode = rail?.querySelector<SVGCircleElement>(
-            '[data-topology-chapter-node="many-agents"] circle',
-          );
-          if (
-            root === null ||
-            rail === null ||
-            app === null ||
-            windowNode === null ||
-            windowNode === undefined ||
-            chapterNode === null ||
-            chapterNode === undefined
-          )
-            throw new Error("Finale geometry missing");
-          const target = (selector: string): HTMLElement => {
-            const element = root.querySelector<HTMLElement>(selector);
-            if (element === null) throw new Error(`Finale target missing: ${selector}`);
-            return element;
-          };
-          const opacity = (selector: string): number =>
-            Number(getComputedStyle(target(selector)).opacity);
-          const pane = innerWidth < 1024 ? "claude" : "codex";
-          const railClip = getComputedStyle(rail).clipPath;
-          const bottomInset = /([\d.]+)%\)/u.exec(railClip);
-          const heroNode = rail.querySelector<SVGGElement>('[data-topology-chapter-node="hero"]');
-          const heroBranch = rail.querySelector<SVGPathElement>(
-            '[data-route-anchor="hero"] [data-topology-path-role="core"]',
-          );
-          const heroNodeY = Number(heroNode?.querySelector("circle")?.getAttribute("cy"));
-          const branchStartY = heroBranch?.getPointAtLength(0).y ?? Number.NaN;
-          const introNodes = [
-            ...rail.querySelectorAll<SVGGElement>("[data-topology-node-progress]"),
-          ]
-            .filter((node) => {
-              const y = Number(node.querySelector("circle")?.getAttribute("cy"));
-              return y >= heroNodeY && y <= branchStartY;
-            })
-            .sort(
-              (left, right) =>
-                Number(left.querySelector("circle")?.getAttribute("cy")) -
-                Number(right.querySelector("circle")?.getAttribute("cy")),
+      const timelineProof = await page.evaluate(
+        async (
+          sampleTimes,
+        ): Promise<{ samples: FinaleSample[]; scrollProbe: FinaleObservation["scrollProbe"] }> => {
+          await document.fonts.ready;
+          const control = await (
+            window as Window & {
+              finaleReady?: Promise<{ seek(seconds: number): void; finish(): void }>;
+            }
+          ).finaleReady;
+          if (control === undefined) throw new Error("Finale control missing");
+          const observe = (time: number | "settled"): FinaleSample => {
+            const root = document.querySelector<HTMLElement>("[data-hero-intro-root]");
+            const rail = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+            const app = document.querySelector<HTMLElement>("[data-hero-app-frame]");
+            const windowNode = root?.querySelector<HTMLElement>("[data-hero-terminal-window]");
+            const chapterNode = rail?.querySelector<SVGCircleElement>(
+              '[data-topology-chapter-node="many-agents"] circle',
             );
-          const install = target("[data-hero-intro-install]");
-          const payoff = target("[data-hero-intro-payoff-first]").parentElement;
-          if (payoff === null) throw new Error("Payoff wrapper missing");
-          const realCommandLines = [
-            ...install.querySelectorAll<HTMLElement>(".install-command__line"),
-          ].map((line) =>
-            [...line.childNodes]
-              .filter(
-                (node) =>
-                  !(node instanceof HTMLElement && node.hasAttribute("data-install-decode-line")),
-              )
-              .map((node) => node.textContent ?? "")
-              .join(""),
-          );
-          const tokens = [...root.querySelectorAll<SVGTextElement>("[data-hero-token-layer] text")];
-          const textRects = [
-            ...root.querySelectorAll<HTMLElement>(
-              ".hero-transcript-row, .hero-claude-input, .hero-codex-input",
-            ),
-          ]
-            .filter(
-              (row) =>
-                row.getClientRects().length > 0 && Number(getComputedStyle(row).opacity) > 0.05,
+            if (
+              root === null ||
+              rail === null ||
+              app === null ||
+              windowNode === null ||
+              windowNode === undefined ||
+              chapterNode === null ||
+              chapterNode === undefined
             )
-            .flatMap((row) => {
-              const range = document.createRange();
-              range.selectNodeContents(row);
-              return [...range.getClientRects()];
-            });
-          const tokenTextOverlaps = tokens.filter((token) => {
-            const tokenRect = token.getBoundingClientRect();
-            return textRects.some(
-              (rect) =>
-                tokenRect.left < rect.right &&
-                tokenRect.right > rect.left &&
-                tokenRect.top < rect.bottom &&
-                tokenRect.bottom > rect.top,
+              throw new Error("Finale geometry missing");
+            const target = (selector: string): HTMLElement => {
+              const element = root.querySelector<HTMLElement>(selector);
+              if (element === null) throw new Error(`Finale target missing: ${selector}`);
+              return element;
+            };
+            const opacity = (selector: string): number =>
+              Number(getComputedStyle(target(selector)).opacity);
+            const pane = innerWidth < 1024 ? "claude" : "codex";
+            const railClip = getComputedStyle(rail).clipPath;
+            const bottomInset = /([\d.]+)%\)/u.exec(railClip);
+            const heroNode = rail.querySelector<SVGGElement>('[data-topology-chapter-node="hero"]');
+            const heroBranch = rail.querySelector<SVGPathElement>(
+              '[data-route-anchor="hero"] [data-topology-path-role="core"]',
             );
-          }).length;
-          return {
-            time,
-            tokenCount: tokens.length,
-            tokenTextOverlaps,
-            firstLine: opacity("[data-hero-intro-headline-first]"),
-            secondLine: opacity("[data-hero-intro-headline-second]"),
-            firstPayoff: opacity("[data-hero-intro-payoff-first]"),
-            secondPayoff: opacity("[data-hero-intro-payoff-second]"),
-            payoffOverflow: payoff.scrollWidth - payoff.clientWidth,
-            installTransform: getComputedStyle(install).transform,
-            installOpacity: Number(getComputedStyle(install).opacity),
-            realCommandLines,
-            visibleDecodeLines: [
-              ...install.querySelectorAll<HTMLElement>("[data-install-decode-line]"),
-            ].filter((line) => Number(getComputedStyle(line).opacity) > 0.05).length,
-            readyOpacity: opacity("[data-hero-intro-ready]"),
-            claudeProgressOpacities: [
-              ...root.querySelectorAll<HTMLElement>("[data-hero-progress-row]"),
+            const heroNodeY = Number(heroNode?.querySelector("circle")?.getAttribute("cy"));
+            const branchStartY = heroBranch?.getPointAtLength(0).y ?? Number.NaN;
+            const introNodes = [
+              ...rail.querySelectorAll<SVGGElement>("[data-topology-node-progress]"),
             ]
-              .filter((row) => getComputedStyle(row).display !== "none")
-              .map((row) => Number(getComputedStyle(row).opacity)),
-            codexTypedText:
-              root.querySelector<HTMLElement>("[data-hero-codex-typed-input]")?.textContent ?? "",
-            codexWorkingOpacity: Number(
-              getComputedStyle(root.querySelector<HTMLElement>("[data-hero-codex-working]") ?? root)
-                .opacity,
-            ),
-            worktreeRowOpacities: [
+              .filter((node) => {
+                const y = Number(node.querySelector("circle")?.getAttribute("cy"));
+                return y >= heroNodeY && y <= branchStartY;
+              })
+              .sort(
+                (left, right) =>
+                  Number(left.querySelector("circle")?.getAttribute("cy")) -
+                  Number(right.querySelector("circle")?.getAttribute("cy")),
+              );
+            const install = target("[data-hero-intro-install]");
+            const payoff = target("[data-hero-intro-payoff-first]").parentElement;
+            if (payoff === null) throw new Error("Payoff wrapper missing");
+            const realCommandLines = [
+              ...install.querySelectorAll<HTMLElement>(".install-command__line"),
+            ].map((line) =>
+              [...line.childNodes]
+                .filter(
+                  (node) =>
+                    !(node instanceof HTMLElement && node.hasAttribute("data-install-decode-line")),
+                )
+                .map((node) => node.textContent ?? "")
+                .join(""),
+            );
+            const tokens = [
+              ...root.querySelectorAll<SVGTextElement>("[data-hero-token-layer] text"),
+            ];
+            const textRects = [
               ...root.querySelectorAll<HTMLElement>(
-                `.hero-terminal-pane--${pane} [data-hero-worktree-row]`,
-              ),
-            ].map((row) => Number(getComputedStyle(row).opacity)),
-            worktreeResultOpacity: Number(
-              getComputedStyle(
-                root.querySelector<HTMLElement>(
-                  `.hero-terminal-pane--${pane} [data-hero-worktree-result]`,
-                ) ?? root,
-              ).opacity,
-            ),
-            copyOpacity: Number(getComputedStyle(target("[data-install-copy]")).opacity),
-            railClip,
-            heroNodeY: rail.getBoundingClientRect().top + heroNodeY,
-            introDotOpacities: introNodes.map((node) => Number(getComputedStyle(node).opacity)),
-            introDotScales: introNodes.map(
-              (node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
-            ),
-            introDotYs: introNodes.map((node) =>
-              Number(node.querySelector("circle")?.getAttribute("cy")),
-            ),
-            heroBranchDashOffset:
-              heroBranch === null
-                ? Number.NaN
-                : Number.parseFloat(getComputedStyle(heroBranch).strokeDashoffset),
-            forkDashOffsets: [
-              ...rail.querySelectorAll<SVGPathElement>(
-                '[data-route-kind="worktree"] [data-topology-path-role="core"]',
+                ".hero-transcript-row, .hero-claude-input, .hero-codex-input",
               ),
             ]
-              .filter((path) => path.getPointAtLength(0).y <= branchStartY)
-              .map((path) => Number.parseFloat(getComputedStyle(path).strokeDashoffset)),
-            railRevealY:
-              bottomInset === null
-                ? Number.POSITIVE_INFINITY
-                : rail.getBoundingClientRect().top +
-                  rail.getBoundingClientRect().height * (1 - Number(bottomInset[1]) / 100),
-            rowOpacity: [
-              ...root.querySelectorAll<HTMLElement>(
-                `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]:not([data-hero-codex-working])`,
-              ),
+              .filter(
+                (row) =>
+                  row.getClientRects().length > 0 && Number(getComputedStyle(row).opacity) > 0.05,
+              )
+              .flatMap((row) => {
+                const range = document.createRange();
+                range.selectNodeContents(row);
+                return [...range.getClientRects()];
+              });
+            const tokenTextOverlaps = tokens.filter((token) => {
+              const tokenRect = token.getBoundingClientRect();
+              return textRects.some(
+                (rect) =>
+                  tokenRect.left < rect.right &&
+                  tokenRect.right > rect.left &&
+                  tokenRect.top < rect.bottom &&
+                  tokenRect.bottom > rect.top,
+              );
+            }).length;
+            const transcriptMeasurements = [
+              ...root.querySelectorAll<HTMLElement>(".hero-terminal-pane"),
             ]
-              .filter((row) => getComputedStyle(row).display !== "none")
-              .map((row) => Number(getComputedStyle(row).opacity)),
-            appTop: app.getBoundingClientRect().top,
-            windowHeight: windowNode.getBoundingClientRect().height,
-            chapterNodeY: rail.getBoundingClientRect().top + Number(chapterNode.getAttribute("cy")),
+              .filter((pane) => pane.getClientRects().length > 0)
+              .map((pane) => {
+                const transcript = pane.querySelector<HTMLElement>(".hero-terminal-transcript");
+                const pinned = pane.querySelector<HTMLElement>(
+                  ".hero-claude-footer, .hero-codex-footer",
+                );
+                if (transcript === null || pinned === null)
+                  throw new Error("Pinned transcript structure is missing");
+                const transcriptBounds = transcript.getBoundingClientRect();
+                const visibleBottom = [
+                  ...transcript.querySelectorAll<HTMLElement>(".hero-transcript-row"),
+                ]
+                  .filter(
+                    (row) =>
+                      row.getClientRects().length > 0 &&
+                      Number(getComputedStyle(row).opacity) > 0.05,
+                  )
+                  .map((row) =>
+                    Math.min(row.getBoundingClientRect().bottom, transcriptBounds.bottom),
+                  )
+                  .filter((bottom) => bottom > transcriptBounds.top)
+                  .reduce((bottom, candidate) => Math.max(bottom, candidate), transcriptBounds.top);
+                return {
+                  clearance: pinned.getBoundingClientRect().top - visibleBottom,
+                  scrollTop: transcript.scrollTop,
+                  overflow: transcript.scrollHeight - transcript.clientHeight,
+                };
+              });
+            const activeTranscript = root.querySelector<HTMLElement>(
+              `.hero-terminal-pane--${pane} .hero-terminal-transcript`,
+            );
+            const activeResult = root.querySelector<HTMLElement>(
+              `.hero-terminal-pane--${pane} [data-hero-worktree-result]`,
+            );
+            const resultVisibleInPane =
+              activeTranscript !== null &&
+              activeResult !== null &&
+              activeResult.getBoundingClientRect().bottom <=
+                activeTranscript.getBoundingClientRect().bottom + 0.5 &&
+              activeResult.getBoundingClientRect().bottom >
+                activeTranscript.getBoundingClientRect().top;
+            return {
+              time,
+              tokenCount: tokens.length,
+              tokenTextOverlaps,
+              transcriptClearances: transcriptMeasurements.map(
+                (measurement) => measurement.clearance,
+              ),
+              transcriptScrollTops: transcriptMeasurements.map(
+                (measurement) => measurement.scrollTop,
+              ),
+              transcriptOverflows: transcriptMeasurements.map(
+                (measurement) => measurement.overflow,
+              ),
+              resultVisibleInPane,
+              firstLine: opacity("[data-hero-intro-headline-first]"),
+              secondLine: opacity("[data-hero-intro-headline-second]"),
+              firstPayoff: opacity("[data-hero-intro-payoff-first]"),
+              secondPayoff: opacity("[data-hero-intro-payoff-second]"),
+              payoffOverflow: payoff.scrollWidth - payoff.clientWidth,
+              installTransform: getComputedStyle(install).transform,
+              installOpacity: Number(getComputedStyle(install).opacity),
+              realCommandLines,
+              visibleDecodeLines: [
+                ...install.querySelectorAll<HTMLElement>("[data-install-decode-line]"),
+              ].filter((line) => Number(getComputedStyle(line).opacity) > 0.05).length,
+              readyOpacity: opacity("[data-hero-intro-ready]"),
+              claudeProgressOpacities: [
+                ...root.querySelectorAll<HTMLElement>("[data-hero-progress-row]"),
+              ]
+                .filter((row) => getComputedStyle(row).display !== "none")
+                .map((row) => Number(getComputedStyle(row).opacity)),
+              codexTypedText:
+                root.querySelector<HTMLElement>("[data-hero-codex-typed-input]")?.textContent ?? "",
+              codexWorkingOpacity: Number(
+                getComputedStyle(
+                  root.querySelector<HTMLElement>("[data-hero-codex-working]") ?? root,
+                ).opacity,
+              ),
+              worktreeRowOpacities: [
+                ...root.querySelectorAll<HTMLElement>(
+                  `.hero-terminal-pane--${pane} [data-hero-worktree-row]`,
+                ),
+              ].map((row) => Number(getComputedStyle(row).opacity)),
+              worktreeResultOpacity: Number(
+                getComputedStyle(
+                  root.querySelector<HTMLElement>(
+                    `.hero-terminal-pane--${pane} [data-hero-worktree-result]`,
+                  ) ?? root,
+                ).opacity,
+              ),
+              copyOpacity: Number(getComputedStyle(target("[data-install-copy]")).opacity),
+              railClip,
+              heroNodeY: rail.getBoundingClientRect().top + heroNodeY,
+              introDotOpacities: introNodes.map((node) => Number(getComputedStyle(node).opacity)),
+              introDotScales: introNodes.map(
+                (node) => new DOMMatrixReadOnly(getComputedStyle(node).transform).a,
+              ),
+              introDotYs: introNodes.map((node) =>
+                Number(node.querySelector("circle")?.getAttribute("cy")),
+              ),
+              heroBranchDashOffset:
+                heroBranch === null
+                  ? Number.NaN
+                  : Number.parseFloat(getComputedStyle(heroBranch).strokeDashoffset),
+              forkDashOffsets: [
+                ...rail.querySelectorAll<SVGPathElement>(
+                  '[data-route-kind="worktree"] [data-topology-path-role="core"]',
+                ),
+              ]
+                .filter((path) => path.getPointAtLength(0).y <= branchStartY)
+                .map((path) => Number.parseFloat(getComputedStyle(path).strokeDashoffset)),
+              railRevealY:
+                bottomInset === null
+                  ? Number.POSITIVE_INFINITY
+                  : rail.getBoundingClientRect().top +
+                    rail.getBoundingClientRect().height * (1 - Number(bottomInset[1]) / 100),
+              rowOpacity: [
+                ...root.querySelectorAll<HTMLElement>(
+                  `.hero-terminal-pane--${pane} [data-hero-intro-finale-row]:not([data-hero-codex-working])`,
+                ),
+              ]
+                .filter((row) => getComputedStyle(row).display !== "none")
+                .map((row) => Number(getComputedStyle(row).opacity)),
+              appTop: app.getBoundingClientRect().top,
+              windowHeight: windowNode.getBoundingClientRect().height,
+              chapterNodeY:
+                rail.getBoundingClientRect().top + Number(chapterNode.getAttribute("cy")),
+            };
           };
-        };
-        const observations: FinaleSample[] = [];
-        for (const second of sampleTimes) {
-          control.seek(second);
-          observations.push(observe(second));
-        }
-        control.finish();
-        observations.push(observe("settled"));
-        return observations;
-      }, sampleTimes);
+          const observations: FinaleSample[] = [];
+          for (const second of sampleTimes) {
+            control.seek(second);
+            observations.push(observe(second));
+          }
+          const windowNode = document.querySelector<HTMLElement>("[data-hero-terminal-window]");
+          const paneName = innerWidth < 1024 ? "claude" : "codex";
+          const transcript = document.querySelector<HTMLElement>(
+            `.hero-terminal-pane--${paneName} .hero-terminal-transcript`,
+          );
+          const result = transcript?.querySelector<HTMLElement>("[data-hero-worktree-result]");
+          if (
+            windowNode === null ||
+            transcript === null ||
+            transcript === undefined ||
+            result === null ||
+            result === undefined
+          )
+            throw new Error("Constrained transcript proof is incomplete");
+          windowNode.style.height = "180px";
+          control.seek(9.9);
+          control.seek(11.4);
+          const scrollProbe = {
+            overflow: transcript.scrollHeight - transcript.clientHeight,
+            scrollTop: transcript.scrollTop,
+            resultVisible:
+              result.getBoundingClientRect().bottom <=
+              transcript.getBoundingClientRect().bottom + 0.5,
+          };
+          windowNode.style.removeProperty("height");
+          control.finish();
+          observations.push(observe("settled"));
+          return { samples: observations, scrollProbe };
+        },
+        sampleTimes,
+      );
       await page.reload({ waitUntil: "commit" });
       await page.evaluate(
         async () => await (window as Window & { finaleReady?: Promise<unknown> }).finaleReady,
@@ -439,7 +534,8 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         };
       });
       return {
-        samples,
+        samples: timelineProof.samples,
+        scrollProbe: timelineProof.scrollProbe,
         staircase,
         resizeRailClip: resize.clip,
         resizeRailStyle: resize.style,

@@ -69,14 +69,24 @@ for (const [width, height] of [
     if (finalHop === undefined) throw new Error("Rail final hop missing");
     expect(at(finalHop.start).heroBranchDashOffset).toBeGreaterThan(0);
     expect(at(staircase.end).heroBranchDashOffset).toBeCloseTo(0, 1);
-    expect(at(staircase.end + 0.3).firstPayoff).toBeGreaterThan(0);
-    expect(at(staircase.end + 0.3).secondPayoff).toBeGreaterThan(0);
-    expect(at(staircase.end + 0.4).firstPayoff).toBe(1);
+    expect(at(staircase.end + 0.1).firstPayoff).toBeGreaterThan(0);
+    expect(at(staircase.end + 0.1).secondPayoff).toBeGreaterThan(0);
+    expect(at("settled").firstPayoff).toBe(1);
     expect(at("settled").payoffOverflow).toBeLessThanOrEqual(0);
     expect(at("settled").worktreeResultOpacity).toBe(1);
+    expect(at("settled").resultVisibleInPane).toBe(true);
+    expect(observation.scrollProbe.overflow).toBeGreaterThan(0);
+    expect(observation.scrollProbe.scrollTop).toBeGreaterThan(0);
+    expect(observation.scrollProbe.resultVisible).toBe(true);
     expect(at("settled").railClip).toBe("none");
     expect(at("settled").introDotOpacities.every((opacity) => opacity > 0.9)).toBe(true);
     expect(at("settled").rowOpacity.every((opacity) => opacity === 1)).toBe(true);
+    for (const time of [5.5, 10.7, "settled"] as const) {
+      expect(
+        at(time).transcriptClearances.every((clearance) => clearance >= 20),
+        `${time}: pinned clearance`,
+      ).toBe(true);
+    }
     for (const sample of observation.samples) {
       expect(sample.installTransform, `${sample.time}: install transform`).toBe("none");
       expect(sample.realCommandLines, `${sample.time}: command text`).toEqual([

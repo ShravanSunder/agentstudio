@@ -48,6 +48,9 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
     for (const target of targets.filter((target) => target.hasAttribute("style"))) {
       target.removeAttribute("style");
     }
+    for (const transcript of root.querySelectorAll<HTMLElement>(".hero-terminal-transcript")) {
+      transcript.scrollTop = transcript.scrollHeight;
+    }
     root.querySelector(`[${heroIntroFourthPlaneAttribute}]`)?.remove();
     root.querySelector("[data-hero-token-layer]")?.remove();
     const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
