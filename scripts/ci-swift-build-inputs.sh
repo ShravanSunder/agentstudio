@@ -70,14 +70,14 @@ def gitlink(path):
     return override or command_output(["git", "rev-parse", "HEAD:vendor/" + path])
 
 
-def fingerprint():
+def fingerprint_inputs():
     def configured(name, fallback):
         return os.environ.get(name) or fallback()
 
     compiler = configured("CI_SWIFT_COMPILER_VERSION", lambda: command_output(["swift", "--version"]))
     xcode = configured("CI_SWIFT_XCODE_BUILD", lambda: command_output(["xcodebuild", "-version"]))
     sdk = configured("CI_SWIFT_SDK_BUILD", lambda: command_output(["xcrun", "--sdk", "macosx", "--show-sdk-build-version"]))
-    values = {
+    return {
         "scheme": SCHEME,
         "os": configured("CI_SWIFT_OS", lambda: command_output(["uname", "-s"])),
         "arch": configured("CI_SWIFT_ARCH", lambda: command_output(["uname", "-m"])),
@@ -100,6 +100,13 @@ def fingerprint():
         "verifier": file_digest(Path(os.environ.get(
             "CI_SWIFT_VERIFIER_PATH", ROOT / "scripts/ci-swift-build-inputs.sh"))),
     }
+
+
+def fingerprint():
+    values = fingerprint_inputs()
+    if os.environ.get("CI_SWIFT_FINGERPRINT_EXPLAIN") == "1":
+        for name, value in sorted(values.items()):
+            print(name + " " + digest_bytes(canonical(value)), file=sys.stderr)
     return digest_bytes(canonical(values))
 
 

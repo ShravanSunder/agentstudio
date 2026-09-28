@@ -56,6 +56,25 @@ struct CISwiftBuildInputsScriptTests {
         #expect(sourceChange.digest != original.digest)
     }
 
+    @Test("build and compiler statistics outputs do not change compatibility")
+    func generatedOutputsDoNotChangeFingerprint() async throws {
+        let fixture = try SwiftInputFixture()
+        defer { fixture.remove() }
+        let statisticsDirectory = fixture.root.appendingPathComponent("compiler-stats")
+        let environment = ["SWIFT_BUILD_STATS_DIR": statisticsDirectory.path]
+        let before = try await fixture.run("fingerprint", extra: environment)
+
+        let objectDirectory = fixture.root.appendingPathComponent("build/debug/objects")
+        try FileManager.default.createDirectory(at: objectDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: statisticsDirectory, withIntermediateDirectories: true)
+        try Data("object".utf8).write(to: objectDirectory.appendingPathComponent("Example.o"))
+        try Data("statistics".utf8).write(to: statisticsDirectory.appendingPathComponent("Example.stats"))
+
+        let after = try await fixture.run("fingerprint", extra: environment)
+        #expect(after == before)
+    }
+
     @Test("verification follows the independent transition table")
     func transitionTable() async throws {
         let rows: [(String, Bool)] = [

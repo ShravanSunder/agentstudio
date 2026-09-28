@@ -585,8 +585,8 @@ jobs:
           CI_SWIFT_PRODUCER_REF: ${{ github.ref }}
         run: |
           /bin/bash scripts/ci-swift-build-inputs.sh inventory tmp/plan-workflows/ci-runs/swift-inputs-after.json
-          before="$(python3 -c 'import json; print(json.load(open("tmp/plan-workflows/ci-runs/swift-inputs-before.json"))["manifest_digest"])')"
-          after="$(python3 -c 'import json; print(json.load(open("tmp/plan-workflows/ci-runs/swift-inputs-after.json"))["manifest_digest"])')"
+          before="$(python3 -c 'import json; value=json.load(open("tmp/plan-workflows/ci-runs/swift-inputs-before.json")); print(value["manifest_digest"], value["fingerprint"])')"
+          after="$(python3 -c 'import json; value=json.load(open("tmp/plan-workflows/ci-runs/swift-inputs-after.json")); print(value["manifest_digest"], value["fingerprint"])')"
           if [ "$before" = "$after" ]; then
             echo "unchanged=true" >> "$GITHUB_OUTPUT"
           else
