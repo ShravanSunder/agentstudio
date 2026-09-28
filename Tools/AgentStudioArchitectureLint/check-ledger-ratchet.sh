@@ -18,6 +18,7 @@ cd "$repository_root"
 base_ref="${1:-origin/main}"
 ledger_paths=(
   "Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv"
+  "Tools/AgentStudioArchitectureLint/forbidden-test-wait-ledger.tsv"
   "BridgeWeb/architecture-debt-ledger.tsv"
 )
 
@@ -28,6 +29,8 @@ fi
 echo "check-ledger-ratchet: comparing ${ledger_paths[*]} with merge base ${merge_base} (${base_ref})"
 
 source "${repository_root}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "debt ledger ratchet"
+trap swift_build_slot_release EXIT
 build_path="${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint"
 swift build -c release --package-path Tools/AgentStudioArchitectureLint \
   --build-path "$build_path" \
