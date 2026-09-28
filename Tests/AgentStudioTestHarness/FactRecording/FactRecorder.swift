@@ -114,8 +114,10 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
         }
     }
 
-    package func mark(_ scope: Scope) -> OpeningPosition<Scope> {
-        state.withLock {
+    package func mark(_ scope: Scope) async -> OpeningPosition<Scope> {
+        let handle = state.withLock { $0.sourceHandle }
+        await handle?.settleEnqueued()
+        return state.withLock {
             OpeningPosition(recorderIdentity: ObjectIdentifier(self), scope: scope, historyIndex: $0.history.count)
         }
     }

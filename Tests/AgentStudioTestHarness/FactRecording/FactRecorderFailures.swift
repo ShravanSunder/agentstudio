@@ -46,3 +46,5 @@ package struct OpeningPositionMisuse: Error, Sendable {
     package let scope: String
     package let callSite: String
 }
+
+package struct FactSourceAlreadyAttached: Error, Sendable {}
