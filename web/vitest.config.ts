@@ -18,6 +18,7 @@ import {
 } from "./tests/chapter-surface-browser-command.ts";
 import {
   verifyHeroIntroLayout,
+  verifyHeroNoScriptWidth,
   verifyHeroIntroPlayback,
   verifyHeroIntroRefresh,
   verifyHeroIntroShift,
@@ -74,6 +75,7 @@ export default defineConfig({
               verifyChapterStepHop,
               verifyReducedMotionStepLine,
               verifyHeroIntroLayout,
+              verifyHeroNoScriptWidth,
               verifyHeroIntroPlayback,
               verifyHeroIntroRefresh,
               verifyHeroIntroShift,

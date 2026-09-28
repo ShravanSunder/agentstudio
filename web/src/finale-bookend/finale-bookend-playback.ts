@@ -57,8 +57,10 @@ function tracePillBorder(pill: HTMLElement, trace: SVGPathElement): number {
 }
 
 function fitSplitPillLabels(root: HTMLElement, pill: HTMLElement): void {
-  root.removeAttribute("data-short-labels");
-  if (pill.scrollWidth > pill.clientWidth + 0.5) root.setAttribute("data-short-labels", "");
+  const compactViewport = window.matchMedia("(width < 38.75rem)").matches;
+  root.toggleAttribute("data-short-labels", compactViewport);
+  if (!compactViewport && pill.scrollWidth > pill.clientWidth + 0.5)
+    root.setAttribute("data-short-labels", "");
 }
 
 export function initializeFinaleBookend(root: HTMLElement): () => void {

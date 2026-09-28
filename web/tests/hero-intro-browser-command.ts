@@ -59,6 +59,35 @@ export interface HeroScrollCueObservation {
   readonly reachedFirstImage: boolean;
 }
 
+/** The phone layout must fit before the finale's responsive script can run. */
+export const verifyHeroNoScriptWidth = defineBrowserCommand(
+  async (
+    { context },
+    pageUrl: string,
+  ): Promise<{ readonly documentWidth: number; readonly shortLabels: boolean }> => {
+    const browser = context.browser();
+    if (browser === null) throw new Error("Browser context is unavailable");
+    const noScriptContext = await browser.newContext({ javaScriptEnabled: false });
+    try {
+      const page = await noScriptContext.newPage();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await page.locator("[data-finale-root]").waitFor();
+      return await page.evaluate(async () => {
+        await document.fonts.ready;
+        const finale = document.querySelector<HTMLElement>("[data-finale-root]");
+        if (finale === null) throw new Error("Finale is missing");
+        return {
+          documentWidth: document.documentElement.scrollWidth,
+          shortLabels: finale.hasAttribute("data-short-labels"),
+        };
+      });
+    } finally {
+      await noScriptContext.close();
+    }
+  },
+);
+
 export const verifyHeroScrollCue = defineBrowserCommand(
   async ({ context }, pageUrl: string): Promise<HeroScrollCueObservation> => {
     const page = await context.newPage();

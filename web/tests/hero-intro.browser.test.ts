@@ -16,6 +16,9 @@ declare module "vitest/browser" {
       pageUrl: string,
       viewports: readonly { readonly width: number; readonly height: number }[],
     ): Promise<HeroLayoutObservation[]>;
+    verifyHeroNoScriptWidth(
+      pageUrl: string,
+    ): Promise<{ readonly documentWidth: number; readonly shortLabels: boolean }>;
     verifyHeroIntroPlayback(pageUrl: string): Promise<HeroPlaybackObservation>;
     verifyHeroIntroRefresh(pageUrl: string): Promise<HeroRefreshObservation>;
     verifyHeroIntroShift(
@@ -50,6 +53,11 @@ const viewports = [
 ] as const;
 
 describe("hero intro", () => {
+  it("fits the 390px finale before its responsive script runs", async () => {
+    const observation = await commands.verifyHeroNoScriptWidth(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.shortLabels).toBe(false);
+    expect(observation.documentWidth).toBe(390);
+  });
   it("shows a scroll cue after the intro and hides it on the way to the first image", async () => {
     const cue = await commands.verifyHeroScrollCue(inject("siteHeaderBrowserTestUrl"));
     expect(cue.visibleAtRest).toBe(true);

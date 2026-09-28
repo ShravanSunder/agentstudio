@@ -114,7 +114,9 @@ const terminalRailAttributes = {
     .final-cta { gap: 9px; padding-top: 17px; padding-bottom: 20px; }
     .finale-split-pill { margin-top: 16px; }
     .final-cta > p { margin-top: 25px; }
-    .final-star-button, .finale-copy-button { min-height: 45px; padding: 0 16px; }
+    .final-star-button, .finale-copy-button { min-width: 0; min-height: 45px; padding: 0 16px; }
+    .finale-label-full { display: none; }
+    .finale-label-short { display: inline; }
   }
   @media (width < 360px) {
     .finale-heading, .finale-heading h2 { font-size: clamp(28px, 10vw, 36px); }
