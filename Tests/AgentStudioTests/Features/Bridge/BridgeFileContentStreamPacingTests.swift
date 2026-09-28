@@ -294,6 +294,12 @@ private func consumePacedStream(
 }
 
 private actor PacingFileMetadataSource: BridgePaneProductFileMetadataProducing {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private let expectedRequest: BridgeProductFileContentRequest
     private let readPlan: BridgePaneProductFileContentReadPlan
     private(set) var readPlanAccessCount = 0

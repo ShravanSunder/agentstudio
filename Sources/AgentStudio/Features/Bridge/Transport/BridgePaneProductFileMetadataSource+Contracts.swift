@@ -109,12 +109,6 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
 }
 
 extension BridgePaneProductFileMetadataProducing {
-    func captureKeyedSnapshot(
-        subscriptionId _: String,
-        demand _: BridgePaneProductFileViewDemand,
-        productAdmission _: BridgeProductAdmissionContext
-    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
-
     func authoritativePath(
         for _: BridgeProductFileContentRequest,
         productAdmission _: BridgeProductAdmissionContext
@@ -155,6 +149,12 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
     func currentSource() -> BridgeProductFileSourceCurrentResult {
         .unavailable(.noFileSourceAuthority)
     }
+
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
 
     func open(
         subscription _: BridgeProductSubscriptionSnapshot,

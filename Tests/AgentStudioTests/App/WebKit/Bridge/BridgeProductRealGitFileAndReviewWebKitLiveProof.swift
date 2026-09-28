@@ -27,7 +27,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         try await BridgeProductWebKitCarrierTestSupport
             .withHostedController(controller) { hostedController in
                 hostedController.loadApp()
-                _ = try await waitForLiveShell(hostedController, traceRecorder: traceRecorder)
+                let installation = try await waitForLiveShell(hostedController)
                 let reviewState = try await collectLiveReviewState(
                     hostedController,
                     sourceOracle: sourceOracle,
@@ -37,8 +37,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     hostedController,
                     sourceOracle: sourceOracle
                 )
-                guard let installation = await hostedController.productSessionOwner.activeInstallation,
-                    await installation.session.waitUntilControlReplayIdle()
+                guard await installation.session.waitUntilControlReplayIdle()
                 else { throw LiveProofError.appDidNotMount }
                 let nativeCompletionSnapshot = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(
                     hostedController)
@@ -59,19 +58,17 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
     }
 
     private func waitForLiveShell(
-        _ controller: BridgePaneController,
-        traceRecorder: BridgeProductWebKitCarrierTraceRecorder
-    ) async throws -> BridgeProductWebKitCarrierTrace {
+        _ controller: BridgePaneController
+    ) async throws -> BridgeProductSessionInstallation {
         await WebPageEventWaits.waitForNavigationToFinish(controller.page)
         try await WebPageEventWaits.waitForDocumentSelector(
             controller.page,
             "[data-testid=\"bridge-app-root\"]"
         )
         guard let installation = await controller.productSessionOwner.activeInstallation,
-            await installation.session.waitUntilActive(),
-            let trace = await traceRecorder.waitForTrace(.fileBootstrap)
+            await installation.session.waitUntilActive()
         else { throw LiveProofError.appDidNotMount }
-        return trace
+        return installation
     }
 
     private func collectLiveReviewState(
@@ -174,6 +171,17 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 pathSelected: false
             )
         }
+        // A File view becomes demanded on activation. W4's installed status
+        // is the typed owner observation; the later canary proves real paint.
+        _ = try await WebPageEventWaits.waitForDocumentValue(
+            controller.page,
+            reader: """
+                const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+                const count = Number(shell?.getAttribute('data-file-display-item-count') ?? '0');
+                return shell?.getAttribute('data-file-display-status') === 'ready'
+                  && count > 0 ? count : null;
+                """
+        )
         _ = try await WebPageEventWaits.waitForOpenShadowRootValue(
             controller.page,
             reader: """

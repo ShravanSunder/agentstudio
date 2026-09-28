@@ -352,6 +352,12 @@ func makeRefreshAdmissionIntegrationFixture(
 }
 
 actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataProducing {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private let failsChangesetPublication: Bool
     private let metadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate?
     private var changesets: [FileChangeset] = []

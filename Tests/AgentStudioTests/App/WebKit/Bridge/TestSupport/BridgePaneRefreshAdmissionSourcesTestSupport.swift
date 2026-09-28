@@ -7,6 +7,12 @@ import Testing
 @testable import AgentStudioBridge
 
 actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataProducing {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private let failsChangesetPublication: Bool
     private var retryableChangesetFailuresRemaining: Int
     private let changesetPublicationGate: RefreshAdmissionCancellationIgnoringProducerGate?

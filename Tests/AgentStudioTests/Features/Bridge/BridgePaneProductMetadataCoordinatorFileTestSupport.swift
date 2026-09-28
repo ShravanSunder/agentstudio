@@ -13,6 +13,12 @@ private enum CoordinatorFileTestError: Error {
 }
 
 actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private var didFinishOpen = false
     private var acceptedSource: BridgeProductFileSourceIdentity?
     private var openStartCount = 0

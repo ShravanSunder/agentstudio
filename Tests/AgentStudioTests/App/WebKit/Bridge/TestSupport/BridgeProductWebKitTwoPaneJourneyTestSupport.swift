@@ -306,9 +306,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         )
 
         let initialReviewState = try await requirePositionSnapshot(input.paneOne.page)
-        guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
-            throw JourneyError.conditionFailed("pane one File mode did not activate")
-        }
+        try await activateReadyFileMode(input.paneOne, failure: "pane one File mode did not activate")
         guard await activateReviewMode(input.paneOne.page) else {
             throw JourneyError.conditionFailed("pane one Review mode did not reactivate")
         }
@@ -362,24 +360,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         let hiddenComparisonCountBeforeStorm =
             await input.paneOneReviewProvider.snapshot().comparisonCount
 
-        await input.paneOne.handleWorktreeProductInvalidation(
-            .filesChanged(
-                try makeChangeset(
-                    for: input.paneOne,
-                    paths: ["tracked.txt"],
-                    batchSequence: 702
-                )
-            )
-        )
-        await input.paneOne.handleWorktreeProductInvalidation(
-            .filesChanged(
-                try makeChangeset(
-                    for: input.paneOne,
-                    paths: ["tracked.txt"],
-                    batchSequence: 703
-                )
-            )
-        )
+        try await publishHiddenFileStorm(input.paneOne)
         let hiddenAfterStorm = input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot
         let hiddenNativeAfterStorm =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneOne)
@@ -404,9 +385,10 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             traceRecorder: input.paneOneTrace
         )
         let reviewStateAfterReturn = try await requirePositionSnapshot(input.paneOne.page)
-        guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
-            throw JourneyError.conditionFailed("File mode did not reactivate after foreground return")
-        }
+        try await activateReadyFileMode(
+            input.paneOne,
+            failure: "File mode did not reactivate after foreground return"
+        )
         let fileStateAfterReturn = try await requirePositionSnapshot(input.paneOne.page)
         let paneOneNativeAfterReturn =
             await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(input.paneOne)
@@ -452,6 +434,20 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             updatingFileStatus: updatingState.fileStatus,
             updatingReviewStatus: updatingState.reviewStatus
         )
+    }
+
+    private static func publishHiddenFileStorm(_ controller: BridgePaneController) async throws {
+        for batchSequence in [UInt64(702), 703] {
+            await controller.handleWorktreeProductInvalidation(
+                .filesChanged(
+                    try makeChangeset(
+                        for: controller,
+                        paths: ["tracked.txt"],
+                        batchSequence: batchSequence
+                    )
+                )
+            )
+        }
     }
 
     private static func beginBlockedRefresh(
@@ -669,6 +665,24 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         }
     }
 
+    private static func activateReadyFileMode(
+        _ controller: BridgePaneController,
+        failure: String
+    ) async throws {
+        guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(controller.page) else {
+            throw JourneyError.conditionFailed(failure)
+        }
+        _ = try await WebPageEventWaits.waitForDocumentValue(
+            controller.page,
+            reader: """
+                const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+                const count = Number(shell?.getAttribute('data-file-display-item-count') ?? '0');
+                return shell?.getAttribute('data-file-display-status') === 'ready'
+                  && count > 0 ? count : null;
+                """
+        )
+    }
+
     private static func requireReadyReview(
         _ controller: BridgePaneController,
         paneLabel: String,
@@ -682,18 +696,16 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 return reviewShell?.getAttribute('data-selected-content-state') === 'ready' ? true : null;
                 """
         )
-        _ = await traceRecorder.waitForTrace(.fileBootstrap)
         _ = await traceRecorder.waitForTrace(.reviewPublication)
         let trace = await traceRecorder.scrubbedTrace()
         guard trace.hasCanonicalEagerSubscriptions,
-            trace.hasFileMetadataWindow,
             trace.hasReviewMetadataPublication
         else {
             let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)
             let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
             let providerSnapshot = await reviewProvider.snapshot()
             throw JourneyError.conditionFailed(
-                "\(paneLabel) real-git Review did not become ready; appRoot=\(dom?.hasAppRoot == true), canonicalSubscriptions=\(trace.hasCanonicalEagerSubscriptions), fileMetadata=\(trace.hasFileMetadataWindow), reviewPublication=\(trace.hasReviewMetadataPublication), reviewState=\(dom?.reviewSelectedContentState ?? "missing"), comparisons=\(providerSnapshot.comparisonCount), blockedComparisons=\(providerSnapshot.blockedComparisonCount), native=\(native)"
+                "\(paneLabel) real-git Review did not become ready; appRoot=\(dom?.hasAppRoot == true), canonicalSubscriptions=\(trace.hasCanonicalEagerSubscriptions), reviewPublication=\(trace.hasReviewMetadataPublication), reviewState=\(dom?.reviewSelectedContentState ?? "missing"), comparisons=\(providerSnapshot.comparisonCount), blockedComparisons=\(providerSnapshot.blockedComparisonCount), native=\(native)"
             )
         }
     }

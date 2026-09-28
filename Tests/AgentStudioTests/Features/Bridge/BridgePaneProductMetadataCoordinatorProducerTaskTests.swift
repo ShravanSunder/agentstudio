@@ -529,6 +529,12 @@ private actor CoordinatorThrowingReviewMetadataSource: BridgePaneProductReviewMe
 private actor CoordinatorReplacementBootstrapFileMetadataSource:
     BridgePaneProductFileMetadataProducing
 {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private var finishedOpenOrdinals: Set<Int> = []
     private var finishedOpenWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var nextOpenOrdinal = 1
@@ -622,6 +628,12 @@ private actor CoordinatorReplacementBootstrapFileMetadataSource:
 private actor CoordinatorCancellationErrorFileSource:
     BridgePaneProductFileMetadataProducing
 {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private(set) var didAttemptOpen = false
     private(set) var cancelledSubscriptionIds: [String] = []
 

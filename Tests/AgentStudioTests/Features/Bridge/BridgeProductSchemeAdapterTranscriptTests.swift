@@ -134,13 +134,23 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                 harness: harness
             )
             #expect(reviewOpenReply.response?.statusCode == 200)
-            let blockedReviewFrameResult = try #require(await metadataIterator.next())
-            guard case .data(let blockedReviewFrameBytes) = blockedReviewFrameResult else {
-                Issue.record("Review subscription did not emit a metadata frame")
-                throw BridgeProductSchemeAdapterTranscriptTestError.unexpectedReplyEvent
+            var reviewFrame: BridgeProductMetadataFrame?
+            while reviewFrame == nil {
+                let replyResult = try #require(await metadataIterator.next())
+                guard case .data(let frameBytes) = replyResult else {
+                    Issue.record("Review subscription did not emit a metadata frame")
+                    throw BridgeProductSchemeAdapterTranscriptTestError.unexpectedReplyEvent
+                }
+                let decodedFrames = try metadataDecoder.append(frameBytes)
+                #expect(decodedFrames.count == 1)
+                let decoded = try #require(decodedFrames.first)
+                if case .streamKeepalive(let pulse) = decoded {
+                    #expect(pulse.frameIdentity.streamSequence == 0)
+                } else {
+                    reviewFrame = decoded
+                }
             }
-            let reviewFrames = try metadataDecoder.append(blockedReviewFrameBytes)
-            guard case .subscriptionAccepted(let reviewAccepted) = try #require(reviewFrames.first)
+            guard case .subscriptionAccepted(let reviewAccepted) = reviewFrame
             else {
                 Issue.record("Review subscription did not emit subscription.accepted")
                 throw BridgeProductSchemeAdapterTranscriptTestError.unexpectedMetadataFrame

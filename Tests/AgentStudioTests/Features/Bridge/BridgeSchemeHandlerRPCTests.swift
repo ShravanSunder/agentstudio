@@ -329,6 +329,7 @@ private struct BridgeSchemeMetadataReplyConsumer {
     func consume() async {
         do {
             let frameDecoder = try BridgeProductMetadataFrameDecoder()
+            var lastProductSequence: Int?
             for try await result in handler.reply(for: request) {
                 switch result {
                 case .response:
@@ -339,6 +340,11 @@ private struct BridgeSchemeMetadataReplyConsumer {
                         Issue.record("Expected one metadata frame per scheme reply data event")
                         continue
                     }
+                    if case .streamKeepalive(let pulse) = frame {
+                        #expect(pulse.frameIdentity.streamSequence == lastProductSequence)
+                        continue
+                    }
+                    lastProductSequence = frame.producerFrameIdentity.streamSequence
                     await recorder.record(.data)
                     observedFrameContinuation.yield(frame)
                 @unknown default:

@@ -742,10 +742,6 @@ extension WebKitSerializedTests {
                 "W0 product seam: the worker did not open canonical eager File+Review subscriptions; trace=\(run.value.trace)"
             )
             #expect(
-                run.value.trace.hasFileMetadataWindow,
-                "W0 product seam: production agentstudio-git File metadata did not reach the worker stream; trace=\(run.value.trace)"
-            )
-            #expect(
                 run.value.trace.hasReviewMetadataPublication,
                 "W0 product seam: production agentstudio-git Review metadata did not reach the worker stream; trace=\(run.value.trace)"
             )

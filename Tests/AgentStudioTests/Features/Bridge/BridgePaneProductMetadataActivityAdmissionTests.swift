@@ -180,6 +180,12 @@ func makeActivityMetadataContext(
 }
 
 actor ActivityMetadataFileSource: BridgePaneProductFileMetadataProducing {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private let suspendBeforeEmission: Bool
     private var emissionFinished = false
     private var emissionFinishedWaiters: [CheckedContinuation<Void, Never>] = []

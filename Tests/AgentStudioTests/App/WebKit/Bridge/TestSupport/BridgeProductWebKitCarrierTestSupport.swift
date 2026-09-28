@@ -139,14 +139,8 @@ struct BridgeProductWebKitCarrierTrace: Equatable, Sendable, CustomStringConvert
             && reviewMetadataPhases.contains("metadata_bootstrap_started")
     }
 
-    var hasFileMetadataWindow: Bool {
-        fileMetadataPhases.contains("metadata_source_accepted_enqueued")
-            && fileMetadataPhases.contains("metadata_window_enqueued")
-    }
-
     var hasReviewMetadataPublication: Bool {
         reviewPublicationPhases.contains("review_metadata_publication_completed")
-            && reviewMetadataPhases.contains("metadata_window_enqueued")
     }
 
     var completedReviewPublicationCount: Int {
@@ -195,6 +189,18 @@ actor BridgeWebKitTrackingFileMetadataSource:
 
     func currentSource() async -> BridgeProductFileSourceCurrentResult {
         await source.currentSource()
+    }
+
+    func captureKeyedSnapshot(
+        subscriptionId: String,
+        demand: BridgePaneProductFileViewDemand,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? {
+        await source.captureKeyedSnapshot(
+            subscriptionId: subscriptionId,
+            demand: demand,
+            productAdmission: productAdmission
+        )
     }
 
     func open(

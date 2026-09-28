@@ -6,7 +6,7 @@ import Foundation
 actor BridgeProductMetadataKeepaliveSender {
     typealias EmitData = @Sendable (Data) throws -> Void
 
-    private let clock: any Clock<Duration> & Sendable
+    private let delay: AsyncDelay
     private let correlation: BridgeProductMetadataStreamCorrelation
     private let emitData: EmitData
     private let interval: Duration
@@ -15,12 +15,12 @@ actor BridgeProductMetadataKeepaliveSender {
 
     init(
         correlation: BridgeProductMetadataStreamCorrelation,
-        clock: any Clock<Duration> & Sendable = ContinuousClock(),
+        clock: (any Clock<Duration> & Sendable)? = nil,
         interval: Duration = AppPolicies.Bridge.streamKeepaliveInterval,
         emitData: @escaping EmitData
     ) {
         self.correlation = correlation
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.interval = interval
         self.emitData = emitData
     }
@@ -41,7 +41,7 @@ actor BridgeProductMetadataKeepaliveSender {
     func run() async {
         while isOpen && !Task.isCancelled {
             do {
-                try await clock.sleep(for: interval)
+                try await delay.wait(interval)
                 guard isOpen && !Task.isCancelled else { return }
                 if lastEmittedSequence != nil {
                     try emitKeepalive()

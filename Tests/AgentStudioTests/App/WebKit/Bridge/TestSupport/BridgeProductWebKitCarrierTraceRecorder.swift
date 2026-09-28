@@ -5,13 +5,10 @@ import Foundation
 
 actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
     enum TraceCondition: Sendable {
-        case fileBootstrap
         case reviewPublication
 
         func isSatisfied(by trace: BridgeProductWebKitCarrierTrace) -> Bool {
             switch self {
-            case .fileBootstrap:
-                trace.hasCanonicalEagerSubscriptions && trace.hasFileMetadataWindow
             case .reviewPublication:
                 trace.hasReviewMetadataPublication
             }

@@ -283,8 +283,6 @@ extension BridgeProductProducerEnqueueRejection {
 struct BridgeProductMetadataLifecycleTraceEvent: Sendable {
     enum Stage: String, Sendable {
         case bootstrapStarted = "metadata_bootstrap_started"
-        case sourceAcceptedEnqueued = "metadata_source_accepted_enqueued"
-        case windowEnqueued = "metadata_window_enqueued"
         case producerCancelled = "metadata_producer_cancelled"
         case producerFailed = "metadata_producer_failed"
         case subscriptionResetEnqueued = "metadata_subscription_reset_enqueued"

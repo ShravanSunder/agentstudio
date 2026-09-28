@@ -403,8 +403,7 @@ private actor FileBootstrapLifecycleRecorder: BridgeProductMetadataLifecycleTrac
                 $0.count <= fileBootstrapFinishedCount
             }
             for waiter in readyWaiters { waiter.continuation.resume() }
-        case .producerCancelled, .producerFailed, .sourceAcceptedEnqueued, .subscriptionResetEnqueued,
-            .windowEnqueued:
+        case .producerCancelled, .producerFailed, .subscriptionResetEnqueued:
             break
         }
     }

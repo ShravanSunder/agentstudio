@@ -57,6 +57,12 @@ struct BridgeMetadataCoordinatorLeaseTests {
 }
 
 private actor LeaseOwnershipGatedFileMetadataSource: BridgePaneProductFileMetadataProducing {
+    func captureKeyedSnapshot(
+        subscriptionId _: String,
+        demand _: BridgePaneProductFileViewDemand,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async -> BridgeWorktreeFileKeyedSnapshot? { nil }
+
     private var cancellationRelease: CheckedContinuation<Void, Never>?
     private var cancellationStarted = false
     private var cancellationStartedWaiters: [CheckedContinuation<Void, Never>] = []
