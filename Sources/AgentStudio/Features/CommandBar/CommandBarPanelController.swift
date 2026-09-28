@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioWorktreeOperations
 import AppKit
 import SwiftUI
 import os.log

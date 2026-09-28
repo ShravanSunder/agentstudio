@@ -75,16 +75,73 @@ struct CITopologyWorkflowTests {
         #expect(marketingJob.contains("pnpm --dir web run check"))
         #expect(marketingJob.contains("pnpm --dir web run build"))
         #expect(swiftJob.contains("run: mise run lint:release-scripts"))
-        #expect(swiftJob.contains("bash scripts/install-ci-lint-tools.sh"))
+        // The Swift job runs no swift-format, so it must not pay to build it.
+        #expect(!swiftJob.contains("install-ci-lint-tools.sh"))
         #expect(qualityJob.contains("bash scripts/install-ci-lint-tools.sh"))
-        #expect(swiftJob.contains("test \"$(command -v swiftlint)\" = \"$(mise where swiftlint@0.65.1)/swiftlint\""))
+        #expect(swiftJob.contains("test \"$(swiftlint version)\" = \"0.65.1\""))
         #expect(lintInstaller.contains("--branch 603.0.0"))
-        #expect(lintInstaller.contains("mise install swiftlint@0.65.1"))
+        #expect(lintInstaller.contains("supports only the Linux code-quality job"))
         #expect(lintInstaller.contains("swiftlint_linux_${swiftlint_arch}.zip"))
         #expect(lintInstaller.contains("sha256sum --check"))
         #expect(lintInstaller.contains("find /usr/lib -name libsourcekitdInProc.so"))
         #expect(lintInstaller.contains("echo \"PATH=$tool_bin:$swiftlint_bin:$PATH\" >> \"$GITHUB_ENV\""))
         #expect(lintInstaller.contains("swiftlint\" rules --enabled --config .swiftlint.yml"))
+    }
+
+    @Test("release restores vendor caches without saving a Swift build cache")
+    func releaseRestoresVendorCachesWithoutSavingSwiftBuildCache() throws {
+        let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let ciVendorJobs = try [
+            topologyJob(named: "bridge-web", in: ciWorkflow),
+            topologyJob(named: "swift-test-suite", in: ciWorkflow),
+        ]
+
+        #expect(!releaseWorkflow.contains("name: Cache Swift build"))
+        #expect(!releaseWorkflow.contains("path: .build-ci"))
+
+        for stepName in ["Cache Ghostty artifacts", "Cache zmx artifacts", "Cache Zig compilation"] {
+            #expect(ciWorkflow.components(separatedBy: "- name: \(stepName)\n").count == 3)
+            let releaseCacheStep = try topologyBlock(
+                startingWith: "      - name: \(stepName)\n",
+                endingBefore: "\n\n",
+                in: releaseWorkflow
+            )
+            #expect(releaseCacheStep.contains("uses: actions/cache/restore@v4"))
+            let releaseKey = try topologyBlock(startingWith: "key: ", endingBefore: "\n", in: releaseCacheStep)
+
+            for ciJob in ciVendorJobs {
+                let ciCacheStep = try topologyBlock(
+                    startingWith: "          - name: \(stepName)\n",
+                    endingBefore: "\n\n",
+                    in: ciJob
+                )
+                let ciKey = try topologyBlock(startingWith: "key: ", endingBefore: "\n", in: ciCacheStep)
+                #expect(ciKey == releaseKey)
+
+                if stepName == "Cache Zig compilation" {
+                    let releaseRestoreKey = try topologyFirstRestoreKey(in: releaseCacheStep)
+                    let ciRestoreKey = try topologyFirstRestoreKey(in: ciCacheStep)
+                    #expect(ciRestoreKey == releaseRestoreKey)
+                }
+            }
+        }
+    }
+
+    @Test("code-quality mise cache is disabled when installation is disabled")
+    func codeQualityMiseCacheIsDisabledWhenInstallationIsDisabled() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let qualityJob = try topologyJob(named: "code-quality", in: workflow)
+        let miseStep = try topologyBlock(
+            startingWith: "      - name: Setup mise\n",
+            endingBefore: "\n      - ",
+            in: qualityJob
+        )
+
+        #expect(miseStep.contains("uses: jdx/mise-action@v3"))
+        #expect(miseStep.contains("install: false"))
+        #expect(miseStep.contains("cache: false"))
+        #expect(!miseStep.contains("cache_save:"))
     }
 }
 
@@ -122,4 +179,15 @@ private func topologyBlock(startingWith marker: String, endingBefore terminator:
         return String(tail)
     }
     return String(tail[..<endRange.lowerBound])
+}
+
+private func topologyFirstRestoreKey(in cacheStep: String) throws -> String {
+    let cacheLines = cacheStep.split(separator: "\n")
+    let restoreIndex = cacheLines.firstIndex {
+        $0.trimmingCharacters(in: .whitespaces) == "restore-keys: |"
+    }
+    guard let restoreIndex, cacheLines.indices.contains(cacheLines.index(after: restoreIndex)) else {
+        throw CITopologyWorkflowError.missingBlock("restore-keys")
+    }
+    return cacheLines[cacheLines.index(after: restoreIndex)].trimmingCharacters(in: .whitespaces)
 }
