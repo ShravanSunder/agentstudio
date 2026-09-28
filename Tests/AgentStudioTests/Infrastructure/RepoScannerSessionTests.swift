@@ -21,7 +21,8 @@ struct RepoScannerSessionTests {
         let session = RepoScanner().makeSession(
             in: fixture.root,
             maxDepth: 1,
-            quantumBudget: budget
+            quantumBudget: budget,
+            serviceClock: TestPushClock()
         )
 
         // Act
@@ -49,7 +50,7 @@ struct RepoScannerSessionTests {
             completeScan.counts.scannerServiceInvocationCount
                 == suspendedUsages.count + completeScan.counts.validationSuccessCount + 1
         )
-        #expect(completeScan.serviceMetrics.traversalServiceDuration > .zero)
+        #expect(completeScan.serviceMetrics.traversalServiceDuration == .zero)
         #expect(completeScan.serviceMetrics.validationServiceDuration == .zero)
     }
 
@@ -61,7 +62,8 @@ struct RepoScannerSessionTests {
         let session = RepoScanner().makeSession(
             in: fixture.root,
             maxDepth: 1,
-            quantumBudget: try oneItemQuantumBudget()
+            quantumBudget: try oneItemQuantumBudget(),
+            serviceClock: TestPushClock()
         )
         guard case .suspended = await session.advanceOneQuantum() else {
             Issue.record("expected the first one-item quantum to suspend")
@@ -87,7 +89,11 @@ struct RepoScannerSessionTests {
         // Arrange
         let fixture = try ScannerSessionFixture(candidateNames: ["alpha"])
         defer { fixture.remove() }
-        let session = RepoScanner().makeSession(in: fixture.root, maxDepth: 1)
+        let session = RepoScanner().makeSession(
+            in: fixture.root,
+            maxDepth: 1,
+            serviceClock: TestPushClock()
+        )
 
         // Act
         let validationOutcome = await nextValidationRequest(session)
@@ -108,12 +114,54 @@ struct RepoScannerSessionTests {
         #expect(cancelledScan.counts.scannerServiceInvocationCount == 1)
     }
 
+    @Test("active service duration suspends before validation at the configured limit")
+    func activeServiceDurationSuspendsBeforeValidation() async throws {
+        // Arrange
+        let fixture = try ScannerSessionFixture(candidateNames: [])
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(
+            at: fixture.root.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        let session = RepoScanner().makeSession(
+            in: fixture.root,
+            maxDepth: 0,
+            serviceClock: SteppingScannerServiceClock(step: .milliseconds(10))
+        )
+
+        // Act
+        let firstOutcome = await session.advanceOneQuantum()
+        let secondOutcome = await session.advanceOneQuantum()
+
+        // Assert
+        guard case .suspended(let usage) = firstOutcome else {
+            Issue.record("expected duration limit to suspend before validation, got \(firstOutcome)")
+            return
+        }
+        #expect(usage.candidateValidationCount == 0)
+        #expect(usage.traversalServiceDuration == .milliseconds(20))
+        guard case .validationRequired = secondOutcome else {
+            Issue.record("expected validation on the next quantum, got \(secondOutcome)")
+            return
+        }
+        _ = session.cancel()
+        guard case .finished(.cancelled(let cancelledScan)) = await session.advanceOneQuantum() else {
+            Issue.record("expected cancelled scanner evidence")
+            return
+        }
+        #expect(cancelledScan.counts.scannerServiceInvocationCount == 2)
+    }
+
     @Test("validation completion consumes only the exact current request")
     func validationCompletionRejectsForeignStaleDuplicateAndCandidateMismatch() async throws {
         // Arrange
         let fixture = try ScannerSessionFixture(candidateNames: ["alpha", "beta"])
         defer { fixture.remove() }
-        let session = RepoScanner().makeSession(in: fixture.root, maxDepth: 1)
+        let session = RepoScanner().makeSession(
+            in: fixture.root,
+            maxDepth: 1,
+            serviceClock: TestPushClock()
+        )
         guard case .validationRequired(let alphaRequest) = await nextValidationRequest(session) else {
             Issue.record("expected first validation request")
             return
@@ -209,7 +257,10 @@ struct RepoScannerSessionTests {
         let fixture = try ScannerSessionFixture(candidateNames: ["alpha"])
         defer { fixture.remove() }
         let session = RepoScanner().makeSession(
-            in: fixture.root, maxDepth: 1, quantumBudget: try oneItemQuantumBudget()
+            in: fixture.root,
+            maxDepth: 1,
+            quantumBudget: try oneItemQuantumBudget(),
+            serviceClock: TestPushClock()
         )
         // Force legitimate traversal suspension before entering validation custody.
         guard case .suspended = await session.advanceOneQuantum() else {
@@ -241,7 +292,7 @@ struct RepoScannerSessionTests {
             return
         }
         #expect(completed.serviceMetrics.validationServiceDuration == .milliseconds(7))
-        #expect(completed.serviceMetrics.traversalServiceDuration > .zero)
+        #expect(completed.serviceMetrics.traversalServiceDuration == .zero)
         guard case .finished(.completeAuthoritative(let result)) = await session.advanceOneQuantum() else {
             Issue.record("expected complete result")
             return
@@ -260,7 +311,11 @@ struct RepoScannerSessionTests {
             candidateNames: ["alpha", "beta", "gamma", "delta"]
         )
         defer { fixture.remove() }
-        let session = RepoScanner().makeSession(in: fixture.root, maxDepth: 1)
+        let session = RepoScanner().makeSession(
+            in: fixture.root,
+            maxDepth: 1,
+            serviceClock: TestPushClock()
+        )
         var consumedRequests: [RepoScannerValidationRequest] = []
         for _ in 0..<3 {
             guard case .validationRequired(let request) = await nextValidationRequest(session) else {
@@ -323,7 +378,8 @@ struct RepoScannerSessionTests {
             in: fixture.root,
             maxDepth: 1,
             retainedCheckoutPaths: candidatePaths,
-            quantumBudget: try oneItemQuantumBudget()
+            quantumBudget: try oneItemQuantumBudget(),
+            serviceClock: TestPushClock()
         )
 
         // Act
@@ -376,7 +432,8 @@ struct RepoScannerSessionTests {
             in: fixture.root,
             maxDepth: 0,
             retainedCheckoutPaths: retainedTargets,
-            quantumBudget: quantumBudget
+            quantumBudget: quantumBudget,
+            serviceClock: TestPushClock()
         )
 
         // Act
@@ -421,7 +478,8 @@ struct RepoScannerSessionTests {
             session: RepoScanner().makeSession(
                 in: fixture.root,
                 maxDepth: 1,
-                capacity: capacity
+                capacity: capacity,
+                serviceClock: TestPushClock()
             ),
             outcomesByCanonicalPath: [:]
         )
@@ -458,7 +516,8 @@ struct RepoScannerSessionTests {
             session: RepoScanner().makeSession(
                 in: fixture.root,
                 maxDepth: 1,
-                capacity: capacity
+                capacity: capacity,
+                serviceClock: TestPushClock()
             ),
             outcomesByCanonicalPath: Dictionary(
                 uniqueKeysWithValues: entries.map { entry in
@@ -493,7 +552,8 @@ struct RepoScannerSessionTests {
             session: RepoScanner().makeSession(
                 in: fixture.root,
                 maxDepth: 1,
-                capacity: capacity
+                capacity: capacity,
+                serviceClock: TestPushClock()
             ),
             outcomesByCanonicalPath: [:]
         )
@@ -528,7 +588,8 @@ struct RepoScannerSessionTests {
             session: RepoScanner().makeSession(
                 in: fixture.root,
                 maxDepth: 1,
-                capacity: capacity
+                capacity: capacity,
+                serviceClock: TestPushClock()
             ),
             outcomesByCanonicalPath: [canonicalSessionPath(entry.path): .validated(entry)]
         )
@@ -642,4 +703,24 @@ private struct ScannerSessionFixture {
 
 private func canonicalSessionPath(_ url: URL) -> String {
     url.standardizedFileURL.resolvingSymlinksInPath().path
+}
+
+private struct SteppingScannerServiceClock: Clock {
+    typealias Duration = Swift.Duration
+    typealias Instant = TestPushClock.Instant
+
+    private let baseClock = TestPushClock()
+    let step: Duration
+
+    var now: Instant {
+        let instant = baseClock.now
+        baseClock.advance(by: step)
+        return instant
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+        try await baseClock.sleep(until: deadline, tolerance: tolerance)
+    }
 }
