@@ -432,6 +432,20 @@ describe("gutter columns", () => {
 });
 
 describe("composed topology", () => {
+  it("never substitutes a chapter glass attach for a missing step-line marker", () => {
+    const fixture = homePageAt(1280);
+    const missingStepLine = fixture.page.anchors[1];
+    if (missingStepLine === undefined) throw new Error("Chapter fixture missing");
+    const composition = composeFullPageTopology({
+      ...fixture.page,
+      anchors: fixture.page.anchors.map((anchor) =>
+        anchor.id === missingStepLine.id
+          ? { ...anchor, chapter: true, stepLine: undefined }
+          : anchor,
+      ),
+    });
+    expect(composition?.routes.some((route) => route.anchorId === missingStepLine.id)).toBe(false);
+  });
   for (const width of viewportWidths) {
     describe(`at ${width}px`, () => {
       const fixture = homePageAt(width);

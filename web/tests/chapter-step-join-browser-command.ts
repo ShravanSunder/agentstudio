@@ -15,6 +15,11 @@ export interface StepLineJoinObservation {
     readonly nodeDistance: number;
     readonly nodeCountAtFork: number;
     readonly visibleInterveningNodeCount: number;
+    readonly stepDotCount: number;
+    readonly activeLabelText: string;
+    readonly selectedStepLabel: string;
+    readonly targetGap: number;
+    readonly landsOnGlassEdge: boolean;
   }[];
 }
 
@@ -83,6 +88,20 @@ export const verifyStepLineJoins = defineBrowserCommand(
                   endY = 0,
                 ] = numbers;
                 const artwork = group.closest<SVGSVGElement>("[data-full-page-topology]");
+                const stepTarget = document.querySelector<HTMLElement>(
+                  `[data-rail-step-line-target="${anchorId}"]`,
+                );
+                const glass = document.querySelector<HTMLElement>(
+                  `[data-rail-surface-target="${anchorId}"]`,
+                );
+                const screenMatrix = path.getScreenCTM();
+                if (stepTarget === null || glass === null || screenMatrix === null)
+                  throw new Error(`Step target ${anchorId} is missing`);
+                const landing = path
+                  .getPointAtLength(path.getTotalLength())
+                  .matrixTransform(screenMatrix);
+                const targetBox = stepTarget.getBoundingClientRect();
+                const glassBox = glass.getBoundingClientRect();
                 const distances = [
                   ...(artwork?.querySelectorAll<SVGGElement>("[data-node]") ?? []),
                 ].map((node) => {
@@ -116,6 +135,19 @@ export const verifyStepLineJoins = defineBrowserCommand(
                   nodeDistance: Math.min(...distances),
                   nodeCountAtFork: distances.filter((distance) => distance <= 1).length,
                   visibleInterveningNodeCount,
+                  stepDotCount: line.querySelectorAll(".chapter-step__dot").length,
+                  activeLabelText:
+                    line.querySelector("[data-chapter-step-active-label-text]")?.textContent ?? "",
+                  selectedStepLabel:
+                    line.querySelector("[data-chapter-step]")?.getAttribute("aria-label") ?? "",
+                  targetGap: Math.hypot(
+                    landing.x - targetBox.left,
+                    landing.y - (targetBox.top + targetBox.height / 2),
+                  ),
+                  landsOnGlassEdge:
+                    Math.abs(landing.x - glassBox.left) <= 1 &&
+                    landing.y >= glassBox.top &&
+                    landing.y <= glassBox.bottom,
                 };
               }),
             };

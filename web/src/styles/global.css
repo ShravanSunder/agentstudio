@@ -114,8 +114,7 @@ body:has([data-finale-state="ready"]) [data-topology-terminal-route] {
 }
 
 .chapter-caption__content,
-.chapter-step-panel,
-.chapter-single-description {
+.chapter-step-panel {
   display: flex;
   align-items: flex-start;
   gap: 12px;

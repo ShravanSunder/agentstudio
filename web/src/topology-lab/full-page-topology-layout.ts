@@ -115,6 +115,7 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
     const declaredEdge = surface?.getAttribute(railTargetEdgeAttribute);
     return {
       id,
+      chapter: anchor.closest("[data-chapter]") !== null,
       rect: measure(anchor),
       surface: surface === undefined ? undefined : measure(surface),
       targetEdge: declaredEdge === "top" || declaredEdge === "left" ? declaredEdge : undefined,

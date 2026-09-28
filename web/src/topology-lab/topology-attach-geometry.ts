@@ -168,6 +168,9 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       continue;
     }
 
+    // A chapter without its declared step line must not silently attach to glass.
+    if (anchor.chapter) continue;
+
     if (stacked || anchor.targetEdge === "top") {
       const copyClearance = stacked
         ? topologyStackedForkCopyClearance

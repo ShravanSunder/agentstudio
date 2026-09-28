@@ -19,7 +19,14 @@ describe("chapter step-line joins", () => {
       [390, 1280, 1600, 1920],
     );
     for (const observation of observations) {
-      expect(observation.joins).toHaveLength(3);
+      expect(observation.joins).toHaveLength(5);
+      expect(observation.joins.map((join) => join.anchorId)).toEqual([
+        "many-agents",
+        "context-with-task",
+        "find-and-focus",
+        "review",
+        "come-back",
+      ]);
       const first = observation.joins[0];
       if (first === undefined) throw new Error("No step-line joins");
       for (const join of observation.joins) {
@@ -32,6 +39,18 @@ describe("chapter step-line joins", () => {
           join.visibleInterveningNodeCount,
           `${observation.width}px ${join.anchorId} stray source-lane dots`,
         ).toBe(0);
+        expect(
+          join.targetGap,
+          `${observation.width}px ${join.anchorId} line landing`,
+        ).toBeLessThanOrEqual(1);
+        expect(join.landsOnGlassEdge, `${observation.width}px ${join.anchorId} glass edge`).toBe(
+          false,
+        );
+        if (join.anchorId === "review" || join.anchorId === "come-back") {
+          expect(join.stepDotCount, join.anchorId).toBe(1);
+          expect(join.activeLabelText, join.anchorId).toBe(join.selectedStepLabel);
+          expect(join.activeLabelText.trim(), join.anchorId).not.toBe("");
+        }
         if (observation.width >= 1024) {
           expect(
             join.sourceY,

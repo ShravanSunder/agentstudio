@@ -57,6 +57,8 @@ export interface TopologyRect {
 
 export interface TopologyAnchorMeasurement {
   readonly id: string;
+  /** Chapter anchors require a step-line target; generic anchors may still use a glass edge. */
+  readonly chapter?: boolean;
   readonly rect: TopologyRect;
   /** `data-rail-surface-target`: wide and laptop branches enter its left edge. */
   readonly surface: TopologyRect | undefined;
