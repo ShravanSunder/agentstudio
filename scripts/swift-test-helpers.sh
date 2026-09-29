@@ -260,41 +260,68 @@ lane_evidence_stem() {
   echo "$LANE_EVENT_STREAM_DIR/lane-$(lane_event_stream_label_slug "$1")-$(date +%Y%m%dT%H%M%S)-$$"
 }
 
-# The held steps a hung lane was still waiting on. The causal-test harness
+# The held steps and typed facts a hung lane was still waiting on. The harness
 # appends one TAB-separated line per event, with a single O_APPEND write:
 #   waiting<TAB><instance id><TAB><name><TAB><fileID function>
 #   arrived<TAB><instance id><TAB><name>
 # Names contain spaces, so only tabs separate fields. An arrival settles only
 # the wait with the same instance id: two steps can share a name, and one
 # instance arriving (even before any wait was logged) must not hide another
-# instance's missing arrival. Every wait left unmatched is printed, in the
-# order it was logged. A missing or empty log prints nothing.
+# instance's missing arrival. Expectation ids pair expecting with settled even
+# when settled is first. Only newline-terminated records count; a killed writer
+# may leave a partial last line. Every unmatched wait is printed in log order.
 print_held_steps_unarrived_at_timeout() {
   local held_step_log="${1:-}"
-  local held_step_name
-  local held_step_id
-  local held_step_test
+  local lane_output="${2:-}"
+  local record_kind field_one field_two field_three field_four field_five
 
-  [ -n "$held_step_log" ] && [ -s "$held_step_log" ] || return 0
-  /usr/bin/awk -F '\t' '
-    $1 == "waiting" && NF >= 3 && $2 != "" {
-      if (!($2 in waiting_name)) { order_id[++order_count] = $2 }
-      waiting_name[$2] = $3
-      waiting_test[$2] = $4
-      next
-    }
-    $1 == "arrived" && NF >= 2 && $2 != "" { arrived[$2] = 1 }
-    END {
-      for (position = 1; position <= order_count; position++) {
-        instance_id = order_id[position]
-        if (!(instance_id in arrived)) {
-          printf "%s\t%s\t%s\n", waiting_name[instance_id], instance_id, waiting_test[instance_id]
+  if [ -n "$held_step_log" ] && [ -s "$held_step_log" ]; then
+    /usr/bin/perl -ne '
+      next unless /\n\z/;
+      chomp;
+      my @field = split /\t/, $_, -1;
+      if ($field[0] eq "waiting" && @field >= 3 && $field[1] ne "") {
+        push @step_order, $field[1] unless exists $step_name{$field[1]};
+        $step_name{$field[1]} = $field[2];
+        $step_test{$field[1]} = $field[3] // "";
+      } elsif ($field[0] eq "arrived" && @field >= 2 && $field[1] ne "") {
+        $arrived{$field[1]} = 1;
+      } elsif ($field[0] eq "expecting" && @field >= 6 && $field[1] ne "") {
+        push @expectation_order, $field[1] unless exists $expected_case{$field[1]};
+        $expected_case{$field[1]} = $field[2];
+        $scope{$field[1]} = $field[3];
+        $test{$field[1]} = $field[4];
+        $site{$field[1]} = $field[5];
+      } elsif ($field[0] eq "settled" && @field >= 3 && $field[1] ne "") {
+        $settled{$field[1]} = 1;
+      }
+      END {
+        for my $id (@step_order) {
+          print join("\t", "held", $step_name{$id}, $id, $step_test{$id}), "\n"
+            unless $arrived{$id};
+        }
+        for my $id (@expectation_order) {
+          print join("\t", "expectation", $id, $expected_case{$id}, $scope{$id}, $test{$id}, $site{$id}), "\n"
+            unless $settled{$id};
         }
       }
-    }
-  ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r held_step_name held_step_id held_step_test; do
-    echo "[$LOG_PREFIX] lane-report held_step_unarrived name=$held_step_name id=$held_step_id test=$held_step_test"
-  done || true
+    ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r record_kind field_one field_two field_three field_four field_five; do
+      case "$record_kind" in
+        held)
+          printf '[%s] lane-report held_step_unarrived name=%s id=%s test=%s\n' \
+            "$LOG_PREFIX" "$field_one" "$field_two" "$field_three"
+          ;;
+        expectation)
+          printf '[%s] lane-report fact_expected id=%s expected=%s scope=%s test=%s site=%s\n' \
+            "$LOG_PREFIX" "$field_one" "$field_two" "$field_three" "$field_four" "$field_five"
+          ;;
+      esac
+    done || true
+  fi
+  if [ -n "$lane_output" ] && [ -f "$lane_output" ] && \
+    /usr/bin/grep -Fq '[agentstudio-test-log] unavailable ' "$lane_output"; then
+    printf '[%s] lane-report held_step_log_unavailable\n' "$LOG_PREFIX"
+  fi
 }
 
 # A held-step log is evidence only when a test wrote to it.
@@ -693,6 +720,7 @@ e2e|E2ESerializedTests|serial
 e2e|E2ESerializedTests/FilesystemSourceE2ETests|serial
 e2e|E2ESerializedTests/ZmxBackendIntegrationTests|serial
 zmx|E2ESerializedTests/ZmxE2ETests|serial
+large|ExpectationLogTests|process-global
 large|FilesystemActorActivityTests|process-global
 large|FilesystemActorShellGitIntegrationTests|concurrent
 large|FilesystemFetchHeadGitPipelineIntegrationTests|process-global
@@ -1935,7 +1963,7 @@ run_swift_with_timeout() {
     # Read the stream before terminating anything: this names what was still
     # executing at the timeout, not what survived the kill.
     print_running_parameterized_cases_at_timeout "$event_stream_file"
-    print_held_steps_unarrived_at_timeout "$held_step_log"
+    print_held_steps_unarrived_at_timeout "$held_step_log" "$output_file"
     print_timeout_process_diagnostics "$label" "$command_pid" "$evidence_stem"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true

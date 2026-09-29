@@ -1,0 +1,29 @@
+# Typed-fact test harness — Specification
+
+Status: owner-accepted direction 2026-09-28; revised after advisor round 6 · 2026-09-28
+
+Artifacts: [Requirements](2026-09-28-typed-fact-test-harness-requirements.md) · [Specification](2026-09-28-typed-fact-test-harness.md) · [Program Design](2026-09-28-typed-fact-test-harness-program-design.md)
+
+Traces to Requirements U1–U6.
+
+## Terms
+
+- **Fact:** a value of an owner's closed, `Sendable` fact enum. It's emitted at that owner's serialization point, once the transition's state invariants hold, with no suspension between the transition and the emission.
+- **Scope:** a typed value every fact carries. It names the owner plus one existing operation, lifetime or generation identity (for example a worktree id and a generation). Scopes are never derived from display strings, and never inferred from the fact a test expects.
+- **Operation:** the unit a closing fact closes, for example one admitted refresh, one evaluated deadline, one scan, one projection generation. An operation is never "the whole actor".
+- **Closing fact:** the terminal fact of one operation. It's emitted only after every accepted effect and handoff of that operation has settled. Every terminal disposition has one: completed, no-op or equal, rejected, superseded, cancelled, shut down.
+- **Deadline disposition:** the closing fact of one evaluated deadline: admitted, deferred, obsolete or cancelled. It closes that evaluation, not the work it admitted.
+
+## Observable contract
+
+- **H1 Scoped, ordered, consuming.** A test selects a scope before it acts. Facts outside the selected scope are filtered first. `expectNext` then checks the **next** fact in that scope and never searches forward. A different fact fails at once, naming the expected fact, the actual fact, the scope and the call site. Each fact is consumed once. A scope has at most one active consuming expectation: a second concurrent call on the same scope fails as misuse. Independent scopes may interleave.
+- **H2 Negative claims.** `expectNone(of:, until:)` covers a declared interval: from an **opening position** the test marks before the stimulus, up to the closing fact correlated to that exact operation. It fails if a forbidden fact appears anywhere in that interval, including before the call, if a fact is lost, if the source ends or is cancelled first, or if the close belongs to another operation or generation. It proves only that interval. A duplicate close, or a fact after a promised final close, fails the recorder's terminal validation.
+- **H3 Attach before stimulus.** Attaching returns a **ready** handle only once the source can no longer miss a fact: the local stream and sink exist, or the bus subscription has completed, including its replay. Facts emitted after attachment but before collection begins are kept. One source feeds one recorder. Fanning one stream out to several readers is rejected.
+- **H4 Distinct terminal outcomes.** A source reports a fact, a normal end, a loss, or a cancellation, and each stays distinguishable. A loss is sticky: no later matching or closing fact can make a test pass after one. Loss is checked before delivering any fact that could satisfy an expectation, and again at end and at finish.
+- **H5 End, cancellation, finish.** On a normal end, buffered facts can still be consumed, and an expectation still outstanding fails immediately. Cancelling a waiting expectation settles it exactly once, whether that happens before or after registration. `finish()` is idempotent: it detaches and cancels the source, joins its collector, settles pending expectations, and reports terminal violations. It never waits for an endless source. Cancellation during cleanup is never reported as a successful close.
+- **H6 Missing fact names itself.** Each expectation call is logged as pending before it suspends, and as settled (matched, unexpected, ended, cancelled, lost) when it finishes. If the lane's hang bound fires, the runner reports every expectation still pending (expected case, scope, test, call site) **before** it kills the process. A log that can't be written is reported as unavailable, never as fulfilled. No expectation has its own timeout, and nothing periodically writes progress.
+- **H7 Owner facts live with the owner.** Internal steps are owner-local facts. Only real runtime facts go on the app `EventBus`, and each new event case needs owner approval. A test asserts through one authoritative path. A local closing fact never claims a bus consumer has applied something.
+- **H8 Timers and held work.** Tests register timers before advancing `TestPushClock`, then consume the deadline disposition. `HeldStep` controls deliberately held work. The negative claim for that scenario consumes the evaluation's closing fact, never "quiet". A held operation closes only when it's released or retired.
+- **H9 Owner delivery loss stays proven.** A lossless test observer doesn't make an owner's own lossy input lossless. Where an owner's input is lossy (e.g. the projector's `.lossyNewest` subscription), its tests keep asserting zero delivery loss on that input.
+- **H10 Enforcement.** Tests contain no `waitUntilIdle` and no `assertEventuallyAsync` or `assertEventuallyMain`: a new named lint rule enforces this. The existing polling-wait rule keeps enforcing yield loops and budgets. A one-time reviewed baseline admits today's uses into the ledger, and from then on every count can only go down.
+- **H11 Cutover per owner.** An owner's migration moves every call site and claim that owner is responsible for, including in shared test files. Test-only waiting APIs on that owner are then deleted, but its lifecycle responsibilities (subscription start, shutdown joins, drain removal) stay, together with their proof.
