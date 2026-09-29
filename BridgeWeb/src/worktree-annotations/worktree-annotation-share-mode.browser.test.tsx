@@ -342,12 +342,29 @@ async function performBrowserAction(action: () => Promise<void> | void): Promise
 	const shelfBeforeAction = document.querySelector<HTMLElement>(
 		'[data-testid="worktree-annotation-share-shelf"]',
 	);
+	const menuBeforeAction = document.querySelector<HTMLElement>(
+		'[data-slot="dropdown-menu-content"]',
+	);
 	await act(async (): Promise<void> => {
 		await action();
 		await Promise.resolve();
 		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 		await settleClosingShareShelf(shelfBeforeAction);
+		await settleClosingDropdownMenu(menuBeforeAction);
 	});
+}
+
+async function settleClosingDropdownMenu(menu: HTMLElement | null): Promise<void> {
+	if (menu === null || !menu.hasAttribute('data-closed')) return;
+	await Promise.all(
+		menu.getAnimations({ subtree: true }).map(async (animation): Promise<void> => {
+			try {
+				await animation.finished;
+			} catch {
+				// A closing menu can replace its preceding animation.
+			}
+		}),
+	);
 }
 
 async function settleClosingShareShelf(shelf: HTMLElement | null): Promise<void> {
