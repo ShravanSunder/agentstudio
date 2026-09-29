@@ -155,8 +155,8 @@ export function worktreePath(lane: WorktreeLane, rowYs: readonly number[]): stri
   ].join(" ");
 }
 
-/** The lane next to the glass continues to the finale instead of merging back. */
-export function worktreeContinuationPath(lane: WorktreeLane, rowYs: readonly number[]): string {
+/** A lane that stops or reaches the finale stays in its column through its last dot. */
+export function worktreeVerticalEndPath(lane: WorktreeLane, rowYs: readonly number[]): string {
   const forkY = rowYs[lane.forkRow] ?? 0;
   const arrivalY = rowYs[lane.forkRow + 1] ?? forkY;
   const terminalForkY = rowYs[lane.mergeRow] ?? arrivalY;

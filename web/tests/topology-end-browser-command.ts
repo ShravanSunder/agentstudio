@@ -28,12 +28,17 @@ export interface TopologyEndObservation {
   readonly branchStroke: string;
   readonly branchStartY: number;
   readonly branchStartX: number;
+  readonly bendDotCount: number;
+  readonly bendDotOffset: number;
+  readonly bendDotPlain: boolean;
   readonly innermostLaneX: number;
   readonly mainlineEndY: number;
   readonly branchViewportMaxFraction: number;
   readonly minimumTitleClearance: number;
   readonly lastGlassBottomY: number;
   readonly laneMergeYs: readonly number[];
+  readonly laneStopYs: readonly number[];
+  readonly duplicateRowDotCount: number;
   readonly lowestRailY: number;
   readonly laneCount: number;
   readonly terminalNodeCount: number;
@@ -486,10 +491,51 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   const mainlineStart = mainline.getPointAtLength(0);
   const mainlineEnd = mainline.getPointAtLength(mainlineLength);
   const start = finalPath.getPointAtLength(0).matrixTransform(matrix);
+  const bendStart = finalPath.getPointAtLength(0);
+  const bendDots = [
+    ...artwork.querySelectorAll<SVGGElement>("[data-node][data-resolved-row]"),
+  ].filter((node) => {
+    const circle = node.querySelector<SVGCircleElement>("circle");
+    return (
+      circle !== null &&
+      Math.hypot(
+        Number(circle.getAttribute("cx")) - bendStart.x,
+        Number(circle.getAttribute("cy")) - bendStart.y,
+      ) <= 0.5
+    );
+  });
+  const bendDot = bendDots[0];
+  const bendCircle = bendDot?.querySelector<SVGCircleElement>(".node-commit");
   const end = finalPath.getPointAtLength(routeLength).matrixTransform(matrix);
   const mergeYs = [...artwork.querySelectorAll<SVGGElement>('[data-node-kind="merge"]')]
     .filter((node) => !node.hasAttribute("data-topology-terminal-node"))
     .map((node) => Number(node.querySelector("circle")?.getAttribute("cy")) + artworkTop);
+  const rowNodes = [...artwork.querySelectorAll<SVGGElement>("[data-node][data-resolved-row]")];
+  const worktreeGroups = [
+    ...artwork.querySelectorAll<SVGGElement>(
+      '[data-topology-route-group][data-route-kind="worktree"]',
+    ),
+  ].toSorted(
+    (left, right) => Number(left.dataset["routeColumn"]) - Number(right.dataset["routeColumn"]),
+  );
+  const laneStopYs = worktreeGroups.slice(0, -1).flatMap((group) => {
+    const route = group.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+    if (route === null) return [];
+    const endpoint = route.getPointAtLength(route.getTotalLength());
+    const stopDot = rowNodes.find((node) => {
+      if (node.dataset["nodeKind"] !== "commit" || node.hasAttribute("data-topology-suppressed"))
+        return false;
+      const circle = node.querySelector<SVGCircleElement>(".node-commit");
+      return (
+        circle !== null &&
+        Math.hypot(
+          Number(circle.getAttribute("cx")) - endpoint.x,
+          Number(circle.getAttribute("cy")) - endpoint.y,
+        ) <= 0.5
+      );
+    });
+    return stopDot === undefined ? [] : [endpoint.y + artworkTop];
+  });
   const ctaTitle = button.closest("section")?.querySelector<HTMLElement>("#final-cta-title");
   const titleBox = ctaTitle?.getBoundingClientRect();
   if (
@@ -541,6 +587,18 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     branchStroke: getComputedStyle(finalPath).stroke,
     branchStartY: start.y + window.scrollY,
     branchStartX: start.x,
+    bendDotCount: bendDots.length,
+    bendDotOffset:
+      bendCircle === null || bendCircle === undefined
+        ? Number.POSITIVE_INFINITY
+        : Math.hypot(
+            Number(bendCircle.getAttribute("cx")) - bendStart.x,
+            Number(bendCircle.getAttribute("cy")) - bendStart.y,
+          ),
+    bendDotPlain:
+      bendDot?.dataset["nodeKind"] === "commit" &&
+      !bendDot.hasAttribute("data-topology-suppressed") &&
+      bendDot.querySelector(".node-terminal, .node-terminal-halo, .node-merge-ring") === null,
     innermostLaneX:
       mainlineStart.matrixTransform(mainline.getScreenCTM() ?? matrix).x +
       Number(artwork.dataset["laneCount"]) * Number(artwork.dataset["columnUnit"]),
@@ -549,6 +607,9 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     minimumTitleClearance,
     lastGlassBottomY: glassBox.bottom + window.scrollY,
     laneMergeYs: mergeYs,
+    laneStopYs,
+    duplicateRowDotCount:
+      rowNodes.length - new Set(rowNodes.map((node) => node.dataset["resolvedRow"])).size,
     lowestRailY: Math.max(...points),
     laneCount: Number(artwork.dataset["laneCount"]),
     terminalNodeCount: artwork.querySelectorAll("[data-topology-terminal]").length,

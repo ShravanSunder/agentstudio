@@ -7,8 +7,8 @@
 // - A cramped gutter (no room for a lane column) draws only the mainline.
 // - A branch into a target forks one row above the attach edge from the column
 //   next to that target and steps one column in; it never runs beside copy.
-// - Worktree lanes open below the first anchor's copy and staircase into the
-//   final glass's center when rows permit.
+// - Worktree lanes open below the first anchor's copy; at the finale, outer
+//   pairs merge and stop while the first side lane joins the trunk.
 //
 // Relative imports keep this module loadable by Vitest, which has no "@/" alias.
 import {
@@ -29,7 +29,7 @@ import {
   mainlineOwnerId,
   planWorktreeLanes,
   topologyHeroLaneMinimumTravel,
-  worktreeContinuationPath,
+  worktreeVerticalEndPath,
   worktreePath,
   type LanePlan,
 } from "./topology-lane-planning";
@@ -248,6 +248,18 @@ export function composeFullPageTopology(
   }
   const plannedLanes = lanePlan?.lanes ?? [];
   const terminalLaneId = terminalAnchor === undefined ? undefined : plannedLanes.at(-1)?.id;
+  const sideLaneCount = terminalLaneId === undefined ? 0 : plannedLanes.length - 1;
+  // L1 joins the trunk. Pair L2..Ln from the outside inward: each outer lane
+  // joins its neighbour, which stops on the next row; an unpaired L2 stops.
+  const stoppingLaneIds = new Set(
+    plannedLanes
+      .slice(0, sideLaneCount)
+      .filter(
+        (lane) =>
+          lane.column >= 2 && (lane.column === 2 || (sideLaneCount - lane.column) % 2 === 1),
+      )
+      .map((lane) => lane.id),
+  );
   const lanes = plannedLanes.map((lane) =>
     lane.id === terminalLaneId ? { ...lane, mergeRow: finalMainlineRow } : lane,
   );
@@ -268,18 +280,32 @@ export function composeFullPageTopology(
     }
   }
   for (const [row, dot] of lanePlan?.reserved ?? new Map()) {
-    if (row !== plannedLanes.at(-1)?.mergeRow || terminalLaneId === undefined) {
-      if (!reserved.has(row)) reserved.set(row, dot);
-    }
+    if (row === plannedLanes.at(-1)?.mergeRow && terminalLaneId !== undefined) continue;
+    const stoppingLane = plannedLanes.find(
+      (lane) => lane.mergeRow === row && stoppingLaneIds.has(lane.id),
+    );
+    if (!reserved.has(row))
+      reserved.set(
+        row,
+        stoppingLane === undefined
+          ? dot
+          : {
+              x: stoppingLane.x,
+              ownerId: stoppingLane.id,
+              accent: stoppingLane.accent,
+              kind: "commit",
+              anchorId: undefined,
+            },
+      );
   }
   if (!reserved.has(finalMainlineRow)) {
     reserved.set(finalMainlineRow, {
       x: outermostLane?.x ?? columns.mainlineX,
       ownerId: outermostLane?.id ?? mainlineOwnerId,
       accent: outermostLane?.accent ?? "main",
-      kind: terminalAnchor === undefined ? "end" : "fork",
+      kind: terminalAnchor === undefined ? "end" : "commit",
       anchorId: undefined,
-      suppressPaint: outermostLane !== undefined,
+      suppressPaint: terminalAnchor === undefined && outermostLane !== undefined,
     });
   }
 
@@ -364,8 +390,8 @@ export function composeFullPageTopology(
     kind: "worktree",
     accent: lane.accent,
     pathData:
-      lane.id === terminalLaneId
-        ? worktreeContinuationPath(lane, rowYs)
+      lane.id === terminalLaneId || stoppingLaneIds.has(lane.id)
+        ? worktreeVerticalEndPath(lane, rowYs)
         : worktreePath(lane, rowYs),
     parentColumn: lane.column - 1,
     column: lane.column,

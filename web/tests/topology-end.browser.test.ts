@@ -68,7 +68,7 @@ describe("where the rail ends on the home page", () => {
   it("ends at the Star button after the lanes close below the final glass", async () => {
     const observations = await commands.verifyTopologyEnd(
       inject("siteHeaderBrowserTestUrl"),
-      [390, 1280, 1920],
+      [390, 1280, 1920, 2000],
     );
     for (const observation of observations) {
       expect(
@@ -154,6 +154,12 @@ describe("where the rail ends on the home page", () => {
         ).toBeCloseTo(observation.branchStartY, 0);
       expect(observation.branchColumnSpan, String(observation.width)).toBeLessThanOrEqual(2);
       expect(observation.branchBendCount).toBe(1);
+      expect(observation.bendDotCount, `${observation.width}px bend dot count`).toBe(1);
+      expect(
+        observation.bendDotOffset,
+        `${observation.width}px bend dot centre`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(observation.bendDotPlain, `${observation.width}px plain bend dot`).toBe(true);
       expect(observation.branchMonotonicX, `${observation.width}px final path moves right`).toBe(
         true,
       );
@@ -165,7 +171,16 @@ describe("where the rail ends on the home page", () => {
       expect(observation.ringStroke).toBe("rgb(116, 199, 236)");
       expect(observation.coreFill).toBe("rgb(137, 180, 250)");
       expect(observation.branchStroke).toBe("rgb(116, 199, 236)");
-      expect(observation.laneMergeYs).toHaveLength(Math.max(0, observation.laneCount - 1));
+      const sideLaneCount = Math.max(0, observation.laneCount - 1);
+      const expectedMerges = sideLaneCount === 0 ? 0 : 1 + Math.floor((sideLaneCount - 1) / 2);
+      expect(observation.laneMergeYs).toHaveLength(expectedMerges);
+      expect(observation.laneStopYs).toHaveLength(sideLaneCount - expectedMerges);
+      expect(observation.duplicateRowDotCount).toBe(0);
+      const trunkMergeY = Math.max(...observation.laneMergeYs);
+      for (const stopY of observation.laneStopYs) {
+        expect(stopY).toBeGreaterThan(observation.lastGlassBottomY);
+        expect(stopY).toBeLessThan(trunkMergeY);
+      }
       for (const mergeY of observation.laneMergeYs) {
         expect(mergeY).toBeGreaterThan(observation.lastGlassBottomY);
         expect(mergeY).toBeLessThan(observation.branchStartY);
