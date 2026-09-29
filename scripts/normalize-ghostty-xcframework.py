@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Normalize AgentStudio's copied archive names for SwiftPM; never edit vendors."""
+import os
 import pathlib
 import plistlib
 import subprocess
@@ -37,6 +38,12 @@ for library in metadata["AvailableLibraries"]:
         library["LibraryPath"] = normalized
         if library.get("BinaryPath") == original:
             library["BinaryPath"] = normalized
-    subprocess.run(["xcrun", "strip", "-S", str(directory / normalized)], check=True)
+    # strip rewrites archive member dates; stable dates keep the copied
+    # framework digest identical across fresh CI runners.
+    subprocess.run(
+        ["xcrun", "strip", "-S", str(directory / normalized)],
+        check=True,
+        env={**os.environ, "ZERO_AR_DATE": "1"},
+    )
 with plist_path.open("wb") as stream:
     plistlib.dump(metadata, stream, sort_keys=False)

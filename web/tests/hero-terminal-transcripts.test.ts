@@ -55,5 +55,6 @@ describe("hero terminal transcripts", () => {
       expect(index, fragment).toBeGreaterThan(priorIndex);
       priorIndex = index;
     }
+    expect(phone.filter((row) => row.text.includes("git worktree list"))).toHaveLength(1);
   });
 });

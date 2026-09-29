@@ -17,7 +17,7 @@ for (const [width, height] of [
   [1600, 1000],
   [390, 844],
 ] as const) {
-  it(`seeks the calm hero and in-pane git-tree finale at ${width}px`, async () => {
+  it(`seeks the sequential hero finale at ${width}px`, async () => {
     const observation = await commands.verifyHeroIntroFinale(
       inject("siteHeaderBrowserTestUrl"),
       width,
@@ -28,133 +28,267 @@ for (const [width, height] of [
       if (sample === undefined) throw new Error(`Missing ${time}s sample`);
       return sample;
     };
-    expect(at(4.15).claudeProgressOpacities.length).toBeGreaterThan(0);
-    expect(at(4.15).claudeProgressOpacities[0]).toBeGreaterThan(0);
-    expect(at(4.15).readyOpacity).toBe(0);
-    expect(at(5.4).readyOpacity).toBe(0);
-    expect(at(5.8).readyOpacity).toBe(1);
-    if (width >= 1024) {
-      expect(at(3.75).codexTypedText.length).toBeGreaterThan(0);
-      expect(at(3.9).codexTypedText.length).toBeGreaterThan(0);
-      expect(at(3.9).codexTypedText.length).toBeLessThan("map the worktrees".length);
-      expect(at(4.35).codexWorkingOpacity).toBeGreaterThan(0);
-      expect(at(4.5).claudeProgressOpacities[0]).toBeGreaterThan(0.9);
-      expect(at(4.5).claudeProgressOpacities[1]).toBeGreaterThan(0);
-      expect(at(4.5).claudeProgressOpacities[2]).toBe(0);
-      expect(at("settled").codexWorkingOpacity).toBe(0);
-    }
-    expect(at(5.9).worktreeRowOpacities.length).toBeGreaterThan(0);
-    expect(at(5.9).worktreeRowOpacities[0]).toBeGreaterThan(0);
-    expect(at(5.9).worktreeResultOpacity).toBe(0);
-    expect(at(5.9).railClip).toContain("100%");
-    expect(at(6.1).railClip).not.toContain("100%");
-    expect(at("settled").worktreeResultOpacity).toBe(1);
     expect(at(0).firstLine).toBe(0);
     expect(at(0.3).firstLine).toBeGreaterThan(0);
     expect(at(0.8).firstLine).toBe(1);
     expect(at(0.2).secondLine).toBe(0);
     expect(at(0.45).secondLine).toBeGreaterThan(0);
     expect(at(0.9).secondLine).toBe(1);
-    expect(at(5.8).firstPayoff).toBe(0);
-    expect(at(5.8).secondPayoff).toBe(0);
-    const finalHop = observation.staircase.hops.at(-1);
-    const firstHop = observation.staircase.hops[0];
-    const secondHop = observation.staircase.hops[1];
-    if (finalHop === undefined || firstHop === undefined || secondHop === undefined)
-      throw new Error("Rail hop schedule is missing");
-    const holdMiddle = (firstHop.arrival + secondHop.start) / 2;
-    expect(observation.staircase.end - observation.staircase.start).toBeLessThanOrEqual(1.600001);
-    expect(at(finalHop.start).firstPayoff).toBe(0);
-    expect(at(observation.staircase.end + 0.3).firstPayoff).toBeGreaterThan(0);
-    expect(at(observation.staircase.end + 0.3).secondPayoff).toBeGreaterThan(0);
-    expect(at(observation.staircase.end + 0.65).firstPayoff).toBe(1);
-    expect(at(observation.staircase.end + 0.65).secondPayoff).toBe(1);
+    expect(at(4.5).claudeProgressOpacities[0]).toBeGreaterThan(0);
+    expect(at(5.5).claudeSpinnerVisible).toBe(true);
+    expect(observation.directSeekSpinnerVisible).toBe(true);
+    expect(at(5.5).codexHeaderVisible).toBe(true);
+    expect(at(6.8).readyOpacity).toBe(0);
+    expect(at(7.2).readyOpacity).toBe(1);
+    expect(at(7.2).installOpacity).toBe(0);
+    expect(at(7.22).tokenCount).toBeGreaterThan(0);
+    expect(at(7.22).tokenTextOverlaps).toBe(0);
+    expect(at(7.5).tokenCount).toBeGreaterThan(0);
+    expect(at(7.5).installBurstSourceXGap).toBeGreaterThanOrEqual(0);
+    expect(at(7.5).installBurstSourceXGap).toBeLessThanOrEqual(16);
+    expect(at(7.5).installBurstSourceYGap).toBeLessThanOrEqual(4);
+    expect(at(7.5).installBurstTargetXGap).toBeGreaterThanOrEqual(4);
+    expect(at(7.5).installBurstTargetXGap).toBeLessThanOrEqual(24);
+    expect(at(7.5).installBurstTargetYGap).toBeLessThanOrEqual(4);
+    expect(at(7.5).tokenLayerViewportOffset).toBeLessThanOrEqual(1);
+    expect(at(7.56).tokenCount).toBeGreaterThan(0);
+    const installAt = (fraction: number): FinaleObservation["samples"][number] =>
+      at(Number((7.05 + fraction * 0.9).toFixed(3)));
+    for (const fraction of [0.5, 0.6, 0.7, 0.8]) {
+      expect(
+        installAt(fraction).tokenCount,
+        `${width}px tokens at ${fraction}`,
+      ).toBeGreaterThanOrEqual(4);
+      expect(installAt(fraction).tokenTextOverlaps).toBe(0);
+    }
+    const arrivalFractions = Array.from({ length: 21 }, (_, index) =>
+      Number((0.6 + index * 0.02).toFixed(2)),
+    );
+    const arrivedIndexes = new Set<number>();
+    for (const fraction of arrivalFractions) {
+      const sample = installAt(fraction);
+      const arrived = sample.installArrivalTokens.filter(
+        (token) => token.opacity >= 0.5 && token.distance <= 28,
+      );
+      expect(arrived.length, `${width}px endpoint pile at ${fraction}`).toBeLessThanOrEqual(4);
+      for (const token of arrived) arrivedIndexes.add(token.index);
+      expect(sample.tokenTextOverlaps).toBe(0);
+    }
+    expect(arrivedIndexes.size, `${width}px tokens reaching brew`).toBe(11);
+    expect(at(7.96).tokenCount).toBe(0);
+    expect(at(7.5).installOpacity).toBe(0);
+    expect(at(8.2).installOpacity).toBeGreaterThan(0);
+    expect(at(8.2).visibleDecodeLines).toBeGreaterThan(0);
+    expect(at(9.0).visibleDecodeLines).toBe(0);
+    expect(at(9.0).copyOpacity).toBe(1);
+    if (width >= 1024) {
+      expect(at(8.82).tokenCount).toBe(0);
+      expect(at(8.0).codexTypedText).toBe("");
+      expect(at(9.22).codexTypedText).toBe("");
+      expect(at(8.82).tokenCount).toBe(0);
+      expect(at(8.82).tokenTextOverlaps).toBe(0);
+      expect(at(9.02).tokenCount).toBe(0);
+      expect(at(9.245).tokenCount).toBe(0);
+      expect(at(9.72).codexTypedText.length).toBeGreaterThan(0);
+      expect(at(9.72).codexTypedText.length).toBeLessThan("map the worktrees".length);
+      expect(at(10.3).codexWorkingOpacity).toBeGreaterThan(0);
+      expect(at(11.4).worktreeRowOpacities[0]).toBeGreaterThan(0);
+      expect(at(11.0).worktreeResultOpacity).toBe(0);
+      expect(at("settled").codexWorkingOpacity).toBe(0);
+    }
+    for (const time of [7.0, 9.0, 11.0, "settled"] as const) {
+      expect(at(time).claudeInputText, `${width}px Claude input after send at ${time}`).toBe("");
+      if (width >= 1024)
+        expect(at(time).codexInputText, `${width}px Codex input after send at ${time}`).toBe("");
+    }
+    expect(at(11.3).worktreeRowOpacities.some((opacity) => opacity > 0)).toBe(true);
+    expect(at(11.3).worktreeResultOpacity).toBe(0);
+    expect(at(12.3).worktreeResultOpacity).toBe(0);
+    expect(at(12.8).worktreeResultOpacity).toBeGreaterThan(0.9);
+    expect(at(13.1).tokenCount).toBeGreaterThan(0);
+    expect(at(13.1).tokenTextOverlaps).toBe(0);
+    expect(at(13.1).railBurstTargetDistance).toBeLessThanOrEqual(2);
+    expect(at(12.3).railClip).toContain("100%");
+    expect(at(13.65).railClip).not.toContain("100%");
+    expect(at(12.3).firstPayoff).toBe(0);
+    const { staircase } = observation;
+    const railDrawStart = width >= 1024 ? 13.25 : 13.55;
+    expect(staircase.start).toBeGreaterThanOrEqual(railDrawStart);
+    expect(staircase.start - railDrawStart).toBeLessThanOrEqual(0.05);
+    for (const fraction of [0.25, 0.5, 0.75]) {
+      const offsets = [7.05, width >= 1024 ? 12.35 : 12.65];
+      for (const start of offsets) {
+        const sample = at(Number((start + fraction * 0.9).toFixed(3)));
+        expect(sample.tokenCount, `${width}px burst ${start} at ${fraction}`).toBeGreaterThan(0);
+        expect(sample.tokenTextOverlaps, `${width}px burst ${start} at ${fraction}`).toBe(0);
+        if (start === 7.05)
+          expect(
+            sample.installTokenVerticalStrays,
+            `${width}px install token location at ${fraction}`,
+          ).toBe(0);
+        if (fraction === 0.5)
+          expect(
+            Math.max(...sample.tokenVisuals.map((token) => token.opacity)),
+            `${width}px burst ${start} peak opacity`,
+          ).toBeGreaterThanOrEqual(0.85);
+        expect(
+          sample.tokenVisuals.every(
+            (token) => token.fontSize >= 12 && token.fontSize <= 14 && token.weight === "600",
+          ),
+        ).toBe(true);
+        expect(
+          sample.tokenVisuals.every((token) =>
+            ["#b4c6e4", "#d4bcad", "#bccfb9", "#c9bfd9", "#b5cdd8", "#d6cdb4"].includes(token.fill),
+          ),
+        ).toBe(true);
+      }
+    }
+    expect(staircase.end - staircase.start).toBeLessThanOrEqual(1.600001);
+    const nodeRows = [...new Set(at("settled").introDotYs)];
+    for (const [rowIndex, rowY] of nodeRows.entries()) {
+      const hop = staircase.hops[rowIndex];
+      if (hop === undefined) throw new Error("Intro dot hop missing");
+      const popStart =
+        rowIndex === 0 ? staircase.start : (staircase.hops[rowIndex - 1]?.arrival ?? hop.start);
+      const rowNodeIndexes = at("settled").introDotYs.flatMap((y, index) =>
+        Math.abs(y - rowY) <= 0.5 ? [index] : [],
+      );
+      for (const sampleIndex of rowNodeIndexes) {
+        expect(
+          at(popStart + 0.06).introDotCenterDeltas[sampleIndex],
+          `${width}px row ${rowIndex} mid-pop ${at(popStart + 0.06).introDotDebug[sampleIndex]}`,
+        ).toBeLessThanOrEqual(0.5);
+        expect(
+          at(popStart + 0.22).introDotCenterDeltas[sampleIndex],
+          `${width}px row ${rowIndex} after pop`,
+        ).toBeLessThanOrEqual(0.5);
+        expect(
+          at(popStart + 0.22).introDotTransformIdentities[sampleIndex],
+          `${width}px row ${rowIndex} cleared transform ${at(popStart + 0.22).introDotDebug[sampleIndex]}`,
+        ).toBe(true);
+      }
+    }
+    expect(at("settled").introDotCenterDeltas.every((distance) => distance <= 0.5)).toBe(true);
+    expect(at("settled").introDotTransformIdentities.every(Boolean)).toBe(true);
+    const finalHop = staircase.hops.at(-1);
+    if (finalHop === undefined) throw new Error("Rail final hop missing");
+    expect(at(finalHop.start).heroBranchDashOffset).toBeGreaterThan(0);
+    expect(at(staircase.end).heroBranchDashOffset).toBeCloseTo(0, 1);
+    expect(at(staircase.end + 0.1).firstPayoff).toBeGreaterThan(0);
+    expect(at(staircase.end + 0.1).secondPayoff).toBeGreaterThan(0);
+    expect(at("settled").firstPayoff).toBe(1);
     expect(at("settled").payoffOverflow).toBeLessThanOrEqual(0);
+    expect(at("settled").worktreeResultOpacity).toBe(1);
+    expect(at("settled").resultVisibleInPane).toBe(true);
+    expect(at("settled").offscreenRowPaintLeaks).toBe(0);
+    expect(observation.scrollProbe.overflow).toBeGreaterThan(0);
+    expect(observation.scrollProbe.scrollTop).toBeGreaterThan(0);
+    expect(observation.scrollProbe.resultVisible).toBe(true);
+    expect(at("settled").railClip).toBe("none");
+    expect(at("settled").introDotOpacities.every((opacity) => opacity > 0.9)).toBe(true);
+    expect(at("settled").rowOpacity.every((opacity) => opacity === 1)).toBe(true);
+    for (const time of [5.5, 10.7, "settled"] as const) {
+      expect(
+        at(time).transcriptClearances.every((clearance) => clearance >= 20),
+        `${time}: pinned clearance`,
+      ).toBe(true);
+    }
     for (const sample of observation.samples) {
+      expect(
+        sample.firstVisibleRowTopGaps.every((gap) => gap >= -0.5),
+        `${sample.time}: complete first row ${sample.firstVisibleRowTopGaps.join(",")} ${sample.firstVisibleRowDebug.join(" | ")}`,
+      ).toBe(true);
       expect(sample.installTransform, `${sample.time}: install transform`).toBe("none");
-      expect(sample.realCommandLines, `${sample.time}: real command text`).toEqual([
+      expect(sample.realCommandLines, `${sample.time}: command text`).toEqual([
         "$ brew tap ShravanSunder/agentstudio",
         "$ brew install --cask agent-studio",
       ]);
-    }
-    expect(at(4.3).installOpacity).toBe(0);
-    expect(at(4.9).installOpacity).toBe(1);
-    expect(at(4.9).visibleDecodeLines).toBe(2);
-    expect(at(5.4).visibleDecodeLines).toBe(0);
-    expect(at(5.5).copyOpacity).toBe(1);
-    expect(at(5.5).railClip).toContain("100%");
-    expect(at(5.5).introDotOpacities.length).toBeGreaterThan(1);
-    expect(at(5.5).introDotOpacities.every((opacity) => opacity === 0)).toBe(true);
-    expect(
-      Math.abs(
-        at(observation.staircase.start).railRevealY - at(observation.staircase.start).heroNodeY,
-      ),
-    ).toBeLessThanOrEqual(2);
-    const midDots = at(6.25).introDotOpacities;
-    expect(midDots[0]).toBeGreaterThan(0.9);
-    expect(midDots.at(-1)).toBe(0);
-    expect(midDots.findIndex((opacity) => opacity < 0.01)).toBeGreaterThan(0);
-    for (const time of [6.1, 6.25, 6.4, 6.63] as const) {
-      const dots = at(time).introDotOpacities;
-      const firstHidden = dots.findIndex((opacity) => opacity < 0.01);
-      if (firstHidden >= 0)
-        expect(dots.slice(firstHidden).every((opacity) => opacity < 0.01)).toBe(true);
-    }
-    const hold = at(holdMiddle);
-    const secondRowY = [...new Set(hold.introDotYs)][1];
-    const firstRowY = hold.introDotYs[0];
-    if (secondRowY === undefined || firstRowY === undefined)
-      throw new Error("Rail dot rows are missing");
-    expect(
-      Math.abs(hold.railRevealY - (hold.heroNodeY + secondRowY - firstRowY)),
-    ).toBeLessThanOrEqual(2);
-    expect(hold.introDotScales.some((scale) => scale > 0.5 && Math.abs(scale - 1) > 0.05)).toBe(
-      true,
-    );
-    expect(at(finalHop.start).heroBranchDashOffset).toBeGreaterThan(0);
-    expect(at(observation.staircase.end).heroBranchDashOffset).toBeCloseTo(0, 1);
-    expect(at("settled").heroBranchDashOffset).toBeCloseTo(0, 1);
-    expect(at(observation.staircase.end).introDotOpacities.every((opacity) => opacity > 0.9)).toBe(
-      true,
-    );
-    expect(at(6.4).railClip).not.toBe(at(5.5).railClip);
-    expect(at("settled").railClip).toBe("none");
-    expect(
-      at(0).rowOpacity.every((opacity) => opacity === 0),
-      JSON.stringify(at(0).rowOpacity),
-    ).toBe(true);
-    expect(at(5.5).rowOpacity.some((opacity) => opacity > 0)).toBe(true);
-    expect(at("settled").rowOpacity.every((opacity) => opacity === 1)).toBe(true);
-    const baseline = at(0);
-    for (const time of [
-      3.5,
-      5.5,
-      6.5,
-      observation.staircase.end,
-      observation.staircase.end + 0.65,
-      "settled",
-    ] as const) {
-      const sample = at(time);
-      expect(Math.abs(sample.appTop - baseline.appTop), `${time}: app`).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(sample.appTop - at(0).appTop), `${sample.time}: app`).toBeLessThanOrEqual(
+        0.5,
+      );
       expect(
-        Math.abs(sample.windowHeight - baseline.windowHeight),
-        `${time}: window`,
+        Math.abs(sample.windowHeight - at(0).windowHeight),
+        `${sample.time}: window`,
       ).toBeLessThanOrEqual(0.5);
       expect(
-        Math.abs(sample.chapterNodeY - baseline.chapterNodeY),
-        `${time}: rail`,
+        Math.abs(sample.chapterNodeY - at(0).chapterNodeY),
+        `${sample.time}: rail`,
       ).toBeLessThanOrEqual(0.5);
     }
     expect(observation.resizeRailClip).toBe("none");
     expect(observation.resizeRailStyle).not.toContain("clip-path");
     expect(observation.resizeSceneInlineStyles).toBe(0);
     expect(observation.resizeRailIntroMarkers).toBe(0);
+    expect(observation.resizeRailResidualTransforms).toBe(0);
     expect(observation.skipRailClip).toBe("none");
     expect(observation.skipSceneInlineStyles).toBe(0);
     expect(observation.skipRailIntroMarkers).toBe(0);
+    expect(observation.skipRailResidualTransforms).toBe(0);
     expect(observation.skipFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
     expect(observation.reducedRailClip).toBe("none");
     expect(observation.reducedRailIntroMarkers).toBe(0);
+    expect(observation.reducedRailResidualTransforms).toBe(0);
     expect(observation.reducedFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
   });
 }
+
+it("keeps phone worktree rows on one line at approved narrow widths", async () => {
+  for (const width of [360, 390, 414]) {
+    const observation = await commands.verifyHeroIntroFinale(
+      inject("siteHeaderBrowserTestUrl"),
+      width,
+      844,
+    );
+    const settled = observation.samples.find((sample) => sample.time === "settled");
+    if (settled === undefined) throw new Error("Settled hero sample missing");
+    expect(settled.worktreeRowLineCounts).toEqual([1, 1, 1]);
+    expect(
+      settled.claudeRowLineCounts.every((count) => count <= 1),
+      `${width}px wrapped Claude rows: ${settled.wrappedClaudeRows.join(" | ")}`,
+    ).toBe(true);
+  }
+});
+
+it("keeps the hero Codex session in the Agent Studio workspace", async () => {
+  const observation = await commands.verifyHeroIntroFinale(
+    inject("siteHeaderBrowserTestUrl"),
+    1600,
+    1000,
+  );
+  const settled = observation.samples.find((sample) => sample.time === "settled");
+  if (settled === undefined) throw new Error("Settled hero sample missing");
+  expect(settled.heroText).not.toMatch(/tool-portal|fix\/lease-client/u);
+  expect(settled.codexHeaderText).toContain("directory: ~/agent-studio");
+  expect(settled.codexFooterText).toContain("main");
+  expect(settled.worktreeTexts).toEqual([
+    "└ ~/agent-studio  main",
+    "└ ~/agent-studio.drawer  drawer-improvements",
+    "└ ~/agent-studio.review  review-comments",
+  ]);
+});
+
+it("clips scrolled transcript rows inside their panes", async () => {
+  for (const [width, height] of [
+    [1600, 1000],
+    [390, 844],
+  ] as const) {
+    const observation = await commands.verifyHeroIntroFinale(
+      inject("siteHeaderBrowserTestUrl"),
+      width,
+      height,
+    );
+    const settled = observation.samples.find((sample) => sample.time === "settled");
+    if (settled === undefined) throw new Error("Settled hero sample missing");
+    expect(settled.offscreenRowPaintLeaks, `${width}px`).toBe(0);
+    expect(settled.resultVisibleInPane, `${width}px`).toBe(true);
+  }
+});
+
+it("reaches stillness by the owner-adjusted 16.5s ceiling", async () => {
+  const observation = await commands.verifyHeroIntroFinale(
+    inject("siteHeaderBrowserTestUrl"),
+    1600,
+    1000,
+  );
+  expect(observation.staircase.end + 0.2).toBeLessThanOrEqual(16.5);
+});

@@ -8,7 +8,7 @@ extension AppCommand {
         case .closeTab:
             return AppCommandSpec(
                 command: self,
-                shortcut: nil,
+                shortcut: .closeTab,
                 label: "Close Tab",
                 icon: .system(.xmark),
                 helpText: "Close the active tab",
@@ -701,6 +701,7 @@ extension AppCommand {
             )
         case .newWorktree: return newWorktreeDefinition()
         case .newWorktreeFromDefault: return newWorktreeFromDefaultDefinition()
+        case .newWorktreeFromBranch: return newWorktreeFromBranchDefinition()
         case .forkWorktree: return forkWorktreeDefinition()
         case .openPaneLocationInBookmarkedEditor:
             return AppCommandSpec(
@@ -841,7 +842,7 @@ extension AppCommand {
             )
         case .closeWindow:
             return windowDefinition(
-                shortcut: nil,
+                shortcut: .closeWindow,
                 label: "Close Window",
                 icon: .system(.xmarkRectangle),
                 helpText: "Close the current application window",

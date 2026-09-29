@@ -92,7 +92,8 @@ package enum AppShortcutDispatchPolicy {
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath, .openPullRequest,
             .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
-            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .forkWorktree,
+            .openWorktree, .openWorktreeInPane, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch,
+            .forkWorktree,
             .toggleManagementLayer,
             .managementLayerFocusLeft,
             .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -123,7 +124,7 @@ package enum AppShortcutDispatchPolicy {
         switch shortcut {
         case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true
-        case .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
+        case .closeTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
             .focusPreviousPinnedPane, .focusNextPinnedPane,
             .previousArrangement, .nextArrangement, .zoomPane, .showViewer,
             .addDrawerPane, .toggleDrawer, .scrollToBottom,
@@ -133,7 +134,7 @@ package enum AppShortcutDispatchPolicy {
             .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .focusSidebar, .filterSidebar,
             .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .togglePanesShowsDrawers,
-            .newWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
+            .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
             .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
             .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,
             .focusPane8, .focusPane9, .managementLayerFocusLeft, .managementLayerFocusRight,
@@ -209,7 +210,7 @@ package enum AppShortcutDispatchPolicy {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9:
             return true
-        case .undoCloseTab, .newTab, .showArrangementPanel,
+        case .closeTab, .undoCloseTab, .newTab, .showArrangementPanel,
             .focusPreviousPinnedPane, .focusNextPinnedPane, .addDrawerPane,
             .toggleDrawer, .scrollToBottom, .scrollPageUp, .scrollPageDown,
             .scrollSmallStepUp, .scrollSmallStepDown, .jumpToPreviousPrompt, .jumpToNextPrompt,
@@ -219,7 +220,7 @@ package enum AppShortcutDispatchPolicy {
             .toggleManagementLayer, .toggleSidebar, .focusSidebar, .filterSidebar, .showInboxNotifications,
             .showPaneInboxNotifications, .showReposSidebar, .showPanesSidebar, .showCommandBarEverything,
             .togglePanesShowsDrawers,
-            .showCommandBarCommands, .showCommandBarPanes, .newWindow,
+            .showCommandBarCommands, .showCommandBarPanes, .newWindow, .closeWindow,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
             .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
             .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -235,13 +236,13 @@ package enum AppShortcutDispatchPolicy {
             .scrollToBottom, .scrollPageUp, .scrollPageDown,
             .scrollSmallStepUp, .scrollSmallStepDown, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return false
-        case .toggleSidebar, .focusSidebar, .focusPreviousPinnedPane, .focusNextPinnedPane, .newTab,
+        case .toggleSidebar, .focusSidebar, .focusPreviousPinnedPane, .focusNextPinnedPane, .closeTab, .newTab,
             .undoCloseTab, .nextTab, .prevTab,
             .showArrangementPanel, .previousArrangement, .nextArrangement,
             .zoomPane, .showViewer, .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showInboxNotifications,
-            .showPaneInboxNotifications, .newWindow,
+            .showPaneInboxNotifications, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
             .selectTab7, .selectTab8, .selectTab9, .focusPane1, .focusPane2, .focusPane3,
@@ -265,7 +266,7 @@ package enum AppShortcutDispatchPolicy {
         case .toggleSidebar, .focusSidebar, .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
             return true
-        case .newTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
+        case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
             .focusPreviousPinnedPane, .focusNextPinnedPane,
             .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
             .scrollPageUp, .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
@@ -273,7 +274,7 @@ package enum AppShortcutDispatchPolicy {
             .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .showPaneInboxNotifications,
-            .newWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
+            .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
             .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
             .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,
             .focusPane8, .focusPane9, .managementLayerFocusLeft, .managementLayerFocusRight,
