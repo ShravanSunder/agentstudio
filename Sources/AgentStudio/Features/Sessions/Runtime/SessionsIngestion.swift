@@ -33,7 +33,7 @@ package actor SessionsIngestion {
         let mutation: SessionsMutation
         let paneId: UUID?
         let errorAfterCommit: SessionsRepositoryError?
-        let continuation: CheckedContinuation<SessionsMutationOutcome, any Error>
+        let continuation: CheckedContinuation<SessionsSubmissionResult, any Error>
     }
 
     private let repository: SessionsRepository
@@ -59,6 +59,13 @@ package actor SessionsIngestion {
         correlationId: UUID,
         mutation: SessionsMutation
     ) async throws -> SessionsMutationOutcome {
+        try await submitWithCommitDisposition(correlationId: correlationId, mutation: mutation).outcome
+    }
+
+    package func submitWithCommitDisposition(
+        correlationId: UUID,
+        mutation: SessionsMutation
+    ) async throws -> SessionsSubmissionResult {
         guard acceptsSubmissions else { throw SessionsRepositoryError.ingestionFinished }
         let paneId = mutation.paneId
         if let capacityError = currentCapacityError(for: paneId) {
@@ -94,7 +101,7 @@ package actor SessionsIngestion {
         correlationId: UUID,
         mutation: SessionsMutation,
         errorAfterCommit: SessionsRepositoryError?
-    ) async throws -> SessionsMutationOutcome {
+    ) async throws -> SessionsSubmissionResult {
         let paneId = mutation.paneId
         return try await withCheckedThrowingContinuation { continuation in
             pendingMutations.append(

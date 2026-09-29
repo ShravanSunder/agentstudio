@@ -100,11 +100,6 @@ package enum AppCommand: String, CaseIterable {
     case showPanesSidebar
     case setReposGroupingRepo
     case setReposGroupingActivity
-    case setPanesGroupingRepo
-    case setPanesGroupingTab
-    case setPanesGroupingActivity
-    case setPanesSubgroupNone
-    case setPanesSubgroupActivity
     case setReposSortFieldName
     case setReposSortFieldActivity
     case setPanesSortFieldName
@@ -113,6 +108,7 @@ package enum AppCommand: String, CaseIterable {
     case togglePanesSortDirection
     case toggleReposShowsPinned
     case togglePanesShowsPinned
+    case togglePanesShowsDrawers
     case setInboxGroupingTab
     case setInboxGroupingRepo
     case setInboxGroupingPane

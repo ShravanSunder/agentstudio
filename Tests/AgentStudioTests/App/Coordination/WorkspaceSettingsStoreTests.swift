@@ -10,7 +10,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite(.serialized)
+@Suite
 struct WorkspaceSettingsStoreTests {
     @Test
     func flushAndRestoreRoundTripsTypedSQLiteSettings() async throws {

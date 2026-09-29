@@ -458,7 +458,14 @@ struct FilesystemActorTests {
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .milliseconds(60),
+            maxFlushLatency: .seconds(1)
+        )
 
         let basePath = "/tmp/activity-priority-\(UUIDv7.generate().uuidString)"
         let sidebarOnlyWorktreeId = UUIDv7.generate()
@@ -476,11 +483,10 @@ struct FilesystemActorTests {
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
-        // One ingress call admits both worktrees before the zero-debounce drain starts.
-        await actor.enqueueRawPaths(
-            worktreeId: sidebarOnlyWorktreeId,
-            paths: ["README.md", "active/src/main.swift"]
-        )
+        await actor.enqueueRawPaths(worktreeId: sidebarOnlyWorktreeId, paths: ["README.md"])
+        await actor.enqueueRawPaths(worktreeId: activeWorktreeId, paths: ["src/main.swift"])
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(60))
 
         let firstEnvelope = try #require(await iterator.next())
         let firstChangeset = try #require(filesChangedChangeset(from: firstEnvelope))

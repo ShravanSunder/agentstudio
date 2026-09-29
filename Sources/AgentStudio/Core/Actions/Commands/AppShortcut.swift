@@ -176,6 +176,7 @@ package struct AppShortcutSpec: Equatable {
 }
 
 package enum AppShortcut: String, CaseIterable {
+    case closeTab
     case newTab
     case undoCloseTab
     case focusPreviousPinnedPane
@@ -209,7 +210,9 @@ package enum AppShortcut: String, CaseIterable {
     case showPaneInboxNotifications
     case showReposSidebar
     case showPanesSidebar
+    case togglePanesShowsDrawers
     case newWindow
+    case closeWindow
     case showCommandBarEverything
     case showCommandBarCommands
     case showCommandBarPanes
@@ -242,6 +245,11 @@ package enum AppShortcut: String, CaseIterable {
 
     package var spec: AppShortcutSpec {
         switch self {
+        case .closeTab:
+            return .init(
+                trigger: .init(key: .character(.w), modifiers: [.command]),
+                contexts: [.global]
+            )
         case .newTab:
             return .init(
                 trigger: .init(key: .character(.t), modifiers: [.command]),
@@ -415,9 +423,22 @@ package enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.p), modifiers: []),
                 contexts: [.sidebarList]
             )
+        case .togglePanesShowsDrawers:
+            return .init(
+                trigger: .init(key: .character(.d), modifiers: [.shift]),
+                alternateTriggers: [
+                    .init(key: .character(.d), modifiers: []): [.sidebarList]
+                ],
+                contexts: [.sidebarList]
+            )
         case .newWindow:
             return .init(
                 trigger: .init(key: .character(.n), modifiers: [.command]),
+                contexts: [.global]
+            )
+        case .closeWindow:
+            return .init(
+                trigger: .init(key: .character(.w), modifiers: [.command, .shift]),
                 contexts: [.global]
             )
         case .showCommandBarEverything:
@@ -502,6 +523,8 @@ package enum AppShortcut: String, CaseIterable {
 
     package var command: AppCommand {
         switch self {
+        case .closeTab:
+            return .closeTab
         case .newTab:
             return .showCommandBarQuickOpen
         case .undoCloseTab:
@@ -566,8 +589,12 @@ package enum AppShortcut: String, CaseIterable {
             return .showReposSidebar
         case .showPanesSidebar:
             return .showPanesSidebar
+        case .togglePanesShowsDrawers:
+            return .togglePanesShowsDrawers
         case .newWindow:
             return .newWindow
+        case .closeWindow:
+            return .closeWindow
         case .showCommandBarEverything:
             return .showCommandBarEverything
         case .showCommandBarCommands:
@@ -636,7 +663,7 @@ extension AppShortcut {
         switch self {
         case .addDrawerPane:
             return true
-        case .undoCloseTab, .newTab, .nextTab, .prevTab,
+        case .closeTab, .undoCloseTab, .newTab, .nextTab, .prevTab,
             .focusPreviousPinnedPane, .focusNextPinnedPane, .showArrangementPanel,
             .previousArrangement, .nextArrangement, .zoomPane, .showViewer,
             .toggleDrawer, .scrollToBottom, .scrollPageUp, .scrollPageDown,
@@ -645,7 +672,8 @@ extension AppShortcut {
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
             .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .focusSidebar, .filterSidebar,
             .showInboxNotifications, .showPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
-            .newWindow, .showCommandBarEverything, .showCommandBarCommands,
+            .togglePanesShowsDrawers,
+            .newWindow, .closeWindow, .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
             .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
             .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,

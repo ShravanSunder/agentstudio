@@ -15,6 +15,19 @@ export function localForkPath(
   ];
 }
 
+/** Leave a dot vertically, then ease into a horizontal label or terminal approach. */
+export function localDropTurnPath(
+  sourceX: number,
+  targetX: number,
+  sourceY: number,
+  targetY: number,
+): readonly string[] {
+  return [
+    `M ${sourceX} ${sourceY}`,
+    `C ${sourceX} ${sourceY + (targetY - sourceY) * 0.9} ${sourceX + (targetX - sourceX) * 0.1} ${targetY} ${targetX} ${targetY}`,
+  ];
+}
+
 export function localMergePath(
   sourceX: number,
   targetX: number,

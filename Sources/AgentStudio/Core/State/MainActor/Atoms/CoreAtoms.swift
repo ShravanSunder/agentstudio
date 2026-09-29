@@ -34,6 +34,7 @@ package final class CoreAtoms {
     package let workspaceFocusOwner: WorkspaceFocusOwnerAtom
     package let sessionRuntime: SessionRuntimeAtom
     package let paneActivityStatus: PaneActivityStatusAtom
+    package let paneActivityTime: PaneActivityTimeAtom
     package let welcome: WelcomeAtom
 
     package init(
@@ -67,6 +68,7 @@ package final class CoreAtoms {
         workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         paneActivityStatus: PaneActivityStatusAtom = .init(),
+        paneActivityTime: PaneActivityTimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
         self.activeWorkspaceSelection = activeWorkspaceSelection
@@ -138,6 +140,7 @@ package final class CoreAtoms {
         self.workspaceFocusOwner = workspaceFocusOwner
         self.sessionRuntime = sessionRuntime
         self.paneActivityStatus = paneActivityStatus
+        self.paneActivityTime = paneActivityTime
         self.welcome = welcome
     }
 

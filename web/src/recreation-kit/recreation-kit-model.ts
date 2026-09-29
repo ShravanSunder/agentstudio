@@ -170,6 +170,7 @@ export type KitDiffLine =
       readonly kind: "context" | "added" | "removed";
       readonly lineNumber: number;
       readonly text: string;
+      readonly scenePart?: string;
     }
   | { readonly kind: "collapsed"; readonly label: string };
 

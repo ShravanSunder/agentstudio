@@ -35,30 +35,6 @@ struct LibGit2WorktreeCreationGitClient: WorktreeCreationGitClient {
     }
 }
 
-/// Uses the SDK's origin/HEAD resolution, then local main/master branch facts.
-struct SDKWorktreeDefaultStartPointResolver: WorktreeDefaultStartPointResolving {
-    private let client: any AgentStudioGitLocalClient
-
-    init(client: any AgentStudioGitLocalClient = LibGit2AgentStudioGitLocalClient()) {
-        self.client = client
-    }
-
-    @concurrent
-    func resolveDefaultStartPoint(repositoryPath: URL) async throws(GitDataPlaneError) -> WorktreeDefaultStartPoint {
-        if let originHead = try await client.resolveReviewDefaultTarget(for: repositoryPath),
-            case .remoteTracking(let remoteName, _, _) = originHead,
-            remoteName == "origin"
-        {
-            return .resolved(displayRef: originHead.displayName, startPoint: originHead.referenceName)
-        }
-        let branches = try await client.branches(for: repositoryPath)
-        for branchName in ["main", "master"] where branches.contains(where: { $0.name == branchName }) {
-            return .resolved(displayRef: branchName, startPoint: "refs/heads/\(branchName)")
-        }
-        return .noDefaultBranch
-    }
-}
-
 /// Live fork-eligibility port over the SDK's read-only `forkWorktreeEligibility` query:
 /// host, volume, and File Provider facts only. The app never re-implements those rules;
 /// it turns the SDK's reason into row copy, and `forkWorktree`'s own preflight rejection

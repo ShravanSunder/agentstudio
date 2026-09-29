@@ -14,8 +14,8 @@ struct CommandBarResultSessionTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("result session owns item filtering, grouping, and selection")
-    func resultSessionOwnsFilteringGroupingAndSelection() {
+    @Test("result session prepares declared documents for the service")
+    func resultSessionPreparesSearchDocuments() async {
         let store = WorkspaceStore()
         let repoCache = RepoCacheAtom()
         let state = CommandBarState()
@@ -28,19 +28,20 @@ struct CommandBarResultSessionTests {
             dispatcher: FakeAppCommandDispatcher()
         )
 
-        let snapshot = session.snapshot(state: state)
-
-        #expect(
-            snapshot.filteredItems.allSatisfy { item in
-                item.title.localizedCaseInsensitiveContains("close")
-                    || item.keywords.contains { $0.localizedCaseInsensitiveContains("close") }
-            })
-        #expect(
-            snapshot.displayedItems.map(\.id)
-                == CommandBarDataSource.displayItems(from: snapshot.groups).map(\.id)
+        let prepared = session.prepareSearch(state: state)
+        let answer = await SearchService().search(
+            SearchRequest(
+                sequence: SearchRequestSequence(1),
+                text: "close",
+                recentItemIds: [],
+                documentSet: prepared.documentSet
+            )
         )
-        #expect(snapshot.selectedItem?.id == snapshot.displayedItems.first?.id)
-        #expect(snapshot.totalItems == snapshot.displayedItems.count)
+
+        #expect(!prepared.documentSet.documents.isEmpty)
+        #expect(answer.outcome == .answered)
+        #expect(!answer.groups.isEmpty)
+        #expect(answer.groups.flatMap(\.matches).allSatisfy { prepared.rowsById[$0.itemId] != nil })
     }
 
     @Test("nested result session uses level items instead of rebuilding root items")
@@ -88,9 +89,9 @@ struct CommandBarResultSessionTests {
 
         _ = session.snapshot(state: state)
         state.rawInput = "# repo"
-        _ = session.snapshot(state: state)
+        _ = session.prepareSearch(state: state)
         state.rawInput = "# repo feature"
-        _ = session.snapshot(state: state)
+        _ = session.prepareSearch(state: state)
 
         #expect(session.rootItemSnapshotBuildCount == 2)
         #expect(session.rootItemSnapshotCacheHitCount == 1)
@@ -160,7 +161,7 @@ struct CommandBarResultSessionTests {
         _ = session.snapshot(state: state)
         _ = session.snapshot(state: state)
         state.rawInput = "# repo"
-        _ = session.snapshot(state: state)
+        _ = session.prepareSearch(state: state)
         try await recorder.drain()
 
         let outputFileURL = try #require(runtime.outputFileURL)
@@ -194,8 +195,8 @@ struct CommandBarResultSessionTests {
         #expect(snapshot.searchDocument.query.isEmpty)
     }
 
-    @Test("root input trims edges for fuzzy search and preserves internal whitespace")
-    func rootInputUsesOneNormalizedFuzzyQuery() {
+    @Test("root input trims edges for substring search and preserves internal whitespace")
+    func rootInputUsesOneNormalizedQuery() {
         let state = CommandBarState()
         state.show(prefix: "#")
         state.rawInput = "#   repo   feature  "
@@ -222,9 +223,9 @@ struct CommandBarResultSessionTests {
 
         _ = session.snapshot(state: state)
         state.rawInput = "> close"
-        _ = session.snapshot(state: state)
+        _ = session.prepareSearch(state: state)
         state.rawInput = "> close pane"
-        _ = session.snapshot(state: state)
+        _ = session.prepareSearch(state: state)
         state.rawInput = "> "
         _ = session.snapshot(state: state)
 
@@ -232,8 +233,8 @@ struct CommandBarResultSessionTests {
         #expect(session.rootItemSnapshotCacheHitCount == 1)
     }
 
-    @Test("root selection preserves stable row identity across projection boundaries")
-    func rootSelectionPreservesStableRowIdentity() throws {
+    @Test("pending search preserves the selected row until an answer applies")
+    func pendingSearchPreservesStableRowIdentity() throws {
         let store = WorkspaceStore()
         let firstRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-selection-first"))
         let selectedRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-selection-selected"))
@@ -253,14 +254,14 @@ struct CommandBarResultSessionTests {
         )
         #expect(firstRepository.id != selectedRepository.id)
         state.rawInput = "# selected"
-        let meaningfulSnapshot = session.snapshot(state: state)
+        let pendingSnapshot = session.snapshot(state: state)
 
-        #expect(meaningfulSnapshot.selectedItem?.id == selectedID)
-        #expect(meaningfulSnapshot.displayedItems[state.selectedIndex].id == selectedID)
+        #expect(pendingSnapshot.selectedItem?.id == selectedID)
+        #expect(pendingSnapshot.displayedItems[state.selectedIndex].id == selectedID)
     }
 
-    @Test("selection clamps deterministically when the selected row disappears")
-    func rootSelectionClampsWhenSelectedRowDisappears() {
+    @Test("pending search keeps the previously displayed rows")
+    func pendingSearchKeepsPreviousRows() {
         let state = CommandBarState()
         state.show(prefix: ">")
         let session = CommandBarResultSession(
@@ -272,11 +273,10 @@ struct CommandBarResultSessionTests {
         let initialSnapshot = session.snapshot(state: state)
         state.selectedIndex = max(0, initialSnapshot.displayedItems.count - 1)
         state.rawInput = "> no command can match this sentinel"
-        let emptySnapshot = session.snapshot(state: state)
+        let pendingSnapshot = session.snapshot(state: state)
 
-        #expect(emptySnapshot.displayedItems.isEmpty)
-        #expect(emptySnapshot.selectedItem == nil)
-        #expect(state.selectedIndex == 0)
+        #expect(pendingSnapshot.displayedItems.map(\.id) == initialSnapshot.displayedItems.map(\.id))
+        #expect(pendingSnapshot.selectedItem?.id == initialSnapshot.displayedItems.last?.id)
     }
 
     @Test("selection wraps symmetrically through consecutive result snapshots")
@@ -385,10 +385,10 @@ struct CommandBarResultSessionTests {
         }
 
         let repo = store.addRepo(at: URL(filePath: "/tmp/command-bar-root-cache-observable"))
-        let snapshot = session.snapshot(state: state)
+        let prepared = session.prepareSearch(state: state)
 
         #expect(invalidationCounter.count >= 1)
-        #expect(snapshot.allItems.contains { $0.id == "repo-\(repo.id.uuidString)" })
+        #expect(prepared.documentSet.documents.contains { $0.itemId.rawValue == "repo-\(repo.id.uuidString)" })
     }
 
     @Test("# root item snapshot rebuilds after a new command bar session starts")

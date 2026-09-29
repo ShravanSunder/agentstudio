@@ -298,6 +298,10 @@ struct VendorConsumerWiringScriptTests {
             "scripts/lint-swift.sh",
             "Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh",
         ]
+        // CI builds swift-format from its pinned source without consuming vendors.
+        let independentToolchainScripts: Set<String> = [
+            "scripts/install-ci-lint-tools.sh"
+        ]
         let fileManager = FileManager.default
         let scripts =
             try fileManager.contentsOfDirectory(atPath: "scripts")
@@ -317,10 +321,11 @@ struct VendorConsumerWiringScriptTests {
         // Assert
         #expect(
             swiftCommandScripts
-                == expectedScripts.union(sourcedOnlyHelpers).union(independentToolPackageScripts),
+                == expectedScripts.union(sourcedOnlyHelpers).union(independentToolPackageScripts)
+                .union(independentToolchainScripts),
             """
             Classify every script containing a Swift command as a verified entry point, a sourced-only helper, \
-            or an independent tool-package script
+            an independent tool-package script, or an independent toolchain installer
             """)
         for path in independentToolPackageScripts {
             let source = try String(contentsOfFile: path, encoding: .utf8)
@@ -334,6 +339,13 @@ struct VendorConsumerWiringScriptTests {
             #expect(
                 vendorVerificationOffset(in: source) == nil,
                 "\(path) builds no vendor consumer and must not need a vendor verifier")
+        }
+        for path in independentToolchainScripts {
+            let source = try String(contentsOfFile: path, encoding: .utf8)
+            let commands = swiftCommands(in: source)
+            #expect(commands.count == 1)
+            #expect(commands.first?.contains("--package-path \"$format_source\"") == true)
+            #expect(vendorVerificationOffset(in: source) == nil)
         }
         for path in expectedScripts {
             let source = try String(contentsOfFile: path, encoding: .utf8)

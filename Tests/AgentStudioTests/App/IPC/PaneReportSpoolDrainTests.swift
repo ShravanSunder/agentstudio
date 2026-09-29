@@ -513,7 +513,8 @@ private final class PaneReportSpoolDrainHarness {
                     occurrenceId: UUIDv7.generate()
                 ),
                 correlationId: UUIDv7.generate()
-            )
+            ),
+            provenance: .other
         )
     }
 

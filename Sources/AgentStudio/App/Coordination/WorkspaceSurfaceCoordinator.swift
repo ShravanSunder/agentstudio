@@ -58,6 +58,7 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     let store: WorkspaceStore
+    var paneActivityClock: PaneActivityClock?
     let undoClock: @Sendable () async throws -> WorkspaceUndoJournalTime
     let undoDelay: AsyncDelay
     let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -439,12 +440,18 @@ final class WorkspaceSurfaceCoordinator {
         let retiredCloseIDs = Set(retirements.map(\.closeID))
         undoCloses.removeAll { retiredCloseIDs.contains($0.closeID) }
         let unownedPaneIDs = Set(retirements.flatMap(\.unownedPaneIDs))
+        retirePanesPermanently(unownedPaneIDs)
         if !unownedPaneIDs.isEmpty {
             ipcLifecycle.finalRevokePaneIDs(unownedPaneIDs)
         }
         surfaceManager.releaseUndoSurfaces(forPaneIDs: unownedPaneIDs)
         for paneID in unownedPaneIDs { viewRegistry.retireSlot(for: paneID) }
         signalTerminalSessionCleanup()
+    }
+
+    /// Shared final-retirement edge for undo expiry and committed direct discards.
+    func retirePanesPermanently(_ paneIDs: Set<UUID>) {
+        paneActivityClock?.retire(Array(paneIDs))
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {

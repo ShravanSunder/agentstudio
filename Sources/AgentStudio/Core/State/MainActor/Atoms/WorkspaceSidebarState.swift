@@ -43,6 +43,7 @@ package final class WorkspaceSidebarMemoryAtom {
     private(set) var paneSubgroupMode: SidebarSubgroupMode = .activity
     private(set) var showsPinnedRepos: Bool = true
     private(set) var showsPinnedPanes: Bool = true
+    private(set) var showsDrawerPanes: Bool = true
 
     func setFilterText(_ text: String) {
         filterText = text
@@ -84,6 +85,10 @@ package final class WorkspaceSidebarMemoryAtom {
         showsPinnedPanes = showsPinned
     }
 
+    func setShowsDrawerPanes(_ showsDrawers: Bool) {
+        showsDrawerPanes = showsDrawers
+    }
+
     func hydrate(
         filterText: String,
         isFilterVisible: Bool,
@@ -94,7 +99,8 @@ package final class WorkspaceSidebarMemoryAtom {
         repoSubgroupMode: SidebarSubgroupMode = .ungrouped,
         paneSubgroupMode: SidebarSubgroupMode = .activity,
         showsPinnedRepos: Bool = true,
-        showsPinnedPanes: Bool = true
+        showsPinnedPanes: Bool = true,
+        showsDrawerPanes: Bool = true
     ) {
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
@@ -106,6 +112,7 @@ package final class WorkspaceSidebarMemoryAtom {
         self.paneSubgroupMode = paneSubgroupMode
         self.showsPinnedRepos = showsPinnedRepos
         self.showsPinnedPanes = showsPinnedPanes
+        self.showsDrawerPanes = showsDrawerPanes
     }
 
     func clear() {
@@ -119,6 +126,7 @@ package final class WorkspaceSidebarMemoryAtom {
         paneSubgroupMode = .activity
         showsPinnedRepos = true
         showsPinnedPanes = true
+        showsDrawerPanes = true
     }
 }
 
@@ -175,6 +183,7 @@ package final class WorkspaceSidebarState {
     package var paneSubgroupMode: SidebarSubgroupMode { memoryAtom.paneSubgroupMode }
     package var showsPinnedRepos: Bool { memoryAtom.showsPinnedRepos }
     package var showsPinnedPanes: Bool { memoryAtom.showsPinnedPanes }
+    package var showsDrawerPanes: Bool { memoryAtom.showsDrawerPanes }
 
     package var sidebarHasFocus: Bool {
         focusAtom.sidebarHasFocus
@@ -220,6 +229,10 @@ package final class WorkspaceSidebarState {
         memoryAtom.setShowsPinnedPanes(showsPinned)
     }
 
+    package func setShowsDrawerPanes(_ showsDrawers: Bool) {
+        memoryAtom.setShowsDrawerPanes(showsDrawers)
+    }
+
     package func setSidebarHasFocus(_ hasFocus: Bool) {
         focusAtom.setSidebarHasFocus(hasFocus)
     }
@@ -234,7 +247,8 @@ package final class WorkspaceSidebarState {
         repoSubgroupMode: SidebarSubgroupMode = .ungrouped,
         paneSubgroupMode: SidebarSubgroupMode = .activity,
         showsPinnedRepos: Bool = true,
-        showsPinnedPanes: Bool = true
+        showsPinnedPanes: Bool = true,
+        showsDrawerPanes: Bool = true
     ) {
         memoryAtom.hydrate(
             filterText: filterText,
@@ -246,7 +260,8 @@ package final class WorkspaceSidebarState {
             repoSubgroupMode: repoSubgroupMode,
             paneSubgroupMode: paneSubgroupMode,
             showsPinnedRepos: showsPinnedRepos,
-            showsPinnedPanes: showsPinnedPanes
+            showsPinnedPanes: showsPinnedPanes,
+            showsDrawerPanes: showsDrawerPanes
         )
         focusAtom.clear()
     }

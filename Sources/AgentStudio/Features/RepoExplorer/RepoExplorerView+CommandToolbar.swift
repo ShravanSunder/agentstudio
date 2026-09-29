@@ -41,6 +41,13 @@ extension RepoExplorerView {
                 isPanes ? .togglePanesShowsPinned : .toggleReposShowsPinned,
                 selected: repoExplorerPrefs.showsPinned, presentation: presentation
             )
+            if isPanes {
+                commandToggle(
+                    .togglePanesShowsDrawers,
+                    selected: repoExplorerPrefs.showsDrawerPanes,
+                    presentation: presentation
+                )
+            }
             if !isPanes {
                 SidebarToolbarDivider()
                 sortDirectionButton(.toggleReposSortDirection, presentation: presentation)
@@ -246,7 +253,9 @@ extension RepoExplorerView {
             SidebarToolbarActionButton(
                 label: presented.commandSpec.label,
                 accessibilityIdentifier: "sidebarOrganization.\(command.rawValue)",
-                tooltipValue: presented.commandSpec.controlTooltipRenderValue(),
+                tooltipValue: presented.commandSpec.controlTooltipRenderValue(
+                    shortcutTextOverride: sidebarShortcutDisplay(for: command)
+                ),
                 icon: {
                     presented.commandSpec.icon.swiftUIImage(
                         loader: octiconLoader, size: AppStyles.General.Icon.compact

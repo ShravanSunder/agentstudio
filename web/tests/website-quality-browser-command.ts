@@ -5,6 +5,7 @@ interface WebsiteLayoutObservation {
   readonly chapterCount: number;
   readonly clippedHeadings: readonly string[];
   readonly horizontalOverflow: number;
+  readonly introHorizontalOverflow: number;
 }
 
 export const verifyWebsiteQualityLayout = defineBrowserCommand(
@@ -12,13 +13,30 @@ export const verifyWebsiteQualityLayout = defineBrowserCommand(
     const applicationPage = await context.newPage();
     const observations: WebsiteLayoutObservation[] = [];
     try {
+      await applicationPage.addInitScript((): void => {
+        (window as Window & { websiteIntroReady?: Promise<void> }).websiteIntroReady = new Promise(
+          (resolve) => {
+            document.addEventListener("hero-intro-playback-ready", (event) => {
+              if (!(event instanceof CustomEvent)) return;
+              const control = event.detail as { pause(): void; seek(seconds: number): void };
+              control.pause();
+              (window as Window & { websiteIntroControl?: typeof control }).websiteIntroControl =
+                control;
+              resolve();
+            });
+          },
+        );
+      });
       await applicationPage.emulateMedia({ reducedMotion: "reduce" });
       /* eslint-disable no-await-in-loop -- One page owns the viewport; each width must settle before it is read. */
-      for (const width of [320, 390, 900, 1144, 1280, 1440, 1600, 1920]) {
-        await applicationPage.setViewportSize({ width, height: 1000 });
-        await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
-        observations.push(
-          await applicationPage.evaluate((): WebsiteLayoutObservation => {
+      for (const width of [320, 360, 375, 390, 900, 1144, 1280, 1440, 1600, 1920]) {
+        await applicationPage.setViewportSize({ width, height: width <= 375 ? 667 : 1000 });
+        await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+        await applicationPage.evaluate(async (): Promise<void> => {
+          await document.fonts.ready;
+        });
+        const settledObservation = await applicationPage.evaluate(
+          (): Omit<WebsiteLayoutObservation, "introHorizontalOverflow"> => {
             const headings = [
               ...document.querySelectorAll<HTMLElement>("#hero-title, [data-chapter] h2"),
             ];
@@ -41,8 +59,27 @@ export const verifyWebsiteQualityLayout = defineBrowserCommand(
               horizontalOverflow:
                 document.documentElement.scrollWidth - document.documentElement.clientWidth,
             };
-          }),
+          },
         );
+        let introHorizontalOverflow = 0;
+        if (width <= 375) {
+          await applicationPage.emulateMedia({ reducedMotion: "no-preference" });
+          await applicationPage.reload({ waitUntil: "load" });
+          await applicationPage.evaluate(
+            async (): Promise<void> =>
+              await (window as Window & { websiteIntroReady?: Promise<void> }).websiteIntroReady,
+          );
+          introHorizontalOverflow = await applicationPage.evaluate((): number => {
+            const introControl = (
+              window as Window & { websiteIntroControl?: { seek(seconds: number): void } }
+            ).websiteIntroControl;
+            if (introControl === undefined) throw new Error("Intro playback control missing");
+            introControl.seek(5.8);
+            return document.documentElement.scrollWidth - document.documentElement.clientWidth;
+          });
+          await applicationPage.emulateMedia({ reducedMotion: "reduce" });
+        }
+        observations.push({ ...settledObservation, introHorizontalOverflow });
       }
       /* eslint-enable no-await-in-loop */
       return observations;

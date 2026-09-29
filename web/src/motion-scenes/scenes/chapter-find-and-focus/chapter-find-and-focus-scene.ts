@@ -3,6 +3,7 @@ import {
   requireLine,
   requireScenePart,
   requireTerminalLines,
+  ScenePartMissingError,
   SceneTimelineBuilder,
 } from "../scene-timeline-builder";
 import {
@@ -21,11 +22,19 @@ interface FindAndFocusElements {
   readonly panesSection: HTMLElement;
   readonly worktreesSection: HTMLElement;
   readonly targetLines: readonly HTMLElement[];
+  readonly paneTextContainers: readonly HTMLElement[];
+  readonly rightPaneCoveredText: HTMLElement;
   readonly targetFocusRing: HTMLElement;
   readonly targetZoomedChip: HTMLElement;
 }
 
 function resolveFindAndFocusElements(root: HTMLElement): FindAndFocusElements {
+  const rightPaneCoveredText = root.querySelector<HTMLElement>(
+    '.kit-pane-grid > .kit-pane:last-child [data-line="5"] [data-kit-typed]',
+  );
+  if (rightPaneCoveredText === null) {
+    throw new ScenePartMissingError("right pane covered text");
+  }
   return {
     arrangementZoom: requireScenePart(root, findAndFocusParts.arrangementZoom),
     commandBar: requireScenePart(root, findAndFocusParts.commandBar),
@@ -39,6 +48,8 @@ function resolveFindAndFocusElements(root: HTMLElement): FindAndFocusElements {
       findAndFocusParts.targetTerminal,
       9,
     ),
+    paneTextContainers: [...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal")],
+    rightPaneCoveredText,
     targetFocusRing: requireScenePart(root, findAndFocusParts.targetFocusRing),
     targetZoomedChip: requireScenePart(root, findAndFocusParts.targetZoomedChip),
   };
@@ -54,13 +65,42 @@ function buildFindAndFocusScene(
 
   // Beat 1: Cmd+P opens the command bar, a short query finds the pane, Enter jumps to it.
   builder.label("quick-find", 0);
-  builder.reveal(elements.commandBar, 0.1, { duration: 0.25, fromScale: 0.97, fromY: -8 });
-  builder.conceal(elements.commandPlaceholder, 0.45, { duration: 0.1 });
-  const queryTyped = builder.type(elements.commandQuery, 0.5, builder.vary(9, 0.1));
+  // Let the pane entrance settle before the overlay crosses terminal text.
+  const barOpenAt = 0.45;
+  for (const paneTextContainer of elements.paneTextContainers) {
+    timeline.set(paneTextContainer, { attr: { "data-layout-allow-occlusion": "" } }, barOpenAt);
+  }
+  timeline.set(
+    elements.rightPaneCoveredText,
+    { attr: { "data-layout-allow-overlap": "" } },
+    barOpenAt,
+  );
+  builder.reveal(elements.commandBar, barOpenAt, { duration: 0.25, fromScale: 0.97, fromY: -8 });
+  builder.conceal(elements.commandPlaceholder, 0.8, { duration: 0.1 });
+  const queryTyped = builder.type(elements.commandQuery, 0.85, builder.vary(9, 0.1));
   builder.collapse(elements.recentSection, queryTyped + 0.1, 0.3);
   builder.expand(elements.panesSection, queryTyped + 0.15, 0.3);
   builder.expand(elements.worktreesSection, queryTyped + 0.25, 0.3);
   const barClosed = builder.conceal(elements.commandBar, 2.3, { duration: 0.2 });
+  for (const paneTextContainer of elements.paneTextContainers) {
+    timeline.set(
+      paneTextContainer,
+      {
+        onComplete: () => paneTextContainer.removeAttribute("data-layout-allow-occlusion"),
+        onReverseComplete: () => paneTextContainer.setAttribute("data-layout-allow-occlusion", ""),
+      },
+      barClosed,
+    );
+  }
+  timeline.set(
+    elements.rightPaneCoveredText,
+    {
+      onComplete: () => elements.rightPaneCoveredText.removeAttribute("data-layout-allow-overlap"),
+      onReverseComplete: () =>
+        elements.rightPaneCoveredText.setAttribute("data-layout-allow-overlap", ""),
+    },
+    barClosed,
+  );
   builder.reveal(elements.targetFocusRing, barClosed + 0.05, { duration: 0.25 });
 
   // Beat 2: Pane Zoom gives the found pane the workspace; its agent keeps going.

@@ -494,7 +494,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains("while !Task.isCancelled"))
         #expect(completeAdapterSource.contains("admitDelta("))
         #expect(completeAdapterSource.contains("stage: \"affected_row\""))
-        #expect(captureSource.contains(".recency(for: .pane(paneID:"))
+        #expect(captureSource.contains("coreAtoms.paneActivityTime.value(for: paneID)"))
         #expect(source.contains(".onChange(of: filterText)"))
         #expect(source.contains("projectionAdapter.updateDemand("))
         #expect(sidebarHostSource.contains("isProjectionDemanded: !sidebarState.sidebarCollapsed"))

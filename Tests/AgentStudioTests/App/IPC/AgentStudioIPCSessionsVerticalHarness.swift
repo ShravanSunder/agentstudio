@@ -16,6 +16,11 @@ import Testing
 /// window, so the harness stops at what the composition itself requires.
 @MainActor
 struct SessionsVerticalHarness {
+    enum Authentication {
+        case diagnostic
+        case boundPane
+    }
+
     static let qualifiedProvider = IPCSessionProviderIdentity(
         identifier: "vertical-agent",
         version: "1.2.3",
@@ -27,6 +32,7 @@ struct SessionsVerticalHarness {
     let rootDirectory: URL
     let socketPath: String
     let token: AgentStudioIPCSubjectToken
+    let boundPaneToken: AgentStudioIPCSubjectToken?
     let boundPaneId: UUID
     let sparePaneId: UUID
     /// The one registered window, which command arguments must name.
@@ -47,7 +53,8 @@ struct SessionsVerticalHarness {
     static func make(
         providerProfiles: [SessionsProviderProfile] = [qualifiedProviderProfile],
         additionalProviderProfiles: [SessionsProviderProfile] = [],
-        debugCredentialEscrowURL: URL? = nil
+        debugCredentialEscrowURL: URL? = nil,
+        installActivityClock: Bool = false
     ) async throws -> Self {
         let commandHarness = makeHarness()
         let boundPane = commandHarness.store.createPane(title: "Bound pane")
@@ -80,6 +87,21 @@ struct SessionsVerticalHarness {
         appDelegate.mainWindowController = mainWindowController
         appDelegate.appIPCSessionsProviderProfiles = providerProfiles + additionalProviderProfiles
         appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
+        var boundPaneToken: AgentStudioIPCSubjectToken?
+        if installActivityClock {
+            let activityAtom = appDelegate.atomStore.core.paneActivityTime
+            let clock = PaneActivityClock { batch in activityAtom.apply(batch) }
+            appDelegate.paneActivityClock = clock
+            await clock.start()
+            let paneToken = AgentStudioIPCSubjectToken(rawValue: "pane-activity-\(UUIDv7.generate().uuidString)")
+            try appDelegate.appIPCPrincipalRegistry.registerIssuedPaneCredential(
+                paneID: boundPane.id,
+                workspaceID: commandHarness.store.identityAtom.workspaceId,
+                credentialRecordID: UUIDv7.generate(),
+                verifierSHA256: await credentialVerifier(for: paneToken.rawValue)
+            )
+            boundPaneToken = paneToken
+        }
 
         // The tail of the identifier, not its head: a UUIDv7 begins with a
         // millisecond timestamp, so two harnesses built in the same millisecond
@@ -101,7 +123,7 @@ struct SessionsVerticalHarness {
         appDelegate.appIPCDebugCredentialEscrowURL = debugCredentialEscrowURL
         if debugCredentialEscrowURL == nil {
             _ = appDelegate.appIPCPrincipalRegistry.installDiagnosticCredential(
-                verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+                verifierSHA256: await credentialVerifier(for: token.rawValue)
             )
         }
         await appDelegate.startAppIPCServer()
@@ -125,10 +147,15 @@ struct SessionsVerticalHarness {
             rootDirectory: rootDirectory,
             socketPath: paths.socketURL.path,
             token: token,
+            boundPaneToken: boundPaneToken,
             boundPaneId: boundPane.id,
             sparePaneId: sparePane.id,
             workspaceWindowId: workspaceWindowId
         )
+    }
+
+    @concurrent nonisolated private static func credentialVerifier(for token: String) async -> Data {
+        Data(SHA256.hash(data: Data(token.utf8)))
     }
 
     func tearDown() {
@@ -153,7 +180,8 @@ struct SessionsVerticalHarness {
         name: String,
         conversationId: String,
         occurrenceId: UUID = UUIDv7.generate(),
-        correlationId: UUID = UUIDv7.generate()
+        correlationId: UUID = UUIDv7.generate(),
+        authentication: Authentication = .diagnostic
     ) async throws -> IPCSessionEventResult {
         try await decoded(
             method: "session.event",
@@ -170,7 +198,8 @@ struct SessionsVerticalHarness {
                     "occurrenceId": .string(occurrenceId.uuidString),
                 ]),
                 "correlationId": .string(correlationId.uuidString),
-            ])
+            ]),
+            authentication: authentication
         )
     }
 
@@ -259,9 +288,10 @@ struct SessionsVerticalHarness {
 
     func decoded<Result: Decodable>(
         method: String,
-        params: JSONValue
+        params: JSONValue,
+        authentication: Authentication = .diagnostic
     ) async throws -> Result {
-        let message = try await response(method: method, params: params)
+        let message = try await response(method: method, params: params, authentication: authentication)
         if let error = message.error {
             throw SessionsVerticalHarnessError.requestFailed(method: method, code: error.code, data: error.data)
         }
@@ -269,14 +299,34 @@ struct SessionsVerticalHarness {
         return try JSONDecoder().decode(Result.self, from: try JSONEncoder().encode(result))
     }
 
-    func response(method: String, params: JSONValue) async throws -> JSONRPCResponseMessage {
-        try JSONRPCCodec.decodeResponse(try await responseFrame(method: method, params: params))
+    func response(
+        method: String,
+        params: JSONValue,
+        authentication: Authentication = .diagnostic
+    ) async throws -> JSONRPCResponseMessage {
+        try JSONRPCCodec.decodeResponse(
+            try await responseFrame(method: method, params: params, authentication: authentication)
+        )
     }
 
     /// Returns the frame exactly as it crossed the socket, so a caller can
     /// measure what the transport carried rather than what the composition
     /// would have produced in process.
-    func responseFrame(method: String, params: JSONValue) async throws -> String {
+    func responseFrame(
+        method: String,
+        params: JSONValue,
+        authentication: Authentication = .diagnostic
+    ) async throws -> String {
+        let authenticationToken: AgentStudioIPCSubjectToken
+        switch authentication {
+        case .diagnostic:
+            authenticationToken = token
+        case .boundPane:
+            guard let boundPaneToken else {
+                throw SessionsVerticalHarnessError.boundPaneCredentialUnavailable
+            }
+            authenticationToken = boundPaneToken
+        }
         let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
         defer { connection.close() }
         var reader = SessionsVerticalFrameReader()
@@ -285,7 +335,7 @@ struct SessionsVerticalHarness {
             request: try JSONRPCClientRequest(
                 id: .number(1),
                 method: "auth.login",
-                params: .object(["token": .string(token.rawValue)])
+                params: .object(["token": .string(authenticationToken.rawValue)])
             )
         )
         let loginResponse = try await reader.receiveResponse(connection: connection)
@@ -308,6 +358,7 @@ enum SessionsVerticalHarnessError: Error {
     case optionalSchemaUnavailable
     case serverUnavailable
     case debugCredentialEscrowUnavailable
+    case boundPaneCredentialUnavailable
     case requestFailed(method: String, code: Int, data: JSONValue?)
 }
 
