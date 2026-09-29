@@ -127,6 +127,40 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.querySessionIds).toEqual([[], [sessionId], [], [sessionId]]);
 	});
 
+	test('keeps one in-flight content query when cold demand briefly re-states its session', async () => {
+		const heldContentQuery = deferred<unknown>();
+		const pages = await makeProjectionPages(1, 8);
+		let contentQueryAborted = false;
+		const harness = await createHarness({
+			pages,
+			queryOverride: (request, signal): Promise<unknown> => {
+				if (request.sessionIds.length === 0)
+					return Promise.resolve({ descriptor: pages[0]?.descriptor, kind: 'content' });
+				signal.addEventListener('abort', (): void => {
+					contentQueryAborted = true;
+				});
+				return heldContentQuery.promise;
+			},
+		});
+		try {
+			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
+			harness.controller.ensureSubscription();
+			installSessionCatalog(harness.notifications, 8);
+			await harness.controller.waitForIdle();
+			harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+			await flushTaskQueueUntil(() => harness.querySessionIds.length === 2);
+			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
+			harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+			heldContentQuery.resolve({ descriptor: pages[0]?.descriptor, kind: 'content' });
+			await harness.controller.waitForIdle();
+			expect(contentQueryAborted).toBe(false);
+			expect(harness.querySessionIds).toEqual([[], [sessionId]]);
+			expect(harness.publications.at(-1)?.contentSessionIds).toEqual([sessionId]);
+		} finally {
+			await harness.controller.dispose();
+		}
+	});
+
 	test('a failed successor Comment demand publishes unavailable without reopening E3', async () => {
 		const harness = await createHarness({
 			pages: await makeProjectionPages(1, 8),

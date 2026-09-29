@@ -297,6 +297,16 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		const initialControlReadStillRunning =
 			this.#invalidation?.queryKind === 'control' &&
 			(this.#queryLoop !== null || this.#scheduledQueryStart !== null);
+		const inFlightContentSessionIds =
+			this.#invalidation?.queryKind === 'content' &&
+			(this.#queryLoop !== null || this.#scheduledQueryStart !== null) &&
+			this.#invalidation.sourceGeneration === this.#sourceGeneration &&
+			this.#invalidation.worktreeId === installedCatalog?.authority.worktreeId
+				? new Set(this.#invalidation.sessionIds)
+				: new Set<string>();
+		const sessionsNeedingContent = newlyDemandedSessionIds.filter(
+			(sessionId) => !inFlightContentSessionIds.has(sessionId),
+		);
 		if (
 			nextActive &&
 			!becameActive &&
@@ -305,12 +315,12 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			this.#sourceGeneration !== null &&
 			installedCatalog !== null &&
 			this.#subscription?.subscriptionId === installedCatalog.authority.subscriptionId &&
-			newlyDemandedSessionIds.length > 0
+			sessionsNeedingContent.length > 0
 		) {
 			this.#admitProjectionInvalidation({
 				operationCorrelationId: nextCommentProjectionCorrelation(installedCatalog.transferId),
 				queryKind: 'content',
-				sessionIds: newlyDemandedSessionIds,
+				sessionIds: sessionsNeedingContent,
 				sourceGeneration: this.#sourceGeneration,
 				worktreeId: installedCatalog.authority.worktreeId,
 			});
