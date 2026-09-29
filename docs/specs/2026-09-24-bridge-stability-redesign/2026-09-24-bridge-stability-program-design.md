@@ -332,7 +332,14 @@ flowchart TB
 | Stream | One always-on metadata stream per pane session, multiplexing every E3 (file metadata, review metadata, file and review comments) |
 | Content | One finite body per content read (file bytes, review item content), separate from the metadata stream |
 
-A content read is an E4 with a finite body, addressed by descriptor, so a repeat returns the same bytes and it can be retried safely. Its chunks use the same credits and cumulative ack, scoped to that read. Today it uses a per-frame ack await (`bridge-product-transport.ts:907-918`). Its rest-of-body stall is bounded by the finite-progress deadline. A read for a descriptor that has moved on answers a typed `superseded`. A stalled or cancelled content read ends only itself, never the metadata stream.
+A content read is an E4 with a finite body, addressed by descriptor, so a repeat returns the same bytes and it can be retried safely. Its chunks use the same credits and cumulative ack, scoped to that read. That replaces the old per-frame ack await, and both native exact-frame gates are removed. **Content credit lifecycle (PR1 slice 1.5, 2026-09-29):**
+- The ack covering the `content.accepted` opening sequence is mandatory before any source access. It is the authority barrier.
+- Data acks pace the window.
+- The page completes the read once it has received and verified the terminal frame, and sends no final ack.
+- Native releases the read's credit scope when the producer ends (terminal sent, failed or cancelled). It never waits for a final ack.
+- A late ack for a read that has already ended gets a typed "unknown read" refusal. That is a definite answer, so it is harmless: it never raises session-suspect and is never retried.
+
+Its rest-of-body stall is bounded by the finite-progress deadline. A read for a descriptor that has moved on answers a typed `superseded`. A stalled or cancelled content read ends only itself, never the metadata stream.
 
 **File tree change filter (U12, R33–R38).**
 - **Scope values.** The File view's scope gains a change filter: `none` (all files), or `changes(baseline, kinds)`. `baseline` is `uncommitted` ("Uncommitted") or `originDefaultMergeBase` ("All Changes"). It is deliberately a union, so that a future checkpoint baseline (`commit(oid)`, for turn- and time-based diffs, which is a separate project) is additive, with no wire break. A filter change is the membership kind of scope change (see *Demand versus filter*): a replacement snapshot under the new filter, with evictions (R9b). A lazily loaded tree can't be filtered page-side, because changed files deep in unexpanded folders aren't loaded.
