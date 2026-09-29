@@ -3,6 +3,7 @@ import { gsap } from "gsap";
 import { heroIntroFourthPlaneAttribute, heroIntroStateAttribute } from "./hero-intro-dom-contract";
 import { clearHeroRailStaircase } from "./hero-intro-rail-draw";
 import { collectHeroIntroTargets, buildHeroIntroScene } from "./hero-intro-scene";
+import { snapHeroTranscriptToWholeRow } from "./hero-transcript-scroll";
 
 export interface HeroIntroPlayback {
   readonly timeline: ReturnType<typeof gsap.timeline> | null;
@@ -48,7 +49,13 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
     for (const target of targets.filter((target) => target.hasAttribute("style"))) {
       target.removeAttribute("style");
     }
+    for (const transcript of root.querySelectorAll<HTMLElement>(".hero-terminal-transcript")) {
+      const bottomPadding = Number.parseFloat(getComputedStyle(transcript).paddingBottom);
+      transcript.scrollTop = transcript.scrollHeight - transcript.clientHeight - bottomPadding;
+      snapHeroTranscriptToWholeRow(transcript);
+    }
     root.querySelector(`[${heroIntroFourthPlaneAttribute}]`)?.remove();
+    root.querySelector("[data-hero-token-layer]")?.remove();
     const rail = root.ownerDocument.querySelector<SVGSVGElement>("[data-full-page-topology]");
     if (rail !== null) {
       gsap.set(rail, { clearProps: "clipPath" }).kill();
@@ -104,6 +111,8 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
         },
         seek: (seconds: number): void => {
           timeline?.pause().time(seconds);
+          for (const transcript of root.querySelectorAll<HTMLElement>(".hero-terminal-transcript"))
+            snapHeroTranscriptToWholeRow(transcript);
         },
         finish,
       },

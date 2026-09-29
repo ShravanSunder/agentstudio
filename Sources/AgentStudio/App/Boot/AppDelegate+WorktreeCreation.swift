@@ -2,7 +2,7 @@ import AgentStudioCore
 import AppKit
 import Foundation
 
-/// Shell execution owner for From Default and Fork. Creation is a Git and
+/// Shell execution owner for branch creation and Fork. Creation is a Git and
 /// filesystem side effect on a repository, not a pane action, so it needs no
 /// pane focus; topology still changes only through watched-folder discovery.
 extension AppDelegate {
@@ -22,12 +22,14 @@ extension AppDelegate {
         targetId: UUID,
         targetType: SearchItemType
     ) -> Bool {
-        guard let kind = WorktreeCreationKind(command: command), let worktreeCreationCoordinator else { return false }
-        switch kind {
-        case .fromDefault:
+        guard let worktreeCreationCoordinator else { return false }
+        switch command {
+        case .newWorktreeFromDefault, .newWorktreeFromBranch:
             return targetType == .repo && worktreeCreationCoordinator.canCreate(inRepository: targetId)
-        case .fork:
+        case .forkWorktree:
             return targetType == .worktree && worktreeCreationCoordinator.canCreate(fromWorktree: targetId)
+        default:
+            return false
         }
     }
 

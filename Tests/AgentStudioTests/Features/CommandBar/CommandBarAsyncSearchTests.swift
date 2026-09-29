@@ -449,6 +449,7 @@ struct CommandBarAsyncSearchTests {
             CommandBarDataSource.buildRepoLevel(
                 repo: currentRepository,
                 store: store,
+                repoCache: RepoCacheAtom(),
                 dispatcher: FakeAppCommandDispatcher()
             )
         )
