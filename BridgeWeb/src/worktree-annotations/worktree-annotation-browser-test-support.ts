@@ -692,6 +692,7 @@ export class RecordingAnnotationBrowserSurface {
 			state: {
 				contentSessionIds: this.#sessions.map((session) => session.sessionId),
 				kind: 'ready',
+				stageAttempt: 0,
 				...(this.client.surface === 'review'
 					? {
 							reviewPublicationIdentity: reviewAnnotationPublicationIdentityForMainIdentity(

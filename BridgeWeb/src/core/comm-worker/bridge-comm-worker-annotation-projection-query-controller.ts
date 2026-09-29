@@ -60,6 +60,7 @@ export interface BridgeCommWorkerAnnotationProjectionPublication {
 		| {
 				readonly contentSessionIds: readonly string[];
 				readonly kind: 'ready';
+				readonly stageAttempt: number;
 				readonly reviewPublicationIdentity?:
 					| BridgeProductReviewAnnotationPublicationIdentity
 					| undefined;
@@ -604,6 +605,7 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 				state: {
 					contentSessionIds: invalidation.sessionIds,
 					kind: 'ready',
+					stageAttempt,
 					...(reviewPublicationIdentity === null ? {} : { reviewPublicationIdentity }),
 					snapshot: fetchResult.snapshot,
 				},

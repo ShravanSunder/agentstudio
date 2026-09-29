@@ -109,6 +109,7 @@ describe('BridgeWorkerContracts', () => {
 			state: {
 				contentSessionIds: [],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: {
 					expectedMessageCount: 0,
 					expectedSessionCount: 0,

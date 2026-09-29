@@ -169,6 +169,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [sessionId],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: projectionSnapshot(7, 12),
 			},
 			surface: 'fileView',
@@ -211,6 +212,35 @@ describe('worktree annotation surface command rendezvous', () => {
 		harness.client.dispose();
 	});
 
+	test('records distinct Main attempts for two ready projections of one operation', () => {
+		const harness = createSurfaceClientHarness();
+		const correlation = 'a'.repeat(64);
+		for (const stageAttempt of [0, 1]) {
+			harness.publish({
+				direction: 'serverWorkerToMain',
+				kind: 'annotationProjectionConvergence',
+				operationCorrelationId: correlation,
+				state: {
+					contentSessionIds: [sessionId],
+					kind: 'ready',
+					snapshot: projectionSnapshot(7, 12),
+					stageAttempt,
+				},
+				surface: 'fileView',
+				transferDescriptors: [],
+				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			});
+		}
+		expect(
+			harness.telemetrySamples
+				.filter(
+					(sample) => sample.stringAttributes['agentstudio.bridge.operation.id'] === correlation,
+				)
+				.map((sample) => sample.numericAttributes['agentstudio.bridge.stage.attempt']),
+		).toEqual([0, 0, 0, 0, 1, 1, 1, 1]);
+		harness.client.dispose();
+	});
+
 	test('ignores annotation convergence owned by the other retained viewer surface', () => {
 		// Arrange
 		const harness = createSurfaceClientHarness([], 'review');
@@ -226,6 +256,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [sessionId],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: projectionSnapshot(7, 12),
 			},
 			surface: 'fileView',
@@ -275,6 +306,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [sessionId],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: projectionSnapshot(7, 12),
 			},
 			surface: 'fileView',
@@ -304,6 +336,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: { ...projectionSnapshot(7, 12), threads: [] },
 			},
 			surface: 'fileView',
@@ -427,6 +460,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [sessionId],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: {
 					...initialSnapshot,
 					threads: [
@@ -564,6 +598,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [sessionId],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: projectionSnapshot(20, 12),
 			},
 			surface: 'fileView',
@@ -595,6 +630,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [sessionId],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: projectionSnapshot(21, 12),
 			},
 			surface: 'fileView',
@@ -648,6 +684,7 @@ describe('worktree annotation surface command rendezvous', () => {
 			state: {
 				contentSessionIds: [sessionId],
 				kind: 'ready',
+				stageAttempt: 0,
 				snapshot: projectionSnapshot(20, 12),
 			},
 			surface: 'fileView',

@@ -270,6 +270,7 @@ export function createWorktreeAnnotationSurfaceClient(
 								recorder: telemetryRecorder,
 								result: 'started',
 								sourceGeneration: message.state.snapshot.sourceGeneration,
+								stageAttempt: message.state.stageAttempt,
 								transport: 'local',
 								viewer: surfaceClient.surface === 'fileView' ? 'file' : 'review',
 							});
@@ -294,6 +295,7 @@ export function createWorktreeAnnotationSurfaceClient(
 							recorder: telemetryRecorder,
 							result: 'success',
 							sourceGeneration: message.state.snapshot.sourceGeneration,
+							stageAttempt: message.state.stageAttempt,
 							transport: 'local',
 							viewer: surfaceClient.surface === 'fileView' ? 'file' : 'review',
 						});
@@ -303,6 +305,7 @@ export function createWorktreeAnnotationSurfaceClient(
 							recorder: telemetryRecorder,
 							result: 'success',
 							sourceGeneration: message.state.snapshot.sourceGeneration,
+							stageAttempt: message.state.stageAttempt,
 							transport: 'local',
 							viewer: surfaceClient.surface === 'fileView' ? 'file' : 'review',
 						});

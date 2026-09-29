@@ -74,6 +74,7 @@ export function bridgeCommWorkerAnnotationProjectionConvergenceEvent(props: {
 		| {
 				readonly contentSessionIds: readonly string[];
 				readonly kind: 'ready';
+				readonly stageAttempt: number;
 				readonly reviewPublicationIdentity?:
 					| BridgeProductReviewAnnotationPublicationIdentity
 					| undefined;

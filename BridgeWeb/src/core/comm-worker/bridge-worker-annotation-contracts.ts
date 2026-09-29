@@ -99,6 +99,7 @@ export const bridgeWorkerAnnotationProjectionConvergenceEventSchema =
 							})
 							.readonly(),
 						kind: z.literal('ready'),
+						stageAttempt: bridgeProductNonnegativeSequenceSchema,
 						reviewPublicationIdentity: bridgeWorkerReviewPublicationIdentitySchema.optional(),
 						snapshot: bridgeWorkerAnnotationProjectionSnapshotSchema,
 					})

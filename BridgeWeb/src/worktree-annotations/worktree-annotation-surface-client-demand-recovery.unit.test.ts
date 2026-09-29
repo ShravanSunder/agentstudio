@@ -174,6 +174,7 @@ function controlOnlyReadyConvergence(): BridgeWorkerServerToMainMessage {
 		state: {
 			contentSessionIds: [],
 			kind: 'ready',
+			stageAttempt: 0,
 			snapshot: { ...projectionSnapshot(9, 12), threads: [] },
 		},
 		surface: 'fileView',
