@@ -1,4 +1,4 @@
-import type { Page, Response, Route } from 'playwright';
+import type { Page, Request, Response, Route } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { selectReviewTreeFilePath } from '../../scripts/verify-bridge-viewer-worktree-dev-server/review-tree-click.ts';
@@ -283,6 +283,20 @@ export async function runAnnotationSaveJourney(props: {
 		let savingControlCountAfterCommit = 0;
 		let committedBodyCountWhileProjectionGated = 0;
 		let projectionOperationCorrelationId: string | null = null;
+		const projectionOperationCorrelationIds: string[] = [];
+		const observeProjectionRequest = (request: Request): void => {
+			if (new URL(request.url()).pathname !== '/__bridge-product/content') return;
+			const body: unknown = request.postDataJSON();
+			if (!isUnknownRecord(body) || body['contentKind'] !== 'annotation.projection') return;
+			const correlationId = body['operationCorrelationId'];
+			if (
+				typeof correlationId === 'string' &&
+				projectionOperationCorrelationIds.at(-1) !== correlationId
+			) {
+				projectionOperationCorrelationIds.push(correlationId);
+			}
+		};
+		page.on('request', observeProjectionRequest);
 		const projectionRoutePattern = '**/__bridge-product/content**';
 		const projectionRouteHandler = async (route: Route): Promise<void> => {
 			const body: unknown = route.request().postDataJSON();
@@ -354,9 +368,10 @@ export async function runAnnotationSaveJourney(props: {
 		// The committed overlay can be visible before authoritative projection finishes.
 		// Draining seals producers, so first await this operation's exact terminal stages.
 		const correlatedLifecycleStageCount = await waitForCompleteAnnotationLifecycleTelemetry({
-			operationCorrelationId: projectionOperationCorrelationId,
+			operationCorrelationIds: () => projectionOperationCorrelationIds,
 			page,
 		});
+		page.off('request', observeProjectionRequest);
 		await drainAnnotationLifecycleTelemetry(page);
 		const postSaveResult = await props.afterProjectedSave?.({
 			page,
