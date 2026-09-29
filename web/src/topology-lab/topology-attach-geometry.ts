@@ -61,8 +61,7 @@ interface AttachRoutePlanProps {
   readonly anchorRows: readonly number[];
   readonly reserved: Map<number, Omit<TopologyRowDot, "row" | "y">>;
   readonly mainlineX: number;
-  readonly terminalForkX: number;
-  readonly trunkStep: boolean;
+  readonly terminalLane: WorktreeLane | undefined;
   readonly outermostLane: WorktreeLane | undefined;
   readonly columnUnit: number;
   readonly finalMainlineRow: number;
@@ -77,8 +76,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
     anchorRows,
     reserved,
     mainlineX,
-    terminalForkX,
-    trunkStep,
+    terminalLane,
     outermostLane,
     columnUnit,
     finalMainlineRow,
@@ -112,15 +110,15 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
         id: `attach-${anchor.id}`,
         kind: "attach",
         accent: "port",
-        pathData: localDropTurnPath(terminalForkX, nodeX, forkY, centerY).join(" "),
-        parentColumn: trunkStep ? 1 : 0,
+        pathData: localDropTurnPath(terminalLane?.x ?? mainlineX, nodeX, forkY, centerY).join(" "),
+        parentColumn: terminalLane?.column ?? 0,
         column: Math.max(0, Math.min(3, Math.round((nodeX - mainlineX) / columnUnit))),
         startY: forkY,
         endY: centerY,
         anchorId: anchor.id,
         targetEdge: "left",
         targetPoint: { x: nodeX, y: centerY },
-        sourceAccent: "main",
+        sourceAccent: terminalLane?.accent ?? "main",
         terminal: true,
       });
       continue;

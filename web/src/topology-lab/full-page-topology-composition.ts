@@ -29,6 +29,7 @@ import {
   mainlineOwnerId,
   planWorktreeLanes,
   topologyHeroLaneMinimumTravel,
+  worktreeContinuationPath,
   worktreePath,
   type LanePlan,
 } from "./topology-lane-planning";
@@ -83,8 +84,6 @@ export interface TopologyPageMeasurement {
   readonly viewportWidth: number;
   readonly height: number;
   readonly anchors: readonly TopologyAnchorMeasurement[];
-  /** TEMPORARY A/B: owner compares the #55 finale routes. */
-  readonly finaleRouteVariant?: "one-bend" | "trunk-step";
 }
 
 /**
@@ -247,10 +246,12 @@ export function composeFullPageTopology(
       maximumLaneCount: columns.laneXs.length - 1,
     });
   }
-  const lanes = lanePlan?.lanes ?? [];
+  const plannedLanes = lanePlan?.lanes ?? [];
+  const terminalLaneId = terminalAnchor === undefined ? undefined : plannedLanes.at(-1)?.id;
+  const lanes = plannedLanes.map((lane) =>
+    lane.id === terminalLaneId ? { ...lane, mergeRow: finalMainlineRow } : lane,
+  );
   const outermostLane = lanes.at(-1);
-  const trunkStep = terminalAnchor !== undefined && page.finaleRouteVariant === "trunk-step";
-  const terminalForkX = columns.mainlineX + (trunkStep ? columns.columnUnit : 0);
 
   const reserved = new Map<number, Omit<TopologyRowDot, "row" | "y">>();
   for (const [index, anchor] of page.anchors.entries()) {
@@ -267,17 +268,18 @@ export function composeFullPageTopology(
     }
   }
   for (const [row, dot] of lanePlan?.reserved ?? new Map()) {
-    if (!reserved.has(row)) {
-      reserved.set(row, dot);
+    if (row !== plannedLanes.at(-1)?.mergeRow || terminalLaneId === undefined) {
+      if (!reserved.has(row)) reserved.set(row, dot);
     }
   }
-  if (trunkStep || !reserved.has(finalMainlineRow)) {
+  if (!reserved.has(finalMainlineRow)) {
     reserved.set(finalMainlineRow, {
-      x: terminalForkX,
-      ownerId: mainlineOwnerId,
-      accent: "main",
+      x: outermostLane?.x ?? columns.mainlineX,
+      ownerId: outermostLane?.id ?? mainlineOwnerId,
+      accent: outermostLane?.accent ?? "main",
       kind: terminalAnchor === undefined ? "end" : "fork",
       anchorId: undefined,
+      suppressPaint: outermostLane !== undefined,
     });
   }
 
@@ -288,8 +290,7 @@ export function composeFullPageTopology(
     anchorRows,
     reserved,
     mainlineX: columns.mainlineX,
-    terminalForkX,
-    trunkStep,
+    terminalLane: outermostLane,
     outermostLane,
     columnUnit: columns.columnUnit,
     finalMainlineRow,
@@ -327,7 +328,12 @@ export function composeFullPageTopology(
         (span) => Math.abs(x - span.x) <= 0.5 && y > span.startY + 0.5 && y <= span.endY + 0.5,
       );
     if (reservedDot !== undefined) {
-      return { row, y, ...reservedDot, suppressPaint: suppressPaintFor(reservedDot.x) };
+      return {
+        row,
+        y,
+        ...reservedDot,
+        suppressPaint: reservedDot.suppressPaint === true || suppressPaintFor(reservedDot.x),
+      };
     }
     const lane = laneById.get(ownerByRow.get(row) ?? mainlineOwnerId);
     return lane === undefined
@@ -357,7 +363,10 @@ export function composeFullPageTopology(
     id: lane.id,
     kind: "worktree",
     accent: lane.accent,
-    pathData: worktreePath(lane, rowYs),
+    pathData:
+      lane.id === terminalLaneId
+        ? worktreeContinuationPath(lane, rowYs)
+        : worktreePath(lane, rowYs),
     parentColumn: lane.column - 1,
     column: lane.column,
     startY: rowYs[lane.forkRow] ?? 0,
@@ -368,13 +377,8 @@ export function composeFullPageTopology(
     sourceAccent: undefined,
   }));
 
-  const stepStartY = rowYs[Math.max(0, closingEndRow)] ?? 0;
-  const stepEndY = rowYs[finalMainlineRow] ?? stepStartY;
-  const stepTravel = stepEndY - stepStartY;
-  // Vertical tangents at both ends make the one-column step continuous with the trunk.
-  const mainlinePath = trunkStep
-    ? `M ${columns.mainlineX} 0 L ${columns.mainlineX} ${stepStartY} C ${columns.mainlineX} ${stepStartY + stepTravel * 0.35} ${terminalForkX} ${stepStartY + stepTravel * 0.65} ${terminalForkX} ${stepEndY}`
-    : `M ${columns.mainlineX} 0 L ${columns.mainlineX} ${stepEndY}`;
+  const mainlineEndY = rowYs[terminalLaneId === undefined ? finalMainlineRow : closingEndRow] ?? 0;
+  const mainlinePath = `M ${columns.mainlineX} 0 L ${columns.mainlineX} ${mainlineEndY}`;
 
   return {
     columnUnit: columns.columnUnit,

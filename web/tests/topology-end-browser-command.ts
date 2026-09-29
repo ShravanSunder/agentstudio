@@ -27,6 +27,9 @@ export interface TopologyEndObservation {
   readonly coreFill: string;
   readonly branchStroke: string;
   readonly branchStartY: number;
+  readonly branchStartX: number;
+  readonly innermostLaneX: number;
+  readonly mainlineEndY: number;
   readonly branchViewportMaxFraction: number;
   readonly minimumTitleClearance: number;
   readonly lastGlassBottomY: number;
@@ -37,9 +40,10 @@ export interface TopologyEndObservation {
   readonly terminalRouteCount: number;
   readonly branchColumnSpan: number;
   readonly branchBendCount: number;
-  readonly mainlineStepColumns: number;
   readonly mainlineBendCount: number;
-  readonly mainlineStepStartY: number | undefined;
+  readonly branchMonotonicX: boolean;
+  readonly branchPathData: string;
+  readonly mainlinePathData: string;
   readonly pathData: readonly { readonly kind: "rail" | "step"; readonly d: string }[];
 }
 
@@ -536,6 +540,11 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     coreFill: getComputedStyle(core).fill,
     branchStroke: getComputedStyle(finalPath).stroke,
     branchStartY: start.y + window.scrollY,
+    branchStartX: start.x,
+    innermostLaneX:
+      mainlineStart.matrixTransform(mainline.getScreenCTM() ?? matrix).x +
+      Number(artwork.dataset["laneCount"]) * Number(artwork.dataset["columnUnit"]),
+    mainlineEndY: mainlineEnd.matrixTransform(mainline.getScreenCTM() ?? matrix).y + window.scrollY,
     branchViewportMaxFraction: Math.max(start.y, end.y) / window.innerHeight,
     minimumTitleClearance,
     lastGlassBottomY: glassBox.bottom + window.scrollY,
@@ -546,12 +555,13 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     terminalRouteCount: artwork.querySelectorAll("[data-topology-terminal-route]").length,
     branchColumnSpan: (end.x - start.x) / Number(artwork.dataset["columnUnit"]),
     branchBendCount: (finalPath.getAttribute("d")?.match(/\bC\b/gu) ?? []).length,
-    mainlineStepColumns: (mainlineEnd.x - mainlineStart.x) / Number(artwork.dataset["columnUnit"]),
     mainlineBendCount: (mainline.getAttribute("d")?.match(/\bC\b/gu) ?? []).length,
-    mainlineStepStartY: (() => {
-      const match = /\bL\s+[-\d.]+\s+([-\d.]+)\s+C\b/u.exec(mainline.getAttribute("d") ?? "");
-      return match?.[1] === undefined ? undefined : artworkTop + Number(match[1]);
-    })(),
+    branchMonotonicX: Array.from(
+      { length: 101 },
+      (_, index) => finalPath.getPointAtLength((routeLength * index) / 100).x,
+    ).every((x, index, xs) => index === 0 || x >= (xs[index - 1] ?? x) - 0.01),
+    branchPathData: finalPath.getAttribute("d") ?? "",
+    mainlinePathData: mainline.getAttribute("d") ?? "",
     pathData: [
       ...[...artwork.querySelectorAll<SVGPathElement>("path[d]")].map((path) => ({
         kind: "rail" as const,

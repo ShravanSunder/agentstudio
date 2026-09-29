@@ -86,7 +86,7 @@ describe("where the rail ends on the home page", () => {
       expect(
         observation.captionToFinaleGap,
         `${observation.width}px separation`,
-      ).toBeGreaterThanOrEqual(Math.min(Math.max(observation.width * 0.12, 120), 200));
+      ).toBeGreaterThanOrEqual(Math.min(Math.max(observation.width * 0.24, 240), 400));
       for (const artwork of observation.artworkStates) {
         const label = `${artwork.width}px ${artwork.state}`;
         expect(
@@ -138,9 +138,25 @@ describe("where the rail ends on the home page", () => {
       expect(observation.terminalNodeCount).toBe(1);
       expect(observation.terminalRouteCount).toBe(1);
       expect(observation.branchViewportMaxFraction).toBeLessThan(0.75);
-      // Owner #55 permits up to three columns for this final branch only.
-      expect(observation.branchColumnSpan, String(observation.width)).toBeLessThanOrEqual(3);
+      expect(
+        Math.abs(observation.branchStartX - observation.innermostLaneX),
+        `${observation.width}px branch source`,
+      ).toBeLessThanOrEqual(1);
+      if (observation.laneCount > 0)
+        expect(
+          observation.mainlineEndY,
+          `${observation.width}px trunk ends before finale branch`,
+        ).toBeLessThan(observation.branchStartY);
+      else
+        expect(
+          observation.mainlineEndY,
+          `${observation.width}px sole trunk continues to finale`,
+        ).toBeCloseTo(observation.branchStartY, 0);
+      expect(observation.branchColumnSpan, String(observation.width)).toBeLessThanOrEqual(2);
       expect(observation.branchBendCount).toBe(1);
+      expect(observation.branchMonotonicX, `${observation.width}px final path moves right`).toBe(
+        true,
+      );
       expect(observation.mainlineBendCount).toBe(0);
       expect(observation.minimumTitleClearance).toBeGreaterThanOrEqual(12);
       expect(observation.ringRadius).toBe(6);
@@ -149,46 +165,30 @@ describe("where the rail ends on the home page", () => {
       expect(observation.ringStroke).toBe("rgb(116, 199, 236)");
       expect(observation.coreFill).toBe("rgb(137, 180, 250)");
       expect(observation.branchStroke).toBe("rgb(116, 199, 236)");
-      expect(observation.laneMergeYs).toHaveLength(observation.laneCount);
+      expect(observation.laneMergeYs).toHaveLength(Math.max(0, observation.laneCount - 1));
       for (const mergeY of observation.laneMergeYs) {
         expect(mergeY).toBeGreaterThan(observation.lastGlassBottomY);
         expect(mergeY).toBeLessThan(observation.branchStartY);
       }
     }
   });
-  it("steps the trunk one column in the temporary finale route variant", async () => {
-    const observations = await commands.verifyTopologyEnd(
+  it("ignores the retired finale route query", async () => {
+    const defaultRoutes = await commands.verifyTopologyEnd(
+      inject("siteHeaderBrowserTestUrl"),
+      [390, 1280, 1920],
+    );
+    const queriedRoutes = await commands.verifyTopologyEnd(
       `${inject("siteHeaderBrowserTestUrl")}?finale=trunk`,
       [390, 1280, 1920],
     );
-    for (const observation of observations) {
-      expect(
-        Math.abs(observation.pillLeft - observation.lastGlassLeft),
-        `${observation.width}px pill/glass`,
-      ).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs(observation.stageLeft - observation.lastGlassLeft),
-        `${observation.width}px row/glass`,
-      ).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs(observation.noteLeft - observation.lastGlassLeft),
-        `${observation.width}px note/glass`,
-      ).toBeLessThanOrEqual(1);
-      expect(observation.mainlineStepColumns, `${observation.width}px trunk step`).toBeCloseTo(
-        1,
-        2,
-      );
-      expect(observation.mainlineBendCount).toBe(1);
-      if (observation.laneCount > 0) {
-        expect(observation.mainlineStepStartY).toBeGreaterThanOrEqual(
-          Math.max(...observation.laneMergeYs),
-        );
-        expect(observation.mainlineStepStartY).toBeLessThan(observation.branchStartY);
-      }
-      expect(observation.branchBendCount).toBe(1);
-      expect(Math.abs(observation.branchColumnSpan)).toBeLessThanOrEqual(2);
-      expect(Math.abs(observation.nodeRightX - observation.pillLeft)).toBeLessThanOrEqual(1);
-      for (const path of observation.pathData) expect(sharpCornerCount(path.d)).toBe(0);
+    for (const [index, defaultRoute] of defaultRoutes.entries()) {
+      const queriedRoute = queriedRoutes[index];
+      if (queriedRoute === undefined) throw new Error("Queried finale route missing");
+      expect(queriedRoute.branchStartX).toBe(defaultRoute.branchStartX);
+      expect(queriedRoute.branchStartY).toBe(defaultRoute.branchStartY);
+      expect(queriedRoute.branchEndX).toBe(defaultRoute.branchEndX);
+      expect(queriedRoute.branchPathData).toBe(defaultRoute.branchPathData);
+      expect(queriedRoute.mainlinePathData).toBe(defaultRoute.mainlinePathData);
     }
   });
 });

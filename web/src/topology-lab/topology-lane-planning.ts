@@ -154,3 +154,14 @@ export function worktreePath(lane: WorktreeLane, rowYs: readonly number[]): stri
     ...localMergePath(lane.parentX, lane.x, approachY, mergeY),
   ].join(" ");
 }
+
+/** The lane next to the glass continues to the finale instead of merging back. */
+export function worktreeContinuationPath(lane: WorktreeLane, rowYs: readonly number[]): string {
+  const forkY = rowYs[lane.forkRow] ?? 0;
+  const arrivalY = rowYs[lane.forkRow + 1] ?? forkY;
+  const terminalForkY = rowYs[lane.mergeRow] ?? arrivalY;
+  return [
+    ...localForkPath(lane.parentX, lane.x, forkY, arrivalY),
+    `L ${lane.x} ${terminalForkY}`,
+  ].join(" ");
+}
