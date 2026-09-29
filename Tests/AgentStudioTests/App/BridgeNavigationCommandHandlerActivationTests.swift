@@ -123,13 +123,13 @@ struct BridgeNavigationCommandHandlerActivationTests {
     // MARK: - Displayed selection receipts
 
     @Test("a displayed member file is admitted with its provenance and selected in Files")
-    func displayedMemberFileIsRecorded() throws {
+    func displayedMemberFileIsRecorded() async throws {
         // Arrange
         let fixture = try makeFixture()
         let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/repo/src/app.swift"))
 
         // Act
-        fixture.handler.recordDisplayedFilesSelection(
+        let receipt = fixture.handler.recordDisplayedFilesSelection(
             BridgeFilesDisplayedSelection(
                 location: location,
                 memberWorktreeId: fixture.worktree.id,
@@ -137,6 +137,7 @@ struct BridgeNavigationCommandHandlerActivationTests {
             ),
             for: fixture.receiver
         )
+        await receipt?.value
 
         // Assert
         let record = try #require(fixture.handler.record(for: fixture.receiver))
@@ -154,13 +155,13 @@ struct BridgeNavigationCommandHandlerActivationTests {
     }
 
     @Test("a displayed file of a worktree that left the receiver is ignored")
-    func displayedFileOfRemovedMemberIsIgnored() throws {
+    func displayedFileOfRemovedMemberIsIgnored() async throws {
         // Arrange
         let fixture = try makeFixture()
         let before = fixture.handler.record(for: fixture.receiver)
 
         // Act
-        fixture.handler.recordDisplayedFilesSelection(
+        let receipt = fixture.handler.recordDisplayedFilesSelection(
             BridgeFilesDisplayedSelection(
                 location: try #require(BridgeDocumentLocation(canonicalPath: "/tmp/elsewhere/a.swift")),
                 memberWorktreeId: UUIDv7.generate(),
@@ -168,9 +169,35 @@ struct BridgeNavigationCommandHandlerActivationTests {
             ),
             for: fixture.receiver
         )
+        await receipt?.value
 
         // Assert
         #expect(fixture.handler.record(for: fixture.receiver) == before)
+    }
+
+    @Test("a newer displayed receipt wins while an older admission waits off-main")
+    func newerDisplayedReceiptWins() async throws {
+        let fixture = try makeFixture()
+        let olderLocation = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/older.swift"))
+        let newerLocation = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/newer.swift"))
+        let heldPreparation = HeldStep<BridgeDocumentLocation>("older displayed selection preparation")
+        await fixture.holdNextDisplayedSelection(heldPreparation)
+        let older = fixture.handler.recordDisplayedFilesSelection(
+            .init(location: olderLocation, memberWorktreeId: nil, memberRelativePath: nil),
+            for: fixture.receiver)
+        #expect(try await heldPreparation.firstArrival() == olderLocation)
+
+        let newer = fixture.handler.recordDisplayedFilesSelection(
+            .init(location: newerLocation, memberWorktreeId: nil, memberRelativePath: nil),
+            for: fixture.receiver)
+        await newer?.value
+        heldPreparation.release()
+        await older?.value
+
+        let record = try #require(fixture.handler.record(for: fixture.receiver))
+        #expect(record.selectedFilesDocument == newerLocation)
+        #expect(record.openedDocument(at: olderLocation) == nil)
+        #expect(record.openedDocument(at: newerLocation) != nil)
     }
 
     // MARK: - Close

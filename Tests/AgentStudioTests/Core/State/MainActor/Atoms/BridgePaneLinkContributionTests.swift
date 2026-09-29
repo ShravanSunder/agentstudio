@@ -106,7 +106,8 @@ struct BridgePaneLinkContributionTests {
     func removedMemberInvalidatesLaterSelection() throws {
         let worktreeId = UUIDv7.generate()
         let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/member/file.swift"))
-        let document = BridgeOpenedDocument(location: location, provenance: nil)
+        let document = BridgeOpenedDocumentEntry(
+            provenance: nil, sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
         var laterUI = BridgeNavigationRecord(committedMemberLinks: [
             BridgeMemberLink(
                 worktreeId: worktreeId,
@@ -117,7 +118,7 @@ struct BridgePaneLinkContributionTests {
                 ]
             )
         ])
-        laterUI.openedDocuments = [document]
+        laterUI.openedDocuments = [location: document]
         laterUI.selectedFilesDocument = location
         laterUI.filesFilter = .member(worktreeId: worktreeId)
         laterUI.reviewSelection = .member(worktreeId: worktreeId)

@@ -73,6 +73,7 @@ struct BridgeReceiverStateRow: Equatable, Sendable {
     var provenanceWorktreeID: UUID?
     var provenanceRelativePath: String?
     var openedLine: Int?
+    var openedSortKey: String?
     var comparisonKind: String?
     var comparisonBasis: String?
     var comparisonName: String?
@@ -116,6 +117,7 @@ extension BridgeReceiverStateRow {
         copy.provenanceWorktreeID = provenanceWorktreeID
         copy.provenanceRelativePath = provenanceRelativePath
         copy.openedLine = openedLine
+        copy.openedSortKey = openedSortKey
         copy.comparisonKind = comparisonKind
         copy.comparisonBasis = comparisonBasis
         copy.comparisonName = comparisonName

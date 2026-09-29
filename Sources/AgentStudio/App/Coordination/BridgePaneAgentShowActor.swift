@@ -5,7 +5,7 @@ import Foundation
 /// an inventory entry; take-over then follows ordinary human activation.
 actor BridgePaneAgentShowActor: PaneAgentShowPort {
     private enum OpenOutcome {
-        case opened(BridgeReceiver, BridgeOpenedDocument)
+        case opened(BridgeReceiver, BridgeDocumentLocation, BridgeOpenedDocumentEntry)
         case notFound
         case paneUnavailable
     }
@@ -39,9 +39,9 @@ actor BridgePaneAgentShowActor: PaneAgentShowPort {
         switch try await open(receiver: receiver, target: target) {
         case .notFound: return .notFound
         case .paneUnavailable: return .paneUnavailable
-        case .opened(let resolved, let document):
+        case .opened(let resolved, let location, let entry):
             let arrival = await handler.activateFile(
-                document.location, in: resolved, line: document.openedLine)
+                location, in: resolved, line: entry.openedLine)
             switch arrival {
             case .applied, .appliedUnsaved: return .shown
             case .failed(.receiverUnavailable): return .paneUnavailable
@@ -61,26 +61,28 @@ actor BridgePaneAgentShowActor: PaneAgentShowPort {
                 paneStatesByID: topology.paneStatesByID
             )
         else { return .paneUnavailable }
+        let currentEntries = await handler.record(for: resolved)?.openedDocuments ?? [:]
 
         let preparation: BridgeAgentShowPreparation
         do {
             preparation = try await preparationPort.prepareAgentShow(
                 workspaceID: workspaceID, receiver: resolved,
-                target: target, topologySnapshot: topology)
+                target: target, topologySnapshot: topology,
+                currentEntries: currentEntries)
         } catch {
             throw .unavailable
         }
         switch preparation {
         case .notFound: return .notFound
         case .paneUnavailable: return .paneUnavailable
-        case .prepared(let document):
-            guard await handler.applyPreparedBackgroundOpen(document, in: resolved) else {
+        case .prepared(let location, let entry):
+            guard await handler.applyPreparedBackgroundOpen(entry, at: location, in: resolved) else {
                 return .paneUnavailable
             }
             guard await handler.persistedOutcome() == .applied else {
                 throw .outcomeUnknown
             }
-            return .opened(resolved, document)
+            return .opened(resolved, location, entry)
         }
     }
 }

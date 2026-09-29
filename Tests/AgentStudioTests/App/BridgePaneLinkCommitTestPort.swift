@@ -25,7 +25,10 @@ actor BridgePaneLinkCommitTestPort: BridgeLinkCommitPort {
             memberRootsByWorktreeId: roots
         )
         return BridgeCommittedLinkApplication(
-            record: reconciled, memberRoots: roots,
+            record: reconciled,
+            openedDocumentUpdates: BridgeOpenedDocumentAtomUpdate.difference(
+                from: latestUIRecord, to: reconciled),
+            memberRoots: roots,
             reviewReplacement: reconciled.reviewSelection == latestUIRecord.reviewSelection
                 ? nil : reconciled.surface
         )

@@ -84,7 +84,7 @@ extension BridgeNavigationRules {
         } else {
             removedLocations = []
         }
-        merged.openedDocuments = latest.openedDocuments.filter { !removedLocations.contains($0.location) }
+        merged.openedDocuments = latest.openedDocuments.filter { !removedLocations.contains($0.key) }
         let validMembers = Set(merged.effectiveMemberWorktreeIds)
         switch latest.filesFilter {
         case .member(let worktreeId) where !validMembers.contains(worktreeId):
@@ -93,7 +93,7 @@ extension BridgeNavigationRules {
             merged.filesFilter = latest.filesFilter
         }
         if let selected = latest.selectedFilesDocument,
-            merged.openedDocuments.contains(where: { $0.location == selected })
+            merged.openedDocuments[selected] != nil
         {
             merged.selectedFilesDocument = selected
         } else {
@@ -233,18 +233,18 @@ extension BridgeNavigationRules {
         memberRootsByWorktreeId: [UUID: String]
     ) -> [BridgeDocumentLocation] {
         let hasKnownRoot = memberRootsByWorktreeId[worktreeId] != nil
-        return record.openedDocuments.compactMap { document in
+        return record.openedDocuments.compactMap { location, entry in
             if hasKnownRoot {
                 let grouping = grouping(
-                    of: document.location,
+                    of: location,
                     effectiveMemberWorktreeIds: record.effectiveMemberWorktreeIds,
                     memberRootsByWorktreeId: memberRootsByWorktreeId
                 )
-                return grouping == .member(worktreeId: worktreeId) ? document.location : nil
+                return grouping == .member(worktreeId: worktreeId) ? location : nil
             }
             // A root that can no longer be resolved falls back to the admitted
             // provenance evidence rather than guessing by path.
-            return document.provenance?.worktreeId == worktreeId ? document.location : nil
+            return entry.provenance?.worktreeId == worktreeId ? location : nil
         }
     }
 
@@ -308,7 +308,7 @@ extension BridgeNavigationRules {
         )
         let removedDocumentSet = Set(removedDocuments)
         var updated = after
-        updated.openedDocuments.removeAll { removedDocumentSet.contains($0.location) }
+        updated.openedDocuments = updated.openedDocuments.filter { !removedDocumentSet.contains($0.key) }
         updated.reviewComparisonsByWorktreeId.removeValue(forKey: worktreeId)
 
         var clearedFilesSelection = false

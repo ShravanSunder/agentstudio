@@ -90,7 +90,6 @@ package final class BridgePaneController {
     /// Serializes Files membership updates so a later binding always lands last.
     var filesSourceUpdateTail: Task<Void, Never>?
     /// The newest Files binding requested, applied or still queued.
-    var latestRequestedFilesBinding: BridgeFilesSourceBinding?
     let fileGitReadScheduler: BridgeGitReadScheduler?
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
     let gitWorkingTreeStatusProvider: (any GitWorkingTreeStatusProvider)?
@@ -108,7 +107,7 @@ package final class BridgePaneController {
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
     var surfaceSelectionAuthority = BridgePaneSurfaceSelectionAuthority()
     /// Receives each displayed File selection mapped back to its document.
-    package var onFilesSelectionDisplayed: (@MainActor (BridgeFilesDisplayedSelection) -> Void)?
+    package var onFilesSelectionDisplayed: (@MainActor (BridgeFilesDisplayedSelection) async -> Void)?
     /// The one native Files activation still waiting for its displayed receipt.
     var pendingFileActivation: BridgePendingFileActivation?
 
@@ -174,7 +173,7 @@ package final class BridgePaneController {
     ) {
         (self.paneId, self.bridgePaneState, self.reviewBinding) = (paneId, state, sourceConfiguration.review)
         let reviewBinding = sourceConfiguration.review
-        (self.filesBinding, self.latestRequestedFilesBinding) = (sourceConfiguration.files, sourceConfiguration.files)
+        self.filesBinding = sourceConfiguration.files
         self.fileGitReadScheduler = fileGitReadScheduler ?? gitReadContext?.scheduler
         (self.worktreeProductConstructionCoordinator, self.gitWorkingTreeStatusProvider) =
             (worktreeProductConstructionCoordinator, gitWorkingTreeStatusProvider)

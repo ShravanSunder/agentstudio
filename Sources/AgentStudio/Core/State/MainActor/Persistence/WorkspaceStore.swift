@@ -397,6 +397,14 @@ package final class WorkspaceStore {
             topology: preparedTopology
         )
 
+        let preparedBridgeFilesBindings = await BridgeFilesBindingPreparation.prepareAllOffMain(
+            records: navigationHydration.records,
+            topology: preparedTopology,
+            ticket: 0
+        )
+        let preparedNavigationPublication = await BridgeNavigationAtomPublication.prepareOffMain(
+            records: navigationHydration.records)
+
         let preparedComposition: PreparedWorkspaceComposition
         switch await WorkspaceCompositionPreparer.prepareOffMain(paneReconciliation.workspace) {
         case .prepared(let prepared):
@@ -413,7 +421,11 @@ package final class WorkspaceStore {
                 preparedTopology,
                 repositoryTopologyAtom: repositoryTopologyAtom
             )
-            bridgeNavigationAtom.replaceAllRecords(navigationHydration.records)
+            bridgeNavigationAtom.replaceAllPreparedRecords(preparedNavigationPublication)
+            for (receiver, prepared) in preparedBridgeFilesBindings {
+                bridgeNavigationAtom.assignPreparedFilesBinding(
+                    prepared.binding, for: receiver, ticket: prepared.ticket)
+            }
             bridgeWriteSequencer.restoreFloor(
                 BridgeWriteGeneration(value: navigationHydration.generationFloor)
             )

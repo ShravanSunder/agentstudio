@@ -39,6 +39,10 @@ extension WebKitSerializedTests {
                 harness.coordinator.worktreeProductConstructionCoordinator
                     === constructionCoordinator
             )
+            #expect(firstView.controller.filesBinding?.members.map(\.id) == [setup.worktree.id])
+            #expect(secondView.controller.filesBinding?.members.map(\.id) == [setup.worktree.id])
+            #expect(firstView.controller.filesBinding?.openedDocuments.isEmpty == true)
+            #expect(secondView.controller.filesBinding?.openedDocuments.isEmpty == true)
             try await expectAvailableFileSource(
                 from: firstView.controller,
                 collectionToken: BridgeFilesSourceBinding.collectionToken(
@@ -67,6 +71,9 @@ extension WebKitSerializedTests {
 
             // Assert
             #expect(mountedView != nil)
+            #expect(
+                harness.viewRegistry.allBridgeViews[setup.firstPane.id]?
+                    .controller.filesBinding?.members.map(\.id) == [setup.worktree.id])
             #expect(
                 harness.coordinator.filesystemAffectedKeyRequestCount
                     == affectedKeyCountBefore + 1
@@ -777,7 +784,17 @@ private func seedStandaloneBridgeRecord(
         Issue.record("Could not seed the standalone Bridge navigation record")
         return
     }
-    store.bridgeNavigationAtom.setRecord(record, for: .standalone(paneId))
+    let receiver = BridgeReceiver.standalone(paneId)
+    store.bridgeNavigationAtom.setRecord(record, for: receiver)
+    let worktree = store.repositoryTopologyAtom.repositoryId(containing: worktreeId).flatMap { repoId in
+        store.repositoryTopologyAtom.validatedAssociation(
+            repoId: repoId, worktreeId: worktreeId)?.worktree
+    }
+    store.bridgeNavigationAtom.assignPreparedFilesBinding(
+        BridgeFilesSourceBinding(
+            collectionToken: BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: paneId),
+            members: worktree.map { [$0] } ?? [], openedDocuments: []),
+        for: receiver, ticket: 0)
 }
 
 @MainActor

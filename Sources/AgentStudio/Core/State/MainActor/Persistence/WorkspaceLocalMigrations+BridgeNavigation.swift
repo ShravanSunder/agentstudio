@@ -26,6 +26,7 @@ extension WorkspaceLocalMigrations {
                         provenance_worktree_id TEXT,
                         provenance_relative_path TEXT,
                         opened_line INTEGER CHECK (opened_line IS NULL OR opened_line > 0),
+                        opened_sort_key TEXT,
                         comparison_kind TEXT,
                         comparison_basis TEXT,
                         comparison_name TEXT,

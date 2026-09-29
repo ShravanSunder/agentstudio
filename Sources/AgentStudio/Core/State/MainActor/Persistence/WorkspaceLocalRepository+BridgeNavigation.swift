@@ -576,10 +576,10 @@ extension WorkspaceLocalRepositoryStorage {
                     workspace_id, receiver_pane_id, receiver_kind, kind, item_key, generation, is_deleted,
                     text_value, worktree_id, forge_host, forge_owner, forge_repository, forge_number,
                     document_path, provenance_repo_id, provenance_worktree_id,
-                    provenance_relative_path, opened_line,
+                    provenance_relative_path, opened_line, opened_sort_key,
                     comparison_kind, comparison_basis, comparison_name,
                     comparison_branch, comparison_remote, comparison_oid, ordinal, imported_variant, imported_payload
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(workspace_id, receiver_pane_id, kind, item_key) DO UPDATE SET
                     receiver_kind=excluded.receiver_kind, generation=excluded.generation,
                     is_deleted=excluded.is_deleted, text_value=excluded.text_value,
@@ -590,6 +590,7 @@ extension WorkspaceLocalRepositoryStorage {
                     provenance_worktree_id=excluded.provenance_worktree_id,
                     provenance_relative_path=excluded.provenance_relative_path,
                     opened_line=excluded.opened_line,
+                    opened_sort_key=excluded.opened_sort_key,
                     comparison_kind=excluded.comparison_kind, comparison_basis=excluded.comparison_basis,
                     comparison_name=excluded.comparison_name, comparison_branch=excluded.comparison_branch,
                     comparison_remote=excluded.comparison_remote, comparison_oid=excluded.comparison_oid,
@@ -603,7 +604,7 @@ extension WorkspaceLocalRepositoryStorage {
                 row.worktreeID?.uuidString, row.forgeHost, row.forgeOwner,
                 row.forgeRepository, row.forgeNumber, row.documentPath, row.provenanceRepoID?.uuidString,
                 row.provenanceWorktreeID?.uuidString, row.provenanceRelativePath,
-                row.openedLine,
+                row.openedLine, row.openedSortKey,
                 row.comparisonKind,
                 row.comparisonBasis, row.comparisonName, row.comparisonBranch, row.comparisonRemote,
                 row.comparisonOID, row.ordinal, row.importedVariant, row.importedPayload,
@@ -658,6 +659,7 @@ extension WorkspaceLocalRepositoryStorage {
             row.provenanceWorktreeID = try optionalUUID(stored["provenance_worktree_id"])
             row.provenanceRelativePath = stored["provenance_relative_path"]
             row.openedLine = stored["opened_line"]
+            row.openedSortKey = stored["opened_sort_key"]
             row.comparisonKind = stored["comparison_kind"]
             row.comparisonBasis = stored["comparison_basis"]
             row.comparisonName = stored["comparison_name"]

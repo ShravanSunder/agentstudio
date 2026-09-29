@@ -73,7 +73,7 @@ struct BridgeNavigationRulesTests {
     func failedDerivedContributionMovesReviewSelection() throws {
         let oldFile = try #require(BridgeDocumentLocation(canonicalPath: "/repos/backend/old.swift"))
         var record = BridgeNavigationRules.seededRecord(knownTerminalWorktreeId: backend)
-        record.openedDocuments = [BridgeOpenedDocument(location: oldFile, provenance: nil)]
+        record.openedDocuments = [oldFile: nextEntry(in: record)]
         record.selectedFilesDocument = oldFile
         let moved = BridgeNavigationRules.injectingKnownCWDWorktree(frontend, into: record)
 
@@ -118,18 +118,19 @@ struct BridgeNavigationRulesTests {
         // Arrange
         var record = admitted(backendFile, into: .empty)
         record = activatedFiles(backendFile, in: record)
-        let sameLocation = BridgeOpenedDocument(location: backendFile, provenance: nil)
+        let sameLocation = nextEntry(in: record)
 
         // Act
         let notesTransition = BridgeNavigationRules.admitting(
-            BridgeOpenedDocument(location: notes, provenance: nil),
+            nextEntry(in: record), at: notes,
             into: record
         )
-        let repeatTransition = BridgeNavigationRules.admitting(sameLocation, into: notesTransition.record)
+        let repeatTransition = BridgeNavigationRules.admitting(
+            sameLocation, at: backendFile, into: notesTransition.record)
 
         // Assert
         #expect(notesTransition.disposition == .appended)
-        #expect(notesTransition.record.openedDocuments.map(\.location) == [backendFile, notes])
+        #expect(orderedOpenedLocations(notesTransition.record) == [backendFile, notes])
         #expect(notesTransition.record.selectedFilesDocument == backendFile)
         if case .reused = repeatTransition.disposition {
         } else {
@@ -145,7 +146,7 @@ struct BridgeNavigationRulesTests {
 
         let record = admitted(second, into: admitted(first, into: .empty))
 
-        #expect(record.openedDocuments.map(\.location) == [first, second])
+        #expect(orderedOpenedLocations(record) == [first, second])
         #expect(first.displayName == second.displayName)
     }
 
@@ -259,7 +260,7 @@ struct BridgeNavigationRulesTests {
         #expect(closedOther.selectedFilesDocument == notes)
         #expect(clearedSelected)
         #expect(closedSelected.selectedFilesDocument == nil)
-        #expect(closedSelected.openedDocuments.map(\.location) == [backendFile])
+        #expect(orderedOpenedLocations(closedSelected) == [backendFile])
         #expect(BridgeNavigationRules.closingDocument(notes, in: closedSelected) == .notOpen)
     }
 
@@ -343,9 +344,25 @@ struct BridgeNavigationRulesTests {
         into record: BridgeNavigationRecord
     ) -> BridgeNavigationRecord {
         BridgeNavigationRules.admitting(
-            BridgeOpenedDocument(location: location, provenance: nil),
+            nextEntry(in: record), at: location,
             into: record
         ).record
+    }
+
+    private func nextEntry(in record: BridgeNavigationRecord) -> BridgeOpenedDocumentEntry {
+        let floor =
+            record.openedDocuments.values.compactMap {
+                openedDocumentSortKeyMillis($0.sortKey)
+            }.max() ?? 1_700_000_000_000
+        let minted = mintOpenedDocumentSortKey(
+            wallMillis: 1_700_000_000_000, floorMillis: floor)
+        return BridgeOpenedDocumentEntry(provenance: nil, sortKey: minted.key)
+    }
+
+    private func orderedOpenedLocations(_ record: BridgeNavigationRecord) -> [BridgeDocumentLocation] {
+        record.openedDocuments.sorted { lhs, rhs in
+            lhs.value.sortKey.uuidString < rhs.value.sortKey.uuidString
+        }.map(\.key)
     }
 
     private func activatedFiles(

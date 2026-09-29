@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// Translation between live navigation and normalized receiver rows. The
@@ -94,17 +95,17 @@ enum BridgeReceiverRecordRows {
     private static func openedDocumentRows(
         _ record: BridgeNavigationRecord, receiver: BridgeReceiver, generation: Int
     ) -> [BridgeReceiverStateRow] {
-        record.openedDocuments.enumerated().map { index, document in
+        record.openedDocuments.map { location, entry in
             var opened = BridgeReceiverStateRow(
                 receiver: receiver, kind: "openedDocument",
-                itemKey: BridgeReceiverStateKeyCodec.document(document.location),
+                itemKey: BridgeReceiverStateKeyCodec.document(location),
                 generation: generation, isDeleted: false)
-            opened.documentPath = document.location.canonicalPath
-            opened.ordinal = index
-            opened.provenanceRepoID = document.provenance?.repoId
-            opened.provenanceWorktreeID = document.provenance?.worktreeId
-            opened.provenanceRelativePath = document.provenance?.relativePath
-            opened.openedLine = document.openedLine
+            opened.documentPath = location.canonicalPath
+            opened.openedSortKey = entry.sortKey.uuidString.lowercased()
+            opened.provenanceRepoID = entry.provenance?.repoId
+            opened.provenanceWorktreeID = entry.provenance?.worktreeId
+            opened.provenanceRelativePath = entry.provenance?.relativePath
+            opened.openedLine = entry.openedLine
             return opened
         }
     }
@@ -163,7 +164,7 @@ enum BridgeReceiverRecordRows {
             Set(pullRequestContributions.keys) == Set(decoded.pullRequestOrder.keys),
             Set(decoded.memberOrder.values).count == decoded.memberOrder.count,
             Set(decoded.pullRequestOrder.values).count == decoded.pullRequestOrder.count,
-            Set(decoded.documentOrder.map(\.0)).count == decoded.documentOrder.count
+            Set(decoded.record.openedDocuments.values.map(\.sortKey)).count == decoded.record.openedDocuments.count
         else { throw BridgeReceiverStorageError.malformedRow("missing item order") }
         decoded.record.committedMemberLinks = memberContributions.map {
             BridgeMemberLink(worktreeId: $0.key, contributions: $0.value)
@@ -171,9 +172,8 @@ enum BridgeReceiverRecordRows {
         decoded.record.pullRequestLinks = pullRequestContributions.map {
             BridgePullRequestLink(identity: $0.key, contributions: $0.value)
         }.sorted { decoded.pullRequestOrder[$0.identity]! < decoded.pullRequestOrder[$1.identity]! }
-        decoded.record.openedDocuments = decoded.documentOrder.sorted { $0.0 < $1.0 }.map(\.1)
         if let selected = decoded.record.selectedFilesDocument,
-            !decoded.record.openedDocuments.contains(where: { $0.location == selected })
+            decoded.record.openedDocuments[selected] == nil
         {
             throw BridgeReceiverStorageError.malformedRow("selected document missing from inventory")
         }
@@ -240,7 +240,6 @@ enum BridgeReceiverRecordRows {
         var record = BridgeNavigationRecord.empty
         var memberOrder: [UUID: Int] = [:]
         var pullRequestOrder: [ForgePullRequestIdentity: Int] = [:]
-        var documentOrder: [(Int, BridgeOpenedDocument)] = []
 
         mutating func apply(_ state: BridgeReceiverStateRow) throws {
             try BridgeReceiverRecordRows.validateStateIdentity(state)
@@ -255,7 +254,9 @@ enum BridgeReceiverRecordRows {
                 guard let id = state.worktreeID else { throw BridgeReceiverStorageError.malformedRow("comparison key") }
                 record.reviewComparisonsByWorktreeId[id] = try BridgeReceiverRecordRows.comparison(state)
             case "itemOrder": try applyItemOrder(state)
-            case "openedDocument": documentOrder.append(try BridgeReceiverRecordRows.openedDocument(state))
+            case "openedDocument":
+                let (location, entry) = try BridgeReceiverRecordRows.openedDocument(state)
+                record.openedDocuments[location] = entry
             default: throw BridgeReceiverStorageError.malformedRow("state kind")
             }
         }
@@ -329,9 +330,13 @@ enum BridgeReceiverRecordRows {
         return surface
     }
 
-    private static func openedDocument(_ state: BridgeReceiverStateRow) throws -> (Int, BridgeOpenedDocument) {
+    private static func openedDocument(_ state: BridgeReceiverStateRow) throws
+        -> (BridgeDocumentLocation, BridgeOpenedDocumentEntry)
+    {
         guard let path = state.documentPath, let location = BridgeDocumentLocation(canonicalPath: path),
-            let ordinal = state.ordinal, ordinal >= 0
+            let sortKeyText = state.openedSortKey,
+            let sortKey = UUID(uuidString: sortKeyText), UUIDv7.isV7(sortKey),
+            sortKey.uuidString.lowercased() == sortKeyText
         else {
             throw BridgeReceiverStorageError.malformedRow("opened document")
         }
@@ -350,7 +355,7 @@ enum BridgeReceiverRecordRows {
         if let line = state.openedLine, line < 1 {
             throw BridgeReceiverStorageError.malformedRow("opened document line")
         }
-        return (ordinal, .init(location: location, provenance: provenance, openedLine: state.openedLine))
+        return (location, .init(provenance: provenance, openedLine: state.openedLine, sortKey: sortKey))
     }
 
     private static func requireSingleton(_ state: BridgeReceiverStateRow) throws {
@@ -373,6 +378,7 @@ enum BridgeReceiverRecordRows {
                 state.provenanceWorktreeID == nil ? nil : "provenanceWorktreeID",
                 state.provenanceRelativePath == nil ? nil : "provenanceRelativePath",
                 state.openedLine == nil ? nil : "openedLine",
+                state.openedSortKey == nil ? nil : "openedSortKey",
                 state.comparisonKind == nil ? nil : "comparisonKind",
                 state.comparisonBasis == nil ? nil : "comparisonBasis",
                 state.comparisonName == nil ? nil : "comparisonName",
@@ -402,7 +408,7 @@ enum BridgeReceiverRecordRows {
         case "openedDocument":
             allowedColumns = [
                 "documentPath", "provenanceRepoID", "provenanceWorktreeID",
-                "provenanceRelativePath", "ordinal", "openedLine",
+                "provenanceRelativePath", "openedSortKey", "openedLine",
             ]
         default: throw BridgeReceiverStorageError.malformedRow("state kind")
         }
@@ -419,7 +425,11 @@ enum BridgeReceiverRecordRows {
         case "openedDocument":
             guard let path = state.documentPath,
                 let location = BridgeDocumentLocation(canonicalPath: path),
-                BridgeReceiverStateKeyCodec.document(location) == state.itemKey
+                BridgeReceiverStateKeyCodec.document(location) == state.itemKey,
+                let sortKeyText = state.openedSortKey,
+                let sortKey = UUID(uuidString: sortKeyText),
+                UUIDv7.isV7(sortKey),
+                sortKey.uuidString.lowercased() == sortKeyText
             else {
                 throw BridgeReceiverStorageError.malformedRow("document identity")
             }

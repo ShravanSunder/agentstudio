@@ -17,6 +17,7 @@ final class BridgeNavigationCommandHandler {
     let repositoryTopologyAtom: RepositoryTopologyAtom
     let writeSequencer: BridgeNavigationWriteSequencer
     let linkCommitPort: (any BridgeLinkCommitPort)?
+    let displayedSelectionPreparationPort: (any BridgeDisplayedSelectionPreparationPort)?
     let workspaceID: UUID?
     weak var linkMembershipActor: BridgePaneLinkMembershipActor?
     /// Supplied by the App composition once mounted Bridges can be reached.
@@ -24,6 +25,9 @@ final class BridgeNavigationCommandHandler {
     /// Advances per receiver for every navigation that awaits the page, so a
     /// late result of an older request never publishes state.
     var navigationGenerationByReceiver: [BridgeReceiver: Int] = [:]
+    /// Arrival order of page-displayed Files receipts while off-main
+    /// preparation is pending. Only the newest receipt may publish.
+    var latestDisplayedSelectionTicketByReceiver: [BridgeReceiver: Int] = [:]
     /// Unregistered worktrees whose removal still waits on an unsaved draft in
     /// some receiver, with the canonical root captured from the catalog delta.
     var pendingCatalogUnregistrationRootsById: [UUID: String] = [:]
@@ -35,6 +39,7 @@ final class BridgeNavigationCommandHandler {
         repositoryTopologyAtom: RepositoryTopologyAtom,
         writeSequencer: BridgeNavigationWriteSequencer = BridgeNavigationWriteSequencer(),
         linkCommitPort: (any BridgeLinkCommitPort)? = nil,
+        displayedSelectionPreparationPort: (any BridgeDisplayedSelectionPreparationPort)? = nil,
         workspaceID: UUID? = nil
     ) {
         self.navigationAtom = navigationAtom
@@ -43,6 +48,7 @@ final class BridgeNavigationCommandHandler {
         self.repositoryTopologyAtom = repositoryTopologyAtom
         self.writeSequencer = writeSequencer
         self.linkCommitPort = linkCommitPort
+        self.displayedSelectionPreparationPort = displayedSelectionPreparationPort
         self.workspaceID = workspaceID
     }
 
@@ -64,6 +70,7 @@ final class BridgeNavigationCommandHandler {
     func ensureRecord(
         for receiver: BridgeReceiver,
         seedingKnownWorktreeId knownWorktreeId: UUID?,
+        seedWorktree: Worktree? = nil,
         surface: BridgeNavigationSurface = .files
     ) -> BridgeNavigationRecord? {
         if let existing = navigationAtom.record(for: receiver) {
@@ -75,6 +82,10 @@ final class BridgeNavigationCommandHandler {
             surface: surface
         )
         navigationAtom.setRecord(seeded, for: receiver)
+        let binding = bridgeFilesSeedBinding(
+            for: receiver, ownWorktreeId: knownWorktreeId,
+            seedWorktree: seedWorktree)
+        navigationAtom.assignPreparedFilesBinding(binding, for: receiver, ticket: 0)
         if let knownWorktreeId {
             enqueueAppMemberContribution(
                 knownWorktreeId, previousDerivedWorktreeID: nil, for: receiver
@@ -92,6 +103,7 @@ final class BridgeNavigationCommandHandler {
         var updated = record
         updated.derivedCurrentCWDWorktreeId = knownWorktreeId
         navigationAtom.setRecord(updated, for: receiver)
+        presentationPorts?.refreshFilesSource(receiver)
         if knownWorktreeId != nil || record.derivedCurrentCWDWorktreeId != nil {
             enqueueAppMemberContribution(
                 knownWorktreeId,
@@ -122,11 +134,21 @@ final class BridgeNavigationCommandHandler {
     /// order plus its opened documents. A member that is temporarily unknown is
     /// left out without being removed from the record.
     func filesBinding(for receiver: BridgeReceiver) -> BridgeFilesSourceBinding? {
-        guard let record = navigationAtom.record(for: receiver) else { return nil }
+        navigationAtom.preparedFilesBinding(for: receiver)
+    }
+
+    /// The new receiver's own member is one keyed topology read at most;
+    /// multi-member input is always prepared off-main into the slot.
+    func bridgeFilesSeedBinding(
+        for receiver: BridgeReceiver,
+        ownWorktreeId: UUID?,
+        seedWorktree: Worktree? = nil
+    ) -> BridgeFilesSourceBinding {
+        let worktree = seedWorktree ?? ownWorktreeId.flatMap(knownWorktree)
         return BridgeFilesSourceBinding(
             collectionToken: BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: receiver.paneId),
-            members: record.effectiveMemberWorktreeIds.compactMap(knownWorktree),
-            openedDocuments: record.openedDocuments.map(\.location)
+            members: worktree.map { [$0] } ?? [],
+            openedDocuments: []
         )
     }
 

@@ -48,7 +48,10 @@ extension BridgePaneLinkMembershipActor {
                 removedRoot: removedRoot
             )
             let application = BridgeCommittedLinkApplication(
-                record: prepared.record, memberRoots: prepared.memberRoots,
+                record: prepared.record,
+                openedDocumentUpdates: BridgeOpenedDocumentAtomUpdate.difference(
+                    from: latest.record, to: prepared.record),
+                memberRoots: prepared.memberRoots,
                 reviewReplacement: prepared.reviewReplacement
                     ?? (prepared.record.reviewSelection == latest.record.reviewSelection
                         ? nil : prepared.record.surface)
@@ -88,7 +91,10 @@ extension BridgePaneLinkMembershipActor {
                 reviewSurface = nil
             }
             let application = BridgeCommittedLinkApplication(
-                record: reconciled, memberRoots: topology.effectiveMemberRoots(in: reconciled),
+                record: reconciled,
+                openedDocumentUpdates: BridgeOpenedDocumentAtomUpdate.difference(
+                    from: latest.record, to: reconciled),
+                memberRoots: topology.effectiveMemberRoots(in: reconciled),
                 reviewReplacement: reconciled.reviewSelection == latest.record.reviewSelection
                     ? nil : reconciled.surface
             )

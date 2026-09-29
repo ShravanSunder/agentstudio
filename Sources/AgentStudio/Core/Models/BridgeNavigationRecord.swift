@@ -54,8 +54,8 @@ package enum BridgeReviewSelection: Hashable, Sendable {
 /// and the displayed native instance — never live here. The protected member is
 /// derived from the owner's current terminal association, not stored.
 package struct BridgeNavigationRecord: Hashable, Sendable {
-    /// Ordered opened-document inventory; one entry per canonical location.
-    package var openedDocuments: [BridgeOpenedDocument]
+    /// Canonical location-keyed opened-document inventory. Sort keys carry order.
+    package var openedDocuments: [BridgeDocumentLocation: BridgeOpenedDocumentEntry]
     /// Ordered effective membership. Each item owns order; contributors own
     /// only authorship and insertion time.
     package var committedMemberLinks: [BridgeMemberLink]
@@ -84,7 +84,7 @@ package struct BridgeNavigationRecord: Hashable, Sendable {
     package var reviewComparisonsByWorktreeId: [UUID: WorkspaceBaseline]
 
     package init(
-        openedDocuments: [BridgeOpenedDocument] = [],
+        openedDocuments: [BridgeDocumentLocation: BridgeOpenedDocumentEntry] = [:],
         committedMemberLinks: [BridgeMemberLink] = [],
         derivedCurrentCWDWorktreeId: WorktreeId? = nil,
         pullRequestLinks: [BridgePullRequestLink] = [],
@@ -107,8 +107,8 @@ package struct BridgeNavigationRecord: Hashable, Sendable {
 
     package static let empty = Self()
 
-    package func openedDocument(at location: BridgeDocumentLocation) -> BridgeOpenedDocument? {
-        openedDocuments.first { $0.location == location }
+    package func openedDocument(at location: BridgeDocumentLocation) -> BridgeOpenedDocumentEntry? {
+        openedDocuments[location]
     }
 
     package func containsMember(_ worktreeId: UUID) -> Bool {

@@ -75,8 +75,8 @@ struct BridgeNavigationMembershipRulesTests {
         // Assert
         #expect(removed.effectiveMemberWorktreeIds == [backend, docs])
         #expect(effect.removedDocuments == [frontendFile])
-        #expect(!removed.openedDocuments.map(\.location).contains(frontendFile), "must not reappear as loose")
-        #expect(removed.openedDocuments.map(\.location) == [backendFile, notes])
+        #expect(removed.openedDocuments[frontendFile] == nil, "must not reappear as loose")
+        #expect(orderedOpenedLocations(removed) == [backendFile, notes])
         #expect(effect.clearedFilesSelection)
         #expect(removed.selectedFilesDocument == nil)
         #expect(effect.resetFilesFilter)
@@ -140,8 +140,8 @@ struct BridgeNavigationMembershipRulesTests {
         // Arrange
         let record = BridgeNavigationRecord(
             openedDocuments: [
-                BridgeOpenedDocument(location: backendFile, provenance: nil),
-                BridgeOpenedDocument(location: notes, provenance: nil),
+                backendFile: entry(ordinal: 1),
+                notes: entry(ordinal: 2),
             ],
             committedMemberLinks: [link(backend)],
             reviewSelection: .member(worktreeId: backend),
@@ -155,7 +155,7 @@ struct BridgeNavigationMembershipRulesTests {
         #expect(removed.effectiveMemberWorktreeIds.isEmpty)
         #expect(effect.reviewFallback == .emptied)
         #expect(removed.reviewSelection == .unselected)
-        #expect(removed.openedDocuments.map(\.location) == [notes])
+        #expect(orderedOpenedLocations(removed) == [notes])
         #expect(removed.surface == .review)
     }
 
@@ -187,18 +187,15 @@ struct BridgeNavigationMembershipRulesTests {
         // Arrange: the frontend root is no longer resolvable
         var record = collection()
         record.openedDocuments = [
-            BridgeOpenedDocument(
-                location: frontendFile,
+            frontendFile: entry(
+                ordinal: 1,
                 provenance: BridgeKnownWorktreeProvenance(
                     repoId: UUIDv7.generate(),
                     worktreeId: frontend,
                     relativePath: "src/app.tsx"
                 )
             ),
-            BridgeOpenedDocument(
-                location: BridgeDocumentLocation(canonicalPath: "/repos/frontend/untracked.md")!,
-                provenance: nil
-            ),
+            BridgeDocumentLocation(canonicalPath: "/repos/frontend/untracked.md")!: entry(ordinal: 2),
         ]
         var rootsWithoutFrontend = roots
         rootsWithoutFrontend.removeValue(forKey: frontend)
@@ -217,7 +214,7 @@ struct BridgeNavigationMembershipRulesTests {
             return
         }
         #expect(effect.removedDocuments == [frontendFile])
-        #expect(removed.openedDocuments.map(\.location.canonicalPath) == ["/repos/frontend/untracked.md"])
+        #expect(orderedOpenedLocations(removed).map(\.canonicalPath) == ["/repos/frontend/untracked.md"])
     }
 
     @Test("a nested member keeps its own documents when the outer member is removed")
@@ -229,8 +226,8 @@ struct BridgeNavigationMembershipRulesTests {
         let outerFile = BridgeDocumentLocation(canonicalPath: "/repos/app/main.swift")!
         let record = BridgeNavigationRecord(
             openedDocuments: [
-                BridgeOpenedDocument(location: outerFile, provenance: nil),
-                BridgeOpenedDocument(location: nestedFile, provenance: nil),
+                outerFile: entry(ordinal: 1),
+                nestedFile: entry(ordinal: 2),
             ],
             committedMemberLinks: [link(outer), link(nested)]
         )
@@ -249,7 +246,7 @@ struct BridgeNavigationMembershipRulesTests {
             return
         }
         #expect(effect.removedDocuments == [outerFile])
-        #expect(removed.openedDocuments.map(\.location) == [nestedFile])
+        #expect(orderedOpenedLocations(removed) == [nestedFile])
     }
 
     // MARK: - Helpers
@@ -268,9 +265,9 @@ struct BridgeNavigationMembershipRulesTests {
     private func collection() -> BridgeNavigationRecord {
         BridgeNavigationRecord(
             openedDocuments: [
-                BridgeOpenedDocument(location: backendFile, provenance: nil),
-                BridgeOpenedDocument(location: frontendFile, provenance: nil),
-                BridgeOpenedDocument(location: notes, provenance: nil),
+                backendFile: entry(ordinal: 1),
+                frontendFile: entry(ordinal: 2),
+                notes: entry(ordinal: 3),
             ],
             committedMemberLinks: [link(backend), link(frontend), link(docs)],
             reviewSelection: .member(worktreeId: backend),
@@ -280,6 +277,20 @@ struct BridgeNavigationMembershipRulesTests {
                 docs: .ref(name: "origin/main"),
             ]
         )
+    }
+
+    private func entry(
+        ordinal: UInt64, provenance: BridgeKnownWorktreeProvenance? = nil
+    ) -> BridgeOpenedDocumentEntry {
+        BridgeOpenedDocumentEntry(
+            provenance: provenance,
+            sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_000 + ordinal))
+    }
+
+    private func orderedOpenedLocations(_ record: BridgeNavigationRecord) -> [BridgeDocumentLocation] {
+        record.openedDocuments.sorted { lhs, rhs in
+            lhs.value.sortKey.uuidString < rhs.value.sortKey.uuidString
+        }.map(\.key)
     }
 
     private func removal(

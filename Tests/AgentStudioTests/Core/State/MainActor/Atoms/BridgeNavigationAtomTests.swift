@@ -8,6 +8,53 @@ import Testing
 @MainActor
 @Suite("BridgeNavigationAtom")
 struct BridgeNavigationAtomTests {
+    @Test("a prepared document writes one keyed observation slot")
+    func openedDocumentWriteIsKeyed() {
+        let atom = BridgeNavigationAtom()
+        let receiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let observed = BridgeDocumentLocation(canonicalPath: "/tmp/observed.swift")!
+        let other = BridgeDocumentLocation(canonicalPath: "/tmp/other.swift")!
+        let entry = BridgeOpenedDocumentEntry(
+            provenance: nil, sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
+        atom.setRecord(.empty, for: receiver)
+        let recorder = BridgeNavigationObservationRecorder()
+        withObservationTracking {
+            _ = atom.openedDocumentEntry(for: receiver, at: observed)
+        } onChange: {
+            recorder.recordCurrentMutation()
+        }
+
+        recorder.currentMutation = .otherReceiver
+        atom.assignOpenedDocument(entry, at: other, for: receiver)
+        recorder.currentMutation = .observedReceiver
+        atom.assignOpenedDocument(entry, at: observed, for: receiver)
+
+        #expect(recorder.recordedMutations == [.observedReceiver])
+        #expect(atom.openedDocumentEntry(for: receiver, at: observed) == entry)
+        #expect(atom.record(for: receiver)?.openedDocuments[other] == entry)
+    }
+
+    @Test("prepared Files slot accepts only a newer capture ticket")
+    func preparedFilesSlotRejectsLatePreparation() {
+        let atom = BridgeNavigationAtom()
+        let receiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let location = BridgeDocumentLocation(canonicalPath: "/tmp/slot.swift")!
+        let token = BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: receiver.paneId)
+        let current = BridgeFilesSourceBinding(
+            collectionToken: token, members: [], openedDocuments: [location])
+        let stale = BridgeFilesSourceBinding(
+            collectionToken: token, members: [], openedDocuments: [])
+
+        #expect(atom.assignPreparedFilesBinding(current, for: receiver, ticket: 2))
+        #expect(!atom.assignPreparedFilesBinding(stale, for: receiver, ticket: 1))
+        #expect(atom.preparedFilesBinding(for: receiver) == current)
+        #expect(atom.acceptedRevision == 0, "presentation preparation does not create a durable write")
+        atom.setRecord(.empty, for: receiver)
+        #expect(atom.removeRecord(for: receiver))
+        #expect(atom.preparedFilesBinding(for: receiver) == nil)
+        #expect(atom.assignPreparedFilesBinding(stale, for: receiver, ticket: 0))
+    }
+
     @Test("equal records are suppressed and unequal records advance the accepted revision once")
     func equalRecordsAreSuppressed() {
         // Arrange
@@ -58,14 +105,15 @@ struct BridgeNavigationAtomTests {
     }
 
     @Test("receiver lookup by pane finds either kind; removal and replacement publish")
-    func receiverLookupRemovalAndReplacement() {
+    func receiverLookupRemovalAndReplacement() async {
         let atom = BridgeNavigationAtom()
         let terminalPane = UUIDv7.generate()
         let bridgePane = UUIDv7.generate()
-        atom.replaceAllRecords([
+        let publication = await BridgeNavigationAtomPublication.prepareOffMain(records: [
             .terminal(terminalPane): .empty,
             .standalone(bridgePane): .empty,
         ])
+        atom.replaceAllPreparedRecords(publication)
 
         #expect(atom.receiver(forPaneId: terminalPane) == .terminal(terminalPane))
         #expect(atom.receiver(forPaneId: bridgePane) == .standalone(bridgePane))

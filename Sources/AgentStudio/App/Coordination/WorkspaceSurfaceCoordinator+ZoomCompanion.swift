@@ -182,7 +182,8 @@ extension WorkspaceSurfaceCoordinator {
         let knownCWDWorktreeId = context.association?.worktree.id
         bridgeNavigationCommandHandler.ensureRecord(
             for: receiver,
-            seedingKnownWorktreeId: knownCWDWorktreeId
+            seedingKnownWorktreeId: knownCWDWorktreeId,
+            seedWorktree: context.association?.worktree
         )
         bridgeNavigationCommandHandler.applyKnownCWDAssociation(
             knownCWDWorktreeId,

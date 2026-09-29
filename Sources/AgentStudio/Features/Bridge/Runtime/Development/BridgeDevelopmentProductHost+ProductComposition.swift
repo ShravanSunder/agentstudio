@@ -320,23 +320,21 @@ extension BridgeDevelopmentProductHost {
             name: source.worktreeRoot.lastPathComponent,
             path: source.worktreeRoot
         )
+        let initialMember = BridgeFileCollectionMemberSource(
+            worktreeId: worktree.id,
+            rootURL: worktree.path,
+            memberCollectionToken: worktree.stableKey,
+            producer: BridgePaneProductFileMetadataSource(
+                authority: BridgePaneProductFileSourceAuthority(paneId: source.paneID, worktree: worktree),
+                gitReadContext: gitReadContext,
+                constructionCoordinator: constructionCoordinator,
+                statusProvider: AgentStudioGitWorkingTreeStatusProvider(
+                    physicalGate: statusPhysicalGate)
+            )
+        )
         return BridgeFileCollectionSource(
             collectionToken: BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: source.paneID),
-            members: [
-                BridgeFileCollectionMemberSource(
-                    worktreeId: worktree.id,
-                    rootURL: worktree.path,
-                    memberCollectionToken: worktree.stableKey,
-                    producer: BridgePaneProductFileMetadataSource(
-                        authority: BridgePaneProductFileSourceAuthority(paneId: source.paneID, worktree: worktree),
-                        gitReadContext: gitReadContext,
-                        constructionCoordinator: constructionCoordinator,
-                        statusProvider: AgentStudioGitWorkingTreeStatusProvider(
-                            physicalGate: statusPhysicalGate
-                        )
-                    )
-                )
-            ],
+            initialMemberProvider: { [initialMember] in [initialMember] },
             openedDocuments: []
         )
     }

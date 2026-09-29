@@ -16,6 +16,7 @@ final class BridgeNavigationHandlerFixture {
     let handler: BridgeNavigationCommandHandler
     let linkCommitPort: BridgePaneLinkCommitTestPort
     let linkMembershipActor: BridgePaneLinkMembershipActor
+    private let displayedSelectionPreparationPort = TestDisplayedSelectionPreparationPort()
     let repo: Repo
     let worktree: Worktree
     let receiver: BridgeReceiver
@@ -44,6 +45,7 @@ final class BridgeNavigationHandlerFixture {
             repositoryTopologyAtom: store.repositoryTopologyAtom,
             writeSequencer: store.bridgeWriteSequencer,
             linkCommitPort: linkCommitPort,
+            displayedSelectionPreparationPort: displayedSelectionPreparationPort,
             workspaceID: store.identityAtom.workspaceId
         )
         receiver = terminalReceiver ? .terminal(UUIDv7.generate()) : .standalone(UUIDv7.generate())
@@ -76,13 +78,11 @@ final class BridgeNavigationHandlerFixture {
             seedCommittedMember(worktree.id, for: receiver)
         }
         if let loosePlan, let record = handler.record(for: receiver) {
+            let entry = BridgeOpenedDocumentEntry(provenance: nil, sortKey: UUIDv7.generate())
+            let admitted = BridgeNavigationRules.admitting(entry, at: loosePlan, into: record)
             store.bridgeNavigationAtom.setRecord(
-                BridgeNavigationRules.admitting(
-                    BridgeOpenedDocument(location: loosePlan, provenance: nil),
-                    into: record
-                ).record,
-                for: receiver
-            )
+                admitted.record, for: receiver,
+                openedDocumentUpdates: [.set(loosePlan, entry)])
         }
     }
 
@@ -147,6 +147,10 @@ final class BridgeNavigationHandlerFixture {
         store.bridgeNavigationAtom.setRecord(selected, for: receiver)
     }
 
+    func holdNextDisplayedSelection(_ step: HeldStep<BridgeDocumentLocation>) async {
+        await displayedSelectionPreparationPort.holdNext(step)
+    }
+
     func addMember() async throws -> Worktree {
         let otherRepo = store.addRepo(at: root.appending(path: "other", directoryHint: .isDirectory))
         let otherWorktree = try #require(store.repo(otherRepo.id)?.worktrees.first)
@@ -155,6 +159,48 @@ final class BridgeNavigationHandlerFixture {
             worktree: otherWorktree.id, contributor: .person
         )
         return otherWorktree
+    }
+}
+
+private actor TestDisplayedSelectionPreparationPort: BridgeDisplayedSelectionPreparationPort {
+    private var floorMillis: UInt64 = 1_700_000_000_000
+    private var nextHold: HeldStep<BridgeDocumentLocation>?
+
+    func holdNext(_ step: HeldStep<BridgeDocumentLocation>) {
+        nextHold = step
+    }
+
+    func prepareDisplayedFilesSelection(
+        receiver _: BridgeReceiver, location: BridgeDocumentLocation,
+        memberWorktreeID: UUID?, memberRelativePath: String?,
+        record: BridgeNavigationRecord, topology: BridgeReceiverTopologySnapshot
+    ) async -> BridgeNavigationRecord? {
+        if let hold = nextHold {
+            nextHold = nil
+            try? await hold.arrive(location)
+        }
+        let provenance: BridgeKnownWorktreeProvenance?
+        if let memberWorktreeID {
+            guard let memberRelativePath, record.containsMember(memberWorktreeID),
+                let worktree = topology.knownWorktree(memberWorktreeID)
+            else { return nil }
+            provenance = .init(
+                repoId: worktree.repoId, worktreeId: memberWorktreeID,
+                relativePath: memberRelativePath)
+        } else {
+            provenance = nil
+        }
+        let entry: BridgeOpenedDocumentEntry
+        if let existing = record.openedDocument(at: location) {
+            entry = existing
+        } else {
+            let minted = mintOpenedDocumentSortKey(
+                wallMillis: 1_700_000_000_000, floorMillis: floorMillis)
+            floorMillis = minted.newFloorMillis
+            entry = .init(provenance: provenance, sortKey: minted.key)
+        }
+        return BridgeNavigationRules.recordingDisplayedFilesSelection(
+            entry, at: location, in: record)
     }
 }
 

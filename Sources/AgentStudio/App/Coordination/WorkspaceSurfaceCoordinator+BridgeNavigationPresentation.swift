@@ -20,16 +20,31 @@ extension WorkspaceSurfaceCoordinator {
                 self?.bridgeReceiver(forCommandPaneId: paneId)
             },
             refreshFilesSource: { [weak self] receiver in
-                guard let self,
-                    let controller = self.mountedBridgeController(for: receiver),
-                    let files = self.bridgeNavigationCommandHandler.filesBinding(for: receiver)
-                else { return }
-                controller.enqueueFilesSourceUpdate(files)
+                self?.prepareAndPublishBridgeFilesBinding(for: receiver)
             },
             persistNavigation: { [weak self] in
                 await self?.store.flushAsync().succeeded ?? false
             }
         )
+    }
+
+    /// Capture only raw facts on MainActor. Worktree resolution and document
+    /// ordering run off-main; the atom rejects an older preparation by ticket.
+    private func prepareAndPublishBridgeFilesBinding(for receiver: BridgeReceiver) {
+        guard let record = bridgeNavigationCommandHandler.record(for: receiver) else { return }
+        let topology = bridgeNavigationCommandHandler.captureLinkTopology(sourcePaneID: receiver.paneId)
+        let ticket = store.bridgeWriteSequencer.nextTicket().value
+        Task { [weak self] in
+            let prepared = await BridgeFilesBindingPreparation.prepareOffMain(
+                receiver: receiver, record: record, topology: topology, ticket: ticket)
+            guard let self,
+                self.store.bridgeNavigationAtom.record(for: receiver) != nil,
+                self.store.bridgeNavigationAtom.assignPreparedFilesBinding(
+                    prepared.binding, for: receiver, ticket: prepared.ticket)
+            else { return }
+            self.mountedBridgeController(for: receiver)?
+                .enqueueFilesSourceUpdate(prepared.binding)
+        }
     }
 
     /// Search the Files collection of the receiver `paneId` addresses. A read:
@@ -79,7 +94,10 @@ extension WorkspaceSurfaceCoordinator {
     /// navigation record.
     func bindDisplayedFilesSelection(of controller: BridgePaneController, to receiver: BridgeReceiver) {
         controller.onFilesSelectionDisplayed = { [weak self] selection in
-            self?.bridgeNavigationCommandHandler.recordDisplayedFilesSelection(selection, for: receiver)
+            guard let self else { return }
+            let completion = bridgeNavigationCommandHandler.recordDisplayedFilesSelection(
+                selection, for: receiver)
+            await completion?.value
         }
     }
 

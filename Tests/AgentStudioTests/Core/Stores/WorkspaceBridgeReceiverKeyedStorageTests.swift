@@ -65,6 +65,36 @@ func receiverTopologySnapshot(
 
 @Suite("Bridge receiver keyed SQLite storage", .serialized)
 struct BridgeReceiverKeyedStorageTests {
+    @Test("off-main Files input orders keyed documents and resolves receiver members")
+    func preparedFilesBindingOrdersDocuments() async throws {
+        let receiver = BridgeReceiver.standalone(UUIDv7.generate())
+        let worktreeID = UUIDv7.generate()
+        let topology = try receiverTopologySnapshot(
+            for: receiver, knownWorktreeRoots: [worktreeID: "/tmp/member"])
+        let earlier = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/earlier.swift"))
+        let later = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/later.swift"))
+        let record = BridgeNavigationRecord(
+            openedDocuments: [
+                later: .init(
+                    provenance: nil,
+                    sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_002)),
+                earlier: .init(
+                    provenance: nil,
+                    sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001)),
+            ],
+            committedMemberLinks: testCommittedMemberLinks([worktreeID]))
+
+        let prepared = await BridgeFilesBindingPreparation.prepareOffMain(
+            receiver: receiver, record: record, topology: topology, ticket: 17)
+
+        #expect(prepared.ticket == 17)
+        #expect(
+            prepared.binding.collectionToken
+                == BridgeFilesSourceBinding.collectionToken(forReceiverPaneId: receiver.paneId))
+        #expect(prepared.binding.members.map(\.id) == [worktreeID])
+        #expect(prepared.binding.openedDocuments == [earlier, later])
+    }
+
     @Test("agent show preparation validates a local file and committed membership")
     func agentShowPreparation() async throws {
         let fixture = try ReceiverKeyedStorageFixture()
@@ -91,31 +121,41 @@ struct BridgeReceiverKeyedStorageTests {
             worktree: worktree, relativePath: "show.swift", line: 9)
         let loose = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
-            target: target, topologySnapshot: topology)
-        guard case .prepared(let looseDocument) = loose else {
+            target: target, topologySnapshot: topology, currentEntries: [:])
+        guard case .prepared(let looseLocation, let looseDocument) = loose else {
             Issue.record("Expected a validated loose document")
             return
         }
         #expect(looseDocument.provenance == nil)
         #expect(looseDocument.openedLine == 9)
+        let displayedLocation = try #require(
+            BridgeDocumentLocation(
+                canonicalPath: memberRoot.appending(path: "displayed.swift").path))
+        let displayed = await datastore.prepareDisplayedFilesSelection(
+            receiver: receiver, location: displayedLocation,
+            memberWorktreeID: nil, memberRelativePath: nil,
+            record: BridgeNavigationRecord(openedDocuments: [looseLocation: looseDocument]),
+            topology: topology)
+        let displayedEntry = try #require(displayed?.openedDocument(at: displayedLocation))
+        #expect(displayedEntry.sortKey.uuidString > looseDocument.sortKey.uuidString)
 
         _ = try fixture.repository.commitBridgeMemberAddition(
             receiver: receiver, worktreeID: worktree, contributor: .person,
             generation: 1, addedAt: Date(timeIntervalSince1970: 100), topologySnapshot: topology)
         let linked = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
-            target: target, topologySnapshot: topology)
-        guard case .prepared(let memberDocument) = linked else {
+            target: target, topologySnapshot: topology, currentEntries: [:])
+        guard case .prepared(let memberLocation, let memberDocument) = linked else {
             Issue.record("Expected a validated member document")
             return
         }
         #expect(memberDocument.provenance?.worktreeId == worktree)
-        #expect(memberDocument.location == looseDocument.location)
+        #expect(memberLocation == looseLocation)
 
         let missing = try BridgeAgentShowTarget(worktree: worktree, relativePath: "missing.swift")
         let missingOutcome = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
-            target: missing, topologySnapshot: topology)
+            target: missing, topologySnapshot: topology, currentEntries: [:])
         guard case .notFound = missingOutcome else {
             Issue.record("Missing file was accepted")
             return
@@ -123,7 +163,7 @@ struct BridgeReceiverKeyedStorageTests {
         let escaped = try BridgeAgentShowTarget(worktree: worktree, relativePath: "escape.swift")
         let escapedOutcome = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
-            target: escaped, topologySnapshot: topology)
+            target: escaped, topologySnapshot: topology, currentEntries: [:])
         guard case .notFound = escapedOutcome else {
             Issue.record("Escaped file was accepted")
             return
@@ -134,7 +174,7 @@ struct BridgeReceiverKeyedStorageTests {
         try fixture.repository.retireBridgeReceiver(receiver, time: retirementTime)
         let retiredOutcome = try await datastore.prepareAgentShow(
             workspaceID: fixture.repository.workspaceId, receiver: receiver,
-            target: target, topologySnapshot: topology)
+            target: target, topologySnapshot: topology, currentEntries: [:])
         guard case .paneUnavailable = retiredOutcome else {
             Issue.record("Retired receiver was accepted")
             return
@@ -150,13 +190,13 @@ struct BridgeReceiverKeyedStorageTests {
         let topology = try receiverTopologySnapshot(
             for: receiver, knownWorktreeRoots: [member: "/"])
         let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/prepared-link.swift"))
-        let document = BridgeOpenedDocument(
-            location: location,
+        let document = BridgeOpenedDocumentEntry(
             provenance: .init(
                 repoId: UUIDv7.generate(), worktreeId: member,
-                relativePath: "prepared-link.swift"))
+                relativePath: "prepared-link.swift"),
+            sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
         let latest = BridgeNavigationRecord(
-            openedDocuments: [document], committedMemberLinks: testCommittedMemberLinks([member]),
+            openedDocuments: [location: document], committedMemberLinks: testCommittedMemberLinks([member]),
             filesFilter: .member(worktreeId: member), selectedFilesDocument: location,
             reviewSelection: .member(worktreeId: member), surface: .review)
         let committed = BridgeNavigationRecord(surface: .review)
@@ -186,7 +226,10 @@ struct BridgeReceiverKeyedStorageTests {
         let topology = try receiverTopologySnapshot(for: receiver)
         let location = try #require(BridgeDocumentLocation(canonicalPath: "/private/tmp/catalog-old/late.md"))
         let latest = BridgeNavigationRecord(
-            openedDocuments: [.init(location: location, provenance: nil)],
+            openedDocuments: [
+                location: .init(
+                    provenance: nil, sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
+            ],
             committedMemberLinks: testCommittedMemberLinks([removedMember]), selectedFilesDocument: location,
             reviewSelection: .member(worktreeId: removedMember), surface: .review)
         let committed = BridgeNavigationRecord(surface: .review)
@@ -386,8 +429,9 @@ struct BridgeReceiverKeyedStorageTests {
         defer { fixture.remove() }
         let receiver = BridgeReceiver.standalone(UUIDv7.generate())
         let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/receiver-keyed.md"))
-        let document = BridgeOpenedDocument(location: location, provenance: nil)
-        var seeded = BridgeNavigationRecord(openedDocuments: [document], selectedFilesDocument: location)
+        let document = BridgeOpenedDocumentEntry(
+            provenance: nil, sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
+        var seeded = BridgeNavigationRecord(openedDocuments: [location: document], selectedFilesDocument: location)
         _ = try fixture.repository.insertBridgeReceiversIfAbsent([receiver: seeded])
         var cleared = seeded
         cleared.selectedFilesDocument = nil
@@ -413,11 +457,11 @@ struct BridgeReceiverKeyedStorageTests {
         let topologySnapshot = try receiverTopologySnapshot(
             for: receiver, knownWorktreeRoots: [member: "/"])
         let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/late-member.swift"))
-        let document = BridgeOpenedDocument(
-            location: location,
-            provenance: .init(repoId: UUIDv7.generate(), worktreeId: member, relativePath: "late-member.swift"))
+        let document = BridgeOpenedDocumentEntry(
+            provenance: .init(repoId: UUIDv7.generate(), worktreeId: member, relativePath: "late-member.swift"),
+            sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
         let initial = BridgeNavigationRecord(
-            openedDocuments: [document], committedMemberLinks: testCommittedMemberLinks([member]),
+            openedDocuments: [location: document], committedMemberLinks: testCommittedMemberLinks([member]),
             filesFilter: .member(worktreeId: member), reviewSelection: .member(worktreeId: member),
             reviewComparisonsByWorktreeId: [member: .staged])
         _ = try fixture.repository.insertBridgeReceiversIfAbsent([receiver: initial])
@@ -453,11 +497,11 @@ struct BridgeReceiverKeyedStorageTests {
         let topologySnapshot = try receiverTopologySnapshot(
             for: receiver, knownWorktreeRoots: [member: "/"])
         let location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/removed-member.swift"))
-        let document = BridgeOpenedDocument(
-            location: location,
-            provenance: .init(repoId: UUIDv7.generate(), worktreeId: member, relativePath: "removed-member.swift"))
+        let document = BridgeOpenedDocumentEntry(
+            provenance: .init(repoId: UUIDv7.generate(), worktreeId: member, relativePath: "removed-member.swift"),
+            sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
         let initial = BridgeNavigationRecord(
-            openedDocuments: [document], committedMemberLinks: testCommittedMemberLinks([member]))
+            openedDocuments: [location: document], committedMemberLinks: testCommittedMemberLinks([member]))
         _ = try fixture.repository.insertBridgeReceiversIfAbsent([receiver: initial])
         _ = try fixture.repository.commitBridgeMemberRemoval(
             receiver: receiver, worktreeID: member,
@@ -625,25 +669,30 @@ struct BridgeReceiverKeyedStorageTests {
         let location = try #require(
             BridgeDocumentLocation(
                 canonicalPath: fixture.root.appendingPathComponent("notes.swift").path))
+        let sortKey = UUIDv7.generate(milliseconds: 1_700_000_000_001)
         var record = BridgeNavigationRecord(openedDocuments: [
-            .init(location: location, provenance: nil, openedLine: 4)
+            location: .init(provenance: nil, openedLine: 4, sortKey: sortKey)
         ])
         try fixture.repository.saveBridgeCurrentValues(
             [receiver: record], retainedPaneIDs: [receiver.paneId], generation: 10,
             now: Date(timeIntervalSince1970: 100))
 
         record = BridgeNavigationRules.openingInBackground(
-            .init(location: location, provenance: nil, openedLine: 8), in: record)
+            .init(provenance: nil, openedLine: 8, sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_002)),
+            at: location, in: record)
         record.surface = .review
         try fixture.repository.saveBridgeCurrentValues(
             [receiver: record], retainedPaneIDs: [receiver.paneId], generation: 11,
             now: Date(timeIntervalSince1970: 101))
         #expect(record.openedDocuments.count == 1)
-        #expect(record.openedDocuments.first?.openedLine == 8)
-        #expect(try fixture.repository.readBridgeReceivers().records[receiver]?.openedDocuments.first?.openedLine == 8)
+        #expect(record.openedDocuments[location]?.openedLine == 8)
+        #expect(record.openedDocuments[location]?.sortKey == sortKey)
+        #expect(
+            try fixture.repository.readBridgeReceivers().records[receiver]?.openedDocuments[location]?.openedLine == 8)
         try fixture.withReopenedRepository { reopened in
             let restored = try reopened.readBridgeReceivers().records[receiver]
-            #expect(restored?.openedDocuments.first?.openedLine == 8)
+            #expect(restored?.openedDocuments[location]?.openedLine == 8)
+            #expect(restored?.openedDocuments[location]?.sortKey == sortKey)
             #expect(restored?.surface == .review)
         }
 
@@ -651,6 +700,17 @@ struct BridgeReceiverKeyedStorageTests {
             [receiver: .empty], retainedPaneIDs: [receiver.paneId], generation: 12,
             now: Date(timeIntervalSince1970: 102))
         #expect(try fixture.repository.readBridgeReceivers().records[receiver]?.openedDocuments.isEmpty == true)
+        let deletedKey = try fixture.pool.read { database in
+            try String.fetchOne(
+                database,
+                sql: """
+                    SELECT opened_sort_key FROM bridge_receiver_state
+                    WHERE workspace_id = ? AND receiver_pane_id = ?
+                    AND kind = 'openedDocument' AND is_deleted = 1
+                    """,
+                arguments: [fixture.repository.workspaceId.uuidString, receiver.paneId.uuidString])
+        }
+        #expect(deletedKey == sortKey.uuidString.lowercased())
         try fixture.withReopenedRepository { reopened in
             let restored = try reopened.readBridgeReceivers().records[receiver]
             #expect(restored?.openedDocuments.isEmpty == true)
@@ -667,7 +727,11 @@ struct BridgeReceiverKeyedStorageTests {
             BridgeDocumentLocation(
                 canonicalPath: fixture.root.appendingPathComponent("valid.swift").path))
         let records: [BridgeReceiver: BridgeNavigationRecord] = [
-            receiver: .init(openedDocuments: [.init(location: location, provenance: nil, openedLine: 4)]),
+            receiver: .init(openedDocuments: [
+                location: .init(
+                    provenance: nil, openedLine: 4,
+                    sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
+            ]),
             healthy: .empty,
         ]
         try fixture.repository.saveBridgeCurrentValues(
@@ -686,6 +750,53 @@ struct BridgeReceiverKeyedStorageTests {
         #expect(readback.records[receiver] == nil)
         #expect(readback.presentPaneIDs.contains(receiver.paneId))
         #expect(readback.records[healthy] == .empty)
+    }
+
+    @Test("malformed and duplicate opened sort keys reject only their receivers")
+    func malformedAndDuplicateOpenedSortKeys() throws {
+        let fixture = try ReceiverKeyedStorageFixture()
+        defer { fixture.remove() }
+        let malformed = BridgeReceiver.standalone(UUIDv7.generate())
+        let duplicated = BridgeReceiver.standalone(UUIDv7.generate())
+        let healthy = BridgeReceiver.standalone(UUIDv7.generate())
+        let first = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/sort-first.swift"))
+        let second = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/sort-second.swift"))
+        let firstKey = UUIDv7.generate(milliseconds: 1_700_000_000_001)
+        let secondKey = UUIDv7.generate(milliseconds: 1_700_000_000_002)
+        let records: [BridgeReceiver: BridgeNavigationRecord] = [
+            malformed: .init(openedDocuments: [first: .init(provenance: nil, sortKey: firstKey)]),
+            duplicated: .init(openedDocuments: [
+                first: .init(provenance: nil, sortKey: firstKey),
+                second: .init(provenance: nil, sortKey: secondKey),
+            ]),
+            healthy: .init(openedDocuments: [first: .init(provenance: nil, sortKey: firstKey)]),
+        ]
+        try fixture.repository.saveBridgeCurrentValues(
+            records, retainedPaneIDs: Set(records.keys.map(\.paneId)), generation: 10,
+            now: Date(timeIntervalSince1970: 100))
+        try fixture.pool.write { database in
+            try database.execute(
+                sql: """
+                    UPDATE bridge_receiver_state SET opened_sort_key = 'invalid'
+                    WHERE workspace_id = ? AND receiver_pane_id = ? AND kind = 'openedDocument'
+                    """,
+                arguments: [fixture.repository.workspaceId.uuidString, malformed.paneId.uuidString])
+            try database.execute(
+                sql: """
+                    UPDATE bridge_receiver_state SET opened_sort_key = ?
+                    WHERE workspace_id = ? AND receiver_pane_id = ? AND kind = 'openedDocument'
+                    AND document_path = ?
+                    """,
+                arguments: [
+                    firstKey.uuidString.lowercased(), fixture.repository.workspaceId.uuidString,
+                    duplicated.paneId.uuidString, second.canonicalPath,
+                ])
+        }
+
+        let readback = try fixture.repository.readBridgeReceivers().records
+        #expect(readback[malformed] == nil)
+        #expect(readback[duplicated] == nil)
+        #expect(readback[healthy]?.openedDocuments[first]?.sortKey == firstKey)
     }
 
 }

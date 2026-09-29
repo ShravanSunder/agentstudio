@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -11,16 +12,22 @@ import Testing
 struct BridgePaneAgentShowActorTests {
     init() { installTestCoreAtomsIfNeeded() }
 
-    @Test("background opens without a mounted page and keeps the latest line at one ordinal")
+    @Test("background opens without a mounted page and keeps the latest line at one sort key")
     func backgroundOpening() async throws {
         let fixture = try AgentShowFixture()
         let first = try await fixture.actor.openInBackground(
             receiver: fixture.paneID, target: fixture.target(line: 12))
         let intervening = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/intervening.swift"))
         let afterFirst = try #require(fixture.navigation.handler.record(for: fixture.navigation.receiver))
+        let firstEntry = try #require(afterFirst.openedDocument(at: fixture.location))
+        let interveningKey = mintOpenedDocumentSortKey(
+            wallMillis: 1_700_000_000_000,
+            floorMillis: try #require(openedDocumentSortKeyMillis(firstEntry.sortKey))
+        ).key
         fixture.navigation.store.bridgeNavigationAtom.setRecord(
             BridgeNavigationRules.openingInBackground(
-                .init(location: intervening, provenance: nil), in: afterFirst),
+                .init(provenance: nil, sortKey: interveningKey),
+                at: intervening, in: afterFirst),
             for: fixture.navigation.receiver)
         let second = try await fixture.actor.openInBackground(
             receiver: fixture.paneID, target: fixture.target(line: 23))
@@ -29,8 +36,9 @@ struct BridgePaneAgentShowActorTests {
         #expect(second == .opened)
         let record = try #require(fixture.navigation.handler.record(for: fixture.navigation.receiver))
         let initialLoose = try #require(fixture.navigation.loosePlan)
-        #expect(record.openedDocuments.map(\.location) == [initialLoose, fixture.location, intervening])
-        #expect(record.openedDocuments[1].openedLine == 23)
+        #expect(Set(record.openedDocuments.keys) == Set([initialLoose, fixture.location, intervening]))
+        #expect(record.openedDocument(at: fixture.location)?.sortKey == firstEntry.sortKey)
+        #expect(record.openedDocument(at: fixture.location)?.openedLine == 23)
         #expect(record.selectedFilesDocument == nil)
         #expect(fixture.navigation.persistCount == 2)
     }
@@ -163,6 +171,60 @@ struct BridgePaneAgentShowActorTests {
         #expect(record.effectiveMemberWorktreeIds.contains(fixture.navigation.worktree.id))
         #expect(record.openedDocument(at: fixture.location)?.openedLine == 6)
     }
+
+    @Test("a close during show preparation permits the show to restore its captured sort key")
+    func closeDuringPreparationKeepsCapturedKey() async throws {
+        let fixture = try AgentShowFixture()
+        #expect(
+            try await fixture.actor.openInBackground(
+                receiver: fixture.paneID, target: fixture.target(line: 4)) == .opened)
+        let before = try #require(
+            fixture.navigation.handler.record(for: fixture.navigation.receiver)?
+                .openedDocument(at: fixture.location))
+        let heldPreparation = HeldStep<Void>("agent show preparation before close")
+        await fixture.preparation.holdNextPreparation(heldPreparation)
+        let show = Task {
+            try await fixture.actor.openInBackground(
+                receiver: fixture.paneID, target: fixture.target(line: 8))
+        }
+        try await heldPreparation.firstArrival()
+
+        let closed = await fixture.navigation.handler.closeFile(
+            fixture.location, in: fixture.navigation.receiver)
+        heldPreparation.release()
+        let result = try await show.value
+
+        #expect(closed == .applied)
+        #expect(result == .opened)
+        let after = try #require(
+            fixture.navigation.handler.record(for: fixture.navigation.receiver)?
+                .openedDocument(at: fixture.location))
+        #expect(after.sortKey == before.sortKey)
+        #expect(after.openedLine == 8)
+    }
+
+    @Test("a sequential reopen after close receives a newer sort key")
+    func sequentialReopenMovesToEnd() async throws {
+        let fixture = try AgentShowFixture()
+        #expect(
+            try await fixture.actor.openInBackground(
+                receiver: fixture.paneID, target: fixture.target(line: 4)) == .opened)
+        let before = try #require(
+            fixture.navigation.handler.record(for: fixture.navigation.receiver)?
+                .openedDocument(at: fixture.location))
+        #expect(
+            await fixture.navigation.handler.closeFile(
+                fixture.location, in: fixture.navigation.receiver) == .applied)
+
+        #expect(
+            try await fixture.actor.openInBackground(
+                receiver: fixture.paneID, target: fixture.target(line: 8)) == .opened)
+        let after = try #require(
+            fixture.navigation.handler.record(for: fixture.navigation.receiver)?
+                .openedDocument(at: fixture.location))
+        #expect(after.sortKey.uuidString > before.sortKey.uuidString)
+        #expect(after.openedLine == 8)
+    }
 }
 
 @MainActor
@@ -180,9 +242,17 @@ private struct AgentShowFixture {
                 path: "bridge-agent-show-\(UUIDv7.generate().uuidString)", directoryHint: .isDirectory),
             terminalReceiver: terminalReceiver)
         location = try #require(BridgeDocumentLocation(canonicalPath: "/tmp/bridge-agent-show.swift"))
+        let existingFloor =
+            navigation.handler.record(for: navigation.receiver)?
+            .openedDocuments.values.compactMap { openedDocumentSortKeyMillis($0.sortKey) }.max() ?? 0
         preparation = AgentShowPreparationStub(
             .prepared(
-                .init(location: location, provenance: nil, openedLine: 1)))
+                location: location,
+                entry: .init(
+                    provenance: nil, openedLine: 1,
+                    sortKey: mintOpenedDocumentSortKey(
+                        wallMillis: 1_700_000_000_000, floorMillis: existingFloor
+                    ).key)))
         actor = BridgePaneAgentShowActor(
             workspaceID: navigation.store.identityAtom.workspaceId,
             handler: navigation.handler, preparationPort: preparation)
@@ -210,21 +280,49 @@ private struct AgentShowFixture {
 private actor AgentShowPreparationStub: BridgeAgentShowPreparationPort {
     private var result: BridgeAgentShowPreparation
     private var throwsUnavailable = false
+    private var nextPreparationHold: HeldStep<Void>?
+    private var floorMillis: UInt64 = 0
 
-    init(_ result: BridgeAgentShowPreparation) { self.result = result }
+    init(_ result: BridgeAgentShowPreparation) {
+        self.result = result
+        if case .prepared(_, let entry) = result {
+            floorMillis = openedDocumentSortKeyMillis(entry.sortKey) ?? 0
+        }
+    }
     func setResult(_ result: BridgeAgentShowPreparation) { self.result = result }
     func setThrowsUnavailable(_ value: Bool) { throwsUnavailable = value }
+    func holdNextPreparation(_ step: HeldStep<Void>) { nextPreparationHold = step }
     func prepareAgentShow(
         workspaceID _: UUID, receiver _: BridgeReceiver, target: BridgeAgentShowTarget,
-        topologySnapshot _: BridgeReceiverTopologySnapshot
+        topologySnapshot _: BridgeReceiverTopologySnapshot,
+        currentEntries: [BridgeDocumentLocation: BridgeOpenedDocumentEntry]
     ) async throws -> BridgeAgentShowPreparation {
+        if let hold = nextPreparationHold {
+            nextPreparationHold = nil
+            try await hold.arrive(())
+        }
         if throwsUnavailable { throw BridgeLinkPortFailure.unavailable }
         switch result {
-        case .prepared(let document):
+        case .prepared(let location, let entry):
+            let sortKey: UUID
+            if let existing = currentEntries[location] {
+                sortKey = existing.sortKey
+            } else {
+                let capturedFloor =
+                    currentEntries.values.compactMap {
+                        openedDocumentSortKeyMillis($0.sortKey)
+                    }.max() ?? 0
+                let minted = mintOpenedDocumentSortKey(
+                    wallMillis: 1_700_000_000_000,
+                    floorMillis: max(floorMillis, capturedFloor))
+                floorMillis = minted.newFloorMillis
+                sortKey = minted.key
+            }
             return .prepared(
-                .init(
-                    location: document.location, provenance: document.provenance,
-                    openedLine: target.line))
+                location: location,
+                entry: .init(
+                    provenance: entry.provenance, openedLine: target.line,
+                    sortKey: sortKey))
         case .notFound: return .notFound
         case .paneUnavailable: return .paneUnavailable
         }

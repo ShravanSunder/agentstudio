@@ -2,6 +2,20 @@ import AgentStudioCore
 import Foundation
 
 extension BridgeFileCollectionSource {
+    /// Construct member sources on the collection actor from the already
+    /// prepared worktree values, then apply the collection difference.
+    func applyWorktrees(
+        _ worktrees: [Worktree],
+        memberFactory: BridgeFileCollectionMemberFactory?,
+        openedDocuments: [BridgeDocumentLocation]
+    ) async throws {
+        ensureInitialLayout()
+        let members = worktrees.compactMap { worktree in
+            memberSourcesById[worktree.id] ?? memberFactory?(worktree)
+        }
+        try await applyMembership(members: members, openedDocuments: openedDocuments)
+    }
+
     /// Replace the collection's members and opened documents in place.
     ///
     /// Open subscriptions receive only the difference as tree deltas: a removed

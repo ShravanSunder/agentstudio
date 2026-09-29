@@ -112,7 +112,7 @@ struct BridgeNavigationCommandHandlerMembershipTests {
         fixture.install(presentation)
         let memberRoot = DarwinFSEventPathCanonicalizer.canonicalURL(fixture.worktree.path).path
         let memberFile = try #require(BridgeDocumentLocation(canonicalPath: "\(memberRoot)/src/app.swift"))
-        fixture.handler.recordDisplayedFilesSelection(
+        let displayedReceipt = fixture.handler.recordDisplayedFilesSelection(
             BridgeFilesDisplayedSelection(
                 location: memberFile,
                 memberWorktreeId: fixture.worktree.id,
@@ -120,6 +120,7 @@ struct BridgeNavigationCommandHandlerMembershipTests {
             ),
             for: fixture.receiver
         )
+        await displayedReceipt?.value
 
         // Act
         let outcome = await fixture.handler.removeWorktree(fixture.worktree.id, from: fixture.receiver)
@@ -429,7 +430,7 @@ struct BridgeNavigationCommandHandlerMembershipTests {
         let record = try #require(fixture.handler.record(for: fixture.receiver))
         #expect(record.effectiveMemberWorktreeIds.isEmpty)
         #expect(record.reviewSelection == .unselected)
-        #expect(record.openedDocuments.map(\.location) == [try #require(fixture.loosePlan)])
+        #expect(Set(record.openedDocuments.keys) == Set([try #require(fixture.loosePlan)]))
     }
 
     @Test("temporary unavailability is not a removal: the member stays listed")

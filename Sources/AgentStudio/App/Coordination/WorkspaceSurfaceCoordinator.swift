@@ -182,6 +182,7 @@ final class WorkspaceSurfaceCoordinator {
             repositoryTopologyAtom: store.repositoryTopologyAtom,
             writeSequencer: store.bridgeWriteSequencer,
             linkCommitPort: store.bridgeLinkDatastore,
+            displayedSelectionPreparationPort: store.bridgeLinkDatastore,
             workspaceID: store.identityAtom.workspaceId
         )
         handler.presentationPorts = bridgeReceiverPresentationPorts()
@@ -911,7 +912,8 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
         applyTopologyAdoptions(from: deltas)
-        refreshMountedBridgeFilesSources()
+        // fire-and-forget: topology publication has no Files preparation waiter.
+        _ = refreshBridgeFilesBindingsAfterTopologyChange()
         propagateCatalogUnregistrationToBridgeReceivers(deltas.flatMap(\.removedWorktrees))
         syncFilesystemRootsAndActivity()
     }

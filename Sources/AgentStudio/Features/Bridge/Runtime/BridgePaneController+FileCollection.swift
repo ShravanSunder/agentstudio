@@ -5,9 +5,6 @@ import os
 
 private let bridgeFileCollectionLogger = Logger(subsystem: "com.agentstudio", category: "BridgeFileCollection")
 
-typealias BridgeFileCollectionMemberFactory =
-    @Sendable (Worktree) -> BridgeFileCollectionMemberSource
-
 extension BridgePaneController {
     /// Build one member's own per-worktree File source: its worktree authority,
     /// its Git reads keyed by its own root, and the pane's read scope.
@@ -35,22 +32,6 @@ extension BridgePaneController {
                 )
             )
         }
-    }
-
-    nonisolated static func fileCollectionMembers(
-        _ worktrees: [Worktree],
-        paneId: UUID,
-        input: BridgeProductSessionDependencyInput
-    ) -> [BridgeFileCollectionMemberSource] {
-        guard
-            let factory = makeFileCollectionMemberFactory(
-                paneId: paneId,
-                gitReadScheduler: input.fileGitReadScheduler,
-                constructionCoordinator: input.worktreeProductConstructionCoordinator,
-                statusProvider: input.gitWorkingTreeStatusProvider
-            )
-        else { return [] }
-        return worktrees.map(factory)
     }
 
     /// Whether this controller reads `worktreeId` as a Files member or as its
@@ -86,12 +67,9 @@ extension BridgePaneController {
         return .fileTreeRevealPath(path: displayPath)
     }
 
-    /// Queue a Files input update behind any update still being delivered.
-    /// Equal bindings are suppressed here, so repeated topology passes cost
-    /// one value comparison per mounted Bridge and never wake the collection.
+    /// Queue the already-prepared Files input behind an update still being
+    /// delivered. The collection actor computes the membership difference.
     package func enqueueFilesSourceUpdate(_ binding: BridgeFilesSourceBinding) {
-        guard binding != latestRequestedFilesBinding else { return }
-        latestRequestedFilesBinding = binding
         let preceding = filesSourceUpdateTail
         filesSourceUpdateTail = Task { [weak self] in
             await preceding?.value
@@ -103,7 +81,7 @@ extension BridgePaneController {
     /// document inventory. Surviving sources, keys, selection and descriptors
     /// stay untouched; only the difference reaches the worker.
     package func applyFilesSource(_ binding: BridgeFilesSourceBinding) async {
-        guard binding != filesBinding, let fileCollectionSource,
+        guard let fileCollectionSource,
             binding.collectionToken == filesBinding?.collectionToken
         else { return }
         filesBinding = binding
@@ -114,8 +92,8 @@ extension BridgePaneController {
             statusProvider: gitWorkingTreeStatusProvider
         )
         do {
-            try await fileCollectionSource.applyMembership(
-                members: factory.map { binding.members.map($0) } ?? [],
+            try await fileCollectionSource.applyWorktrees(
+                binding.members, memberFactory: factory,
                 openedDocuments: binding.openedDocuments
             )
         } catch {

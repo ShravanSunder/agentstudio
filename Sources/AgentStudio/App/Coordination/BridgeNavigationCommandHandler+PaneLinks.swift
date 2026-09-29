@@ -40,7 +40,12 @@ extension BridgeNavigationCommandHandler {
         reviewSurface: BridgeProductSurface?
     ) -> Bool {
         guard navigationAtom.acceptedRevision == revision else { return false }
-        guard navigationAtom.setRecord(application.record, for: receiver) else { return true }
+        guard
+            navigationAtom.setRecord(
+                application.record, for: receiver,
+                openedDocumentUpdates: application.openedDocumentUpdates
+            )
+        else { return true }
         presentationPorts?.refreshFilesSource(receiver)
         if let reviewSurface {
             _ = presentationPorts?.replaceReviewSource(receiver, reviewSurface)

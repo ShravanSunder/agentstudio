@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -48,6 +49,9 @@ extension WebKitSerializedTests {
                     .viewerPresentation == .retainedVisible(companionPaneId: companionPaneId)
             )
             #expect(harness.viewRegistry.allBridgeViews[companionPaneId] != nil)
+            #expect(
+                harness.viewRegistry.allBridgeViews[companionPaneId]?
+                    .controller.filesBinding?.members.map(\.id) == [harness.worktree.id])
             #expect(
                 harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState.panelKind
                     == .fileViewer
@@ -372,6 +376,10 @@ extension WebKitSerializedTests {
                 harness.coordinator.bridgeNavigationCommandHandler.record(for: .terminal(sourcePane.id))?
                     .effectiveMemberWorktreeIds == [sourceWorktree.id, destinationWorktree.id]
             }
+            let preparedFiles = await awaitPreparedZoomFilesBinding(
+                atom: harness.store.bridgeNavigationAtom,
+                receiver: .terminal(sourcePane.id),
+                expectedMemberIds: [sourceWorktree.id, destinationWorktree.id])
             await controller.filesSourceUpdateTail?.value
 
             // Assert
@@ -380,6 +388,7 @@ extension WebKitSerializedTests {
             )
             #expect(companion.companionPaneId == companionPaneId)
             #expect(companion.reviewWorktreeId == sourceWorktree.id)
+            #expect(preparedFiles.members.map(\.id) == [sourceWorktree.id, destinationWorktree.id])
             #expect(controller.filesBinding?.members.map(\.id) == [sourceWorktree.id, destinationWorktree.id])
             #expect(controller.reviewBinding?.worktreeId == sourceWorktree.id)
             #expect(controller.retainedViewerSurface == .review)
@@ -928,4 +937,33 @@ private func postCWDChange(
             paneId: PaneId(existingUUID: paneId)
         )
     )
+}
+
+/// Await the publication owner's keyed value, then let the controller delivery
+/// task finish. This observes a semantic result instead of a timing window.
+@MainActor
+private func awaitPreparedZoomFilesBinding(
+    atom: BridgeNavigationAtom,
+    receiver: BridgeReceiver,
+    expectedMemberIds: [UUID]
+) async -> BridgeFilesSourceBinding {
+    let (changes, continuation) = AsyncStream.makeStream(
+        of: Void.self, bufferingPolicy: .bufferingNewest(1))
+    defer { continuation.finish() }
+
+    func observe() -> BridgeFilesSourceBinding? {
+        withObservationTracking {
+            atom.preparedFilesBinding(for: receiver)
+        } onChange: {
+            _ = continuation.yield(())
+        }
+    }
+
+    var binding = observe()
+    if let binding, binding.members.map(\.id) == expectedMemberIds { return binding }
+    for await _ in changes {
+        binding = observe()
+        if let binding, binding.members.map(\.id) == expectedMemberIds { return binding }
+    }
+    preconditionFailure("Prepared Bridge Files observation ended before the expected member set")
 }

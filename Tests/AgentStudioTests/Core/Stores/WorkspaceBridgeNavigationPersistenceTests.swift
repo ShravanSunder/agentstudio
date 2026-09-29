@@ -35,15 +35,16 @@ struct WorkspaceBridgeNavigationPersistenceTests {
         let backendFile = try #require(BridgeDocumentLocation(canonicalPath: "/repos/backend/App.swift"))
         let standaloneRecord = BridgeNavigationRecord(
             openedDocuments: [
-                BridgeOpenedDocument(
-                    location: backendFile,
+                backendFile: BridgeOpenedDocumentEntry(
                     provenance: BridgeKnownWorktreeProvenance(
                         repoId: UUIDv7.generate(),
                         worktreeId: backend,
                         relativePath: "App.swift"
-                    )
+                    ),
+                    sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001)
                 ),
-                BridgeOpenedDocument(location: notes, provenance: nil),
+                notes: BridgeOpenedDocumentEntry(
+                    provenance: nil, sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_002)),
             ],
             committedMemberLinks: testCommittedMemberLinks([backend, frontend]),
             filesFilter: .member(worktreeId: frontend),
@@ -56,7 +57,10 @@ struct WorkspaceBridgeNavigationPersistenceTests {
             ]
         )
         let terminalRecord = BridgeNavigationRecord(
-            openedDocuments: [BridgeOpenedDocument(location: notes, provenance: nil)],
+            openedDocuments: [
+                notes: BridgeOpenedDocumentEntry(
+                    provenance: nil, sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
+            ],
             committedMemberLinks: testCommittedMemberLinks([backend]),
             reviewSelection: .importedUnavailable(
                 BridgeImportedReviewQuery(variant: .commit, originalPayloadJSON: #"{"commit":{"sha":"abc"}}"#)
@@ -101,6 +105,12 @@ struct WorkspaceBridgeNavigationPersistenceTests {
                 .terminal(terminalPane.id): terminalRecord,
             ]
         )
+        #expect(
+            second.store.bridgeNavigationAtom.openedDocumentEntry(
+                for: standaloneReceiver, at: notes) == standaloneRecord.openedDocument(at: notes))
+        #expect(
+            second.store.bridgeNavigationAtom.preparedFilesBinding(
+                for: standaloneReceiver)?.openedDocuments == [backendFile, notes])
     }
 
     @Test("startup reconciliation save takes a generation above restored receiver rows")
@@ -336,9 +346,9 @@ struct BridgeReceiverTypedRowCodecTests {
             host: "github.com", owner: "Team", repository: "Repo", number: 42)
         var record = BridgeNavigationRecord(
             openedDocuments: [
-                .init(
-                    location: document,
-                    provenance: .init(repoId: UUIDv7.generate(), worktreeId: member, relativePath: "typed-row.swift"))
+                document: .init(
+                    provenance: .init(repoId: UUIDv7.generate(), worktreeId: member, relativePath: "typed-row.swift"),
+                    sortKey: UUIDv7.generate(milliseconds: 1_700_000_000_001))
             ],
             committedMemberLinks: [
                 .init(

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// The canonical local file location of a document retained by a receiving
@@ -63,22 +64,24 @@ package struct BridgeKnownWorktreeProvenance: Hashable, Sendable {
     }
 }
 
-/// One entry of a receiver's ordered opened-document inventory.
-package struct BridgeOpenedDocument: Hashable, Sendable {
-    package let location: BridgeDocumentLocation
+/// One value of a receiver's location-keyed opened-document inventory.
+/// The sort key is minted off-main at admission and stays stable on re-show.
+package struct BridgeOpenedDocumentEntry: Hashable, Sendable {
     package let provenance: BridgeKnownWorktreeProvenance?
     /// Optional one-based line to use when this Open files row is activated.
     package let openedLine: Int?
+    package let sortKey: UUID
 
     package init(
-        location: BridgeDocumentLocation,
         provenance: BridgeKnownWorktreeProvenance?,
-        openedLine: Int? = nil
+        openedLine: Int? = nil,
+        sortKey: UUID
     ) {
-        self.location = location
         self.provenance = provenance
         if let openedLine { precondition(openedLine > 0) }
         self.openedLine = openedLine
+        precondition(UUIDv7.isV7(sortKey))
+        self.sortKey = sortKey
     }
 }
 

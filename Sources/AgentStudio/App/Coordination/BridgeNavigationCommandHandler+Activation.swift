@@ -99,17 +99,23 @@ extension BridgeNavigationCommandHandler {
             guard isCurrentNavigation(generation, for: receiver) else { return .superseded }
             guard preparation.allowsContentToLeave else { return .refusedUnsavedDraft }
         }
-        guard let currentRecord = navigationAtom.record(for: receiver) else {
-            return .failed(.receiverUnavailable)
+        while let currentRecord = navigationAtom.record(for: receiver) {
+            let revision = navigationAtom.acceptedRevision
+            let prepared = await BridgeNavigationRules.closingDocumentOffMain(
+                location, in: currentRecord)
+            guard navigationAtom.acceptedRevision == revision else { continue }
+            switch prepared {
+            case .notOpen:
+                return .failed(.notInInventory)
+            case .closed(let updated, _):
+                navigationAtom.setRecord(
+                    updated, for: receiver,
+                    openedDocumentUpdates: [.remove(location)])
+                presentationPorts?.refreshFilesSource(receiver)
+                return await persistedOutcome()
+            }
         }
-        switch BridgeNavigationRules.closingDocument(location, in: currentRecord) {
-        case .notOpen:
-            return .failed(.notInInventory)
-        case .closed(let updated, _):
-            navigationAtom.setRecord(updated, for: receiver)
-            presentationPorts?.refreshFilesSource(receiver)
-            return await persistedOutcome()
-        }
+        return .failed(.receiverUnavailable)
     }
 
     /// Record a Files selection the page displayed. Member files are admitted
@@ -118,26 +124,34 @@ extension BridgeNavigationCommandHandler {
     func recordDisplayedFilesSelection(
         _ selection: BridgeFilesDisplayedSelection,
         for receiver: BridgeReceiver
-    ) {
-        guard let record = navigationAtom.record(for: receiver) else { return }
-        var provenance: BridgeKnownWorktreeProvenance?
-        if let worktreeId = selection.memberWorktreeId, let relativePath = selection.memberRelativePath {
-            guard record.containsMember(worktreeId),
-                let repoId = repositoryTopologyAtom.repositoryId(containing: worktreeId)
-            else { return }
-            provenance = BridgeKnownWorktreeProvenance(
-                repoId: repoId,
-                worktreeId: worktreeId,
-                relativePath: relativePath
-            )
+    ) -> Task<Void, Never>? {
+        guard let preparationPort = displayedSelectionPreparationPort else { return nil }
+        let ticket = writeSequencer.nextTicket().value
+        latestDisplayedSelectionTicketByReceiver[receiver] = ticket
+        return Task { [weak self] in
+            guard let self else { return }
+            while let record = navigationAtom.record(for: receiver) {
+                let revision = navigationAtom.acceptedRevision
+                let topology = captureLinkTopology(sourcePaneID: receiver.paneId)
+                guard
+                    let prepared = await preparationPort.prepareDisplayedFilesSelection(
+                        receiver: receiver, location: selection.location,
+                        memberWorktreeID: selection.memberWorktreeId,
+                        memberRelativePath: selection.memberRelativePath,
+                        record: record, topology: topology)
+                else { return }
+                guard latestDisplayedSelectionTicketByReceiver[receiver] == ticket,
+                    (navigationGenerationByReceiver[receiver] ?? 0) <= ticket
+                else { return }
+                guard navigationAtom.acceptedRevision == revision else { continue }
+                guard let entry = prepared.openedDocuments[selection.location] else { return }
+                navigationAtom.setRecord(
+                    prepared, for: receiver,
+                    openedDocumentUpdates: [.set(selection.location, entry)])
+                presentationPorts?.refreshFilesSource(receiver)
+                return
+            }
         }
-        navigationAtom.setRecord(
-            BridgeNavigationRules.recordingDisplayedFilesSelection(
-                BridgeOpenedDocument(location: selection.location, provenance: provenance),
-                in: record
-            ),
-            for: receiver
-        )
     }
 
     // MARK: - Review

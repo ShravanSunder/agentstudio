@@ -1,7 +1,7 @@
 import Foundation
 
 package enum BridgeAgentShowPreparation: Sendable {
-    case prepared(BridgeOpenedDocument)
+    case prepared(location: BridgeDocumentLocation, entry: BridgeOpenedDocumentEntry)
     case notFound
     case paneUnavailable
 }
@@ -11,7 +11,8 @@ package enum BridgeAgentShowPreparation: Sendable {
 package protocol BridgeAgentShowPreparationPort: Sendable {
     func prepareAgentShow(
         workspaceID: UUID, receiver: BridgeReceiver, target: BridgeAgentShowTarget,
-        topologySnapshot: BridgeReceiverTopologySnapshot
+        topologySnapshot: BridgeReceiverTopologySnapshot,
+        currentEntries: [BridgeDocumentLocation: BridgeOpenedDocumentEntry]
     ) async throws -> BridgeAgentShowPreparation
 }
 

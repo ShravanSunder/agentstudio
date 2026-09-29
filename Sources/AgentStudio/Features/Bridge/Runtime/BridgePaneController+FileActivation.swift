@@ -125,7 +125,8 @@ extension BridgePaneController {
             }
             switch receipt.outcome {
             case .displayed:
-                publishDisplayedFilesSelection(document)
+                await publishDisplayedFilesSelection(document)
+                guard pendingFileActivation?.commandId == commandId else { return }
                 settlePendingFileActivation(.displayed)
             case .unavailable:
                 settlePendingFileActivation(.unavailable)
@@ -139,10 +140,10 @@ extension BridgePaneController {
 
         guard receipt.outcome == .displayed, let document else { return }
         settlePendingFileActivation(.superseded)
-        publishDisplayedFilesSelection(document)
+        await publishDisplayedFilesSelection(document)
     }
 
-    private func publishDisplayedFilesSelection(_ document: BridgeFileCollectionDisplayedDocument) {
+    private func publishDisplayedFilesSelection(_ document: BridgeFileCollectionDisplayedDocument) async {
         let selection: BridgeFilesDisplayedSelection
         switch document {
         case .memberFile(let worktreeId, let relativePath, let location):
@@ -158,6 +159,6 @@ extension BridgePaneController {
                 memberRelativePath: nil
             )
         }
-        onFilesSelectionDisplayed?(selection)
+        await onFilesSelectionDisplayed?(selection)
     }
 }

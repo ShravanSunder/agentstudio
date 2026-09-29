@@ -89,32 +89,33 @@ package enum BridgeNavigationRules {
     /// Add a document to the inventory, or reuse the existing entry for the
     /// same canonical location. The displayed selection never changes here.
     package static func admitting(
-        _ document: BridgeOpenedDocument,
+        _ entry: BridgeOpenedDocumentEntry,
+        at location: BridgeDocumentLocation,
         into record: BridgeNavigationRecord
     ) -> BridgeDocumentAdmissionTransition {
-        if let existing = record.openedDocument(at: document.location) {
+        if let existing = record.openedDocument(at: location) {
             return BridgeDocumentAdmissionTransition(record: record, disposition: .reused(existing))
         }
         var updated = record
-        updated.openedDocuments.append(document)
+        updated.openedDocuments[location] = entry
         return BridgeDocumentAdmissionTransition(record: updated, disposition: .appended)
     }
 
     /// A background Open changes only this inventory entry's requested line.
-    /// Reusing a location keeps its ordinal and original source provenance.
+    /// Reusing a location keeps its sort key and original source provenance.
     package static func openingInBackground(
-        _ document: BridgeOpenedDocument,
+        _ entry: BridgeOpenedDocumentEntry,
+        at location: BridgeDocumentLocation,
         in record: BridgeNavigationRecord
     ) -> BridgeNavigationRecord {
         var updated = record
-        if let index = updated.openedDocuments.firstIndex(where: { $0.location == document.location }) {
-            let existing = updated.openedDocuments[index]
-            updated.openedDocuments[index] = BridgeOpenedDocument(
-                location: existing.location, provenance: existing.provenance,
-                openedLine: document.openedLine
+        if let existing = updated.openedDocuments[location] {
+            updated.openedDocuments[location] = BridgeOpenedDocumentEntry(
+                provenance: existing.provenance, openedLine: entry.openedLine,
+                sortKey: existing.sortKey
             )
         } else {
-            updated.openedDocuments.append(document)
+            updated.openedDocuments[location] = entry
         }
         return updated
     }
@@ -137,11 +138,12 @@ package enum BridgeNavigationRules {
     /// the inventory, then make it the Files selection and display Files. An
     /// equal receipt produces an equal record.
     package static func recordingDisplayedFilesSelection(
-        _ document: BridgeOpenedDocument,
+        _ entry: BridgeOpenedDocumentEntry,
+        at location: BridgeDocumentLocation,
         in record: BridgeNavigationRecord
     ) -> BridgeNavigationRecord {
-        let admitted = admitting(document, into: record).record
-        guard case .activated(let activated) = activatingFilesDocument(document.location, in: admitted) else {
+        let admitted = admitting(entry, at: location, into: record).record
+        guard case .activated(let activated) = activatingFilesDocument(location, in: admitted) else {
             return admitted
         }
         return activated
@@ -161,12 +163,19 @@ package enum BridgeNavigationRules {
     ) -> BridgeDocumentCloseOutcome {
         guard record.openedDocument(at: location) != nil else { return .notOpen }
         var updated = record
-        updated.openedDocuments.removeAll { $0.location == location }
+        updated.openedDocuments[location] = nil
         let clearedSelection = updated.selectedFilesDocument == location
         if clearedSelection {
             updated.selectedFilesDocument = nil
         }
         return .closed(updated, clearedFilesSelection: clearedSelection)
+    }
+
+    @concurrent nonisolated package static func closingDocumentOffMain(
+        _ location: BridgeDocumentLocation,
+        in record: BridgeNavigationRecord
+    ) async -> BridgeDocumentCloseOutcome {
+        closingDocument(location, in: record)
     }
 
     // MARK: - Review
@@ -218,7 +227,7 @@ package enum BridgeNavigationRules {
 package struct BridgeDocumentAdmissionTransition: Hashable, Sendable {
     package enum Disposition: Hashable, Sendable {
         case appended
-        case reused(BridgeOpenedDocument)
+        case reused(BridgeOpenedDocumentEntry)
     }
 
     package let record: BridgeNavigationRecord

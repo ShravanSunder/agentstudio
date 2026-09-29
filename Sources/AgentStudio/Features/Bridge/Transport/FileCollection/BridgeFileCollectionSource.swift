@@ -1,6 +1,9 @@
 import AgentStudioCore
 import Foundation
 
+typealias BridgeFileCollectionMemberFactory =
+    @Sendable (Worktree) -> BridgeFileCollectionMemberSource
+
 /// One member worktree's File source inside a receiver's collection.
 struct BridgeFileCollectionMemberSource: Sendable {
     let worktreeId: UUID
@@ -71,11 +74,11 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
     /// Counts membership changes that regrouped the collection; it orders the
     /// member-group lists within one source.
     var membershipRevision = 0
-    var pendingInitialMembers: [BridgeFileCollectionMemberSource]?
+    var pendingInitialMemberProvider: (@Sendable () -> [BridgeFileCollectionMemberSource])?
 
     init(
         collectionToken: String,
-        members: [BridgeFileCollectionMemberSource],
+        initialMemberProvider: @escaping @Sendable () -> [BridgeFileCollectionMemberSource],
         openedDocuments: [BridgeDocumentLocation],
         sourceAcceptedObserver: @escaping BridgePaneProductFileSourceAcceptedObserver = { _ in },
         descriptorMaterializer: @escaping BridgePaneProductFileDescriptorMaterializer =
@@ -87,19 +90,19 @@ actor BridgeFileCollectionSource: BridgePaneProductFileMetadataProducing {
         self.descriptorMaterializer = descriptorMaterializer
         self.openedDocumentRowReader = openedDocumentRowReader
         self.sourceAcceptedObserver = sourceAcceptedObserver
-        self.memberSourcesById = Dictionary(
-            members.map { ($0.worktreeId, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         self.openedDocumentLocations = openedDocuments
-        self.pendingInitialMembers = members
+        self.pendingInitialMemberProvider = initialMemberProvider
     }
 
     /// Lay out the initial membership on the actor, where resolving member
     /// roots to canonical paths may touch the filesystem.
     func ensureInitialLayout() {
-        guard let members = pendingInitialMembers else { return }
-        pendingInitialMembers = nil
+        guard let initialMemberProvider = pendingInitialMemberProvider else { return }
+        pendingInitialMemberProvider = nil
+        let members = initialMemberProvider()
+        memberSourcesById = Dictionary(
+            members.map { ($0.worktreeId, $0) },
+            uniquingKeysWith: { first, _ in first })
         layout = layout.updating(
             members: members.map(Self.canonicalMember),
             openedDocuments: openedDocumentLocations

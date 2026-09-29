@@ -30,14 +30,18 @@ package struct BridgeReceiverTopologySnapshot: Sendable {
 /// commit. The App adapter only applies this value to the atom and mounted UI.
 package struct BridgeCommittedLinkApplication: Sendable {
     package let record: BridgeNavigationRecord
+    package let openedDocumentUpdates: [BridgeOpenedDocumentAtomUpdate]
     package let memberRoots: [UUID: String]
     package let reviewReplacement: BridgeNavigationSurface?
 
     package init(
-        record: BridgeNavigationRecord, memberRoots: [UUID: String],
+        record: BridgeNavigationRecord,
+        openedDocumentUpdates: [BridgeOpenedDocumentAtomUpdate],
+        memberRoots: [UUID: String],
         reviewReplacement: BridgeNavigationSurface?
     ) {
         self.record = record
+        self.openedDocumentUpdates = openedDocumentUpdates
         self.memberRoots = memberRoots
         self.reviewReplacement = reviewReplacement
     }
@@ -88,7 +92,10 @@ extension WorkspaceSQLiteDatastoreActor {
             // keeps the committed projection, never the newer stale UI rows.
             guard let removedWorktreeID, removedRoot.hasPrefix("/") else {
                 return BridgeCommittedLinkApplication(
-                    record: committedRecord, memberRoots: roots,
+                    record: committedRecord,
+                    openedDocumentUpdates: BridgeOpenedDocumentAtomUpdate.difference(
+                        from: latestUIRecord, to: committedRecord),
+                    memberRoots: roots,
                     reviewReplacement: committedRecord.reviewSelection == latestUIRecord.reviewSelection
                         ? nil : committedRecord.surface)
             }
@@ -105,7 +112,10 @@ extension WorkspaceSQLiteDatastoreActor {
             committedRecord, with: latestUIRecord, removedWorktreeId: removedWorktreeID,
             memberRootsByWorktreeId: roots)
         return BridgeCommittedLinkApplication(
-            record: reconciled, memberRoots: roots,
+            record: reconciled,
+            openedDocumentUpdates: BridgeOpenedDocumentAtomUpdate.difference(
+                from: latestUIRecord, to: reconciled),
+            memberRoots: roots,
             reviewReplacement: reconciled.reviewSelection == latestUIRecord.reviewSelection
                 ? nil : reconciled.surface)
     }
@@ -304,6 +314,11 @@ extension WorkspaceSQLiteDatastoreActor {
             coreRepository: coreRepository,
             localRepository: localRepository
         )
+        bridgeOpenedDocumentFloorMillisByReceiver = records.mapValues { record in
+            record.openedDocuments.values.compactMap {
+                openedDocumentSortKeyMillis($0.sortKey)
+            }.max() ?? 0
+        }
         return BridgeNavigationHydration(
             records: records, failedConversionPaneIDs: failedConversionPaneIDs,
             generationFloor: (try? localRepository.latestBridgeGeneration()) ?? 0)

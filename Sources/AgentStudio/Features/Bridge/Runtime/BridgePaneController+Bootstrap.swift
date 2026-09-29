@@ -630,15 +630,22 @@ extension BridgePaneController {
         else {
             return BridgeUnavailablePaneProductFileMetadataSource()
         }
-        let members = fileCollectionMembers(files.members, paneId: paneId, input: input)
         // Members need their own Git read, construction and status authority;
         // without it the collection cannot serve them.
-        guard members.count == files.members.count else {
+        let memberFactory = makeFileCollectionMemberFactory(
+            paneId: paneId,
+            gitReadScheduler: input.fileGitReadScheduler,
+            constructionCoordinator: input.worktreeProductConstructionCoordinator,
+            statusProvider: input.gitWorkingTreeStatusProvider)
+        guard files.members.isEmpty || memberFactory != nil else {
             return BridgeUnavailablePaneProductFileMetadataSource()
         }
         return BridgeFileCollectionSource(
             collectionToken: files.collectionToken,
-            members: members,
+            initialMemberProvider: {
+                guard let memberFactory else { return [] }
+                return files.members.map(memberFactory)
+            },
             openedDocuments: files.openedDocuments,
             sourceAcceptedObserver: sourceAcceptedObserver
         )

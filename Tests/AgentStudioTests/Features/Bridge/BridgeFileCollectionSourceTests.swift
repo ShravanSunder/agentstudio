@@ -460,7 +460,7 @@ struct BridgeFileCollectionTestFixture {
     ) -> BridgeFileCollectionSource {
         BridgeFileCollectionSource(
             collectionToken: "receiver-collection",
-            members: members,
+            initialMemberProvider: { members },
             openedDocuments: openedDocuments
         )
     }
