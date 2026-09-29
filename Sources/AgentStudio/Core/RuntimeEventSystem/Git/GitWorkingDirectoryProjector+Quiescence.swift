@@ -63,9 +63,22 @@ extension GitWorkingDirectoryProjector {
         }
     }
 
-    func didHandleRuntimeEnvelope(lifetime: UInt64) {
+    func didHandleRuntimeEnvelope(
+        lifetime: UInt64,
+        seq: UInt64,
+        disposition: GitProjectorEnvelopeDisposition
+    ) {
         guard lifetime == subscriptionLifetime else { return }
         handledEnvelopeCount &+= 1
+        if let subscriptionHandle {
+            let droppedCount = subscriptionHandle.deliveryCheckpoint().droppedCount
+            if droppedCount > lastEmittedDroppedEnvelopeCount {
+                let delta = droppedCount - lastEmittedDroppedEnvelopeCount
+                lastEmittedDroppedEnvelopeCount = droppedCount
+                factSink?(.lifetime(lifetime), .envelopesDropped(count: delta))
+            }
+        }
+        factSink?(.lifetime(lifetime), .envelopeHandled(seq: seq, disposition: disposition))
         resolveIdleWaitersIfPossible()
     }
 
@@ -130,4 +143,44 @@ extension GitWorkingDirectoryProjector {
     private func cancelIdleWaiter(_ waiterID: UUID) {
         idleWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: .cancelled)
     }
+    func clearRefreshSchedulingStateAfterShutdown() {
+        closeVisibilityAdmissionFacts(as: .cancelled)
+        for worktreeId in Array(capacityFactOpenEpisodeByWorktreeId.keys) {
+            closeCapacityFact(worktreeId: worktreeId, outcome: .cancelled)
+        }
+        for worktreeId in Array(backoffFactOpenEpisodeByWorktreeId.keys) {
+            closeBackoffFact(worktreeId: worktreeId)
+        }
+        capacityRetryWorktreeIds.removeAll(keepingCapacity: false)
+        capacityRetryReasonByWorktreeId.removeAll(keepingCapacity: false)
+        capacityRearmedWorktreeIds.removeAll(keepingCapacity: false)
+        capacityFallbackDeadlineByWorktreeId.removeAll(keepingCapacity: false)
+        statusBackoffFailureCountByWorktreeId.removeAll(keepingCapacity: false)
+        openStatusBackoffWorktreeIds.removeAll(keepingCapacity: false)
+        statusFailureDeadlineByWorktreeId.removeAll(keepingCapacity: false)
+        cancelAllDeadlineFacts()
+        deadlineQueue = GitRefreshDeadlineQueue()
+        deferredStatusBackoffChangesetByWorktreeId.removeAll(keepingCapacity: false)
+        for worktreeId in Array(quarantinedWorktreeIds) {
+            clearQuarantineState(worktreeId: worktreeId)
+        }
+        validatedRootPathByWorktreeId.removeAll(keepingCapacity: false)
+        unchangedStatusResultCountByWorktreeId.removeAll(keepingCapacity: false)
+        automaticRefreshDeadlineByWorktreeId.removeAll(keepingCapacity: false)
+        lastAutomaticStartAtByWorktreeId.removeAll(keepingCapacity: false)
+        lastAutomaticCompletionAtByWorktreeId.removeAll(keepingCapacity: false)
+        lastAutomaticDutyByWorktreeId.removeAll(keepingCapacity: false)
+        pendingByWorktreeId.removeAll(keepingCapacity: false)
+        closeAllOpenIntakeFacts(as: .changesetDropped(.superseded))
+        immediateRefreshWorktreeIds.removeAll(keepingCapacity: false)
+        explicitRefreshWorktreeIds.removeAll(keepingCapacity: false)
+        tierEligibleWorktreeIds.removeAll(keepingCapacity: false)
+        admittedDemandTierByWorktreeId.removeAll(keepingCapacity: false)
+        admissionStartedAtByWorktreeId.removeAll(keepingCapacity: false)
+        visibleSidebarStripeCursor = 0
+        lastProcessedSidebarVisibleWorktreeIds.removeAll(keepingCapacity: false)
+        pendingVisibilityDeltaWorktreeIds.removeAll(keepingCapacity: false)
+        coalescingWorktreeIds.removeAll(keepingCapacity: false)
+    }
+
 }

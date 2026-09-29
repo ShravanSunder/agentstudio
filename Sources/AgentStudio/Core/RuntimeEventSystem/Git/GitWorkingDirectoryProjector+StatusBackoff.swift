@@ -23,7 +23,7 @@ extension GitWorkingDirectoryProjector {
             deferredStatusBackoffChangesetByWorktreeId[worktreeId] = changeset
             return
         }
-        deferredStatusBackoffChangesetByWorktreeId[worktreeId] = Self.mergeChangesets(existing, with: changeset)
+        deferredStatusBackoffChangesetByWorktreeId[worktreeId] = mergeTrackedChangesets(existing, with: changeset)
     }
 
     /// Opens (or advances) the per-worktree circuit breaker after a status
@@ -62,6 +62,7 @@ extension GitWorkingDirectoryProjector {
         )
 
         rescheduleDeadlineTask()
+        recordBackoffFact(worktreeId: worktreeId, level: failureCount)
     }
 
     /// Fires exactly one coalesced deferred refresh when the backoff window
@@ -73,17 +74,23 @@ extension GitWorkingDirectoryProjector {
         guard openStatusBackoffWorktreeIds.remove(worktreeId) != nil else { return }
         guard !isShuttingDown else {
             deferredStatusBackoffChangesetByWorktreeId.removeValue(forKey: worktreeId)
+            closeBackoffFact(worktreeId: worktreeId)
             return
         }
         guard !suppressedWorktreeIds.contains(worktreeId) else {
             deferredStatusBackoffChangesetByWorktreeId.removeValue(forKey: worktreeId)
+            closeBackoffFact(worktreeId: worktreeId)
             return
         }
         guard let deferredChangeset = deferredStatusBackoffChangesetByWorktreeId.removeValue(forKey: worktreeId) else {
+            closeBackoffFact(worktreeId: worktreeId)
             return
         }
-        guard isCurrent(deferredChangeset) else { return }
-        pendingByWorktreeId[worktreeId] = Self.mergeChangesets(
+        guard isCurrent(deferredChangeset) else {
+            closeBackoffFact(worktreeId: worktreeId)
+            return
+        }
+        pendingByWorktreeId[worktreeId] = mergeTrackedChangesets(
             pendingByWorktreeId[worktreeId],
             with: deferredChangeset
         )
@@ -94,6 +101,7 @@ extension GitWorkingDirectoryProjector {
         }
         admitPendingWorktrees()
         rescheduleDeadlineTask()
+        recordBackoffHalfOpenFact(worktreeId: worktreeId)
     }
 
     func deferChangesetIfCapacityRetryPending(_ changeset: FileChangeset) -> Bool {
@@ -132,6 +140,7 @@ extension GitWorkingDirectoryProjector {
             startCapacityCompletionWait(after: completionGeneration)
         }
         rescheduleDeadlineTask()
+        openCapacityFactIfNeeded(worktreeId: worktreeId)
     }
 
     private func startCapacityCompletionWait(after generation: UInt64) {
@@ -151,6 +160,8 @@ extension GitWorkingDirectoryProjector {
         capacityRetryReasonByWorktreeId.removeAll(keepingCapacity: true)
         for worktreeId in deferredWorktreeIds {
             capacityFallbackDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            closeDeadlineFact(worktreeId: worktreeId, sourceKind: .capacityFallback, disposition: .obsolete)
+            closeCapacityFact(worktreeId: worktreeId, outcome: .rearmed)
         }
         admitPendingWorktrees()
         rescheduleDeadlineTask()
@@ -160,6 +171,7 @@ extension GitWorkingDirectoryProjector {
     func expireCapacityRetry(worktreeId: UUID) {
         capacityFallbackDeadlineByWorktreeId.removeValue(forKey: worktreeId)
         guard capacityRetryWorktreeIds.remove(worktreeId) != nil else { return }
+        defer { closeCapacityFact(worktreeId: worktreeId, outcome: .expired) }
         capacityRetryReasonByWorktreeId.removeValue(forKey: worktreeId)
         guard !isShuttingDown else {
             capacityRearmedWorktreeIds.remove(worktreeId)
@@ -191,11 +203,13 @@ extension GitWorkingDirectoryProjector {
         capacityRetryReasonByWorktreeId.removeValue(forKey: worktreeId)
         capacityRearmedWorktreeIds.remove(worktreeId)
         capacityFallbackDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+        cancelDeadlineFact(worktreeId: worktreeId, sourceKind: .capacityFallback)
         if capacityRetryWorktreeIds.isEmpty {
             capacityCompletionTask?.cancel()
             capacityCompletionTask = nil
         }
         rescheduleDeadlineTask()
+        closeCapacityFact(worktreeId: worktreeId, outcome: .cancelled)
         return hadGlobalCapacityRetryPause && !hasGlobalCapacityRetryPause
     }
 
@@ -205,7 +219,7 @@ extension GitWorkingDirectoryProjector {
             pendingByWorktreeId[worktreeId] = changeset
             return
         }
-        pendingByWorktreeId[worktreeId] = Self.mergeChangesets(existing, with: changeset)
+        pendingByWorktreeId[worktreeId] = mergeTrackedChangesets(existing, with: changeset)
     }
 
     /// Closes the breaker after a successful compute, clearing the failure count
@@ -213,19 +227,23 @@ extension GitWorkingDirectoryProjector {
     func resetStatusBackoff(worktreeId: UUID) {
         let hadFailures = statusBackoffFailureCountByWorktreeId.removeValue(forKey: worktreeId) != nil
         statusFailureDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+        closeDeadlineFact(worktreeId: worktreeId, sourceKind: .failure, disposition: .obsolete)
         let wasOpen = openStatusBackoffWorktreeIds.remove(worktreeId) != nil
         deferredStatusBackoffChangesetByWorktreeId.removeValue(forKey: worktreeId)
         rescheduleDeadlineTask()
         guard hadFailures || wasOpen else { return }
         emitStatusBackoffTelemetry(worktreeId: worktreeId, open: false, reason: nil, backoffDelay: .zero, attempt: 0)
+        closeBackoffFact(worktreeId: worktreeId)
     }
 
     func clearStatusBackoffState(worktreeId: UUID) {
         statusFailureDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+        cancelDeadlineFact(worktreeId: worktreeId, sourceKind: .failure)
         statusBackoffFailureCountByWorktreeId.removeValue(forKey: worktreeId)
         openStatusBackoffWorktreeIds.remove(worktreeId)
         deferredStatusBackoffChangesetByWorktreeId.removeValue(forKey: worktreeId)
         rescheduleDeadlineTask()
+        closeBackoffFact(worktreeId: worktreeId)
     }
 
     func emitStatusBackoffTelemetry(

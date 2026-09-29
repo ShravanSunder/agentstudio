@@ -10,10 +10,11 @@ import Testing
 @Suite("GitWorkingDirectoryProjector quiescence")
 struct GitWorkingDirectoryProjectorQuiescenceTests {
     @Test("before start, shutdown, and restart have distinct subscription lifetimes")
-    func lifecycleAndIgnoredEnvelope() async {
+    func lifecycleAndIgnoredEnvelope() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let projector = makeProjector(bus: bus)
-        #expect(await projector.waitUntilIdle() == .shutdown)
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
+        let projector = makeProjector(bus: bus, factSink: source.sink)
 
         await projector.start()
         let duplicateLabel = await bus.subscribe(
@@ -21,31 +22,35 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
             subscriberName: "GitWorkingDirectoryProjector"
         )
         _ = await bus.post(ignoredTopologyEnvelope(seq: 1))
-        #expect(await projector.waitUntilIdle() == .idle(droppedEnvelopes: 0))
-        #expect(await projector.handledEnvelopeCount == 1)
+        try await facts.expectNext(in: .lifetime(1), .envelopeHandled(seq: 1, disposition: .ignored))
         #expect(duplicateLabel.deliveryCheckpoint().enqueuedCount == 1)
 
         await projector.shutdown()
-        #expect(await projector.waitUntilIdle() == .shutdown)
+        try await facts.expectNext(in: .lifetime(1), .shutdownCompleted)
         await projector.start()
         _ = await bus.post(ignoredTopologyEnvelope(seq: 2))
-        #expect(await projector.waitUntilIdle() == .idle(droppedEnvelopes: 0))
-        #expect(await projector.handledEnvelopeCount == 1)
+        try await facts.expectNext(in: .lifetime(2), .envelopeHandled(seq: 2, disposition: .ignored))
         await projector.shutdown()
+        try await facts.expectNext(in: .lifetime(2), .shutdownCompleted)
+        try await facts.finish()
     }
 
     @Test("a queued newest-buffer replacement reports loss after intake catches up")
-    func queuedEnvelopeReportsLoss() async {
+    func queuedEnvelopeReportsLoss() async throws {
         let bus = EventBus<RuntimeEnvelope>(
             replayConfiguration: .init(capacityPerSource: 4, sourceKey: { $0.source.description })
         )
-        let projector = makeProjector(bus: bus, subscriptionBufferLimit: 1)
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
+        let projector = makeProjector(bus: bus, subscriptionBufferLimit: 1, factSink: source.sink)
         _ = await bus.post(contentsOf: (1...4).map { ignoredTopologyEnvelope(seq: UInt64($0)) })
         await projector.start()
 
-        #expect(await projector.waitUntilIdle() == .idle(droppedEnvelopes: 3))
-        #expect(await projector.handledEnvelopeCount == 1)
+        try await facts.expectNext(in: .lifetime(1), .envelopesDropped(count: 3))
+        try await facts.expectNext(in: .lifetime(1), .envelopeHandled(seq: 4, disposition: .ignored))
         await projector.shutdown()
+        try await facts.expectNext(in: .lifetime(1), .shutdownCompleted)
+        try await facts.finish()
     }
 
     @Test("coalesced provider work and a later waiter settle after the provider exits")
@@ -324,13 +329,15 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
 
     private func makeProjector(
         bus: EventBus<RuntimeEnvelope>,
-        subscriptionBufferLimit: Int = 256
+        subscriptionBufferLimit: Int = 256,
+        factSink: GitProjectorFactSink? = nil
     ) -> GitWorkingDirectoryProjector {
         GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in cleanStatus() },
             coalescingWindow: .zero,
-            subscriptionBufferLimit: subscriptionBufferLimit
+            subscriptionBufferLimit: subscriptionBufferLimit,
+            factSink: factSink
         )
     }
 
