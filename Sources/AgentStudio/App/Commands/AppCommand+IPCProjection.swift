@@ -570,8 +570,6 @@ extension AppCommand {
             .toggleSidebar, .focusSidebar, .filterSidebar,
             .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
