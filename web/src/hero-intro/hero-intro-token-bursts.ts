@@ -64,7 +64,7 @@ function installBurstTokenOpacity(progress: number): number {
   if (progress <= 0.04) return 0;
   if (progress < 0.16) return ((progress - 0.04) / 0.12) * 0.95;
   if (progress <= 0.95) return 0.95;
-  return ((1 - progress) / 0.05) * 0.95;
+  return Math.pow((1 - progress) / 0.05, 0.15) * 0.95;
 }
 
 function textEnd(element: HTMLElement): HeroPoint {
@@ -201,16 +201,20 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
           }
           const blocked = visibleTextRects(root);
           tokens.forEach((token, index) => {
-            const lag = (index / tokens.length) * 0.3;
-            const progress = clampUnit((state.fraction - lag) / (1 - lag));
+            const maximumLag = 0.3;
+            const lag = (index / tokens.length) * maximumLag;
+            const travelTime = label === "burst:install" ? 1 - maximumLag : 1 - lag;
+            const progress = clampUnit((state.fraction - lag) / travelTime);
+            const pathProgress = label === "burst:install" ? progress : easeInOut(progress);
             const opacity =
               label === "burst:install"
-                ? installBurstTokenOpacity(progress)
+                ? installBurstTokenOpacity(pathProgress)
                 : heroBurstTokenOpacity(progress);
             if (opacity <= 0) return;
-            const point = pointAlongHeroRoute(route, easeInOut(progress));
+            const point = pointAlongHeroRoute(route, pathProgress);
             const offset = (index % 2 === 0 ? -1 : 1) * (3 + ((index * 7) % 6));
             const text = document.createElementNS(svgNamespace, "text");
+            text.setAttribute("data-hero-burst-token-index", String(index));
             text.setAttribute("x", String(point.x + point.normalX * offset));
             text.setAttribute("y", String(point.y + point.normalY * offset + 3));
             text.setAttribute("text-anchor", "middle");

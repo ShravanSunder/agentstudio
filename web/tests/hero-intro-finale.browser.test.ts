@@ -52,20 +52,29 @@ for (const [width, height] of [
     expect(at(7.5).installBurstTargetYGap).toBeLessThanOrEqual(4);
     expect(at(7.5).tokenLayerViewportOffset).toBeLessThanOrEqual(1);
     expect(at(7.56).tokenCount).toBeGreaterThan(0);
-    const installAt = (fraction: number) => at(Number((7.05 + fraction * 0.9).toFixed(3)));
-    for (const fraction of [0.5, 0.6, 0.7, 0.8, 0.9]) {
+    const installAt = (fraction: number): FinaleObservation["samples"][number] =>
+      at(Number((7.05 + fraction * 0.9).toFixed(3)));
+    for (const fraction of [0.5, 0.6, 0.7, 0.8]) {
       expect(
         installAt(fraction).tokenCount,
         `${width}px tokens at ${fraction}`,
       ).toBeGreaterThanOrEqual(4);
       expect(installAt(fraction).tokenTextOverlaps).toBe(0);
     }
-    expect(
-      installAt(0.93).installArrivalTokens.filter(
+    const arrivalFractions = Array.from({ length: 21 }, (_, index) =>
+      Number((0.6 + index * 0.02).toFixed(2)),
+    );
+    const arrivedIndexes = new Set<number>();
+    for (const fraction of arrivalFractions) {
+      const sample = installAt(fraction);
+      const arrived = sample.installArrivalTokens.filter(
         (token) => token.opacity >= 0.5 && token.distance <= 28,
-      ).length,
-      `${width}px visible arrival tokens`,
-    ).toBeGreaterThanOrEqual(3);
+      );
+      expect(arrived.length, `${width}px endpoint pile at ${fraction}`).toBeLessThanOrEqual(4);
+      for (const token of arrived) arrivedIndexes.add(token.index);
+      expect(sample.tokenTextOverlaps).toBe(0);
+    }
+    expect(arrivedIndexes.size, `${width}px tokens reaching brew`).toBe(11);
     expect(at(7.96).tokenCount).toBe(0);
     expect(at(7.5).installOpacity).toBe(0);
     expect(at(8.2).installOpacity).toBeGreaterThan(0);

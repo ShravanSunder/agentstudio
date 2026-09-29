@@ -46,7 +46,11 @@ interface FinaleSample {
   readonly installBurstTargetXGap: number;
   readonly installBurstTargetYGap: number;
   readonly installTokenVerticalStrays: number;
-  readonly installArrivalTokens: readonly { readonly distance: number; readonly opacity: number }[];
+  readonly installArrivalTokens: readonly {
+    readonly index: number;
+    readonly distance: number;
+    readonly opacity: number;
+  }[];
   readonly tokenLayerViewportOffset: number;
   readonly claudeInputText: string;
   readonly codexInputText: string;
@@ -169,8 +173,9 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         throw new Error("Hero rail timing schedule is incomplete");
       const holdMiddle = (firstHop.arrival + secondHop.start) / 2;
       const sampleTimes = [
-        ...[0.5, 0.6, 0.7, 0.8, 0.9, 0.93].map((fraction) =>
-          Number((7.05 + fraction * 0.9).toFixed(3)),
+        ...[0.5, 0.7, 0.8, 0.9, 0.93].map((fraction) => Number((7.05 + fraction * 0.9).toFixed(3))),
+        ...Array.from({ length: 21 }, (_, index) =>
+          Number((7.05 + (0.6 + index * 0.02) * 0.9).toFixed(3)),
         ),
         0,
         0.2,
@@ -545,6 +550,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               installArrivalTokens: tokens.map((token) => {
                 const bounds = token.getBoundingClientRect();
                 return {
+                  index: Number(token.getAttribute("data-hero-burst-token-index")),
                   distance: Math.hypot(
                     bounds.left + bounds.width / 2 - (commandBounds.left - 14),
                     bounds.top + bounds.height / 2 - (commandBounds.top + commandBounds.height / 2),
