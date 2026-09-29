@@ -75,6 +75,50 @@ class ControlledMetadataDeadlineClock implements BridgeProductDeadlineClock {
 }
 
 describe('Bridge product transport', () => {
+	test('a failed background cancel escape publishes the existing session-suspect fact', async () => {
+		const suspectFact = createBridgeProductDeferred<string>();
+		const suspectReasons: string[] = [];
+		const harness = createTransportHarness({
+			onSessionSuspect: (reason): void => {
+				suspectReasons.push(reason);
+				suspectFact.resolve(reason);
+			},
+		});
+		let cancelAttempts = 0;
+		harness.server.cancelHandler = (): Response => {
+			cancelAttempts += 1;
+			return new Response(null, { status: 502 });
+		};
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{},
+		);
+		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
+		const stream = await harness.server.waitForMetadataStreamOpened();
+		harness.server.emitMetadata(metadataAccepted(stream, 0));
+		await harness.server.waitForControlRequestWhere(
+			(request) =>
+				request.kind === 'subscription.open' &&
+				request.subscriptionId === subscription.subscriptionId,
+		);
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				kind: 'review.metadata',
+				request: stream,
+				streamSequence: 1,
+				subscriptionId: subscription.subscriptionId,
+			}),
+		);
+
+		await subscription.cancel();
+		expect(await nextEvent).toEqual({ done: true, value: undefined });
+		expect(harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount).toBe(0);
+		expect(await suspectFact.promise).toBe('admissionReplyExhausted');
+		expect(suspectReasons).toEqual(['admissionReplyExhausted']);
+		expect(cancelAttempts).toBe(3);
+	});
+
 	test('silent metadata fetch has finite progress and cancellation settles without its reply', async () => {
 		const clock = new ControlledMetadataDeadlineClock();
 		const harness = createTransportHarness({ deadlineClock: clock });

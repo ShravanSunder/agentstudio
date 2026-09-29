@@ -61,6 +61,9 @@ export function createTransportHarness(
 	options: {
 		readonly deadlineClock?: BridgeProductDeadlineClock;
 		readonly fileEpoch?: number;
+		readonly onSessionSuspect?: ConstructorParameters<
+			typeof BridgeProductControlMux
+		>[0]['onSessionSuspect'];
 		readonly reviewEpoch?: number;
 	} = {},
 ): TransportHarness {
@@ -101,6 +104,9 @@ export function createTransportHarness(
 		createRequestId: sequenceIdentifier('control-request'),
 		...(options.deadlineClock === undefined ? {} : { deadlineClock: options.deadlineClock }),
 		executeProductRequest: executeAgentStudioBridgeProductRequest,
+		...(options.onSessionSuspect === undefined
+			? {}
+			: { onSessionSuspect: options.onSessionSuspect }),
 	});
 	const harness: TransportHarness = {
 		server,
