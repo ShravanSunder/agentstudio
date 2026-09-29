@@ -632,8 +632,6 @@ struct CIFastLaneWorkflowTests {
         #expect(!discoveredSuiteFilters.contains("BridgePaneControllerTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemGitPipelineIntegrationTests\n"))
         #expect(!discoveredSuiteFilters.contains("FilesystemSourceE2ETests\n"))
-        #expect(!discoveredSuiteNames.contains("AgentStudioAppIPCServiceCommandTests"))
-        #expect(!discoveredSuiteNames.contains("AgentStudioAppIPCCommandExecuteContractTests"))
         #expect(
             discoveredSuiteNames.isDisjoint(with: webKitLeafSuiteNames),
             "Process-global non-WebKit discovery must exclude every suite owned by the WebKit lane"
@@ -680,13 +678,12 @@ struct CIFastLaneWorkflowTests {
             "TabBarAffectedItemTelemetryTests",
             "MainSplitViewControllerSidebarStateTests",
             "FlatTabStripContainerAllMinimizedTests",
-            "InboxNotificationRouterTests",
-            "BackgroundFactApplyGovernorTests",
             "TerminalPaneMountViewExitBehaviorTests",
             "TerminalActivityProjectorTests",
             "GitWorkingDirectoryProjectorTests",
             "AgentStudioAppIPCServiceTests",
             "AgentStudioAppIPCServiceAuthModeTests",
+            "AgentStudioAppIPCServiceCommandTests",
             "AgentStudioAppIPCServiceContributionTests",
             "AgentStudioIPCBridgeServiceTests",
             "AgentStudioIPCBridgeRenderDiagnosticsTests",
@@ -695,7 +692,9 @@ struct CIFastLaneWorkflowTests {
             "AgentStudioIPCBridgeDiagnosticTargetTests",
             "AgentStudioIPCBridgePaneAgentTests",
             "AgentStudioIPCBridgeRejectedControlTests",
+            "AgentStudioAppIPCCommandExecuteContractTests",
             "AgentStudioIPCStableCatalogRefusalTests",
+            "AgentStudioAppIPCConnectionHandlerLifecycleTests",
             "WorkspaceStoreTests",
             "WorkspaceComparisonIntentProcessRestartTests",
         ]

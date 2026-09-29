@@ -13,7 +13,7 @@ import Testing
 struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
     @Test("joinConnectionHandlers waits for a handler held inside a request, then clears its entry")
     func joinWaitsForAHeldHandlerThenClearsItsEntry() async throws {
-        let paneId = UUID()
+        let paneId = UUIDv7.generate()
         let port = SuspendingTerminalWaitPort()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -61,6 +61,38 @@ struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
         #expect(fixture.server.trackedConnectionHandlerCount == 0)
 
         _ = try? await heldRequest.value
+    }
+
+    /// `waitUntilEntered()`'s `hasEntered` flag only ever transitions
+    /// false -> true, so calling it twice on the same port deterministically
+    /// exercises both orderings with no race: the first call either raced or
+    /// followed the entry and must itself observe it, and the second call
+    /// begins only after that observation — entry has unambiguously already
+    /// happened by then, whatever the scheduler did with the first call.
+    @Test("waitUntilEntered reports its own observation once, then a late call separately")
+    func waitUntilEnteredDistinguishesOwnObservationFromALateCall() async throws {
+        let port = SuspendingTerminalWaitPort()
+        let handle = IPCHandle(kind: .pane, reference: .canonicalUUID(UUIDv7.generate()))
+
+        let waitTask = Task {
+            try await port.waitForTerminal(
+                handle,
+                condition: .commandFinished,
+                timeout: .seconds(60),
+                afterSequence: nil,
+                ownPaneAssertion: nil
+            )
+        }
+
+        let firstObservation = await port.waitUntilEntered()
+        #expect(firstObservation)
+
+        let secondObservation = await port.waitUntilEntered()
+        #expect(!secondObservation)
+
+        waitTask.cancel()
+        _ = try? await waitTask.value
+        #expect(port.observedCancellation)
     }
 }
 

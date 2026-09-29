@@ -414,9 +414,28 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("let initializationTask = appIPCInitializationTask"))
         #expect(ipcBootSource.contains("initializationTask?.cancel()"))
         #expect(ipcBootSource.contains("await initializationTask?.value"))
-        #expect(ipcBootSource.contains("await appIPCServer?.joinConnectionHandlers()"))
         #expect(ipcBootSource.contains("await finishAppIPCSessionsIngestion()"))
         #expect(!ipcBootSource.contains("func stopAppIPCServer()"))
+
+        // Connection handlers are joined in the durable drain, after the
+        // credential drain completes, and never in the ingress-only stop —
+        // joining there would block the pre-flush stage on in-flight work.
+        let stopAcceptingRange = try #require(
+            ipcBootSource.range(of: "func stopAcceptingAppIPCConnections() async {"))
+        // Ends at drainAppIPCCredentialPersistence()'s own doc comment, not its
+        // func line: that comment (legitimately) names joinConnectionHandlers
+        // in prose, and a range ending at the func line would sweep it into
+        // stopAcceptingBody.
+        let drainDocCommentRange = try #require(
+            ipcBootSource.range(of: "/// The durable half,"))
+        let stopAcceptingBody = ipcBootSource[stopAcceptingRange.lowerBound..<drainDocCommentRange.lowerBound]
+        #expect(!stopAcceptingBody.contains("joinConnectionHandlers"))
+        #expect(ipcBootSource.contains("await server.joinConnectionHandlers()"))
+        let credentialDrainCallIndex = try #require(
+            ipcBootSource.range(of: "await server.drainCredentialPersistence()")?.lowerBound)
+        let joinConnectionHandlersIndex = try #require(
+            ipcBootSource.range(of: "await server.joinConnectionHandlers()")?.lowerBound)
+        #expect(credentialDrainCallIndex < joinConnectionHandlersIndex)
         #expect(ipcBootSource.contains("let paneIPCIdentityOwner = paneIPCIdentityOwner!"))
         #expect(!ipcBootSource.contains("self.appIPCInitializationTask = nil"))
         #expect(

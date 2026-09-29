@@ -101,6 +101,69 @@ struct AppTerminationDrainDeadlineTests {
         await harness.tearDown()
     }
 
+    @Test("a still-open connection does not delay the workspace flush, and the real credential drain still closes it")
+    func stillOpenConnectionDoesNotDelayTheWorkspaceFlush() async throws {
+        let harness = try await SessionsVerticalHarness.make()
+        do {
+            let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: harness.socketPath))
+            let loginRequest = try JSONRPCClientRequest(
+                id: .number(1),
+                method: "auth.login",
+                params: .object(["token": .string(harness.token.rawValue)])
+            )
+            try connection.send(
+                try NDJSONFrameEncoder.encode(
+                    try JSONRPCCodec.encodeRequest(loginRequest), maxFrameBytes: 65_536))
+            // Causal barrier: bytes back prove the server's handler accepted
+            // the connection, processed this request, and looped back to its
+            // next blocking read. The connection is still open and the
+            // handler still tracked when the drain below begins — a real
+            // in-flight handler, not a synthetic stand-in.
+            let responseBytes = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    do {
+                        continuation.resume(returning: try connection.receive(maxBytes: 4096))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            #expect(!responseBytes.isEmpty)
+            #expect(harness.appDelegate.appIPCServer?.trackedConnectionHandlerCount == 1)
+
+            // The real production ordering: ingress stop precedes the
+            // flush-then-drain bound below, and closing this connection here
+            // is what unblocks its handler's blocking read — drain no longer
+            // re-closes connections as a safety net, so this call is load
+            // bearing, not incidental.
+            await harness.appDelegate.stopAcceptingAppIPCConnections()
+
+            let stages = TerminationStageRecorder()
+            let outcome = await runBoundedIPCDrainAfterWorkspaceFlush(
+                timeout: .seconds(5),
+                workspaceFlush: { stages.record("workspaceFlush") },
+                ipcDrain: {
+                    stages.record("ipcDrainStarted")
+                    // The real production function: its joinConnectionHandlers()
+                    // observes the handler this connection's closure above
+                    // already unblocked, rather than that join outliving the
+                    // deadline this call is bounded by.
+                    await harness.appDelegate.drainAppIPCCredentialPersistence()
+                    stages.record("ipcDrainCompleted")
+                }
+            )
+
+            #expect(outcome == .completed)
+            #expect(stages.names == ["workspaceFlush", "ipcDrainStarted", "ipcDrainCompleted"])
+            #expect(harness.appDelegate.appIPCServer == nil)
+            connection.close()
+        } catch {
+            await harness.tearDown()
+            throw error
+        }
+        await harness.tearDown()
+    }
+
     @Test("a completing IPC drain still runs after the workspace flush")
     func ipcDrainRunsAfterTheWorkspaceFlush() async {
         let stages = TerminationStageRecorder()

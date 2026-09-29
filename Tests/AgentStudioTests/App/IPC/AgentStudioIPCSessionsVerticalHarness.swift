@@ -157,11 +157,15 @@ struct SessionsVerticalHarness {
             )
         } catch {
             // Unwind whatever this partial construction reached: a started
-            // server, the command harness's coordinator/executor, and a
-            // created socket root, in that order — the same production
-            // shutdown pair `tearDown()` uses.
+            // server, a started pane activity clock, the command harness's
+            // coordinator/executor, and a created socket root, in that order
+            // — the same production shutdown pair `tearDown()` uses.
+            // paneActivityClock is nil unless installActivityClock installed
+            // it, and shutdown() is idempotent, so this is a safe no-op when
+            // it was never started.
             await appDelegate.stopAcceptingAppIPCConnections()
             await appDelegate.drainAppIPCCredentialPersistence()
+            await appDelegate.paneActivityClock?.shutdown()
             await commandHarness.executor.stopAcceptingCommandsAndDrain()
             await commandHarness.coordinator.shutdown()
             if let createdRootDirectory {
@@ -175,14 +179,17 @@ struct SessionsVerticalHarness {
         Data(SHA256.hash(data: Data(token.utf8)))
     }
 
-    /// Ingress closes first — `stopAcceptingAppIPCConnections()` now also
-    /// joins every in-flight connection handler — then the durable drain, and
-    /// only then the command harness's own executor/coordinator shutdown,
-    /// mirroring `withWorkspaceCommandHarness`'s awaited cleanup for the same
-    /// harness type.
+    /// Ingress closes first, then the durable drain — which now also joins
+    /// every in-flight connection handler — then the pane activity clock a
+    /// suite may have installed (nil, and this a no-op, unless
+    /// installActivityClock requested one), and only then the command
+    /// harness's own executor/coordinator shutdown, mirroring
+    /// `withWorkspaceCommandHarness`'s awaited cleanup for the same harness
+    /// type.
     func tearDown() async {
         await appDelegate.stopAcceptingAppIPCConnections()
         await appDelegate.drainAppIPCCredentialPersistence()
+        await appDelegate.paneActivityClock?.shutdown()
         await commandHarness.executor.stopAcceptingCommandsAndDrain()
         await commandHarness.coordinator.shutdown()
         try? FileManager.default.removeItem(at: rootDirectory)
