@@ -542,6 +542,49 @@ describe('Bridge main Review publication integration', () => {
 		harness.dispose();
 	});
 
+	test('records two affected stable identities for a same-source successor publication', async () => {
+		const harness = createHarness();
+		try {
+			await installPublication(harness, ACTIVE, 'item-before-mutation');
+			const successor = {
+				...ACTIVE,
+				publicationId: '00000000-0000-7000-8000-000000000014',
+				revision: ACTIVE.revision + 1,
+			};
+			const samplesAfterMutation: BridgeTelemetrySample[] = [];
+			harness.telemetryRecorderRef.current = recordingTelemetryRecorder(samplesAfterMutation);
+			const affectedStableFileIdentities = ['file-before-mutation', 'file-after-mutation'];
+
+			harness.startCandidate(successor, 'ordinary', affectedStableFileIdentities);
+			// The harness's receive() convenience synthesizes an empty candidate start for display patches.
+			harness.integration.handleMessage(reviewDisplayEvent(successor, 'item-after-mutation'));
+			harness.receive(candidateReady(successor, 'ordinary', affectedStableFileIdentities));
+			const admission = await harness.nextCommand('reviewPublicationInstallAdmit');
+			harness.admit(admission, successor, 'admitted');
+			const installed = await harness.nextCommand('reviewPublicationInstalled');
+			harness.ack(installed);
+			await harness.integration.whenSettled();
+
+			const candidateReadySamples = samplesAfterMutation.filter(
+				(sample): boolean =>
+					sample.name === 'performance.bridge.web.review_refresh_lifecycle' &&
+					sample.stringAttributes['agentstudio.bridge.phase'] === 'review_refresh_candidate_ready',
+			);
+			expect(candidateReadySamples).toHaveLength(1);
+			expect(candidateReadySamples[0]).toMatchObject({
+				stringAttributes: {
+					'agentstudio.bridge.review.refresh.presentation_class': 'ordinary',
+				},
+				numericAttributes: {
+					'agentstudio.bridge.review.generation': ACTIVE.reviewGeneration,
+					'agentstudio.bridge.review.refresh.affected_stable_file.count': 2,
+				},
+			});
+		} finally {
+			harness.dispose();
+		}
+	});
+
 	test('ignores stale B failure, retains affected C failure, and clears it when attention leaves', async () => {
 		const harness = createHarness();
 		await installPublication(harness, ACTIVE, 'item-a');
