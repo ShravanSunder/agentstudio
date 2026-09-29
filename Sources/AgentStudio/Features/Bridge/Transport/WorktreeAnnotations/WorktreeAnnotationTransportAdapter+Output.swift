@@ -84,6 +84,7 @@ extension WorktreeAnnotationTransportAdapter {
         let result = try await outputCoordinator.executeNew(
             .init(
                 outputKind: outputKind,
+                destination: body.destination,
                 sessionDetail: sessionDetail,
                 selectedMessages: try selectedMessages.map { message in
                     guard let savedRevision = message.savedRevision else {

@@ -189,12 +189,13 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         let pasteboard = NSPasteboard(
             name: .init("agentstudio.packaged-share.\(UUIDv7.generate().uuidString)")
         )
-        let savePanel = PackagedShareJSONDestinationPanel(url: exportedJSONURL)
         let outputCoordinator = WorktreeAnnotationOutputCoordinatorActor(
             store: store,
             effect: WorktreeAnnotationOutputEffects(
                 pasteboard: pasteboard,
-                makeSavePanel: { savePanel }
+                folderPreference: InMemoryWorktreeAnnotationOutputFolderPreference(
+                    folderURL: exportedJSONURL.deletingLastPathComponent()
+                )
             )
         )
         let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
@@ -257,14 +258,20 @@ enum BridgeProductPackagedShareJourneyTestSupport {
             where: "return snapshot.shareVisible && !snapshot.otherSavedCommentsVisible && snapshot.allCount === 1;"
         )
         try await clickButton(controller.page, label: "Export JSON")
-        let dismissal = try await requireOutputDismissed(controller, stage: "file-export-dismiss")
-        #expect(dismissal == "closed")
-        guard FileManager.default.fileExists(atPath: exportedJSONURL.path) else {
+        _ = try await requireShareSnapshot(
+            controller.page,
+            stage: "file-export-saved",
+            where: "return snapshot.shareVisible && snapshot.historyCount === 2;"
+        )
+        let exportedFiles = try FileManager.default.contentsOfDirectory(
+            at: exportedJSONURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("AgentStudio Review Comments ") && $0.pathExtension == "json" }
+        guard exportedFiles.count == 1, let savedURL = exportedFiles.first else {
             throw PackagedShareJourneyError.exportMissing
         }
-        let exportedJSON = try Data(contentsOf: exportedJSONURL)
+        let exportedJSON = try Data(contentsOf: savedURL)
 
-        try await clickButton(controller.page, label: "Annotations")
         let history = try await requireShareSnapshot(
             controller.page,
             stage: "file-history",
@@ -524,21 +531,6 @@ enum BridgeProductPackagedShareJourneyTestSupport {
         };
         """
 
-}
-
-@MainActor
-private final class PackagedShareJSONDestinationPanel: WorktreeAnnotationJSONDestinationPanel {
-    var allowedContentTypes: [UTType] = []
-    var nameFieldStringValue = ""
-    var canCreateDirectories = false
-    var isExtensionHidden = true
-    let url: URL?
-
-    init(url: URL) {
-        self.url = url
-    }
-
-    func runModal() throws -> NSApplication.ModalResponse { .OK }
 }
 
 private enum PackagedShareJourneyError: Error {

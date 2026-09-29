@@ -68,11 +68,13 @@ protocol WorktreeAnnotationRepositoryAccess: Sendable {
     func finalizeOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>
     func markOutputAttemptFinalizationFailed(
         attemptID: WorktreeAnnotationOutputAttemptID,
         cleanupError: String,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput>
     func fetchOutputHistory(
@@ -181,9 +183,10 @@ extension WorktreeAnnotationRepositoryAccess {
     func markOutputAttemptFinalizationFailed(
         attemptID: WorktreeAnnotationOutputAttemptID,
         cleanupError: String,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
-        _ = (attemptID, cleanupError, now)
+        _ = (attemptID, cleanupError, destinationPath, now)
         throw WorktreeAnnotationRepositoryError.invalidState
     }
 
@@ -412,12 +415,14 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
     func finalizeOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         try await mutate { repository in
             try repository.finalizeOutputAttempt(
                 attemptID: attemptID,
                 eventKind: eventKind,
+                destinationPath: destinationPath,
                 now: now
             )
         }
@@ -426,12 +431,14 @@ package struct WorktreeAnnotationSQLiteDatastoreAdapter: WorktreeAnnotationRepos
     func markOutputAttemptFinalizationFailed(
         attemptID: WorktreeAnnotationOutputAttemptID,
         cleanupError: String,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         try await mutate { repository in
             try repository.markOutputAttemptFinalizationFailed(
                 attemptID: attemptID,
                 cleanupError: cleanupError,
+                destinationPath: destinationPath,
                 now: now
             )
         }

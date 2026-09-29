@@ -144,6 +144,11 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 	const prepareEditors = useWorktreeAnnotationPrepareActiveEditorsForInstallation();
 	const [navigationPending, setNavigationPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [errorCanChooseFolder, setErrorCanChooseFolder] = useState(false);
+	const [savedExport, setSavedExport] = useState<{
+		readonly attemptId: string;
+		readonly filename: string;
+	} | null>(null);
 	const openThread = async (
 		thread: WorktreeAnnotationThreadProjection,
 		destination: WorktreeAnnotationDestination,
@@ -238,12 +243,15 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 	const executeOutput = async (
 		outputKind: 'clipboardMarkdown' | 'jsonFile',
 		scope: WorktreeAnnotationShareScope,
+		destination?: 'remembered' | 'choose',
 	): Promise<void> => {
 		const pendingLease = props.outputPendingController.tryAcquire();
 		if (pendingLease === null) return;
 		setError(null);
+		setErrorCanChooseFolder(false);
 		try {
 			const outcome = await client.execute({
+				...(destination === undefined ? {} : { destination }),
 				displayedProjectionRevision: projection.revision ?? 0,
 				expectedSessionRevision: session.semanticRevision,
 				kind: 'output.scope.commit',
@@ -254,7 +262,28 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 			});
 			if (outcome.status.kind === 'failed') throw new Error(outcome.status.code);
 			if (outcome.status.kind !== 'output') throw new Error('Output returned no result.');
+			if (
+				outputKind === 'jsonFile' &&
+				outcome.status.outcome.kind === 'succeeded' &&
+				outcome.status.outcome.summary.destinationFilename !== null
+			) {
+				setSavedExport({
+					attemptId: outcome.status.outcome.summary.attemptId,
+					filename: outcome.status.outcome.summary.destinationFilename,
+				});
+				void client.execute({ kind: 'output.history', sessionId: session.sessionId });
+				return;
+			}
 			const feedback = annotationOutputFeedback(outcome.status.outcome);
+			if (
+				outcome.status.outcome.kind === 'effect_failed' ||
+				outcome.status.outcome.kind === 'effect_and_cleanup_failed'
+			) {
+				setErrorCanChooseFolder(
+					outcome.status.outcome.effectCode === 'missing_folder' ||
+						outcome.status.outcome.effectCode === 'permission_denied',
+				);
+			}
 			if (feedback.toast !== null) {
 				const attemptId =
 					outcome.status.outcome.kind === 'succeeded'
@@ -288,9 +317,55 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 			pendingLease.release();
 		}
 	};
+	const changeFolder = async (): Promise<void> => {
+		const pendingLease = props.outputPendingController.tryAcquire();
+		if (pendingLease === null) return;
+		setError(null);
+		try {
+			const outcome = await client.execute({ kind: 'output.preference.changeFolder' });
+			if (outcome.status.kind === 'failed') throw new Error(outcome.status.code);
+			if (outcome.status.kind === 'output') {
+				if (outcome.status.outcome.kind === 'destination_cancelled') return;
+				if (outcome.status.outcome.kind === 'destination_selection_failed') {
+					throw new Error(outcome.status.outcome.selectionError);
+				}
+			}
+			setErrorCanChooseFolder(false);
+		} catch (caught: unknown) {
+			setError(
+				caught instanceof Error ? caught.message : 'The export folder could not be changed.',
+			);
+		} finally {
+			pendingLease.release();
+		}
+	};
+	const revealExport = async (): Promise<void> => {
+		if (savedExport === null) return;
+		setError(null);
+		try {
+			const outcome = await client.execute({
+				attemptId: savedExport.attemptId,
+				kind: 'output.reveal',
+			});
+			if (outcome.status.kind === 'failed') {
+				throw new Error(
+					outcome.status.code === 'output_file_missing'
+						? 'The exported file no longer exists.'
+						: outcome.status.code === 'not_found'
+							? 'This export is no longer available.'
+							: outcome.status.code,
+				);
+			}
+		} catch (caught: unknown) {
+			setError(
+				caught instanceof Error ? caught.message : 'The exported file could not be revealed.',
+			);
+		}
+	};
 	return (
 		<WorktreeAnnotationShareModeRow
 			error={error}
+			errorCanChooseFolder={errorCanChooseFolder}
 			isOutputPending={props.outputPendingController.isPending}
 			isOutputReady={isOutputReady}
 			membership={{
@@ -306,7 +381,11 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 			}
 			onCopy={(scope) => void executeOutput('clipboardMarkdown', scope)}
 			onDone={props.onClose}
-			onExport={(scope) => void executeOutput('jsonFile', scope)}
+			onExport={(scope) => void executeOutput('jsonFile', scope, 'remembered')}
+			onExportTo={(scope) => void executeOutput('jsonFile', scope, 'choose')}
+			onChangeFolder={() => void changeFolder()}
+			onReveal={() => void revealExport()}
+			savedFilename={savedExport?.filename}
 			onScopeChange={interaction.setShareScope}
 			scope={displayedScope}
 		>

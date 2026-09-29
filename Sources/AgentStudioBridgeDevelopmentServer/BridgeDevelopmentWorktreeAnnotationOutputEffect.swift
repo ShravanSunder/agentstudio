@@ -21,28 +21,29 @@ package actor BridgeDevelopmentWorktreeAnnotationOutputEffect:
             .standardizedFileURL
     }
 
-    package func chooseJSONDestination(
-        suggestedFilename: String
-    ) async -> WorktreeAnnotationOutputDestinationOutcome {
-        guard isSafeSuggestedFilename(suggestedFilename) else {
-            return .failed("The development JSON export filename was invalid.")
-        }
+    package func rememberedJSONFolder() async -> String {
+        outputDirectory.path
+    }
+
+    package func chooseJSONDestination() async -> WorktreeAnnotationOutputDestinationOutcome {
         do {
             try FileManager.default.createDirectory(
                 at: outputDirectory,
                 withIntermediateDirectories: true
             )
-            let destination = nextAvailableJSONDestination(
-                suggestedFilename: suggestedFilename
-            )
-            reservedJSONDestinationPaths.insert(destination.path)
-            return .selected(path: destination.path)
+            return .selected(path: outputDirectory.path)
         } catch {
             return .failed(
                 "The isolated development output directory could not be prepared: "
                     + error.localizedDescription
             )
         }
+    }
+
+    package func revealJSONFile(path: String) async -> Bool {
+        // Headless development does not claim Finder authority.
+        _ = path
+        return false
     }
 
     package func perform(
@@ -53,15 +54,26 @@ package actor BridgeDevelopmentWorktreeAnnotationOutputEffect:
         case .clipboardMarkdown:
             destination = clipboardCaptureURL(for: request.attemptID)
         case .jsonFile:
-            guard let destinationPath = request.destinationPath,
-                reservedJSONDestinationPaths.contains(destinationPath),
-                isInsideOutputDirectory(destinationPath)
-            else {
+            guard let destinationPath = request.destinationPath else {
                 return .failed(
                     "The JSON destination was outside the isolated development output directory."
                 )
             }
-            destination = URL(fileURLWithPath: destinationPath).standardizedFileURL
+            let requestedURL = URL(fileURLWithPath: destinationPath).standardizedFileURL
+            guard requestedURL.deletingLastPathComponent() == outputDirectory else {
+                return .failed(
+                    "The JSON destination was outside the isolated development output directory."
+                )
+            }
+            if let filename = request.suggestedFilename {
+                guard isSafeSuggestedFilename(filename) else {
+                    return .failed("The development JSON export filename was invalid.")
+                }
+                destination = nextAvailableJSONDestination(suggestedFilename: filename)
+                reservedJSONDestinationPaths.insert(destination.path)
+            } else {
+                destination = requestedURL
+            }
         }
 
         do {
@@ -70,7 +82,7 @@ package actor BridgeDevelopmentWorktreeAnnotationOutputEffect:
                 withIntermediateDirectories: true
             )
             try request.exactBytes.write(to: destination, options: .atomic)
-            return .succeeded
+            return .succeeded(destinationPath: request.outputKind == .jsonFile ? destination.path : nil)
         } catch {
             return .failed(
                 "The development output capture could not be written: \(error.localizedDescription)"
@@ -114,9 +126,4 @@ package actor BridgeDevelopmentWorktreeAnnotationOutputEffect:
             && URL(fileURLWithPath: filename).pathExtension.lowercased() == "json"
     }
 
-    private func isInsideOutputDirectory(_ destinationPath: String) -> Bool {
-        URL(fileURLWithPath: destinationPath)
-            .standardizedFileURL
-            .deletingLastPathComponent() == outputDirectory
-    }
 }

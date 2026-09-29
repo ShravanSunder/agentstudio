@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -7,13 +8,15 @@ import Testing
 struct WorktreeAnnotationOutputCoordinatorTests {
     @Test("live effect outcomes are exhaustively known")
     func liveEffectOutcomesAreExhaustivelyKnown() {
-        #expect(classifyLiveEffectOutcome(.succeeded) == "succeeded")
+        #expect(classifyLiveEffectOutcome(.succeeded(destinationPath: nil)) == "succeeded")
+        #expect(classifyLiveEffectOutcome(.cancelled) == "cancelled")
+        #expect(classifyLiveEffectOutcome(.fileFailure(code: .missingFolder, message: "missing")) == "file-failure")
         #expect(classifyLiveEffectOutcome(.failed("unavailable")) == "failed")
     }
 
     @Test("generation failure occurs before prepare or effect")
     func generationFailureHasNoDurableOrExternalEffect() async throws {
-        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded)
+        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded(destinationPath: nil))
 
         await #expect(throws: WorktreeAnnotationBatchProjectorError.invalidGeneratedContext) {
             try await fixture.coordinator.executeNew(
@@ -25,7 +28,7 @@ struct WorktreeAnnotationOutputCoordinatorTests {
 
     @Test("prepare commits before effect and success finalizes afterward")
     func preparePrecedesEffectAndFinalization() async throws {
-        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded)
+        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded(destinationPath: nil))
 
         let result = try await fixture.coordinator.executeNew(fixture.request())
 
@@ -37,10 +40,33 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         #expect(await fixture.recorder.events == ["prepare", "effect", "finalize"])
     }
 
+    @Test("a begun application-owned write still records success after operation cancellation")
+    func begunWriteFinalizesAfterOperationCancellation() async throws {
+        let effectGate = HeldStep<Void>("begun-output-effect", cancellation: .holdThroughCancellation)
+        let fixture = makeCoordinatorFixture(
+            effectOutcome: .succeeded(destinationPath: nil),
+            effectGate: effectGate
+        )
+        let operation = Task {
+            try await fixture.coordinator.executeNew(fixture.request(outputKind: .jsonFile))
+        }
+        try await effectGate.firstArrival()
+
+        operation.cancel()
+        effectGate.release()
+
+        guard case .succeeded(let output) = try await operation.value else {
+            Issue.record("Expected known write success after cancellation")
+            return
+        }
+        #expect(output.attempt.state == .succeeded)
+        #expect(await fixture.recorder.events == ["choose-destination", "prepare", "effect", "finalize"])
+    }
+
     @Test("JSON destination cancellation occurs before attempt preparation")
     func jsonDestinationCancellationCreatesNoAttemptOrHistory() async throws {
         let fixture = makeCoordinatorFixture(
-            effectOutcome: .succeeded,
+            effectOutcome: .succeeded(destinationPath: nil),
             destinationOutcome: .cancelled
         )
 
@@ -58,8 +84,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
     @Test("JSON destination is selected before prepare and used by the exact-byte effect")
     func jsonDestinationSelectionPrecedesPrepare() async throws {
         let fixture = makeCoordinatorFixture(
-            effectOutcome: .succeeded,
-            destinationOutcome: .selected(path: "/tmp/review-comments.json")
+            effectOutcome: .succeeded(destinationPath: nil),
+            destinationOutcome: .selected(path: "/tmp")
         )
 
         let result = try await fixture.coordinator.executeNew(
@@ -70,8 +96,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
             Issue.record("Expected successful JSON export")
             return
         }
-        #expect(output.attempt.destinationPath == "/tmp/review-comments.json")
-        #expect(await fixture.effect.lastRequest?.destinationPath == "/tmp/review-comments.json")
+        #expect(output.attempt.destinationPath?.contains("AgentStudio Review Comments") == true)
+        #expect(await fixture.effect.lastRequest?.destinationPath == output.attempt.destinationPath)
         #expect(
             await fixture.recorder.events
                 == ["choose-destination", "prepare", "effect", "finalize"]
@@ -84,13 +110,31 @@ struct WorktreeAnnotationOutputCoordinatorTests {
 
         let result = try await fixture.coordinator.executeNew(fixture.request())
 
-        guard case .effectFailed(let effectError, let output) = result else {
+        guard case .effectFailed(let effectError, let effectCode, let output) = result else {
             Issue.record("Expected known effect failure")
             return
         }
         #expect(effectError == "clipboard unavailable")
+        #expect(effectCode == nil)
         #expect(output.attempt.state == .cancelled)
         #expect(await fixture.recorder.events == ["prepare", "effect", "cancel"])
+    }
+
+    @Test("missing-folder failure retains a typed output code after attempt cleanup")
+    func missingFolderFailureIsTypedAfterCleanup() async throws {
+        let fixture = makeCoordinatorFixture(
+            effectOutcome: .fileFailure(code: .missingFolder, message: "Folder missing")
+        )
+
+        let result = try await fixture.coordinator.executeNew(fixture.request(outputKind: .jsonFile))
+
+        guard case .effectFailed(let message, let code, let output) = result else {
+            Issue.record("Expected typed export failure")
+            return
+        }
+        #expect(message == "Folder missing")
+        #expect(code == .missingFolder)
+        #expect(output.attempt.state == .cancelled)
     }
 
     @Test("cancel persistence failure retains proof and retry performs cleanup only")
@@ -98,7 +142,7 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         let fixture = makeCoordinatorFixture(effectOutcome: .failed("clipboard unavailable"))
         await fixture.store.setCancelFailureEnabled(true)
         let result = try await fixture.coordinator.executeNew(fixture.request())
-        guard case .effectAndCleanupFailed(let output, let effectError, let cleanupError) = result else {
+        guard case .effectAndCleanupFailed(let output, let effectError, _, let cleanupError) = result else {
             Issue.record("Expected effect plus cleanup failure")
             return
         }
@@ -119,7 +163,7 @@ struct WorktreeAnnotationOutputCoordinatorTests {
 
     @Test("known success with finalization failure is partial success and records the state")
     func finalizationFailureNeverReplaysKnownSuccess() async throws {
-        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded)
+        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded(destinationPath: nil))
         await fixture.store.setFinalizeFailureEnabled(true)
 
         let result = try await fixture.coordinator.executeNew(fixture.request())
@@ -133,13 +177,30 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         #expect(await fixture.recorder.events == ["prepare", "effect", "finalize", "mark-finalization-failed"])
     }
 
+    @Test("a known write keeps its collision-resolved path when finalization fails")
+    func partialSuccessRecordsActualCollisionResolvedPath() async throws {
+        let fixture = makeCoordinatorFixture(
+            effectOutcome: .succeeded(destinationPath: "/tmp/AgentStudio Review Comments-2.json")
+        )
+        await fixture.store.setFinalizeFailureEnabled(true)
+
+        let result = try await fixture.coordinator.executeNew(fixture.request(outputKind: .jsonFile))
+
+        guard case .partialSuccess(let output, _) = result else {
+            Issue.record("Expected known write with failed finalization")
+            return
+        }
+        #expect(output.attempt.destinationPath == "/tmp/AgentStudio Review Comments-2.json")
+        #expect(output.attempt.state == .finalizationFailed)
+    }
+
     @Test("startup recovery marks a retained prepared attempt unknown without replay")
     func preparedAttemptRecoversUnknownWithoutAutomaticReplay() async throws {
         let fixture = makeCoordinatorFixture(effectOutcome: .failed("clipboard unavailable"))
         await fixture.store.setCancelFailureEnabled(true)
 
         let result = try await fixture.coordinator.executeNew(fixture.request())
-        guard case .effectAndCleanupFailed(let output, _, _) = result else {
+        guard case .effectAndCleanupFailed(let output, _, _, _) = result else {
             Issue.record("Expected retained prepared output")
             return
         }
@@ -153,7 +214,7 @@ struct WorktreeAnnotationOutputCoordinatorTests {
 
     @Test("explicit repetition sends only persisted exact bytes and membership")
     func explicitRepetitionUsesPersistedExactOutput() async throws {
-        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded)
+        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded(destinationPath: nil))
         let sourceAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: outputCoordinatorTestUUID(90))
         let persistedBytes = Data("persisted exact bytes; do not rebuild".utf8)
         await fixture.store.installRepeatSource(
@@ -172,12 +233,9 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         #expect(await fixture.recorder.events == ["repeat", "effect", "finalize"])
     }
 
-    @Test("JSON repetition requires and persists a newly selected destination")
-    func jsonRepetitionUsesNewDestinationWithoutRebuildingOutput() async throws {
-        let fixture = makeCoordinatorFixture(
-            effectOutcome: .succeeded,
-            destinationOutcome: .selected(path: "/tmp/repeated-export.json")
-        )
+    @Test("JSON repetition rewrites its recorded file with persisted exact bytes")
+    func jsonRepetitionUsesRecordedDestinationWithoutRebuildingOutput() async throws {
+        let fixture = makeCoordinatorFixture(effectOutcome: .succeeded(destinationPath: nil))
         let sourceAttemptID = WorktreeAnnotationOutputAttemptID(rawValue: outputCoordinatorTestUUID(91))
         let persistedBytes = Data("{\"persisted\":true}".utf8)
         await fixture.store.installRepeatSource(
@@ -194,8 +252,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
             Issue.record("Expected successful JSON repetition")
             return
         }
-        #expect(output.attempt.destinationPath == "/tmp/repeated-export.json")
-        #expect(await fixture.effect.lastRequest?.destinationPath == "/tmp/repeated-export.json")
+        #expect(output.attempt.destinationPath == "/tmp/first-export.json")
+        #expect(await fixture.effect.lastRequest?.destinationPath == "/tmp/first-export.json")
         #expect(await fixture.effect.lastRequest?.exactBytes == persistedBytes)
     }
 }
@@ -206,6 +264,10 @@ private func classifyLiveEffectOutcome(
     switch outcome {
     case .succeeded:
         "succeeded"
+    case .cancelled:
+        "cancelled"
+    case .fileFailure:
+        "file-failure"
     case .failed:
         "failed"
     }
@@ -226,6 +288,7 @@ private struct OutputCoordinatorFixture {
     ) -> WorktreeAnnotationOutputRequest {
         .init(
             outputKind: outputKind,
+            destination: outputKind == .jsonFile ? .choose : nil,
             sessionDetail: detail,
             selectedMessages: [selection],
             placementsByThreadID: [
@@ -246,6 +309,7 @@ private struct OutputCoordinatorFixture {
 
 private func makeCoordinatorFixture(
     effectOutcome: WorktreeAnnotationOutputEffectOutcome,
+    effectGate: HeldStep<Void>? = nil,
     destinationOutcome: WorktreeAnnotationOutputDestinationOutcome = .selected(
         path: "/tmp/default-review-comments.json"
     )
@@ -255,7 +319,8 @@ private func makeCoordinatorFixture(
     let effect = TestOutputEffect(
         recorder: recorder,
         destinationOutcome: destinationOutcome,
-        outcome: effectOutcome
+        outcome: effectOutcome,
+        effectGate: effectGate
     )
     let sessionID = WorktreeAnnotationSessionID(rawValue: outputCoordinatorTestUUID(1))
     let threadID = WorktreeAnnotationThreadID(rawValue: outputCoordinatorTestUUID(2))
@@ -505,12 +570,16 @@ private actor TestOutputStore: WorktreeAnnotationOutputServiceAccess {
     func finalizeOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         _ = (eventKind, now)
         await recorder.append("finalize")
         if finalizeFailureEnabled { throw TestOutputFailure.forcedFailure }
-        let output = try requiredOutput(attemptID).replacing(state: .succeeded)
+        let output = try requiredOutput(attemptID).replacing(
+            state: .succeeded,
+            destinationPath: destinationPath
+        )
         outputsByAttemptID[attemptID] = output
         return output
     }
@@ -518,12 +587,14 @@ private actor TestOutputStore: WorktreeAnnotationOutputServiceAccess {
     func markOutputAttemptFinalizationFailed(
         attemptID: WorktreeAnnotationOutputAttemptID,
         cleanupError: String,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         _ = (cleanupError, now)
         await recorder.append("mark-finalization-failed")
         let output = try requiredOutput(attemptID).replacing(
             state: .finalizationFailed,
+            destinationPath: destinationPath,
             cleanupError: cleanupError
         )
         outputsByAttemptID[attemptID] = output
@@ -579,24 +650,34 @@ private actor TestOutputEffect: WorktreeAnnotationOutputEffect {
     private let recorder: OutputSequenceRecorder
     private let destinationOutcome: WorktreeAnnotationOutputDestinationOutcome
     private let outcome: WorktreeAnnotationOutputEffectOutcome
+    private let effectGate: HeldStep<Void>?
     private(set) var lastRequest: WorktreeAnnotationOutputEffectRequest?
 
     init(
         recorder: OutputSequenceRecorder,
         destinationOutcome: WorktreeAnnotationOutputDestinationOutcome,
-        outcome: WorktreeAnnotationOutputEffectOutcome
+        outcome: WorktreeAnnotationOutputEffectOutcome,
+        effectGate: HeldStep<Void>?
     ) {
         self.recorder = recorder
         self.destinationOutcome = destinationOutcome
         self.outcome = outcome
+        self.effectGate = effectGate
     }
 
-    func chooseJSONDestination(
-        suggestedFilename: String
-    ) async -> WorktreeAnnotationOutputDestinationOutcome {
-        #expect(!suggestedFilename.isEmpty)
+    func rememberedJSONFolder() async -> String {
+        if case .selected(let path) = destinationOutcome { return path }
+        return "/tmp"
+    }
+
+    func chooseJSONDestination() async -> WorktreeAnnotationOutputDestinationOutcome {
         await recorder.append("choose-destination")
         return destinationOutcome
+    }
+
+    func revealJSONFile(path: String) async -> Bool {
+        _ = path
+        return true
     }
 
     func perform(
@@ -604,6 +685,10 @@ private actor TestOutputEffect: WorktreeAnnotationOutputEffect {
     ) async -> WorktreeAnnotationOutputEffectOutcome {
         lastRequest = request
         await recorder.append("effect")
+        if let effectGate { try? await effectGate.arrive(()) }
+        if case .succeeded(let destinationPath) = outcome {
+            return .succeeded(destinationPath: destinationPath ?? request.destinationPath)
+        }
         return outcome
     }
 }
@@ -652,6 +737,7 @@ private func preparedOutput(_ props: PreparedOutputProps) -> WorktreeAnnotationS
 extension WorktreeAnnotationSQLiteRepository.PreparedOutput {
     fileprivate func replacing(
         state: WorktreeAnnotationOutputAttemptState,
+        destinationPath: String? = nil,
         effectError: String? = nil,
         cleanupError: String? = nil
     ) -> Self {
@@ -664,7 +750,7 @@ extension WorktreeAnnotationSQLiteRepository.PreparedOutput {
                 formatVersion: attempt.formatVersion,
                 contentType: attempt.contentType,
                 exactBytes: attempt.exactBytes,
-                destinationPath: attempt.destinationPath,
+                destinationPath: destinationPath ?? attempt.destinationPath,
                 repeatedFromAttemptID: attempt.repeatedFromAttemptID,
                 effectError: effectError ?? attempt.effectError,
                 cleanupError: cleanupError ?? attempt.cleanupError,
