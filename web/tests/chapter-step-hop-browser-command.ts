@@ -28,6 +28,13 @@ export const verifyChapterStepHop = defineBrowserCommand(
     try {
       await page.setViewportSize({ width, height: width < 620 ? 844 : 1000 });
       await page.addInitScript((): void => {
+        // Browser projects run in parallel tabs; this scenario requires the
+        // page to be visible so the real autoplay host emits readiness.
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          get: () => "visible",
+        });
         (window as Window & { chapterHopReady?: Promise<void> }).chapterHopReady = new Promise(
           (resolve) => {
             const onReady = (event: Event): void => {

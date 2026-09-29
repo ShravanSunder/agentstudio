@@ -501,7 +501,7 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build \
 """
 
 [tasks."test:swift:benchmark"]
-description = "Run global preferences and native sidebar benchmarks"
+description = "Run global preferences, native sidebar, and command bar search benchmarks"
 depends = ["verify-vendors", "bridge-web-build"]
 run = """
 #!/usr/bin/env bash

@@ -7,17 +7,19 @@ import Foundation
 extension CommandBarDataSource {
     static func buildWorktreeCreationRepoLevel(
         for def: AppCommandSpec,
-        store: WorkspaceStore
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focusedRepoId = atom(\.workspaceFocusedPane).resolve(
+        let focusedPane = atom(\.workspaceFocusedPane).resolve(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
             requestedOwner: atom(\.workspaceFocusOwner).owner
-        )?.repoId
+        )
+        let focusedRepoId = focusedPane?.repoId
         let available = availableRepositories(store: store)
         var repositories: [Repo] = []
         if let focused = available.first(where: { $0.id == focusedRepoId }) {
@@ -38,7 +40,12 @@ extension CommandBarDataSource {
                     group: "Repositories",
                     groupPriority: 0,
                     hasChildren: true,
-                    action: .navigate(worktreeCreationMenuLevel(repository: repository)),
+                    action: .navigate(
+                        worktreeCreationMenuLevel(
+                            repository: repository,
+                            store: store,
+                            repoCache: repoCache,
+                            focusedWorktreeId: repository.id == focusedRepoId ? focusedPane?.worktreeId : nil)),
                     command: def.command
                 )
             }
@@ -47,11 +54,16 @@ extension CommandBarDataSource {
 
     static func worktreeCreationMenuLevel(
         repository: Repo,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
         defaultStartPoint: WorktreeDefaultStartPoint? = nil,
-        defaultQueryFailed: Bool = false
+        defaultQueryFailed: Bool = false,
+        branchNames: [String]? = nil,
+        branchListingFailed: Bool = false,
+        eligibilityByWorktreeId: [UUID: WorktreeForkEligibility] = [:],
+        focusedWorktreeId: UUID? = nil
     ) -> CommandBarLevel {
         let defaultSpec = AppCommand.newWorktreeFromDefault.definition
-        let forkSpec = AppCommand.forkWorktree.definition
         let defaultDisplay: String
         let defaultEnabled: Bool
         switch defaultStartPoint {
@@ -65,51 +77,91 @@ extension CommandBarDataSource {
             defaultDisplay = defaultQueryFailed ? "Unable to read default branch" : "Checking default branch…"
             defaultEnabled = false
         }
-        return CommandBarLevel(
-            id: "level-newWorktree-menu-\(repository.id.uuidString)",
-            title: AppCommand.newWorktree.definition.label,
-            parentLabel: repository.name,
-            scopeLabel: "Repository",
-            items: [
-                CommandBarItem(
-                    id: "newWorktree-default-\(repository.id.uuidString)",
-                    title: defaultSpec.label,
-                    subtitle: defaultDisplay,
-                    icon: defaultSpec.icon,
-                    group: "Create",
+        let forkItems = orderedForkSources(repository: repository, focusedWorktreeId: focusedWorktreeId)
+            .map { worktree in
+                let eligibility = eligibilityByWorktreeId[worktree.id]
+                let reason: String?
+                if case .unavailable(let unavailableReason) = eligibility {
+                    reason = unavailableReason
+                } else if eligibility == nil {
+                    reason = "Checking fork availability…"
+                } else {
+                    reason = nil
+                }
+                return CommandBarItem(
+                    id: "newWorktree-fork-source-\(worktree.id.uuidString)",
+                    title: worktree.name,
+                    subtitle: reason ?? repository.name,
+                    secondaryLine: worktreeBranchSecondaryLine(
+                        forWorktreeId: worktree.id, repoCache: repoCache),
+                    icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
+                    group: "FORK A WORKTREE",
                     groupPriority: 0,
                     hasChildren: true,
                     action: .navigate(
                         worktreeCreationBranchLevel(
                             repository: repository,
-                            kind: .fromDefault,
-                            source: nil,
-                            sourceDisplay: defaultDisplay
-                        )),
-                    command: defaultSpec.command,
-                    isEnabled: defaultEnabled
-                ),
+                            kind: .fork,
+                            source: worktree,
+                            sourceDisplay: worktree.name)),
+                    command: .forkWorktree,
+                    isEnabled: reason == nil)
+            }
+        let defaultBranchName = defaultBranchName(from: defaultStartPoint)
+        let recentBranchNames = recentBranchNames(
+            repository: repository, store: store, repoCache: repoCache, excluding: defaultBranchName)
+        let defaultItem = CommandBarItem(
+            id: "newWorktree-default-\(repository.id.uuidString)",
+            title: defaultSpec.label,
+            subtitle: defaultDisplay,
+            icon: defaultSpec.icon,
+            group: "FROM A BRANCH",
+            groupPriority: 1,
+            hasChildren: true,
+            action: .navigate(
+                worktreeCreationBranchLevel(
+                    repository: repository,
+                    kind: .fromDefault,
+                    source: nil,
+                    sourceDisplay: defaultDisplay)),
+            command: defaultSpec.command,
+            isEnabled: defaultEnabled)
+        var branchItems =
+            [defaultItem]
+            + recentBranchNames.map { branchName in
+                worktreeCreationFromBranchItem(branchName, repository: repository)
+            }
+        if branchListingFailed {
+            branchItems.append(
                 CommandBarItem(
-                    id: "newWorktree-fork-\(repository.id.uuidString)",
-                    title: forkSpec.label,
-                    icon: forkSpec.icon,
-                    group: "Create",
-                    groupPriority: 0,
-                    hasChildren: true,
-                    action: .navigate(worktreeCreationForkPickerLevel(repository: repository)),
-                    command: forkSpec.command,
-                    isEnabled: !repository.worktrees.isEmpty
-                ),
-            ],
-            creationQuery: .defaultStartPoint(repository)
+                    id: "newWorktree-branch-list-error-\(repository.id.uuidString)",
+                    title: "Unable to list branches",
+                    icon: AppCommand.newWorktreeFromBranch.definition.icon,
+                    group: "FROM A BRANCH",
+                    groupPriority: 1,
+                    action: .custom({}),
+                    isEnabled: false
+                ))
+        }
+        let recentBranchSet = Set(recentBranchNames)
+        let searchOnlyItems = (branchNames ?? [])
+            .filter { $0 != defaultBranchName && !recentBranchSet.contains($0) }
+            .map { worktreeCreationFromBranchItem($0, repository: repository) }
+        return CommandBarLevel(
+            id: "level-newWorktree-menu-\(repository.id.uuidString)",
+            title: AppCommand.newWorktree.definition.label,
+            parentLabel: repository.name,
+            scopeLabel: "Repository",
+            items: forkItems + branchItems,
+            searchOnlyItems: searchOnlyItems,
+            creationQuery: .branchListing(repository)
         )
     }
 
-    static func worktreeCreationForkPickerLevel(
+    private static func orderedForkSources(
         repository: Repo,
-        eligibilityByWorktreeId: [UUID: WorktreeForkEligibility] = [:],
-        focusedWorktreeId: UUID? = nil
-    ) -> CommandBarLevel {
+        focusedWorktreeId: UUID?
+    ) -> [Worktree] {
         var worktrees: [Worktree] = []
         var includedWorktreeIds: Set<UUID> = []
         if let focused = repository.worktrees.first(where: { $0.id == focusedWorktreeId }) {
@@ -125,41 +177,60 @@ extension CommandBarDataSource {
                 worktrees.append(worktree)
             }
         }
-        return CommandBarLevel(
-            id: "level-newWorktree-fork-\(repository.id.uuidString)",
-            title: "Fork Worktree",
-            parentLabel: repository.name,
-            items: worktrees.map { worktree in
-                let eligibility = eligibilityByWorktreeId[worktree.id]
-                let reason: String?
-                if case .unavailable(let unavailableReason) = eligibility {
-                    reason = unavailableReason
-                } else if eligibility == nil {
-                    reason = "Checking fork availability…"
-                } else {
-                    reason = nil
-                }
-                return CommandBarItem(
-                    id: "newWorktree-fork-source-\(worktree.id.uuidString)",
-                    title: worktree.name,
-                    subtitle: reason ?? repository.name,
-                    icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
-                    group: "Worktrees",
-                    groupPriority: 0,
-                    hasChildren: true,
-                    action: .navigate(
-                        worktreeCreationBranchLevel(
-                            repository: repository,
-                            kind: .fork,
-                            source: worktree,
-                            sourceDisplay: worktree.name
-                        )),
-                    command: .forkWorktree,
-                    isEnabled: reason == nil
-                )
-            },
-            creationQuery: .forkEligibility(repository)
-        )
+        return worktrees
+    }
+
+    private static func recentBranchNames(
+        repository: Repo,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        excluding defaultBranchName: String?
+    ) -> [String] {
+        var includedBranchNames: Set<String> = []
+        return resolvedRecentWorktrees(store: store)
+            .compactMap { _, recentRepository, worktree in
+                guard recentRepository.id == repository.id,
+                    let branchName = repoCache.worktreeEnrichment(for: worktree.id)?.branch,
+                    !branchName.isEmpty,
+                    branchName != defaultBranchName,
+                    includedBranchNames.insert(branchName).inserted
+                else { return nil }
+                return branchName
+            }
+            .prefix(5)
+            .map(\.self)
+    }
+
+    private static func defaultBranchName(from startPoint: WorktreeDefaultStartPoint?) -> String? {
+        guard case .resolved(let displayRef, let referenceName) = startPoint else { return nil }
+        if referenceName.hasPrefix("refs/heads/") {
+            return String(referenceName.dropFirst("refs/heads/".count))
+        }
+        if referenceName.hasPrefix("refs/remotes/") {
+            return referenceName.split(separator: "/").dropFirst(3).joined(separator: "/")
+        }
+        return displayRef
+    }
+
+    private static func worktreeCreationFromBranchItem(
+        _ branchName: String,
+        repository: Repo
+    ) -> CommandBarItem {
+        let branchSpec = AppCommand.newWorktreeFromBranch.definition
+        return CommandBarItem(
+            id: "newWorktree-from-branch-\(repository.id.uuidString)-\(branchName)",
+            title: branchName,
+            icon: branchSpec.icon,
+            group: "FROM A BRANCH",
+            groupPriority: 1,
+            hasChildren: true,
+            action: .navigate(
+                worktreeCreationBranchLevel(
+                    repository: repository,
+                    kind: .fromBranch(referenceName: "refs/heads/\(branchName)"),
+                    source: nil,
+                    sourceDisplay: branchName)),
+            command: branchSpec.command)
     }
 
     static func worktreeCreationBranchLevel(
@@ -169,11 +240,15 @@ extension CommandBarDataSource {
         sourceDisplay: String
     ) -> CommandBarLevel {
         let targetId = source?.id ?? repository.id
+        let levelTitle: String =
+            switch kind {
+            case .fromDefault: AppCommand.newWorktreeFromDefault.definition.label
+            case .fromBranch: "From \(sourceDisplay)"
+            case .fork: LocalActionSpec.forkThisWorktree.actionSpec.label
+            }
         return CommandBarLevel(
             id: "level-newWorktree-branch-\(targetId.uuidString)",
-            title: kind == .fork
-                ? LocalActionSpec.forkThisWorktree.actionSpec.label
-                : AppCommand.newWorktreeFromDefault.definition.label,
+            title: levelTitle,
             parentLabel: source?.name ?? repository.name,
             scopeLabel: kind == .fork ? "Worktree" : "Repository",
             items: [],

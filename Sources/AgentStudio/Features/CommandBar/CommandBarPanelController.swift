@@ -2,46 +2,11 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioWorktreeOperations
 import AppKit
+import Dispatch
 import SwiftUI
 import os.log
 
 private let controllerLogger = Logger(subsystem: "com.agentstudio", category: "CommandBarPanelController")
-
-struct CommandBarActivationGeneration: Equatable, Sendable {
-    fileprivate let activationGeneration: Int
-    fileprivate let rootSessionGeneration: Int
-    fileprivate let workspaceID: UUID
-}
-
-struct CommandBarActivationGenerationGate {
-    private var activationGeneration = 0
-
-    mutating func begin(
-        rootSessionGeneration: Int,
-        workspaceID: UUID
-    ) -> CommandBarActivationGeneration {
-        activationGeneration += 1
-        return CommandBarActivationGeneration(
-            activationGeneration: activationGeneration,
-            rootSessionGeneration: rootSessionGeneration,
-            workspaceID: workspaceID
-        )
-    }
-
-    func accepts(
-        _ activation: CommandBarActivationGeneration,
-        rootSessionGeneration: Int,
-        workspaceID: UUID
-    ) -> Bool {
-        activation.activationGeneration == activationGeneration
-            && activation.rootSessionGeneration == rootSessionGeneration
-            && activation.workspaceID == workspaceID
-    }
-
-    mutating func invalidate() {
-        activationGeneration += 1
-    }
-}
 
 // MARK: - CommandBarPanelController
 
@@ -59,20 +24,31 @@ package final class CommandBarPanelController {
 
     let store: WorkspaceStore
     private let octiconLoader: OcticonLoader
-    private let repoCache: RepoCacheAtom
+    let repoCache: RepoCacheAtom
     let dispatcher: any AppCommandDispatching
     private let targetedSpecResolver: CommandBarTargetedSpecResolver
     private let quickOpenDirectoryHandler: @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
-    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let searchNowNanoseconds: @Sendable () -> UInt64
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private let animatePanelDismissal: Bool
     let worktreeForkEligibility: (any WorktreeForkEligibilityChecking)?
     let defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)?
+    let branchListing: (any WorktreeBranchListing)?
     var forkEligibilityQueriesBySourceWorktreeId: [UUID: InFlightForkEligibilityQuery] = [:]
     var defaultStartPointQueriesByRepositoryId: [UUID: InFlightDefaultStartPointQuery] = [:]
-    private let resultSession: CommandBarResultSession
+    var branchListingQueriesByRepositoryId: [UUID: InFlightBranchListingQuery] = [:]
+    let resultSession: CommandBarResultSession
+    let searchService: any SearchServicing
+    var searchSequence: UInt64 = 0
+    var pendingSearchTask: Task<Void, Never>?
+    var pendingGenerationInstallTask: Task<Void, Never>?
+    var scheduledInstallGeneration: SearchDocumentGeneration?
+    var lastResubmittedGeneration: SearchDocumentGeneration?
+    var currentSearchMeasurement: CommandBarSearchMeasurement?
+    var lastAcknowledgedPublication: CommandBarPublicationIdentity?
 
     /// The open-in-current-tab capability every worktree level is first built with, read
     /// directly: an async answer must not rebuild the result snapshot or move the selection.
@@ -114,12 +90,15 @@ package final class CommandBarPanelController {
             @escaping @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         commandBarSurface: CommandBarSurfaceAtom,
+        searchService: any SearchServicing = SearchService(),
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        searchNowNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
         interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         animatePanelDismissal: Bool = true,
         recentsDefaults: UserDefaults = .standard,
         worktreeForkEligibility: (any WorktreeForkEligibilityChecking)? = nil,
-        defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)? = nil
+        defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)? = nil,
+        branchListing: (any WorktreeBranchListing)? = nil
     ) {
         self.state = CommandBarState(defaults: recentsDefaults)
         self.store = store
@@ -130,7 +109,9 @@ package final class CommandBarPanelController {
         self.quickOpenDirectoryHandler = quickOpenDirectoryHandler
         self.notificationInboxCommands = notificationInboxCommands
         self.commandBarSurface = commandBarSurface
+        self.searchService = searchService
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.searchNowNanoseconds = searchNowNanoseconds
         self.interactionProbe =
             interactionProbe
             ?? performanceTraceRecorder.map {
@@ -139,6 +120,7 @@ package final class CommandBarPanelController {
         self.animatePanelDismissal = animatePanelDismissal
         self.worktreeForkEligibility = worktreeForkEligibility
         self.defaultStartPointResolver = defaultStartPointResolver
+        self.branchListing = branchListing
         self.resultSession = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
@@ -198,6 +180,9 @@ package final class CommandBarPanelController {
                 case .defaultScope:
                     state.show(defaultScope: defaultRootScope(for: mode))
                 }
+                resultSession.navigationChanged()
+                state.appliedSearchResult = nil
+                queryChanged(text: state.rawInput)
                 publishCurrentSurface()
                 movePanel(to: parentWindow)
                 return
@@ -215,6 +200,9 @@ package final class CommandBarPanelController {
         case .defaultScope(let defaultRootScope):
             state.show(defaultScope: defaultRootScope)
         }
+        resultSession.navigationChanged()
+        state.appliedSearchResult = nil
+        queryChanged(text: state.rawInput)
         publishCurrentSurface()
         presentPanel(parentWindow: parentWindow)
     }
@@ -242,7 +230,13 @@ package final class CommandBarPanelController {
         }
 
         activationGenerationGate.invalidate()
+        recordSupersededSearch(at: searchNowNanoseconds())
+        searchSequence += 1
+        pendingSearchTask?.cancel()
+        pendingSearchTask = nil
         state.dismiss()
+        state.appliedSearchResult = nil
+        resultSession.navigationChanged()
         commandBarSurface.dismiss(workspaceWindowId: workspaceWindowId)
         dismissPanel { [weak self] in
             guard let self, let closeCorrelationId else { return }
@@ -294,6 +288,15 @@ package final class CommandBarPanelController {
             },
             onInputFocusAcknowledged: { [weak self] in
                 self?.acknowledgeInputFocus()
+            },
+            onInputChanged: { [weak self] text, inputAtNanoseconds in
+                self?.queryChanged(text: text, inputAtNanoseconds: inputAtNanoseconds)
+            },
+            onSearchContextChanged: { [weak self] in
+                self?.searchContextChanged()
+            },
+            onResultPublished: { [weak self] sequence, generation in
+                self?.acknowledgeResultPublished(sequence: sequence, generation: generation)
             }
         )
         panel.setContent(contentView)
@@ -425,6 +428,7 @@ package final class CommandBarPanelController {
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .navigate(let level):
             state.pushLevel(level)
+            searchContextChanged()
             requestCreationQueriesIfNeeded(for: level)
         case .navigateRepo(let repositoryID):
             guard
@@ -435,9 +439,11 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )
+            searchContextChanged()
         case .custom(let closure):
             state.recordRecent(itemId: item.id)
             dismiss(measureNonExecutingClose: false)
@@ -495,9 +501,11 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )
+            searchContextChanged()
         case .worktree(let worktreeStableKey):
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(stableKey: worktreeStableKey),
@@ -521,6 +529,7 @@ package final class CommandBarPanelController {
                     repository: repository
                 )
             )
+            searchContextChanged()
             if let level = state.currentLevel { requestCreationQueriesIfNeeded(for: level) }
         case .directory:
             return
@@ -641,9 +650,11 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )
+            searchContextChanged()
         case .worktree(let worktreeStableKey):
             let recentEntity = ApplicationRecentEntity.worktree(
                 worktreeStableKey: worktreeStableKey
@@ -676,6 +687,7 @@ package final class CommandBarPanelController {
                     repository: repository
                 )
             )
+            searchContextChanged()
             if let level = state.currentLevel { requestCreationQueriesIfNeeded(for: level) }
         case .pane(let paneID, let workspaceID):
             guard
@@ -766,6 +778,7 @@ package final class CommandBarPanelController {
                     repository: repository
                 )
             )
+            searchContextChanged()
             if let level = state.currentLevel { requestCreationQueriesIfNeeded(for: level) }
         }
     }
