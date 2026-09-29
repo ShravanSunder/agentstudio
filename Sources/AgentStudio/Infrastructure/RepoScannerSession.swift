@@ -8,6 +8,7 @@ final class RepoScannerTraversalSession: Sendable {
 
     let quantumBudget: RepoScannerQuantumBudget
     private let capacity: RepoScannerSessionCapacity
+    private let serviceClock: any Clock<Duration>
     private let lifecycle: Mutex<Lifecycle>
 
     init(
@@ -16,10 +17,12 @@ final class RepoScannerTraversalSession: Sendable {
         retainedCheckoutPaths: [URL],
         retainedTargetPreparationFailure: ScanFailureReason?,
         quantumBudget: RepoScannerQuantumBudget,
-        capacity: RepoScannerSessionCapacity
+        capacity: RepoScannerSessionCapacity,
+        serviceClock: any Clock<Duration>
     ) {
         self.quantumBudget = quantumBudget
         self.capacity = capacity
+        self.serviceClock = serviceClock
         lifecycle = Mutex(
             .ready(
                 ReadyCustody(
@@ -66,7 +69,13 @@ final class RepoScannerTraversalSession: Sendable {
         }
 
         traversalLease.state.scannerServiceInvocationCount += 1
-        let serviceClock = ContinuousClock()
+        return advanceTraversalQuantum(traversalLease: traversalLease, serviceClock: serviceClock)
+    }
+
+    private func advanceTraversalQuantum<ServiceClock: Clock<Duration>>(
+        traversalLease: TraversalLease,
+        serviceClock: ServiceClock
+    ) -> RepoScannerQuantumOutcome {
         let serviceStartedAt = serviceClock.now
         var usage = MutableQuantumUsage()
         let disposition = advanceTraversal(
@@ -235,11 +244,11 @@ final class RepoScannerTraversalSession: Sendable {
 }
 
 extension RepoScannerTraversalSession {
-    private func advanceTraversal(
+    private func advanceTraversal<ServiceClock: Clock<Duration>>(
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition {
         if traversalLease.state.maxDepth < 0 {
             return .failed(.invalidMaximumDepth(traversalLease.state.maxDepth))
@@ -308,11 +317,11 @@ extension RepoScannerTraversalSession {
         }
     }
 
-    private func inspectRoot(
+    private func inspectRoot<ServiceClock: Clock<Duration>>(
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         guard
             consumeEnumeratedItem(
@@ -369,11 +378,11 @@ extension RepoScannerTraversalSession {
         }
     }
 
-    private func inspectRootCandidate(
+    private func inspectRootCandidate<ServiceClock: Clock<Duration>>(
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         traversalLease.state.gitCandidateCount += 1
         if shouldSuspendBeforeValidation(
@@ -417,13 +426,13 @@ extension RepoScannerTraversalSession {
         }
     }
 
-    private func resumePendingEntry(
+    private func resumePendingEntry<ServiceClock: Clock<Duration>>(
         _ pendingEntry: PendingEnumerationEntry,
         cursor: EnumerationCursor,
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         traversalLease.state.position = .enumerating(cursor)
         return processEnumeratedEntry(
@@ -436,12 +445,12 @@ extension RepoScannerTraversalSession {
         )
     }
 
-    private func enumerateNextEntry(
+    private func enumerateNextEntry<ServiceClock: Clock<Duration>>(
         cursor: EnumerationCursor,
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         cursor.errorBuffer.prepare(
             maximumAdditionalErrors: max(
@@ -487,13 +496,13 @@ extension RepoScannerTraversalSession {
         )
     }
 
-    private func processEnumeratedEntry(
+    private func processEnumeratedEntry<ServiceClock: Clock<Duration>>(
         _ entry: PendingEnumerationEntry,
         cursor: EnumerationCursor,
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         guard
             consumeEnumeratedItem(
@@ -560,13 +569,13 @@ extension RepoScannerTraversalSession {
         )
     }
 
-    private func inspectEnumeratedDirectoryGitMarker(
+    private func inspectEnumeratedDirectoryGitMarker<ServiceClock: Clock<Duration>>(
         _ entry: PendingEnumerationEntry,
         cursor: EnumerationCursor,
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         switch inspectGitMarker(at: entry.url) {
         case .candidate:
@@ -816,10 +825,10 @@ extension RepoScannerTraversalSession {
         )
     }
 
-    func shouldSuspendBeforeValidation(
+    func shouldSuspendBeforeValidation<ServiceClock: Clock<Duration>>(
         usage: MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> Bool {
         usage.candidateValidationCount >= quantumBudget.maximumCandidateValidations
             || serviceStartedAt.duration(to: serviceClock.now)
