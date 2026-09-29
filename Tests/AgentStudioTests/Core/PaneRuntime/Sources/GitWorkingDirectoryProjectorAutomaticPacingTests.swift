@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -8,7 +9,9 @@ import Testing
 @Suite("GitWorkingDirectoryProjector automatic pacing")
 struct GitWorkingDirectoryProjectorAutomaticPacingTests {
     @Test("cold attended registration receives one baseline without recurring automatic work")
-    func inactiveRegistrationHasNoAutomaticDeadline() async {
+    func inactiveRegistrationHasNoAutomaticDeadline() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
         let worktreeID = UUIDv7.generate()
         let repositoryID = UUIDv7.generate()
         let rootPath = URL(filePath: "/tmp/inactive-registration-\(worktreeID)")
@@ -23,7 +26,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
                     origin: nil
                 )
             },
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
 
         await actor.setRepositoryFactAttention(
@@ -43,8 +47,10 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             )
         )
 
-        #expect(await automaticPacingWaitUntil { await providerCallCount.value == 1 })
-        #expect(await automaticPacingWaitUntil { await actor.worktreeTasks.isEmpty })
+        try await facts.expectRefreshStarted(worktreeId: worktreeID, requestSequence: 1)
+        _ = try await facts.expectRefreshClosed(worktreeId: worktreeID, requestSequence: 1)
+        #expect(await providerCallCount.value == 1)
+        #expect(await actor.worktreeTasks.isEmpty)
         #expect(await actor.pendingByWorktreeId[worktreeID] == nil)
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[worktreeID] == nil)
 
@@ -85,6 +91,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
 
     @Test("background-only promotion starts one ordinary-tier baseline without duplication")
     func backgroundOnlyPromotionStartsOneOrdinaryTierBaseline() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = AutomaticPacingCallCounter()
@@ -107,7 +115,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             },
             coalescingWindow: .zero,
             sleepClock: clock,
-            refreshPolicy: policy
+            refreshPolicy: policy,
+            factSink: source.sink
         )
         await actor.start()
 
@@ -130,12 +139,15 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
                 rootPath: URL(fileURLWithPath: "/tmp/background-promotion-\(worktreeId)")
             )
         )
-        #expect(await automaticPacingWaitUntil { await actor.rootPathByWorktreeId[worktreeId] != nil })
+        #expect(try await facts.expectHandledEnvelope(seq: 1) == .routed)
+        #expect(await actor.rootPathByWorktreeId[worktreeId] != nil)
         #expect(await calls.value == 0)
 
         await setPromotedAttention(actor: actor, worktreeId: worktreeId)
-        #expect(await automaticPacingWaitUntil { await calls.value == 1 })
-        #expect(await automaticPacingWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+        try await facts.expectRefreshStarted(worktreeId: worktreeId, requestSequence: 1)
+        _ = try await facts.expectRefreshClosed(worktreeId: worktreeId, requestSequence: 1)
+        #expect(await calls.value == 1)
+        #expect(await actor.worktreeTasks[worktreeId] == nil)
         await setPromotedAttention(actor: actor, worktreeId: worktreeId)
         #expect(await calls.value == 1)
         let lastStart = try #require(await actor.lastAutomaticStartAtByWorktreeId[worktreeId])
@@ -194,53 +206,15 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
     func lowerTierInvalidationStartsObeyProcessPacing(
         usesRemoteReferenceRefresh: Bool
     ) async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let clock = TestPushClock()
-        let gate = AutomaticPacingStatusGate()
-        let policy = automaticPacingPolicy()
-        let provider = StubGitWorkingTreeStatusProvider { rootPath in
-            await gate.recordAndWait(rootPath.lastPathComponent)
-            return GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
-                branch: "main",
-                origin: nil
-            )
-        }
-        let actor = GitWorkingDirectoryProjector(
-            bus: bus,
-            gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero,
-            sleepClock: clock,
-            refreshPolicy: policy
-        )
-        await actor.start()
-
-        let worktreeIds = [UUIDv7.generate(), UUIDv7.generate()]
-        let rootPaths = [
-            URL(fileURLWithPath: "/tmp/lower-tier-pacing-a-\(UUIDv7.generate())"),
-            URL(fileURLWithPath: "/tmp/lower-tier-pacing-b-\(UUIDv7.generate())"),
-        ]
-        await actor.setSidebarVisibleWorktrees(Set(worktreeIds))
-        for index in worktreeIds.indices {
-            await bus.post(
-                automaticPacingRegistrationEnvelope(
-                    seq: UInt64(index + 1),
-                    worktreeId: worktreeIds[index],
-                    rootPath: rootPaths[index]
-                )
-            )
-        }
-        #expect(await automaticPacingWaitUntil { await gate.count == 1 })
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.minimumAutomaticStartInterval)
-        #expect(await automaticPacingWaitUntil { await gate.count == 2 })
-        #expect(await automaticPacingWaitUntil { await gate.waitingCount == 2 })
-        await gate.releaseAll()
-        #expect(
-            await automaticPacingWaitUntil {
-                await actor.worktreeTasks.isEmpty
-            }
-        )
+        let scenario = try await prepareLowerTierPacingScenario()
+        let facts = scenario.facts
+        let bus = scenario.bus
+        let clock = scenario.clock
+        let gate = scenario.gate
+        let policy = scenario.policy
+        let actor = scenario.actor
+        let worktreeIds = scenario.worktreeIds
+        let rootPaths = scenario.rootPaths
 
         if usesRemoteReferenceRefresh {
             await actor.enqueueImmediateRefreshIfRegistered(
@@ -280,7 +254,15 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         let nextAutomaticStartAt = await actor.nextAutomaticStartAt
         let deadlineClockNow = await actor.deadlineClock.now
         clock.advance(by: max(.zero, nextAutomaticStartAt - deadlineClockNow))
-        #expect(await automaticPacingWaitUntil { await gate.count == 3 })
+        let thirdStartLabels = await gate.waitForCallCount(3)
+        #expect(thirdStartLabels.count == 3)
+        let thirdStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == thirdStartLabels[2] })
+        let thirdRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[thirdStartedIndex]]
+        )
+        try await facts.expectRefreshStarted(
+            worktreeId: worktreeIds[thirdStartedIndex], requestSequence: thirdRequestSequence
+        )
         await clock.waitForPendingSleepCount(
             atLeast: 1,
             fromGeneration: secondStartSleepGeneration
@@ -288,12 +270,112 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
         #expect(await gate.count == 3)
         clock.advance(by: .milliseconds(1))
-        #expect(await automaticPacingWaitUntil { await gate.count == 4 })
+        let fourthStartLabels = await gate.waitForCallCount(4)
+        #expect(fourthStartLabels.count == 4)
+        let fourthStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == fourthStartLabels[3] })
+        let fourthRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[fourthStartedIndex]]
+        )
+        try await facts.expectRefreshStarted(
+            worktreeId: worktreeIds[fourthStartedIndex], requestSequence: fourthRequestSequence
+        )
 
-        #expect(await automaticPacingWaitUntil { await gate.waitingCount == 2 })
+        #expect(await gate.waitingCount == 2)
         await gate.releaseAll()
         await actor.shutdown()
     }
+}
+
+private struct PreparedLowerTierPacingScenario {
+    let facts: FactRecorder<GitProjectorScope, GitProjectorFact>
+    let bus: EventBus<RuntimeEnvelope>
+    let clock: TestPushClock
+    let gate: AutomaticPacingStatusGate
+    let policy: AppPolicies.GitRefresh.Policy
+    let actor: GitWorkingDirectoryProjector
+    let worktreeIds: [UUID]
+    let rootPaths: [URL]
+}
+
+private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierPacingScenario {
+    let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+    let facts = try source.attach()
+    let bus = EventBus<RuntimeEnvelope>()
+    let clock = TestPushClock()
+    let gate = AutomaticPacingStatusGate()
+    let policy = automaticPacingPolicy()
+    let provider = StubGitWorkingTreeStatusProvider { rootPath in
+        await gate.recordAndWait(rootPath.lastPathComponent)
+        return GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+            branch: "main",
+            origin: nil
+        )
+    }
+    let actor = GitWorkingDirectoryProjector(
+        bus: bus,
+        gitWorkingTreeProvider: provider,
+        coalescingWindow: .zero,
+        sleepClock: clock,
+        refreshPolicy: policy,
+        factSink: source.sink
+    )
+    await actor.start()
+
+    let worktreeIds = [UUIDv7.generate(), UUIDv7.generate()]
+    let rootPaths = [
+        URL(fileURLWithPath: "/tmp/lower-tier-pacing-a-\(UUIDv7.generate())"),
+        URL(fileURLWithPath: "/tmp/lower-tier-pacing-b-\(UUIDv7.generate())"),
+    ]
+    await actor.setSidebarVisibleWorktrees(Set(worktreeIds))
+    for index in worktreeIds.indices {
+        await bus.post(
+            automaticPacingRegistrationEnvelope(
+                seq: UInt64(index + 1),
+                worktreeId: worktreeIds[index],
+                rootPath: rootPaths[index]
+            )
+        )
+    }
+    let firstStartLabels = await gate.waitForCallCount(1)
+    #expect(firstStartLabels.count == 1)
+    let firstStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == firstStartLabels[0] })
+    let firstRequestSequence = try #require(
+        await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[firstStartedIndex]]
+    )
+    try await facts.expectRefreshStarted(
+        worktreeId: worktreeIds[firstStartedIndex], requestSequence: firstRequestSequence
+    )
+    await clock.waitForPendingSleepCount(atLeast: 1)
+    clock.advance(by: policy.minimumAutomaticStartInterval)
+    let secondStartLabels = await gate.waitForCallCount(2)
+    #expect(secondStartLabels.count == 2)
+    let secondStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == secondStartLabels[1] })
+    let secondRequestSequence = try #require(
+        await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[secondStartedIndex]]
+    )
+    try await facts.expectRefreshStarted(
+        worktreeId: worktreeIds[secondStartedIndex], requestSequence: secondRequestSequence
+    )
+    #expect(await gate.waitingCount == 2)
+    await gate.releaseAll()
+    _ = try await facts.expectRefreshClosed(
+        worktreeId: worktreeIds[firstStartedIndex], requestSequence: firstRequestSequence
+    )
+    _ = try await facts.expectRefreshClosed(
+        worktreeId: worktreeIds[secondStartedIndex], requestSequence: secondRequestSequence
+    )
+    #expect(await actor.worktreeTasks.isEmpty)
+    return PreparedLowerTierPacingScenario(
+        facts: facts,
+        bus: bus,
+        clock: clock,
+        gate: gate,
+        policy: policy,
+        actor: actor,
+        worktreeIds: worktreeIds,
+        rootPaths: rootPaths
+    )
 }
 
 private func setPromotedAttention(
@@ -334,6 +416,7 @@ private func automaticPacingPolicy() -> AppPolicies.GitRefresh.Policy {
 private actor AutomaticPacingStatusGate {
     private var labels: [String] = []
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
+    private var callCountWaiter: (count: Int, continuation: CheckedContinuation<[String], Never>)?
 
     var count: Int { labels.count }
     var waitingCount: Int { waiters.count }
@@ -342,6 +425,18 @@ private actor AutomaticPacingStatusGate {
         labels.append(label)
         await withCheckedContinuation { continuation in
             waiters[label] = continuation
+            if let callCountWaiter, labels.count >= callCountWaiter.count {
+                self.callCountWaiter = nil
+                callCountWaiter.continuation.resume(returning: labels)
+            }
+        }
+    }
+
+    func waitForCallCount(_ expectedCount: Int) async -> [String] {
+        guard labels.count < expectedCount else { return labels }
+        return await withCheckedContinuation { continuation in
+            precondition(callCountWaiter == nil)
+            callCountWaiter = (expectedCount, continuation)
         }
     }
 
@@ -352,17 +447,6 @@ private actor AutomaticPacingStatusGate {
             continuation.resume()
         }
     }
-}
-
-private func automaticPacingWaitUntil(
-    maxTurns: Int = 20_000,
-    _ condition: @escaping () async -> Bool
-) async -> Bool {
-    for _ in 0..<maxTurns {
-        if await condition() { return true }
-        await Task.yield()
-    }
-    return await condition()
 }
 
 private func automaticPacingRegistrationEnvelope(
