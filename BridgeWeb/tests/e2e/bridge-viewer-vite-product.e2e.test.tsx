@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { Browser, Page, Request } from 'playwright';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
@@ -21,6 +23,7 @@ import {
 	type BridgeViewerOwnedViteProductServerCleanup,
 	type BridgeViewerViteProductContentOracle,
 	type BridgeViewerViteProductFixtureOracle,
+	type BridgeViewerViteProductProofFixtureOracle,
 	type BridgeViewerViteProductReviewFileOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
 import {
@@ -83,7 +86,7 @@ interface FileContentScrollObservation {
 }
 
 let disposeFixture: (() => Promise<void>) | null = null;
-let fixtureOracle: BridgeViewerViteProductFixtureOracle | null = null;
+let fixtureOracle: BridgeViewerViteProductProofFixtureOracle | null = null;
 let ownedServer: BridgeViewerOwnedViteProductServer | null = null;
 let ownedServerCleanup: BridgeViewerOwnedViteProductServerCleanup | null = null;
 
@@ -112,10 +115,12 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		const server = requireOwnedServer();
 		expect(oracle.changedPaths).toHaveLength(16);
 		expect(oracle.reviewFiles).toHaveLength(oracle.changedPaths.length);
+		expect(oracle.fileProofCodeContent.length).toBeLessThanOrEqual(160);
 
 		const journeyObservations = await runBridgeViewerProductOnlyJourney({
 			baseUrl: server.origin,
 			expectedReviewItemIds: oracle.expectedReviewItemIds,
+			fileProofTargets: oracle.fileProofTargets,
 		});
 
 		expect(collectBridgeViewerProductOnlyContractViolations(journeyObservations)).toEqual([]);
@@ -479,13 +484,31 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 
 function assertJourneyFreshness(props: {
 	readonly journeyObservations: Awaited<ReturnType<typeof runBridgeViewerProductOnlyJourney>>;
-	readonly oracle: BridgeViewerViteProductFixtureOracle;
+	readonly oracle: BridgeViewerViteProductProofFixtureOracle;
 	readonly server: BridgeViewerOwnedViteProductServer;
 }): void {
 	expect(props.server.pid).toBeGreaterThan(0);
 	expect(props.server.version).toMatch(/^\d+\.\d+\.\d+$/u);
 	expect(new URL(props.journeyObservations.observedPageUrl).origin).toBe(props.server.origin);
 	expect(props.journeyObservations.browser.name).toBe('chromium');
+	expect(props.journeyObservations.fileMarkdownAtReviewFirstSwitch).toEqual(
+		expect.objectContaining({
+			canvasVisible: true,
+			selectedDisplayPath: props.oracle.fileProofTargets.markdownPath,
+			sourcePath: props.oracle.fileProofTargets.markdownPath,
+		}),
+	);
+	const codeBodyPreviewSha256 = createHash('sha256')
+		.update(props.oracle.fileProofCodeContent.slice(0, 160))
+		.digest('hex');
+	for (const fileState of [
+		props.journeyObservations.fileAfterReviewFirstSwitch,
+		props.journeyObservations.fileAfterFirstAcknowledgement,
+		props.journeyObservations.fileAtCompletion,
+	]) {
+		expect(fileState.renderedDisplayPath).toBe(props.oracle.fileProofTargets.codePath);
+		expect(fileState.bodyPreviewSha256).toBe(codeBodyPreviewSha256);
+	}
 	expect(props.journeyObservations.reviewFreshRoute.expectedItemIds).toEqual(
 		props.oracle.expectedReviewItemIds,
 	);
@@ -946,7 +969,7 @@ function isUnknownRecord(value: unknown): value is Readonly<Record<string, unkno
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function requireFixtureOracle(): BridgeViewerViteProductFixtureOracle {
+function requireFixtureOracle(): BridgeViewerViteProductProofFixtureOracle {
 	if (fixtureOracle === null) throw new Error('Vite product fixture was not initialized.');
 	return fixtureOracle;
 }

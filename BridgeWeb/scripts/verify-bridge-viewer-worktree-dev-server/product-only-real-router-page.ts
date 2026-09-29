@@ -110,9 +110,16 @@ interface MutableLegacyRouteTranscriptEntry {
 	sequence: number | null;
 }
 
+export interface BridgeViewerFileProofTargets {
+	readonly codePath: string;
+	readonly markdownPath: string;
+	readonly markdownRenderedText?: string;
+}
+
 export async function runBridgeViewerProductOnlyJourney(props: {
 	readonly baseUrl: string;
 	readonly expectedReviewItemIds: readonly string[];
+	readonly fileProofTargets: BridgeViewerFileProofTargets;
 }): Promise<BridgeViewerProductOnlyJourneyProof> {
 	const browser = await chromium.launch({ channel: 'chrome', headless: true });
 	const observedWorkers: MutableObservedWorker[] = [];
@@ -198,16 +205,19 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		await waitForViewerMode(page, 'file');
 		await selectFileProofPath({
 			page,
-			path: 'README.md',
+			path: props.fileProofTargets.markdownPath,
 			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 		});
 		const fileMarkdownAtReviewFirstSwitch = await readPaintedFileMarkdown({
 			page,
+			...(props.fileProofTargets.markdownRenderedText === undefined
+				? {}
+				: { expectedRenderedText: props.fileProofTargets.markdownRenderedText }),
 			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 		});
 		await selectFileProofPath({
 			page,
-			path: 'Package.swift',
+			path: props.fileProofTargets.codePath,
 			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 		});
 		await waitForFileProductTerminalState({
@@ -237,7 +247,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		) {
 			await selectFileProofPath({
 				page,
-				path: 'Package.swift',
+				path: props.fileProofTargets.codePath,
 				settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
 			});
 			await waitForFileProductTerminalState({

@@ -8,7 +8,7 @@ import {
 /** Selects a known repository path through the real File tree search. */
 export async function selectFileProofPath(props: {
 	readonly page: Page;
-	readonly path: 'Package.swift' | 'README.md';
+	readonly path: string;
 	readonly settleTimeoutMilliseconds: number;
 }): Promise<void> {
 	const searchInput = props.page.locator('[data-testid="worktree-file-search-input"]');
@@ -34,10 +34,11 @@ export async function selectFileProofPath(props: {
 
 export async function readPaintedFileMarkdown(props: {
 	readonly page: Page;
+	readonly expectedRenderedText?: string;
 	readonly settleTimeoutMilliseconds: number;
 }): Promise<BridgeViewerFileMarkdownStateSnapshot> {
 	await props.page.waitForFunction(
-		(selectors): boolean => {
+		({ expectedRenderedText, selectors }): boolean => {
 			const shell = document.querySelector(selectors.fileShell);
 			const article = document.querySelector(selectors.fileMarkdownCanvas);
 			const selectedPath = shell?.getAttribute('data-worktree-open-file-path');
@@ -50,10 +51,14 @@ export async function readPaintedFileMarkdown(props: {
 				style.display !== 'none' &&
 				style.visibility !== 'hidden' &&
 				article.getClientRects().length > 0 &&
-				(article.textContent?.trim().length ?? 0) > 0
+				(article.textContent?.trim().length ?? 0) > 0 &&
+				(expectedRenderedText === null || article.textContent?.trim() === expectedRenderedText)
 			);
 		},
-		bridgeViewerProductOnlySelectors,
+		{
+			expectedRenderedText: props.expectedRenderedText ?? null,
+			selectors: bridgeViewerProductOnlySelectors,
+		},
 		{ timeout: props.settleTimeoutMilliseconds },
 	);
 	return await props.page.evaluate((selectors): BridgeViewerFileMarkdownStateSnapshot => {

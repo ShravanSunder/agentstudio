@@ -124,6 +124,7 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 		journey = await runBridgeViewerProductOnlyJourney({
 			baseUrl: server.startProof.origin,
 			expectedReviewItemIds,
+			fileProofTargets: { codePath: 'Package.swift', markdownPath: 'README.md' },
 		});
 	} catch (error: unknown) {
 		journeyFailure = bridgeViewerProductOnlyJourneyFailureFromError(error);
