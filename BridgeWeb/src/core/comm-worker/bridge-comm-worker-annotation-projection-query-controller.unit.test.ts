@@ -127,6 +127,35 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		expect(harness.querySessionIds).toEqual([[], [], [sessionId]]);
 	});
 
+	test('a failed successor Comment demand publishes unavailable without reopening E3', async () => {
+		const harness = await createHarness({
+			pages: await makeProjectionPages(1, 8),
+			scopeUpdateOverride: async (scope): Promise<void> => {
+				if (scope.sessionIds.length === 0) return;
+				throw new BridgeProductControlRequestError({
+					code: 'internal',
+					message: 'Current Comment demand was refused.',
+					retryAfterMilliseconds: null,
+					retryable: true,
+				});
+			},
+		});
+		try {
+			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
+			harness.controller.ensureSubscription();
+			installSessionCatalog(harness.notifications, 8);
+			await harness.controller.waitForIdle();
+			harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+			await harness.controller.waitForIdle();
+
+			expect(harness.scopeUpdates.at(-1)?.sessionIds).toEqual([sessionId]);
+			expect(harness.statuses.at(-1)).toBe('unavailable');
+			expect(harness.subscriptionCount()).toBe(1);
+		} finally {
+			await harness.controller.dispose();
+		}
+	});
+
 	test('a different worktree retires Comment E3 and retains the last good projection until replacement install', async () => {
 		const firstNotifications = createNotificationQueue('file');
 		const replacementNotifications = createNotificationQueue('file', {

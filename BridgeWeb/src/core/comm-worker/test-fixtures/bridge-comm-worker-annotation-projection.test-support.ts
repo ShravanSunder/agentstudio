@@ -102,6 +102,9 @@ export async function createHarness(props: {
 	) => Promise<unknown>;
 	readonly terminalKind?: 'complete' | 'error';
 	readonly surface?: 'file' | 'review';
+	readonly scopeUpdateOverride?: (
+		scope: Parameters<BridgeCommWorkerAnnotationProjectionTransport['setScope']>[0],
+	) => Promise<void>;
 }): Promise<AnnotationProjectionTestHarness> {
 	const surface = props.surface ?? 'file';
 	const notifications = createNotificationQueue(surface);
@@ -166,6 +169,7 @@ export async function createHarness(props: {
 				subscriptionId: scope.subscriptionId,
 				worktreeId: scope.worktreeId,
 			});
+			await props.scopeUpdateOverride?.(scope);
 		},
 	};
 	const controller = new BridgeCommWorkerAnnotationProjectionQueryController({

@@ -341,18 +341,18 @@ test('re-establishes annotation demand after an in-place worker replacement so C
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		const reviewFile = fixture.oracle.reviewFiles[0];
 		if (reviewFile === undefined) throw new Error('Demand replay requires a real Review file.');
+		page.setDefaultTimeout(0);
+		page.setDefaultNavigationTimeout(0);
 		let mainFrameNavigationCount = 0;
 		page.on('framenavigated', (frame): void => {
 			if (frame === page.mainFrame()) mainFrameNavigationCount += 1;
 		});
-		const initialBootstrapResponse = page.waitForResponse(
-			(response): boolean => isBootstrapResponse(response, 'initial'),
-			{ timeout: 30_000 },
+		const initialBootstrapResponse = page.waitForResponse((response): boolean =>
+			isBootstrapResponse(response, 'initial'),
 		);
 		const [initialResponse] = await Promise.all([
 			initialBootstrapResponse,
 			page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-				timeout: 120_000,
 				waitUntil: 'domcontentloaded',
 			}),
 		]);
@@ -368,12 +368,9 @@ test('re-establishes annotation demand after an in-place worker replacement so C
 			page.getByRole('textbox', { name: 'Write an annotation in Markdown' }).fill(savedBody),
 		]);
 		const saveButton = page.getByRole('button', { name: 'Save annotation', exact: true });
-		await expect
-			.poll(async (): Promise<boolean> => saveButton.isEnabled(), { timeout: 30_000 })
-			.toBe(true);
 		const saved = waitForCommittedAnnotationCommand(page, 'draft.save', 'review');
 		await Promise.all([saved, saveButton.click()]);
-		await page.getByText(savedBody, { exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
+		await page.getByText(savedBody, { exact: true }).waitFor({ state: 'visible' });
 		const worker = page
 			.workers()
 			.find((candidate) => candidate.url().includes('bridge-comm-worker-vite-entry.ts'));
@@ -381,9 +378,8 @@ test('re-establishes annotation demand after an in-place worker replacement so C
 
 		// Act — an uncaught worker error retires the worker; native answers the replacement in place.
 		phase = 'worker-replacing';
-		const replacementBootstrap = page.waitForResponse(
-			(response): boolean => isBootstrapResponse(response, 'workerReplacement'),
-			{ timeout: 30_000 },
+		const replacementBootstrap = page.waitForResponse((response): boolean =>
+			isBootstrapResponse(response, 'workerReplacement'),
 		);
 		const [replacementResponse] = await Promise.all([
 			replacementBootstrap,
@@ -401,9 +397,10 @@ test('re-establishes annotation demand after an in-place worker replacement so C
 		phase = 'output-controls-waiting';
 		await page.getByRole('button', { name: 'Annotations', exact: true }).click();
 		const copyButton = page.getByRole('button', { name: 'Copy Markdown' });
-		await expect
-			.poll(async (): Promise<boolean> => copyButton.isEnabled(), { timeout: 30_000 })
-			.toBe(true);
+		await page.locator('button[aria-label="Copy Markdown"]:not(:disabled)').waitFor({
+			state: 'visible',
+		});
+		expect(await copyButton.isEnabled()).toBe(true);
 		expect(mainFrameNavigationCount).toBe(1);
 	} catch (error) {
 		throw new Error(

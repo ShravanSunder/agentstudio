@@ -20,7 +20,7 @@ export function bridgeProductInitialViewOpening(
 					: ({ kind: 'review', interests: [] } as const);
 			scopeOwner.register({ scope, subscriptionId, subscriptionKind });
 			const settlement = await scopeOwner.setScope({ scope, signal, subscriptionId });
-			if (settlement.kind === 'cancelled') {
+			if (settlement.kind === 'cancelled' && signal.aborted) {
 				throw signal.reason ?? new Error('Initial metadata view scope was cancelled.');
 			}
 		};
@@ -39,7 +39,7 @@ export function bridgeProductInitialViewOpening(
 			subscriptionKind,
 		});
 		const settlement = await scopeOwner.setScope({ scope, signal, subscriptionId });
-		if (settlement.kind === 'cancelled') {
+		if (settlement.kind === 'cancelled' && signal.aborted) {
 			throw signal.reason ?? new Error('Initial metadata view scope was cancelled.');
 		}
 	};
