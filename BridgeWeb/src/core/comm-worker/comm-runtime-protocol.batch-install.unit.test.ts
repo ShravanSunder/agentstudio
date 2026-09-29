@@ -172,6 +172,7 @@ describe('live worker typed batch sink', () => {
 			...sessionCorpus.transportV2.batchFrames[0],
 			publicationId: undefined,
 			scope: { kind: 'comment', sessionIds: [], worktreeId: 'worktree-1' },
+			subscriptionId: 'file.annotations-idle-test-subscription',
 			subscriptionKind: 'file.annotations',
 			targetRevision: 4,
 		});
