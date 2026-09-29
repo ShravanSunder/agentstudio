@@ -56,7 +56,7 @@ struct GitWorkingDirectoryProjectorExplicitUpdateTests {
             isExplicit: true
         )
         try await facts.expectRefreshStarted(worktreeId: worktreeID, requestSequence: 1)
-        #expect(await statusGate.waitForCallCount(1) == 1)
+        #expect(try await statusGate.waitForFirstArrival() == 1)
 
         let lease = try #require(
             await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
@@ -118,7 +118,7 @@ struct GitWorkingDirectoryProjectorExplicitUpdateTests {
                 .acceptedLease
         )
         try await facts.expectRefreshStarted(worktreeId: worktreeID, requestSequence: 1)
-        #expect(await statusGate.waitForCallCount(1) == 1)
+        #expect(try await statusGate.waitForFirstArrival() == 1)
         let settlementTask = Task {
             let outcome = await lease.settlement()
             await eventRecorder.record(.settled(outcome))
@@ -206,7 +206,7 @@ struct GitWorkingDirectoryProjectorExplicitUpdateTests {
             triggerSource: .filesystemChange
         )
         try await facts.expectRefreshStarted(worktreeId: worktreeID, requestSequence: 1)
-        #expect(await statusGate.waitForCallCount(1) == 1)
+        #expect(try await statusGate.waitForFirstArrival() == 1)
 
         let lease = try #require(
             await actor.startExplicitRepositoryUpdate(repoId: repositoryID, attemptId: UUIDv7.generate())
@@ -215,8 +215,8 @@ struct GitWorkingDirectoryProjectorExplicitUpdateTests {
         await statusGate.releaseFirst()
 
         try await facts.expectRefreshStarted(worktreeId: worktreeID, requestSequence: 2)
-        #expect(await statusGate.waitForCallCount(2) == 2)
         #expect(await lease.settlement() == .completed)
+        #expect(await statusGate.callCount == 2)
         await actor.shutdown()
     }
 
@@ -238,7 +238,7 @@ struct GitWorkingDirectoryProjectorExplicitUpdateTests {
         )
 
         try await facts.expectRefreshStarted(worktreeId: worktreeID, requestSequence: 1)
-        #expect(await statusGate.waitForCallCount(1) == 1)
+        #expect(try await statusGate.waitForFirstArrival() == 1)
         await statusGate.releaseFirst()
         #expect(await lease.settlement() == .completed)
         await actor.shutdown()
@@ -311,40 +311,24 @@ private final class ExplicitUpdateGitPerformanceRecorder: GitProjectorPerformanc
 
 private actor ExplicitUpdateStatusGate {
     private var rootPaths: [URL] = []
-    private var firstCallWaiter: CheckedContinuation<Void, Never>?
-    private var callCountWaiter: (count: Int, continuation: CheckedContinuation<Int, Never>)?
-    private var isFirstCallReleased = false
+    private let firstCallArrival = HeldStep<Int>("explicit update first status provider call")
 
     var callCount: Int { rootPaths.count }
 
     func recordAndWaitIfFirst(_ rootPath: URL) async {
         rootPaths.append(rootPath)
-        if let callCountWaiter, rootPaths.count >= callCountWaiter.count {
-            self.callCountWaiter = nil
-            callCountWaiter.continuation.resume(returning: rootPaths.count)
-        }
-        guard rootPaths.count == 1 else { return }
-        await withCheckedContinuation { continuation in
-            if isFirstCallReleased {
-                continuation.resume()
-            } else {
-                firstCallWaiter = continuation
-            }
+        let callNumber = rootPaths.count
+        if callNumber == 1 {
+            try? await firstCallArrival.arrive(callNumber)
         }
     }
 
-    func waitForCallCount(_ expectedCount: Int) async -> Int {
-        guard rootPaths.count < expectedCount else { return rootPaths.count }
-        return await withCheckedContinuation { continuation in
-            precondition(callCountWaiter == nil)
-            callCountWaiter = (expectedCount, continuation)
-        }
+    func waitForFirstArrival() async throws -> Int {
+        try await firstCallArrival.firstArrival()
     }
 
     func releaseFirst() {
-        isFirstCallReleased = true
-        firstCallWaiter?.resume()
-        firstCallWaiter = nil
+        firstCallArrival.release()
     }
 }
 

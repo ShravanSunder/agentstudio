@@ -92,7 +92,7 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeID, kind: .coalescingWindow
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         clock.advance(by: .milliseconds(20))
         _ = try await providerStep.firstArrival()
@@ -194,7 +194,7 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeID, kind: .failure
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
         #expect(await projector.deferredStatusBackoffChangesetByWorktreeId[worktreeID] != nil)
 
         clock.advance(by: .milliseconds(10))
@@ -231,7 +231,7 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeID, kind: .capacityFallback
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
         #expect(await projector.capacityRetryWorktreeIds.contains(worktreeID))
 
         clock.advance(by: .milliseconds(10))
@@ -273,7 +273,7 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: secondWorktreeID, kind: .governorPacing
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
         #expect(await projector.pendingByWorktreeId[secondWorktreeID] != nil)
         clock.advance(by: .milliseconds(10))
         _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: secondWorktreeID)
@@ -315,7 +315,7 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         let periodicDeadline = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeID, kind: .automatic
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         #expect(clock.advanceToNextPendingSleep())
         _ = try await renewalStep.firstArrival()

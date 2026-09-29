@@ -48,11 +48,8 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
                 warmAutomaticWorktreeIds: [worktreeID],
                 backgroundOnlyAutomaticWorktreeIds: [worktreeID]
             )
-            // This empty visibility delay has no worktree operation to scope a fact.
-            // The later, worktree-specific visibility delay is fact-asserted below.
-            await clock.waitForPendingSleepCount(atLeast: 1)
-            clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
-            await actor.waitForVisibilityAdmission()
+            // A later worktree-specific visibility update replaces this empty delay.
+            // It has a deadline fact and supplies the clock synchronization below.
             await actor.assertTopology(
                 visibleTierTopologyAssertion(
                     generation: 1,
@@ -73,7 +70,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             #expect(await actor.pendingVisibilityDeltaWorktreeIds == [worktreeID])
             _ = try await source.expectDeadlineRegistered(
                 facts: facts, worktreeId: worktreeID, kind: .visibilityCoalescing)
-            await clock.waitForPendingSleepCount(atLeast: 2)
+            await clock.waitForPendingSleepCount(exactly: 2)
             clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
             await actor.waitForVisibilityAdmission()
             #expect(await actor.lastProcessedSidebarVisibleWorktreeIds == [worktreeID])
@@ -154,17 +151,15 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             clock.advance(by: policy.backgroundCadence)
             await calls.waitForCount(1)
             _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
-            await clock.waitForPendingSleepCount(atLeast: 1)
+            await clock.waitForPendingSleepCount(exactly: 1)
             clock.advance(by: .milliseconds(9))
             #expect(await calls.count == 1)
 
-            let thirdStartSleepGeneration = clock.scheduledSleepGeneration
             clock.advance(by: .milliseconds(1))
             await calls.waitForCount(2)
             _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
             await clock.waitForPendingSleepCount(
-                atLeast: 1,
-                fromGeneration: thirdStartSleepGeneration
+                exactly: 1
             )
             let thirdStartDeadline = try #require(clock.pendingSleepDeadlines.min())
             clock.advance(to: thirdStartDeadline)
@@ -370,7 +365,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             await actor.setSidebarVisibleWorktrees(Set(worktreeIds))
             _ = try await source.expectDeadlineRegistered(
                 facts: facts, worktreeId: worktreeIds[0], kind: .visibilityCoalescing)
-            await clock.waitForPendingSleepCount(atLeast: 2)
+            await clock.waitForPendingSleepCount(exactly: 2)
             clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
 
             await gate.waitForLabelCount(policy.visibleSidebarMaxConcurrent)
@@ -434,7 +429,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             await actor.setSidebarVisibleWorktrees([worktreeId])
             _ = try await source.expectDeadlineRegistered(
                 facts: facts, worktreeId: worktreeId, kind: .visibilityCoalescing)
-            await clock.waitForPendingSleepCount(atLeast: 2)
+            await clock.waitForPendingSleepCount(exactly: 2)
             clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
             await calls.waitForCount(1)
         }
@@ -599,7 +594,8 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
 
             _ = try await source.expectDeadlineRegistered(facts: facts, worktreeId: worktreeId, kind: .automatic)
 
-            await clock.waitForPendingSleepCount(atLeast: 1)
+            await clock.waitForPendingSleepCount(exactly: 2)
+
             let expectedCadence =
                 completeFactsChanged
                 ? policy.visibleSidebarCadence
@@ -672,7 +668,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             await actor.setSidebarVisibleWorktrees([visibleWorktreeId])
             _ = try await source.expectDeadlineRegistered(
                 facts: facts, worktreeId: visibleWorktreeId, kind: .visibilityCoalescing)
-            await clock.waitForPendingSleepCount(atLeast: 2)
+            await clock.waitForPendingSleepCount(exactly: 2)
             clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
             await actor.waitForVisibilityAdmission()
             if await calls.count == 1,
@@ -694,7 +690,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             )
             #expect(await actor.automaticRefreshDeadlineByWorktreeId[visibleWorktreeId] == expectedDeadline)
             _ = try await source.expectDeadlineRegistered(facts: facts, worktreeId: visibleWorktreeId, kind: .automatic)
-            await clock.waitForPendingSleepCount(atLeast: 1)
+            await clock.waitForPendingSleepCount(exactly: 1)
             try await advanceVisibleDeadline(actor, clock, visibleWorktreeId, cadence: policy.visibleSidebarCadence)
             await calls.waitForCount(3)
         }
@@ -766,11 +762,10 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             #expect(await gate.labels.count == 1)
             #expect(await actor.pendingByWorktreeId[pendingWorktreeId] != nil)
 
-            let visibilitySleepGeneration = clock.scheduledSleepGeneration
             await actor.setSidebarVisibleWorktrees([pendingWorktreeId])
             _ = try await source.expectDeadlineRegistered(
                 facts: facts, worktreeId: pendingWorktreeId, kind: .visibilityCoalescing)
-            await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: visibilitySleepGeneration)
+            await clock.waitForPendingSleepCount(exactly: 2)
             clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
             await gate.waitForLabel(containing: "demotion-pending")
 

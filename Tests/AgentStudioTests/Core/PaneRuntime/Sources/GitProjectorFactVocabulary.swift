@@ -1,6 +1,5 @@
 import AgentStudioTestHarness
 import Foundation
-import Synchronization
 
 @testable import AgentStudioCore
 
@@ -28,6 +27,22 @@ extension FactVocabulary<GitProjectorScope, GitProjectorFact> {
 }
 
 extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFact {
+    func expectNextRefreshStarted(worktreeId: UUID) async throws -> UInt64 {
+        let scope = try await expectNextOperation(
+            matching: {
+                if case .refresh(let scopedWorktreeId, _) = $0 { return scopedWorktreeId == worktreeId }
+                return false
+            }, opening: { $0 == .refreshAdmitted }, "refresh admitted for \(worktreeId)"
+        )
+        guard case .refresh(_, let requestSequence) = scope else {
+            throw UnexpectedFact.forExpectation(
+                expected: "refresh scope", actual: String(describing: scope),
+                scope: String(describing: scope), callSite: #function)
+        }
+        try await expectRefreshStarted(worktreeId: worktreeId, requestSequence: requestSequence)
+        return requestSequence
+    }
+
     func expectRefreshStarted(worktreeId: UUID, requestSequence: UInt64) async throws {
         let scope = GitProjectorScope.refresh(worktreeId: worktreeId, requestSequence: requestSequence)
         try await expectNext(in: scope, .refreshAdmitted)
@@ -47,7 +62,9 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
             case .refreshClosed(let outcome):
                 return outcome
             default:
-                preconditionFailure("Only refresh facts belong to a refresh scope")
+                throw UnexpectedFact.forExpectation(
+                    expected: "refresh fact", actual: String(describing: fact),
+                    scope: String(describing: scope), callSite: #function)
             }
         }
     }
@@ -85,7 +102,9 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
                 try await finish()
                 return droppedEnvelopes
             default:
-                preconditionFailure("Only lifetime facts belong to a lifetime scope")
+                throw UnexpectedFact.forExpectation(
+                    expected: "lifetime fact", actual: String(describing: fact),
+                    scope: String(describing: GitProjectorScope.lifetime(lifetime)), callSite: #function)
             }
         }
     }
@@ -109,110 +128,35 @@ private struct UnexpectedProjectorEnvelopeSequence: Error {
     let actual: UInt64
 }
 
-/// Retains emitted operation identities. Tests still consume and verify their
-/// facts through FactRecorder without reading projector scheduler state.
+/// Adapts the projector's fact sink to the local recorder.
 final class GitProjectorFactSource: Sendable {
     private let localSource = LocalFactSource(
         vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
-    private let deadlineScopes = Mutex(DeadlineScopeState())
-    private let refreshScopes = Mutex(RefreshScopeState())
 
     var sink: GitProjectorFactSink {
-        { [self] scope, fact in
-            self.localSource.sink(scope, fact)
-            if case .refreshAdmitted = fact, case .refresh(let worktreeId, _) = scope {
-                let waiter = self.refreshScopes.withLock { state -> CheckedContinuation<GitProjectorScope, Never>? in
-                    if let waiter = state.waiters.removeValue(forKey: worktreeId) { return waiter }
-                    state.pending[worktreeId, default: []].append(scope)
-                    return nil
-                }
-                waiter?.resume(returning: scope)
-            }
-            guard case .deadlineRegistered(let kind) = fact,
-                case .deadline(let worktreeId, let scopedKind, _) = scope,
-                kind == scopedKind
-            else { return }
-            let key = DeadlineKey(worktreeId: worktreeId, kind: kind)
-            let waiters = self.deadlineScopes.withLock { state -> [CheckedContinuation<GitProjectorScope, Never>] in
-                var resumed: [CheckedContinuation<GitProjectorScope, Never>] = []
-                if let waiter = state.waiters.removeValue(forKey: key) {
-                    resumed.append(waiter)
-                } else {
-                    state.pending[key, default: []].append(scope)
-                }
-                if let waiter = state.anyWorktreeWaiters.removeValue(forKey: kind) {
-                    resumed.append(waiter)
-                } else {
-                    state.anyWorktreePending[kind, default: []].append(scope)
-                }
-                return resumed
-            }
-            for waiter in waiters { waiter.resume(returning: scope) }
-        }
+        localSource.sink
     }
 
     func attach() throws -> FactRecorder<GitProjectorScope, GitProjectorFact> {
         try localSource.attach()
     }
 
-    func nextRefreshScope(worktreeId: UUID) async -> GitProjectorScope {
-        await withCheckedContinuation { continuation in
-            let pending = refreshScopes.withLock { state -> GitProjectorScope? in
-                if var scopes = state.pending[worktreeId], !scopes.isEmpty {
-                    let scope = scopes.removeFirst()
-                    state.pending[worktreeId] = scopes
-                    return scope
-                }
-                precondition(state.waiters[worktreeId] == nil, "One refresh scope consumer per worktree")
-                state.waiters[worktreeId] = continuation
-                return nil
-            }
-            if let pending { continuation.resume(returning: pending) }
-        }
-    }
-
     func expectNextRefreshClosed(
         facts: FactRecorder<GitProjectorScope, GitProjectorFact>,
         worktreeId: UUID
     ) async throws -> GitProjectorRefreshOutcome {
-        let scope = await nextRefreshScope(worktreeId: worktreeId)
+        let scope = try await facts.expectNextOperation(
+            matching: {
+                if case .refresh(let scopedWorktreeId, _) = $0 { return scopedWorktreeId == worktreeId }
+                return false
+            }, opening: { $0 == .refreshAdmitted }, "refresh admitted for \(worktreeId)"
+        )
         guard case .refresh(_, let requestSequence) = scope else {
-            preconditionFailure("Refresh admission must have a refresh scope")
+            throw UnexpectedFact.forExpectation(
+                expected: "refresh scope", actual: String(describing: scope),
+                scope: String(describing: scope), callSite: #function)
         }
         return try await facts.expectRefreshClosed(worktreeId: worktreeId, requestSequence: requestSequence)
-    }
-
-    func nextDeadlineScope(worktreeId: UUID, kind: GitProjectorDeadlineKind) async -> GitProjectorScope {
-        let key = DeadlineKey(worktreeId: worktreeId, kind: kind)
-        return await withCheckedContinuation { continuation in
-            let pending = deadlineScopes.withLock { state -> GitProjectorScope? in
-                if var scopes = state.pending[key], !scopes.isEmpty {
-                    let scope = scopes.removeFirst()
-                    state.pending[key] = scopes
-                    return scope
-                }
-                precondition(state.waiters[key] == nil, "One deadline scope consumer per worktree and kind")
-                state.waiters[key] = continuation
-                return nil
-            }
-            if let pending { continuation.resume(returning: pending) }
-        }
-    }
-
-    func nextDeadlineScope(kind: GitProjectorDeadlineKind) async -> GitProjectorScope {
-        await withCheckedContinuation { continuation in
-            let pending = deadlineScopes.withLock { state -> GitProjectorScope? in
-                if var scopes = state.anyWorktreePending[kind], !scopes.isEmpty {
-                    let scope = scopes.removeFirst()
-                    state.anyWorktreePending[kind] = scopes
-                    return scope
-                }
-                precondition(state.anyWorktreeWaiters[kind] == nil, "One deadline scope consumer per kind")
-                state.anyWorktreeWaiters[kind] = continuation
-                return nil
-            }
-            if let pending { continuation.resume(returning: pending) }
-        }
     }
 
     func expectDeadlineRegistered(
@@ -220,7 +164,15 @@ final class GitProjectorFactSource: Sendable {
         worktreeId: UUID,
         kind: GitProjectorDeadlineKind
     ) async throws -> GitProjectorScope {
-        let scope = await nextDeadlineScope(worktreeId: worktreeId, kind: kind)
+        let description = "\(kind) deadline registered for \(worktreeId)"
+        let scope = try await facts.expectNextOperation(
+            matching: {
+                if case .deadline(let scopedWorktreeId, let scopedKind, _) = $0 {
+                    return scopedWorktreeId == worktreeId && scopedKind == kind
+                }
+                return false
+            }, opening: { $0 == .deadlineRegistered(kind) }, description
+        )
         try await facts.expectNext(in: scope, .deadlineRegistered(kind))
         return scope
     }
@@ -229,25 +181,13 @@ final class GitProjectorFactSource: Sendable {
         facts: FactRecorder<GitProjectorScope, GitProjectorFact>,
         kind: GitProjectorDeadlineKind
     ) async throws -> GitProjectorScope {
-        let scope = await nextDeadlineScope(kind: kind)
+        let scope = try await facts.expectNextOperation(
+            matching: {
+                if case .deadline(_, let scopedKind, _) = $0 { return scopedKind == kind }
+                return false
+            }, opening: { $0 == .deadlineRegistered(kind) }, "\(kind) deadline registered"
+        )
         try await facts.expectNext(in: scope, .deadlineRegistered(kind))
         return scope
     }
-}
-
-private struct DeadlineKey: Hashable {
-    let worktreeId: UUID
-    let kind: GitProjectorDeadlineKind
-}
-
-private struct DeadlineScopeState {
-    var pending: [DeadlineKey: [GitProjectorScope]] = [:]
-    var waiters: [DeadlineKey: CheckedContinuation<GitProjectorScope, Never>] = [:]
-    var anyWorktreePending: [GitProjectorDeadlineKind: [GitProjectorScope]] = [:]
-    var anyWorktreeWaiters: [GitProjectorDeadlineKind: CheckedContinuation<GitProjectorScope, Never>] = [:]
-}
-
-private struct RefreshScopeState {
-    var pending: [UUID: [GitProjectorScope]] = [:]
-    var waiters: [UUID: CheckedContinuation<GitProjectorScope, Never>] = [:]
 }

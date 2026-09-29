@@ -107,7 +107,6 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(await actor.capacityRearmedWorktreeIds.isEmpty)
         #expect(await actor.worktreeTasks.isEmpty)
 
-        let sleepGeneration = clock.scheduledSleepGeneration
         await actor.enqueueImmediateRefresh(
             admissionFilesystemChangeset(worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2),
             triggerSource: .filesystemChange
@@ -116,7 +115,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .governorPacing
         )
-        await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: sleepGeneration)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
         #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
         clock.advance(by: .milliseconds(1))
@@ -210,7 +209,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        let activeStatusRootPaths = await projectorStatusCalls.waitForCallCount(1)
+        let activeStatusRootPaths = try await projectorStatusCalls.waitForFirstArrival()
         #expect(activeStatusRootPaths == [activeRootPath])
         let contendedRequestSequence = try #require(
             await actor.refreshAttribution.requestSequenceByWorktreeId[contendedWorktreeId]
@@ -334,7 +333,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         blockingReadGate.release()
         _ = await blockingRead.value
-        let pendingStatusRootPaths = await projectorStatusCalls.waitForCallCount(1)
+        let pendingStatusRootPaths = try await projectorStatusCalls.waitForFirstArrival()
         #expect(pendingStatusRootPaths == [pendingRootPath])
         let pendingRequestSequence = try #require(
             await actor.refreshAttribution.requestSequenceByWorktreeId[pendingWorktreeId]
@@ -418,7 +417,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         )
 
         _ = try await source.expectDeadlineRegistered(facts: facts, kind: .capacityFallback)
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
         let firstProbedRootPath = pathProbe.recordedRootPaths.first
         #expect(pathProbe.recordedRootPaths == firstProbedRootPath.map { [$0] } ?? [])
         #expect(await actor.capacityRetryWorktreeIds.count == 1)
@@ -491,7 +490,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        #expect(await statusGate.waitForCallCount(1) == 1)
+        #expect(try await statusGate.waitForFirstArrival() == 1)
         let firstAdmittedRootPath = try #require(await statusGate.firstRootPath)
         let firstWorktreeIndex = try #require(rootPaths.firstIndex(of: firstAdmittedRootPath))
         let firstRequestSequence = try #require(
@@ -503,14 +502,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(pathProbe.recordedRootPaths == [firstAdmittedRootPath])
 
         await statusGate.releaseFirst()
-        #expect(await statusGate.waitForCallCount(2) == 2)
-        let secondAdmittedRootPath = try #require(await statusGate.recordedRootPaths.last)
-        let secondWorktreeIndex = try #require(rootPaths.firstIndex(of: secondAdmittedRootPath))
-        let secondRequestSequence = try #require(
-            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[secondWorktreeIndex]]
-        )
-        try await facts.expectRefreshStarted(
-            worktreeId: worktreeIds[secondWorktreeIndex], requestSequence: secondRequestSequence
+        let secondWorktreeIndex = 1 - firstWorktreeIndex
+        let secondRequestSequence = try await facts.expectNextRefreshStarted(
+            worktreeId: worktreeIds[secondWorktreeIndex]
         )
         _ = try await facts.expectRefreshClosed(
             worktreeId: worktreeIds[firstWorktreeIndex], requestSequence: firstRequestSequence
@@ -518,6 +512,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         _ = try await facts.expectRefreshClosed(
             worktreeId: worktreeIds[secondWorktreeIndex], requestSequence: secondRequestSequence
         )
+        #expect(await statusGate.recordedRootPaths == [firstAdmittedRootPath, rootPaths[secondWorktreeIndex]])
         #expect(await actor.worktreeTasks.isEmpty)
         #expect(pathProbe.recordedRootPaths.count == 2)
         #expect(Set(pathProbe.recordedRootPaths) == Set(rootPaths))
@@ -577,7 +572,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             ),
             triggerSource: .filesystemChange
         )
-        #expect(await statusGate.waitForCallCount(1) == 1)
+        #expect(try await statusGate.waitForFirstArrival() == 1)
         let blockingRequestSequence = try #require(
             await actor.refreshAttribution.requestSequenceByWorktreeId[blockingWorktreeId]
         )
@@ -614,19 +609,14 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[targetWorktreeId] == nil)
 
         await statusGate.releaseFirst()
-        #expect(await statusGate.waitForCallCount(2) == 2)
-        let targetRequestSequence = try #require(
-            await actor.refreshAttribution.requestSequenceByWorktreeId[targetWorktreeId]
-        )
-        try await facts.expectRefreshStarted(
-            worktreeId: targetWorktreeId, requestSequence: targetRequestSequence
-        )
+        let targetRequestSequence = try await facts.expectNextRefreshStarted(worktreeId: targetWorktreeId)
         _ = try await facts.expectRefreshClosed(
             worktreeId: blockingWorktreeId, requestSequence: blockingRequestSequence
         )
         _ = try await facts.expectRefreshClosed(
             worktreeId: targetWorktreeId, requestSequence: targetRequestSequence
         )
+        #expect(await statusGate.callCount == 2)
         #expect(await actor.worktreeTasks.isEmpty)
         #expect(await actor.pendingByWorktreeId[targetWorktreeId] == nil)
         #expect(await !actor.hasRequiredIntent(worktreeId: targetWorktreeId))
@@ -672,7 +662,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             ),
             triggerSource: .filesystemChange
         )
-        #expect(await statusGate.waitForCallCount(1) == 1)
+        #expect(try await statusGate.waitForFirstArrival() == 1)
         let requiredRequestSequence = try #require(
             await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
         )
@@ -778,13 +768,13 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(try await facts.expectHandledEnvelope(seq: 2) == .routed)
         #expect(await actor.pendingByWorktreeId.count == 2)
         _ = try await source.expectDeadlineRegistered(facts: facts, kind: .automatic)
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: policy.backgroundCadence)
 
         try await facts.expectNext(
             in: .quarantine(worktreeId: missingWorktreeId, episode: 1), .quarantineOpened
         )
-        #expect(await statusCalls.waitForCallCount(1) == [healthyRootPath])
+        #expect(try await statusCalls.waitForFirstArrival() == [healthyRootPath])
         let healthyRequestSequence = try #require(
             await actor.refreshAttribution.requestSequenceByWorktreeId[healthyWorktreeId]
         )
@@ -820,9 +810,7 @@ private func admissionBlockingProvider(
 
 private actor FirstStatusCallGate {
     private var rootPaths: [URL] = []
-    private var firstCallWaiter: CheckedContinuation<Void, Never>?
-    private var callCountWaiter: (count: Int, continuation: CheckedContinuation<Int, Never>)?
-    private var isFirstCallReleased = false
+    private let firstCallArrival = HeldStep<Int>("admission first status provider call")
 
     var callCount: Int { rootPaths.count }
     var firstRootPath: URL? { rootPaths.first }
@@ -830,32 +818,18 @@ private actor FirstStatusCallGate {
 
     func recordAndWaitIfFirst(_ rootPath: URL) async {
         rootPaths.append(rootPath)
-        if let callCountWaiter, rootPaths.count >= callCountWaiter.count {
-            self.callCountWaiter = nil
-            callCountWaiter.continuation.resume(returning: rootPaths.count)
-        }
-        guard rootPaths.count == 1 else { return }
-        await withCheckedContinuation { continuation in
-            if isFirstCallReleased {
-                continuation.resume()
-            } else {
-                firstCallWaiter = continuation
-            }
+        let callNumber = rootPaths.count
+        if callNumber == 1 {
+            try? await firstCallArrival.arrive(callNumber)
         }
     }
 
-    func waitForCallCount(_ expectedCount: Int) async -> Int {
-        guard rootPaths.count < expectedCount else { return rootPaths.count }
-        return await withCheckedContinuation { continuation in
-            precondition(callCountWaiter == nil)
-            callCountWaiter = (expectedCount, continuation)
-        }
+    func waitForFirstArrival() async throws -> Int {
+        try await firstCallArrival.firstArrival()
     }
 
     func releaseFirst() {
-        isFirstCallReleased = true
-        firstCallWaiter?.resume()
-        firstCallWaiter = nil
+        firstCallArrival.release()
     }
 }
 

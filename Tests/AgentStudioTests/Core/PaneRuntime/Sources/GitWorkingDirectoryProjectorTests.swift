@@ -418,7 +418,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
         let retryScheduled = clock.pendingSleepCount > 0
         #expect(retryScheduled)
         guard retryScheduled else {
@@ -513,7 +513,7 @@ struct GitWorkingDirectoryProjectorTests {
         let oldFailureDeadline = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         await actor.assertTopology(
             FilesystemTopologyAssertion(
@@ -1061,7 +1061,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .coalescingWindow
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
         let coalescingSleepScheduled = clock.pendingSleepCount > 0
         #expect(coalescingSleepScheduled)
         clock.advance(by: .milliseconds(60))
@@ -1107,7 +1107,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .coalescingWindow
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         clock.advance(by: .milliseconds(400))
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
@@ -1431,7 +1431,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: retryWorktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount()
+        await clock.waitForPendingSleepCount(exactly: 1)
         let retryBackoffScheduled = clock.pendingSleepCount > 0
         #expect(retryBackoffScheduled)
 
@@ -1758,7 +1758,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: firstStripeWorktreeId, kind: .automatic
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
         #expect(clock.pendingSleepDeadlines.contains(firstStripeDeadline))
         #expect(await observed.snapshotCount(for: firstStripeWorktreeId) == 0)
         #expect(await observed.snapshotCount(for: secondStripeWorktreeId) == 0)
@@ -1771,7 +1771,7 @@ struct GitWorkingDirectoryProjectorTests {
             facts: facts, worktreeId: secondStripeWorktreeId, kind: .automatic
         )
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
         #expect(clock.pendingSleepDeadlines.contains(secondStripeDeadline))
         clock.advance(by: .milliseconds(60))
         #expect((await observed.snapshots(for: secondStripeWorktreeId, until: { $0.count == 1 })).count == 1)
@@ -1921,7 +1921,7 @@ struct GitWorkingDirectoryProjectorTests {
             facts: facts, worktreeId: activePaneWorktreeId, kind: .automatic
         )
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: policy.activePaneCadence)
         let activeRefreshedOnNonMatchingBackgroundStripe =
             (await observed.snapshots(for: activePaneWorktreeId, until: { $0.count == 2 })).count == 2
@@ -2806,7 +2806,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .capacityFallback
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
         // Missing fact: a newer batch joined the held capacity retry.
@@ -2982,7 +2982,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .capacityFallback
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         for expectedCallCount in [2, 3] {
             clock.advance(by: .milliseconds(50))
@@ -2990,7 +2990,7 @@ struct GitWorkingDirectoryProjectorTests {
             _ = try await source.expectDeadlineRegistered(
                 facts: facts, worktreeId: worktreeId, kind: .capacityFallback
             )
-            await clock.waitForPendingSleepCount(atLeast: 1)
+            await clock.waitForPendingSleepCount(exactly: 1)
         }
 
         clock.advance(by: .milliseconds(50))
@@ -3032,14 +3032,14 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await timeoutSource.expectDeadlineRegistered(
             facts: timeoutFacts, worktreeId: timeoutWorktreeId, kind: .failure
         )
-        await timeoutClock.waitForPendingSleepCount(atLeast: 1)
+        await timeoutClock.waitForPendingSleepCount(exactly: 1)
 
         timeoutClock.advance(by: .milliseconds(50))
         #expect((await timeoutCalls.count(until: { $0 == 2 })) == 2)
         _ = try await timeoutSource.expectDeadlineRegistered(
             facts: timeoutFacts, worktreeId: timeoutWorktreeId, kind: .failure
         )
-        await timeoutClock.waitForPendingSleepCount(atLeast: 1)
+        await timeoutClock.waitForPendingSleepCount(exactly: 1)
 
         timeoutClock.advance(by: .milliseconds(50))
         #expect(await timeoutCalls.value() == 2)
@@ -3099,7 +3099,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         // Three changes arrive while the breaker is open. They must not each
         // trigger a compute; they coalesce into a single deferred refresh.
@@ -3157,7 +3157,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
         await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
@@ -3209,7 +3209,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         // Expire step 1 (50ms) -> the seeded refresh recomputes and times out again.
         clock.advance(by: .milliseconds(50))
@@ -3217,7 +3217,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         // Step 2 must be 100ms: advancing only the base 50ms leaves it closed.
         clock.advance(by: .milliseconds(50))
@@ -3301,13 +3301,13 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .automatic
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(100))
         #expect((await calls.count(until: { $0 == 2 })) == 2)
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .automatic
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(199))
         #expect(await calls.value() == 2)
         clock.advance(by: .milliseconds(1))
@@ -3368,7 +3368,7 @@ struct GitWorkingDirectoryProjectorTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
 
         let openEmitted = (await recorder.backoffEvents(open: true, until: { $0.count == 1 })).count == 1
         #expect(openEmitted)

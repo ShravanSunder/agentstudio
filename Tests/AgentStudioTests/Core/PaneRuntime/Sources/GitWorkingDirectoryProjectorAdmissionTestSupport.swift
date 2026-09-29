@@ -31,27 +31,19 @@ final class RootPathProbeRecorder: @unchecked Sendable {
 
 actor StatusCallRecorder {
     private(set) var rootPaths: [URL] = []
-    private var callCountWaiter:
-        (
-            minimumCallCount: Int,
-            continuation: CheckedContinuation<[URL], Never>
-        )?
+    private let firstCallArrival = HeldStep<[URL]>("first status provider call")
 
-    func record(_ rootPath: URL) {
+    func record(_ rootPath: URL) async {
         rootPaths.append(rootPath)
-        guard let callCountWaiter, rootPaths.count >= callCountWaiter.minimumCallCount else {
-            return
+        if rootPaths.count == 1 {
+            try? await firstCallArrival.arrive(rootPaths)
         }
-        self.callCountWaiter = nil
-        callCountWaiter.continuation.resume(returning: rootPaths)
     }
 
-    func waitForCallCount(_ minimumCallCount: Int) async -> [URL] {
-        guard rootPaths.count < minimumCallCount else { return rootPaths }
-        return await withCheckedContinuation { continuation in
-            precondition(callCountWaiter == nil)
-            callCountWaiter = (minimumCallCount, continuation)
-        }
+    func waitForFirstArrival() async throws -> [URL] {
+        let observed = try await firstCallArrival.firstArrival()
+        firstCallArrival.release()
+        return observed
     }
 }
 

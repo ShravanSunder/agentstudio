@@ -132,7 +132,7 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .visibilityCoalescing
         )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
         await actor.waitForVisibilityAdmission()
         await bus.post(
@@ -235,7 +235,6 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             return
         }
 
-        let sleepGeneration = clock.scheduledSleepGeneration
         for index in worktreeIds.indices {
             await bus.post(
                 automaticPacingFilesChangedEnvelope(
@@ -254,12 +253,11 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             return
         }
         _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
-        await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: sleepGeneration)
-        let secondStartSleepGeneration = clock.scheduledSleepGeneration
+        await clock.waitForPendingSleepCount(exactly: 2)
         let nextAutomaticStartAt = await actor.nextAutomaticStartAt
         let deadlineClockNow = await actor.deadlineClock.now
         clock.advance(by: max(.zero, nextAutomaticStartAt - deadlineClockNow))
-        let thirdStartLabels = await gate.waitForCallCount(3)
+        let thirdStartLabels = try await gate.waitForArrival(3)
         #expect(thirdStartLabels.count == 3)
         let thirdStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == thirdStartLabels[2] })
         let thirdRequestSequence = try #require(
@@ -270,13 +268,12 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         )
         _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
         await clock.waitForPendingSleepCount(
-            atLeast: 1,
-            fromGeneration: secondStartSleepGeneration
+            exactly: 2
         )
         clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
         #expect(await gate.count == 3)
         clock.advance(by: .milliseconds(1))
-        let fourthStartLabels = await gate.waitForCallCount(4)
+        let fourthStartLabels = try await gate.waitForArrival(4)
         #expect(fourthStartLabels.count == 4)
         let fourthStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == fourthStartLabels[3] })
         let fourthRequestSequence = try #require(
@@ -286,7 +283,8 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             worktreeId: worktreeIds[fourthStartedIndex], requestSequence: fourthRequestSequence
         )
 
-        #expect(await gate.waitingCount == 2)
+        #expect(await gate.distinctCalledLabelCount == 2)
+        #expect(await gate.activeCallCount <= 2)
         await gate.releaseAll()
         await actor.shutdown()
     }
@@ -344,7 +342,7 @@ private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierP
             )
         )
     }
-    let firstStartLabels = await gate.waitForCallCount(1)
+    let firstStartLabels = try await gate.waitForArrival(1)
     #expect(firstStartLabels.count == 1)
     let firstStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == firstStartLabels[0] })
     let firstRequestSequence = try #require(
@@ -354,9 +352,9 @@ private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierP
         worktreeId: worktreeIds[firstStartedIndex], requestSequence: firstRequestSequence
     )
     _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
-    await clock.waitForPendingSleepCount(atLeast: 1)
+    await clock.waitForPendingSleepCount(exactly: 2)
     clock.advance(by: policy.minimumAutomaticStartInterval)
-    let secondStartLabels = await gate.waitForCallCount(2)
+    let secondStartLabels = try await gate.waitForArrival(2)
     #expect(secondStartLabels.count == 2)
     let secondStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == secondStartLabels[1] })
     let secondRequestSequence = try #require(
@@ -365,7 +363,7 @@ private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierP
     try await facts.expectRefreshStarted(
         worktreeId: worktreeIds[secondStartedIndex], requestSequence: secondRequestSequence
     )
-    #expect(await gate.waitingCount == 2)
+    #expect(await gate.activeCallCount == 2)
     await gate.releaseAll()
     _ = try await facts.expectRefreshClosed(
         worktreeId: worktreeIds[firstStartedIndex], requestSequence: firstRequestSequence
@@ -424,37 +422,34 @@ private func automaticPacingPolicy() -> AppPolicies.GitRefresh.Policy {
 
 private actor AutomaticPacingStatusGate {
     private var labels: [String] = []
-    private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
-    private var callCountWaiter: (count: Int, continuation: CheckedContinuation<[String], Never>)?
+    private var activeCallsByLabel: [String: Int] = [:]
+    private let callArrivals: [HeldStep<[String]>] = (1...4).map { count in
+        let arrival = HeldStep<[String]>("automatic pacing status provider call \(count)")
+        return arrival
+    }
 
     var count: Int { labels.count }
-    var waitingCount: Int { waiters.count }
+    var distinctCalledLabelCount: Int { Set(labels).count }
+    var activeCallCount: Int { activeCallsByLabel.values.reduce(0, +) }
 
     func recordAndWait(_ label: String) async {
         labels.append(label)
-        await withCheckedContinuation { continuation in
-            waiters[label] = continuation
-            if let callCountWaiter, labels.count >= callCountWaiter.count {
-                self.callCountWaiter = nil
-                callCountWaiter.continuation.resume(returning: labels)
-            }
+        activeCallsByLabel[label, default: 0] += 1
+        defer {
+            let remaining = activeCallsByLabel[label, default: 0] - 1
+            activeCallsByLabel[label] = remaining == 0 ? nil : remaining
+        }
+        if labels.count <= callArrivals.count {
+            try? await callArrivals[labels.count - 1].arrive(labels)
         }
     }
 
-    func waitForCallCount(_ expectedCount: Int) async -> [String] {
-        guard labels.count < expectedCount else { return labels }
-        return await withCheckedContinuation { continuation in
-            precondition(callCountWaiter == nil)
-            callCountWaiter = (expectedCount, continuation)
-        }
+    func waitForArrival(_ callNumber: Int) async throws -> [String] {
+        try await callArrivals[callNumber - 1].firstArrival()
     }
 
     func releaseAll() {
-        let continuations = Array(waiters.values)
-        waiters.removeAll(keepingCapacity: true)
-        for continuation in continuations {
-            continuation.resume()
-        }
+        for arrival in callArrivals { arrival.release() }
     }
 }
 
