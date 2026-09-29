@@ -91,7 +91,7 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
 
     @Test("background-only promotion starts one ordinary-tier baseline without duplication")
     func backgroundOnlyPromotionStartsOneOrdinaryTierBaseline() async throws {
-        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let source = GitProjectorFactSource()
         let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
@@ -128,6 +128,9 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             openWorktreeIds: [],
             warmAutomaticWorktreeIds: [worktreeId],
             backgroundOnlyAutomaticWorktreeIds: [worktreeId]
+        )
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeId, kind: .visibilityCoalescing
         )
         await clock.waitForPendingSleepCount(atLeast: 1)
         clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
@@ -207,6 +210,7 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         usesRemoteReferenceRefresh: Bool
     ) async throws {
         let scenario = try await prepareLowerTierPacingScenario()
+        let source = scenario.source
         let facts = scenario.facts
         let bus = scenario.bus
         let clock = scenario.clock
@@ -249,6 +253,7 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             await actor.shutdown()
             return
         }
+        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
         await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: sleepGeneration)
         let secondStartSleepGeneration = clock.scheduledSleepGeneration
         let nextAutomaticStartAt = await actor.nextAutomaticStartAt
@@ -263,6 +268,7 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         try await facts.expectRefreshStarted(
             worktreeId: worktreeIds[thirdStartedIndex], requestSequence: thirdRequestSequence
         )
+        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
         await clock.waitForPendingSleepCount(
             atLeast: 1,
             fromGeneration: secondStartSleepGeneration
@@ -287,6 +293,7 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
 }
 
 private struct PreparedLowerTierPacingScenario {
+    let source: GitProjectorFactSource
     let facts: FactRecorder<GitProjectorScope, GitProjectorFact>
     let bus: EventBus<RuntimeEnvelope>
     let clock: TestPushClock
@@ -298,7 +305,7 @@ private struct PreparedLowerTierPacingScenario {
 }
 
 private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierPacingScenario {
-    let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+    let source = GitProjectorFactSource()
     let facts = try source.attach()
     let bus = EventBus<RuntimeEnvelope>()
     let clock = TestPushClock()
@@ -346,6 +353,7 @@ private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierP
     try await facts.expectRefreshStarted(
         worktreeId: worktreeIds[firstStartedIndex], requestSequence: firstRequestSequence
     )
+    _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
     await clock.waitForPendingSleepCount(atLeast: 1)
     clock.advance(by: policy.minimumAutomaticStartInterval)
     let secondStartLabels = await gate.waitForCallCount(2)
@@ -367,6 +375,7 @@ private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierP
     )
     #expect(await actor.worktreeTasks.isEmpty)
     return PreparedLowerTierPacingScenario(
+        source: source,
         facts: facts,
         bus: bus,
         clock: clock,

@@ -41,7 +41,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
     @Test("capacity completion resumes the paid attempt and paces the next invalidation")
     func capacityCompletionResumesPaidAttemptAndPacesNextInvalidation() async throws {
-        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let source = GitProjectorFactSource()
         let facts = try source.attach()
         let clock = TestPushClock()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
@@ -113,6 +113,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             triggerSource: .filesystemChange
         )
         #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeId, kind: .governorPacing
+        )
         await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: sleepGeneration)
         clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
         #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
@@ -348,7 +351,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 
     @Test("shared physical capacity rejection retains validation and pauses later admission")
-    func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async {
+    func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let clock = TestPushClock()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
@@ -376,6 +381,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 maxConcurrentStatusComputes: 1,
                 openPaneMaxConcurrent: 1
             ),
+            factSink: source.sink,
             pathExistenceProbe: { rootPath in
                 pathProbe.recordExistence(rootPath)
             }
@@ -410,6 +416,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
+        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .capacityFallback)
         await clock.waitForPendingSleepCount()
         let firstProbedRootPath = pathProbe.recordedRootPaths.first
         #expect(pathProbe.recordedRootPaths == firstProbedRootPath.map { [$0] } ?? [])
@@ -706,7 +713,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
     @Test("missing selected root is quarantined without consuming the admission slot")
     func missingSelectedRootDoesNotConsumeAdmissionSlot() async throws {
-        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let source = GitProjectorFactSource()
         let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
@@ -766,6 +773,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         #expect(try await facts.expectHandledEnvelope(seq: 2) == .routed)
         #expect(await actor.pendingByWorktreeId.count == 2)
+        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .automatic)
         await clock.waitForPendingSleepCount(atLeast: 1)
         clock.advance(by: policy.backgroundCadence)
 
