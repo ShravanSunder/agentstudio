@@ -315,6 +315,14 @@ jobs:
   swift-test-suite:
     name: Swift test suite
     runs-on: macos-26
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+    outputs:
+      swift_cache_disposition: ${{ steps.swift-cache-final.outputs.disposition }}
+      swift_cache_key: ${{ steps.swift-cache-final.outputs.key }}
+      swift_cache_run: ${{ github.run_number }}
     env:
       SWIFT_BUILD_DIR: .build-ci
       XCB_EXTRA_ARGS: "--renderer github-actions"
@@ -444,11 +452,104 @@ jobs:
                 [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
               fi
 
+      - name: Compute Swift cache compatibility prefix
+        id: swift-cache-prefix
+        run: |
+          mkdir -p "$SWIFT_BUILD_STATS_DIR"
+          prefix="$(/bin/bash scripts/ci-swift-build-inputs.sh fingerprint)"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+      - name: Start Swift cache restore timer
+        if: github.event_name == 'pull_request'
+        id: swift-cache-restore-start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift build seed
+        if: github.event_name == 'pull_request'
+        id: swift-cache-restore
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: .build-ci
+          key: ${{ steps.swift-cache-prefix.outputs.prefix }}r0-none
+          restore-keys: |
+            ${{ steps.swift-cache-prefix.outputs.prefix }}
+
+      - name: Record Swift cache restore time
+        if: github.event_name == 'pull_request'
+        id: swift-cache-restore-time
+        run: |
+          restore_seconds=$(( $(date +%s) - ${{ steps.swift-cache-restore-start.outputs.epoch }} ))
+          echo "restore_seconds=$restore_seconds" >> "$GITHUB_OUTPUT"
+          echo "lane-report swift_cache_restore_seconds=$restore_seconds"
+
+      - name: Inventory Swift build inputs before prebuild
+        id: swift-cache-inventory-before
+        env:
+          CI_SWIFT_BUILD_PATH: .build-ci
+          CI_SWIFT_PRODUCER_COMMIT: ${{ github.sha }}
+          CI_SWIFT_PRODUCER_RUN: ${{ github.run_number }}
+          CI_SWIFT_PRODUCER_REF: ${{ github.ref }}
+        run: |
+          inventory_started=$(date +%s)
+          mkdir -p tmp/plan-workflows/ci-runs
+          if /bin/bash scripts/ci-swift-build-inputs.sh inventory tmp/plan-workflows/ci-runs/swift-inputs-before.json; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = pull_request ]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          else
+            exit 1
+          fi
+          echo "inventory_seconds=$(( $(date +%s) - inventory_started ))" >> "$GITHUB_OUTPUT"
+
+      - name: Verify and restamp PR Swift seed
+        if: github.event_name == 'pull_request'
+        id: swift-cache-verify
+        env:
+          CI_SWIFT_BUILD_PATH: .build-ci
+        run: |
+          restore_seconds="${{ steps.swift-cache-restore-time.outputs.restore_seconds }}"
+          echo "restore_seconds=$restore_seconds" >> "$GITHUB_OUTPUT"
+          verify_started=$(date +%s)
+          disposition="$(/bin/bash scripts/ci-swift-build-inputs.sh verify \
+            .build-ci/ci-swift-build-seed.json tmp/plan-workflows/ci-runs/swift-inputs-before.json)"
+          verify_seconds=$(( $(date +%s) - verify_started + ${{ steps.swift-cache-inventory-before.outputs.inventory_seconds }} ))
+          echo "verify_seconds=$verify_seconds" >> "$GITHUB_OUTPUT"
+          echo "lane-report swift_cache_verify_seconds=$verify_seconds"
+          stamp_started=$(date +%s)
+          if [[ "$disposition" == warm\ * ]]; then
+            disposition="$(/bin/bash scripts/ci-swift-build-inputs.sh restamp \
+              .build-ci/ci-swift-build-seed.json tmp/plan-workflows/ci-runs/swift-inputs-before.json)"
+          fi
+          stamp_seconds=$(( $(date +%s) - stamp_started ))
+          echo "stamp_seconds=$stamp_seconds" >> "$GITHUB_OUTPUT"
+          echo "lane-report swift_cache_stamp_seconds=$stamp_seconds"
+          echo "disposition=$disposition" >> "$GITHUB_OUTPUT"
+          echo "lane-report swift_cache_disposition=$disposition"
+          echo "swift-cache $disposition restore=${restore_seconds}s"
+
+      - name: Inventory main Swift inputs before cold build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          test "${{ steps.swift-cache-inventory-before.outputs.valid }}" = true
+          test ! -e .build-ci
+
+      - name: Start Swift prebuild timer
+        id: swift-prebuild-start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Prebuild Swift test bundles
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "1200"
         run: mise run --skip-deps test:swift:prebuild
+
+      - name: Record Swift prebuild time
+        id: swift-prebuild-time
+        run: |
+          build_seconds=$(( $(date +%s) - ${{ steps.swift-prebuild-start.outputs.epoch }} ))
+          echo "build_seconds=$build_seconds" >> "$GITHUB_OUTPUT"
+          echo "lane-report swift_cache_build_seconds=$build_seconds"
 
       - name: Test fast lane
         env:
@@ -473,6 +574,66 @@ jobs:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions"
         run: mise run --skip-deps test:swift:webkit
+
+      - name: Inventory main Swift inputs after lanes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: swift-cache-inventory-after
+        env:
+          CI_SWIFT_BUILD_PATH: .build-ci
+          CI_SWIFT_PRODUCER_COMMIT: ${{ github.sha }}
+          CI_SWIFT_PRODUCER_RUN: ${{ github.run_number }}
+          CI_SWIFT_PRODUCER_REF: ${{ github.ref }}
+        run: |
+          /bin/bash scripts/ci-swift-build-inputs.sh inventory tmp/plan-workflows/ci-runs/swift-inputs-after.json
+          before="$(python3 -c 'import json; value=json.load(open("tmp/plan-workflows/ci-runs/swift-inputs-before.json")); print(value["manifest_digest"], value["fingerprint"])')"
+          after="$(python3 -c 'import json; value=json.load(open("tmp/plan-workflows/ci-runs/swift-inputs-after.json")); print(value["manifest_digest"], value["fingerprint"])')"
+          if [ "$before" = "$after" ]; then
+            echo "unchanged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unchanged=false" >> "$GITHUB_OUTPUT"
+            echo "Swift inputs changed during main build; seed publication disabled"
+          fi
+
+      - name: Plan main Swift seed publication
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.swift-cache-inventory-after.outputs.unchanged == 'true'
+        id: swift-publish-plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_CACHE_API: gh api
+        run: |
+          key="${{ steps.swift-cache-prefix.outputs.prefix }}r${{ github.run_number }}-${{ github.sha }}"
+          cp tmp/plan-workflows/ci-runs/swift-inputs-after.json .build-ci/ci-swift-build-seed.json
+          seed_bytes="$(tar -cf - .build-ci | zstd -T0 -q | wc -c | tr -d ' ')"
+          if plan="$(/bin/bash scripts/ci-swift-build-cache-publish.sh plan-save "$key" "${{ github.run_number }}" "$seed_bytes")"; then
+            {
+              echo "disposition=$plan"
+              echo "key=$key"
+              echo "seed_bytes=$seed_bytes"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "disposition=failed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save Swift build seed
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(steps.swift-publish-plan.outputs.disposition, 'saved ')
+        id: swift-cache-save
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .build-ci
+          key: ${{ steps.swift-publish-plan.outputs.key }}
+
+      - name: Finalize Swift seed disposition
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: swift-cache-final
+        run: |
+          planned="${{ steps.swift-publish-plan.outputs.disposition }}"
+          if [[ "$planned" == saved\ * ]] && [ "${{ steps.swift-cache-save.outcome }}" != success ]; then
+            planned=failed
+          fi
+          echo "disposition=${planned%% *}" >> "$GITHUB_OUTPUT"
+          echo "key=${{ steps.swift-publish-plan.outputs.key }}" >> "$GITHUB_OUTPUT"
+          echo "Swift cache publication: $planned"
 
       - name: Verify release-script contract
         run: mise run lint:release-scripts
@@ -504,6 +665,20 @@ jobs:
         if: always()
         run: /bin/bash scripts/summarize-ci-timing.sh
 
+      - name: Report Swift cache phases
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          phase_report="tmp/plan-workflows/ci-runs/timing-summary.md"
+          {
+            echo
+            echo "## Swift build cache phases"
+            echo "Restore: ${{ steps.swift-cache-verify.outputs.restore_seconds || 'unknown' }} s"
+            echo "Verify: ${{ steps.swift-cache-verify.outputs.verify_seconds || 'unknown' }} s"
+            echo "Stamp: ${{ steps.swift-cache-verify.outputs.stamp_seconds || 'unknown' }} s"
+            echo "Build: ${{ steps.swift-prebuild-time.outputs.build_seconds || 'unknown' }} s"
+            echo "Seed: ${{ steps.swift-cache-verify.outputs.disposition || 'cold' }}"
+          } | tee -a "$phase_report" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload CI timing ledger
         if: always()
         uses: actions/upload-artifact@v4
@@ -534,3 +709,28 @@ jobs:
             tmp/plan-workflows/ci-runs/lane-*.task-dump.txt
             tmp/plan-workflows/ci-runs/lane-*.held-steps.log
           if-no-files-found: ignore
+
+  prune-swift-build-cache:
+    name: Prune Swift build cache
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.swift-test-suite.outputs.swift_cache_disposition == 'saved' || needs.swift-test-suite.outputs.swift_cache_disposition == 'skipped-budget')
+    needs: swift-test-suite
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+      issues: read
+    steps:
+      - *first-attempt-gate
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prune confirmed older main Swift seeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_CACHE_API: gh api
+        run: |
+          /bin/bash scripts/ci-swift-build-cache-publish.sh prune \
+            "${{ needs.swift-test-suite.outputs.swift_cache_disposition }}" \
+            "${{ needs.swift-test-suite.outputs.swift_cache_key }}" \
+            "${{ needs.swift-test-suite.outputs.swift_cache_run }}"
