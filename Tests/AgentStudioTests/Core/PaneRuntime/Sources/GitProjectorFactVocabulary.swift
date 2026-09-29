@@ -27,35 +27,51 @@ extension FactVocabulary<GitProjectorScope, GitProjectorFact> {
 }
 
 extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFact {
-    func expectNextRefreshStarted(worktreeId: UUID) async throws -> UInt64 {
+    func expectNextRefreshStarted(
+        worktreeId: UUID,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
+    ) async throws -> UInt64 {
+        let scopeMatches: @Sendable (GitProjectorScope) -> Bool = {
+            if case .refresh(let scopedWorktreeId, _) = $0 { return scopedWorktreeId == worktreeId }
+            return false
+        }
+        let openingMatches: @Sendable (GitProjectorFact) -> Bool = { $0 == .refreshAdmitted }
         let scope = try await expectNextOperation(
-            matching: {
-                if case .refresh(let scopedWorktreeId, _) = $0 { return scopedWorktreeId == worktreeId }
-                return false
-            }, opening: { $0 == .refreshAdmitted }, "refresh admitted for \(worktreeId)"
+            matching: scopeMatches, opening: openingMatches, "refresh admitted for \(worktreeId)",
+            fileID: fileID, line: line, function: function
         )
         guard case .refresh(_, let requestSequence) = scope else {
             throw UnexpectedFact.forExpectation(
                 expected: "refresh scope", actual: String(describing: scope),
-                scope: String(describing: scope), callSite: #function)
+                scope: String(describing: scope), callSite: "\(fileID):\(line) \(function)")
         }
-        try await expectRefreshStarted(worktreeId: worktreeId, requestSequence: requestSequence)
+        try await expectRefreshStarted(
+            worktreeId: worktreeId, requestSequence: requestSequence,
+            fileID: fileID, line: line, function: function
+        )
         return requestSequence
     }
 
-    func expectRefreshStarted(worktreeId: UUID, requestSequence: UInt64) async throws {
+    func expectRefreshStarted(
+        worktreeId: UUID, requestSequence: UInt64,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
+    ) async throws {
         let scope = GitProjectorScope.refresh(worktreeId: worktreeId, requestSequence: requestSequence)
-        try await expectNext(in: scope, .refreshAdmitted)
-        try await expectNext(in: scope, .refreshStarted)
+        try await expectNext(in: scope, .refreshAdmitted, fileID: fileID, line: line, function: function)
+        try await expectNext(in: scope, .refreshStarted, fileID: fileID, line: line, function: function)
     }
 
     func expectRefreshClosed(
         worktreeId: UUID,
-        requestSequence: UInt64
+        requestSequence: UInt64,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
     ) async throws -> GitProjectorRefreshOutcome {
         let scope = GitProjectorScope.refresh(worktreeId: worktreeId, requestSequence: requestSequence)
         while true {
-            let fact = try await expectNext(in: scope, where: { _ in true }, "refresh closed")
+            let fact = try await expectNext(
+                in: scope, where: { _ in true }, "refresh closed",
+                fileID: fileID, line: line, function: function
+            )
             switch fact {
             case .refreshAdmitted, .refreshStarted:
                 continue
@@ -64,7 +80,7 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
             default:
                 throw UnexpectedFact.forExpectation(
                     expected: "refresh fact", actual: String(describing: fact),
-                    scope: String(describing: scope), callSite: #function)
+                    scope: String(describing: scope), callSite: "\(fileID):\(line) \(function)")
             }
         }
     }
@@ -73,11 +89,13 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
     /// Each iteration awaits an emitted fact; no scheduler turn or elapsed time decides the verdict.
     func expectHandledEnvelope(
         seq expectedSequence: UInt64,
-        lifetime: UInt64 = 1
+        lifetime: UInt64 = 1,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
     ) async throws -> GitProjectorEnvelopeDisposition {
         while true {
             let fact = try await expectNext(
-                in: .lifetime(lifetime), where: { _ in true }, "envelope handled through sequence \(expectedSequence)"
+                in: .lifetime(lifetime), where: { _ in true }, "envelope handled through sequence \(expectedSequence)",
+                fileID: fileID, line: line, function: function
             )
             guard case .envelopeHandled(let sequence, let disposition) = fact else { continue }
             if sequence == expectedSequence { return disposition }
@@ -87,11 +105,15 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
         }
     }
 
-    func expectShutdownCompleted(lifetime: UInt64 = 1) async throws -> UInt64 {
+    func expectShutdownCompleted(
+        lifetime: UInt64 = 1,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
+    ) async throws -> UInt64 {
         var droppedEnvelopes: UInt64 = 0
         while true {
             let fact = try await expectNext(
-                in: .lifetime(lifetime), where: { _ in true }, "shutdown completed"
+                in: .lifetime(lifetime), where: { _ in true }, "shutdown completed",
+                fileID: fileID, line: line, function: function
             )
             switch fact {
             case .envelopesDropped(let count):
@@ -104,12 +126,16 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
             default:
                 throw UnexpectedFact.forExpectation(
                     expected: "lifetime fact", actual: String(describing: fact),
-                    scope: String(describing: GitProjectorScope.lifetime(lifetime)), callSite: #function)
+                    scope: String(describing: GitProjectorScope.lifetime(lifetime)),
+                    callSite: "\(fileID):\(line) \(function)")
             }
         }
     }
 
-    func expectNoDroppedEnvelopes(from opening: OpeningPosition<GitProjectorScope>) async throws {
+    func expectNoDroppedEnvelopes(
+        from opening: OpeningPosition<GitProjectorScope>,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
+    ) async throws {
         try await expectNone(
             of: {
                 if case .envelopesDropped = $0 { return true }
@@ -117,7 +143,8 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
             },
             "dropped projector envelopes",
             from: opening,
-            closedBy: { $0 == .shutdownCompleted }
+            closedBy: { $0 == .shutdownCompleted },
+            fileID: fileID, line: line, function: function
         )
         try await finish()
     }
@@ -143,51 +170,70 @@ final class GitProjectorFactSource: Sendable {
 
     func expectNextRefreshClosed(
         facts: FactRecorder<GitProjectorScope, GitProjectorFact>,
-        worktreeId: UUID
+        worktreeId: UUID,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
     ) async throws -> GitProjectorRefreshOutcome {
+        let scopeMatches: @Sendable (GitProjectorScope) -> Bool = {
+            if case .refresh(let scopedWorktreeId, _) = $0 { return scopedWorktreeId == worktreeId }
+            return false
+        }
+        let openingMatches: @Sendable (GitProjectorFact) -> Bool = { $0 == .refreshAdmitted }
         let scope = try await facts.expectNextOperation(
-            matching: {
-                if case .refresh(let scopedWorktreeId, _) = $0 { return scopedWorktreeId == worktreeId }
-                return false
-            }, opening: { $0 == .refreshAdmitted }, "refresh admitted for \(worktreeId)"
+            matching: scopeMatches, opening: openingMatches, "refresh admitted for \(worktreeId)",
+            fileID: fileID, line: line, function: function
         )
         guard case .refresh(_, let requestSequence) = scope else {
             throw UnexpectedFact.forExpectation(
                 expected: "refresh scope", actual: String(describing: scope),
-                scope: String(describing: scope), callSite: #function)
+                scope: String(describing: scope), callSite: "\(fileID):\(line) \(function)")
         }
-        return try await facts.expectRefreshClosed(worktreeId: worktreeId, requestSequence: requestSequence)
+        return try await facts.expectRefreshClosed(
+            worktreeId: worktreeId, requestSequence: requestSequence,
+            fileID: fileID, line: line, function: function
+        )
     }
 
     func expectDeadlineRegistered(
         facts: FactRecorder<GitProjectorScope, GitProjectorFact>,
         worktreeId: UUID,
-        kind: GitProjectorDeadlineKind
+        kind: GitProjectorDeadlineKind,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
     ) async throws -> GitProjectorScope {
         let description = "\(kind) deadline registered for \(worktreeId)"
+        let scopeMatches: @Sendable (GitProjectorScope) -> Bool = {
+            if case .deadline(let scopedWorktreeId, let scopedKind, _) = $0 {
+                return scopedWorktreeId == worktreeId && scopedKind == kind
+            }
+            return false
+        }
+        let openingMatches: @Sendable (GitProjectorFact) -> Bool = { $0 == .deadlineRegistered(kind) }
         let scope = try await facts.expectNextOperation(
-            matching: {
-                if case .deadline(let scopedWorktreeId, let scopedKind, _) = $0 {
-                    return scopedWorktreeId == worktreeId && scopedKind == kind
-                }
-                return false
-            }, opening: { $0 == .deadlineRegistered(kind) }, description
+            matching: scopeMatches, opening: openingMatches, description,
+            fileID: fileID, line: line, function: function
         )
-        try await facts.expectNext(in: scope, .deadlineRegistered(kind))
+        try await facts.expectNext(
+            in: scope, .deadlineRegistered(kind), fileID: fileID, line: line, function: function
+        )
         return scope
     }
 
     func expectDeadlineRegistered(
         facts: FactRecorder<GitProjectorScope, GitProjectorFact>,
-        kind: GitProjectorDeadlineKind
+        kind: GitProjectorDeadlineKind,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
     ) async throws -> GitProjectorScope {
+        let scopeMatches: @Sendable (GitProjectorScope) -> Bool = {
+            if case .deadline(_, let scopedKind, _) = $0 { return scopedKind == kind }
+            return false
+        }
+        let openingMatches: @Sendable (GitProjectorFact) -> Bool = { $0 == .deadlineRegistered(kind) }
         let scope = try await facts.expectNextOperation(
-            matching: {
-                if case .deadline(_, let scopedKind, _) = $0 { return scopedKind == kind }
-                return false
-            }, opening: { $0 == .deadlineRegistered(kind) }, "\(kind) deadline registered"
+            matching: scopeMatches, opening: openingMatches, "\(kind) deadline registered",
+            fileID: fileID, line: line, function: function
         )
-        try await facts.expectNext(in: scope, .deadlineRegistered(kind))
+        try await facts.expectNext(
+            in: scope, .deadlineRegistered(kind), fileID: fileID, line: line, function: function
+        )
         return scope
     }
 }

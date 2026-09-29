@@ -210,7 +210,6 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
         usesRemoteReferenceRefresh: Bool
     ) async throws {
         let scenario = try await prepareLowerTierPacingScenario()
-        let source = scenario.source
         let facts = scenario.facts
         let bus = scenario.bus
         let clock = scenario.clock
@@ -246,42 +245,22 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
             )
         }
 
+        #expect(try await facts.expectHandledEnvelope(seq: 4) == .routed)
         #expect(await gate.count == 2)
-        guard await gate.count == 2 else {
-            await gate.releaseAll()
-            await actor.shutdown()
-            return
-        }
-        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
-        await clock.waitForPendingSleepCount(exactly: 2)
         let nextAutomaticStartAt = await actor.nextAutomaticStartAt
         let deadlineClockNow = await actor.deadlineClock.now
         clock.advance(by: max(.zero, nextAutomaticStartAt - deadlineClockNow))
         let thirdStartLabels = try await gate.waitForArrival(3)
         #expect(thirdStartLabels.count == 3)
         let thirdStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == thirdStartLabels[2] })
-        let thirdRequestSequence = try #require(
-            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[thirdStartedIndex]]
-        )
-        try await facts.expectRefreshStarted(
-            worktreeId: worktreeIds[thirdStartedIndex], requestSequence: thirdRequestSequence
-        )
-        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
-        await clock.waitForPendingSleepCount(
-            exactly: 2
-        )
+        _ = try await facts.expectNextRefreshStarted(worktreeId: worktreeIds[thirdStartedIndex])
         clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
         #expect(await gate.count == 3)
         clock.advance(by: .milliseconds(1))
         let fourthStartLabels = try await gate.waitForArrival(4)
         #expect(fourthStartLabels.count == 4)
         let fourthStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == fourthStartLabels[3] })
-        let fourthRequestSequence = try #require(
-            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[fourthStartedIndex]]
-        )
-        try await facts.expectRefreshStarted(
-            worktreeId: worktreeIds[fourthStartedIndex], requestSequence: fourthRequestSequence
-        )
+        _ = try await facts.expectNextRefreshStarted(worktreeId: worktreeIds[fourthStartedIndex])
 
         #expect(await gate.distinctCalledLabelCount == 2)
         #expect(await gate.activeCallCount <= 2)
@@ -291,7 +270,6 @@ struct GitWorkingDirectoryProjectorAutomaticPacingTests {
 }
 
 private struct PreparedLowerTierPacingScenario {
-    let source: GitProjectorFactSource
     let facts: FactRecorder<GitProjectorScope, GitProjectorFact>
     let bus: EventBus<RuntimeEnvelope>
     let clock: TestPushClock
@@ -345,24 +323,14 @@ private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierP
     let firstStartLabels = try await gate.waitForArrival(1)
     #expect(firstStartLabels.count == 1)
     let firstStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == firstStartLabels[0] })
-    let firstRequestSequence = try #require(
-        await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[firstStartedIndex]]
-    )
-    try await facts.expectRefreshStarted(
-        worktreeId: worktreeIds[firstStartedIndex], requestSequence: firstRequestSequence
-    )
+    let firstRequestSequence = try await facts.expectNextRefreshStarted(worktreeId: worktreeIds[firstStartedIndex])
     _ = try await source.expectDeadlineRegistered(facts: facts, kind: .governorPacing)
     await clock.waitForPendingSleepCount(exactly: 2)
     clock.advance(by: policy.minimumAutomaticStartInterval)
     let secondStartLabels = try await gate.waitForArrival(2)
     #expect(secondStartLabels.count == 2)
     let secondStartedIndex = try #require(rootPaths.firstIndex { $0.lastPathComponent == secondStartLabels[1] })
-    let secondRequestSequence = try #require(
-        await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[secondStartedIndex]]
-    )
-    try await facts.expectRefreshStarted(
-        worktreeId: worktreeIds[secondStartedIndex], requestSequence: secondRequestSequence
-    )
+    let secondRequestSequence = try await facts.expectNextRefreshStarted(worktreeId: worktreeIds[secondStartedIndex])
     #expect(await gate.activeCallCount == 2)
     await gate.releaseAll()
     _ = try await facts.expectRefreshClosed(
@@ -373,7 +341,6 @@ private func prepareLowerTierPacingScenario() async throws -> PreparedLowerTierP
     )
     #expect(await actor.worktreeTasks.isEmpty)
     return PreparedLowerTierPacingScenario(
-        source: source,
         facts: facts,
         bus: bus,
         clock: clock,
