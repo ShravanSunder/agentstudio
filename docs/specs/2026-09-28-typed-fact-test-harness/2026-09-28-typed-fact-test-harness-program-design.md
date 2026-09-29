@@ -179,13 +179,18 @@ These are owner-local facts: `GitWorkingDirectoryProjector` gets an injected sin
 | Scope | Facts |
 |---|---|
 | `intake(worktree, batchSeq)` (one operation per filesystem batch) | ■ `changesetAccepted` (taken into a refresh admission) or `changesetCoalesced(into: newerBatchSeq)` or `changesetDropped(stale \| superseded \| equal)` |
-| `refresh(worktree, request n)` | `refreshAdmitted` or `admissionDeferred(capacity \| pacing \| backoff \| visibility)` · `refreshStarted` · ■ `refreshClosed(completed(snapshotChanged, branchChanged) \| equal \| timeout \| unavailable \| capacityExceeded \| superseded \| cancelled \| shutdown)` |
+| `refresh(worktree, request n)` | `refreshAdmitted` · `refreshStarted` · ■ `refreshClosed(completed(snapshotChanged, branchChanged) \| equal \| timeout \| unavailable \| capacityExceeded \| superseded \| cancelled \| shutdown)` |
 | `deadline(worktree, kind, generation)`; kind = `automatic \| failure \| capacityFallback \| governorPacing \| visibilityCoalescing \| coalescingWindow` | `deadlineRegistered(kind)` · ■ `deadlineDisposition(admitted \| deferred \| obsolete \| cancelled)` |
 | `capacity(worktree, episode)` | `capacityRetryScheduled` · ■ `capacityRetryClosed(rearmed \| expired \| cancelled)` |
 | `backoff(worktree, episode)` | `backoffOpened(level)` · `backoffAdvanced(level)` · `backoffHalfOpen` · ■ `backoffClosed` |
 | `quarantine(worktree, episode)` | `quarantineOpened` · ■ `quarantineClosed` |
-| `lifetime` | ■ `shutdownCompleted` |
+| `lifetime(subscriptionLifetime)` | `envelopesDropped(count)` · `envelopeHandled(seq, ignored \| routed)` · ■ `shutdownCompleted` |
 
 Correction 2026-09-29, from the R1 implementer's stop: every scope names one operation. `intake` and `quarantine` lacked an operation identity, because a worktree gets many batches and can be quarantined repeatedly. They now carry `batchSeq` and `episode`. The former non-closing `changesetMerged` is the closing variant `changesetCoalesced(into:)`.
+
+Correction 2026-09-29 (second R1 stop), decided by main:
+
+- **`admissionDeferred` is removed.** A refresh request number exists only once a slot is granted (`startAdmittedWorktree`), so a deferral has no `refresh(n)` operation to belong to. None is needed. Each deferral that schedules a future wake already announces it in the scope that owns that wake: pacing as `deadlineRegistered(governorPacing)`, visibility as `deadlineRegistered(visibilityCoalescing)`, capacity as `capacityRetryScheduled`, backoff and quarantine as their own episodes. A deferral for lack of a free slot is resolved by another refresh's `refreshClosed`. `refresh(n)` therefore opens at `refreshAdmitted`, and no fact-only request numbering is invented.
+- **`lifetime` carries input handling.** The subscription-lifecycle proofs (an ignored envelope is handled once per lifetime; a lossy buffer reports its drops after intake catches up) previously used the projector's idle counter and checkpoint. They now read two lifetime facts, emitted in `didHandleRuntimeEnvelope` on the actor with no suspension in between. When the delivery checkpoint's dropped count has grown since the last emission, `envelopesDropped(count)` comes first, with the difference. Then `envelopeHandled(seq, disposition)` follows. The lifetime is the existing `subscriptionLifetime`, so a restart opens a new lifetime scope. `shutdownCompleted` still closes it.
 
 Evidence: 130 projector test waits (41 `waitUntilIdle`, 46 sleep-count waits whose timer kind is ambiguous, 25 whitebox actor-state polls, 13 "temporary proof debt" held-state waits) map onto these closing facts. Emission points are the transitions listed in the R1 inventory (`GitWorkingDirectoryProjector*.swift`).
