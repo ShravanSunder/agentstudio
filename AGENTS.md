@@ -398,9 +398,9 @@ Do not:
   when a sleep is unavoidable, and prefer event/state waits or injected clocks.
 
 Instead:
-- await the exact event, the observed state change, or the owner's quiescence seam
+- await the exact event or the owner's typed fact through the fact harness (`FactRecorder`), or the observed state change
 - drive time-as-subject through a controlled clock (`TestPushClock`)
-- to prove a negative, await quiescence, then assert once
+- to prove a negative, consume the operation's facts with `expectNone` from an opening position up to its correlated closing fact; never wait for idle (`waitUntilIdle` is forbidden in tests)
 - fully shut down tasks, streams, actors, and observers before the test returns
 - use explicit protocol seams and fakes for testability
 - if nothing announces completion, the production owner is missing a signal:

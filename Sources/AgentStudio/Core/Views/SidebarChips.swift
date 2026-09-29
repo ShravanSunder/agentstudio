@@ -1,11 +1,51 @@
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
 import SwiftUI
+
+extension SidebarChip.Icon {
+    package static func system(_ symbol: SystemSymbol) -> Self {
+        .system(symbol.rawValue)
+    }
+}
 
 /// The single PR-count chip spec used everywhere a positive PR-count fact renders as a chip: same
 /// glyph, same product-accent color, same pill style. By Repo worktree rows and pane rows (All
 /// Panes/By Tab) both call this so the glyph and color can never diverge between surfaces.
 package enum SidebarPullRequestChipSpec {
     package static let icon: SidebarChip.Icon = .octicon("octicon-git-pull-request")
+
+    package enum Presentation: Equatable {
+        case hidden
+        case neutral(count: Int?)
+        case accent(count: Int)
+    }
+
+    package nonisolated static func presentation(
+        branchStatus: GitBranchStatus,
+        usesPanesLoadingChip: Bool
+    ) -> Presentation {
+        guard !branchStatus.pullRequestDataUnavailable else { return .hidden }
+        if usesPanesLoadingChip, branchStatus.pullRequestIsLoading {
+            return .neutral(count: branchStatus.prCount.flatMap { $0 > 0 ? $0 : nil })
+        }
+        guard let count = branchStatus.prCount, count > 0 else { return .hidden }
+        return .accent(count: count)
+    }
+
+    @MainActor
+    package static func chip(
+        presentation: Presentation,
+        octiconLoader: OcticonLoader
+    ) -> SidebarChip? {
+        switch presentation {
+        case .hidden:
+            nil
+        case .neutral(let count):
+            SidebarChip(icon: icon, octiconLoader: octiconLoader, text: count.map(String.init), style: .neutral)
+        case .accent(let count):
+            chip(count: count, octiconLoader: octiconLoader)
+        }
+    }
 
     @MainActor
     package static func chip(count: Int, octiconLoader: OcticonLoader) -> SidebarChip {
@@ -21,10 +61,25 @@ package enum SidebarPullRequestChipSpec {
 package struct SidebarGitStatusChips: View {
     package let branchStatus: GitBranchStatus
     package let octiconLoader: OcticonLoader
+    package let usesPanesLoadingChip: Bool
+    package let showsDetailedGitChips: Bool
+    package let showsDiffChip: Bool
+    package let showsSyncChip: Bool
 
-    package init(branchStatus: GitBranchStatus, octiconLoader: OcticonLoader) {
+    package init(
+        branchStatus: GitBranchStatus,
+        octiconLoader: OcticonLoader,
+        usesPanesLoadingChip: Bool = false,
+        showsDetailedGitChips: Bool = true,
+        showsDiffChip: Bool = true,
+        showsSyncChip: Bool = true
+    ) {
         self.branchStatus = branchStatus
         self.octiconLoader = octiconLoader
+        self.usesPanesLoadingChip = usesPanesLoadingChip
+        self.showsDetailedGitChips = showsDetailedGitChips
+        self.showsDiffChip = showsDiffChip
+        self.showsSyncChip = showsSyncChip
     }
 
     package nonisolated static func diffDetail(
@@ -46,11 +101,27 @@ package struct SidebarGitStatusChips: View {
         }
     }
 
-    package nonisolated static func hasContent(branchStatus: GitBranchStatus) -> Bool {
-        showsPendingPullRequestFacts(branchStatus: branchStatus)
+    package nonisolated static func hasContent(
+        branchStatus: GitBranchStatus,
+        usesPanesLoadingChip: Bool = false,
+        showsDetailedGitChips: Bool = true
+    ) -> Bool {
+        presentationHasContent(branchStatus: branchStatus, usesPanesLoadingChip: usesPanesLoadingChip)
             || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
-            || diffDetail(branchStatus: branchStatus) != nil
-            || showsSync(branchStatus: branchStatus)
+            || showsDetailedGitChips && diffDetail(branchStatus: branchStatus) != nil
+            || showsDetailedGitChips && showsSync(branchStatus: branchStatus)
+    }
+
+    private nonisolated static func presentationHasContent(
+        branchStatus: GitBranchStatus,
+        usesPanesLoadingChip: Bool
+    ) -> Bool {
+        usesPanesLoadingChip
+            ? SidebarPullRequestChipSpec.presentation(
+                branchStatus: branchStatus,
+                usesPanesLoadingChip: true
+            ) != .hidden
+            : showsPendingPullRequestFacts(branchStatus: branchStatus)
     }
 
     package nonisolated static func showsPendingPullRequestFacts(branchStatus: GitBranchStatus) -> Bool {
@@ -71,18 +142,30 @@ package struct SidebarGitStatusChips: View {
 
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-            if let prCount = branchStatus.prCount,
+            if usesPanesLoadingChip {
+                if let pullRequestChip = SidebarPullRequestChipSpec.chip(
+                    presentation: SidebarPullRequestChipSpec.presentation(
+                        branchStatus: branchStatus,
+                        usesPanesLoadingChip: true
+                    ),
+                    octiconLoader: octiconLoader
+                ) {
+                    pullRequestChip
+                }
+            } else if let prCount = branchStatus.prCount,
                 prCount > 0,
                 !branchStatus.pullRequestDataUnavailable
             {
                 SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
             }
 
-            if let diffDetail = Self.diffDetail(branchStatus: branchStatus) {
+            if showsDetailedGitChips, showsDiffChip,
+                let diffDetail = Self.diffDetail(branchStatus: branchStatus)
+            {
                 SidebarDiffChip(octiconLoader: octiconLoader, detail: diffDetail)
             }
 
-            if Self.showsSync(branchStatus: branchStatus) {
+            if showsDetailedGitChips, showsSyncChip, Self.showsSync(branchStatus: branchStatus) {
                 SidebarStatusSyncChip(
                     octiconLoader: octiconLoader,
                     aheadText: syncCounts.ahead,
@@ -145,91 +228,6 @@ package struct SidebarStatusChipRow<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-package struct SidebarChip: View {
-    package enum Icon: Equatable {
-        case octicon(String)
-        case system(SystemSymbol)
-    }
-
-    package enum Style {
-        case neutral
-        case info
-        case success
-        case warning
-        case danger
-        case accent(Color)
-
-        var foreground: Color {
-            switch self {
-            case .neutral: return .secondary
-            case .info: return AppStyles.Shell.Sidebar.chipInfoColor
-            case .success: return AppStyles.Shell.Sidebar.chipSuccessColor
-            case .warning: return AppStyles.Shell.Sidebar.chipWarningColor
-            case .danger: return AppStyles.Shell.Sidebar.chipDangerColor
-            case .accent(let color): return color
-            }
-        }
-    }
-
-    let icon: Icon
-    let octiconLoader: OcticonLoader
-    let text: String?
-    let style: Style
-
-    package init(
-        icon: Icon,
-        octiconLoader: OcticonLoader,
-        text: String?,
-        style: Style
-    ) {
-        self.icon = icon
-        self.octiconLoader = octiconLoader
-        self.text = text
-        self.style = style
-    }
-
-    package var body: some View {
-        HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
-            switch icon {
-            case .octicon(let assetName):
-                OcticonImage(
-                    name: assetName,
-                    size: AppStyles.Shell.Sidebar.chipIconSize,
-                    loader: octiconLoader
-                )
-            case .system(let symbol):
-                Image(systemName: symbol.rawValue)
-                    .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
-            }
-            if let text {
-                Text(text)
-                    .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
-                    .lineLimit(1)
-            }
-        }
-        .padding(
-            .horizontal,
-            text == nil
-                ? AppStyles.Shell.Sidebar.chipIconOnlyHorizontalPadding : AppStyles.Shell.Sidebar.chipHorizontalPadding
-        )
-        .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
-                .overlay(
-                    Capsule()
-                        .fill(Color.black.opacity(AppStyles.Shell.Sidebar.chipMuteOverlayOpacity))
-                )
-        )
-        .foregroundStyle(style.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
-        .overlay(
-            Capsule()
-                .stroke(Color.white.opacity(AppStyles.Shell.Sidebar.chipBorderOpacity), lineWidth: 1)
-        )
-        .fixedSize(horizontal: true, vertical: true)
     }
 }
 

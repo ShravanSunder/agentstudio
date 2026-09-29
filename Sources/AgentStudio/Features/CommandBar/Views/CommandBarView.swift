@@ -15,6 +15,15 @@ struct CommandBarView: View {
     let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
     let onInitialResultsPublished: @MainActor @Sendable () -> Void
     let onInputFocusAcknowledged: @MainActor @Sendable () -> Void
+    let onInputChanged: @MainActor @Sendable (String, UInt64) -> Void
+    let onSearchContextChanged: @MainActor @Sendable () -> Void
+    let onResultPublished: @MainActor @Sendable (SearchRequestSequence, SearchDocumentGeneration) -> Void
+
+    private var currentPublication: CommandBarPublicationIdentity? {
+        state.appliedSearchResult.map {
+            CommandBarPublicationIdentity(sequence: $0.sequence, generation: $0.generation)
+        }
+    }
 
     var body: some View {
         let resultSnapshot = resultSession.snapshot(state: state)
@@ -34,9 +43,13 @@ struct CommandBarView: View {
                 onArrowDown: { state.moveSelectionDown(totalItems: resultSnapshot.totalItems) },
                 onEnter: { modifier in executeSelected(modifier: modifier) },
                 onShortcutTrigger: onShortcutTrigger,
+                onInputChanged: onInputChanged,
                 onBackspaceOnEmpty: { handleBackspace() },
                 onTabForward: { handleTabForward() },
-                onShiftTabBack: { state.popLevel() }
+                onShiftTabBack: {
+                    state.popLevel()
+                    onSearchContextChanged()
+                }
             )
 
             // Separator
@@ -48,7 +61,10 @@ struct CommandBarView: View {
                 CommandBarBreadcrumbRow(
                     items: state.breadcrumbItems,
                     octiconLoader: octiconLoader,
-                    onNavigate: { index in state.navigateToBreadcrumb(at: index) }
+                    onNavigate: { index in
+                        state.navigateToBreadcrumb(at: index)
+                        onSearchContextChanged()
+                    }
                 )
             }
 
@@ -57,7 +73,7 @@ struct CommandBarView: View {
                 groups: resultSnapshot.groups,
                 octiconLoader: octiconLoader,
                 selectedIndex: state.selectedIndex,
-                searchQuery: state.isNested ? state.searchQuery : state.normalizedRootQuery,
+                titleMatchesByItemId: resultSnapshot.titleMatchesByItemId,
                 dimmedItemIds: resultSnapshot.dimmedItemIds,
                 onSelect: { item in onExecuteItem(item, .plain) },
                 onShowActions: onShowActions
@@ -73,7 +89,16 @@ struct CommandBarView: View {
             )
         }
         .frame(maxWidth: .infinity)
-        .onAppear(perform: onInitialResultsPublished)
+        .onAppear {
+            onInitialResultsPublished()
+            if let publication = currentPublication {
+                onResultPublished(publication.sequence, publication.generation)
+            }
+        }
+        .onChange(of: currentPublication) { _, publication in
+            guard let publication else { return }
+            onResultPublished(publication.sequence, publication.generation)
+        }
         .environment(\.commandBarInputFocusAcknowledgement, onInputFocusAcknowledged)
     }
 
@@ -99,9 +124,11 @@ struct CommandBarView: View {
     private func handleBackspace() {
         if state.isNested {
             state.popLevel()
+            onSearchContextChanged()
         } else if state.activePrefix != nil {
             // Clear prefix → return to everything scope
             state.rawInput = ""
+            onSearchContextChanged()
         }
     }
 }

@@ -4,6 +4,23 @@ import AppKit
 struct RepoExplorerTableScrollAnchor: Equatable {
     let rowID: RepoExplorerRowID
     let offset: CGFloat
+    let identity: RepoExplorerRowAnchorIdentity
+    let followingIdentities: [RepoExplorerRowAnchorIdentity]
+    let wasAtTop: Bool
+}
+
+enum RepoExplorerRowAnchorIdentity: Hashable {
+    case pane(UUID)
+    case row(RepoExplorerRowID)
+
+    init(rowID: RepoExplorerRowID) {
+        switch rowID {
+        case .associatedPane(_, _, _, let paneID), .tabPane(_, let paneID), .unassociatedPane(let paneID):
+            self = .pane(paneID)
+        default:
+            self = .row(rowID)
+        }
+    }
 }
 
 @MainActor
@@ -28,30 +45,6 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     var numberOfRows: Int { snapshot?.rows.count ?? 0 }
 
-    var currentTopVisibleAnchor: RepoExplorerTableScrollAnchor? {
-        guard let snapshot, !snapshot.rows.isEmpty else { return nil }
-        let visibleRect = scrollView.contentView.documentVisibleRect
-        let visibleRange = tableView.rows(in: visibleRect)
-        guard visibleRange.location != NSNotFound else { return nil }
-        var firstIntersectingAnchor: RepoExplorerTableScrollAnchor?
-        for rowIndex in visibleRange.location..<NSMaxRange(visibleRange) {
-            guard snapshot.rows.indices.contains(rowIndex) else { continue }
-            let rowRect = tableView.rect(ofRow: rowIndex)
-            guard rowRect.intersects(visibleRect) else { continue }
-            let anchor = RepoExplorerTableScrollAnchor(
-                rowID: snapshot.rows[rowIndex].id,
-                offset: rowRect.minY - visibleRect.minY
-            )
-            if rowRect.minY >= visibleRect.minY, rowRect.maxY <= visibleRect.maxY {
-                return anchor
-            }
-            if firstIntersectingAnchor == nil {
-                firstIntersectingAnchor = anchor
-            }
-        }
-        return firstIntersectingAnchor
-    }
-
     private struct HeightCacheEntry {
         let contentRevision: RepoExplorerRowContentRevision
         let widthRevision: Int
@@ -59,7 +52,7 @@ final class RepoExplorerTableMaterializer: NSObject,
     }
 
     let tableView = RepoExplorerTableView()
-    private let scrollView: NSScrollView
+    let scrollView: NSScrollView
     private let materializationHostLifetimeID: RepoExplorerMaterializationHostLifetimeID
     private let octiconLoader: OcticonLoader
     let interactions: RepoExplorerTableInteractions
@@ -77,6 +70,7 @@ final class RepoExplorerTableMaterializer: NSObject,
     private var acceptedCommandPresentationSnapshot = RepoExplorerCommandPresentationSnapshot.empty
     private var acceptedCommandGeneration: UInt64 = 0
     private var heightByRowID: [RepoExplorerRowID: HeightCacheEntry] = [:]
+    var selectedVariantRowID: RepoExplorerRowID?
     private var widthRevision = 0
     private var pendingReloadRows = IndexSet()
     private var pendingHeightRows = IndexSet()
@@ -202,7 +196,7 @@ final class RepoExplorerTableMaterializer: NSObject,
             hostedCellCreationCount += 1
         }
         cell.bind(
-            row: row,
+            row: displayedRow(row),
             visibleGeneration: visibleGeneration,
             commandPresentationSnapshot: acceptedCommandPresentationSnapshot
         )
@@ -228,7 +222,8 @@ final class RepoExplorerTableMaterializer: NSObject,
     }
 
     func resolvedHeight(forRowAt rowIndex: Int) -> CGFloat {
-        guard let row = snapshot?.rows[safe: rowIndex] else { return tableView.rowHeight }
+        guard let sourceRow = snapshot?.rows[safe: rowIndex] else { return tableView.rowHeight }
+        let row = displayedRow(sourceRow)
         let fallbackHeight = max(row.layout.metrics.minimumHeight, row.layout.metrics.fallbackHeight)
         guard row.layout.requiresVisibleWidthMeasurement,
             representedRowIndexes().contains(rowIndex)
@@ -274,8 +269,10 @@ final class RepoExplorerTableMaterializer: NSObject,
         let priorVisibleSnapshot = currentVisibleSnapshot
         let priorCommandSnapshot = acceptedCommandPresentationSnapshot
         let priorCommandGeneration = acceptedCommandGeneration
+        let priorSelectedVariantRowID = selectedVariantRowID
         let anchor = currentTopVisibleAnchor
         snapshot = candidate.snapshot
+        selectedVariantRowID = candidate.selectedRowID
         visibleGeneration = candidate.visibleGeneration
         if priorVisibleGeneration != candidate.visibleGeneration {
             advanceVisibleTarget(
@@ -289,10 +286,12 @@ final class RepoExplorerTableMaterializer: NSObject,
         }
         heightByRowID = heightByRowID.filter { candidate.snapshot.rowIndexByID[$0.key] != nil }
         updateWidthRevisionIfNeeded()
-        pendingApplicationRequiresGeometryUpdate = Self.requiresGeometryUpdate(
-            for: candidate.tableUpdatePlan,
-            snapshot: candidate.snapshot
-        )
+        pendingApplicationRequiresGeometryUpdate =
+            priorSelectedVariantRowID != selectedVariantRowID
+            || Self.requiresGeometryUpdate(
+                for: candidate.tableUpdatePlan,
+                snapshot: candidate.snapshot
+            )
         if pendingApplicationRequiresGeometryUpdate {
             updateTableFrame()
         }
@@ -308,23 +307,36 @@ final class RepoExplorerTableMaterializer: NSObject,
             currentVisibleSnapshot = priorVisibleSnapshot
             acceptedCommandPresentationSnapshot = priorCommandSnapshot
             acceptedCommandGeneration = priorCommandGeneration
+            selectedVariantRowID = priorSelectedVariantRowID
             updateTableFrame()
             pendingApplicationRequiresGeometryUpdate = false
             completion(.rejected)
             return
         }
-        if pendingApplicationRequiresGeometryUpdate {
-            restore(
-                anchor: anchor,
-                tablePlan: candidate.tableUpdatePlan,
-                priorSnapshot: priorSnapshot
-            )
+        if priorSelectedVariantRowID != selectedVariantRowID {
+            var affected = IndexSet()
+            if let priorSelectedVariantRowID {
+                heightByRowID.removeValue(forKey: priorSelectedVariantRowID)
+                if let priorIndex = candidate.snapshot.rowIndexByID[priorSelectedVariantRowID] {
+                    affected.insert(priorIndex)
+                }
+            }
+            if let selectedVariantRowID {
+                heightByRowID.removeValue(forKey: selectedVariantRowID)
+                if let selectedIndex = candidate.snapshot.rowIndexByID[selectedVariantRowID] {
+                    affected.insert(selectedIndex)
+                }
+            }
+            if !affected.isEmpty {
+                tableView.noteHeightOfRows(withIndexesChanged: affected)
+            }
         }
         pendingApplicationRequiresGeometryUpdate = false
         precondition(
             applySelection(rowID: candidate.selectedRowID, scrollIntoView: false),
             "Validated Repo Explorer selection must apply after its native table transaction"
         )
+        restore(anchor: anchor, tablePlan: candidate.tableUpdatePlan, priorSnapshot: priorSnapshot)
         scheduleViewportPublication()
         completion(.accepted)
     }
@@ -461,7 +473,7 @@ final class RepoExplorerTableMaterializer: NSObject,
                 let visibleGeneration
             else { continue }
             cell.bind(
-                row: row,
+                row: displayedRow(row),
                 visibleGeneration: visibleGeneration,
                 commandPresentationSnapshot: acceptedCommandPresentationSnapshot
             )
@@ -531,14 +543,25 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     private func restore(
         anchor: RepoExplorerTableScrollAnchor?,
-        tablePlan: RepoExplorerNativeTableUpdatePlan,
+        tablePlan: RepoExplorerNativeTableUpdatePlan? = nil,
         priorSnapshot: RepoExplorerMaterializationSnapshot?
     ) {
-        guard let anchor else { return }
+        guard let anchor, let snapshot else { return }
+        if anchor.wasAtTop {
+            guard scrollView.contentView.documentVisibleRect.minY > 0 else { return }
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            explicitScrollRestorationCount += 1
+            return
+        }
         let targetRowID: RepoExplorerRowID?
-        if snapshot?.rowIndexByID[anchor.rowID] != nil {
-            targetRowID = anchor.rowID
-        } else if case .membership(let membership) = tablePlan,
+        if let sameIdentity = rowID(for: anchor.identity, in: snapshot) {
+            targetRowID = sameIdentity
+        } else if let nextVisible = anchor.followingIdentities.lazy.compactMap({
+            self.rowID(for: $0, in: snapshot)
+        }).first {
+            targetRowID = nextVisible
+        } else if case .membership(let membership)? = tablePlan,
             priorSnapshot?.rowIndexByID[anchor.rowID] != nil
         {
             targetRowID = membership.anchorFallbacks.targetRowID(
@@ -548,8 +571,30 @@ final class RepoExplorerTableMaterializer: NSObject,
             targetRowID = nil
         }
         guard let targetRowID else { return }
+        if currentTopVisibleAnchor?.rowID == targetRowID,
+            currentTopVisibleAnchor?.offset == anchor.offset
+        {
+            return
+        }
         explicitScrollRestorationCount += 1
         scroll(to: targetRowID, offset: anchor.offset)
+    }
+
+    private func rowID(
+        for identity: RepoExplorerRowAnchorIdentity,
+        in snapshot: RepoExplorerMaterializationSnapshot
+    ) -> RepoExplorerRowID? {
+        switch identity {
+        case .pane(let paneID):
+            snapshot.navigationIndex.firstRowID(for: .pane(paneID))
+        case .row(let rowID):
+            snapshot.rowIndexByID[rowID] == nil ? nil : rowID
+        }
+    }
+
+    func displayedRow(_ row: RepoExplorerMaterializedRow) -> RepoExplorerMaterializedRow {
+        guard row.id == selectedVariantRowID else { return row }
+        return row.displayingPaneVariant(.expanded)
     }
 
     private func scroll(toRowAt rowIndex: Int, offset: CGFloat) {
@@ -576,6 +621,7 @@ final class RepoExplorerTableMaterializer: NSObject,
 
     private func boundsDidChange() {
         guard !isDetached else { return }
+        let anchor = currentTopVisibleAnchor
         let previousWidthRevision = widthRevision
         updateWidthRevisionIfNeeded()
         if widthRevision != previousWidthRevision {
@@ -587,6 +633,7 @@ final class RepoExplorerTableMaterializer: NSObject,
             )
             if !visibleWrappingRows.isEmpty {
                 tableView.noteHeightOfRows(withIndexesChanged: visibleWrappingRows)
+                restore(anchor: anchor, priorSnapshot: snapshot)
             }
         }
         scheduleViewportPublication()
@@ -748,7 +795,7 @@ final class RepoExplorerTableMaterializer: NSObject,
                 continue
             }
             cell.bind(
-                row: snapshot.rows[rowIndex],
+                row: displayedRow(snapshot.rows[rowIndex]),
                 visibleGeneration: visibleGeneration,
                 commandPresentationSnapshot: acceptedCommandPresentationSnapshot
             )
@@ -779,13 +826,23 @@ final class RepoExplorerTableMaterializer: NSObject,
     private func updateTableFrame() {
         tableFrameUpdateCount += 1
         let fallbackContentHeight = snapshot?.fallbackContentHeight ?? 0
+        let selectedHeightDelta: CGFloat
+        if let selectedVariantRowID,
+            let selectedRow = snapshot?.row(id: selectedVariantRowID)
+        {
+            selectedHeightDelta =
+                displayedRow(selectedRow).layout.metrics.fallbackHeight
+                - selectedRow.layout.metrics.fallbackHeight
+        } else {
+            selectedHeightDelta = 0
+        }
         let visibleMeasurementDelta = heightByRowID.reduce(into: CGFloat.zero) { delta, entry in
             guard let row = snapshot?.row(id: entry.key) else { return }
             delta += max(0, entry.value.height - row.layout.metrics.fallbackHeight)
         }
         let documentHeight = max(
             scrollView.contentView.bounds.height,
-            fallbackContentHeight + visibleMeasurementDelta
+            fallbackContentHeight + selectedHeightDelta + visibleMeasurementDelta
         )
         tableView.frame = NSRect(
             x: 0,
@@ -811,6 +868,36 @@ final class RepoExplorerTableMaterializer: NSObject,
                 - row.layout.metrics.leadingInset
                 - row.layout.metrics.trailingInset
         )
+    }
+}
+
+extension RepoExplorerTableMaterializer {
+    func applyPaneVariantSelection(from previousRowID: RepoExplorerRowID?, to rowID: RepoExplorerRowID?) {
+        guard previousRowID != rowID, let snapshot else { return }
+        let anchor = currentTopVisibleAnchor
+        selectedVariantRowID = rowID
+        if let previousRowID { heightByRowID.removeValue(forKey: previousRowID) }
+        if let rowID { heightByRowID.removeValue(forKey: rowID) }
+        updateTableFrame()
+        var affected = IndexSet()
+        if let previousRowID, let previousIndex = snapshot.rowIndexByID[previousRowID] {
+            affected.insert(previousIndex)
+        }
+        if let rowID, let selectedIndex = snapshot.rowIndexByID[rowID] {
+            affected.insert(selectedIndex)
+        }
+        if !affected.isEmpty {
+            tableView.noteHeightOfRows(withIndexesChanged: affected)
+            let visibleAffected = affected.intersection(representedRowIndexes())
+            if !visibleAffected.isEmpty {
+                tableView.reloadData(
+                    forRowIndexes: visibleAffected,
+                    columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns)
+                )
+            }
+        }
+        forceTableAndScrollLayout()
+        restore(anchor: anchor, priorSnapshot: snapshot)
     }
 }
 

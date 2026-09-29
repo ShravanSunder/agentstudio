@@ -8,6 +8,7 @@ package enum WorkspaceLocalMigrations {
         registerActivityAndAnnotationMigrations(in: &migrator)
         registerReviewedSubjectMigrations(in: &migrator)
         registerPerScreenSidebarOrganizationMigration(in: &migrator)
+        registerPanesDrawerVisibilityMigration(in: &migrator)
         registerBridgeNavigationSchema(in: &migrator)
         registerAnnotationSubjectVariants(in: &migrator)
         return migrator

@@ -37,6 +37,7 @@ run_architecture_lint() {
   local lint_status=0
   "${build_path}/release/agentstudio-architecture-lint" --timings \
     --ledger Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv \
+    --ledger Tools/AgentStudioArchitectureLint/forbidden-test-wait-ledger.tsv \
     "$@" 2>&1 || lint_status=$?
   report_stage_time "architecture-lint" "$stage_started_ms"
   if [[ $lint_status -eq 0 ]]; then

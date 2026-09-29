@@ -520,6 +520,7 @@ extension AppDelegate {
     }
 
     private func bootInstallCommandBar() {
+        let searchService = SearchService(performanceTraceRecorder: performanceTraceRecorder)
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,
@@ -532,9 +533,11 @@ extension AppDelegate {
                 )
             },
             commandBarSurface: atomStore.core.commandBarSurface,
+            searchService: searchService,
             performanceTraceRecorder: performanceTraceRecorder,
             worktreeForkEligibility: SDKWorktreeForkEligibilityChecker(),
-            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver()
+            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver(),
+            branchListing: WorktreeBranchListingCache()
         )
     }
 

@@ -62,6 +62,8 @@ package final class TerminalActivityRouter {
         lastOutputLineReader: (@MainActor (UUID) -> TerminalViewportTextReadResult)? = nil,
         recordSettledActivityStatus: (@MainActor (UUID, String?) -> Void)? = nil,
         clearPaneActivityStatus: (@MainActor (UUID) -> Void)? = nil,
+        activityOccurrenceSink: (@Sendable (PaneActivityOccurrence) -> Void)? = nil,
+        closeReadDurationSink: (@Sendable (Duration) -> Void)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
@@ -75,7 +77,9 @@ package final class TerminalActivityRouter {
             ?? TerminalActivityProjector(
                 unseenQuietDuration: unseenActivityDebounceDuration,
                 agentSettledQuietDuration: agentSettledQuietDuration,
-                clock: unseenActivityClock
+                clock: unseenActivityClock,
+                activitySink: activityOccurrenceSink,
+                closeReadDurationSink: closeReadDurationSink
             )
         self.activityAtom = activityAtom
         self.attendedPane = attendedPane

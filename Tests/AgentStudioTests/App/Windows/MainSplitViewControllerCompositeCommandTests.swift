@@ -96,6 +96,49 @@ struct MainSplitViewControllerCompositeCommandTests {
         )
     }
 
+    @Test("Escape through the Panes window responder returns to its mounted pane and cancels preview")
+    func panesEscapeReturnsToMountedPane() async throws {
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: {
+                $0.setSidebarSurface(.panes)
+                $0.setSidebarCollapsed(true)
+            },
+            body: { harness in
+                let terminalResponder = try installMainSplitTerminalResponder(in: harness)
+                #expect(harness.window.makeFirstResponder(terminalResponder))
+
+                harness.controller.focusSidebarFromCommand()
+                await eventually("Panes list should become the window responder") {
+                    !harness.controller.isSidebarCollapsed
+                        && (harness.window.firstResponder as? NSView)?.identifier
+                            == RepoExplorerView.focusTargetIdentifier
+                }
+                let previewState = try #require(harness.controller.heldPanePreviewState)
+                #expect(previewState.beginSpaceHold(requestedTarget: nil))
+
+                let escapeEvent = try #require(
+                    NSEvent.keyEvent(
+                        with: .keyDown,
+                        location: .zero,
+                        modifierFlags: [],
+                        timestamp: 0,
+                        windowNumber: harness.window.windowNumber,
+                        context: nil,
+                        characters: "\u{1B}",
+                        charactersIgnoringModifiers: "\u{1B}",
+                        isARepeat: false,
+                        keyCode: 53
+                    )
+                )
+                harness.window.sendEvent(escapeEvent)
+
+                #expect(harness.window.firstResponder === terminalResponder)
+                #expect(!previewState.isHeld)
+            }
+        )
+    }
+
     @Test("hiding a focused sidebar restores the terminal responder")
     func hidingFocusedSidebarRestoresTerminalResponder() async throws {
         try await withMainSplitViewControllerHarness(

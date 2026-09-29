@@ -756,6 +756,7 @@ private let expectedBootRequiredLocalMigrationIdentifiers = [
     "009_add_worktree_annotation_reviewed_subject_evidence",
     "010_remove_worktree_annotation_workspace_provenance",
     "007_add_per_screen_sidebar_organization",
+    "015_add_panes_drawer_visibility",
     "016_create_bridge_navigation_schema",
     "017_annotation_subject_variants",
 ]

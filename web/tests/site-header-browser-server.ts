@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { dev } from "astro";
 
 const [websiteRoot, portArgument] = process.argv.slice(2);
@@ -10,7 +12,14 @@ const server = await dev({
   logLevel: "silent",
   root: websiteRoot,
   server: { host: "127.0.0.1", port },
-  vite: { server: { strictPort: true } },
+  vite: {
+    cacheDir: path.join(websiteRoot, "node_modules", ".vite-hero-browser-tests"),
+    // All browser files share this dev server. Prebundle the hero's dependency
+    // before parallel pages discover it, so their module URLs do not receive
+    // Vite's 504 Outdated Optimize Dep response during an optimizer restart.
+    optimizeDeps: { include: ["gsap"], noDiscovery: true },
+    server: { strictPort: true },
+  },
 });
 if (process.send === undefined) {
   await server.stop();

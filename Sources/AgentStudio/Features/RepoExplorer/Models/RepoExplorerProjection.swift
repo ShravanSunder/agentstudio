@@ -64,22 +64,25 @@ enum RepoExplorerProjection {
             namesByWorktreeId: branchNameByWorktreeId,
             statusesByWorktreeId: branchStatusByWorktreeId
         )
-        let organization = organizedContent(
-            .init(
-                snapshot: snapshot,
-                eligibleRepositories: snapshot.surface == .panes
-                    ? RepoExplorerFilter.filter(repos: snapshot.repos, query: query)
-                    : filteredResolvedRepos,
-                loadingRepos: filteredLoadingRepos,
-                metadataByRepoId: repoMetadataById,
-                checkoutColors: checkoutColorHexByRepoId,
-                destinationsByWorktreeId: paneDestinationsByWorktreeId,
-                destinationsByRepoId: paneDestinationsByRepoId,
-                unassociatedDestinations: unassociatedPaneDestinations,
-                paneFacts: paneRowFactsByPaneId,
-                tabFacts: tabGroupFactsByTabId,
-                branchFacts: paneBranchFacts
-            ))
+        let organizationInput = RepoExplorerOrganizationInput(
+            snapshot: snapshot,
+            eligibleRepositories: snapshot.surface == .panes
+                ? RepoExplorerFilter.filter(repos: snapshot.repos, query: query)
+                : filteredResolvedRepos,
+            loadingRepos: filteredLoadingRepos,
+            metadataByRepoId: repoMetadataById,
+            checkoutColors: checkoutColorHexByRepoId,
+            destinationsByWorktreeId: paneDestinationsByWorktreeId,
+            destinationsByRepoId: paneDestinationsByRepoId,
+            unassociatedDestinations: unassociatedPaneDestinations,
+            paneFacts: paneRowFactsByPaneId,
+            tabFacts: tabGroupFactsByTabId,
+            branchFacts: paneBranchFacts
+        )
+        let organization =
+            snapshot.surface == .panes
+            ? organizedPanesByActivity(organizationInput)
+            : organizedContent(organizationInput)
         let sections = organization.sections
         let orderedResolvedGroups = sections.flatMap(\.resolvedGroups)
         let orderedLoadingRepos = sections.flatMap(\.loadingRepos)
@@ -342,8 +345,9 @@ enum RepoExplorerProjection {
         showsPaneNumber: Bool
     ) -> String {
         let normalizedTitle = terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = normalizedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "zsh"
-        let identity = destination.worktreeLabel ?? fallback
+        let identity =
+            normalizedTitle.flatMap { $0.isEmpty ? nil : $0 }
+            ?? "Pane \(destination.paneIndexInTab + 1)"
         return showsPaneNumber ? "\(identity) · Pane \(destination.paneIndexInTab + 1)" : identity
     }
 

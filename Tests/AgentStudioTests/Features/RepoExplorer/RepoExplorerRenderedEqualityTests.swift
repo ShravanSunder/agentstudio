@@ -8,8 +8,8 @@ import Testing
 @MainActor
 @Suite("RepoExplorer rendered equality")
 struct RepoExplorerRenderedEqualityTests {
-    @Test("every visible pane field republishes the immutable rendered row")
-    func everyVisiblePaneFieldRepublishes() async throws {
+    @Test("visible pane changes republish while retired recency and focus facts equal-suppress")
+    func visiblePaneChangesAndRetiredFacts() async throws {
         let fixture = PaneEqualityFixture()
         let adapter = RepoExplorerProjectionAdapter()
         defer { adapter.stop() }
@@ -28,31 +28,35 @@ struct RepoExplorerRenderedEqualityTests {
             from: adapter
         ).materializedRevision
 
-        let scenarios: [(facts: RepoExplorerPaneRowFacts, referenceDate: Date)] = [
-            (fixture.paneFacts(terminalTitle: "build running"), fixture.initialReferenceDate),
-            (fixture.paneFacts(noteText: "Waiting on review"), fixture.initialReferenceDate),
-            (fixture.paneFacts(latestMessageText: "Tests passed"), fixture.initialReferenceDate),
+        let scenarios: [(facts: RepoExplorerPaneRowFacts, referenceDate: Date, advances: Bool)] = [
+            (fixture.paneFacts(terminalTitle: "build running"), fixture.initialReferenceDate, true),
+            (fixture.paneFacts(noteText: "Waiting on review"), fixture.initialReferenceDate, true),
+            (fixture.paneFacts(latestMessageText: "Tests passed"), fixture.initialReferenceDate, true),
             (
                 fixture.paneFacts(
                     recencyReferenceDate: fixture.initialReferenceDate.addingTimeInterval(-5 * 60)
                 ),
-                fixture.initialReferenceDate
+                fixture.initialReferenceDate,
+                false
             ),
             (
                 fixture.paneFacts(),
                 fixture.initialReferenceDate.addingTimeInterval(
                     AppPolicies.EntityRecency.faintBlueDuration + 1
-                )
+                ),
+                false
             ),
             (
                 fixture.paneFacts(
                     activityAt: fixture.initialReferenceDate.addingTimeInterval(-30)
                 ),
-                fixture.initialReferenceDate
+                fixture.initialReferenceDate,
+                false
             ),
-            (fixture.paneFacts(isPinned: true), fixture.initialReferenceDate),
-            (fixture.paneFacts(isActive: true), fixture.initialReferenceDate),
-            (fixture.paneFacts(isDrawerPane: true), fixture.initialReferenceDate),
+            (fixture.paneFacts(isPinned: true), fixture.initialReferenceDate, true),
+            (fixture.paneFacts(isPinned: true, isActive: true), fixture.initialReferenceDate, false),
+            (fixture.paneFacts(isPinned: true), fixture.initialReferenceDate, false),
+            (fixture.paneFacts(isPinned: true, isDrawerPane: true), fixture.initialReferenceDate, true),
         ]
 
         for (offset, scenario) in scenarios.enumerated() {
@@ -66,7 +70,10 @@ struct RepoExplorerRenderedEqualityTests {
             )
             let publication = try await publishedResult(generation: generation, from: adapter)
 
-            #expect(publication.materializedRevision == previousRevision + 1)
+            #expect(
+                publication.materializedRevision
+                    == previousRevision + (scenario.advances ? 1 : 0)
+            )
             previousRevision = publication.materializedRevision
         }
     }

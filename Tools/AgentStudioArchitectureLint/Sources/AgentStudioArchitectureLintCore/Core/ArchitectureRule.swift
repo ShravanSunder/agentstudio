@@ -63,6 +63,7 @@ enum ArchitectureRuleRegistry {
         GenericClockSleepRule(),
         TestTaskSleepRule(),
         TestPollingWaitRule(),
+        ForbiddenTestWaitRule(),
         TestBlockingWaitOffCooperativePoolRule(),
         TestElapsedTimeBudgetRule(),
         TestCoreAtomFallbackOwnershipRule(),

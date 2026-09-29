@@ -353,7 +353,8 @@ extension RepoExplorerProjectionDemandTests {
             #expect(
                 fixture.adapter.publishedResult?.repositoryActivityTransitionAtByRepoId.isEmpty == true
             )
-            #expect(fixture.adapter.recencyDeadlineTask == nil)
+            await fixture.adapter.waitForDeadlineWorkerUpdate()
+            #expect(await fixture.adapter.deadlineWorker.hasPendingPresentationDeadline() == false)
             #expect(!fixture.adapter.observationTokens.contains(.activityHydration))
             #expect(
                 !fixture.adapter.observationTokens.contains {

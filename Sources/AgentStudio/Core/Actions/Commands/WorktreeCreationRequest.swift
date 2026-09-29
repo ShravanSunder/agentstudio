@@ -1,10 +1,12 @@
 import AgentStudioWorktreeOperations
 import Foundation
 
-/// The two creation operations reached from the New Worktree submenu.
+/// Creation operations reached from the New Worktree submenu.
 package enum WorktreeCreationKind: Equatable, Sendable {
     /// `git worktree add` from the repository's default branch.
     case fromDefault
+    /// `git worktree add` from a selected local branch reference.
+    case fromBranch(referenceName: String)
     /// APFS copy-on-write fork carrying uncommitted, untracked, and ignored files.
     case fork
 
@@ -19,12 +21,13 @@ package enum WorktreeCreationKind: Equatable, Sendable {
     package var command: AppCommand {
         switch self {
         case .fromDefault: .newWorktreeFromDefault
+        case .fromBranch: .newWorktreeFromBranch
         case .fork: .forkWorktree
         }
     }
 }
 
-/// The target is a repository for From Default and a source worktree for Fork.
+/// The target is a repository for branch creation and a source worktree for Fork.
 package struct WorktreeCreationRequest: Equatable, Sendable {
     package let kind: WorktreeCreationKind
     package let targetId: UUID
@@ -38,7 +41,7 @@ package struct WorktreeCreationRequest: Equatable, Sendable {
 
     package var targetType: SearchItemType {
         switch kind {
-        case .fromDefault: .repo
+        case .fromDefault, .fromBranch: .repo
         case .fork: .worktree
         }
     }

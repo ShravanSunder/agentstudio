@@ -54,7 +54,7 @@ struct CommandBarPaneSearchTests {
     }
 
     @Test
-    func panesScopeSearchFiltersPaneByRepoNameAndTabName() {
+    func panesScopeSearchFiltersPaneByRepoNameAndTabName() async {
         let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/filter-repo-name"))
         let worktree = Worktree(
@@ -87,14 +87,10 @@ struct CommandBarPaneSearchTests {
             dispatcher: FakeAppCommandDispatcher()
         )
 
-        #expect(
-            CommandBarSearch.filter(items: items, query: "filter-repo-name").contains {
-                $0.id == "pane-\(pane.id.uuidString)"
-            })
-        #expect(
-            CommandBarSearch.filter(items: items, query: "Operations").contains {
-                $0.id == "pane-\(pane.id.uuidString)"
-            })
+        let repositoryMatches = await searchCommandBarItemIds(items, query: "filter-repo-name")
+        let tabMatches = await searchCommandBarItemIds(items, query: "Operations")
+        #expect(repositoryMatches.contains("pane-\(pane.id.uuidString)"))
+        #expect(tabMatches.contains("pane-\(pane.id.uuidString)"))
     }
 
     @Test("$ pane scope searches pane notes")

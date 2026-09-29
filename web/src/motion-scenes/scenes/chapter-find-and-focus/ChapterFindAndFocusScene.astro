@@ -71,6 +71,16 @@ const sceneRootAttributes = { [sceneRootAttribute]: "chapter-find-and-focus" };
     position: relative;
   }
 
+  .scene-find-and-focus .kit-terminal [data-line-kind="shell-prompt"] {
+    font-size: 0.7em;
+  }
+
+  @container recreation-kit (max-width: 600px) {
+    .scene-find-and-focus .kit-terminal [data-line-kind="shell-prompt"] {
+      font-size: 1em;
+    }
+  }
+
   .scene-find-and-focus .scene-find-and-focus__yielding {
     flex-grow: calc(1 - var(--scene-zoom));
     /* Each yielding pane gives back half of the pane gap on either side. */

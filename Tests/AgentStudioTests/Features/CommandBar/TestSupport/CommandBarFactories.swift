@@ -42,6 +42,7 @@ func makeCommandBarItem(
         group: group,
         groupPriority: groupPriority,
         keywords: keywords,
+        searchFields: keywords + [subtitle].compactMap(\.self),
         hasChildren: hasChildren,
         action: resolvedAction
     )

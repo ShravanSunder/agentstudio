@@ -169,7 +169,8 @@ enum WorkspaceLocalRepositoryStorage {
                 repoSubgroupMode: .ungrouped,
                 paneSubgroupMode: .activity,
                 showsPinnedRepos: true,
-                showsPinnedPanes: true
+                showsPinnedPanes: true,
+                showsDrawerPanes: true
             )
         try database.execute(
             sql: """
@@ -177,7 +178,8 @@ enum WorkspaceLocalRepositoryStorage {
                 SET filter_text = ?, is_filter_visible = ?, sidebar_collapsed = ?,
                     sidebar_surface = ?, repos_grouping_mode = ?, panes_grouping_mode = ?,
                     repos_subgroup_mode = ?, panes_subgroup_mode = ?,
-                    repos_shows_pinned = ?, panes_shows_pinned = ?, updated_at = ?
+                    repos_shows_pinned = ?, panes_shows_pinned = ?,
+                    panes_shows_drawers = ?, updated_at = ?
                 WHERE window_id = ?
                 """,
             arguments: [
@@ -191,6 +193,7 @@ enum WorkspaceLocalRepositoryStorage {
                 sidebarState.paneSubgroupMode.rawValue,
                 sidebarState.showsPinnedRepos ? 1 : 0,
                 sidebarState.showsPinnedPanes ? 1 : 0,
+                sidebarState.showsDrawerPanes ? 1 : 0,
                 updatedAt.timeIntervalSince1970,
                 windowId,
             ]
