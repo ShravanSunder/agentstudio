@@ -106,7 +106,7 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		]).toEqual([0, 1]);
 	});
 
-	test('submits changed session demand through Comment scope before the next certified body read', async () => {
+	test('submits changed session scope and fetches newly demanded content before the next catalog install', async () => {
 		const harness = await createHarness({ pages: await makeProjectionPages(1, 8) });
 		harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
 		harness.controller.ensureSubscription();
@@ -121,10 +121,10 @@ describe('Bridge comm worker annotation projection query controller', () => {
 			subscriptionId: 'file-annotation-notifications',
 			worktreeId: 'worktree-annotations-1',
 		});
-		expect(harness.querySessionIds).toEqual([[]]);
+		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
 		harness.notifications.installCatalog(101);
 		await harness.controller.waitForIdle();
-		expect(harness.querySessionIds).toEqual([[], [], [sessionId]]);
+		expect(harness.querySessionIds).toEqual([[], [sessionId], [], [sessionId]]);
 	});
 
 	test('a failed successor Comment demand publishes unavailable without reopening E3', async () => {
@@ -240,10 +240,10 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
 		await harness.controller.waitForIdle();
 		expect(harness.scopeUpdates.at(-1)?.sessionIds).toEqual([sessionId]);
-		expect(harness.querySessionIds).toEqual([[]]);
+		expect(harness.querySessionIds).toEqual([[], [sessionId]]);
 		harness.notifications.installCatalog(10, 2);
 		await harness.controller.waitForIdle();
-		expect(harness.querySessionIds).toEqual([[], [], [sessionId]]);
+		expect(harness.querySessionIds).toEqual([[], [sessionId], [], [sessionId]]);
 		expect(harness.publications.at(-1)?.contentSessionIds).toEqual([sessionId]);
 	});
 

@@ -253,9 +253,14 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 
 	setDemand(demand: BridgeCommWorkerAnnotationProjectionDemand): void {
 		if (this.#disposed) return;
+		const previousSessionIds = this.#sessionIds;
 		const previousSessionSignature = JSON.stringify(this.#sessionIds);
 		this.#sessionIds = [...new Set(demand.sessionIds)].toSorted();
 		const sessionDemandChanged = JSON.stringify(this.#sessionIds) !== previousSessionSignature;
+		const previousSessionIdSet = new Set(previousSessionIds);
+		const newlyDemandedSessionIds = this.#sessionIds.filter(
+			(sessionId) => !previousSessionIdSet.has(sessionId),
+		);
 		const previousSourceGeneration = this.#sourceGeneration;
 		const previousReviewPublicationIdentity = JSON.stringify(this.#reviewPublicationIdentity);
 		this.#sourceGeneration = demand.sourceGeneration;
@@ -287,6 +292,28 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		}
 		if (sessionDemandChanged) this.#submitCurrentCommentScope();
 		if (nextActive && this.#subscription === null) this.ensureSubscription();
+		const installedCatalog = this.#installedCatalog;
+		const initialControlReadStillRunning =
+			this.#invalidation?.queryKind === 'control' &&
+			(this.#queryLoop !== null || this.#scheduledQueryStart !== null);
+		if (
+			nextActive &&
+			!becameActive &&
+			!presentationAuthorityChanged &&
+			!initialControlReadStillRunning &&
+			this.#sourceGeneration !== null &&
+			installedCatalog !== null &&
+			this.#subscription?.subscriptionId === installedCatalog.authority.subscriptionId &&
+			newlyDemandedSessionIds.length > 0
+		) {
+			this.#admitProjectionInvalidation({
+				operationCorrelationId: nextCommentProjectionCorrelation(installedCatalog.transferId),
+				queryKind: 'content',
+				sessionIds: newlyDemandedSessionIds,
+				sourceGeneration: this.#sourceGeneration,
+				worktreeId: installedCatalog.authority.worktreeId,
+			});
+		}
 		if (becameActive || this.#invalidationGeneration > this.#lastAttemptedGeneration) {
 			this.#scheduleQueryLoop();
 		}

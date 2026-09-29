@@ -6,6 +6,48 @@ import Testing
 @MainActor
 @Suite("Review metadata scope update during publication")
 struct BridgeReviewMetadataInterestPublicationRaceTests {
+    @Test("A to B to A demand retains current Review content descriptors without inventory churn")
+    func returningDemandSeesCurrentDescriptors() async throws {
+        let admission = try BridgeProductAdmissionTestContext.make()
+        let source = BridgePaneProductReviewMetadataSource()
+        let package = makeReviewPackage(itemCount: 2)
+        let firstItemID = try #require(package.orderedItemIds.first)
+        let secondItemID = try #require(package.orderedItemIds.last)
+        try await source.open(subscription: reviewSubscription(), productAdmission: admission.context)
+        _ = try await deliverReviewPackage(package, through: source, productAdmission: admission.context)
+
+        let firstCapture = try #require(
+            try await applyReviewViewDemand(
+                through: source, scopeRevision: 1, itemIds: [firstItemID],
+                productAdmission: admission.context
+            )
+        )
+        let secondCapture = try #require(
+            try await applyReviewViewDemand(
+                through: source, scopeRevision: 2, itemIds: [secondItemID],
+                productAdmission: admission.context
+            )
+        )
+        let returnCapture = try #require(
+            try await applyReviewViewDemand(
+                through: source, scopeRevision: 3, itemIds: [firstItemID],
+                productAdmission: admission.context
+            )
+        )
+
+        for capture in [firstCapture, secondCapture, returnCapture] {
+            #expect(capture.snapshot.items.map(\.record.itemId) == package.orderedItemIds)
+        }
+        let firstContent = try #require(
+            firstCapture.snapshot.items.first { $0.record.itemId == firstItemID }?.record.contentByRole
+        )
+        let returningContent = try #require(
+            returnCapture.snapshot.items.first { $0.record.itemId == firstItemID }?.record.contentByRole
+        )
+        #expect(returningContent == firstContent)
+        await source.cancel(subscriptionId: "review-subscription-1")
+    }
+
     @Test("a stale scope cannot strand a committed Review successor")
     func staleScopeAfterSuccessorPreservesCompletePublication() async throws {
         let admission = try BridgeProductAdmissionTestContext.make()
