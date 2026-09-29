@@ -131,6 +131,11 @@ export class TestProductServer {
 		readonly resolve: (request: BridgeProductControlRequest) => void;
 		readonly reject: (error: Error) => void;
 	}[] = [];
+	readonly #matchingControlRequestWaiters: {
+		readonly matches: (request: BridgeProductControlRequest) => boolean;
+		readonly resolve: (request: BridgeProductControlRequest) => void;
+		readonly reject: (error: Error) => void;
+	}[] = [];
 
 	constructor() {
 		void this.#shutdownSignal.promise.catch((): void => {});
@@ -277,6 +282,16 @@ export class TestProductServer {
 		});
 	}
 
+	waitForControlRequestWhere(
+		matches: (request: BridgeProductControlRequest) => boolean,
+	): Promise<BridgeProductControlRequest> {
+		const existing = this.controlRequests.find(matches);
+		if (existing !== undefined) return Promise.resolve(existing);
+		return new Promise((resolve, reject) => {
+			this.#matchingControlRequestWaiters.push({ matches, resolve, reject });
+		});
+	}
+
 	shutdown(): void {
 		if (this.#closed) return;
 		this.#closed = true;
@@ -285,6 +300,9 @@ export class TestProductServer {
 		}
 		for (const waiter of this.#controlRequestWaiters.splice(0)) {
 			waiter.reject(new Error('Test metadata server shut down before control arrived.'));
+		}
+		for (const waiter of this.#matchingControlRequestWaiters.splice(0)) {
+			waiter.reject(new Error('Test metadata server shut down before matching control arrived.'));
 		}
 		this.#shutdownSignal.reject(new Error('Test product server is closed.'));
 		this.releaseHeldSubscriptionOpen();
@@ -351,6 +369,16 @@ export class TestProductServer {
 		}
 		const request = bridgeProductControlRequestSchema.parse(body);
 		this.controlRequests.push(request);
+		for (const waiter of this.#matchingControlRequestWaiters.filter((candidate) =>
+			candidate.matches(request),
+		)) {
+			waiter.resolve(request);
+		}
+		this.#matchingControlRequestWaiters.splice(
+			0,
+			this.#matchingControlRequestWaiters.length,
+			...this.#matchingControlRequestWaiters.filter((candidate) => !candidate.matches(request)),
+		);
 		for (const waiter of this.#controlRequestWaiters.filter(
 			(candidate) => candidate.kind === request.kind,
 		)) {
@@ -419,6 +447,8 @@ export class TestProductServer {
 			workerInstanceId: request.workerInstanceId,
 		};
 		switch (request.kind) {
+			case 'workerSession.open':
+				return jsonResponse({ ...identity, kind: 'workerSession.accepted', result: null });
 			case 'product.call':
 				return jsonResponse({
 					...identity,
@@ -475,8 +505,6 @@ export class TestProductServer {
 			case 'workerSession.resync':
 				if (this.resyncHandler !== null) return await this.resyncHandler(request);
 				return jsonResponse(validatedRetainedResyncResponse(request, identity));
-			case 'workerSession.open':
-				throw new Error(`Unexpected control request ${request.kind}.`);
 		}
 		return assertNeverControlRequest(request);
 	}

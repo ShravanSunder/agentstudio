@@ -293,9 +293,6 @@ function bridgeCommWorkerEntryDependencies(
 				...(input.publishSessionSuspect === undefined
 					? {}
 					: { onSessionSuspect: input.publishSessionSuspect }),
-				...(input.publishViewRecoveryStatus === undefined
-					? {}
-					: { onViewRecoveryStatus: input.publishViewRecoveryStatus }),
 			});
 			return {
 				open: authority.open,
@@ -304,6 +301,9 @@ function bridgeCommWorkerEntryDependencies(
 					controlMux,
 					executeProductRequest: props.executeProductRequest,
 					metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
+					...(input.publishViewRecoveryStatus === undefined
+						? {}
+						: { onViewRecoveryStatus: input.publishViewRecoveryStatus }),
 					...(props.maximumConcurrentContentResponses === undefined
 						? {}
 						: {

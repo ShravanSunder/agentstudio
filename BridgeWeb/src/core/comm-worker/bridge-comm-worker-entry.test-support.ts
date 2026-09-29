@@ -1,21 +1,35 @@
+import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from './bridge-comm-worker-protocol.js';
+import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeProductReviewContentDescriptor } from './bridge-product-content-contracts.js';
+import {
+	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
+	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
+	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+	BRIDGE_PRODUCT_WIRE_VERSION,
+} from './bridge-product-contract-primitives.js';
 import {
 	bridgeProductOperationResultAcknowledgementSchema,
 	bridgeProductOperationResultRequestSchema,
 } from './bridge-product-operation-wire-contracts.js';
 import {
+	bridgePaneCommWorkerInstallSchema,
 	bridgeProductControlRequestSchema,
 	bridgeProductMetadataStreamRequestSchema,
+	type BridgePaneCommWorkerInstall,
 	type BridgeProductControlRequest,
 	type BridgeProductMetadataStreamRequest,
 } from './bridge-product-session-contracts.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
-import type {
-	BridgeCommWorkerBootstrapRequest,
-	BridgeWorkerReviewDisplayPatch,
-	BridgeWorkerReviewPublicationIdentity,
-	BridgeWorkerReviewRenderSemantics,
-	BridgeWorkerServerToMainMessage,
+import {
+	type BridgeCommWorkerBootstrapRequest,
+	type BridgeWorkerReviewDisplayPatch,
+	type BridgeWorkerReviewPublicationIdentity,
+	type BridgeWorkerReviewRenderSemantics,
+	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 
@@ -52,6 +66,57 @@ export function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstr
 	};
 }
 
+export function makePaneWorkerInstall(
+	productPort: MessagePort,
+	telemetryPreReadyBufferMaxSamples = 128,
+): BridgePaneCommWorkerInstall {
+	return bridgePaneCommWorkerInstallSchema.parse({
+		bootstrap: {
+			kind: 'productSession.bootstrap',
+			paneSessionId: 'pane-session-1',
+			policy: {
+				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
+				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
+				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
+				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
+				admissionRetryCount: 2,
+				contentProgressDeadlineMilliseconds: 5_000,
+				viewBatchProgressDeadlineMilliseconds: 5_000,
+				streamKeepaliveIntervalMilliseconds: 350,
+				telemetryPreReadyBufferMaxBytes: 64 * 1024,
+				telemetryPreReadyBufferMaxSamples,
+				workerSettlementDeadlineMilliseconds: 5_000,
+				viewAcknowledgementDeadlineMilliseconds: 4_000,
+				viewCreditBytes: 524_288,
+				viewCreditParts: 8,
+				viewMaximumConsecutiveResnapshots: 3,
+				viewMaximumDirtyKeys: 4_096,
+				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
+				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
+			},
+			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
+			workerInstanceId: 'worker-instance-1',
+		},
+		kind: 'bridgePaneCommWorker.install',
+		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
+		productPort,
+	});
+}
+
+export function fileActiveViewerModeUpdate(requestLabel: string, epoch: number): unknown {
+	return encodeBridgeWorkerActiveViewerModeUpdateCommand({
+		epoch,
+		requestId: `request-file-mode-${requestLabel}`,
+		update: {
+			activeSource: null,
+			mode: 'file',
+			nativeSelectionRequestId: null,
+			sequence: epoch,
+			sessionId: `file-mode-${requestLabel}-session`,
+		},
+	});
+}
+
 export function makeReviewContentDescriptor(props: {
 	readonly role: BridgeProductReviewContentDescriptor['role'];
 	readonly text: string;
@@ -81,6 +146,40 @@ export function makeReviewContentDescriptor(props: {
 		sourceIdentity: 'source-1',
 		wholeByteLength: byteLength,
 		window: { kind: 'byteRange', maximumBytes: byteLength, startByte: 0 },
+	};
+}
+
+export function makeReviewContentRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {
+	return {
+		contentItems: [
+			{
+				itemId: 'item-1',
+				path: 'Sources/App/item-1.swift',
+				language: 'swift',
+				cacheKey: 'item-1:base|item-1:head',
+				sizeBytes: 104,
+				availableContentRoles: ['base', 'head'],
+				contentLineCountsByRole: { base: 10, head: 12 },
+			},
+		],
+		contentRequestDescriptors: [
+			makeReviewContentDescriptor({ role: 'base', text: 'base body' }),
+			makeReviewContentDescriptor({ role: 'head', text: 'head body' }),
+		],
+		renderSemantics: [
+			{
+				basePath: 'Sources/App/item-1.swift',
+				changeKind: 'modified',
+				contentLineCountsByRole: { base: 1, head: 1 },
+				displayPath: 'Sources/App/item-1.swift',
+				headPath: 'Sources/App/item-1.swift',
+				itemId: 'item-1',
+				itemKind: 'diff',
+				language: 'swift',
+			},
+		],
+		reviewPublicationIdentity: makeReviewPublicationIdentity(),
+		rows: [{ id: 'item-1', parentId: null, index: 0 }],
 	};
 }
 

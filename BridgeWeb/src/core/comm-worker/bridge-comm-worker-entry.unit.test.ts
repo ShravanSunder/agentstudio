@@ -6,18 +6,15 @@ import {
 	type BridgeCommWorkerPort,
 	bootstrapBridgeCommWorkerEntry,
 	type BridgeCommWorkerInstalledProductSession,
-	createBridgeCommWorkerScopePortAdapter,
-	postPreparedBridgeCommWorkerMessage,
 	registerBridgeCommWorkerEntry,
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
 import {
 	createEntryProductRequestRecorder,
+	fileActiveViewerModeUpdate,
 	makeCompletedReviewContentStream,
-	makeFetchedReviewContentResource,
-	makeReviewContentDescriptor,
-	makeReviewPublicationIdentity,
-	makeRenderSemantics,
+	makePaneWorkerInstall,
+	makeReviewContentRuntimeSource,
 	makeBootstrapRequest,
 	readyHealth,
 } from './bridge-comm-worker-entry.test-support.js';
@@ -26,38 +23,28 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerSelectCommand,
 } from './bridge-comm-worker-protocol.js';
-import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
 	createIdleWorktreeAnnotationSubscription,
 	createBridgeCommWorkerReviewProductTestSource,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
-import {
-	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-	BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
-	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
-	BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
-	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
-	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
-	BRIDGE_PRODUCT_WIRE_VERSION,
-} from './bridge-product-contract-primitives.js';
+import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
+import { BRIDGE_PRODUCT_WIRE_VERSION } from './bridge-product-contract-primitives.js';
 import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
-import {
-	bridgePaneCommWorkerInstallSchema,
-	bridgeProductControlRequestSchema,
-	type BridgePaneCommWorkerInstall,
-} from './bridge-product-session-contracts.js';
+import { bridgeProductControlRequestSchema } from './bridge-product-session-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerServerToMainMessageSchema,
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerViewRecoveryStatusEvent,
-	bridgeWorkerServerToMainMessageSchema,
 } from './bridge-worker-contracts.js';
-import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
-import { prepareBridgeWorkerReviewContentRenderJobEvent } from './bridge-worker-review-content-ready.js';
+import {
+	metadataAccepted,
+	subscriptionAccepted,
+	TestProductServer,
+} from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
 interface PostedBridgeWorkerMessage {
 	readonly message: BridgeWorkerServerToMainMessage;
@@ -76,22 +63,6 @@ interface InstalledBridgeCommWorkerEntryHarness {
 
 const activeInstalledEntryHarnesses = new Set<InstalledBridgeCommWorkerEntryHarness>();
 
-function assertPreparedEntryPostRejectsSyntheticMessages(port: BridgeCommWorkerPort): void {
-	const syntheticPreparedMessage = {
-		message: {
-			kind: 'pierreRenderJob',
-			transferDescriptors: [],
-		},
-		transferList: [],
-	};
-	// @ts-expect-error Entry posting accepts only schema-derived server-to-main worker DTOs.
-	postPreparedBridgeCommWorkerMessage(port, syntheticPreparedMessage);
-}
-
-function assertBrowserMessagePortMatchesEntryPort(port: MessagePort): BridgeCommWorkerPort {
-	return port;
-}
-
 describe('Bridge comm worker entry', () => {
 	afterEach(() => {
 		for (const harness of activeInstalledEntryHarnesses) {
@@ -99,139 +70,6 @@ describe('Bridge comm worker entry', () => {
 		}
 		vi.restoreAllMocks();
 		vi.useRealTimers();
-	});
-
-	test('posts prepared review content-ready worker messages as structured CodeView payloads', () => {
-		const postedMessages: PostedBridgeWorkerMessage[] = [];
-		const port: BridgeCommWorkerPort = {
-			postMessage: (
-				message: BridgeWorkerServerToMainMessage,
-				transferList?: Transferable[],
-			): void => {
-				postedMessages.push({ message, transferList });
-			},
-			addEventListener: (): void => {},
-		};
-		const preparedMessage = prepareBridgeWorkerReviewContentRenderJobEvent({
-			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			budget: {
-				className: 'interactive',
-				maxBytes: 512 * 1024,
-				maxWindowLines: 50,
-			},
-			publicationSequence: 1,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
-				itemId: 'item-1',
-				publicationSequence: 1,
-				surface: 'review',
-				workerDerivationEpoch: 1,
-			}),
-			reviewPublicationIdentity: makeReviewPublicationIdentity(),
-			resources: [
-				makeFetchedReviewContentResource({
-					contentHash: 'sha256:item-1:base',
-					role: 'base',
-					text: 'base content\n',
-				}),
-				makeFetchedReviewContentResource({
-					contentHash: 'sha256:item-1:head',
-					role: 'head',
-					text: 'head content\n',
-				}),
-			],
-			semantics: makeRenderSemantics(),
-			workerDerivationEpoch: 1,
-		});
-		if (preparedMessage === null) {
-			throw new Error('Expected review content-ready render job.');
-		}
-
-		postPreparedBridgeCommWorkerMessage(port, preparedMessage);
-
-		expect(postedMessages).toEqual([
-			{
-				message: preparedMessage.message,
-				transferList: [],
-			},
-		]);
-		expect(postedMessages[0]?.transferList).not.toBe(preparedMessage.transferList);
-		expect(preparedMessage.message.job.payload.kind).toBe('codeViewDiffItem');
-		expect(preparedMessage.message.transferDescriptors).toEqual([
-			{
-				messageKind: 'reviewPierreRenderJob',
-				fieldPath: ['job', 'payload'],
-				byteLength: preparedMessage.message.job.payloadByteLength,
-				mode: 'clone',
-			},
-		]);
-		expect(typeof assertPreparedEntryPostRejectsSyntheticMessages).toBe('function');
-		expect(typeof assertBrowserMessagePortMatchesEntryPort).toBe('function');
-	});
-
-	test('forwards structured prepared messages through the worker scope adapter', () => {
-		const postedMessages: PostedBridgeWorkerMessage[] = [];
-		const scope = {
-			postMessage: (
-				message: BridgeWorkerServerToMainMessage,
-				transferList?: Transferable[],
-			): void => {
-				postedMessages.push({ message, transferList });
-			},
-			addEventListener: (): void => {},
-		};
-		const preparedMessage = prepareBridgeWorkerReviewContentRenderJobEvent({
-			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			budget: {
-				className: 'interactive',
-				maxBytes: 512 * 1024,
-				maxWindowLines: 50,
-			},
-			publicationSequence: 1,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
-				itemId: 'item-1',
-				publicationSequence: 1,
-				surface: 'review',
-				workerDerivationEpoch: 1,
-			}),
-			reviewPublicationIdentity: makeReviewPublicationIdentity(),
-			resources: [
-				makeFetchedReviewContentResource({
-					contentHash: 'sha256:item-1:file',
-					role: 'file',
-					text: 'file content\n',
-				}),
-			],
-			semantics: makeRenderSemantics({
-				changeKind: 'modified',
-				contentLineCountsByRole: { file: 80 },
-				itemKind: 'file',
-			}),
-			workerDerivationEpoch: 1,
-		});
-		if (preparedMessage === null) {
-			throw new Error('Expected review content-ready render job.');
-		}
-
-		postPreparedBridgeCommWorkerMessage(
-			createBridgeCommWorkerScopePortAdapter(scope),
-			preparedMessage,
-		);
-
-		expect(postedMessages).toEqual([
-			{
-				message: preparedMessage.message,
-				transferList: [],
-			},
-		]);
-		expect(preparedMessage.message.job.payload.kind).toBe('codeViewFileItem');
-		expect(preparedMessage.message.transferDescriptors).toEqual([
-			{
-				messageKind: 'reviewPierreRenderJob',
-				fieldPath: ['job', 'payload'],
-				byteLength: preparedMessage.message.job.payloadByteLength,
-				mode: 'clone',
-			},
-		]);
 	});
 
 	test('preserves inert ready health replies on the one-argument post path', () => {
@@ -391,6 +229,81 @@ describe('Bridge comm worker entry', () => {
 			expect(harness.globalPostedMessages).toEqual([]);
 		} finally {
 			harness.close();
+		}
+	});
+
+	test('real worker entry publishes W2 budget exhaustion on the product port', async () => {
+		const server = new TestProductServer();
+		vi.spyOn(globalThis, 'fetch').mockImplementation(server.fetch);
+		const globalPort = createRecordingBridgeCommWorkerPort();
+		const productChannel = new MessageChannel();
+		const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
+		registerBridgeCommWorkerEntry(globalPort.dispatch.port, {
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
+		});
+		globalPort.dispatch.message(makePaneWorkerInstall(productChannel.port1));
+		try {
+			productPort.postMessage(makeBootstrapRequest('recovery-bootstrap'));
+			await productPort.waitForCount(1);
+			productPort.postMessage(fileActiveViewerModeUpdate('recovery', 1));
+			const stream = await server.waitForMetadataStreamOpened();
+			server.emitMetadata(metadataAccepted(stream, 0));
+			const open = await server.waitForControlRequestWhere(
+				(request) =>
+					request.kind === 'subscription.open' &&
+					request.subscription.subscriptionKind === 'file.metadata',
+			);
+			if (open.kind !== 'subscription.open') throw new Error('Expected File subscription opening.');
+			expect(open.subscription.subscriptionKind).toBe('file.metadata');
+			server.emitMetadata(
+				subscriptionAccepted({
+					epoch: open.workerDerivationEpoch,
+					kind: 'file.metadata',
+					request: stream,
+					streamSequence: 1,
+					subscriptionId: open.subscriptionId,
+				}),
+			);
+			const scope = await server.waitForControlRequestWhere(
+				(request) =>
+					request.kind === 'subscription.setScope' &&
+					request.subscriptionId === open.subscriptionId,
+			);
+			if (scope.kind !== 'subscription.setScope') throw new Error('Expected File scope.');
+			expect(scope.subscriptionKind).toBe('file.metadata');
+			const recoveryStatus = productPort.waitForViewRecoveryStatus('failedRetryable');
+			for (let index = 0; index < 4; index += 1) {
+				server.emitMetadata(
+					bridgeProductBatchFrameSchema.parse({
+						baseRevision: 0,
+						batchId: `entry-recovery-${index}`,
+						domain: scope.domain,
+						handle: scope.handle,
+						incarnation: scope.incarnation,
+						kind: 'subscription.batchBegin',
+						metadataStreamId: stream.metadataStreamId,
+						mode: 'snapshot',
+						paneSessionId: stream.paneSessionId,
+						partCount: 0,
+						scope: scope.scope,
+						scopeRevision: scope.scopeRevision,
+						streamSequence: index + 2,
+						subscriptionId: open.subscriptionId,
+						subscriptionKind: 'file.metadata',
+						targetRevision: 1,
+						wireVersion: stream.wireVersion,
+						workerInstanceId: stream.workerInstanceId,
+					}),
+				);
+			}
+			expect(await recoveryStatus).toMatchObject({
+				status: 'failedRetryable',
+				view: { kind: 'file.metadata', subscriptionId: open.subscriptionId },
+			});
+		} finally {
+			server.shutdown();
+			productPort.close();
+			productChannel.port1.close();
 		}
 	});
 
@@ -822,6 +735,10 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 class BridgeWorkerMessagePortRecorder {
 	readonly #messages: BridgeWorkerServerToMainMessage[] = [];
 	readonly #port: MessagePort;
+	readonly #messageWaiters: Array<{
+		readonly matches: (message: BridgeWorkerServerToMainMessage) => boolean;
+		readonly resolve: (message: BridgeWorkerServerToMainMessage) => void;
+	}> = [];
 	readonly #waiters: Array<{
 		readonly count: number;
 		readonly resolve: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
@@ -830,7 +747,16 @@ class BridgeWorkerMessagePortRecorder {
 	constructor(port: MessagePort) {
 		this.#port = port;
 		this.#port.addEventListener('message', (event: MessageEvent<unknown>): void => {
-			this.#messages.push(bridgeWorkerServerToMainMessageSchema.parse(event.data));
+			const message = bridgeWorkerServerToMainMessageSchema.parse(event.data);
+			this.#messages.push(message);
+			for (const waiter of this.#messageWaiters.filter((candidate) => candidate.matches(message))) {
+				waiter.resolve(message);
+			}
+			this.#messageWaiters.splice(
+				0,
+				this.#messageWaiters.length,
+				...this.#messageWaiters.filter((candidate) => !candidate.matches(message)),
+			);
 			this.#resolveWaiters();
 		});
 		this.#port.start();
@@ -841,11 +767,26 @@ class BridgeWorkerMessagePortRecorder {
 	}
 
 	waitForCount(count: number): Promise<readonly BridgeWorkerServerToMainMessage[]> {
-		if (this.#messages.length >= count) {
-			return Promise.resolve([...this.#messages]);
-		}
+		if (this.#messages.length >= count) return Promise.resolve([...this.#messages]);
 		return new Promise((resolve): void => {
 			this.#waiters.push({ count, resolve });
+		});
+	}
+
+	waitForViewRecoveryStatus(
+		status: BridgeWorkerViewRecoveryStatusEvent['status'],
+	): Promise<BridgeWorkerViewRecoveryStatusEvent> {
+		const matches = (message: BridgeWorkerServerToMainMessage): boolean =>
+			message.kind === 'viewRecoveryStatus' && message.status === status;
+		const existing = this.#messages.find(matches);
+		if (existing?.kind === 'viewRecoveryStatus') return Promise.resolve(existing);
+		return new Promise((resolve): void => {
+			this.#messageWaiters.push({
+				matches,
+				resolve: (message): void => {
+					if (message.kind === 'viewRecoveryStatus') resolve(message);
+				},
+			});
 		});
 	}
 
@@ -906,90 +847,5 @@ function createRecordingBridgeCommWorkerPort(): {
 		},
 		postedMessages,
 		started: (): boolean => didStart,
-	};
-}
-
-function makePaneWorkerInstall(
-	productPort: MessagePort,
-	telemetryPreReadyBufferMaxSamples = 128,
-): BridgePaneCommWorkerInstall {
-	return bridgePaneCommWorkerInstallSchema.parse({
-		bootstrap: {
-			kind: 'productSession.bootstrap',
-			paneSessionId: 'pane-session-1',
-			policy: {
-				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
-				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
-				maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
-				maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
-				admissionRetryCount: 2,
-				contentProgressDeadlineMilliseconds: 5_000,
-				viewBatchProgressDeadlineMilliseconds: 5_000,
-				streamKeepaliveIntervalMilliseconds: 350,
-				telemetryPreReadyBufferMaxBytes: 64 * 1024,
-				telemetryPreReadyBufferMaxSamples,
-				workerSettlementDeadlineMilliseconds: 5_000,
-				viewAcknowledgementDeadlineMilliseconds: 4_000,
-				viewCreditBytes: 524_288,
-				viewCreditParts: 8,
-				viewMaximumConsecutiveResnapshots: 3,
-				viewMaximumDirtyKeys: 4_096,
-				maximumQueuedStreamFrames: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_FRAMES,
-				terminalFrameReserve: BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
-			},
-			wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
-			workerInstanceId: 'worker-instance-1',
-		},
-		kind: 'bridgePaneCommWorker.install',
-		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
-		productPort,
-	});
-}
-
-function fileActiveViewerModeUpdate(requestLabel: string, epoch: number): unknown {
-	return encodeBridgeWorkerActiveViewerModeUpdateCommand({
-		epoch,
-		requestId: `request-file-mode-${requestLabel}`,
-		update: {
-			activeSource: null,
-			mode: 'file',
-			nativeSelectionRequestId: null,
-			sequence: epoch,
-			sessionId: `file-mode-${requestLabel}-session`,
-		},
-	});
-}
-
-function makeReviewContentRuntimeSource(): BridgeCommWorkerReviewRuntimeSource {
-	return {
-		contentItems: [
-			{
-				itemId: 'item-1',
-				path: 'Sources/App/item-1.swift',
-				language: 'swift',
-				cacheKey: 'item-1:base|item-1:head',
-				sizeBytes: 104,
-				availableContentRoles: ['base', 'head'],
-				contentLineCountsByRole: { base: 10, head: 12 },
-			},
-		],
-		contentRequestDescriptors: [
-			makeReviewContentDescriptor({ role: 'base', text: 'base body' }),
-			makeReviewContentDescriptor({ role: 'head', text: 'head body' }),
-		],
-		renderSemantics: [
-			{
-				basePath: 'Sources/App/item-1.swift',
-				changeKind: 'modified',
-				contentLineCountsByRole: { base: 1, head: 1 },
-				displayPath: 'Sources/App/item-1.swift',
-				headPath: 'Sources/App/item-1.swift',
-				itemId: 'item-1',
-				itemKind: 'diff',
-				language: 'swift',
-			},
-		],
-		reviewPublicationIdentity: makeReviewPublicationIdentity(),
-		rows: [{ id: 'item-1', parentId: null, index: 0 }],
 	};
 }
