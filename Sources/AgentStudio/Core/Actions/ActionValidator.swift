@@ -1,4 +1,5 @@
 // swiftlint:disable cyclomatic_complexity function_body_length
+import AgentStudioInfrastructure
 import Foundation
 
 /// Wrapper that proves an action has passed validation.
@@ -466,7 +467,7 @@ package enum WorkspaceCommandValidator {
         case .addDrawerChildInBackground(let parentPaneId, let childPaneId, _):
             guard state.tabOwning(paneId: parentPaneId) != nil, state.drawerParentPaneId(of: parentPaneId) == nil
             else {
-                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUIDv7.generate()))
             }
             guard !state.knownPaneIds.contains(childPaneId) else {
                 return .failure(.paneAlreadyInLayout(paneId: childPaneId))
@@ -479,7 +480,7 @@ package enum WorkspaceCommandValidator {
             // The named child must belong to the named parent; otherwise the
             // discard would silently do nothing and still report applied.
             guard state.drawerParentPaneId(of: drawerPaneId) == parentPaneId else {
-                return .failure(.paneNotFound(paneId: drawerPaneId, tabId: state.activeTabId ?? UUID()))
+                return .failure(.paneNotFound(paneId: drawerPaneId, tabId: state.activeTabId ?? UUIDv7.generate()))
             }
             return .success(ValidatedAction(action))
         case .toggleDrawer(let parentPaneId):

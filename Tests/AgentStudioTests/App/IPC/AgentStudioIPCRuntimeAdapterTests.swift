@@ -277,7 +277,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
                     seq: 1,
                     timestamp: ContinuousClock.now,
                     correlationId: nil,
-                    commandId: UUID(),
+                    commandId: UUIDv7.generate(),
                     paneId: childId,
                     paneKind: .terminal,
                     event: .terminal(.commandFinished(exitCode: 0, duration: 1))

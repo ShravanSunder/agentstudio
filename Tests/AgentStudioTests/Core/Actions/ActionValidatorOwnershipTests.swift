@@ -145,7 +145,7 @@ struct WorkspaceCommandValidatorOwnershipTests {
 
     @Test
     func removeDrawerPane_childOfAnotherParent_fails() {
-        let tabId = UUID()
+        let tabId = UUIDv7.generate()
         let parentPaneId = UUIDv7.generate()
         let siblingChildPaneId = UUIDv7.generate()
         let drawerChildPaneId = UUIDv7.generate()
