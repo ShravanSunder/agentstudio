@@ -15,11 +15,20 @@ struct InFlightDefaultStartPointQuery {
     let task: Task<Void, Never>
 }
 
+struct InFlightBranchListingQuery {
+    let rootSessionGeneration: Int
+    let token: UUID
+    let task: Task<Void, Never>
+}
+
 extension CommandBarPanelController {
     func requestCreationQueriesIfNeeded(for level: CommandBarLevel) {
         switch level.creationQuery {
         case .defaultStartPoint(let repository):
             requestDefaultStartPointIfNeeded(for: repository)
+        case .branchListing(let repository):
+            requestDefaultStartPointIfNeeded(for: repository)
+            requestBranchListingIfNeeded(for: repository)
         case .forkEligibility(let repository):
             requestForkPickerEligibilityIfNeeded(for: repository)
         case .worktreeEligibility(let repository, let worktree):
@@ -30,6 +39,9 @@ extension CommandBarPanelController {
         if case .some(.defaultStartPoint(let repository)) = level.creationQuery,
             state.defaultStartPointByRepositoryId[repository.id] != nil
         {
+            refreshCreationLevel(for: repository)
+        }
+        if case .some(.branchListing(let repository)) = level.creationQuery {
             refreshCreationLevel(for: repository)
         }
         if case .some(.forkEligibility(let repository)) = level.creationQuery {
@@ -67,6 +79,51 @@ extension CommandBarPanelController {
             }
         }
         defaultStartPointQueriesByRepositoryId[repository.id] = InFlightDefaultStartPointQuery(
+            rootSessionGeneration: generation,
+            token: token,
+            task: task
+        )
+    }
+
+    private func requestBranchListingIfNeeded(for repository: Repo) {
+        let generation = state.rootSessionGeneration
+        guard let branchListing,
+            state.branchNamesByRepositoryId[repository.id] == nil,
+            !state.branchListingQueryFailures.contains(repository.id),
+            branchListingQueriesByRepositoryId[repository.id]?.rootSessionGeneration != generation
+        else { return }
+        let token = UUIDv7.generate()
+        let enrichmentRevision = repoCache.cacheRevision
+        let task = Task { @MainActor [weak self] in
+            do {
+                let branchNames = try await branchListing.branchNames(
+                    forRepositoryId: repository.id,
+                    repositoryPath: repository.repoPath,
+                    enrichmentRevision: enrichmentRevision)
+                guard let self, self.state.rootSessionGeneration == generation else { return }
+                if self.branchListingQueriesByRepositoryId[repository.id]?.token == token {
+                    self.branchListingQueriesByRepositoryId.removeValue(forKey: repository.id)
+                }
+                guard self.repoCache.cacheRevision == enrichmentRevision else {
+                    self.requestBranchListingIfNeeded(for: repository)
+                    return
+                }
+                self.state.recordBranchNames(branchNames, forRepositoryId: repository.id)
+                self.refreshCreationLevel(for: repository)
+            } catch {
+                guard let self, self.state.rootSessionGeneration == generation else { return }
+                if self.branchListingQueriesByRepositoryId[repository.id]?.token == token {
+                    self.branchListingQueriesByRepositoryId.removeValue(forKey: repository.id)
+                }
+                guard self.repoCache.cacheRevision == enrichmentRevision else {
+                    self.requestBranchListingIfNeeded(for: repository)
+                    return
+                }
+                self.state.recordBranchListingQueryFailure(forRepositoryId: repository.id)
+                self.refreshCreationLevel(for: repository)
+            }
+        }
+        branchListingQueriesByRepositoryId[repository.id] = InFlightBranchListingQuery(
             rootSessionGeneration: generation,
             token: token,
             task: task
@@ -112,6 +169,8 @@ extension CommandBarPanelController {
         switch level.creationQuery {
         case .defaultStartPoint(let queriedRepository) where queriedRepository.id == repository.id:
             break
+        case .branchListing(let queriedRepository) where queriedRepository.id == repository.id:
+            break
         case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
             break
         case .worktreeEligibility(let queriedRepository, _) where queriedRepository.id == repository.id:
@@ -130,6 +189,14 @@ extension CommandBarPanelController {
                     repository: currentRepository,
                     defaultStartPoint: state.defaultStartPointByRepositoryId[repository.id],
                     defaultQueryFailed: state.defaultStartPointQueryFailures.contains(repository.id)
+                ))
+        case .branchListing(let queriedRepository) where queriedRepository.id == repository.id:
+            state.replaceLevel(
+                CommandBarDataSource.worktreeCreationMenuLevel(
+                    repository: currentRepository,
+                    defaultStartPoint: state.defaultStartPointByRepositoryId[repository.id],
+                    defaultQueryFailed: state.defaultStartPointQueryFailures.contains(repository.id),
+                    branchListingFailed: state.branchListingQueryFailures.contains(repository.id)
                 ))
         case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
             let eligibility = state.forkEligibilityBySourceWorktreeId

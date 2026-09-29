@@ -48,7 +48,8 @@ extension CommandBarDataSource {
     static func worktreeCreationMenuLevel(
         repository: Repo,
         defaultStartPoint: WorktreeDefaultStartPoint? = nil,
-        defaultQueryFailed: Bool = false
+        defaultQueryFailed: Bool = false,
+        branchListingFailed: Bool = false
     ) -> CommandBarLevel {
         let defaultSpec = AppCommand.newWorktreeFromDefault.definition
         let forkSpec = AppCommand.forkWorktree.definition
@@ -65,43 +66,56 @@ extension CommandBarDataSource {
             defaultDisplay = defaultQueryFailed ? "Unable to read default branch" : "Checking default branch…"
             defaultEnabled = false
         }
+        var items = [
+            CommandBarItem(
+                id: "newWorktree-default-\(repository.id.uuidString)",
+                title: defaultSpec.label,
+                subtitle: defaultDisplay,
+                icon: defaultSpec.icon,
+                group: "Create",
+                groupPriority: 0,
+                hasChildren: true,
+                action: .navigate(
+                    worktreeCreationBranchLevel(
+                        repository: repository,
+                        kind: .fromDefault,
+                        source: nil,
+                        sourceDisplay: defaultDisplay
+                    )),
+                command: defaultSpec.command,
+                isEnabled: defaultEnabled
+            ),
+            CommandBarItem(
+                id: "newWorktree-fork-\(repository.id.uuidString)",
+                title: forkSpec.label,
+                icon: forkSpec.icon,
+                group: "Create",
+                groupPriority: 0,
+                hasChildren: true,
+                action: .navigate(worktreeCreationForkPickerLevel(repository: repository)),
+                command: forkSpec.command,
+                isEnabled: !repository.worktrees.isEmpty
+            ),
+        ]
+        if branchListingFailed {
+            items.append(
+                CommandBarItem(
+                    id: "newWorktree-branch-list-error-\(repository.id.uuidString)",
+                    title: "Unable to list branches",
+                    icon: AppCommand.newWorktreeFromBranch.definition.icon,
+                    group: "Create",
+                    groupPriority: 0,
+                    action: .custom({}),
+                    isEnabled: false
+                ))
+        }
         return CommandBarLevel(
             id: "level-newWorktree-menu-\(repository.id.uuidString)",
             title: AppCommand.newWorktree.definition.label,
             parentLabel: repository.name,
             scopeLabel: "Repository",
-            items: [
-                CommandBarItem(
-                    id: "newWorktree-default-\(repository.id.uuidString)",
-                    title: defaultSpec.label,
-                    subtitle: defaultDisplay,
-                    icon: defaultSpec.icon,
-                    group: "Create",
-                    groupPriority: 0,
-                    hasChildren: true,
-                    action: .navigate(
-                        worktreeCreationBranchLevel(
-                            repository: repository,
-                            kind: .fromDefault,
-                            source: nil,
-                            sourceDisplay: defaultDisplay
-                        )),
-                    command: defaultSpec.command,
-                    isEnabled: defaultEnabled
-                ),
-                CommandBarItem(
-                    id: "newWorktree-fork-\(repository.id.uuidString)",
-                    title: forkSpec.label,
-                    icon: forkSpec.icon,
-                    group: "Create",
-                    groupPriority: 0,
-                    hasChildren: true,
-                    action: .navigate(worktreeCreationForkPickerLevel(repository: repository)),
-                    command: forkSpec.command,
-                    isEnabled: !repository.worktrees.isEmpty
-                ),
-            ],
-            creationQuery: .defaultStartPoint(repository)
+            items: items,
+            creationQuery: .branchListing(repository)
         )
     }
 

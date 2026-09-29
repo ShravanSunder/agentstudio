@@ -318,6 +318,7 @@ package struct CommandBarTextEntryInput: Equatable, Sendable {
 
 package enum CommandBarCreationQuery {
     case defaultStartPoint(Repo)
+    case branchListing(Repo)
     case forkEligibility(Repo)
     case worktreeEligibility(Repo, Worktree)
 }

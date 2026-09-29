@@ -228,6 +228,54 @@ struct CommandBarWorktreeCreationTests {
         #expect(controller.state.currentLevel?.items.first?.subtitle == "origin/main")
     }
 
+    @Test("a branch listing failure is shown while From Default remains usable")
+    func branchListingFailureKeepsDefault() async throws {
+        let fixture = Self.makeFixture()
+        let listing = StubWorktreeBranchListing(result: .failure(.unavailable))
+        let controller = makeController(store: fixture.store, branchListing: listing)
+        controller.state.show(prefix: ">")
+        controller.state.recordDefaultStartPoint(
+            .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main"),
+            forRepositoryId: fixture.repository.id)
+        controller.state.pushLevel(
+            CommandBarDataSource.worktreeCreationMenuLevel(
+                repository: fixture.repository,
+                defaultStartPoint: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main")))
+
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        let query = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id])
+        await query.task.value
+
+        let items = try #require(controller.state.currentLevel?.items)
+        #expect(items.first?.title == "From Default")
+        #expect(items.first?.isEnabled == true)
+        #expect(items.contains { $0.title == "Unable to list branches" && !$0.isEnabled })
+        #expect(await listing.requestedRepositoryIds == [fixture.repository.id])
+    }
+
+    @Test("a branch answer from an older enrichment revision is replaced")
+    func staleBranchListingIsRequeried() async throws {
+        let fixture = Self.makeFixture()
+        let repoCache = RepoCacheAtom()
+        let listing = SequencedBranchListing()
+        let controller = makeController(store: fixture.store, repoCache: repoCache, branchListing: listing)
+        controller.state.show(prefix: ">")
+        controller.state.pushLevel(CommandBarDataSource.worktreeCreationMenuLevel(repository: fixture.repository))
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        #expect(await listing.awaitQueries(count: 1) == 1)
+        let firstTask = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+
+        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: fixture.repository.id))
+        await listing.answer(at: 0, with: ["old"])
+        await firstTask.value
+        #expect(controller.state.branchNamesByRepositoryId[fixture.repository.id] == nil)
+        #expect(await listing.awaitQueries(count: 2) == 2)
+        let secondTask = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+        await listing.answer(at: 1, with: ["main", "new"])
+        await secondTask.value
+        #expect(controller.state.branchNamesByRepositoryId[fixture.repository.id] == ["main", "new"])
+    }
+
     @Test("default answer updates its menu beneath the fork picker")
     func defaultAnswerUpdatesCoveredMenu() async throws {
         let fixture = Self.makeFixture()
@@ -426,20 +474,23 @@ struct CommandBarWorktreeCreationTests {
 
     private func makeController(
         store: WorkspaceStore,
+        repoCache: RepoCacheAtom = RepoCacheAtom(),
         dispatcher: FakeAppCommandDispatcher = FakeAppCommandDispatcher(),
         forkChecker: (any WorktreeForkEligibilityChecking)? = nil,
-        defaultResolver: (any WorktreeDefaultStartPointResolving)? = nil
+        defaultResolver: (any WorktreeDefaultStartPointResolving)? = nil,
+        branchListing: (any WorktreeBranchListing)? = nil
     ) -> CommandBarPanelController {
         CommandBarPanelController(
             store: store,
             octiconLoader: makeCommandBarTestOcticonLoader(),
-            repoCache: RepoCacheAtom(),
+            repoCache: repoCache,
             dispatcher: dispatcher,
             quickOpenDirectoryHandler: { _, _ in },
             commandBarSurface: CommandBarSurfaceAtom(),
             recentsDefaults: recentsDefaultsFixture.makeDefaults(),
             worktreeForkEligibility: forkChecker,
-            defaultStartPointResolver: defaultResolver
+            defaultStartPointResolver: defaultResolver,
+            branchListing: branchListing
         )
     }
 

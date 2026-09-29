@@ -82,6 +82,8 @@ package final class CommandBarState {
     private(set) var forkEligibilityBySourceWorktreeId: [UUID: WorktreeForkEligibility] = [:]
     private(set) var defaultStartPointByRepositoryId: [UUID: WorktreeDefaultStartPoint] = [:]
     private(set) var defaultStartPointQueryFailures: Set<UUID> = []
+    private(set) var branchNamesByRepositoryId: [UUID: [String]] = [:]
+    private(set) var branchListingQueryFailures: Set<UUID> = []
 
     // MARK: - Computed — Prefix Parsing
 
@@ -247,6 +249,8 @@ package final class CommandBarState {
         forkEligibilityBySourceWorktreeId = [:]
         defaultStartPointByRepositoryId = [:]
         defaultStartPointQueryFailures = []
+        branchNamesByRepositoryId = [:]
+        branchListingQueryFailures = []
         selectedIndex = 0
         isVisible = true
         stateLogger.debug("Command bar shown with prefix: \(prefix ?? "(none)")")
@@ -263,6 +267,8 @@ package final class CommandBarState {
         forkEligibilityBySourceWorktreeId = [:]
         defaultStartPointByRepositoryId = [:]
         defaultStartPointQueryFailures = []
+        branchNamesByRepositoryId = [:]
+        branchListingQueryFailures = []
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
     }
@@ -274,6 +280,8 @@ package final class CommandBarState {
         forkEligibilityBySourceWorktreeId = [:]
         defaultStartPointByRepositoryId = [:]
         defaultStartPointQueryFailures = []
+        branchNamesByRepositoryId = [:]
+        branchListingQueryFailures = []
         defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
         pinnedScope = activeScope
@@ -313,6 +321,15 @@ package final class CommandBarState {
 
     func recordDefaultStartPointQueryFailure(forRepositoryId repositoryId: UUID) {
         defaultStartPointQueryFailures.insert(repositoryId)
+    }
+
+    func recordBranchNames(_ names: [String], forRepositoryId repositoryId: UUID) {
+        branchNamesByRepositoryId[repositoryId] = names
+        branchListingQueryFailures.remove(repositoryId)
+    }
+
+    func recordBranchListingQueryFailure(forRepositoryId repositoryId: UUID) {
+        branchListingQueryFailures.insert(repositoryId)
     }
 
     func replaceLevel(_ level: CommandBarLevel) {
