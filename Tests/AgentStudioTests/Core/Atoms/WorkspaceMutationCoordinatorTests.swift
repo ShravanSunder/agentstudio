@@ -360,7 +360,7 @@ struct WorkspaceMutationCoordinatorTests {
         "a background drawer terminal creation preserves a drawer selection a human made after its capture"
     )
     func applyCommittedTerminalCreation_backgroundDrawerInsertion_preservesLiveDrawerSelection() throws {
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(startsObserving: false)
         let anchorPane = makePane(title: "Anchor")
         let parentPane = makePane(
             title: "Parent",

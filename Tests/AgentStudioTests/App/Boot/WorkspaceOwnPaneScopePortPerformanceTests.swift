@@ -20,11 +20,11 @@ struct WorkspaceOwnPaneScopePortPerformanceTests {
     func ownPaneScopeLookupRecordsOneMainActorHeldSample(paneExists: Bool) async throws {
         let runtime = makeTraceRuntime(timeUnixNano: { 1234 })
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
-        let store = WorkspaceStore()
+        let store = WorkspaceStore(startsObserving: false)
         let pane = store.createPane(title: "Agent terminal")
         let port = WorkspaceOwnPaneScopePort(workspaceStore: store, performanceTraceRecorder: recorder)
 
-        _ = port.ownPaneScope(boundPaneId: paneExists ? pane.id : UUID())
+        _ = port.ownPaneScope(boundPaneId: paneExists ? pane.id : UUIDv7.generate())
         try await recorder.drain()
 
         let contents = try traceContents(from: runtime)
@@ -33,6 +33,18 @@ struct WorkspaceOwnPaneScopePortPerformanceTests {
                 of: "\"body\":\"performance.ipc.agent_authorization.main_actor_held\"", in: contents) == 1
         )
         #expect(!contents.contains(pane.id.uuidString))
+
+        let recordedLine = try #require(
+            contents.split(separator: "\n").first {
+                $0.contains("\"body\":\"performance.ipc.agent_authorization.main_actor_held\"")
+            }
+        )
+        let recordedData = try #require(String(recordedLine).data(using: .utf8))
+        let recordedObject = try #require(JSONSerialization.jsonObject(with: recordedData) as? [String: Any])
+        let recordedAttributes = try #require(recordedObject["attributes"] as? [String: Any])
+        let elapsedMilliseconds = try #require(
+            recordedAttributes["agentstudio.performance.elapsed_ms"] as? NSNumber)
+        #expect(elapsedMilliseconds.doubleValue >= 0)
     }
 
     private func makeTraceRuntime(
@@ -60,6 +72,6 @@ struct WorkspaceOwnPaneScopePortPerformanceTests {
     private func temporaryTraceDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("workspace-own-pane-scope-port-performance-tests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(UUIDv7.generate().uuidString, isDirectory: true)
     }
 }
