@@ -4,8 +4,8 @@ import {
 } from './product-only-real-router-review-contract.ts';
 
 export const bridgeProductStartupFixtureIdentities = {
-	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: 'a5556acd203621f3be1d48881b96a198385744cf85cb729832d3929a6688f4c3',
+	invalid: 'e51803d06d8dafd56d6c694569ed238bb3dd8bddadfec6d26b2834b5d5892a68',
+	valid: '29ddcc6601f7b531f637cf9a3c57a1dbdeee6dcc9e60087218ea951c7edc4498',
 } as const;
 
 export const bridgeViewerProductOnlySelectors = {
@@ -24,6 +24,7 @@ export const bridgeViewerProductOnlySelectors = {
 
 export interface BridgeViewerProductRouteTranscriptEntry {
 	readonly callMethod?: string | null;
+	readonly contentUnknownReadRefusalCorrelated?: boolean;
 	readonly contentKind: string | null;
 	readonly documentGeneration: number;
 	readonly httpStatus: number | null;
@@ -83,7 +84,7 @@ export interface BridgeViewerUnresolvedWaiter {
 	readonly documentGeneration: number;
 	readonly name:
 		| 'file-metadata-open'
-		| 'frame-acknowledgement'
+		| 'subscription-receipt'
 		| 'legacy-metadata-completion'
 		| 'product-response-quiescence'
 		| 'review-metadata-open';
@@ -331,20 +332,45 @@ export function collectBridgeViewerProductOnlyContractViolations(
 		...proof,
 		productRouteTranscript: measuredProductRouteTranscript,
 	};
-	const acknowledgementEntries = measuredProductRouteTranscript.filter(
-		(entry): boolean => entry.requestKind === 'stream.frameObserved',
+	const subscriptionReceiptEntries = measuredProductRouteTranscript.filter(
+		(entry): boolean => entry.requestKind === 'subscription.acknowledge',
 	);
 	if (
-		acknowledgementEntries.length === 0 ||
-		acknowledgementEntries.some((entry): boolean => entry.httpStatus !== 204)
+		subscriptionReceiptEntries.length === 0 ||
+		subscriptionReceiptEntries.some(
+			(entry): boolean =>
+				entry.httpStatus !== 200 || entry.responseKind !== 'subscription.acknowledged',
+		)
 	) {
 		violations.push({
-			actual: acknowledgementEntries.map((entry) => ({
+			actual: subscriptionReceiptEntries.map((entry) => ({
 				status: entry.httpStatus,
-				streamKind: entry.streamKind,
+				responseKind: entry.responseKind,
 			})),
-			code: 'transport.frame-observation-bodyless-204',
-			expected: 'at least one frame observation and every observation accepted with HTTP 204',
+			code: 'transport.subscription-receipt-accepted',
+			expected:
+				'at least one cumulative subscription receipt acknowledged with HTTP 200 and subscription.acknowledged',
+		});
+	}
+	const contentAcknowledgementEntries = measuredProductRouteTranscript.filter(
+		(entry): boolean => entry.requestKind === 'content.acknowledge',
+	);
+	if (
+		contentAcknowledgementEntries.length === 0 ||
+		contentAcknowledgementEntries.some(
+			(entry): boolean =>
+				entry.httpStatus !== 204 &&
+				!(entry.httpStatus === 404 && entry.contentUnknownReadRefusalCorrelated === true),
+		)
+	) {
+		violations.push({
+			actual: contentAcknowledgementEntries.map((entry) => ({
+				status: entry.httpStatus,
+				unknownReadCorrelated: entry.contentUnknownReadRefusalCorrelated ?? false,
+			})),
+			code: 'transport.content-acknowledgement-bodyless-204',
+			expected:
+				'at least one content credit accepted with bodyless HTTP 204, or a strictly correlated unknownRead 404',
 		});
 	}
 
@@ -559,7 +585,7 @@ export function collectBridgeViewerProductOnlyContractViolations(
 			actual: startupOrder,
 			code: 'transport.exact-startup-order',
 			expected:
-				'workerSession.open -> metadataStream.open -> metadata frame observation -> Review and File subscription opens',
+				'workerSession.open -> metadataStream.open -> Review and File subscription opens, then a subscription receipt',
 		});
 	}
 	return violations;
@@ -751,7 +777,7 @@ function requiredProductStartupOrder(
 	transcript: readonly BridgeViewerProductRouteTranscriptEntry[],
 ): {
 	readonly fileSubscriptionOpenIndex: number;
-	readonly frameObservedIndex: number;
+	readonly subscriptionReceiptIndex: number;
 	readonly metadataStreamOpenIndex: number;
 	readonly reviewSubscriptionOpenIndex: number;
 	readonly satisfied: boolean;
@@ -763,8 +789,8 @@ function requiredProductStartupOrder(
 	const metadataStreamOpenIndex = transcript.findIndex(
 		(entry): boolean => entry.requestKind === 'metadataStream.open',
 	);
-	const frameObservedIndex = transcript.findIndex(
-		(entry): boolean => entry.requestKind === 'stream.frameObserved',
+	const subscriptionReceiptIndex = transcript.findIndex(
+		(entry): boolean => entry.requestKind === 'subscription.acknowledge',
 	);
 	const reviewSubscriptionOpenIndex = transcript.findIndex(
 		(entry): boolean =>
@@ -776,15 +802,15 @@ function requiredProductStartupOrder(
 	);
 	return {
 		fileSubscriptionOpenIndex,
-		frameObservedIndex,
+		subscriptionReceiptIndex,
 		metadataStreamOpenIndex,
 		reviewSubscriptionOpenIndex,
 		satisfied:
 			workerSessionOpenIndex >= 0 &&
 			metadataStreamOpenIndex > workerSessionOpenIndex &&
-			frameObservedIndex > metadataStreamOpenIndex &&
-			reviewSubscriptionOpenIndex > frameObservedIndex &&
-			fileSubscriptionOpenIndex > frameObservedIndex,
+			reviewSubscriptionOpenIndex > metadataStreamOpenIndex &&
+			fileSubscriptionOpenIndex > metadataStreamOpenIndex &&
+			subscriptionReceiptIndex > Math.min(reviewSubscriptionOpenIndex, fileSubscriptionOpenIndex),
 		workerSessionOpenIndex,
 	};
 }

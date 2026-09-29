@@ -42,7 +42,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(hydrationWindowSource).toContain("'[data-line][data-line-index]'");
 	});
 
-	test('keeps rename source and destination as separate Review oracle items', () => {
+	test('uses native Review rename similarity for oracle items', () => {
 		// Arrange
 		const reviewBase = 'fixture-base';
 
@@ -54,7 +54,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 			'diff',
 			'--name-status',
 			'-z',
-			'--no-renames',
+			'--find-renames=50%',
 			reviewBase,
 			'--',
 		]);
@@ -136,8 +136,8 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 				makeProductEntry(1, '/__bridge-product/command', 'workerSession.open', 200),
 				makeProductEntry(2, '/__bridge-product/stream', 'metadataStream.open', 200),
 				{
-					...makeProductEntry(3, '/__bridge-product/command', 'stream.frameObserved', 400),
-					streamKind: 'metadata',
+					...makeProductEntry(3, '/__bridge-product/command', 'subscription.acknowledge', 400),
+					responseKind: 'request.error',
 				},
 				{
 					...makeProductEntry(4, '/__bridge-product/command', 'subscription.open', 200),
@@ -157,7 +157,8 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		const violations = collectBridgeViewerProductOnlyContractViolations(proof);
 		const codes = violations.map((violation) => violation.code);
 
-		expect(codes).toContain('transport.frame-observation-bodyless-204');
+		expect(codes).toContain('transport.subscription-receipt-accepted');
+		expect(codes).toContain('transport.content-acknowledgement-bodyless-204');
 		expect(codes).toContain('transport.file.metadata-accepted');
 		expect(codes).toContain('transport.review.metadata-accepted');
 		expect(codes).toContain('file.product-display-ready');
@@ -167,6 +168,36 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 		expect(bridgeViewerProductOnlyRegressionPhase(violations)).toBe(
 			'initial-product-transport-red',
 		);
+	});
+
+	test('accepts only a correlated typed unknown-read content refusal', () => {
+		const correlatedTranscript = passingTranscript().map((entry) =>
+			entry.requestKind === 'content.acknowledge' && entry.ordinal === 7
+				? {
+						...entry,
+						contentUnknownReadRefusalCorrelated: true,
+						httpStatus: 404,
+						responseKind: 'content.acknowledgementRefused',
+					}
+				: entry,
+		);
+		const correlatedProof = makePassingProductOnlyProof({ transcript: correlatedTranscript });
+		expect(
+			collectBridgeViewerProductOnlyContractViolations(correlatedProof).map(
+				(violation) => violation.code,
+			),
+		).not.toContain('transport.content-acknowledgement-bodyless-204');
+
+		const uncorrelatedProof = makePassingProductOnlyProof({
+			transcript: correlatedTranscript.map((entry) =>
+				entry.httpStatus === 404 ? { ...entry, contentUnknownReadRefusalCorrelated: false } : entry,
+			),
+		});
+		expect(
+			collectBridgeViewerProductOnlyContractViolations(uncorrelatedProof).map(
+				(violation) => violation.code,
+			),
+		).toContain('transport.content-acknowledgement-bodyless-204');
 	});
 
 	test('uses the same permanent contract for the product-only green state', () => {

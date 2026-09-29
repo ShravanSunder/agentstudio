@@ -42,6 +42,13 @@ import {
 } from './product-only-real-router-reload-join-diagnostics.ts';
 import { GenerationScopedResponseParsers } from './product-only-real-router-response-parsers.ts';
 import {
+	correlatedContentUnknownReadRefusal,
+	integerValue,
+	parseJSONOrNull,
+	stringValue,
+	unknownRecord,
+} from './product-only-real-router-response-parsing.ts';
+import {
 	proveFreshReviewRoute,
 	proveReviewTreeSelection,
 	readFreshReviewFailureSnapshot,
@@ -63,6 +70,7 @@ const maximumCapturedConsoleErrors = 32;
 const maximumCapturedConsoleErrorCharacters = 500;
 
 interface MutableProductRouteTranscriptEntry {
+	contentUnknownReadRefusalCorrelated?: boolean;
 	contentKind: string | null;
 	documentGeneration: number;
 	httpStatus: number | null;
@@ -195,13 +203,13 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 		await page.waitForSelector(bridgeViewerProductOnlySelectors.fileShell, {
 			timeout: productJourneyTimeoutMilliseconds,
 		});
-		const [acknowledgementResponse, fileOpenResponse, reviewOpenResponse] = await Promise.all([
-			reloadJoinResponses.frameAcknowledgement,
+		const [receiptResponse, fileOpenResponse, reviewOpenResponse] = await Promise.all([
+			reloadJoinResponses.subscriptionReceipt,
 			reloadJoinResponses.fileMetadataOpen,
 			reloadJoinResponses.reviewMetadataOpen,
 		]);
 		if (
-			acknowledgementResponse.status() === 204 &&
+			receiptResponse.status() === 200 &&
 			fileOpenResponse.status() === 200 &&
 			reviewOpenResponse.status() === 200
 		) {
@@ -663,7 +671,17 @@ export class BridgeViewerRealRouterObserver {
 		response: PlaywrightResponse,
 		entry: MutableProductRouteTranscriptEntry,
 	): Promise<void> {
-		const body = parseJSONOrNull(await response.text());
+		let body: unknown;
+		if (entry.requestKind === 'content.acknowledge' && response.status() === 404) {
+			const responseBytes = await response.body();
+			body = parseJSONOrNull(new TextDecoder().decode(responseBytes));
+			entry.contentUnknownReadRefusalCorrelated = correlatedContentUnknownReadRefusal(
+				response.request().postData(),
+				responseBytes,
+			);
+		} else {
+			body = parseJSONOrNull(await response.text());
+		}
 		Object.assign(entry, summarizeBridgeProductResponseBody(body));
 		this.#openSettlements.observe(entry, parseJSONOrNull(response.request().postData()), body);
 	}
@@ -948,31 +966,6 @@ function classifyObservedWorker(url: string, documentGeneration: number): Mutabl
 function safeWorkerUrl(url: string): string {
 	const parsedUrl = new URL(url);
 	return `${parsedUrl.pathname}${parsedUrl.search}`;
-}
-
-function parseJSONOrNull(value: string | null): unknown {
-	if (value === null || value.length === 0) return null;
-	try {
-		return JSON.parse(value) as unknown;
-	} catch {
-		return null;
-	}
-}
-
-function unknownRecord(value: unknown): Readonly<Record<string, unknown>> | null {
-	return isUnknownRecord(value) ? value : null;
-}
-
-function isUnknownRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string | null {
-	return typeof value === 'string' ? value : null;
-}
-
-function integerValue(value: unknown): number | null {
-	return typeof value === 'number' && Number.isSafeInteger(value) ? value : null;
 }
 
 async function withBoundedTimeout<TValue>(

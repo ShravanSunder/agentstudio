@@ -37,6 +37,25 @@ describe('BridgeViewerRealRouterObserver', () => {
 		]);
 	});
 
+	test('correlates only a strict typed unknown-read refusal for content credit', async () => {
+		const harness = makeObserverHarness();
+		const observer = new BridgeViewerRealRouterObserver(
+			harness.page,
+			documentGenerationsAt((): number => 1),
+		);
+		const matchingRequest = makeContentAcknowledgementRequest('content-request-matching');
+		const foreignRequest = makeContentAcknowledgementRequest('content-request-foreign');
+		harness.emit('request', matchingRequest);
+		harness.emit('response', makeUnknownReadResponse(matchingRequest, 'content-request-matching'));
+		harness.emit('request', foreignRequest);
+		harness.emit('response', makeUnknownReadResponse(foreignRequest, 'content-request-other'));
+
+		await observer.flushResponseParsers();
+		expect(
+			observer.productRouteTranscript().map((entry) => entry.contentUnknownReadRefusalCorrelated),
+		).toEqual([true, false]);
+	});
+
 	test('retains scrubbed content lifecycle and unfinished request ordinals for a failed journey', () => {
 		// Arrange
 		const harness = makeObserverHarness();
@@ -303,18 +322,18 @@ describe('BridgeViewerRealRouterObserver', () => {
 	});
 
 	test('settles a reload waiter only with a response to a request from the next page generation', async () => {
-		// Arrange: the previous document sent a frame acknowledgement before the reload.
+		// Arrange: the previous document sent a subscription receipt before the reload.
 		const harness = makeObserverHarness();
 		let documentGeneration = 1;
 		const observer = new BridgeViewerRealRouterObserver(
 			harness.page,
 			documentGenerationsAt((): number => documentGeneration),
 		);
-		const staleAcknowledgementRequest = makeFrameObservationRequest();
+		const staleAcknowledgementRequest = makeSubscriptionReceiptRequest();
 		harness.emit('request', staleAcknowledgementRequest);
 		const reloadJoin = observer.armReloadJoinWaiters();
 		let settledAcknowledgement: PlaywrightResponse | null = null;
-		const acknowledgement = reloadJoin.frameAcknowledgement.then(
+		const acknowledgement = reloadJoin.subscriptionReceipt.then(
 			(response: PlaywrightResponse): PlaywrightResponse => {
 				settledAcknowledgement = response;
 				return response;
@@ -323,19 +342,19 @@ describe('BridgeViewerRealRouterObserver', () => {
 
 		// Act: the new document commits, then the previous document's response arrives first.
 		documentGeneration = 2;
-		harness.emit('response', makeBodylessCommandResponse(staleAcknowledgementRequest));
+		harness.emit('response', makeSubscriptionReceiptResponse(staleAcknowledgementRequest));
 		await flushMicrotasks();
 
 		// Assert
 		expect(settledAcknowledgement).toBeNull();
 		expect(observer.failureTransportSnapshot().unresolvedWaiters).toContainEqual({
 			documentGeneration: 2,
-			name: 'frame-acknowledgement',
+			name: 'subscription-receipt',
 		});
 
 		// Act: the new document's own acknowledgement arrives.
-		const currentAcknowledgementRequest = makeFrameObservationRequest();
-		const currentAcknowledgementResponse = makeBodylessCommandResponse(
+		const currentAcknowledgementRequest = makeSubscriptionReceiptRequest();
+		const currentAcknowledgementResponse = makeSubscriptionReceiptResponse(
 			currentAcknowledgementRequest,
 		);
 		harness.emit('request', currentAcknowledgementRequest);
@@ -640,6 +659,47 @@ function makeProductContentRequest(contentRequestId: string): PlaywrightRequest 
 	} as unknown as PlaywrightRequest;
 }
 
+function makeContentAcknowledgementRequest(contentRequestId: string): PlaywrightRequest {
+	return {
+		method: (): string => 'POST',
+		postData: (): string =>
+			JSON.stringify({
+				contentRequestId,
+				kind: 'content.acknowledge',
+				leaseId: 'lease-1',
+				paneSessionId: 'pane-session-secret',
+				receivedThroughContentSequence: 1,
+				wireVersion: 2,
+				workerInstanceId: 'worker-instance-secret',
+			}),
+		url: (): string => 'http://127.0.0.1:5173/__bridge-product/command',
+	} as unknown as PlaywrightRequest;
+}
+
+function makeUnknownReadResponse(
+	request: PlaywrightRequest,
+	contentRequestId: string,
+): PlaywrightResponse {
+	const body = new TextEncoder().encode(
+		JSON.stringify({
+			contentRequestId,
+			kind: 'content.acknowledgementRefused',
+			leaseId: 'lease-1',
+			paneSessionId: 'pane-session-secret',
+			reason: 'unknownRead',
+			receivedThroughContentSequence: 1,
+			wireVersion: 2,
+			workerInstanceId: 'worker-instance-secret',
+		}),
+	);
+	return {
+		body: async (): Promise<Uint8Array> => body,
+		request: (): PlaywrightRequest => request,
+		status: (): number => 404,
+		url: (): string => request.url(),
+	} as unknown as PlaywrightResponse;
+}
+
 function makeLegacyMetadataRequest(): PlaywrightRequest {
 	return {
 		method: (): string => 'GET',
@@ -661,23 +721,29 @@ function makeLegacyMetadataResponse(
 	} as unknown as PlaywrightResponse;
 }
 
-function makeFrameObservationRequest(): PlaywrightRequest {
+function makeSubscriptionReceiptRequest(): PlaywrightRequest {
 	return {
 		method: (): string => 'POST',
 		postData: (): string =>
 			JSON.stringify({
-				kind: 'stream.frameObserved',
+				kind: 'subscription.acknowledge',
+				domain: 'default',
+				handle: 'handle-1',
+				incarnation: 'incarnation-1',
 				paneSessionId: 'pane-session-secret',
+				receivedThroughDeliverySequence: 1,
+				subscriptionId: 'subscription-1',
+				wireVersion: 2,
 				workerInstanceId: 'worker-instance-secret',
 			}),
 		url: (): string => 'http://127.0.0.1:5173/__bridge-product/command',
 	} as unknown as PlaywrightRequest;
 }
 
-function makeBodylessCommandResponse(request: PlaywrightRequest): PlaywrightResponse {
+function makeSubscriptionReceiptResponse(request: PlaywrightRequest): PlaywrightResponse {
 	return {
 		request: (): PlaywrightRequest => request,
-		status: (): number => 204,
+		status: (): number => 200,
 		url: (): string => request.url(),
 	} as unknown as PlaywrightResponse;
 }

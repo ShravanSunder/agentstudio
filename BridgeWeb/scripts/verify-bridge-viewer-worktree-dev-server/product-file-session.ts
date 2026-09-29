@@ -327,14 +327,15 @@ export class BridgeVerifierProductFileSession {
 			// oxlint-disable-next-line no-await-in-loop -- Content validation is ordered with stream reads.
 			const decoded = await decoder.push(chunk.value);
 			for (const frame of decoded.frames) {
-				// oxlint-disable-next-line no-await-in-loop -- Physical observations preserve content order.
-				await this.#postFrameObservation({
+				if (frame.header.kind !== 'content.accepted' && frame.header.kind !== 'content.data')
+					continue;
+				// oxlint-disable-next-line no-await-in-loop -- This verifier confirms every cumulative receipt.
+				await this.#postContentAcknowledgement({
 					contentRequestId: contentRequest.contentRequestId,
-					contentSequence: frame.header.contentSequence,
-					kind: 'stream.frameObserved',
+					receivedThroughContentSequence: frame.header.contentSequence,
+					kind: 'content.acknowledge',
 					leaseId: contentRequest.leaseId,
 					paneSessionId: contentRequest.paneSessionId,
-					streamKind: 'content',
 					wireVersion: contentRequest.wireVersion,
 					workerInstanceId: contentRequest.workerInstanceId,
 				});
@@ -598,10 +599,10 @@ export class BridgeVerifierProductFileSession {
 		}
 	}
 
-	async #postFrameObservation(
-		observation: BridgeProductFrameAcknowledgementRequest,
+	async #postContentAcknowledgement(
+		acknowledgement: BridgeProductFrameAcknowledgementRequest,
 	): Promise<void> {
-		const body = bridgeProductFrameAcknowledgementRequestSchema.parse(observation);
+		const body = bridgeProductFrameAcknowledgementRequestSchema.parse(acknowledgement);
 		const response = await fetch(this.#endpoint('/__bridge-product/command'), {
 			body: JSON.stringify(body),
 			headers: this.#headers(),
@@ -610,7 +611,7 @@ export class BridgeVerifierProductFileSession {
 		const responseText = await response.text();
 		if (response.status !== 204 || responseText.length !== 0) {
 			throw new Error(
-				`Bridge product frame observation failed with status ${response.status}: ${responseText}`,
+				`Bridge product content acknowledgement failed with status ${response.status}: ${responseText}`,
 			);
 		}
 	}
