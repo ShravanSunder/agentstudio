@@ -45,10 +45,24 @@ describe("hero intro scene contract", () => {
       const timeline = gsap.timeline({ paused: true });
       buildHeroIntroScene(fixture, timeline, { width: 1600, height: 1000, seed: 0 });
       expect(timeline.labels["beat:claude-brew"]).toBe(3.95);
-      expect(timeline.labels["beat:codex-prompt"]).toBe(9.12);
-      expect(timeline.labels["beat:codex-result"]).toBe(12.2);
-      expect(timeline.labels["beat:rail-handoff"]).toBe(12.75);
-      expect(timeline.duration()).toBeLessThanOrEqual(15);
+      expect(timeline.labels["burst:install"]).toBe(7.05);
+      expect(timeline.labels["burst:codex"]).toBe(8.57);
+      expect(timeline.labels["burst:rail"]).toBe(12.65);
+      expect(timeline.labels["beat:codex-prompt"]).toBe(9.52);
+      expect(timeline.labels["beat:codex-result"]).toBe(12.6);
+      expect(timeline.labels["beat:rail-handoff"]).toBe(13.55);
+      expect(timeline.duration()).toBeLessThanOrEqual(16.5);
+      for (const burstStart of [7.05, 8.57, 12.65]) {
+        expect(
+          timeline
+            .getChildren(false, true, false)
+            .some(
+              (child) =>
+                Math.abs(child.startTime() - burstStart) < 0.001 &&
+                Math.abs(child.duration() - 0.9) < 0.001,
+            ),
+        ).toBe(true);
+      }
       const iconFront = fixture.querySelector<HTMLElement>("[data-hero-icon-front]");
       const iconRearTwo = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="two"]');
       const iconRearOne = fixture.querySelector<HTMLElement>('[data-hero-icon-rear="one"]');
@@ -121,7 +135,7 @@ describe("hero intro scene contract", () => {
       expect(Number(getComputedStyle(headlineFirst).opacity)).toBeGreaterThan(0);
       timeline.time(5.8);
       expect(Number(getComputedStyle(payoffFirst).opacity)).toBe(0);
-      timeline.time(13.4);
+      timeline.time(14.3);
       for (const payoff of fixture.querySelectorAll<HTMLElement>(
         "[data-hero-intro-payoff-first], [data-hero-intro-payoff-second]",
       )) {
@@ -156,7 +170,7 @@ describe("hero intro scene contract", () => {
       const codexVerb = fixture.querySelector<HTMLElement>("[data-hero-codex-verb]");
       timeline.time(10.5);
       expect(codexVerb?.textContent).toBe("Running");
-      timeline.time(12.3);
+      timeline.time(12.7);
       expect(codexVerb?.textContent).toBe("Ran");
       const arrow = fixture.querySelector<HTMLElement>("[data-hero-intro-ready-arrow]");
       const install = fixture.querySelector<HTMLElement>("[data-hero-intro-install]");

@@ -44,34 +44,60 @@ for (const [width, height] of [
     expect(at(7.22).tokenCount).toBeGreaterThan(0);
     expect(at(7.22).tokenTextOverlaps).toBe(0);
     expect(at(7.5).tokenCount).toBeGreaterThan(0);
-    expect(at(7.56).tokenCount).toBe(0);
+    expect(at(7.56).tokenCount).toBeGreaterThan(0);
+    expect(at(7.96).tokenCount).toBe(0);
     expect(at(7.5).installOpacity).toBeGreaterThan(0);
     expect(at(7.8).visibleDecodeLines).toBeGreaterThan(0);
     expect(at(8.3).visibleDecodeLines).toBe(0);
     expect(at(8.3).copyOpacity).toBe(1);
     if (width >= 1024) {
       expect(at(8.0).codexTypedText).toBe("");
-      expect(at(9.22).codexTypedText.length).toBeGreaterThan(0);
+      expect(at(9.22).codexTypedText).toBe("");
       expect(at(8.82).tokenCount).toBeGreaterThan(0);
       expect(at(8.82).tokenTextOverlaps).toBe(0);
-      expect(at(9.22).codexTypedText.length).toBeLessThan("map the worktrees".length);
-      expect(at(9.9).codexWorkingOpacity).toBeGreaterThan(0);
-      expect(at(11.0).worktreeRowOpacities[0]).toBeGreaterThan(0);
+      expect(at(9.72).codexTypedText.length).toBeGreaterThan(0);
+      expect(at(9.72).codexTypedText.length).toBeLessThan("map the worktrees".length);
+      expect(at(10.3).codexWorkingOpacity).toBeGreaterThan(0);
+      expect(at(11.4).worktreeRowOpacities[0]).toBeGreaterThan(0);
       expect(at(11.0).worktreeResultOpacity).toBe(0);
       expect(at("settled").codexWorkingOpacity).toBe(0);
     }
     expect(at(11.3).worktreeRowOpacities.some((opacity) => opacity > 0)).toBe(true);
     expect(at(11.3).worktreeResultOpacity).toBe(0);
-    expect(at(12.3).worktreeResultOpacity).toBeGreaterThan(0.9);
-    expect(at(12.5).tokenCount).toBeGreaterThan(0);
-    expect(at(12.5).tokenTextOverlaps).toBe(0);
-    expect(at(12.5).railBurstTargetDistance).toBeLessThanOrEqual(2);
+    expect(at(12.3).worktreeResultOpacity).toBe(0);
+    expect(at(12.8).worktreeResultOpacity).toBeGreaterThan(0.9);
+    expect(at(13.1).tokenCount).toBeGreaterThan(0);
+    expect(at(13.1).tokenTextOverlaps).toBe(0);
+    expect(at(13.1).railBurstTargetDistance).toBeLessThanOrEqual(2);
     expect(at(12.3).railClip).toContain("100%");
-    expect(at(12.8).railClip).not.toContain("100%");
+    expect(at(13.65).railClip).not.toContain("100%");
     expect(at(12.3).firstPayoff).toBe(0);
     const { staircase } = observation;
-    expect(staircase.start).toBeGreaterThanOrEqual(12.75);
-    expect(staircase.start - 12.75).toBeLessThanOrEqual(0.05);
+    expect(staircase.start).toBeGreaterThanOrEqual(13.55);
+    expect(staircase.start - 13.55).toBeLessThanOrEqual(0.05);
+    for (const fraction of [0.25, 0.5, 0.75]) {
+      const offsets = [7.05, ...(width >= 1024 ? [8.57] : []), 12.65];
+      for (const start of offsets) {
+        const sample = at(Number((start + fraction * 0.9).toFixed(3)));
+        expect(sample.tokenCount, `${width}px burst ${start} at ${fraction}`).toBeGreaterThan(0);
+        expect(sample.tokenTextOverlaps, `${width}px burst ${start} at ${fraction}`).toBe(0);
+        if (fraction === 0.5)
+          expect(
+            Math.max(...sample.tokenVisuals.map((token) => token.opacity)),
+            `${width}px burst ${start} peak opacity`,
+          ).toBeGreaterThanOrEqual(0.85);
+        expect(
+          sample.tokenVisuals.every(
+            (token) => token.fontSize >= 12 && token.fontSize <= 14 && token.weight === "600",
+          ),
+        ).toBe(true);
+        expect(
+          sample.tokenVisuals.every((token) =>
+            ["#b4c6e4", "#d4bcad", "#bccfb9", "#c9bfd9", "#b5cdd8", "#d6cdb4"].includes(token.fill),
+          ),
+        ).toBe(true);
+      }
+    }
     expect(staircase.end - staircase.start).toBeLessThanOrEqual(1.600001);
     const finalHop = staircase.hops.at(-1);
     if (finalHop === undefined) throw new Error("Rail final hop missing");
@@ -184,11 +210,11 @@ it("clips scrolled transcript rows inside their panes", async () => {
   }
 });
 
-it("reaches stillness by the owner-adjusted 15.0s ceiling", async () => {
+it("reaches stillness by the owner-adjusted 16.5s ceiling", async () => {
   const observation = await commands.verifyHeroIntroFinale(
     inject("siteHeaderBrowserTestUrl"),
     1600,
     1000,
   );
-  expect(observation.staircase.end + 0.2).toBeLessThanOrEqual(15);
+  expect(observation.staircase.end + 0.2).toBeLessThanOrEqual(16.5);
 });

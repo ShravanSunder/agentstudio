@@ -14,8 +14,10 @@ describe("hero token bursts", () => {
     ];
     expect(pointAlongHeroRoute(route, 0.2)).toMatchObject({ x: 20, y: 0 });
     expect(pointAlongHeroRoute(route, 0.7)).toMatchObject({ x: 40, y: 30 });
-    expect(heroBurstTokenOpacity(0.22)).toBe(0);
-    expect(heroBurstTokenOpacity(0.53)).toBeCloseTo(0.72, 2);
-    expect(heroBurstTokenOpacity(0.84)).toBe(0);
+    expect(heroBurstTokenOpacity(0.08)).toBe(0);
+    expect(heroBurstTokenOpacity(0.51)).toBeCloseTo(0.95, 2);
+    expect(heroBurstTokenOpacity(0.94)).toBe(0);
+    expect(heroBurstTokenOpacity(0.15)).toBeGreaterThan(0);
+    expect(heroBurstTokenOpacity(0.9)).toBeGreaterThan(0);
   });
 });

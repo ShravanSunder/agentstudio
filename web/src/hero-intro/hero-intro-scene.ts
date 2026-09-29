@@ -353,15 +353,15 @@ export function buildHeroIntroScene(
     timeline.set(claudeLift, { boxShadow: "none", backgroundColor: "transparent" }, 7.85);
   }
   if (codexLift !== null && options.width >= 1024) {
-    timeline.set(codexLift, activePaneStyle, 9.12);
-    timeline.set(codexLift, { boxShadow: "none", backgroundColor: "transparent" }, 12.25);
+    timeline.set(codexLift, activePaneStyle, 9.52);
+    timeline.set(codexLift, { boxShadow: "none", backgroundColor: "transparent" }, 12.65);
   }
 
-  timeline.addLabel("beat:codex-prompt", 9.12);
+  timeline.addLabel("beat:codex-prompt", 9.52);
   if (codexTypedInput !== null && codexPlaceholder !== null && options.width >= 1024) {
     const codexPrompt = "map the worktrees";
     const codexTyping = { fraction: 0 };
-    timeline.set(codexPlaceholder, { opacity: 0 }, 9.12);
+    timeline.set(codexPlaceholder, { opacity: 0 }, 9.52);
     timeline.to(
       codexTyping,
       {
@@ -375,15 +375,15 @@ export function buildHeroIntroScene(
           );
         },
       },
-      9.12,
+      9.52,
     );
-    timeline.set(codexTypedInput, { textContent: "" }, 9.7);
-    timeline.set(codexPlaceholder, { opacity: 1 }, 9.7);
+    timeline.set(codexTypedInput, { textContent: "" }, 10.1);
+    timeline.set(codexPlaceholder, { opacity: 1 }, 10.1);
     if (codexCurrentRows !== null)
-      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 9.7);
-    revealRow(visibleCodexRows[0], 9.7);
-    revealRow(codexWorking, 9.75);
-    revealRow(worktreeCommand, 10.55);
+      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 10.1);
+    revealRow(visibleCodexRows[0], 10.1);
+    revealRow(codexWorking, 10.15);
+    revealRow(worktreeCommand, 10.95);
   }
 
   const spinnerGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
@@ -482,7 +482,7 @@ export function buildHeroIntroScene(
   if (options.width < 1024) {
     const phonePrompt = "map the worktrees";
     const phoneTyping = { fraction: 0 };
-    timeline.set(typedInput, { textContent: "" }, 8.57);
+    timeline.set(typedInput, { textContent: "" }, 8.97);
     timeline.to(
       phoneTyping,
       {
@@ -496,14 +496,14 @@ export function buildHeroIntroScene(
           );
         },
       },
-      8.57,
+      8.97,
     );
-    timeline.set(typedInput, { textContent: "" }, 9.12);
+    timeline.set(typedInput, { textContent: "" }, 9.52);
     revealRow(
       visibleClaudeRows.find((row) => row.textContent?.includes("map the worktrees")),
-      9.12,
+      9.52,
     );
-    revealRow(phoneWorking, 9.2);
+    revealRow(phoneWorking, 9.6);
     if (phoneWorking !== null) {
       const phoneWorkState = { fraction: 0 };
       const phoneGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
@@ -515,14 +515,14 @@ export function buildHeroIntroScene(
           ease: "none",
           onUpdate: () => {
             const elapsed = phoneWorkState.fraction * 1.35;
-            phoneWorking.textContent = `  ⎿ ${phoneGlyphs[Math.floor((9.2 + elapsed) * 8) % phoneGlyphs.length]} Working (${Math.floor(elapsed + 1)}s · esc to interrupt)`;
+            phoneWorking.textContent = `  ⎿ ${phoneGlyphs[Math.floor((9.6 + elapsed) * 8) % phoneGlyphs.length]} Working (${Math.floor(elapsed + 1)}s · esc to interrupt)`;
           },
         },
-        9.2,
+        9.6,
       );
-      timeline.set(phoneWorking, { textContent: "  ⎿ Ran" }, 10.55);
+      timeline.set(phoneWorking, { textContent: "  ⎿ Ran" }, 10.95);
     }
-    revealRow(worktreeCommand, 10.55);
+    revealRow(worktreeCommand, 10.95);
   }
   if (codexWorkingMeta !== null) {
     const workingState = { seconds: 0 };
@@ -536,32 +536,32 @@ export function buildHeroIntroScene(
           codexWorkingMeta.textContent = ` (${Math.floor(workingState.seconds + 1)}s • esc to interrupt)`;
         },
       },
-      9.75,
+      10.15,
     );
   }
   worktreeRows.forEach((row, index) => {
-    revealRow(row, 10.75 + index * 0.45);
+    revealRow(row, 11.15 + index * 0.45);
     timeline.fromTo(
       row,
       { "--hero-row-flash": 1 },
       { "--hero-row-flash": 0, duration: 0.45, ease: "power1.out" },
-      10.75 + index * 0.45,
+      11.15 + index * 0.45,
     );
   });
-  revealRow(codexRunning, 10.55);
+  revealRow(codexRunning, 10.95);
   if (codexVerb !== null) {
-    timeline.set(codexVerb, { textContent: "Running" }, 10.55);
-    timeline.set(codexVerb, { textContent: "Ran" }, 12.2);
+    timeline.set(codexVerb, { textContent: "Running" }, 10.95);
+    timeline.set(codexVerb, { textContent: "Ran" }, 12.6);
   }
   if (codexWorking !== null && options.width >= 1024)
-    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 10.55);
-  timeline.addLabel("beat:codex-result", 12.2);
-  revealRow(worktreeResult, 12.2);
-  timeline.addLabel("beat:rail-handoff", 12.75);
+    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 10.95);
+  timeline.addLabel("beat:codex-result", 12.6);
+  revealRow(worktreeResult, 12.6);
+  timeline.addLabel("beat:rail-handoff", 13.55);
   const railTiming =
     rail === null
-      ? { finalHopStart: 13.15, end: 13.25 }
-      : addHeroRailStaircase({ timeline, artwork: rail, start: 12.75 });
+      ? { finalHopStart: 13.95, end: 14.05 }
+      : addHeroRailStaircase({ timeline, artwork: rail, start: 13.55 });
   timeline.fromTo(
     [payoffFirst, payoffSecond],
     { y: 8, opacity: 0 },

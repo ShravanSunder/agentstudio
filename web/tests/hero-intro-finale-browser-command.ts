@@ -31,6 +31,12 @@ interface FinaleSample {
   readonly rowOpacity: readonly number[];
   readonly tokenCount: number;
   readonly tokenTextOverlaps: number;
+  readonly tokenVisuals: readonly {
+    readonly opacity: number;
+    readonly fontSize: number;
+    readonly weight: string;
+    readonly fill: string;
+  }[];
   readonly railBurstTargetDistance: number;
   readonly transcriptClearances: readonly number[];
   readonly transcriptScrollTops: readonly number[];
@@ -140,7 +146,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         return ys.filter((y, index) => index === 0 || Math.abs(y - (ys[index - 1] ?? y)) > 0.5)
           .length;
       });
-      const staircase = planHeroRailStaircase(rowCount, 12.75);
+      const staircase = planHeroRailStaircase(rowCount, 13.55);
       const firstHop = staircase.hops[0];
       const secondHop = staircase.hops[1];
       const finalHop = staircase.hops.at(-1);
@@ -184,18 +190,27 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         7.0,
         7.2,
         7.22,
+        7.275,
         7.4,
         7.5,
         7.56,
+        7.725,
+        7.96,
         7.8,
         7.76,
         7.9,
         8.0,
         8.2,
         8.82,
+        8.795,
+        9.02,
+        9.245,
+        9.48,
         8.3,
         8.8,
         9.22,
+        9.72,
+        10.3,
         9.9,
         11.0,
         11.3,
@@ -208,6 +223,11 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         12.3,
         12.5,
         12.8,
+        12.875,
+        13.1,
+        13.325,
+        13.56,
+        13.65,
         11.7,
         staircase.start,
         holdMiddle,
@@ -442,6 +462,12 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               time,
               tokenCount: tokens.length,
               tokenTextOverlaps,
+              tokenVisuals: tokens.map((token) => ({
+                opacity: Number(token.getAttribute("opacity")),
+                fontSize: Number(token.getAttribute("font-size")),
+                weight: token.getAttribute("font-weight") ?? "",
+                fill: token.getAttribute("fill") ?? "",
+              })),
               railBurstTargetDistance,
               transcriptClearances: transcriptMeasurements.map(
                 (measurement) => measurement.clearance,
@@ -621,7 +647,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             throw new Error("Constrained transcript proof is incomplete");
           windowNode.style.height = "180px";
           control.seek(9.9);
-          control.seek(12.35);
+          control.seek(12.75);
           const scrollProbe = {
             overflow: transcript.scrollHeight - transcript.clientHeight,
             scrollTop: transcript.scrollTop,

@@ -10,7 +10,7 @@ interface RoutePoint extends HeroPoint {
   readonly normalY: number;
 }
 
-const tokenColours = ["#9aafcf", "#bfa597", "#a5b8a3", "#b3a8c4", "#9db6c2", "#c2b9a0"];
+const tokenColours = ["#b4c6e4", "#d4bcad", "#bccfb9", "#c9bfd9", "#b5cdd8", "#d6cdb4"];
 const installTokens = ["brew", "{ }", "✦", "tap", "⟨/⟩", "#", "cask", "▍", "→", "✦", "01"];
 const codexTokens = ["map", "✦", "λ", "{ }", "git", "⟨/⟩", "▍", "✦", "tree", "→", "01"];
 const railTokens = ["wt", "main", "✦", "{ }", "drawer", "▍", "→", "review", "·"];
@@ -55,9 +55,9 @@ export function pointAlongHeroRoute(route: readonly HeroPoint[], fraction: numbe
 }
 
 export function heroBurstTokenOpacity(progress: number): number {
-  const visibleFraction = (progress - 0.22) / 0.62;
+  const visibleFraction = (progress - 0.08) / 0.86;
   return visibleFraction > 0 && visibleFraction < 1
-    ? Math.sin(Math.PI * visibleFraction) * 0.72
+    ? Math.sin(Math.PI * visibleFraction) * 0.95
     : 0;
 }
 
@@ -143,7 +143,7 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
       state,
       {
         fraction: 1,
-        duration: 0.5,
+        duration: 0.9,
         ease: "none",
         onUpdate: () => {
           layer.replaceChildren();
@@ -168,10 +168,10 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
             text.setAttribute("x", String(point.x + point.normalX * offset));
             text.setAttribute("y", String(point.y + point.normalY * offset + 3));
             text.setAttribute("text-anchor", "middle");
-            text.setAttribute("font-size", String(11 + (index % 3)));
+            text.setAttribute("font-size", String(12 + (index % 3)));
             text.setAttribute("font-family", "ui-monospace, SF Mono, Menlo, monospace");
-            text.setAttribute("font-weight", "500");
-            text.setAttribute("fill", tokenColours[index % tokenColours.length] ?? "#9aafcf");
+            text.setAttribute("font-weight", "600");
+            text.setAttribute("fill", tokenColours[index % tokenColours.length] ?? "#b4c6e4");
             text.setAttribute("opacity", opacity.toFixed(3));
             text.textContent = token;
             layer.append(text);
@@ -210,7 +210,7 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
         { x: target.left + 12, y: target.top + target.height / 2 },
       ];
     });
-  addBurst("burst:rail", 12.25, railTokens, () => {
+  addBurst("burst:rail", 12.65, railTokens, () => {
     if (result === null || windowNode === null || railNode === null) return null;
     const source = textEnd(result);
     const windowRect = windowNode.getBoundingClientRect();
