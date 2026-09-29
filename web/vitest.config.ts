@@ -3,15 +3,46 @@ import { defineConfig } from "vitest/config";
 
 import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-command.ts";
 import {
+  verifyChapterAutoplayAtNaturalFraming,
+  verifyChapterSceneClicks,
+} from "./tests/chapter-autoplay-browser-command.ts";
+import { verifyChapterScrollGeometry } from "./tests/chapter-scroll-geometry-browser-command.ts";
+import {
+  verifyChapterStepHop,
+  verifyReducedMotionStepLine,
+} from "./tests/chapter-step-hop-browser-command.ts";
+import {
   verifyChapterStepRow,
+  verifySingleStepChapter,
   verifyChapterTitleAnchors,
 } from "./tests/chapter-surface-browser-command.ts";
+import {
+  verifyHeroIntroLayout,
+  verifyHeroNoScriptWidth,
+  verifyHeroIntroPlayback,
+  verifyHeroIntroRefresh,
+  verifyHeroIntroShift,
+  verifyHeroScrollCue,
+  verifyHeroPhoneMidIntro,
+} from "./tests/hero-intro-browser-command.ts";
+import { verifyHeroIntroFinale } from "./tests/hero-intro-finale-browser-command.ts";
+import { verifyInstallCommandLayout } from "./tests/install-command-layout-browser-command.ts";
+import { verifyRailViewportBands } from "./tests/rail-band-browser-command.ts";
 import { buildSceneBundlesForBrowserTest } from "./tests/scene-bundle-browser-command.ts";
-import { verifySiteFooterResponsiveLayout } from "./tests/site-footer-browser-command.ts";
+import {
+  verifyFooterEndRoom,
+  verifySiteFooterResponsiveLayout,
+} from "./tests/site-footer-browser-command.ts";
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
-import { verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
+import { verifyFinaleBookend, verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
 import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
+
+export function selectChromeLaunchOptions(
+  chromeBin: string | undefined,
+): { readonly executablePath: string } | { readonly channel: "chrome" } {
+  return chromeBin ? { executablePath: chromeBin } : { channel: "chrome" };
+}
 
 // A hang bound only fires on a real hang; it is set once per project and never raised for a failing test.
 // Waits inside tests are judged by the page's own events and DOM conditions.
@@ -39,17 +70,37 @@ export default defineConfig({
           browser: {
             commands: {
               buildSceneBundlesForBrowserTest,
+              verifyRailViewportBands,
               verifyChapterAnchorLanding,
+              verifyChapterAutoplayAtNaturalFraming,
+              verifyChapterSceneClicks,
+              verifyChapterScrollGeometry,
+              verifyChapterStepHop,
+              verifyReducedMotionStepLine,
+              verifyHeroIntroLayout,
+              verifyHeroNoScriptWidth,
+              verifyHeroIntroPlayback,
+              verifyHeroIntroRefresh,
+              verifyHeroIntroShift,
+              verifyHeroScrollCue,
+              verifyHeroPhoneMidIntro,
+              verifyHeroIntroFinale,
+              verifyInstallCommandLayout,
               verifyChapterStepRow,
+              verifySingleStepChapter,
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,
+              verifyFooterEndRoom,
               verifySiteHeaderScrollStability,
               verifyTopologyEnd,
+              verifyFinaleBookend,
               verifyTopologyNodeVocabulary,
               verifyWebsiteQualityLayout,
             },
             enabled: true,
-            provider: playwright({ launchOptions: { channel: "chrome" } }),
+            provider: playwright({
+              launchOptions: selectChromeLaunchOptions(process.env["CHROME_BIN"]),
+            }),
             headless: true,
             instances: [{ browser: "chromium" }],
           },

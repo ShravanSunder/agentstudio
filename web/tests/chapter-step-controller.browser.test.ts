@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import { initializeChapterSteps } from "../src/chapters/chapter-step-controller";
 import {
   chapterStepRequestedEventName,
   readChapterStepEventStepId,
 } from "../src/chapters/chapter-step-events";
+import { createScenePlayback } from "../src/home-page/scene-playback";
+import type { SceneModule } from "../src/motion-scenes/scene-contract";
 
 const fixtures: HTMLElement[] = [];
 const stepIds = ["task-drawers", "git-context", "files"] as const;
@@ -32,6 +34,7 @@ function createChapterStepsFixture(): HTMLElement {
   const fixture = document.createElement("div");
   fixture.innerHTML = `
     <section data-chapter-steps-root="context-with-task">
+      <div data-chapter-step-line><svg data-chapter-step-ring><circle data-chapter-step-ring-progress /></svg><span data-chapter-step-pause-glyph hidden>❚❚</span><span data-chapter-step-active-label><span data-chapter-step-active-label-text></span></span><svg><path data-chapter-step-branch /></svg></div>
       <div data-chapter-step-list>
         ${stepIds
           .map(
@@ -40,19 +43,20 @@ function createChapterStepsFixture(): HTMLElement {
                 type="button"
                 data-chapter-step="${stepId}"
                 data-step-state="${index === 0 ? "current" : "upcoming"}"
+                aria-label="${stepId}"
                 disabled
                 tabindex="-1"
-              >${stepId}</button>`,
+              ><span class="chapter-step__dot"></span>${stepId}</button>`,
           )
           .join("")}
       </div>
       ${stepIds
         .map(
           (stepId, index) =>
-            `<div data-chapter-step-panel="${stepId}" ${index === 0 ? "" : "hidden"}>${stepId} copy</div>`,
+            `<div data-chapter-step-panel="${stepId}" aria-hidden="${index !== 0}">${stepId} copy</div>`,
         )
         .join("")}
-      <div data-scene-root="chapter-context-with-task"></div>
+      <div data-rail-surface-target="context-with-task"><div data-scene-root="chapter-context-with-task"></div></div>
     </section>
   `;
   document.body.append(fixture);
@@ -82,7 +86,7 @@ afterEach(() => {
 });
 
 describe("chapter step tabs", () => {
-  it("enhances the static steps into a vertical tablist with synchronized panels", async () => {
+  it("enhances the static steps into a horizontal tablist with synchronized panels", async () => {
     await page.viewport(1280, 800);
     const root = createChapterStepsFixture();
     const list = requiredHtmlElement(root, "[data-chapter-step-list]");
@@ -95,7 +99,7 @@ describe("chapter step tabs", () => {
 
     expect(root.dataset["enhanced"]).toBe("true");
     expect(list.getAttribute("role")).toBe("tablist");
-    expect(list.getAttribute("aria-orientation")).toBe("vertical");
+    expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     expect(firstStep.getAttribute("role")).toBe("tab");
     expect(firstStep.getAttribute("aria-selected")).toBe("true");
     expect(firstStep.tabIndex).toBe(0);
@@ -111,7 +115,7 @@ describe("chapter step tabs", () => {
     expect(firstStep.disabled).toBe(true);
   });
 
-  it("announces a horizontal tablist on phones and follows the viewport across the breakpoint", async () => {
+  it("keeps the pill tablist horizontal across the breakpoint", async () => {
     // Arrange
     await page.viewport(390, 844);
     const root = createChapterStepsFixture();
@@ -123,9 +127,7 @@ describe("chapter step tabs", () => {
     // Assert
     expect(list.getAttribute("aria-orientation")).toBe("horizontal");
     await page.viewport(1280, 800);
-    await vi.waitFor(() => {
-      expect(list.getAttribute("aria-orientation")).toBe("vertical");
-    });
+    expect(list.getAttribute("aria-orientation")).toBe("horizontal");
 
     controller.destroy();
   });
@@ -133,16 +135,31 @@ describe("chapter step tabs", () => {
   it("selects a clicked step, shows its panel, and asks the scene to seek there", () => {
     const root = createChapterStepsFixture();
     const requestedSteps: string[] = [];
+    const receivedAtSurface: string[] = [];
     root.addEventListener(chapterStepRequestedEventName, (event: Event): void => {
       requestedSteps.push(readChapterStepEventStepId(event) ?? "unreadable");
     });
+    requiredHtmlElement(root, "[data-rail-surface-target]").addEventListener(
+      chapterStepRequestedEventName,
+      (event: Event): void => {
+        receivedAtSurface.push(readChapterStepEventStepId(event) ?? "unreadable");
+      },
+    );
     const controller = initializeChapterSteps(root);
 
     requiredButton(root, '[data-chapter-step="git-context"]').click();
 
     expect(selectedStepId(root)).toBe("git-context");
-    expect(requiredHtmlElement(root, '[data-chapter-step-panel="git-context"]').hidden).toBe(false);
-    expect(requiredHtmlElement(root, '[data-chapter-step-panel="task-drawers"]').hidden).toBe(true);
+    expect(
+      requiredHtmlElement(root, '[data-chapter-step-panel="git-context"]').getAttribute(
+        "aria-hidden",
+      ),
+    ).toBe("false");
+    expect(
+      requiredHtmlElement(root, '[data-chapter-step-panel="task-drawers"]').getAttribute(
+        "aria-hidden",
+      ),
+    ).toBe("true");
     expect(
       requiredHtmlElement(root, '[data-chapter-step="task-drawers"]').dataset["stepState"],
     ).toBe("passed");
@@ -150,7 +167,119 @@ describe("chapter step tabs", () => {
       "upcoming",
     );
     expect(requestedSteps).toEqual(["git-context"]);
+    expect(receivedAtSurface).toEqual(["git-context"]);
+    expect(requiredHtmlElement(root, "[data-chapter-step-active-label-text]").textContent).toBe(
+      "git-context",
+    );
 
+    controller.destroy();
+  });
+
+  it("tracks published dwell progress and resumes the selected paused step", async () => {
+    const root = createChapterStepsFixture();
+    const surface = requiredHtmlElement(root, "[data-rail-surface-target]");
+    const controller = initializeChapterSteps(root);
+    const ring = root.querySelector<SVGSVGElement>("[data-chapter-step-ring]");
+    const progress = root.querySelector<SVGCircleElement>("[data-chapter-step-ring-progress]");
+    if (ring === null || progress === null) throw new Error("Ring fixture missing");
+    const resumed: string[] = [];
+    surface.addEventListener("agentstudio:chapter-step-resume-requested", (event: Event): void => {
+      resumed.push(readChapterStepEventStepId(event) ?? "");
+    });
+    surface.dispatchEvent(
+      new CustomEvent("agentstudio:scene-step-timing", {
+        bubbles: true,
+        detail: {
+          stepId: "task-drawers",
+          dwellSeconds: 4,
+          elapsedSeconds: 2,
+          running: true,
+          manualPause: false,
+        },
+      }),
+    );
+    expect(ring.hasAttribute("data-ring-hidden")).toBe(false);
+    const countdown = progress.getAnimations()[0];
+    expect(countdown?.currentTime).toBe(2000);
+    expect(countdown?.playState).toBe("running");
+    if (countdown === undefined) throw new Error("Countdown animation missing");
+    countdown.currentTime = 2020;
+    surface.dispatchEvent(
+      new CustomEvent("agentstudio:scene-step-timing", {
+        bubbles: true,
+        detail: {
+          stepId: "task-drawers",
+          dwellSeconds: 4,
+          elapsedSeconds: 2.04,
+          running: true,
+          manualPause: false,
+        },
+      }),
+    );
+    expect(countdown.currentTime).toBe(2020);
+
+    requiredButton(root, '[data-chapter-step="git-context"]').click();
+    expect(root.querySelector("[data-chapter-step-line]")?.getAttribute("data-step-playback")).toBe(
+      "paused",
+    );
+    expect(requiredHtmlElement(root, "[data-chapter-step-pause-glyph]").hidden).toBe(false);
+    requiredButton(root, '[data-chapter-step="git-context"]').click();
+    expect(resumed).toEqual(["git-context"]);
+    controller.destroy();
+  });
+
+  it.each(["Space", "Enter"])("resumes a selected paused tab once with %s", async (key) => {
+    const root = createChapterStepsFixture();
+    const surface = requiredHtmlElement(root, "[data-rail-surface-target]");
+    const resumed: string[] = [];
+    surface.addEventListener("agentstudio:chapter-step-resume-requested", (event: Event): void => {
+      resumed.push(readChapterStepEventStepId(event) ?? "unreadable");
+    });
+    const controller = initializeChapterSteps(root);
+    const sceneRoot = requiredHtmlElement(surface, "[data-scene-root]");
+    const sceneModule: SceneModule = {
+      sceneId: "chapter-context-with-task",
+      steps: [
+        { stepId: "task-drawers", timelineLabel: "task-drawers" },
+        { stepId: "git-context", timelineLabel: "git-context" },
+        { stepId: "files", timelineLabel: "files" },
+      ],
+      buildScene: (scene, timeline): void => {
+        timeline
+          .addLabel("task-drawers", 0)
+          .to(scene, { opacity: 0.9, duration: 1 })
+          .addLabel("git-context")
+          .to(scene, { opacity: 0.8, duration: 1 })
+          .addLabel("files")
+          .to(scene, { opacity: 1, duration: 1 });
+      },
+    };
+    const playback = createScenePlayback({
+      resolveModule: () => sceneModule,
+      sceneRoot,
+      surface,
+    });
+    playback.synchronize(1, true);
+    const selected = requiredButton(root, '[data-chapter-step="git-context"]');
+    selected.click();
+    expect(sceneRoot.dataset["scenePlaybackState"]).toBe("paused");
+    expect(root.querySelector("[data-chapter-step-line]")?.getAttribute("data-step-playback")).toBe(
+      "paused",
+    );
+    const travel = requiredHtmlElement(root, "[data-chapter-step-line]")
+      .querySelector("[data-chapter-step-ring]")
+      ?.getAnimations()[0];
+    if (travel !== undefined) await travel.finished;
+
+    selected.focus();
+    await userEvent.keyboard(key === "Space" ? " " : "{Enter}");
+
+    expect(resumed).toEqual(["git-context"]);
+    expect(sceneRoot.dataset["scenePlaybackState"]).toBe("playing");
+    expect(root.querySelector("[data-chapter-step-line]")?.getAttribute("data-step-playback")).toBe(
+      "playing",
+    );
+    playback.dispose();
     controller.destroy();
   });
 

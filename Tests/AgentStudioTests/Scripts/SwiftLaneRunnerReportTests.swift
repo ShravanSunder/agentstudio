@@ -107,7 +107,8 @@ struct SwiftLaneRunnerReportTests {
         defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
         let output = try await runBash(
             "LOG_PREFIX=timing; export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' "
-                + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3; "
+                + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3 "
+                + "LANE_TIMING_CONCURRENCY=4; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
                 + "run_swift_with_timeout 'fixture' 60 /bin/bash -c 'exit 7' || status=$?; "
                 + "echo STATUS=${status:-0}"
@@ -126,6 +127,8 @@ struct SwiftLaneRunnerReportTests {
         #expect(record["filter"] as? String == "FixtureSuite")
         #expect(record["batch_id"] as? Int == 2)
         #expect(record["slot"] as? Int == 3)
+        #expect(record["slot_cap"] as? Int == 4)
+        #expect(record["phase"] == nil || record["phase"] is NSNull)
         #expect(record["timed_out"] as? Bool == false)
         #expect(record["event_stream_file"] is String)
     }
@@ -152,15 +155,15 @@ struct SwiftLaneRunnerReportTests {
                     + "ARG:\(statisticsDirectory)\n") == true)
     }
 
-    @Test("timing summary computes fixed scheduler replay and keeps missing spans unknown")
-    func timingSummaryComputesReplayAndUnknowns() async throws {
+    @Test("timing summary measures actual scheduler idle and keeps missing spans unknown")
+    func timingSummaryComputesActualIdleAndUnknowns() async throws {
         let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-summary-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
         try FileManager.default.createDirectory(atPath: evidenceDirectory, withIntermediateDirectories: true)
         let eventFile = evidenceDirectory + "/fixture.events.jsonl"
-        try "{\"kind\":\"event\",\"payload\":{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}}\n"
+        try "{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}\n"
             .appending(
-                "{\"kind\":\"event\",\"payload\":{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}}\n"
+                "{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}\n"
             )
             .write(toFile: eventFile, atomically: true, encoding: .utf8)
         let fixture: [String: Any] = [
@@ -171,21 +174,66 @@ struct SwiftLaneRunnerReportTests {
         ]
         let fixtureData = try JSONSerialization.data(withJSONObject: fixture)
         try fixtureData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-fixture.timing.json"))
+        let wrappedEventFile = evidenceDirectory + "/wrapped.events.jsonl"
+        try "{\"kind\":\"event\",\"payload\":{\"kind\":\"runStarted\",\"instant\":{\"since1970\":1790000001.1}}}\n"
+            .appending(
+                "{\"kind\":\"event\",\"payload\":{\"kind\":\"runEnded\",\"instant\":{\"since1970\":1790000001.3}}}\n"
+            )
+            .write(toFile: wrappedEventFile, atomically: true, encoding: .utf8)
+        var wrappedFixture = fixture
+        wrappedFixture["lane"] = "fixture-wrapped"
+        wrappedFixture["event_stream_file"] = wrappedEventFile
+        let wrappedData = try JSONSerialization.data(withJSONObject: wrappedFixture)
+        try wrappedData.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-wrapped.timing.json"))
         for (index, duration) in [100, 400, 100, 400, 100, 100].enumerated() {
-            let dispatch = index < 3 ? 1000 : 1500
+            let dispatch = [1000, 1000, 1000, 1100, 1400, 1500][index]
             let item: [String: Any] = [
                 "lane": "isolated", "label": "isolated process-global non-WebKit suite: \(index)",
-                "filter": "Suite\(index)", "batch_id": index < 3 ? 1 : 2,
-                "slot": index % 3 + 1, "dispatch_ms": dispatch,
+                "filter": "Suite\(index)", "batch_id": index + 1,
+                "slot": index % 3 + 1, "slot_cap": 3, "dispatch_ms": dispatch,
                 "wrapper_complete_ms": dispatch + duration,
             ]
             let data = try JSONSerialization.data(withJSONObject: item)
             try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-\(index).timing.json"))
         }
+        for slot in 1...4 {
+            let item: [String: Any] = [
+                "lane": "four-slot", "label": "isolated process-global non-WebKit suite: \(slot)",
+                "filter": "FourSlotSuite\(slot)", "batch_id": slot,
+                "slot": slot, "slot_cap": 4, "dispatch_ms": 2000,
+                "wrapper_complete_ms": 2100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-four-\(slot).timing.json"))
+        }
+        for slot in 1...3 {
+            let item: [String: Any] = [
+                "lane": "partial-four-slot", "label": "isolated process-global non-WebKit suite: \(slot)",
+                "filter": "PartialFourSlotSuite\(slot)", "batch_id": slot,
+                "slot": slot, "slot_cap": 4, "dispatch_ms": 3000,
+                "wrapper_complete_ms": 3100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-partial-\(slot).timing.json"))
+        }
+        for (phase, dispatch) in [("fast", 4000), ("webkit", 9000)] {
+            let item: [String: Any] = [
+                "lane": "shared-lane", "phase": phase, "label": "isolated suite: \(phase)",
+                "filter": "Suite\(phase)", "batch_id": 1, "slot": 1, "slot_cap": 1,
+                "dispatch_ms": dispatch, "wrapper_complete_ms": dispatch + 100,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: item)
+            try data.write(to: URL(fileURLWithPath: evidenceDirectory + "/lane-shared-\(phase).timing.json"))
+        }
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
         let summary = try String(contentsOfFile: evidenceDirectory + "/timing-summary.md", encoding: .utf8)
         #expect(summary.contains("| fixture | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
-        #expect(summary.contains("Total slot idle: 1.200 s; B: 0.800 s; R: 0.500 s."))
+        #expect(summary.contains("| fixture-wrapped | 1 | 0.500 | 0.100 | 0.200 | 0.050 | 0.050 |"))
+        #expect(summary.contains("| isolated | unknown | 6 | 3 | 0.600 | 0.600 |"))
+        #expect(summary.contains("| four-slot | unknown | 4 | 4 | 0.100 | 0.000 |"))
+        #expect(summary.contains("| partial-four-slot | unknown | 3 | 4 | 0.100 | 0.100 |"))
+        #expect(summary.contains("| shared-lane | fast | 1 | 1 | 0.100 | 0.000 |"))
+        #expect(summary.contains("| shared-lane | webkit | 1 | 1 | 0.100 | 0.000 |"))
         #expect(summary.contains("unknown"))
         let emptyDirectory = evidenceDirectory + "/empty"
         _ = try await runBash("LANE_EVENT_STREAM_DIR='\(emptyDirectory)' /bin/bash scripts/summarize-ci-timing.sh")
@@ -205,7 +253,7 @@ struct SwiftLaneRunnerReportTests {
             !$0.contains("$(swift_test_parallelization_env_word)")
         }
 
-        #expect(invocationLines.count >= 10)
+        #expect(invocationLines.count >= 9)
         #expect(
             invocationsBypassingTheHelper.isEmpty,
             "Swift test invocations not routed through the width helper: \(invocationsBypassingTheHelper)"
@@ -313,6 +361,7 @@ struct SwiftLaneRunnerReportTests {
                 // the lane's own child group was actually reaped on the way out.
                 "event_stream",
                 "exit_status",
+                "fact_expected",
                 "failed_isolated_suite",
                 "failed_isolated_suites",
                 "head_sha",
@@ -381,29 +430,28 @@ struct SwiftLaneRunnerReportTests {
 
     @Test("one crashed isolated suite does not hide the suites after it")
     func oneCrashedIsolatedSuiteDoesNotHideTheSuitesAfterIt() async throws {
-        // Two batched children: the first crashes, the second must still run and
-        // still be observable. Stopping at the first is what hid 324 of 336
-        // suites behind one crash.
+        // The rolling dispatcher must observe every child after one signal.
         let tallyPath = NSTemporaryDirectory() + "agentstudio-s2d-tally-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: tallyPath) }
         let laneOutput = try await runBashAllowingFailure(
             "LOG_PREFIX=lane; export SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE='\(tallyPath)'; "
                 + ": >\"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\"; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "/bin/bash -c 'kill -SEGV $$' & first=$!; "
-                + "/bin/bash -c 'echo SECOND_BATCH_RAN; exit 0' & second=$!; "
-                + "batch=0; "
-                + "wait_for_process_global_suite_batch \"$first\" CrashingSuite \"$second\" HealthySuite "
-                + "|| batch=$?; echo \"BATCH=$batch\"; "
+                + "swift_test_isolated_process_concurrency() { echo 2; }; "
+                + "run_selected_isolated_suite() { "
+                + "if [ \"$2\" = CrashingSuite ]; then /bin/bash -c 'kill -SEGV $$'; "
+                + "else echo SECOND_SUITE_RAN; fi; }; "
+                + "lane_status=0; dispatch_isolated_suites fast CrashingSuite HealthySuite "
+                + "|| lane_status=$?; echo \"LANE_STATUS=$lane_status\"; "
                 + "echo \"COUNT=$(swift_test_failed_isolated_suite_count)\"; "
                 + "cat \"$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE\""
         )
 
         // Both children ran; only the crashing one is recorded.
-        #expect(laneOutput.contains("SECOND_BATCH_RAN"))
+        #expect(laneOutput.contains("SECOND_SUITE_RAN"))
         #expect(laneOutput.contains("isolated suite failed: CrashingSuite"))
         #expect(!laneOutput.contains("isolated suite failed: HealthySuite"))
-        #expect(laneOutput.contains("BATCH=1"))
+        #expect(laneOutput.contains("LANE_STATUS=1"))
         #expect(laneOutput.contains("COUNT=1"))
         #expect(laneOutput.contains("CrashingSuite\t139\tSEGV"))
     }
@@ -570,15 +618,10 @@ struct SwiftLaneRunnerReportTests {
     func everyIsolatedPerProcessInvocationAnchorsItsSuiteFilter() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
 
-        // The three places that start one process for one suite must all go
-        // through the helper; a bare name at any of them reopens the crash.
+        // Fast and large isolated suites share one anchored invocation.
         #expect(
             helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$aggregate_serial_suite_filter\")\""
-            ))
-        #expect(
-            helperScript.contains(
-                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$large_process_global_suite_filter\")\""
+                "--filter \"$(swift_test_isolated_suite_filter_pattern \"$suite_filter\")\""
             ))
         let fastProcessInvocation = try shellFunction(
             named: "run_fast_serial_process_swift_tests",
@@ -588,6 +631,8 @@ struct SwiftLaneRunnerReportTests {
             fastProcessInvocation.contains(
                 "--filter \"$(swift_test_isolated_suite_filter_pattern \"$fast_process_global_suite_filter\")\""
             ))
+        let webKitInvocation = try shellFunction(named: "run_webkit_suite", in: helperScript)
+        #expect(webKitInvocation.contains("--filter \"$filter\""))
         // Fast skips are generated from exact lane ownership, with the
         // aggregate isolated suites anchored by their own suite-type filters.
         #expect(helperScript.contains("--skip \"$fast_lane_skip_pattern\""))
@@ -722,6 +767,21 @@ struct SwiftLaneRunnerReportTests {
         #expect(concurrencyFunction.contains("sysctl -n hw.ncpu"))
         #expect(concurrency == min(4, coreCount))
         #expect(concurrency >= 1)
+    }
+
+    @Test("WebKit process fan-out stays at one for time-coupled Bridge waits")
+    func webkitProcessFanOutStaysAtOneForTimeCoupledBridgeWaits() async throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let concurrencyFunction = try shellFunction(
+            named: "swift_test_webkit_process_concurrency",
+            in: helperScript
+        )
+        let observedConcurrency = try await runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_webkit_process_concurrency"
+        )
+
+        #expect(concurrencyFunction.contains("SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY"))
+        #expect(observedConcurrency.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
     }
 
     @Test("announced-test counter tracks posted start events, not the cap")

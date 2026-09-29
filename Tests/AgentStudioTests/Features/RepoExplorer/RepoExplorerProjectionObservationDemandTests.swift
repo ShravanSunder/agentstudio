@@ -182,7 +182,8 @@ extension RepoExplorerProjectionDemandTests {
             adapter.updateDemand(isVisible: false, query: "")
             #expect(adapter.observationTokens.isEmpty)
             #expect(adapter.observationRegistration == .hidden)
-            #expect(adapter.recencyDeadlineTask == nil)
+            await adapter.waitForDeadlineWorkerUpdate()
+            #expect(await adapter.deadlineWorker.hasPendingPresentationDeadline() == false)
             store.paneAtom.updatePaneTitle(pane.id, title: "hidden change")
             for _ in 0..<100 { await Task.yield() }
             #expect(capture.fullCaptureCount + capture.scopedCaptureCount == captureCountBeforeHiding)

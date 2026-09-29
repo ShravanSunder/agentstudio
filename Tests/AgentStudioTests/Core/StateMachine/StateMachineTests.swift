@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
-@Suite(.serialized)
+@Suite
 @MainActor
 struct StateMachineTests {
 

@@ -20,6 +20,7 @@ extension RepoExplorerTableMaterializer {
         }
 
         let previousRowIndex = tableView.selectedRow
+        let previousVariantRowID = selectedVariantRowID
         isApplyingProgrammaticSelection = true
         defer {
             isApplyingProgrammaticSelection = false
@@ -30,6 +31,8 @@ extension RepoExplorerTableMaterializer {
         }
         if let targetRowIndex {
             tableView.selectRowIndexes(IndexSet(integer: targetRowIndex), byExtendingSelection: false)
+            guard tableView.selectedRow == targetRowIndex else { return false }
+            applyPaneVariantSelection(from: previousVariantRowID, to: rowID)
             if scrollIntoView {
                 tableView.scrollRowToVisible(targetRowIndex)
                 scheduleViewportPublication()
@@ -37,6 +40,7 @@ extension RepoExplorerTableMaterializer {
             return tableView.selectedRow == targetRowIndex
         }
         tableView.deselectAll(nil)
+        applyPaneVariantSelection(from: previousVariantRowID, to: nil)
         return tableView.selectedRow == -1
     }
 

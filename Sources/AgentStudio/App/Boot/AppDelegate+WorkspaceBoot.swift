@@ -5,6 +5,7 @@ import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AgentStudioTerminal
+import AgentStudioWorktreeOperations
 import AppKit
 import Foundation
 import Observation
@@ -513,6 +514,7 @@ extension AppDelegate {
     }
 
     private func bootInstallCommandBar() {
+        let searchService = SearchService(performanceTraceRecorder: performanceTraceRecorder)
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,
@@ -525,6 +527,7 @@ extension AppDelegate {
                 )
             },
             commandBarSurface: atomStore.core.commandBarSurface,
+            searchService: searchService,
             performanceTraceRecorder: performanceTraceRecorder,
             worktreeForkEligibility: SDKWorktreeForkEligibilityChecker(),
             defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver()

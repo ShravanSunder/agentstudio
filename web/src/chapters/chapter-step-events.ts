@@ -8,6 +8,53 @@ export const sceneStepReachedEventName = "agentstudio:scene-step-reached";
 
 /** Dispatched on the chapter surface when a visitor selects a step. */
 export const chapterStepRequestedEventName = "agentstudio:chapter-step-requested";
+export const chapterStepResumeRequestedEventName = "agentstudio:chapter-step-resume-requested";
+export const sceneStepTimingEventName = "agentstudio:scene-step-timing";
+
+export interface SceneStepTimingDetail {
+  readonly stepId: string;
+  readonly dwellSeconds: number;
+  readonly elapsedSeconds: number;
+  readonly running: boolean;
+  readonly manualPause: boolean;
+}
+
+export function createSceneStepTimingEvent(
+  detail: SceneStepTimingDetail,
+): CustomEvent<SceneStepTimingDetail> {
+  return new CustomEvent<SceneStepTimingDetail>(sceneStepTimingEventName, {
+    bubbles: true,
+    detail,
+  });
+}
+
+export function readSceneStepTiming(event: Event): SceneStepTimingDetail | undefined {
+  if (!(event instanceof CustomEvent)) return undefined;
+  const detail: unknown = event.detail;
+  if (
+    typeof detail !== "object" ||
+    detail === null ||
+    !("stepId" in detail) ||
+    !("dwellSeconds" in detail) ||
+    !("elapsedSeconds" in detail) ||
+    !("running" in detail) ||
+    !("manualPause" in detail)
+  )
+    return undefined;
+  return typeof detail.stepId === "string" &&
+    typeof detail.dwellSeconds === "number" &&
+    typeof detail.elapsedSeconds === "number" &&
+    typeof detail.running === "boolean" &&
+    typeof detail.manualPause === "boolean"
+    ? {
+        stepId: detail.stepId,
+        dwellSeconds: detail.dwellSeconds,
+        elapsedSeconds: detail.elapsedSeconds,
+        running: detail.running,
+        manualPause: detail.manualPause,
+      }
+    : undefined;
+}
 
 export interface ChapterStepEventDetail {
   readonly stepId: string;

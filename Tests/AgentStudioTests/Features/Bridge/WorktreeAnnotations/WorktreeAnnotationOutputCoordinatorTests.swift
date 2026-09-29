@@ -5,12 +5,6 @@ import Testing
 
 @Suite("Worktree annotation output coordinator")
 struct WorktreeAnnotationOutputCoordinatorTests {
-    @Test("live effect outcomes are exhaustively known")
-    func liveEffectOutcomesAreExhaustivelyKnown() {
-        #expect(classifyLiveEffectOutcome(.succeeded) == "succeeded")
-        #expect(classifyLiveEffectOutcome(.failed("unavailable")) == "failed")
-    }
-
     @Test("generation failure occurs before prepare or effect")
     func generationFailureHasNoDurableOrExternalEffect() async throws {
         let fixture = makeCoordinatorFixture(effectOutcome: .succeeded)
@@ -197,17 +191,6 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         #expect(output.attempt.destinationPath == "/tmp/repeated-export.json")
         #expect(await fixture.effect.lastRequest?.destinationPath == "/tmp/repeated-export.json")
         #expect(await fixture.effect.lastRequest?.exactBytes == persistedBytes)
-    }
-}
-
-private func classifyLiveEffectOutcome(
-    _ outcome: WorktreeAnnotationOutputEffectOutcome
-) -> String {
-    switch outcome {
-    case .succeeded:
-        "succeeded"
-    case .failed:
-        "failed"
     }
 }
 

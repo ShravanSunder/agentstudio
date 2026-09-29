@@ -162,6 +162,7 @@ extension CommandBarPanelController {
         default:
             break
         }
+        searchContextChanged()
     }
 
     private func replaceCreationLevelWithoutActions(_ level: CommandBarLevel) {
@@ -175,6 +176,7 @@ extension CommandBarPanelController {
                 items: [],
                 creationQuery: level.creationQuery
             ))
+        searchContextChanged()
     }
 
     private func focusedWorktreeId(in repository: Repo) -> UUID? {

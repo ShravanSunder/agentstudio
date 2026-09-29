@@ -129,6 +129,59 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func sustainedSnapshotRevisionsStillAutosave() async throws {
+        let workspaceId = UUIDv7.generate()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let atom = RepoCacheAtom()
+        let clock = TestPushClock()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let store = RepoCacheStore(
+            atom: atom,
+            sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
+            persistDebounceDuration: .milliseconds(10),
+            persistMaximumDelay: .milliseconds(50),
+            clock: clock
+        )
+        await store.restoreAsync(for: workspaceId)
+        store.startObserving()
+        let savedBranchValues = ValueObservation.tracking { database in
+            try String.fetchOne(
+                database,
+                sql: "SELECT branch FROM cache_worktree_enrichment WHERE worktree_id = ?",
+                arguments: [worktreeId.uuidString]
+            )
+        }.values(in: fixture.databaseQueue)
+        var savedBranchIterator = savedBranchValues.makeAsyncIterator()
+        #expect(try await savedBranchIterator.next() == .some(nil))
+
+        for changedCount in 0..<9 {
+            let nextSleepGeneration = clock.scheduledSleepGeneration
+            atom.setWorktreeEnrichment(
+                WorktreeEnrichment(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    branch: "feature/x",
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: worktreeId,
+                        repoId: repoId,
+                        rootPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+                        summary: GitWorkingTreeSummary(changed: changedCount, staged: 0, untracked: 0),
+                        branch: "feature/x"
+                    )
+                )
+            )
+            if changedCount == 0 {
+                await clock.waitForPendingSleepCount(exactly: 2)
+            }
+            await clock.waitForPendingSleepGeneration(nextSleepGeneration)
+            clock.advance(by: .milliseconds(6))
+        }
+
+        #expect(try await savedBranchIterator.next() == "feature/x")
+    }
+
+    @Test
     func snapshotOnlyWorktreeChangeDoesNotRewritePersistedCache() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)

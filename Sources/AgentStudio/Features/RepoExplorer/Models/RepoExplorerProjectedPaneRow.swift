@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioSharedComponents
 import Foundation
 
 enum RepoExplorerProjectedPaneDestination: Equatable, Sendable {
@@ -75,6 +76,13 @@ enum RepoExplorerProjectedPaneMembershipOwner: Equatable, Sendable {
     case tab
 }
 
+typealias RepoExplorerDrawerRail = DrawerRailSegment
+
+enum RepoExplorerPaneDisplayVariant: Equatable, Sendable {
+    case compact
+    case expanded
+}
+
 struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
     let groupId: String
     let membershipOwner: RepoExplorerProjectedPaneMembershipOwner
@@ -90,8 +98,13 @@ struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
     let isDrawerPane: Bool
     var isPinned = false
     var activitySubgroup: RepoExplorerActivityBucket?
+    var variants: RepoExplorerPaneRowVariants?
+    var drawerRail: RepoExplorerDrawerRail = .none
+    var displayVariant: RepoExplorerPaneDisplayVariant = .compact
+    var drawerOwnerPaneID: UUID?
 
     var secondaryText: String? { secondaryLine?.text }
+    var anchorIdentity: UUID { destination.paneId }
     var repoId: UUID? { destination.repoId }
     var worktreeId: UUID? { destination.worktreeId }
 
@@ -123,6 +136,7 @@ struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
         self.recencyTier = recencyTier
         self.isActive = isActive
         self.isDrawerPane = isDrawerPane
+        variants = nil
     }
 
     init(
@@ -148,5 +162,6 @@ struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
         self.recencyTier = recencyTier
         self.isActive = isActive
         self.isDrawerPane = isDrawerPane
+        variants = nil
     }
 }

@@ -1,6 +1,10 @@
 import AgentStudioTestSupport
 import Foundation
+import GRDB
 import Testing
+
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite("WorkspaceSQLiteDatastoreBoundaryTests")
 struct WorkspaceSQLiteDatastoreBoundaryTests {
@@ -116,16 +120,54 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
     }
 
-    @Test("configuration starts unprepared while injected capabilities start prepared")
-    func datastoreConstructionMakesPreparationHonest() throws {
-        let source = try projectSource("Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreActor.swift")
+    @Test("configuration-backed datastore refuses loads until it prepares its databases")
+    func configurationBackedDatastoreStartsUnprepared() async throws {
+        let rootDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-datastore-preparation-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+        let datastore = WorkspaceSQLiteDatastoreActor(
+            configuration: .init(
+                coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
+                localDatabaseURL: rootDirectory.appending(path: "local.sqlite")
+            )
+        )
 
-        #expect(source.contains("self.databasePreparationState = .unprepared"))
-        #expect(source.contains("self.databasePreparationState = .prepared(preparationReceipt)"))
-        #expect(source.contains("throw WorkspaceSQLiteDatastoreError.useDatastoreApplicationLocalRepositoryBundle"))
-        #expect(!source.contains("private let makePreparedLocalRepository"))
-        #expect(!source.contains("private let makeLocalRestoreRepository"))
-        #expect(!source.contains("func hasCompletedSnapshot(workspaceId: UUID) async"))
+        guard case .unavailable = await datastore.loadAuthoritativeCoreSnapshot() else {
+            Issue.record("Expected an unprepared datastore to refuse the core snapshot load")
+            return
+        }
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            Issue.record("Expected the configuration-backed datastore to prepare its databases")
+            return
+        }
+        #expect(await datastore.loadAuthoritativeCoreSnapshot() == .uninitialized)
+    }
+
+    @Test("datastore built from injected prepared capabilities starts prepared")
+    @MainActor
+    func injectedCapabilitiesStartPrepared() async throws {
+        let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let localDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(coreDatabaseQueue)
+        try WorkspaceLocalMigrations.migrate(localDatabaseQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+        let preparedApplicationLocalRepository = WorkspaceLocalRepository(
+            workspaceId: UUIDv7.generate(),
+            databaseWriter: localDatabaseQueue
+        )
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            preparedApplicationLocalRepository: preparedApplicationLocalRepository
+        )
+
+        #expect(await datastore.loadAuthoritativeCoreSnapshot() == .uninitialized)
+
+        let preparation = await datastore.prepareDatabasesForBoot()
+        guard case .prepared = preparation else {
+            Issue.record("Expected prepared datastore, got \(preparation)")
+            return
+        }
     }
 
     private func projectSource(_ relativePath: String) throws -> String {

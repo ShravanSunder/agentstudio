@@ -46,9 +46,10 @@ enum CommandBarDataSource {
         static let recent = 1
         static let repositoriesAndWorktrees = 2
         static let repos = 1
-        static let panes = 2
-        static let tabs = 3
-        static let commands = 4
+        static let worktrees = 2
+        static let panes = 3
+        static let tabs = 4
+        static let commands = 5
         static let paneTabBase = 1
     }
 
@@ -113,6 +114,7 @@ enum CommandBarDataSource {
             switch scope {
             case .everything:
                 everythingItems(
+                    rootQueryState: rootQueryState,
                     store: store,
                     repoCache: repoCache,
                     dispatcher: dispatcher,
@@ -130,11 +132,17 @@ enum CommandBarDataSource {
             case .panes:
                 paneAndTabItems(store: store, repoCache: repoCache)
             case .repos:
-                repoScopeItems(
-                    store: store,
-                    dispatcher: dispatcher,
-                    itemCache: repoScopeItemCache
-                )
+                if rootQueryState == .meaningful {
+                    searchableRepositoryAndWorktreeItems(
+                        store: store,
+                        repoCache: repoCache,
+                        repositoryGroup: Group.repositories,
+                        repositoryPriority: Priority.repositories,
+                        worktreePriority: Priority.repositories + 1
+                    )
+                } else {
+                    repoScopeItems(store: store, dispatcher: dispatcher, itemCache: repoScopeItemCache)
+                }
             case .inbox:
                 inboxItems(
                     commands: notificationInboxCommands,
@@ -156,6 +164,9 @@ enum CommandBarDataSource {
             duration: start.duration(to: clock.now),
             attributes: [
                 "agentstudio.performance.commandbar.item.count": .int(items.count),
+                "agentstudio.performance.commandbar.worktree_row.count": .int(
+                    items.filter { $0.id.hasPrefix("repo-wt-") }.count
+                ),
                 "agentstudio.performance.commandbar.repo.count": .int(store.repositoryTopologyAtom.repos.count),
                 "agentstudio.performance.commandbar.worktree.count": .int(
                     store.repositoryTopologyAtom.repos.reduce(0) { $0 + $1.worktrees.count }
@@ -199,6 +210,7 @@ enum CommandBarDataSource {
     // MARK: - Everything Scope
 
     private static func everythingItems(
+        rootQueryState: CommandBarRootQueryState,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching,
@@ -216,12 +228,15 @@ enum CommandBarDataSource {
                 groupName: Group.commands,
                 priority: Priority.commands))
         items.append(
-            contentsOf: allRepoItems(
-                store: store,
-                group: Group.repos,
-                groupPriority: Priority.repos,
-                dispatcher: dispatcher
-            )
+            contentsOf: rootQueryState == .meaningful
+                ? searchableRepositoryAndWorktreeItems(
+                    store: store,
+                    repoCache: repoCache,
+                    repositoryGroup: Group.repos,
+                    repositoryPriority: Priority.repos,
+                    worktreePriority: Priority.worktrees
+                )
+                : allRepoItems(store: store, group: Group.repos, groupPriority: Priority.repos, dispatcher: dispatcher)
         )
         return items
     }
@@ -261,6 +276,9 @@ enum CommandBarDataSource {
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
                 keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
+                searchFields: searchablePaneAndTabFields(
+                    keywordsForTab(tab, store: store, repoCache: repoCache)
+                ),
                 action: .dispatchTargeted(selectTabSpec.command, target: tab.id, targetType: .tab),
                 command: selectTabSpec.command
             )
@@ -312,6 +330,7 @@ enum CommandBarDataSource {
                         group: Group.panes,
                         groupPriority: Priority.panes,
                         keywords: stableUniqueKeywords(paneKeywords),
+                        searchFields: searchablePaneAndTabFields(paneKeywords),
                         action: .dispatchTargeted(
                             focusPaneSpec.command,
                             target: capturedPaneId,
@@ -411,6 +430,7 @@ enum CommandBarDataSource {
                 group: groupName,
                 groupPriority: groupPriority,
                 keywords: commandKeywords(for: def),
+                searchFields: commandKeywords(for: def),
                 hasChildren: true,
                 action: .navigate(level),
                 command: def.command
@@ -426,6 +446,7 @@ enum CommandBarDataSource {
             group: groupName,
             groupPriority: groupPriority,
             keywords: commandKeywords(for: def),
+            searchFields: commandKeywords(for: def),
             action: .dispatch(def.command),
             command: def.command
         )
@@ -519,6 +540,7 @@ enum CommandBarDataSource {
                         icon: .system(.folder),
                         group: "Repositories",
                         groupPriority: 2,
+                        searchFields: [repo.repoPath.lastPathComponent],
                         action: .dispatchTargeted(def.command, target: repo.id, targetType: .repo)
                     )
                 }

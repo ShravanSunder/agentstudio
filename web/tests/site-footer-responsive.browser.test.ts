@@ -1,15 +1,34 @@
 import { describe, expect, inject, it } from "vitest";
 import { commands } from "vitest/browser";
 
-import type { SiteFooterResponsiveLayoutResult } from "./site-footer-browser-command.ts";
+import type {
+  FooterEndRoomObservation,
+  SiteFooterResponsiveLayoutResult,
+} from "./site-footer-browser-command.ts";
 
 declare module "vitest/browser" {
   interface BrowserCommands {
     verifySiteFooterResponsiveLayout(pageUrl: string): Promise<SiteFooterResponsiveLayoutResult>;
+    verifyFooterEndRoom(
+      pageUrl: string,
+      widths: readonly number[],
+    ): Promise<FooterEndRoomObservation[]>;
   }
 }
 
 describe("responsive product credits footer", () => {
+  it("reaches the finale with at most a normal footer gap below the credits", async () => {
+    const observations = await commands.verifyFooterEndRoom(
+      inject("siteHeaderBrowserTestUrl"),
+      [390, 1280, 1920],
+    );
+    for (const observation of observations) {
+      expect(observation.endReached, `${observation.width}px`).toBe(true);
+      expect(observation.finaleState, `${observation.width}px`).not.toBe("ready");
+      expect(observation.bottomPadding, `${observation.width}px`).toBeLessThanOrEqual(87);
+      expect(observation.blankBelowCredits, `${observation.width}px`).toBeLessThanOrEqual(104);
+    }
+  });
   it("uses one end-aligned desktop row and two centered narrow rows", async () => {
     const result = await commands.verifySiteFooterResponsiveLayout(
       inject("siteHeaderBrowserTestUrl"),

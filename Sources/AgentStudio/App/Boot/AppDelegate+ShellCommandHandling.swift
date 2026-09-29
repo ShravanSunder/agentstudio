@@ -70,12 +70,10 @@ extension AppDelegate: ShellCommandHandling {
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .setInboxRowStateFilter, .setInboxContentMode,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             false
@@ -180,12 +178,10 @@ extension AppDelegate: ShellCommandHandling {
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             return false
         }
@@ -230,12 +226,10 @@ extension AppDelegate: ShellCommandHandling {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
@@ -431,7 +425,7 @@ extension AppDelegate: ShellCommandHandling {
             .setReposSortFieldName, .setReposSortFieldActivity,
             .toggleReposSortDirection, .toggleReposShowsPinned:
             .repos
-        case .togglePanesShowsPinned:
+        case .togglePanesShowsPinned, .togglePanesShowsDrawers:
             .panes
         default:
             nil
@@ -440,9 +434,7 @@ extension AppDelegate: ShellCommandHandling {
 
     private func sidebarCommandCapability(_ command: AppCommand) -> Bool? {
         switch command {
-        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+        case .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
             return false
         default:
             break
@@ -478,6 +470,8 @@ extension AppDelegate: ShellCommandHandling {
             prefs.setSortDirection(prefs.sortDirection(for: surface).toggled, for: surface)
         case .toggleReposShowsPinned, .togglePanesShowsPinned:
             prefs.setShowsPinned(!prefs.showsPinned(for: surface), for: surface)
+        case .togglePanesShowsDrawers:
+            prefs.setShowsDrawerPanes(!prefs.showsDrawerPanes)
         default:
             return .unsupportedCommand
         }

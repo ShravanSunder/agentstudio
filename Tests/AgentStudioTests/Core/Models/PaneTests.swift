@@ -209,6 +209,7 @@ final class PaneTests {
     func test_codable_roundTrip_paneWithDrawer() throws {
         let drawerPaneId = UUID()
         let drawer = Drawer(
+            parentPaneId: UUIDv7.generate(),
             paneIds: [drawerPaneId],
             isExpanded: false
         )
@@ -281,6 +282,7 @@ final class PaneTests {
     func test_decode_withoutKind_throws() throws {
         let drawerPaneId = UUID()
         let drawer = Drawer(
+            parentPaneId: UUIDv7.generate(),
             paneIds: [drawerPaneId],
             isExpanded: true
         )
@@ -486,7 +488,7 @@ final class PaneTests {
     func test_drawer_codable_roundTrip() throws {
         let id1 = UUID()
         let id2 = UUID()
-        let drawer = Drawer(paneIds: [id1, id2], isExpanded: false)
+        let drawer = Drawer(parentPaneId: UUIDv7.generate(), paneIds: [id1, id2], isExpanded: false)
 
         let data = try encoder.encode(drawer)
         let decoded = try decoder.decode(Drawer.self, from: data)
@@ -498,18 +500,10 @@ final class PaneTests {
     }
 
     @Test
-
-    func test_drawer_defaultValues() {
-        let drawer = Drawer()
-
-        #expect(drawer.paneIds.isEmpty)
-        #expect(!(drawer.isExpanded))
-    }
-
-    @Test
     func test_drawer_ignoresLegacyActivePaneIdEncoding() throws {
         let id = UUID()
         let drawer = Drawer(
+            parentPaneId: UUIDv7.generate(),
             paneIds: [id],
             isExpanded: true
         )
@@ -588,7 +582,7 @@ final class PaneTests {
 
     func test_drawer_defaultInit_isCollapsed() {
         // Assert — Drawer() defaults to isExpanded: false
-        let drawer = Drawer()
+        let drawer = Drawer(parentPaneId: UUIDv7.generate())
         #expect(!(drawer.isExpanded))
         #expect(drawer.paneIds.isEmpty)
     }

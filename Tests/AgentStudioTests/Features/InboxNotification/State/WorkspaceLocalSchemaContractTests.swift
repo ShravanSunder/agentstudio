@@ -157,7 +157,7 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("sidebar_collapsed", 0), ("sidebar_surface", 0), ("updated_at", 0),
         ("repos_grouping_mode", 0), ("panes_grouping_mode", 0),
         ("repos_subgroup_mode", 0), ("panes_subgroup_mode", 0),
-        ("repos_shows_pinned", 0), ("panes_shows_pinned", 0),
+        ("repos_shows_pinned", 0), ("panes_shows_pinned", 0), ("panes_shows_drawers", 0),
     ],
     "local_window_sidebar_collapsed_group": [
         ("window_id", 1), ("group_key", 2),
@@ -232,7 +232,7 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "local_arrangement_drawer_cursor": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_window_state": [
         "TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "REAL",
-        "TEXT", "TEXT", "TEXT", "TEXT", "INTEGER", "INTEGER",
+        "TEXT", "TEXT", "TEXT", "TEXT", "INTEGER", "INTEGER", "INTEGER",
     ],
     "local_window_sidebar_collapsed_group": ["TEXT", "TEXT"],
     "local_entity_recency": ["TEXT", "TEXT", "TEXT", "REAL"],
@@ -266,6 +266,7 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
         "window_role", "sidebar_width", "filter_text", "is_filter_visible", "sidebar_collapsed",
         "sidebar_surface", "updated_at", "repos_grouping_mode", "panes_grouping_mode",
         "repos_subgroup_mode", "panes_subgroup_mode", "repos_shows_pinned", "panes_shows_pinned",
+        "panes_shows_drawers",
     ],
     "local_window_sidebar_collapsed_group": ["window_id", "group_key"],
     "local_entity_recency": [
@@ -336,6 +337,7 @@ private func assertColumnContracts(in databaseQueue: DatabaseQueue) throws {
                     "panes_subgroup_mode": "'activity'",
                     "repos_shows_pinned": "1",
                     "panes_shows_pinned": "1",
+                    "panes_shows_drawers": "1",
                 ]
             case "local_repo_explorer_preferences":
                 [
@@ -405,7 +407,7 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "local_arrangement_cursor": 0,
         "local_drawer_cursor": 1,
         "local_arrangement_drawer_cursor": 0,
-        "local_window_state": 5,
+        "local_window_state": 6,
         "local_window_sidebar_collapsed_group": 0,
         "local_entity_recency": 0,
         "local_workspace_entity_recency": 0,
@@ -424,12 +426,13 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         let tableDefinition = try #require(tableSQL[tableName])
         #expect(tableDefinition.components(separatedBy: "CHECK (").count - 1 == expectedCheckCount)
     }
-    #expect(tableSQL["local_window_state"]?.components(separatedBy: "CHECK (").count == 6)
+    #expect(tableSQL["local_window_state"]?.components(separatedBy: "CHECK (").count == 7)
     #expect(tableSQL["local_window_state"]?.contains("window_role = 'main'") == true)
     #expect(tableSQL["local_window_state"]?.contains("is_filter_visible IN (0, 1)") == true)
     #expect(tableSQL["local_window_state"]?.contains("sidebar_collapsed IN (0, 1)") == true)
     #expect(tableSQL["local_window_state"]?.contains("repos_shows_pinned IN (0, 1)") == true)
     #expect(tableSQL["local_window_state"]?.contains("panes_shows_pinned IN (0, 1)") == true)
+    #expect(tableSQL["local_window_state"]?.contains("panes_shows_drawers IN (0, 1)") == true)
     #expect(tableSQL["local_window_sidebar_collapsed_group"]?.contains("ON DELETE CASCADE") == true)
     #expect(tableSQL["local_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_workspace_entity_recency"]?.contains("CHECK (") == false)

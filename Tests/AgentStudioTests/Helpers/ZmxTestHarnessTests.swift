@@ -23,7 +23,7 @@ struct ZmxTestHarnessTests {
         executor.enqueueSuccess()
         executor.enqueueSuccess()
         executor.enqueueSuccess()
-        let zmxDirectory = "/tmp/zt-cleanup-success-\(UUIDv7.generate().uuidString.prefix(8))"
+        let zmxDirectory = "/tmp/zt-cleanup-success-\(UUIDv7.generate().uuidString.suffix(8))"
         try FileManager.default.createDirectory(
             atPath: zmxDirectory,
             withIntermediateDirectories: true
@@ -48,7 +48,7 @@ struct ZmxTestHarnessTests {
     func cleanupRetainsTheRootAndReportsFailureWhenInventoryFails() async throws {
         let executor = MockProcessExecutor()
         executor.enqueueFailure("inventory unavailable")
-        let zmxDirectory = "/tmp/zt-cleanup-failure-\(UUIDv7.generate().uuidString.prefix(8))"
+        let zmxDirectory = "/tmp/zt-cleanup-failure-\(UUIDv7.generate().uuidString.suffix(8))"
         try FileManager.default.createDirectory(
             atPath: zmxDirectory,
             withIntermediateDirectories: true

@@ -3,6 +3,7 @@ import {
   requireLine,
   requireScenePart,
   requireTerminalLines,
+  ScenePartMissingError,
   SceneTimelineBuilder,
 } from "../scene-timeline-builder";
 import { manyAgentsParts } from "./chapter-many-agents-fixture";
@@ -53,15 +54,22 @@ function buildManyAgentsScene(
 ): void {
   const elements = resolveManyAgentsElements(root);
   const builder = new SceneTimelineBuilder(timeline, options.seed);
+  const groupingLabel = [...root.querySelectorAll<HTMLElement>(".kit-sidebar__ellipsis")].find(
+    (label) => label.textContent === "agent-studio.sidebar-grouping",
+  );
+  if (groupingLabel === undefined) {
+    throw new ScenePartMissingError("sidebar-grouping label");
+  }
+  groupingLabel.setAttribute("data-layout-allow-overflow", "");
   const left = (lineIndex: number): HTMLElement => requireLine(elements.leftLines, lineIndex);
   const right = (lineIndex: number): HTMLElement => requireLine(elements.rightLines, lineIndex);
 
   // Beat 1: both agents already hold their tasks (prompt and request are
   // static), and both start answering at once.
   builder.label("parallel-agents", 0);
-  builder.reveal(left(4), 0.1, { duration: 0.15 });
-  builder.reveal(right(4), 0.2, { duration: 0.15 });
-  builder.showAndTypeLine(left(5), 0.3, 80);
+  builder.reveal(left(4), 0.2, { duration: 0.15 });
+  builder.reveal(right(4), 0.25, { duration: 0.15 });
+  builder.showAndTypeLine(left(5), 0.4, 80);
   builder.showAndTypeLine(right(5), 0.55, 80);
   builder.showAndTypeLine(left(6), 1.1, 80);
   builder.showAndTypeLine(right(6), 1.35, 80);

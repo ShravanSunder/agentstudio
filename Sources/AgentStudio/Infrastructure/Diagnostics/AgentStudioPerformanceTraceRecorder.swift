@@ -198,6 +198,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
         case commandBarCache = "performance.commandbar.cache"
+        case commandBarSearch = "performance.commandbar.search"
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemIngressSnapshot = "performance.filesystem.ingress_snapshot"
@@ -263,6 +264,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case tabBarWorker = "performance.tabbar.worker"
         case terminalAccumulatorDrain = "performance.terminal.accumulator_drain"
         case terminalCompactApply = "performance.terminal.compact_apply"
+        case terminalActivityCloseRead = "performance.terminal.activity_projection.close_read"
         case terminalEqualSuppressed = "performance.terminal.equal_suppressed"
         case terminalForceGeometrySync = "performance.terminal.force_geometry_sync"
         case terminalGeometrySync = "performance.terminal.geometry_sync"
@@ -670,6 +672,17 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             .terminalCompactApply,
             duration: serviceTime,
             attributes: attributes
+        )
+    }
+
+    package func recordTerminalActivityCloseRead(_ duration: Duration) {
+        record(
+            .terminalActivityCloseRead,
+            attributes: [
+                "agentstudio.performance.terminal.activity_projection.close_read_ms": .double(
+                    Self.milliseconds(from: duration)
+                )
+            ]
         )
     }
 
