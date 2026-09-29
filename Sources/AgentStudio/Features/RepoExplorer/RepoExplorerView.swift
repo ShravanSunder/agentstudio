@@ -11,6 +11,13 @@ package typealias BridgeAttendanceSnapshot =
 package typealias LatestPaneMessageSnapshot =
     @MainActor (UUID) -> PaneActivityStatusFact?
 
+enum RepoExplorerSidebarShortcutPresentation {
+    static func display(for command: AppCommand, showsListKeyboardHints: Bool) -> ShortcutDisplayText? {
+        guard showsListKeyboardHints else { return nil }
+        return command.definition.shortcut?.spec.displayTrigger(in: .sidebarList)?.displayText
+    }
+}
+
 /// Sidebar chrome and interaction wiring around the persistent native presentation host.
 @MainActor
 package struct RepoExplorerView: View {
@@ -140,8 +147,10 @@ package struct RepoExplorerView: View {
     }
 
     func sidebarShortcutDisplay(for command: AppCommand) -> ShortcutDisplayText? {
-        guard showsListKeyboardHints else { return nil }
-        return command.definition.shortcut?.spec.displayTrigger(in: .sidebarList)?.displayText
+        RepoExplorerSidebarShortcutPresentation.display(
+            for: command,
+            showsListKeyboardHints: showsListKeyboardHints
+        )
     }
 
     package var body: some View {

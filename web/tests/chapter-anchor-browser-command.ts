@@ -40,7 +40,9 @@ export const verifyChapterAnchorLanding = defineBrowserCommand(
         await applicationPage.setViewportSize(viewport);
         const pageUrl = new URL(request.pageUrl);
         pageUrl.hash = request.chapterId;
-        const response = await applicationPage.goto(pageUrl.href, { waitUntil: "networkidle" });
+        const response = await applicationPage.goto(pageUrl.href, {
+          waitUntil: "domcontentloaded",
+        });
         if (response === null || !response.ok()) {
           throw new Error(`Chapter anchor page failed to load: ${pageUrl.href}`);
         }

@@ -1,4 +1,3 @@
-import AgentStudioGit
 import Foundation
 import Testing
 
@@ -69,27 +68,24 @@ struct RepositoryNestedDiscoveryContinuityTests {
 
     private func makeFixture() async throws -> NestedRepositoryFixture {
         let fileManager = FileManager.default
-        let sourceCheckout = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let fixtureRoot = fileManager.temporaryDirectory.appending(
             path: "nested-discovery-continuity-\(UUIDv7.generate())")
         let watchedRoot = fixtureRoot.appending(path: "watched")
         let ancestorURL = watchedRoot.appending(path: "container")
         let childURL = ancestorURL.appending(path: "retained-child")
         let ancestorSeedURL = fixtureRoot.appending(path: "ancestor-seed")
+        let childRepositorySeedURL = try await FilesystemTestGitRepo.create(named: "nested-discovery-child")
 
-        try fileManager.createDirectory(at: ancestorURL, withIntermediateDirectories: true)
         do {
-            // Discovery needs real Git metadata, not hydrated LFS assets from the source checkout.
-            let remoteClient = SystemGitRemoteClient(
-                configuration: .init(
-                    allowedProtocols: [.file], additionalEnvironment: ["GIT_LFS_SKIP_SMUDGE": "1"]))
-            _ = try await remoteClient.clone(
-                GitCloneRequest(
-                    remoteURL: sourceCheckout.path,
-                    destinationPath: childURL,
-                    checkoutBranch: nil
-                ))
-            try fileManager.copyItem(at: childURL, to: ancestorSeedURL)
+            let ancestorRepositorySeed = try await FilesystemTestGitRepo.create(named: "nested-discovery-ancestor")
+            do {
+                try fileManager.createDirectory(at: ancestorURL, withIntermediateDirectories: true)
+                try fileManager.moveItem(at: childRepositorySeedURL, to: childURL)
+                try fileManager.moveItem(at: ancestorRepositorySeed, to: ancestorSeedURL)
+            } catch {
+                FilesystemTestGitRepo.destroy(ancestorRepositorySeed)
+                throw error
+            }
             return NestedRepositoryFixture(
                 fixtureRoot: fixtureRoot,
                 watchedRoot: watchedRoot,
@@ -99,6 +95,7 @@ struct RepositoryNestedDiscoveryContinuityTests {
             )
         } catch {
             try? fileManager.removeItem(at: fixtureRoot)
+            FilesystemTestGitRepo.destroy(childRepositorySeedURL)
             throw error
         }
     }

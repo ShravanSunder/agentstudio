@@ -21,7 +21,7 @@ import Testing
 struct AgentStudioIPCCommandCatalogDiscoveryTests {
     @Test("the live debug catalog decodes into an invocable command catalog")
     func liveDebugCatalogDecodes() async throws {
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
 
         let methodCatalog = try await harness.methodCatalog()
         let discovery = try IPCCommandDiscovery(methodCatalog: methodCatalog)
@@ -42,7 +42,7 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
 
     @Test("every advertised command survives the client's descriptor round trip")
     func everyAdvertisedCommandSurvivesTheRoundTrip() async throws {
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
 
         let methodCatalog = try await harness.methodCatalog()
         let advertisedList = try #require(
@@ -75,12 +75,12 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
             if recomposed != command { driftedCommandIdentifiers.append(command.id.rawValue) }
         }
 
-        #expect(catalog.commands.count == 152)
+        #expect(catalog.commands.count == 151)
         #expect(driftedCommandIdentifiers.isEmpty, "drifted: \(driftedCommandIdentifiers)")
     }
     @Test("the bundled CLI reaches the server for command.list and command.execute")
     func bundledCLIReachesTheServerForCommands() async throws {
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let cli = try CatalogCommandLineHelper.commandLineExecutableURL()
 
         let environment = [

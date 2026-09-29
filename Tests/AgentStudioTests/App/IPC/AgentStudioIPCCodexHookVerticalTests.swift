@@ -27,7 +27,7 @@ struct AgentStudioIPCCodexHookVerticalTests {
     @Test("a Codex session start, prompt and permission request reach the query as needs-you")
     func codexHooksDriveThePaneToNeedsYou() async throws {
         // Arrange
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let identity = CodexHookScenarioIdentity()
 
         // Act — SessionStart binds the pane.
@@ -83,7 +83,7 @@ struct AgentStudioIPCCodexHookVerticalTests {
     @Test("a session end on an unbound pane is refused without ending anything")
     func sessionEndOnUnboundPaneIsRefused() async throws {
         // Arrange
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let identity = CodexHookScenarioIdentity()
 
         // Act
@@ -99,7 +99,7 @@ struct AgentStudioIPCCodexHookVerticalTests {
     @Test("a Codex turn that finishes without a permission request reaches the query as done")
     func codexStopReachesTheQueryAsDone() async throws {
         // Arrange
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let identity = CodexHookScenarioIdentity()
         _ = try await harness.sessionEvent(
             params: try CodexHookVerticalFixtures.params(
@@ -124,7 +124,7 @@ struct AgentStudioIPCCodexHookVerticalTests {
     @Test("a tool event and a subagent event are admitted against the shipped profile")
     func codexToolAndSubagentEventsAreAdmitted() async throws {
         // Arrange
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let identity = CodexHookScenarioIdentity()
         _ = try await harness.sessionEvent(
             params: try CodexHookVerticalFixtures.params(
@@ -148,7 +148,7 @@ struct AgentStudioIPCCodexHookVerticalTests {
     @Test("a Codex version the profile does not name is refused")
     func unqualifiedCodexVersionIsRefused() async throws {
         // Arrange
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let identity = CodexHookScenarioIdentity()
         let params = try CodexHookVerticalFixtures.params(
             event: .sessionStart, paneId: harness.boundPaneId, reportedVersion: "0.153.0", identity: identity)

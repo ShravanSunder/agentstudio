@@ -153,7 +153,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains(".string(projectionTrigger.rawValue)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.newTab)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
-        #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
+        #expect(startupDiagnosticsSource.contains("commandBarController.setQueryText(\"# repo\")"))
         try assertCommandBarRepoFilterEmitsTerminalCompletion(startupDiagnosticsSource)
         #expect(startupDiagnosticsSource.contains("handleWatchFolderRequested(startingAt: folderURL)"))
         let diagnosticTaskIndex = try #require(
@@ -253,13 +253,13 @@ struct ApplicationEntrypointArchitectureTests {
                 range: caseStart..<startupDiagnosticsSource.endIndex
             )?.lowerBound)
         let commandBarRepoFilterCase = startupDiagnosticsSource[caseStart..<caseEnd]
-        let rawInputIndex = try #require(
-            commandBarRepoFilterCase.range(of: "commandBarController.state.rawInput = \"# repo\"")?.lowerBound)
+        let queryIndex = try #require(
+            commandBarRepoFilterCase.range(of: "commandBarController.setQueryText(\"# repo\")")?.lowerBound)
         let exercisedIndex = try #require(
             commandBarRepoFilterCase.range(of: "app.startup_diagnostic_action.command_exercised")?.lowerBound)
         let completedIndex = try #require(
             commandBarRepoFilterCase.range(of: "app.startup_diagnostic_action.completed")?.lowerBound)
-        #expect(rawInputIndex < exercisedIndex)
+        #expect(queryIndex < exercisedIndex)
         #expect(exercisedIndex < completedIndex)
         #expect(commandBarRepoFilterCase.contains("phase: \"startup_diagnostic_action\""))
         #expect(commandBarRepoFilterCase.contains("outcome: \"succeeded\""))
@@ -427,7 +427,10 @@ struct ApplicationEntrypointArchitectureTests {
             ipcBootSource.contains(
                 "let recognizedCommands = commandCatalogProjectionInputs.recognizedCommands"))
         #expect(ipcBootSource.contains("recognizedCommands: recognizedCommands"))
-        #expect(ipcBootSource.contains("ownPaneScopePort: WorkspaceOwnPaneScopePort(workspaceStore: store)"))
+        #expect(ipcBootSource.contains("ownPaneScopePort: WorkspaceOwnPaneScopePort("))
+        #expect(
+            ipcBootSource.contains(
+                "workspaceStore: store, performanceTraceRecorder: performanceTraceRecorder)"))
         #expect(ipcBootSource.contains("agentAuthorizationTelemetry: AgentStudioIPCAgentAuthorizationTelemetry("))
         #expect(ipcBootSource.contains("methodRegistry: registry"))
         #expect(ipcBootSource.contains("rootDirectory: AppDataPaths.rootDirectory()"))

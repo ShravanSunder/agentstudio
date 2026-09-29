@@ -29,7 +29,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
         .package(
             url: "https://github.com/ShravanSunder/agentstudio-git.git",
-            revision: "2816ead40d7bbbd153c71d801b87b67c5eaf31f6"
+            revision: "87193257e55e7516e43bb1e8338b929c586355ae"
         ),
     ],
     targets: [
@@ -41,6 +41,7 @@ let package = Package(
                 "AgentStudioCodeViewer",
                 "AgentStudioCommandBar",
                 "AgentStudioCore",
+                "AgentStudioWorktreeOperations",
                 "AgentStudioEditorChooser",
                 "AgentStudioInboxNotification",
                 "AgentStudioInfrastructure",
@@ -107,6 +108,17 @@ let package = Package(
             ]
         ),
         .target(
+            name: "AgentStudioWorktreeOperations",
+            dependencies: [
+                "AgentStudioPrimitives",
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
+            ],
+            path: "Sources/AgentStudioWorktreeOperations",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
             name: "AgentStudioInfrastructure",
             dependencies: [
                 "AgentStudioPrimitives",
@@ -138,6 +150,7 @@ let package = Package(
             dependencies: [
                 "AgentStudioInfrastructure",
                 "AgentStudioSharedComponents",
+                "AgentStudioWorktreeOperations",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
@@ -179,6 +192,7 @@ let package = Package(
                 "AgentStudioCore",
                 "AgentStudioInfrastructure",
                 "AgentStudioSharedComponents",
+                "AgentStudioWorktreeOperations",
             ],
             path: "Sources/AgentStudio/Features/CommandBar",
             swiftSettings: [
@@ -314,6 +328,7 @@ let package = Package(
                 "AgentStudioIPCClientCore",
                 "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
+                "AgentStudioWorktreeOperations",
             ],
             path: "Sources/AgentStudioIPCClient",
             swiftSettings: [
@@ -405,6 +420,7 @@ let package = Package(
                 "AgentStudioSharedComponents",
                 "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
+                "AgentStudioWorktreeOperations",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
@@ -453,6 +469,7 @@ let package = Package(
                 "AgentStudioInfrastructure",
                 "AgentStudioSharedComponents",
                 "AgentStudioTestSupport",
+                "AgentStudioWorktreeOperations",
             ],
             path: "Tests/AgentStudioTests/Features/CommandBar",
             swiftSettings: [
@@ -607,6 +624,7 @@ let package = Package(
                 "AgentStudioCodeViewer",
                 "AgentStudioCommandBar",
                 "AgentStudioCore",
+                "AgentStudioWorktreeOperations",
                 "AgentStudioEditorChooser",
                 "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",

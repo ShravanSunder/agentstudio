@@ -223,16 +223,21 @@ struct RepoExplorerWorktreeRowTests {
 
     @Test("every shared sidebar chip uses the standard outer height")
     func everySharedSidebarChipUsesStandardOuterHeight() throws {
-        let chipSource = try String(
+        let coreChipSource = try String(
             contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
         )
-
-        #expect(
-            chipSource.components(separatedBy: ".frame(height: AppStyles.Shell.Sidebar.chipLineHeight)").count
-                == 6
+        let sharedChipSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarChip.swift",
+            encoding: .utf8
         )
-        #expect(!chipSource.contains(".padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)"))
+
+        let standardHeight = ".frame(height: AppStyles.Shell.Sidebar.chipLineHeight)"
+        let coreHeightSites = coreChipSource.components(separatedBy: standardHeight).count - 1
+        let sharedHeightSites = sharedChipSource.components(separatedBy: standardHeight).count - 1
+        #expect(coreHeightSites + sharedHeightSites == 5)
+        #expect(!coreChipSource.contains(".padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)"))
+        #expect(!sharedChipSource.contains(".padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)"))
     }
 
     @Test("pending progress occupies the fixed icon gutter without shifting chips")

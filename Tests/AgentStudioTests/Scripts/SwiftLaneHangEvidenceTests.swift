@@ -17,10 +17,10 @@ struct SwiftLaneHangEvidenceTests {
 
         let laneOutput = try await laneBashAllowingFailure(
             "mkdir -p '\(workDirectory)'; "
-                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+                + "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'dump probe' 2 /bin/bash -c "
+                + "run_swift_with_timeout 'dump probe' 0 /bin/bash -c "
                 + "'while true; do sleep 1; done' AgentStudioPackageTests "
                 + "|| returned=$?; echo \"RETURNED=${returned:-0}\""
         )
@@ -50,6 +50,9 @@ struct SwiftLaneHangEvidenceTests {
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
         printf 'arrived\\tstep-1\\tgate A\\n' \
           >> "$AGENTSTUDIO_HELD_STEP_LOG"
+        printf 'expecting\\tchild-1\\trefreshClosed\\tworktree-1\\tSuite.swift test()\\tSuite.swift:42 test()\\n' \
+          >> "$AGENTSTUDIO_HELD_STEP_LOG"
+        touch "$LANE_WATCHDOG_ARM_PATH"
         while true; do sleep 1; done
 
         """.write(toFile: workDirectory + "/wedged-test.sh", atomically: true, encoding: .utf8)
@@ -61,10 +64,12 @@ struct SwiftLaneHangEvidenceTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: workDirectory + "/bin/xcrun")
 
         let laneOutput = try await laneBashAllowingFailure(
-            "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
-                + "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)'; export PATH='\(workDirectory)/bin':$PATH; "
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)'; "
+                + "export LANE_WATCHDOG_ARM_PATH='\(workDirectory)/watchdog-armed'; "
+                + "export PATH='\(workDirectory)/bin':$PATH; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'evidence probe' 2 /bin/bash '\(workDirectory)/wedged-test.sh' "
+                + "run_swift_with_timeout 'evidence probe' 0 /bin/bash '\(workDirectory)/wedged-test.sh' "
                 + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\""
         )
         let evidenceFiles = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory).sorted()
@@ -74,6 +79,7 @@ struct SwiftLaneHangEvidenceTests {
         let heldStepLog = evidenceStem + ".held-steps.log"
         let uploadGlobs = try ciUploadedEvidenceGlobs()
         let unarrivedRange = try #require(laneOutput.range(of: "lane-report held_step_unarrived "))
+        let missingFactRange = try #require(laneOutput.range(of: "lane-report fact_expected "))
         let reapRange = try #require(laneOutput.range(of: "lane-report timeout_reap="))
 
         // The hang verdict is failed whatever evidence was gathered.
@@ -84,11 +90,18 @@ struct SwiftLaneHangEvidenceTests {
         )
         #expect(!laneOutput.contains("held_step_unarrived name=gate A"))
         #expect(unarrivedRange.lowerBound < reapRange.lowerBound)
+        #expect(laneOutput.contains("lane-report fact_expected id=child-1 expected=refreshClosed scope=worktree-1"))
+        #expect(missingFactRange.lowerBound < reapRange.lowerBound)
         // Dump, held-step log and ledger share one stem, side by side.
         #expect(evidenceStem.hasPrefix("lane-evidence-probe-"))
         #expect(!taskDumps.isEmpty)
         #expect(taskDumps.allSatisfy { $0.hasPrefix(evidenceStem + "-pid") })
         #expect(evidenceFiles.contains(heldStepLog))
+        #expect(evidenceFiles.contains(evidenceStem + ".timing.json"))
+        let timingData = try Data(
+            contentsOf: URL(fileURLWithPath: evidenceDirectory + "/" + evidenceStem + ".timing.json"))
+        let timingRecord = try #require(JSONSerialization.jsonObject(with: timingData) as? [String: Any])
+        #expect(timingRecord["timed_out"] as? Bool == true)
         #expect(laneOutput.contains("lane-report task_dump=\(evidenceDirectory)/\(evidenceStem)-pid"))
         let firstDump = try String(
             contentsOfFile: evidenceDirectory + "/" + (try #require(taskDumps.first)),
@@ -97,7 +110,7 @@ struct SwiftLaneHangEvidenceTests {
         #expect(firstDump.contains("parkForever()"))
         // Every file the hang left is one the CI failure upload selects.
         #expect(uploadGlobs.count == 3)
-        for evidenceFile in evidenceFiles {
+        for evidenceFile in evidenceFiles where !evidenceFile.hasSuffix(".timing.json") {
             #expect(
                 uploadGlobs.contains { fnmatch($0, evidenceFile, 0) == 0 },
                 "\(evidenceFile) is not selected by the CI upload globs \(uploadGlobs)"
@@ -141,6 +154,57 @@ struct SwiftLaneHangEvidenceTests {
         )
     }
 
+    @Test("expectation parser handles early settlements, duplicate lines and a partial final record")
+    func expectationParserIgnoresSettledAndPartialRecords() async throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-receipt-facts-\(UUIDv7.generate()).log")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        try """
+        settled\tchild-2\tmatched
+        expecting\tchild-2\talreadyClosed\tscope\tSuite.swift done()\tSuite.swift:3 done()
+        expecting\tchild-1\trefreshClosed\tscope\tSuite.swift pending()\tSuite.swift:4 pending()
+        expecting\tchild-1\trefreshClosed\tscope\tSuite.swift pending()\tSuite.swift:4 pending()
+        """.appending("expecting\tchild-3\tpartial\tscope\tSuite.swift pending()\tFile:5")
+            .write(to: logURL, atomically: true, encoding: .utf8)
+
+        let report = try await laneBash(
+            "LOG_PREFIX=lane; source scripts/swift-test-helpers.sh; "
+                + "print_held_steps_unarrived_at_timeout '\(logURL.path)'"
+        )
+
+        #expect(
+            laneOutputLines(report) == [
+                "[lane] lane-report fact_expected id=child-1 expected=refreshClosed scope=scope "
+                    + "test=Suite.swift pending() site=Suite.swift:4 pending()"
+            ])
+    }
+
+    @Test("the timeout report names an unavailable log before reaping the child")
+    func unavailableLogAppearsBeforeReap() async throws {
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-unavailable-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        try FileManager.default.createDirectory(atPath: workDirectory, withIntermediateDirectories: true)
+        try """
+        echo '[agentstudio-test-log] unavailable path=/missing/events.log errno=2' >&2
+        touch "$LANE_WATCHDOG_ARM_PATH"
+        while true; do sleep 1; done
+
+        """.write(toFile: workDirectory + "/wedged-test.sh", atomically: true, encoding: .utf8)
+
+        let report = try await laneBashAllowingFailure(
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
+                + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
+                + "export LANE_WATCHDOG_ARM_PATH='\(workDirectory)/armed'; "
+                + "source scripts/swift-test-helpers.sh; set +e; "
+                + "run_swift_with_timeout 'unavailable probe' 0 /bin/bash '\(workDirectory)/wedged-test.sh' "
+                + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\""
+        )
+        let unavailableRange = try #require(report.range(of: "lane-report held_step_log_unavailable"))
+        let reapRange = try #require(report.range(of: "lane-report timeout_reap="))
+        #expect(report.contains("RETURNED=124"))
+        #expect(unavailableRange.lowerBound < reapRange.lowerBound)
+    }
+
     @Test("a missing stack sampler does not cost the task dump, and each missing tool says why")
     func missingStackSamplerDoesNotCostTheTaskDump() async throws {
         let workDirectory = NSTemporaryDirectory() + "agentstudio-receipt-nosample-\(UUIDv7.generate())"
@@ -161,12 +225,12 @@ struct SwiftLaneHangEvidenceTests {
             )
         }
         func wedgedLane(inspectorDirectory: String) -> String {
-            "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+            "LOG_PREFIX=lane; TIMEOUT_SECONDS=0; BUILD_PATH=.build-agent-1; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/\(inspectorDirectory)-runs'; "
                 + "export LANE_STACK_SAMPLE_TOOL='\(workDirectory)/no-such-sample'; "
                 + "export PATH='\(workDirectory)/\(inspectorDirectory)':$PATH; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'no sample probe' 2 /bin/bash -c 'while true; do sleep 1; done' "
+                + "run_swift_with_timeout 'no sample probe' 0 /bin/bash -c 'while true; do sleep 1; done' "
                 + "AgentStudioPackageTests || returned=$?; echo \"RETURNED=${returned:-0}\"; "
                 + "echo \"DUMPS=$(ls -1 '\(workDirectory)/\(inspectorDirectory)-runs' | grep -c task-dump || true)\""
         }
@@ -206,10 +270,12 @@ struct SwiftLaneHangEvidenceTests {
         var seededFiles: [(name: String, contents: String)] = []
         for stemNumber in 1...5 {
             seededFiles.append(("\(stemPrefix)\(stemNumber)-100.events.jsonl", "ledger"))
+            seededFiles.append(("\(stemPrefix)\(stemNumber)-100.timing.json", "{}"))
             seededFiles.append(("\(stemPrefix)\(stemNumber)-100-pid\(stemNumber)0.task-dump.txt", "TASKS"))
         }
         seededFiles.append(("\(stemPrefix)2-100.held-steps.log", "waiting\tstep-1\tgate\tSuite.swift one()"))
         seededFiles.append(("\(stemPrefix)6-100.events.jsonl", "ledger"))
+        seededFiles.append(("\(stemPrefix)6-100.timing.json", "{}"))
         for dumpedPid in [61, 62, 63] {
             seededFiles.append(("\(stemPrefix)6-100-pid\(dumpedPid).task-dump.txt", "TASKS"))
         }
@@ -234,7 +300,8 @@ struct SwiftLaneHangEvidenceTests {
                 + "\"$evidence_file\"; done"
         )
         let pruned = try await laneBash(
-            "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' LANE_EVENT_STREAM_KEEP_PER_LABEL=5; "
+            "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' LANE_EVENT_STREAM_KEEP_PER_LABEL=5 "
+                + "LANE_EVENT_STREAM_RETAIN_ALWAYS=0; "
                 + "source scripts/swift-test-helpers.sh; set -euo pipefail; "
                 + "prune_lane_event_streams retention-probe; echo PRUNE_STATUS=$?"
         )
@@ -251,6 +318,13 @@ struct SwiftLaneHangEvidenceTests {
         // non-empty held-step log. The oldest stem is gone, and so is the stem
         // made only of an empty held-step log, which never took a slot.
         #expect(remainingFiles == expectedFiles)
+        _ = try await laneBash(
+            "export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' LANE_EVENT_STREAM_KEEP_PER_LABEL=1 "
+                + "LANE_EVENT_STREAM_RETAIN_ALWAYS=1; "
+                + "source scripts/swift-test-helpers.sh; prune_lane_event_streams retention-probe"
+        )
+        let retainedFiles = try FileManager.default.contentsOfDirectory(atPath: evidenceDirectory).sorted()
+        #expect(retainedFiles == expectedFiles)
     }
 
     @Test("a task dump is kept beside the ledger, and a refused attach is recorded with its reason")

@@ -74,7 +74,8 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .focusSidebar:
+            .focusSidebar, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            // Worktree creation has no parameterized IPC contract yet (v1 is interactive only).
             [.noArguments]
 
         case .undoCloseTab,
@@ -83,12 +84,10 @@ extension AppCommand {
             .toggleManagementLayer, .managementLayerExit,
             .toggleSidebar, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -225,10 +224,9 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .togglePanesSortDirection,
+            .togglePanesShowsDrawers,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -236,7 +234,7 @@ extension AppCommand {
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .debugTesting
         }
     }
@@ -288,19 +286,17 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .headless
         }
     }
@@ -320,12 +316,10 @@ extension AppCommand {
 
         case .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .setInboxGroupingTab, .setInboxGroupingRepo,
             .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
@@ -373,7 +367,7 @@ extension AppCommand {
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             .layoutMutate
         }
     }
@@ -386,19 +380,18 @@ extension AppCommand {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
-            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode:
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             []
 
         case .undoCloseTab, .newTab,
             .toggleManagementLayer, .managementLayerExit,
             .toggleSidebar, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -461,10 +454,8 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .togglePanesSortDirection:
+            .togglePanesSortDirection, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
             [.unavailable]
 
         case .openPaneLocationInEditorMenu, .editPaneNote,
@@ -516,7 +507,7 @@ extension AppCommand {
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .toggleReposSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .openWebview, .openNewTerminalInTab:
             [.applied]
@@ -553,6 +544,7 @@ extension AppCommand {
             .openPullRequest, .reloadBridgeWebView, .showViewer,
             .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo,
             .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab,
+            .newWorktree, .newWorktreeFromDefault, .forkWorktree,
             .toggleManagementLayer, .managementLayerExit,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
@@ -561,12 +553,10 @@ extension AppCommand {
             .toggleSidebar, .focusSidebar, .filterSidebar,
             .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,

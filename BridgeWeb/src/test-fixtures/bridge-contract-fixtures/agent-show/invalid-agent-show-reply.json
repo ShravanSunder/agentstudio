@@ -1,0 +1,7 @@
+{
+  "union": "BridgeAgentShowReply",
+  "value": {
+    "kind": "shown",
+    "line": 12
+  }
+}

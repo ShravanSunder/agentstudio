@@ -5,7 +5,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
-@Suite(.serialized)
+@Suite
 @MainActor
 struct ApplicationLifecycleMonitorTests {
     @Test("can be created with lifecycle stores")
@@ -15,7 +15,8 @@ struct ApplicationLifecycleMonitorTests {
 
         _ = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
     }
 
@@ -26,7 +27,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
 
         // Act and assert: active
@@ -44,7 +46,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
 
         monitor.handleApplicationWillTerminate()
@@ -95,7 +98,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
         let windowId = UUID()
 
@@ -115,7 +119,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
         let windowId = UUID()
         monitor.handleWindowRegistered(windowId)
@@ -141,7 +146,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
         let bounds = CGRect(x: 0, y: 0, width: 1140, height: 824)
 
@@ -157,7 +163,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
         let initialBounds = CGRect(x: 0, y: 0, width: 1140, height: 824)
 
@@ -173,7 +180,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
 
         monitor.handleLaunchLayoutSettled()
@@ -188,7 +196,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
         let bounds = CGRect(x: 0, y: 0, width: 1140, height: 824)
 
@@ -209,6 +218,7 @@ struct ApplicationLifecycleMonitorTests {
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter(),
             scheduleFirstDisplayCommit: { completion in
                 scheduleCount += 1
                 scheduledCompletion = completion
@@ -238,6 +248,7 @@ struct ApplicationLifecycleMonitorTests {
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter(),
             scheduleFirstMainRunLoopDrain: { completion in
                 scheduledFallback = completion
             }
@@ -264,6 +275,7 @@ struct ApplicationLifecycleMonitorTests {
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter(),
             scheduleFirstDisplayCommit: { completion in
                 scheduledDisplayCommit = completion
             },
@@ -288,7 +300,8 @@ struct ApplicationLifecycleMonitorTests {
         let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
-            windowLifecycleStore: windowStore
+            windowLifecycleStore: windowStore,
+            notificationCenter: NotificationCenter()
         )
 
         monitor.handleFirstDisplayCommitCompleted()

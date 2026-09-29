@@ -39,7 +39,7 @@ struct CommandBarRepositoryAvailabilityTests {
 
             #expect(CommandBarDataSource.repoScopeItems(store: store, dispatcher: dispatcher).isEmpty)
             #expect(CommandBarDataSource.repoScopeItems(store: store, dispatcher: dispatcher, itemCache: cache).isEmpty)
-            #expect(CommandBarDataSource.everythingWorktreeItems(store: store).isEmpty)
+            #expect(searchWorktreeItems(store: store).isEmpty)
             #expect(CommandBarDataSource.quickOpenItems(store: store, dispatcher: dispatcher).isEmpty)
         }
     }
@@ -56,7 +56,7 @@ struct CommandBarRepositoryAvailabilityTests {
             _ = store.mutationCoordinator.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, linked])
             #expect(store.mutationCoordinator.recordWorktreeAbsence(main.id, at: time))
 
-            let items = CommandBarDataSource.everythingWorktreeItems(store: store)
+            let items = searchWorktreeItems(store: store)
             #expect(items.map(\.id) == ["repo-wt-\(linked.id.uuidString)"])
             let quick = CommandBarDataSource.quickOpenItems(store: store, dispatcher: FakeAppCommandDispatcher())
             let row = try #require(quick.first)
@@ -67,5 +67,15 @@ struct CommandBarRepositoryAvailabilityTests {
 
     private var time: RepositoryRetentionTime {
         .init(utc: Date(timeIntervalSince1970: 1_700_000_000), bootID: "fixture", uptimeNanoseconds: 1)
+    }
+
+    private func searchWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
+        CommandBarDataSource.searchableRepositoryAndWorktreeItems(
+            store: store,
+            repoCache: RepoCacheAtom(),
+            repositoryGroup: CommandBarDataSource.Group.repos,
+            repositoryPriority: CommandBarDataSource.Priority.repos,
+            worktreePriority: CommandBarDataSource.Priority.worktrees
+        ).filter { $0.group == CommandBarDataSource.Group.worktrees }
     }
 }

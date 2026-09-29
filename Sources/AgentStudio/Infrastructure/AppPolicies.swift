@@ -2,6 +2,10 @@ import CoreGraphics
 import Foundation
 
 package enum AppPolicies {
+    package enum Panes {
+        package static let activityTimePublishInterval: Duration = .seconds(10)
+    }
+
     package enum IPC {
         package static let maximumTerminalWaitSeconds: Double = 86_400
         /// One spooled notification is one wire frame, so the drainer accepts
@@ -272,6 +276,8 @@ package enum AppPolicies {
     }
 
     package enum WorkspacePersistence {
+        /// Autosave waits for quiet, but never longer than this after the first unsaved change.
+        package static let autosaveMaximumDelay: Duration = .seconds(2)
         package static let debouncedAutosaveFailureDampingThreshold: Int = 3
         package static let maximumAvailableUndoCloses: Int = 10
         package static let undoGracePeriod: Duration = .seconds(300)

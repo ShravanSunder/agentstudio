@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ import Testing
 private let schedulerStressIPCWaitTimeout: Duration = .seconds(30)
 
 @MainActor
-@Suite("AgentStudio IPC runtime adapter", .serialized)
+@Suite("AgentStudio IPC runtime adapter")
 struct AgentStudioIPCRuntimeAdapterTests {
     @Test("terminal status reads registered runtime lifecycle and capabilities")
     func terminalStatusReadsRegisteredRuntimeLifecycleAndCapabilities() throws {
@@ -124,14 +125,38 @@ struct AgentStudioIPCRuntimeAdapterTests {
         }
     }
 
-    @Test("runtime IPC composition does not depend on action executor dispatch")
-    func runtimeIPCCompositionDoesNotDependOnActionExecutorDispatch() throws {
-        let source = try Self.projectSource(
-            "Sources/AgentStudio/App/IPCComposition/AgentStudioIPCRuntimeAdapter.swift"
+    @Test("runtime IPC terminal send dispatches through the injected runtime dispatcher")
+    func runtimeIPCTerminalSendUsesInjectedRuntimeCommandDispatcher() async throws {
+        let commandId = UUIDv7.generate()
+        let correlationId = UUIDv7.generate()
+        let input = "echo hi\n"
+        let dispatcher = RecordingPaneRuntimeCommandDispatcher(commandId: commandId)
+        let harness = RuntimeAdapterHarness(commandDispatcher: dispatcher)
+        let pane = harness.createTerminalPane()
+        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id)))
+
+        let result = try await harness.adapter.sendTerminalInput(
+            to: IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+            input: input,
+            correlationId: correlationId,
+            ownPaneAssertion: nil
         )
 
-        #expect(!source.contains("ActionExecutorRuntimeCommandDispatcher"))
-        #expect(!source.contains("workspaceActionExecutor.dispatchRuntimeCommand"))
+        #expect(result.paneId == pane.id)
+        #expect(result.disposition == .accepted)
+        #expect(result.commandId == commandId)
+        #expect(dispatcher.receivedTarget == .pane(PaneId(existingUUID: pane.id)))
+        #expect(dispatcher.receivedCorrelationId == correlationId)
+
+        guard let receivedCommand = dispatcher.receivedCommand else {
+            Issue.record("terminal.send did not reach the injected runtime dispatcher")
+            return
+        }
+        if case .terminal(.sendInput(let receivedInput)) = receivedCommand {
+            #expect(receivedInput == input)
+        } else {
+            Issue.record("terminal.send did not dispatch PaneRuntimeCommand.terminal(.sendInput)")
+        }
     }
 
     @Test("runtime IPC snapshots do not downcast to concrete terminal runtime")
@@ -252,7 +277,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
                     seq: 1,
                     timestamp: ContinuousClock.now,
                     correlationId: nil,
-                    commandId: UUID(),
+                    commandId: UUIDv7.generate(),
                     paneId: childId,
                     paneKind: .terminal,
                     event: .terminal(.commandFinished(exitCode: 0, duration: 1))
@@ -570,7 +595,7 @@ private struct RuntimeAdapterHarness {
         eventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
         terminalEventWaitClock: (any Clock<Duration> & Sendable)? = nil
     ) {
-        workspaceStore = WorkspaceStore()
+        workspaceStore = WorkspaceStore(startsObserving: false)
         runtimeRegistry = RuntimeRegistry()
         adapter = AgentStudioIPCRuntimeAdapter(
             workspaceStore: workspaceStore,
@@ -616,6 +641,29 @@ private struct StaticRuntimeCommandDispatcher: PaneRuntimeCommandDispatching {
         correlationId: UUID?
     ) async -> ActionResult {
         result
+    }
+}
+
+@MainActor
+private final class RecordingPaneRuntimeCommandDispatcher: PaneRuntimeCommandDispatching {
+    private let result: ActionResult
+    private(set) var receivedCommand: PaneRuntimeCommand?
+    private(set) var receivedTarget: RuntimeCommandTarget?
+    private(set) var receivedCorrelationId: UUID?
+
+    init(commandId: UUID) {
+        result = .success(commandId: commandId)
+    }
+
+    func dispatchRuntimeCommand(
+        _ command: PaneRuntimeCommand,
+        target: RuntimeCommandTarget,
+        correlationId: UUID?
+    ) async -> ActionResult {
+        receivedCommand = command
+        receivedTarget = target
+        receivedCorrelationId = correlationId
+        return result
     }
 }
 

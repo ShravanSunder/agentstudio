@@ -208,6 +208,25 @@ func navigationTabPaneRow(
     )
 }
 
+func navigationDrawerPaneRow(
+    groupID: String,
+    paneID: UUID,
+    tabID: UUID,
+    ownerPaneID: UUID
+) -> RepoExplorerMaterializedRow {
+    var pane = RepoExplorerProjectedPaneRow(
+        groupId: groupID,
+        destination: navigationUnassociatedDestination(paneID: paneID, tabID: tabID),
+        rowId: "drawer:\(paneID.uuidString)",
+        isDrawerPane: true
+    )
+    pane.drawerOwnerPaneID = ownerPaneID
+    return navigationMaterializedRow(
+        id: .tabPane(groupID: groupID, paneID: paneID),
+        presentation: .pane(pane)
+    )
+}
+
 func navigationUnassociatedPaneRow(
     paneID: UUID,
     tabID: UUID

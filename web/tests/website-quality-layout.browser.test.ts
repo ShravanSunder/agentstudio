@@ -17,11 +17,12 @@ it("renders every chapter with unclipped headings and no sideways scroll at ever
   );
 
   // Assert
-  expect(observations).toHaveLength(8);
+  expect(observations).toHaveLength(10);
   for (const observation of observations) {
     const width = `${String(observation.width)}px`;
     expect(observation.chapterCount, width).toBe(chapterCatalog.length);
     expect(observation.clippedHeadings, width).toEqual([]);
     expect(observation.horizontalOverflow, width).toBeLessThanOrEqual(1);
+    expect(observation.introHorizontalOverflow, width).toBeLessThanOrEqual(1);
   }
 }, 60_000);

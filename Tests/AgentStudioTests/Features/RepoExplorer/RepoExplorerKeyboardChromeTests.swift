@@ -22,8 +22,8 @@ struct RepoExplorerKeyboardChromeTests {
         let unassociatedBitmap: NSBitmapImageRep
     }
 
-    @Test("keyboard paint retains row bindings and native layout while updating selected rows")
-    func keyboardPaintPreservesContentAndLayout() throws {
+    @Test("keyboard selection expands the pane row without a new native transaction")
+    func keyboardSelectionExpandsPaneWithoutNativeTransaction() throws {
         let fixture = RepoExplorerListKeyboardFixture()
         defer { fixture.close() }
         let tabID = UUIDv7.generate()
@@ -55,8 +55,8 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(firstCell.currentBindingIdentity == firstBinding)
         #expect(secondCell.currentBindingIdentity == secondBinding)
         #expect(fixture.materializer.nativeTransactionApplyCount == nativeApplyCount)
-        #expect(fixture.materializer.forcedLayoutPassCount == layoutPassCount)
-        #expect(fixture.materializer.tableFrameUpdateCount == frameUpdateCount)
+        #expect(fixture.materializer.forcedLayoutPassCount == layoutPassCount + 1)
+        #expect(fixture.materializer.tableFrameUpdateCount == frameUpdateCount + 1)
         #expect(fixture.recorder.focusedPaneIDs.isEmpty)
         #expect(fixture.recorder.commandRequests.isEmpty)
 
@@ -90,30 +90,29 @@ struct RepoExplorerKeyboardChromeTests {
         #expect(secondCell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "2")
     }
 
-    @Test("pane and worktree rows omit Space while retaining trailing number stamps")
-    func paneAndWorktreeRowsOmitSpaceWhileRetainingTrailingNumberStamps() throws {
-        let projectRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appending(path: "../../../..")
-            .standardizedFileURL
-        let paneRowSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift"
-            ),
-            encoding: .utf8
+    @Test("worktree rows publish their numbered shortcut only while keyboard hints show")
+    func worktreeRowsPublishNumberedShortcutOnlyWhileKeyboardHintsShow() throws {
+        let fixture = RepoExplorerListKeyboardFixture()
+        defer { fixture.close() }
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let row = navigationWorktreeRow(
+            groupID: "repo",
+            repositoryID: repositoryID,
+            worktreeID: worktreeID
         )
-        let worktreeRowSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift"
-            ),
-            encoding: .utf8
+        _ = try fixture.apply(
+            snapshot: RepoExplorerMaterializationSnapshot(rows: [row]),
+            generation: 1
+        )
+        let table = try #require(firstRepoExplorerKeyboardDescendant(NSTableView.self, in: fixture.host))
+        let cell = try #require(
+            table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? RepoExplorerTableRowCell
         )
 
-        #expect(paneRowSource.components(separatedBy: "RepoExplorerPaneRowContent(").count - 1 == 2)
-        #expect(!paneRowSource.contains("SidebarShortcutHint(LocalActionSpec.previewPaneShortcutDisplay)"))
-        #expect(!worktreeRowSource.contains("LocalActionSpec.previewPaneShortcutDisplay"))
-        #expect(worktreeRowSource.contains(".sidebarShortcutHint("))
-        #expect(worktreeRowSource.contains("alignment: .trailing"))
+        #expect(cell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay == nil)
+        fixture.materializer.setShowsKeyboardHints(true)
+        #expect(cell.hostingView.rootView.slot.keyboardPresentation.shortcutDisplay?.value == "1")
     }
 
     @Test("pane rows preserve numbered hints and recency at supported widths")

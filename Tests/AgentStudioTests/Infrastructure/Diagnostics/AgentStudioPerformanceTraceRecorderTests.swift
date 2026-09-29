@@ -228,6 +228,7 @@ struct AgentStudioPerformanceTraceRecorderTests {
             applyOutcome: .changed
         )
         recorder.recordTerminalEqualSuppressed(publicationKind: .title)
+        recorder.recordTerminalActivityCloseRead(.milliseconds(3))
         recorder.recordTerminalCompactApply(
             TerminalCompactApplyPerformanceSnapshot(
                 equalWriteSuppressedCount: 7,
@@ -279,6 +280,8 @@ struct AgentStudioPerformanceTraceRecorderTests {
             )
         )
         #expect(contents.contains("\"body\":\"performance.terminal.compact_apply\""))
+        #expect(contents.contains("\"body\":\"performance.terminal.activity_projection.close_read\""))
+        #expect(contents.contains("\"agentstudio.performance.terminal.activity_projection.close_read_ms\":3"))
         #expect(contents.contains("\"body\":\"performance.filesystem.effect_snapshot\""))
         #expect(contents.contains("\"body\":\"performance.trace_identity.snapshot\""))
         #expect(contents.contains("\"agentstudio.performance.terminal.accumulator.offered.count\":100"))

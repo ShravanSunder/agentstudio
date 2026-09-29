@@ -60,22 +60,53 @@ extension CommandBarDataSource {
             }
     }
 
-    static func everythingWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return availableRepositories(store: store).flatMap { repo in
-            repo.worktrees.map { worktree in
+    static func searchableRepositoryAndWorktreeItems(
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        repositoryGroup: String,
+        repositoryPriority: Int,
+        worktreePriority: Int
+    ) -> [CommandBarItem] {
+        let repositories = availableRepositories(store: store)
+        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(
+            repos: repositories,
+            locationsByWorktreeId: worktreeLocationsByWorktreeId(store: store)
+        )
+        let repositoryItems = repositories.map { repository in
+            repoRootItem(
+                repo: repository,
+                presenceByWorktreeId: presenceByWorktreeId,
+                group: repositoryGroup,
+                groupPriority: repositoryPriority
+            )
+        }
+        let worktreeItems = repositories.flatMap { repository in
+            repository.worktrees.map { worktree in
                 let presence =
                     presenceByWorktreeId[worktree.id]
-                    ?? emptyWorktreePresence(worktree: worktree, repo: repo)
-                return unifiedWorktreeItem(
-                    worktree: worktree,
-                    repo: repo,
-                    presence: presence,
+                    ?? emptyWorktreePresence(worktree: worktree, repo: repository)
+                var keywords = worktreeKeywords(worktree: worktree, repo: repository)
+                var searchFields = [worktree.name, worktree.path.lastPathComponent]
+                if let branch = repoCache.worktreeEnrichment(for: worktree.id)?.branch {
+                    keywords.append(branch)
+                    searchFields.append(branch)
+                }
+                return CommandBarItem(
+                    id: "repo-wt-\(worktree.id.uuidString)",
+                    title: worktree.name,
+                    subtitle: repository.name,
+                    icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
                     group: Group.worktrees,
-                    groupPriority: Priority.repositories
+                    groupPriority: worktreePriority,
+                    keywords: keywords,
+                    searchFields: searchFields,
+                    hasChildren: true,
+                    action: .worktreeAction(presence: presence),
+                    command: .openWorktree
                 )
             }
         }
+        return repositoryItems + worktreeItems
     }
 
     static func unifiedWorktreeItem(
@@ -93,6 +124,7 @@ extension CommandBarDataSource {
             group: group,
             groupPriority: groupPriority,
             keywords: worktreeKeywords(worktree: worktree, repo: repo),
+            searchFields: [worktree.name, worktree.path.lastPathComponent],
             hasChildren: true,
             action: .worktreeAction(presence: presence),
             command: .openWorktree
@@ -127,6 +159,7 @@ extension CommandBarDataSource {
             group: group,
             groupPriority: groupPriority,
             keywords: repoRootKeywords(repo: repo),
+            searchFields: [repo.name, repo.repoPath.lastPathComponent] + repo.tags,
             hasChildren: true,
             action: .navigateRepo(repositoryID: repo.id)
         )
@@ -135,8 +168,6 @@ extension CommandBarDataSource {
     static func repoRootKeywords(repo: Repo) -> [String] {
         var keywords = ["repo", repo.name, repo.repoPath.lastPathComponent]
         keywords.append(contentsOf: repo.tags)
-        keywords.append(contentsOf: repo.worktrees.map(\.name))
-        keywords.append(contentsOf: repo.worktrees.map { $0.path.lastPathComponent })
         return keywords
     }
 
@@ -261,6 +292,20 @@ extension CommandBarDataSource {
         var items: [CommandBarItem] = []
         let canOpenInCurrentTab = store.tabLayoutAtom.activeTabId != nil
 
+        if available != nil {
+            items.append(
+                CommandBarItem(
+                    id: "repo-newWorktree-\(repo.id.uuidString)",
+                    title: AppCommand.newWorktree.definition.label,
+                    icon: AppCommand.newWorktree.definition.icon,
+                    group: "Worktrees",
+                    groupPriority: 2,
+                    hasChildren: true,
+                    action: .navigate(worktreeCreationMenuLevel(repository: repo)),
+                    command: .newWorktree
+                ))
+        }
+
         if let defaultWorktree {
             items.append(
                 contentsOf: terminalWorktreeActionItems(
@@ -298,7 +343,8 @@ extension CommandBarDataSource {
                         worktree: worktree,
                         presence: presence,
                         canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil,
-                        dispatcher: dispatcher
+                        dispatcher: dispatcher,
+                        repository: repo
                     )
                     return CommandBarItem(
                         id: "repo-wt-\(worktree.id.uuidString)",
@@ -308,6 +354,7 @@ extension CommandBarDataSource {
                         group: "Worktrees",
                         groupPriority: 2,
                         keywords: worktreeKeywords(worktree: worktree, repo: repo, includeFullPath: true),
+                        searchFields: [worktree.name, worktree.path.lastPathComponent],
                         hasChildren: true,
                         action: .navigate(level),
                         command: .openWorktree
@@ -365,7 +412,9 @@ extension CommandBarDataSource {
         worktree: Worktree,
         presence: WorktreePresence,
         canOpenInCurrentTab: Bool,
-        dispatcher: any AppCommandDispatching
+        dispatcher: any AppCommandDispatching,
+        repository: Repo? = nil,
+        forkEligibility: WorktreeForkEligibility? = nil
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
         let bridgeResolution =
@@ -375,6 +424,36 @@ extension CommandBarDataSource {
             worktreeId: worktreeId,
             canOpenInCurrentTab: canOpenInCurrentTab
         )
+        if let repository {
+            let localSpec = LocalActionSpec.forkThisWorktree.actionSpec
+            let unavailability: String?
+            if case .unavailable(let reason) = forkEligibility {
+                unavailability = reason
+            } else if forkEligibility == nil {
+                unavailability = "Checking fork availability…"
+            } else {
+                unavailability = nil
+            }
+            items.append(
+                CommandBarItem(
+                    id: "wt-fork-\(worktreeId.uuidString)",
+                    title: localSpec.label,
+                    subtitle: unavailability,
+                    icon: localSpec.icon,
+                    group: "Worktrees",
+                    groupPriority: 0,
+                    hasChildren: true,
+                    action: .navigate(
+                        worktreeCreationBranchLevel(
+                            repository: repository,
+                            kind: .fork,
+                            source: worktree,
+                            sourceDisplay: worktree.name
+                        )),
+                    command: .forkWorktree,
+                    isEnabled: unavailability == nil
+                ))
+        }
         items.append(
             copyPathItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Path", groupPriority: 1)
         )
@@ -430,7 +509,8 @@ extension CommandBarDataSource {
                 colorHex: AppStyles.Shell.Sidebar.accentPaletteHexes[0],
                 isMain: worktree.isMainWorktree
             ),
-            items: items
+            items: items,
+            creationQuery: repository.map { .worktreeEligibility($0, worktree) }
         )
     }
 

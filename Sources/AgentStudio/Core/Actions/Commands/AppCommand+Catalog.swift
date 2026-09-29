@@ -675,6 +675,9 @@ extension AppCommand {
                 surfacePolicy: .exposed([.commandBar, .contextMenu]),
                 targetTypes: [.worktree, .pane]
             )
+        case .newWorktree: return newWorktreeDefinition()
+        case .newWorktreeFromDefault: return newWorktreeFromDefaultDefinition()
+        case .forkWorktree: return forkWorktreeDefinition()
         case .openPaneLocationInBookmarkedEditor:
             return AppCommandSpec(
                 command: self,
@@ -778,15 +781,14 @@ extension AppCommand {
         case .showPanesSidebar: return showPanesSidebarDefinition()
         case .setReposGroupingRepo: return setReposGroupingRepoDefinition()
         case .setReposGroupingActivity: return setReposGroupingActivityDefinition()
-        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+        case .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
             return retiredPanesOrganizationDefinition()
         case .setReposSortFieldName: return setReposSortFieldNameDefinition()
         case .setReposSortFieldActivity: return setReposSortFieldActivityDefinition()
         case .toggleReposSortDirection: return toggleReposSortDirectionDefinition()
         case .toggleReposShowsPinned: return toggleReposShowsPinnedDefinition()
         case .togglePanesShowsPinned: return togglePanesShowsPinnedDefinition()
+        case .togglePanesShowsDrawers: return togglePanesShowsDrawersDefinition()
         case .setInboxGroupingTab: return setInboxGroupingTabDefinition()
         case .setInboxGroupingRepo: return setInboxGroupingRepoDefinition()
         case .setInboxGroupingPane: return setInboxGroupingPaneDefinition()

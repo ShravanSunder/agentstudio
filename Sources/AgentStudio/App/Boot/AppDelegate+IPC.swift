@@ -432,10 +432,12 @@ extension AppDelegate {
                 ingestion: sessionsIngestion,
                 providerRegistry: SessionsProviderAdapterRegistry(
                     profiles: appIPCSessionsProviderProfiles
-                )
+                ),
+                activityClock: paneActivityClock
             ),
             permissionApprovalPort: AgentStudioIPCHumanApprovalPort(),
-            ownPaneScopePort: WorkspaceOwnPaneScopePort(workspaceStore: store),
+            ownPaneScopePort: WorkspaceOwnPaneScopePort(
+                workspaceStore: store, performanceTraceRecorder: performanceTraceRecorder),
             agentAuthorizationTelemetry: AgentStudioIPCAgentAuthorizationTelemetry(
                 performanceTraceRecorder: performanceTraceRecorder)
         )

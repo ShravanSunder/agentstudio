@@ -955,6 +955,8 @@ fi
 if [ -z "$build_path" ]; then
   # shellcheck disable=SC1091
   source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
+  swift_build_slot_acquire build "run-debug-observability"
+  trap swift_build_slot_release EXIT
   build_path="$SWIFT_BUILD_DIR"
 fi
 binary_path="$build_path/debug/AgentStudio"

@@ -87,7 +87,7 @@ struct AgentStudioIPCClaudeHookVerticalTests {
     @Test("A real Claude Code session's hooks bind the pane, raise needs-you and complete the turn")
     func claudeCodeHooksDriveTheSessionLifecycle() async throws {
         // Arrange
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let paneId = harness.boundPaneId
 
         // Act
@@ -126,7 +126,7 @@ struct AgentStudioIPCClaudeHookVerticalTests {
         // Arrange: the hook derives one occurrence identity per tool invocation
         // but mints a fresh correlation per process, so a Claude Code retry of
         // the same hook arrives as the same occurrence under a new correlation.
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let paneId = harness.boundPaneId
         _ = try await send("SessionStart", paneId: paneId, harness: harness)
         _ = try await send("UserPromptSubmit", paneId: paneId, harness: harness)
@@ -156,7 +156,7 @@ struct AgentStudioIPCClaudeHookVerticalTests {
     @Test("Another Claude Code release is refused rather than admitted as qualified")
     func unknownReleaseIsRefused() async throws {
         // Arrange
-        let harness = try #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
         let projected = try Self.projectedParams("SessionStart")
         let upgraded = IPCSessionEventParams(
             handle: harness.sparePaneId.uuidString,

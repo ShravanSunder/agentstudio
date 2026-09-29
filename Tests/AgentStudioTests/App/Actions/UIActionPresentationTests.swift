@@ -123,15 +123,6 @@ struct UIActionPresentationTests {
     }
 
     @Test
-    func drawerChooserToolTip_usesOverrideWithShortcut() {
-        let toolTip = AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
-            textOverride: "Open in Editor"
-        )
-
-        #expect(toolTip == "Open in Editor (⌘⌥⌃O)")
-    }
-
-    @Test
     func drawerFinderToolTip_usesOverrideWithShortcut() {
         let toolTip = AppCommand.openPaneLocationInFinder.definition.controlToolTip(
             textOverride: "Open in Finder"

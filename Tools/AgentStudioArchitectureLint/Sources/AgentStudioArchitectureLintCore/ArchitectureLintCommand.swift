@@ -1,5 +1,11 @@
 import Foundation
 
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
+
 public struct ArchitectureLintCommand {
     private let fileManager: FileManager
     private let standardOutput: FileHandle
@@ -35,7 +41,16 @@ public struct ArchitectureLintCommand {
         self.standardError = standardError
         self.rules = rules
         self.documentRules = documentRules
-        self.workspaceRootPath = workspaceRootPath
+        self.workspaceRootPath = Self.canonicalFileSystemPath(workspaceRootPath)
+    }
+
+    private static func canonicalFileSystemPath(_ path: String) -> String {
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard let resolvedPath = standardizedPath.withCString({ realpath($0, nil) }) else {
+            return standardizedPath
+        }
+        defer { free(resolvedPath) }
+        return String(cString: resolvedPath)
     }
 
     public func run(arguments: [String]) -> Int32 {
@@ -87,25 +102,7 @@ public struct ArchitectureLintCommand {
             validatedFiles: arguments.onlyPaths.isEmpty ? nil : Set(onlyFiles)
         )
 
-        var diagnostics = run.siteDiagnostics
-        if let ledgerPath = arguments.ledgerPath {
-            var ledger = try loadLedger(ledgerPath)
-            var outcome = run.reconciled(with: ledger)
-            if arguments.lowersLedgerCounts {
-                let loweredLedger = run.reconciliation(with: ledger).lowered(observedCounts: outcome.observedCounts)
-                if loweredLedger != ledger {
-                    try loweredLedger.rendered.write(
-                        toFile: workspacePath(ledgerPath),
-                        atomically: true,
-                        encoding: .utf8
-                    )
-                    writeOutput("agentstudio-architecture-lint: lowered counts in \(ledgerPath)\n")
-                }
-                ledger = loweredLedger
-                outcome = run.reconciled(with: ledger)
-            }
-            diagnostics = outcome.diagnostics
-        }
+        let diagnostics = try reconcile(run: run, arguments: arguments)
 
         for diagnostic in diagnostics {
             writeOutput(diagnostic.rendered)
@@ -116,10 +113,99 @@ public struct ArchitectureLintCommand {
         return diagnostics.isEmpty ? 0 : 1
     }
 
+    private func reconcile(run: ArchitectureLintRun, arguments: ArchitectureLintArguments) throws
+        -> [ArchitectureDiagnostic]
+    {
+        guard !arguments.ledgerPaths.isEmpty else { return run.siteDiagnostics }
+        let ledgers = try arguments.ledgerPaths.map(loadLedger)
+        try validateLedgerOwnership(ledgers)
+        let ownedRules = Set(
+            ledgers.flatMap { ledger in
+                ledger.sourcePath.hasSuffix("forbidden-test-wait-ledger.tsv")
+                    ? ["agentstudio_no_forbidden_test_wait"]
+                    : (rules.map(\.id) + documentRules.map(\.id)).filter { $0 != "agentstudio_no_forbidden_test_wait" }
+            })
+        var diagnostics = run.siteDiagnostics.filter { !ownedRules.contains($0.ruleID) }
+
+        for var ledger in ledgers {
+            let isForbiddenLedger = ledger.sourcePath.hasSuffix("forbidden-test-wait-ledger.tsv")
+            let sites = run.siteDiagnostics.filter {
+                ($0.ruleID == "agentstudio_no_forbidden_test_wait") == isForbiddenLedger
+            }
+            let reconciliation = normalizedReconciliation(run: run, ledger: ledger)
+            var outcome = reconciliation.reconcile(diagnostics: sites) { relativeWorkspacePath($0.path) }
+            if arguments.lowersLedgerCounts {
+                let lowered = reconciliation.lowered(observedCounts: outcome.observedCounts)
+                if lowered != ledger {
+                    try lowered.rendered.write(
+                        toFile: workspacePath(ledger.sourcePath), atomically: true, encoding: .utf8
+                    )
+                    writeOutput("agentstudio-architecture-lint: lowered counts in \(ledger.sourcePath)\n")
+                }
+                ledger = lowered
+                outcome = normalizedReconciliation(run: run, ledger: ledger)
+                    .reconcile(diagnostics: sites) { relativeWorkspacePath($0.path) }
+            }
+            diagnostics.append(contentsOf: outcome.diagnostics)
+        }
+        return diagnostics.sorted()
+    }
+
+    private func normalizedReconciliation(
+        run: ArchitectureLintRun, ledger: ArchitectureDebtLedger
+    ) -> DebtLedgerReconciliation {
+        var validatedPaths: [String: String] = [:]
+        for context in run.validatedContexts {
+            if let relative = relativeWorkspacePath(context.path) { validatedPaths[relative] = context.path }
+        }
+        for document in run.validatedDocuments {
+            if let relative = relativeWorkspacePath(document.path) { validatedPaths[relative] = document.path }
+        }
+        return DebtLedgerReconciliation(ledger: ledger, validatedPaths: validatedPaths, isFullRun: run.isFullRun)
+    }
+
+    private func relativeWorkspacePath(_ path: String) -> String? {
+        let canonical = Self.canonicalFileSystemPath(path)
+        let prefix = "\(workspaceRootPath)/"
+        guard canonical.hasPrefix(prefix) else { return nil }
+        return String(canonical.dropFirst(prefix.count))
+    }
+
+    private func validateLedgerOwnership(_ ledgers: [ArchitectureDebtLedger]) throws {
+        var seenKeys: Set<DebtLedgerKey> = []
+        var seenKinds: Set<Bool> = []
+        for ledger in ledgers {
+            for entry in ledger.entries {
+                guard seenKeys.insert(entry.key).inserted else {
+                    throw DebtLedgerError.malformed(
+                        path: ledger.sourcePath, line: entry.line,
+                        reason: "duplicate row across ledgers for \(entry.key.ruleID) \(entry.key.path)"
+                    )
+                }
+            }
+        }
+        for ledger in ledgers {
+            let isForbiddenLedger = ledger.sourcePath.hasSuffix("forbidden-test-wait-ledger.tsv")
+            for entry in ledger.entries {
+                guard (entry.key.ruleID == "agentstudio_no_forbidden_test_wait") == isForbiddenLedger else {
+                    throw DebtLedgerError.malformed(
+                        path: ledger.sourcePath, line: entry.line,
+                        reason: "rule \(entry.key.ruleID) belongs in the other Swift debt ledger"
+                    )
+                }
+            }
+            guard seenKinds.insert(isForbiddenLedger).inserted else {
+                throw DebtLedgerError.malformed(
+                    path: ledger.sourcePath, line: 1, reason: "a ledger for this rule family was already supplied"
+                )
+            }
+        }
+    }
+
     /// A merge base without a ledger has nothing to ratchet against: the
     /// ledger is new in that change, and every row it adds is its baseline.
     private func checkLedgerRatchet(arguments: ArchitectureLintArguments, basePath: String) throws -> Int32 {
-        guard let ledgerPath = arguments.ledgerPath else {
+        guard let ledgerPath = arguments.ledgerPaths.first else {
             throw ArchitectureLintArgumentsError.requiresLedger
         }
         let current = try loadLedger(ledgerPath)
@@ -139,11 +225,11 @@ public struct ArchitectureLintCommand {
         try ArchitectureDebtLedger.load(path: workspacePath(ledgerPath), displayPath: ledgerPath)
     }
 
-    /// A root or scoped path as an absolute, standardized path, so the same
+    /// A root or scoped path as an absolute, canonical path, so the same
     /// file named two ways is one file.
     private func workspacePath(_ path: String) -> String {
         guard !path.hasPrefix("/") else {
-            return URL(fileURLWithPath: path).standardizedFileURL.path
+            return Self.canonicalFileSystemPath(path)
         }
         return URL(
             fileURLWithPath: path,
@@ -154,7 +240,7 @@ public struct ArchitectureLintCommand {
     private var helpText: String {
         """
         Usage:
-          agentstudio-architecture-lint [--timings] [--ledger file [--lower-ledger-counts]] [--only file]... [paths...]
+          agentstudio-architecture-lint [--timings] [--ledger file]... [--lower-ledger-counts] [--only file]... [paths...]
           agentstudio-architecture-lint --ledger file --check-ledger-ratchet base-file
           agentstudio-architecture-lint --print-rules
 
@@ -162,7 +248,7 @@ public struct ArchitectureLintCommand {
         --only validates just the named files; every path is still parsed so
         cross-file rules see the whole corpus.
         --timings prints per-stage and per-rule times; they never change the exit code.
-        --ledger reconciles violation sites with the debt ledger: a file may hold
+        --ledger reconciles violation sites with their owning debt ledgers: a file may hold
         exactly its permitted count per rule. --lower-ledger-counts rewrites
         the ledger down to what this run found; it never raises a count.
         --check-ledger-ratchet fails when --ledger raises a count or adds a row

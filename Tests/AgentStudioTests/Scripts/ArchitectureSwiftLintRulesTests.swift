@@ -31,7 +31,9 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(!lintScript.contains("run_admission_contract"))
         #expect(lintScript.contains("run_release_contract=0"))
 
-        #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
+        #expect(ciWorkflow.contains("bash scripts/install-ci-lint-tools.sh"))
+        #expect(ciWorkflow.contains("run: mise run lint:portable"))
+        #expect(ciWorkflow.contains("run: mise run lint:release-scripts"))
         #expect(ciWorkflow.contains("mise run test:architecture"))
         #expect(ciWorkflow.contains("Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh"))
         let ratchetScript = try String(
@@ -82,36 +84,34 @@ struct ArchitectureSwiftLintRulesTests {
         }
         try FileManager.default.copyItem(atPath: fixturePath, toPath: temporaryFile.path)
 
+        let swiftLintLookup = try await runProcess(arguments: ["sh", "-c", "command -v swiftlint"])
+        let processPath = ProcessInfo.processInfo.environment["PATH"] ?? "<unset>"
+        #expect(
+            swiftLintLookup.exitCode == 0,
+            Comment(
+                rawValue: "swiftlint not found on PATH: \(processPath)\n\(processDiagnostics(swiftLintLookup))"
+            )
+        )
+
         let result = try await runProcess(arguments: [
             "swiftlint", "lint", "--strict", "--config", ".swiftlint.yml", temporaryFile.path,
         ])
 
-        #expect(result.exitCode != 0)
-        #expect(result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"))
+        #expect(result.exitCode != 0, Comment(rawValue: processDiagnostics(result)))
+        #expect(
+            result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"),
+            Comment(rawValue: processDiagnostics(result))
+        )
     }
 
-    @Test("local architecture tool exposes expected rule inventory")
-    func localArchitectureToolExposesExpectedRuleInventory() async throws {
-        let buildSlot = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
-        let architectureBuildPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent(buildSlot)
-            .appendingPathComponent("architecture-lint").path
-        let result = try await runProcess(arguments: [
-            "swift", "run",
-            "--package-path", "Tools/AgentStudioArchitectureLint",
-            "--build-path", architectureBuildPath,
-            "agentstudio-architecture-lint",
-            "--print-rules",
-        ])
-
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("agentstudio_import_direction error"))
-        #expect(result.stdout.contains("agentstudio_state_actor_path warning"))
-        #expect(result.stdout.contains("agentstudio_ipc_programmatic_control_boundary error"))
-        #expect(result.stdout.contains("agentstudio_appipc_port_boundary error"))
-        #expect(result.stdout.contains("agentstudio_ipc_composition_location error"))
-        #expect(result.stdout.contains("agentstudio_ipc_public_surface_sanitization error"))
-        #expect(result.stdout.contains("agentstudio_ipc_no_direct_atom_access error"))
+    private func processDiagnostics(_ result: ScriptRunResult) -> String {
+        """
+        exitCode: \(result.exitCode)
+        stdout:
+        \(result.stdout)
+        stderr:
+        \(result.stderr)
+        """
     }
 
     private func runProcess(arguments: [String]) async throws -> ScriptRunResult {

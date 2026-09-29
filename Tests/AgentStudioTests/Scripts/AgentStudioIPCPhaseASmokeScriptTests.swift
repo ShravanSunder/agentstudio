@@ -64,6 +64,7 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
         #expect(script.contains("\"toggleReposShowsPinned\""))
         #expect(script.contains("\"togglePanesShowsPinned\""))
         #expect(script.contains("retired_panes_organization_commands"))
+        #expect(script.contains("removed_panes_organization_commands"))
         for retiredCommand in [
             "setPanesGroupingRepo", "setPanesGroupingTab", "setPanesGroupingActivity",
             "setPanesSubgroupNone", "setPanesSubgroupActivity",
@@ -72,6 +73,7 @@ struct AgentStudioIPCPhaseASmokeScriptTests {
             #expect(script.contains("\"\(retiredCommand)\""))
         }
         #expect(script.contains("command.list omitted retained retired command"))
+        #expect(script.contains("removed Panes command remains in command.list"))
         #expect(script.contains("retired command retained IPC authority"))
         #expect(script.contains("command.execute retired"))
         #expect(script.contains("-32007"))

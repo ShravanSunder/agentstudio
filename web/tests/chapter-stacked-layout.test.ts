@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { chapterStackedLayoutMediaQuery } from "../src/chapters/chapter-step-controller";
 import { topologyStackedLayoutBreakpointWidth } from "../src/topology-lab/full-page-topology-composition";
 
 function readSource(relativePath: string): string {
@@ -30,11 +29,9 @@ describe("the stacked chapter layout boundary", () => {
     const breakpoint = tailwindLargeBreakpoint();
     const chapterSurface = readSource("../src/chapters/ChapterSurface.astro");
 
-    // Assert: the controller, the step row styles, and the rail share
-    // Tailwind's lg boundary, where the chapter surface's max-lg: layout stacks.
-    expect(chapterStackedLayoutMediaQuery).toBe(`(width < ${breakpoint})`);
-    expect(chapterSurface).toContain(`@media ${chapterStackedLayoutMediaQuery} {`);
-    expect(chapterSurface).not.toContain("38.75rem");
+    // The G7 pill moves below the full-width glass at the rail's same lg edge.
+    expect(chapterSurface).toContain(`@media (width < ${breakpoint})`);
+    expect(chapterSurface).toContain("chapter-surface__stage");
     expect(topologyStackedLayoutBreakpointWidth).toBe(Number.parseFloat(breakpoint) * 16);
   });
 });

@@ -56,7 +56,7 @@ enum WorkspaceLocalRepositoryCodecs {
                     SELECT filter_text, is_filter_visible, sidebar_collapsed, sidebar_surface,
                            repos_grouping_mode, panes_grouping_mode,
                            repos_subgroup_mode, panes_subgroup_mode,
-                           repos_shows_pinned, panes_shows_pinned
+                           repos_shows_pinned, panes_shows_pinned, panes_shows_drawers
                     FROM local_window_state
                     WHERE window_role = 'main'
                     """
@@ -94,7 +94,8 @@ enum WorkspaceLocalRepositoryCodecs {
             repoSubgroupMode: repoSubgroupMode,
             paneSubgroupMode: paneSubgroupMode,
             showsPinnedRepos: (row["repos_shows_pinned"] as Int) == 1,
-            showsPinnedPanes: (row["panes_shows_pinned"] as Int) == 1
+            showsPinnedPanes: (row["panes_shows_pinned"] as Int) == 1,
+            showsDrawerPanes: (row["panes_shows_drawers"] as Int) == 1
         )
     }
 

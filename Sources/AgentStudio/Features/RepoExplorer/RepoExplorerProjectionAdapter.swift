@@ -88,15 +88,16 @@ final class RepoExplorerProjectionAdapter {
     @ObservationIgnored let inputCapture: RepoExplorerProjectionInputCapture?
     @ObservationIgnored let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored let recencyNow: @MainActor @Sendable () -> Date
-    @ObservationIgnored let deadlineNow: @Sendable () -> Date
-    @ObservationIgnored let recencyDelay: AsyncDelay
+    @ObservationIgnored var deadlineWorker: RepoExplorerProjectionWorker!
+    @ObservationIgnored var deadlineMessageTask: Task<Void, Never>?
+    @ObservationIgnored var deadlineRequestGeneration = 0
+    @ObservationIgnored var activeDeadlineObservationGeneration: Int?
     @ObservationIgnored let initialProjectionTrigger: AppPolicies.SidebarProjection.Trigger
     @ObservationIgnored var isDemanded = false
     @ObservationIgnored var query = ""
     @ObservationIgnored var projectionGeneration = 0
     @ObservationIgnored var cachedProjectionRequest: RepoExplorerProjectionRequest?
     @ObservationIgnored var recencyReferenceDate = Date()
-    @ObservationIgnored var recencyDeadlineTask: Task<Void, Never>?
     @ObservationIgnored var observationTokens: Set<RepoExplorerObservationToken> = []
     @ObservationIgnored var pendingInvalidation = RepoExplorerPendingInvalidation()
     @ObservationIgnored var invalidationTask: Task<Void, Never>?
@@ -162,8 +163,6 @@ final class RepoExplorerProjectionAdapter {
         self.inputCapture = inputCapture
         self.performanceTraceRecorder = performanceTraceRecorder
         self.recencyNow = recencyNow
-        self.deadlineNow = deadlineNow
-        self.recencyDelay = recencyDelay
         self.initialProjectionTrigger = initialProjectionTrigger
         self.onProjectionSuppressed = onProjectionSuppressed
         projectionFamily = RepoExplorerMaterializedProjectionFamily(
@@ -191,6 +190,13 @@ final class RepoExplorerProjectionAdapter {
             },
             onProjectionCompletion: { [weak self] _, completion in
                 self?.handleProjectionCompletion(completion)
+            }
+        )
+        deadlineWorker = RepoExplorerProjectionWorker(
+            deadlineDelay: recencyDelay,
+            deadlineNow: deadlineNow,
+            onDeadline: { [weak self] generation, preparedDeadline in
+                self?.applyPreparedPresentationDeadline(preparedDeadline, generation: generation)
             }
         )
         _ = projectionFamily.materialize(for: .sidebar)
@@ -241,6 +247,7 @@ final class RepoExplorerProjectionAdapter {
 
     func stopAndDrain() async {
         stop()
+        await deadlineMessageTask?.value
         await projectionFamily.stopAndDrain()
     }
 

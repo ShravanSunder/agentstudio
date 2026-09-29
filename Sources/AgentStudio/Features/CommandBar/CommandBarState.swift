@@ -1,5 +1,7 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioSharedComponents
+import AgentStudioWorktreeOperations
 import Foundation
 import SwiftUI
 import os.log
@@ -13,7 +15,11 @@ private let stateLogger = Logger(subsystem: "com.agentstudio", category: "Comman
 /// Always accessed on the main thread (SwiftUI views + AppKit panel controller).
 @Observable
 package final class CommandBarState {
-    package init() {}
+    private let defaults: UserDefaults
+
+    package init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     enum OpenMode: Equatable {
         case prefix(String)
@@ -29,6 +35,9 @@ package final class CommandBarState {
     /// Full raw text including any visible prefix characters (e.g., "> close", "$ main").
     package var rawInput: String = "" {
         didSet {
+            if rawInput != oldValue {
+                shouldSelectRestoredRootQuery = false
+            }
             if let normalizedPrefix = Self.normalizedLeadingPrefix(for: rawInput, previousInput: oldValue),
                 rawInput != normalizedPrefix
             {
@@ -40,11 +49,19 @@ package final class CommandBarState {
             }
         }
     }
+    private(set) var lastRootQuery: String = ""
+    private(set) var shouldSelectRestoredRootQuery = false
 
     // MARK: - Navigation
 
     /// Stack of nested levels. Empty = at root level.
-    var navigationStack: [CommandBarLevel] = []
+    var navigationStack: [CommandBarLevel] = [] {
+        didSet { levelVisitRevision += 1 }
+    }
+
+    /// Changes whenever the navigation stack does, so work deferred on one visit to a level
+    /// can tell that the user has since left it, even for a revisit of the same level.
+    private(set) var levelVisitRevision: Int = 0
 
     /// Root scope that remains stable while navigating nested levels.
     private(set) var pinnedScope: CommandBarScope = .everything
@@ -55,6 +72,7 @@ package final class CommandBarState {
 
     /// Currently highlighted row index within filtered results.
     var selectedIndex: Int = 0
+    var appliedSearchResult: CommandBarAppliedSearchResult?
 
     // MARK: - Recents
 
@@ -62,6 +80,14 @@ package final class CommandBarState {
     var recentItemIds: [String] = []
     /// Persisted typed command history, ordered most-recent-first.
     private(set) var recentCommands: [AppCommand] = []
+
+    // MARK: - Worktree Creation
+
+    /// Fork eligibility answers for source worktrees chosen in this session; a missing
+    /// entry means the query is still pending.
+    private(set) var forkEligibilityBySourceWorktreeId: [UUID: WorktreeForkEligibility] = [:]
+    private(set) var defaultStartPointByRepositoryId: [UUID: WorktreeDefaultStartPoint] = [:]
+    private(set) var defaultStartPointQueryFailures: Set<UUID> = []
 
     // MARK: - Computed — Prefix Parsing
 
@@ -113,7 +139,7 @@ package final class CommandBarState {
 
     var rootScopeLabel: String {
         switch currentScope {
-        case .everything: return "Main"
+        case .everything: return "Home"
         case .quickOpen: return "Quick Open"
         case .commands: return "Commands"
         case .panes: return "Panes"
@@ -129,9 +155,9 @@ package final class CommandBarState {
     var breadcrumbItems: [CommandBarBreadcrumbItem] {
         [
             CommandBarBreadcrumbItem(
-                label: rootScopeLabel,
+                label: currentScope == .everything ? "" : rootScopeLabel,
                 accessibilityLabel: rootScopeLabel,
-                icon: nil
+                icon: currentScope == .everything ? .home : nil
             )
         ]
             + navigationStack.map { level in
@@ -159,6 +185,9 @@ package final class CommandBarState {
 
     /// Placeholder text for the search field, varies by scope.
     var placeholder: String {
+        if let textEntry = currentLevel?.textEntry {
+            return textEntry.placeholder
+        }
         if isNested {
             return "Filter..."
         }
@@ -217,10 +246,14 @@ package final class CommandBarState {
         if let prefix, !prefix.isEmpty, [">", "$", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
-            rawInput = prefix ?? ""
+            rawInput = prefix ?? lastRootQuery
         }
+        shouldSelectRestoredRootQuery = prefix == nil && !lastRootQuery.isEmpty
         pinnedScope = activeScope
         navigationStack = []
+        forkEligibilityBySourceWorktreeId = [:]
+        defaultStartPointByRepositoryId = [:]
+        defaultStartPointQueryFailures = []
         selectedIndex = 0
         isVisible = true
         stateLogger.debug("Command bar shown with prefix: \(prefix ?? "(none)")")
@@ -228,12 +261,18 @@ package final class CommandBarState {
 
     /// Dismiss the command bar entirely.
     func dismiss() {
+        if !isNested && activePrefix == nil {
+            lastRootQuery = rawInput
+        }
         rootSessionGeneration += 1
         isVisible = false
         rawInput = ""
         pinnedScope = .everything
         defaultRootScope = .everything
         navigationStack = []
+        forkEligibilityBySourceWorktreeId = [:]
+        defaultStartPointByRepositoryId = [:]
+        defaultStartPointQueryFailures = []
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
     }
@@ -242,8 +281,12 @@ package final class CommandBarState {
     func switchPrefix(_ prefix: String) {
         rootSessionGeneration += 1
         navigationStack = []
+        forkEligibilityBySourceWorktreeId = [:]
+        defaultStartPointByRepositoryId = [:]
+        defaultStartPointQueryFailures = []
         defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
+        shouldSelectRestoredRootQuery = false
         pinnedScope = activeScope
         selectedIndex = 0
     }
@@ -268,6 +311,24 @@ package final class CommandBarState {
     /// the test fixture entry point above so new owner→scope rows stay in sync.
     package static func defaultScope(for owner: KeyboardOwner) -> CommandBarScope {
         owner == .sidebar(.inbox) ? .inbox : .everything
+    }
+
+    func recordForkEligibility(_ eligibility: WorktreeForkEligibility, forSourceWorktreeId sourceWorktreeId: UUID) {
+        forkEligibilityBySourceWorktreeId[sourceWorktreeId] = eligibility
+    }
+
+    func recordDefaultStartPoint(_ startPoint: WorktreeDefaultStartPoint, forRepositoryId repositoryId: UUID) {
+        defaultStartPointByRepositoryId[repositoryId] = startPoint
+        defaultStartPointQueryFailures.remove(repositoryId)
+    }
+
+    func recordDefaultStartPointQueryFailure(forRepositoryId repositoryId: UUID) {
+        defaultStartPointQueryFailures.insert(repositoryId)
+    }
+
+    func replaceLevel(_ level: CommandBarLevel) {
+        guard let index = navigationStack.lastIndex(where: { $0.id == level.id }) else { return }
+        navigationStack[index] = level
     }
 
     /// Push a nested level onto the navigation stack.
@@ -343,8 +404,8 @@ package final class CommandBarState {
     }
 
     func loadRecents() {
-        recentItemIds = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
-        let storedCommandValues = UserDefaults.standard.stringArray(forKey: Self.recentCommandsKey) ?? []
+        recentItemIds = defaults.stringArray(forKey: Self.recentsKey) ?? []
+        let storedCommandValues = defaults.stringArray(forKey: Self.recentCommandsKey) ?? []
         var seenCommands: Set<AppCommand> = []
         recentCommands =
             storedCommandValues
@@ -355,10 +416,10 @@ package final class CommandBarState {
     }
 
     private func persistRecents() {
-        UserDefaults.standard.set(recentItemIds, forKey: Self.recentsKey)
+        defaults.set(recentItemIds, forKey: Self.recentsKey)
     }
 
     private func persistRecentCommands() {
-        UserDefaults.standard.set(recentCommands.map(\.rawValue), forKey: Self.recentCommandsKey)
+        defaults.set(recentCommands.map(\.rawValue), forKey: Self.recentCommandsKey)
     }
 }

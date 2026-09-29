@@ -157,35 +157,31 @@ built; it does not change target ownership or imply isolated compilation.
 mise run test:swift -- --filter "CommandBarState"
 ```
 
-If you must invoke `swift test` directly, source the slot helper first so you don't collide with another agent's build dir:
+If you must invoke `swift test` directly, acquire the test slot and release it from your caller-owned EXIT trap:
 
 ```bash
 source scripts/swift-build-slot.sh
+swift_build_slot_acquire test "manual swift test"
+trap swift_build_slot_release EXIT
 swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 ```
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-1` or `.build-agent-2` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Local overrides are not supported. |
+| `SWIFT_BUILD_DIR` | `.build-agent-1` for `build`; `.build-agent-2` for `test`; `.build-ci` on CI | The caller acquires a named slot with `swift_build_slot_acquire build|test "task label"`. Local overrides are not supported. |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 
 ### Swift Build-Slot Recovery
 
-**Bounded 2-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. Debug builds, release builds, and tests all share `.build-agent-1` and `.build-agent-2`. The helper uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Main agents and subagents share the pool; the helper handles allocation.
+**Two named slots in each worktree.** `build` owns `.build-agent-1` for debug and release builds, Swift lint and format, the Bridge development-server build, and architecture-lint compilation. `test` owns `.build-agent-2` for test tasks from prebuild through the last test process, including `mise run test:architecture`. The fixed paths preserve existing build outputs without a copy or rebuild. SwiftPM's own kernel-level flock handles serialization inside each path.
 
-**Concurrent agents land on different slots.** Atomic `mkdir` guarantees that two callers racing simultaneously claim distinct slots. A third caller fails instead of creating another build directory.
+**Acquisition and release.** The caller runs `swift_build_slot_acquire build|test "task label"`, then installs its own EXIT handler to call `swift_build_slot_release`. A claimant creates `.slot-claim` atomically. A caller waiting on the same slot prints the holder task, PID, and process start time once, then checks for the slot every second. That one-second interval schedules contention only; it never times out a build. A build and a test can run at the same time because they own different paths.
 
-**If both slots are busy** the helper aborts with `swift-build-slot: all 2 slots are busy`.
+**Stale claims.** Each claim records its owner PID and process start time. `mise run clean-agent-builds` reaps a dead or PID-reused owner only after `lsof +D` confirms that no process has files open under its build path. This protects active descendants whose parent shell exited. A pre-upgrade claim without metadata is removed only when its claim directory is empty and `lsof` confirms the build path is idle; active legacy holders are reported with their PID, command, and start time.
 
-**SIGKILL leaks.** If a calling shell is `kill -9`'d, the EXIT trap doesn't fire and `.slot-claim` is left behind. Run `mise run clean-agent-builds` to reap stale claims (it removes `.slot-claim` from any slot whose `lsof +D` shows no open file descriptors, so it's safe to run while other agents are working).
+**CI path.** CI uses `.build-ci` when `CI=true` or `GITHUB_ACTIONS=true`; the local slot allocator is bypassed. Other caller-provided `SWIFT_BUILD_DIR` values are rejected.
 
-**Slot contention shows up as a stalled command, not a failure.** If a `mise run build` or `mise run test:*` invocation produces no output for minutes, suspect a leaked `.slot-claim` rather than a hung compile. The lanes carry their own hang bounds — `SWIFT_TEST_TIMEOUT_SECONDS` defaults to 600 and `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS` to 1200 in [`scripts/run-swift-test-task.sh`](../../scripts/run-swift-test-task.sh), matching CI — so do not impose a shorter shell-tool timeout to "detect" contention; a short bound kills a correct cold compile instead of a wedged one. Reduce a hang bound only to reproduce a wedge deliberately, as in [Testing Architecture — When a run is red](../architecture/testing/testing_architecture.md#when-a-run-is-red).
-
-**Lock recovery:** Do not blanket-kill SwiftPM or `swift-build`; another agent
-may own that process. First run `mise run clean-agent-builds` for leaked
-`.slot-claim` directories. If SwiftPM still reports an active lock, inspect the
-specific owning PID/slot and wait for it or terminate only that confirmed stale
-process.
+**Contention and lock recovery.** If `mise run build` or a `mise run test:*` task waits, read its one-time holder line. The lanes keep their own hang bounds — `SWIFT_TEST_TIMEOUT_SECONDS` defaults to 600 and `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS` to 1200 in [`scripts/run-swift-test-task.sh`](../../scripts/run-swift-test-task.sh), matching CI. Do not impose a shorter timeout to detect contention. Run `mise run clean-agent-builds` to retire confirmed stale claims. Do not blanket-kill SwiftPM or `swift-build`; inspect the specific owner and wait for it or terminate only a confirmed stale process.
 
 ### Peekaboo PID Targeting
 
@@ -194,12 +190,15 @@ the claimed slot, then target Peekaboo by PID. Never target debug builds by
 name. Never `pkill AgentStudio` — it kills the user's running app.
 
 ```bash
-mise run build # claims a slot, prints "[swift-build-slot] using .build-agent-N"
-BUILD_PATH=$(ls -dt .build-agent-*/debug/AgentStudio 2>/dev/null | head -1 | xargs dirname | xargs dirname)
+mise run build # uses build slot .build-agent-1
+BUILD_PATH=.build-agent-1
 "$BUILD_PATH/debug/AgentStudio" &
 PID=$!
 peekaboo see --app "PID:$PID" --json
 ```
+
+Test builds use `.build-agent-2`; for example, `mise run test:swift` acquires
+the `test` slot before its prebuild and holds it through the final test process.
 
 Treat Peekaboo output as visual/render/interaction proof, not a replacement for
 unit, integration, or marker-scoped observability proof.

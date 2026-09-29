@@ -56,6 +56,16 @@ const sceneRootAttributes = { [sceneRootAttribute]: "chapter-many-agents" };
     --scene-sidebar-focus: 1;
   }
 
+  .scene-many-agents .kit-terminal [data-line-kind="shell-prompt"] {
+    font-size: 0.78em;
+  }
+
+  @container recreation-kit (max-width: 600px) {
+    .scene-many-agents .kit-terminal [data-line-kind="shell-prompt"] {
+      font-size: 1em;
+    }
+  }
+
   @container recreation-kit (max-width: 600px) {
     .scene-many-agents .kit-window__body {
       position: relative;

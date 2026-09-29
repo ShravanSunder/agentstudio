@@ -1,0 +1,18 @@
+{
+  "receiver": "01911111-1111-7111-8111-111111111112",
+  "item": {
+    "kind": "worktree",
+    "worktreeId": "01911111-1111-7111-8111-111111111111"
+  },
+  "removedContributions": [
+    {
+      "kind": "agent",
+      "provider": "codex",
+      "sessionRef": "session-1"
+    }
+  ],
+  "removedBy": {
+    "kind": "person"
+  },
+  "generation": 12
+}

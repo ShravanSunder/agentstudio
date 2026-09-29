@@ -132,7 +132,7 @@ calls those same mise tasks; it never recreates a raw `swift test` command.
 | Lane | Task | What it holds |
 | --- | --- | --- |
 | fast | `test:swift:fast` | Everything not claimed by another lane, run concurrently inside one process by Swift Testing itself, then the isolated process-global phases |
-| large | `test:swift:large` | `Script`, `SourceScan`, `Smoke`, `Integration` families and named heavy suites (`large_non_webkit_filter_pattern`), then a serial phase for subprocess workload fixtures, then its own isolated process-global phase |
+| large | `test:swift:large` | Exact suite type paths in `swift_test_suite_lane_inventory` marked `large`: concurrent rows run in the parallel phase, serial rows run in the serial phase, and process-global rows run in isolated processes |
 | WebKit | `test:swift:webkit` | Real WKWebView runtime suites, one filter at a time. A teardown signal crash fails the lane and the receipt names the suite and signal; the runner never retries |
 | width comparison | `test:swift:width-comparison` | One prebuild, then the fast lane at width 3 and with the width unset on that same bundle. Each half prints its own receipt as a `reused` bundle linked to that prebuild's build receipt and keeps every ledger under `tmp/plan-workflows/ci-runs/width-comparison/`. It is an experiment, not a pull-request gate, and it never changes the default width |
 | E2E | `test:swift:e2e` | `E2ESerializedTests`; inside `mise run test` only when `SWIFT_TEST_INCLUDE_E2E=1` |
@@ -176,10 +176,10 @@ These are the permitted forms. Anything not in the left column is a poll.
 | A component or test double knows when something happened | Await its event or completion signal | Polling a counter it keeps |
 | A test double must hold work at one point | A `HeldStep`: await `firstArrival()`, then `release()`, `fail(_:)` or `retire()` | A hand-rolled gate type, a flag read in a loop |
 | A reply must depend on a held dependency's outcome | `proveReplyDependsOnStep` (fail branch and release branch) | "Not replied yet" asserted after a delay |
-| Delivery on a stream or the bus | Subscribe before the stimulus, then await the specific element | Polling subscriber counts or received arrays |
-| Work finishes but announces nothing | Await the owner's quiescence ([Quiescence](#quiescence)) | Yield-and-hope |
-| Something must not happen | Await quiescence, then assert once | "Did not happen in N turns/seconds" |
-| Time is the behavior | Advance a controlled clock | Waiting in real time |
+| Delivery on a stream or the bus | Attach a `FactRecorder` ([Typed facts](#typed-facts)) before the stimulus, then `expectNext` the specific fact in its scope | Polling subscriber counts or received arrays; `firstEvent(where:)` over history |
+| Work finishes but announces nothing | The owner emits a closing fact for the operation; `expectNext` it ([Typed facts](#typed-facts)) | Yield-and-hope; `waitUntilIdle` in a test |
+| Something must not happen | `expectNone` from an opening position marked before the stimulus, until the operation's correlated closing fact | "Did not happen in N turns/seconds"; asserting after idle |
+| Time is the behavior | Advance a controlled clock, then `expectNext` the owner's deadline disposition | Waiting in real time |
 | None of the above fits | The production owner is missing a signal; add it | Any poll |
 
 **No correctness budgets.** A test must not decide pass or fail by an
@@ -244,9 +244,13 @@ asserted outcome must be controllable by the test; injecting one clock and
 leaving a second real one inside the component is a diagnosed failure family, not
 a detail.
 
-**Proving a negative.** To show something does not happen, first await
-quiescence of every component that could cause it, then assert once,
-synchronously. "It did not happen during a budget" is not "it does not happen".
+**Proving a negative.** To show something does not happen, mark an opening
+position before the stimulus and consume, with `expectNone`, every fact in that
+operation's scope up to the operation's correlated closing fact. The closing fact
+is emitted only after every accepted effect of the operation has settled, so the
+claim covers exactly that operation. "It did not happen during a budget" is not
+"it does not happen", and neither is "it did not happen before the owner went
+idle": tests never wait for idle (owner decision 2026-09-28).
 
 **No blocking on the cooperative pool.** Test code, and production code
 reachable from tests, must not block a cooperative-pool thread on process exit,
@@ -261,7 +265,37 @@ which delegates to it. `@concurrent` is not a substitute — it still
 draws from the cooperative pool. The
 `agentstudio_test_blocking_wait_off_cooperative_pool` lint rule enforces this.
 
-## Quiescence
+## Typed facts
+
+Async tests observe typed facts that owners emit at each step, in order, and a
+fact that doesn't arrive is a failure. The contract is the
+[typed-fact test harness specification](../../specs/2026-09-28-typed-fact-test-harness/2026-09-28-typed-fact-test-harness.md).
+In short:
+
+- An owner emits facts from its own `Hashable & Sendable` scope and fact types
+  through an injected synchronous sink, at the transition's serialization point.
+  Internal steps stay owner-local; only real runtime facts go on the `EventBus`.
+- A test creates a `LocalFactSource` (or an `EventBusFactSource`) before the
+  owner, attaches a `FactRecorder` before the stimulus, and consumes facts per
+  scope with `expectNext` and `expectNone`. An unexpected fact, a lost fact, an
+  early end or a close from the wrong operation fails at once.
+- Every operation has a closing fact per terminal disposition (completed,
+  no-op, rejected, superseded, cancelled, shut down). A deadline's disposition
+  closes that evaluation, not the work it admitted.
+- A hung expectation is named in the lane's timeout report, next to unarrived
+  `HeldStep`s.
+- `waitUntilIdle`, `assertEventuallyAsync` and `assertEventuallyMain` are
+  forbidden in tests (`agentstudio_no_forbidden_test_wait`); remaining uses are
+  debt in `Tools/AgentStudioArchitectureLint/forbidden-test-wait-ledger.tsv`,
+  which only goes down.
+
+<a id="quiescence"></a>
+
+## Quiescence (production contracts, not a test wait)
+
+Some production owners expose quiescence for their own shutdown and drain. Tests
+do not await it; they observe the owner's closing facts instead. The rules below
+describe what such a production contract must guarantee.
 
 Awaiting quiescence on a component completes only when every unit of work the
 component accepted before the await began has finished and been handed to the
@@ -282,10 +316,9 @@ next stage, including work buffered for coalescing, debounce, or a later tick.
   component is not quiescent. A standing schedule that will generate work in the
   future (a periodic refresh waiting on its next deadline) is not accepted work
   and does not prevent quiescence.
-- **Clocks.** A test that controls the component's clock advances it and then
-  awaits quiescence. Awaiting quiescence in a test never completes by letting
-  real time pass. A component whose held work is released by a clock therefore
-  makes that clock controllable by the test.
+- **Clocks.** A component whose held work is released by a clock makes that
+  clock controllable by the test; the test advances it and consumes the owner's
+  deadline disposition fact.
 - **Dropped delivery.** Quiescence covers work a component accepted. An envelope
   that a bounded, lossy subscription discarded was never accepted, so quiescence
   says nothing about it. A test whose outcome depends on delivery across such a
@@ -311,12 +344,11 @@ These are production contracts, usable by shutdown, not test-only hooks.
 | [`BridgeProductSchemeSessionRouter.swift:128`](../../../Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeSessionRouter.swift) `waitForStreamClaimDrain()` | Only the metadata-stream claims are gone; deliberately narrower, because a command or content claim can legitimately outlive a stream. Cancellation-safe and lost-wakeup-free |
 | [`RepositoryFactUpdateProgress.swift:69`](../../../Sources/AgentStudio/Core/Models/RepositoryFactUpdateProgress.swift) `settled(_:)` | Every applicable fact source has a terminal result; the progress value moves to `.settled` with no unsettled sources |
 
-### Planned (PR 2)
+### Withdrawn
 
-A composed `QuiescenceAwaiting` protocol and an `awaitQuiescence(of:)` helper
-that joins several owners into one await. **Not built.** Do not write a test
-against it; await the individual seams above, or add the missing signal to the
-production owner.
+The planned composed `QuiescenceAwaiting` protocol and `awaitQuiescence(of:)`
+helper are withdrawn: tests don't wait for idle. A test that needs to know an
+owner finished consumes that owner's closing fact.
 
 ## Harness catalog
 
@@ -328,6 +360,7 @@ target that every test target may depend on:
 | `HeldStep.swift` | One named point where a test double holds the work under test | `firstArrival()` returns what arrived; `cancellationObserved()` for hold-through-cancellation interleavings; no deadlines |
 | `ReplyDependsOnStepProof.swift` | Two fresh scenarios, one failed and one released at the held step | `proveReplyDependsOnStep` rejects a reply that does not depend on the step's outcome |
 | `DedicatedThreadWork.swift` | Nothing; it runs blocking work on a thread of its own | `valueFromDedicatedThread` returns the blocking work's value without parking a cooperative thread |
+| `FactRecording/` (`LocalFactSource`, `FactRecorder`, `FactVocabulary`) | An owner's typed fact stream, attached before the stimulus | `expectNext` / `expectNone` per scope; loss, end and cancellation fail distinctly; hung expectations named in the lane report |
 
 Everything in [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudioTests/TestSupport), the `AgentStudioTestSupport` target.
 
@@ -335,8 +368,9 @@ Everything in [`Tests/AgentStudioTests/TestSupport/`](../../../Tests/AgentStudio
 | --- | --- | --- |
 | `BlockingWorkOffCooperativePool.swift` | Nothing; it delegates to the harness's `valueFromDedicatedThread` | Lets a test wait on process exit, a semaphore, or a socket read without parking a cooperative thread |
 | `RunToExitProcess.swift` | Nothing; it runs a real subprocess with both streams in files | `runProcessToExit` and `runCommandToExit` suspend until `terminationHandler` reports the exit — no timeout, no parked thread. `RunToExitProcessExecutor` adapts them to `ProcessExecutor` in the AgentStudioTests target |
-| `TestPushClock.swift` | A `Clock` the test advances by hand | Time as subject: advance, then await quiescence. Never real time |
-| `EventBusHarness.swift` | A real `EventBus` with a recording subscriber and an actor-backed buffer | `RecordedEventBuffer` resumes a stored continuation the moment a matching envelope arrives — await the element, not a count |
+| `TestPushClock.swift` | A `Clock` the test advances by hand | Time as subject: advance, then `expectNext` the owner's deadline disposition. Never real time |
+| `EventBusFactSource.swift` | A lossless (critical-unbounded) subscription on a real `EventBus`, awaited before attach returns | Feeds a `FactRecorder`; a drop or truncated replay reports loss |
+| `EventBusHarness.swift` | A real `EventBus` with a recording subscriber and an actor-backed buffer | Legacy: its default subscription is lossy and `firstEvent(where:)` searches history. New tests use `EventBusFactSource` |
 | `RuntimeEnvelopeHarness.swift` | Typed envelope records for system, worktree, and pane scopes | Assert on the exact fact that was posted |
 | `ControllableFSEventStreamClient.swift` | The FSEvents stream client | Tests inject batches explicitly and read registrations, overflow recovery, and activity fences — no OS callback, no waiting for one |
 | `PaneRuntimeProviderStubs.swift` | Git working-tree status providers, pathspec-aware or not | The stub's handler is the completion signal |

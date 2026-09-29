@@ -1,5 +1,6 @@
 import AgentStudioAppIPC
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -40,7 +41,7 @@ struct FakeLayoutPort: AppIPCLayoutPort {
             throw AppIPCLayoutError(reason: .targetNotFound)
         }
         return IPCDrawerAddPaneResult(
-            parentPaneId: paneId, childPaneId: UUID(), correlationId: params.correlationId)
+            parentPaneId: paneId, childPaneId: UUIDv7.generate(), correlationId: params.correlationId)
     }
 
     func toggleDrawer(_ params: IPCDrawerToggleParams) throws -> IPCDrawerToggleResult {

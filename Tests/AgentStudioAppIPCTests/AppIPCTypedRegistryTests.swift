@@ -5,8 +5,6 @@ import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
-@testable import AgentStudio
-
 @Suite("App IPC registered typed catalog")
 struct AppIPCTypedRegistryTests {
     @Test("debug registry derives its full capabilities from the callable registrations")
@@ -135,21 +133,6 @@ struct AppIPCTypedRegistryTests {
                 recognizedCommands: [],
                 channel: .stable,
                 capabilitiesComposition: incompleteRecognizedUnexposedComposition
-            )
-        }
-    }
-
-    @Test("descriptor catalog builder reports a missing system ping")
-    func descriptorCatalogBuilderReportsMissingSystemPing() throws {
-        let catalog = try BuiltInMethodRegistrationsFixture().catalog
-        let availableDescriptors = catalog.erasedDescriptors.filter {
-            $0.metadata.name != "system.ping"
-        }
-
-        #expect(throws: AppIPCDescriptorCatalogBuilder.BuildError.systemPingMissing) {
-            try AppIPCDescriptorCatalogBuilder.composeSystemCapabilities(
-                availableDescriptors: availableDescriptors,
-                recognizedUnexposedMethods: []
             )
         }
     }

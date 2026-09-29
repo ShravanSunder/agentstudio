@@ -41,8 +41,11 @@ describe("marketing copy", () => {
 
   it("closes with the approved native macOS positioning", () => {
     expect(marketingCopy.finalCallToAction).toEqual({
-      description: "A native macOS IDE for parallel agents and all your work.",
-      traits: "Native macOS. Repo-aware. Terminal-first.",
+      starOnGitHub: "Star on GitHub",
+      starShort: "Star",
+      copyInstall: "Copy install",
+      copyShort: "Copy",
+      copiedInstall: "Copied ✓",
       technologyCredit: "👻 Built on Ghostty. ",
       creatorPrefix: "🛠️ Made by ",
       creatorName: "Shravan Sunder",

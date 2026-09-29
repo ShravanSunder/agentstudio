@@ -184,7 +184,6 @@ struct PaneActivityStatusAtomTests {
         currentDate = Date(timeIntervalSince1970: 1010)
         monotonicNow = .seconds(10)
         clock.advance(by: .seconds(10))
-        await Task.yield()
         #expect(atom.status(for: paneId)?.lastOutputLine == "committed")
     }
 

@@ -237,6 +237,7 @@ extension CommandBarDataSource {
             group: group,
             groupPriority: groupPriority,
             keywords: ["directory", "folder", title, directory.path],
+            searchFields: [title],
             action: .quickOpen(.directory(directory)),
             accessibilityHint: "Open terminal in directory"
         )
