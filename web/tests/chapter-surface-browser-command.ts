@@ -118,6 +118,86 @@ export interface SingleStepChapterObservation {
   readonly targetEdge: string | null;
 }
 
+export interface CaptionTextObservation {
+  readonly width: number;
+  readonly captions: readonly {
+    readonly paragraphWidth: number;
+    readonly innerWidth: number;
+    readonly lineCount: number;
+    readonly lastLineWordCount: number;
+    readonly textWrap: string;
+  }[];
+}
+
+export const verifyCaptionTextLayout = defineBrowserCommand(
+  async (
+    { context },
+    pageUrl: string,
+    widths: readonly number[],
+  ): Promise<CaptionTextObservation[]> => {
+    const page = await context.newPage();
+    try {
+      const observations: CaptionTextObservation[] = [];
+      for (const width of widths) {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+        observations.push(
+          await page.evaluate(() => {
+            const captions = [
+              ...document.querySelectorAll<HTMLElement>(
+                "[data-hero-caption], [data-chapter-caption]",
+              ),
+            ];
+            return {
+              width: innerWidth,
+              captions: captions.map((caption) => {
+                const paragraph = [
+                  ...caption.querySelectorAll<HTMLElement>(
+                    ".chapter-caption__copy p, p.chapter-caption__copy",
+                  ),
+                ].find((candidate) => {
+                  const panel = candidate.closest("[data-chapter-step-panel]");
+                  return (
+                    getComputedStyle(candidate).display !== "none" &&
+                    panel?.getAttribute("aria-hidden") !== "true"
+                  );
+                });
+                if (paragraph === undefined) throw new Error("Visible caption paragraph missing");
+                const textNode = paragraph.firstChild;
+                if (textNode === null || textNode.nodeType !== Node.TEXT_NODE)
+                  throw new Error("Caption text node missing");
+                const content = textNode.textContent ?? "";
+                const lineWordCounts = new Map<number, number>();
+                for (const match of content.matchAll(/\S+/gu)) {
+                  const range = document.createRange();
+                  range.setStart(textNode, match.index);
+                  range.setEnd(textNode, match.index + match[0].length);
+                  const top = Math.round(range.getBoundingClientRect().top);
+                  lineWordCounts.set(top, (lineWordCounts.get(top) ?? 0) + 1);
+                }
+                const lastLineWordCount = [...lineWordCounts.values()].at(-1) ?? 0;
+                return {
+                  paragraphWidth: paragraph.getBoundingClientRect().width,
+                  innerWidth:
+                    caption.clientWidth -
+                    parseFloat(getComputedStyle(caption).paddingLeft) -
+                    parseFloat(getComputedStyle(caption).paddingRight),
+                  lineCount: lineWordCounts.size,
+                  lastLineWordCount,
+                  textWrap: getComputedStyle(paragraph).textWrap,
+                };
+              }),
+            };
+          }),
+        );
+      }
+      return observations;
+    } finally {
+      await page.close();
+    }
+  },
+);
+
 export const verifySingleStepChapter = defineBrowserCommand(
   async ({ context }, request: ChapterStepRowRequest): Promise<SingleStepChapterObservation> => {
     const applicationPage = await context.newPage();
@@ -154,7 +234,7 @@ export const verifySingleStepChapter = defineBrowserCommand(
         const captionRect = caption.getBoundingClientRect();
         return {
           pillCount: article.querySelectorAll("[data-chapter-step-list]").length,
-          descriptionCount: caption.querySelectorAll(".chapter-single-description").length,
+          descriptionCount: caption.querySelectorAll("[data-chapter-step-panel]").length,
           titleBottom: titleRect.bottom,
           titleLeft: titleRect.left,
           glassTop: glassRect.top,

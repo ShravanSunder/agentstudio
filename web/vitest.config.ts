@@ -17,6 +17,7 @@ import {
   verifyChapterStepRow,
   verifySingleStepChapter,
   verifyChapterTitleAnchors,
+  verifyCaptionTextLayout,
 } from "./tests/chapter-surface-browser-command.ts";
 import {
   verifyHeroIntroLayout,
@@ -91,6 +92,7 @@ export default defineConfig({
               verifyHeroIntroFinale,
               verifyInstallCommandLayout,
               verifyChapterStepRow,
+              verifyCaptionTextLayout,
               verifySingleStepChapter,
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,
