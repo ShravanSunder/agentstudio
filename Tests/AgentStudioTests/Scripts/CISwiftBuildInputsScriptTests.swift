@@ -9,15 +9,9 @@ struct CISwiftBuildInputsScriptTests {
     func inputVerifierExists() async throws {
         let path = "scripts/ci-swift-build-inputs.sh"
         #expect(FileManager.default.fileExists(atPath: path))
-        let exitCode = try await withoutBlockingCooperativePool {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-n", path]
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        }
-        #expect(exitCode == 0)
+        let result = try await runProcessToExit(
+            executableURL: URL(fileURLWithPath: "/bin/bash"), arguments: ["-n", path])
+        #expect(result.terminationStatus == 0)
     }
 
     @Test("fingerprint compatibility inputs and source manifest are distinct")
@@ -292,21 +286,14 @@ private final class SwiftInputFixture {
                 "CI_SWIFT_PRODUCER_RUN": "10", "CI_SWIFT_PRODUCER_REF": "refs/heads/main",
             ].merging(extra) { _, new in new }
         ) { _, new in new }
-        let (exitCode, outputData) = try await withoutBlockingCooperativePool {
-            let output = Pipe()
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["scripts/ci-swift-build-inputs.sh"] + arguments
-            process.environment = environment
-            process.standardOutput = output
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            return (process.terminationStatus, output.fileHandleForReading.readDataToEndOfFile())
-        }
-        #expect(exitCode == expectedExitCode)
+        let output = try await runProcessToExit(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: ["scripts/ci-swift-build-inputs.sh"] + arguments,
+            environment: environment
+        )
+        #expect(output.terminationStatus == expectedExitCode)
         return try #require(
-            String(bytes: outputData, encoding: .utf8)
+            String(bytes: output.standardOutput, encoding: .utf8)
         )
     }
 

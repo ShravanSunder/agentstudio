@@ -76,14 +76,16 @@ def plan_save(key, run_number, seed_bytes):
 
 
 def prune(disposition, key, run_number):
-    if disposition != "saved":
+    if disposition not in ("saved", "skipped-budget"):
         print("prune-skipped " + disposition)
         return
     key_match = OWNED.fullmatch(key)
     if key_match is None or int(key_match.group(1)) != run_number:
         raise ValueError("prune key is outside the configured namespace or run")
     entries = cache_entries()
-    if not any(entry["key"] == key and entry["ref"] == TRUSTED_PRODUCER_REF for entry in entries):
+    if disposition == "saved" and not any(
+        entry["key"] == key and entry["ref"] == TRUSTED_PRODUCER_REF for entry in entries
+    ):
         raise ValueError("new seed key was not confirmed on trusted ref")
     older = [entry for entry in entries if (number := owned_main(entry)) is not None and number < run_number]
     failed = []
@@ -94,7 +96,8 @@ def prune(disposition, key, run_number):
         except RuntimeError:
             failed.append(entry["key"])
     if failed:
-        print("prune-failed; retained new seed; older entries remain: " + ", ".join(failed), file=sys.stderr)
+        reason = "retained new seed" if disposition == "saved" else "no seed saved after budget skip"
+        print("prune-failed; " + reason + "; older entries remain: " + ", ".join(failed), file=sys.stderr)
         sys.exit(1)
     print("pruned " + str(len(older)))
 

@@ -3,7 +3,7 @@ import Testing
 
 @Suite("CI topology workflow")
 struct CITopologyWorkflowTests {
-    @Test("Swift cache stays PR restore only, main publish only, and prune only for saved seed")
+    @Test("Swift cache stays PR restore only, main publish only, and prunes after save or budget skip")
     func swiftBuildCacheOwnershipAndOrder() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         #expect(!workflow.contains("CI_SWIFT_TRUSTED_PRODUCER_REF"))
@@ -26,6 +26,7 @@ struct CITopologyWorkflowTests {
         #expect(pruneJob.contains("needs: swift-test-suite"))
         #expect(pruneJob.contains("actions: write"))
         #expect(pruneJob.contains("needs.swift-test-suite.outputs.swift_cache_disposition"))
+        #expect(pruneJob.contains("needs.swift-test-suite.outputs.swift_cache_disposition == 'skipped-budget'"))
         #expect(pruneJob.contains("ci-swift-build-cache-publish.sh prune"))
         let inputScript = try String(contentsOfFile: "scripts/ci-swift-build-inputs.sh", encoding: .utf8)
         #expect(inputScript.contains("swift-build-v1-"))

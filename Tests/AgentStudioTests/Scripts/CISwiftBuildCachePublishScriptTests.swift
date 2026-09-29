@@ -7,15 +7,11 @@ import Testing
 struct CISwiftBuildCachePublishScriptTests {
     @Test("publisher has valid shell syntax")
     func publisherSyntax() async throws {
-        let exitCode = try await withoutBlockingCooperativePool {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-n", "scripts/ci-swift-build-cache-publish.sh"]
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        }
-        #expect(exitCode == 0)
+        let result = try await runProcessToExit(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: ["-n", "scripts/ci-swift-build-cache-publish.sh"]
+        )
+        #expect(result.terminationStatus == 0)
     }
 
     @Test("save planning uses numeric run order, pagination, ref, and budget")
@@ -53,7 +49,7 @@ struct CISwiftBuildCachePublishScriptTests {
             fixture.entry(4, older, ref: "refs/pull/2/merge"),
             fixture.entry(5, older, ref: "refs/heads/experiment"),
         ])
-        for disposition in ["skipped-newer", "skipped-budget", "failed"] {
+        for disposition in ["skipped-newer", "failed"] {
             #expect(try await fixture.run("prune", disposition, current, "10").exitCode == 0)
             #expect(try fixture.deletedIDs().isEmpty)
         }
@@ -67,6 +63,53 @@ struct CISwiftBuildCachePublishScriptTests {
         try "2".write(to: fixture.root.appendingPathComponent("fail-delete"), atomically: true, encoding: .utf8)
         #expect(try await fixture.run("prune", "saved", current, "10").exitCode != 0)
         #expect(try fixture.deletedIDs() == ["2"])
+    }
+
+    @Test("budget skip removes only older owned seeds and lets a later run save")
+    func budgetSkipPrunesOlderOwnedSeeds() async throws {
+        let fixture = try CacheApiFixture()
+        defer { fixture.remove() }
+        let current = fixture.key(run: 10)
+        let older = fixture.key(run: 9)
+        let otherFamily = fixture.key(run: 8, family: "b")
+        let newer = fixture.key(run: 11)
+        let otherNamespace = fixture.key(run: 7, namespace: "swift-build-exp-")
+        try fixture.setEntries([
+            fixture.entry(1, older, bytes: 8_499_999_950),
+            fixture.entry(2, otherFamily),
+            fixture.entry(3, newer, ref: "refs/pull/11/merge"),
+            fixture.entry(4, older, ref: "refs/heads/experiment"),
+            fixture.entry(5, otherNamespace),
+        ])
+        #expect(try await fixture.run("plan-save", current, "10", "100").stdout == "skipped-budget\n")
+        try fixture.setEntries([
+            fixture.entry(1, older, bytes: 8_499_999_950),
+            fixture.entry(2, otherFamily),
+            fixture.entry(3, newer, ref: "refs/pull/11/merge"),
+            fixture.entry(4, older, ref: "refs/heads/experiment"),
+            fixture.entry(5, otherNamespace),
+            fixture.entry(6, newer),
+        ])
+        #expect(try await fixture.run("prune", "skipped-budget", current, "10").stdout == "pruned 2\n")
+        #expect(try fixture.deletedIDs() == ["1", "2"])
+
+        try fixture.setEntries([
+            fixture.entry(3, newer, ref: "refs/pull/11/merge"),
+            fixture.entry(4, older, ref: "refs/heads/experiment"),
+            fixture.entry(5, otherNamespace),
+            fixture.entry(6, newer),
+        ])
+        #expect(
+            try await fixture.run("plan-save", fixture.key(run: 12), "12", "100").stdout
+                == "saved \(fixture.key(run: 12))\n")
+
+        try fixture.clearDeletes()
+        try fixture.setEntries([fixture.entry(1, older), fixture.entry(2, otherFamily)])
+        try "1".write(to: fixture.root.appendingPathComponent("fail-delete"), atomically: true, encoding: .utf8)
+        let failedPrune = try await fixture.run("prune", "skipped-budget", current, "10")
+        #expect(failedPrune.exitCode != 0)
+        #expect(failedPrune.stderr.contains("no seed saved after budget skip"))
+        #expect(try fixture.deletedIDs() == ["1", "2"])
     }
 
     @Test("publisher and pruner trust only the configured namespace and producer ref")
@@ -117,6 +160,7 @@ struct CISwiftBuildCachePublishScriptTests {
 
 private struct CacheScriptResult {
     let stdout: String
+    let stderr: String
     let exitCode: Int32
 }
 
@@ -175,23 +219,17 @@ private final class CacheApiFixture {
                 "GITHUB_REPOSITORY": "owner/repo",
             ].merging(extra) { _, new in new }
         ) { _, new in new }
-        let (exitCode, outputData) = try await withoutBlockingCooperativePool {
-            let process = Process()
-            let output = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["scripts/ci-swift-build-cache-publish.sh"] + arguments
-            process.environment = environment
-            process.standardOutput = output
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            return (process.terminationStatus, output.fileHandleForReading.readDataToEndOfFile())
-        }
+        let output = try await runProcessToExit(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: ["scripts/ci-swift-build-cache-publish.sh"] + arguments,
+            environment: environment
+        )
         return CacheScriptResult(
             stdout: try #require(
-                String(bytes: outputData, encoding: .utf8)
+                String(bytes: output.standardOutput, encoding: .utf8)
             ),
-            exitCode: exitCode
+            stderr: try #require(String(bytes: output.standardError, encoding: .utf8)),
+            exitCode: output.terminationStatus
         )
     }
 

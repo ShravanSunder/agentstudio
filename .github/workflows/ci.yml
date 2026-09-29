@@ -712,7 +712,7 @@ jobs:
 
   prune-swift-build-cache:
     name: Prune Swift build cache
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.swift-test-suite.outputs.swift_cache_disposition == 'saved'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.swift-test-suite.outputs.swift_cache_disposition == 'saved' || needs.swift-test-suite.outputs.swift_cache_disposition == 'skipped-budget')
     needs: swift-test-suite
     runs-on: ubuntu-24.04
     permissions:
