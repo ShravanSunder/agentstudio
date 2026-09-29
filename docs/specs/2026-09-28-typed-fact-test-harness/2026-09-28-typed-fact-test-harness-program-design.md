@@ -171,3 +171,19 @@ Controlled interleavings, not repetition. All of these cases must pass:
 - a mixed HeldStep and expectation timeout report produced by the real runner path.
 
 Owner PRs add causal scenarios: hold the effect and observe the earlier step; release or fail it and require the terminal fact and the real state. Three focused runs are supplemental only.
+
+## R1 projector fact vocabulary (owner-approved 2026-09-29)
+
+These are owner-local facts: `GitWorkingDirectoryProjector` gets an injected sink, `nil` in production. There are no new `EventBus` event types; the existing bus facts (`statusOutcome`, `snapshotChanged`, `branchChanged`, `originChanged`, `originUnavailable`) are unchanged. ■ marks the closing fact of each scope.
+
+| Scope | Facts |
+|---|---|
+| `intake(worktree)` | `changesetMerged(batchSeq)` · ■ `changesetAccepted(batchSeq)` or `changesetDropped(stale \| superseded \| equal)` |
+| `refresh(worktree, request n)` | `refreshAdmitted` or `admissionDeferred(capacity \| pacing \| backoff \| visibility)` · `refreshStarted` · ■ `refreshClosed(completed(snapshotChanged, branchChanged) \| equal \| timeout \| unavailable \| capacityExceeded \| superseded \| cancelled \| shutdown)` |
+| `deadline(worktree, kind, generation)`; kind = `automatic \| failure \| capacityFallback \| governorPacing \| visibilityCoalescing \| coalescingWindow` | `deadlineRegistered(kind)` · ■ `deadlineDisposition(admitted \| deferred \| obsolete \| cancelled)` |
+| `capacity(worktree, episode)` | `capacityRetryScheduled` · ■ `capacityRetryClosed(rearmed \| expired \| cancelled)` |
+| `backoff(worktree, episode)` | `backoffOpened(level)` · `backoffAdvanced(level)` · `backoffHalfOpen` · ■ `backoffClosed` |
+| `quarantine(worktree)` | `quarantineOpened` · ■ `quarantineClosed` |
+| `lifetime` | ■ `shutdownCompleted` |
+
+Evidence: 130 projector test waits (41 `waitUntilIdle`, 46 sleep-count waits whose timer kind is ambiguous, 25 whitebox actor-state polls, 13 "temporary proof debt" held-state waits) map onto these closing facts. Emission points are the transitions listed in the R1 inventory (`GitWorkingDirectoryProjector*.swift`).
