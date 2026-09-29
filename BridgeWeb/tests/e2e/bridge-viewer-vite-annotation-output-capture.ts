@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import type { Locator, Page, Response } from 'playwright';
 import { expect } from 'vitest';
@@ -116,25 +116,24 @@ export async function verifyAnnotationOutputCaptures(
 	const exportResponsePromise = waitForOutputCommandResponse(props.page, 'jsonFile');
 	await exportButton.click();
 	const exportResponse = await exportResponsePromise;
-	const exportResponseBody = await exportResponse.text();
-	try {
-		await props.page
-			.getByRole('region', { name: 'Annotations' })
-			.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
-	} catch (error: unknown) {
-		const alerts = await props.page.getByRole('alert').allTextContents();
-		const namesAfter = await outputCaptureNames(outputDirectory, '.json');
-		const createdNames = [...namesAfter].filter((name): boolean => !jsonNamesBefore.has(name));
-		throw new Error(
-			`Export did not dismiss Annotations: status=${exportResponse.status()} body=${exportResponseBody} alerts=${JSON.stringify(alerts)} captures=${JSON.stringify(createdNames)}.`,
-			{ cause: error },
-		);
-	}
+	expect(exportResponse.status()).toBe(200);
 	const jsonPath = await requireNewOutputCapture({
 		extension: '.json',
 		namesBefore: jsonNamesBefore,
 		outputDirectory,
 	});
+	const annotations = props.page.getByRole('region', { name: 'Annotations' });
+	await annotations.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+	await annotations
+		.getByRole('status')
+		.getByText(`Saved to ${basename(jsonPath)}`, { exact: true })
+		.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+	await annotations
+		.getByRole('button', { name: 'Reveal in Finder', exact: true })
+		.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+	await annotations
+		.getByRole('button', { name: 'Change folder…', exact: true })
+		.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
 	const document: unknown = JSON.parse(await readFile(jsonPath, 'utf8'));
 	const pendingOutput = decodeAnnotationOutputDocument(document, props.savedBody);
 	expectOutputEntriesMatchPreview(pendingOutput.entries, exportedPreview);
@@ -144,7 +143,6 @@ export async function verifyAnnotationOutputCaptures(
 		throw new Error('Annotation JSON capture omitted the saved message identity.');
 	}
 
-	await props.page.getByRole('button', { name: 'Annotations', exact: true }).click();
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count === 0);
 	const completedHistory = props.page.getByRole('button', {
 		name: /^History \((?:[2-9]|[1-9][0-9]+)\)$/u,
@@ -211,6 +209,10 @@ export async function verifyAnnotationOutputCaptures(
 	const allOutput = decodeAnnotationOutputDocument(JSON.parse(allJSON), props.savedBody);
 	expectOutputEntriesMatchPreview(allOutput.entries, allExportedPreview);
 	expectMarkdownMatchesOutputEntries(allMarkdown, allOutput.entries, props.worktreeRoot);
+	await props.page.getByRole('button', { name: 'Close Annotations' }).click();
+	await props.page
+		.getByRole('region', { name: 'Annotations' })
+		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds });
 
 	await setThreadResolution({
 		page: props.page,
@@ -253,21 +255,38 @@ async function executeAndReadOutputCapture(props: {
 	await actionButton.click();
 	const response = await responsePromise;
 	const responseBody = await response.text();
-	await props.page
-		.getByRole('region', { name: 'Annotations' })
-		.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds })
-		.catch(async (error: unknown): Promise<never> => {
-			const alerts = await props.page.getByRole('alert').allTextContents();
-			throw new Error(
-				`All ${props.outputKind} did not dismiss Annotations: status=${response.status()} body=${responseBody} alerts=${JSON.stringify(alerts)}.`,
-				{ cause: error },
-			);
-		});
+	if (props.outputKind === 'clipboardMarkdown') {
+		await props.page
+			.getByRole('region', { name: 'Annotations' })
+			.waitFor({ state: 'hidden', timeout: props.timeoutMilliseconds })
+			.catch(async (error: unknown): Promise<never> => {
+				const alerts = await props.page.getByRole('alert').allTextContents();
+				throw new Error(
+					`All ${props.outputKind} did not dismiss Annotations: status=${response.status()} body=${responseBody} alerts=${JSON.stringify(alerts)}.`,
+					{ cause: error },
+				);
+			});
+	}
 	const capturePath = await requireNewOutputCapture({
 		extension: props.extension,
 		namesBefore,
 		outputDirectory: props.outputDirectory,
 	});
+	if (props.outputKind === 'jsonFile') {
+		expect(response.status()).toBe(200);
+		const annotations = props.page.getByRole('region', { name: 'Annotations' });
+		await annotations.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+		await annotations
+			.getByRole('status')
+			.getByText(`Saved to ${basename(capturePath)}`, { exact: true })
+			.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+		await annotations
+			.getByRole('button', { name: 'Reveal in Finder', exact: true })
+			.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+		await annotations
+			.getByRole('button', { name: 'Change folder…', exact: true })
+			.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
+	}
 	return await readFile(capturePath, 'utf8');
 }
 
