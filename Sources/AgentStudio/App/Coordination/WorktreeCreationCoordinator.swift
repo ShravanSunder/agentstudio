@@ -82,7 +82,7 @@ final class WorktreeCreationCoordinator {
         let repository: Repo
         let source: (worktree: Worktree, repository: Repo)?
         switch request.kind {
-        case .fromDefault:
+        case .fromDefault, .fromBranch:
             guard let resolvedRepository = resolveRepository(request.targetId) else {
                 return .failed(.sourceUnavailable)
             }
@@ -116,6 +116,10 @@ final class WorktreeCreationCoordinator {
             case .fromDefault:
                 await createFromDefault(
                     repository: repository, destination: destination.path, branchName: request.branchName)
+            case .fromBranch(let referenceName):
+                await createFromBranch(
+                    repository: repository, destination: destination.path,
+                    branchName: request.branchName, referenceName: referenceName)
             case .fork:
                 if let source {
                     await forkSource(source: source, destination: destination.path, branchName: request.branchName)
@@ -144,6 +148,25 @@ final class WorktreeCreationCoordinator {
             let startPoint = try await defaultStartPointResolver.resolveDefaultStartPoint(
                 repositoryPath: repository.repoPath)
             guard case .resolved(_, let referenceName) = startPoint else { return .noDefaultBranch }
+            _ = try await gitClient.createWorktree(
+                GitCreateWorktreeRequest(
+                    repositoryPath: repository.repoPath,
+                    destinationPath: destination,
+                    mode: .newBranch(name: branchName.rawValue, startPoint: .named(referenceName))
+                ))
+            return nil
+        } catch {
+            return .gitFailure(error)
+        }
+    }
+
+    private func createFromBranch(
+        repository: Repo,
+        destination: URL,
+        branchName: WorktreeBranchName,
+        referenceName: String
+    ) async -> WorktreeCreationFailure? {
+        do throws(GitDataPlaneError) {
             _ = try await gitClient.createWorktree(
                 GitCreateWorktreeRequest(
                     repositoryPath: repository.repoPath,

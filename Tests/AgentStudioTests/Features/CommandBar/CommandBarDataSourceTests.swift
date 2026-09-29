@@ -924,7 +924,7 @@ struct CommandBarDataSourceTests {
             }
             #expect(repositoryID == repo.id)
             let level = CommandBarDataSource.buildRepoLevel(
-                repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+                repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
             let mainItem = level.items.first { $0.id.hasPrefix("repo-wt-") }
             #expect(mainItem?.title == "main")
             #expect(mainItem?.icon == .system(.starFill))
@@ -968,7 +968,7 @@ struct CommandBarDataSourceTests {
         }
         #expect(repositoryID == repo.id)
         let level = CommandBarDataSource.buildRepoLevel(
-            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+            repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         #expect(level.items.filter { $0.id.hasPrefix("repo-wt-") }.count == 2)
     }
 

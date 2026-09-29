@@ -40,21 +40,17 @@ struct CommandBarWorktreeCreationTests {
     @Test("repo submenu shows resolved default ref and no-default disabling")
     func repoMenuDefaultRef() throws {
         let fixture = Self.makeFixture()
-        let pending = CommandBarDataSource.worktreeCreationMenuLevel(repository: fixture.repository)
-        let resolved = CommandBarDataSource.worktreeCreationMenuLevel(
-            repository: fixture.repository,
-            defaultStartPoint: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main")
-        )
-        let absent = CommandBarDataSource.worktreeCreationMenuLevel(
-            repository: fixture.repository,
-            defaultStartPoint: .noDefaultBranch
-        )
-        #expect(pending.items.map(\.title) == ["From Default", "Fork…"])
-        #expect(pending.items[0].isEnabled == false)
-        #expect(resolved.items[0].subtitle == "origin/main")
-        #expect(resolved.items[0].isEnabled)
-        #expect(absent.items[0].subtitle == "no default branch")
-        #expect(!absent.items[0].isEnabled)
+        let pending = Self.menuLevel(fixture: fixture)
+        let resolved = Self.menuLevel(
+            fixture: fixture,
+            defaultStartPoint: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main"))
+        let absent = Self.menuLevel(fixture: fixture, defaultStartPoint: .noDefaultBranch)
+        #expect(pending.items.map(\.group) == ["FORK A WORKTREE", "FROM A BRANCH"])
+        #expect(pending.items.last?.isEnabled == false)
+        #expect(resolved.items.last?.subtitle == "origin/main")
+        #expect(resolved.items.last?.isEnabled == true)
+        #expect(absent.items.last?.subtitle == "no default branch")
+        #expect(absent.items.last?.isEnabled == false)
     }
 
     @Test("repo menu puts New Worktree first in its Worktrees section")
@@ -63,6 +59,7 @@ struct CommandBarWorktreeCreationTests {
         let level = CommandBarDataSource.buildRepoLevel(
             repo: fixture.repository,
             store: fixture.store,
+            repoCache: RepoCacheAtom(),
             dispatcher: FakeAppCommandDispatcher()
         )
         let worktreeRows = level.items.filter { $0.group == "Worktrees" }
@@ -70,17 +67,14 @@ struct CommandBarWorktreeCreationTests {
         #expect(worktreeRows.first?.hasChildren == true)
     }
 
-    @Test("fork picker dims an ineligible worktree and gives its reason")
+    @Test("inline fork rows dim an ineligible worktree and give its reason")
     func forkPickerEligibility() throws {
         let fixture = Self.makeFixture()
-        let unavailable = CommandBarDataSource.worktreeCreationForkPickerLevel(
-            repository: fixture.repository,
-            eligibilityByWorktreeId: [fixture.worktree.id: .unavailable(reason: "the volume cannot clone files")]
-        )
-        let available = CommandBarDataSource.worktreeCreationForkPickerLevel(
-            repository: fixture.repository,
-            eligibilityByWorktreeId: [fixture.worktree.id: .available]
-        )
+        let unavailable = Self.menuLevel(
+            fixture: fixture,
+            eligibilityByWorktreeId: [fixture.worktree.id: .unavailable(reason: "the volume cannot clone files")])
+        let available = Self.menuLevel(
+            fixture: fixture, eligibilityByWorktreeId: [fixture.worktree.id: .available])
         #expect(unavailable.items.first?.subtitle == "the volume cannot clone files")
         #expect(unavailable.items.first?.isEnabled == false)
         #expect(available.items.first?.isEnabled == true)
@@ -207,7 +201,8 @@ struct CommandBarWorktreeCreationTests {
             controller.state.pushLevel(
                 CommandBarDataSource.buildWorktreeCreationRepoLevel(
                     for: AppCommand.newWorktree.definition,
-                    store: fixture.store
+                    store: fixture.store,
+                    repoCache: RepoCacheAtom()
                 ))
             controller.executeItem(try #require(controller.state.currentLevel?.items.first))
         }
@@ -225,7 +220,76 @@ struct CommandBarWorktreeCreationTests {
         #expect(controller.state.defaultStartPointByRepositoryId[fixture.repository.id] == nil)
         await resolver.answer(at: 1, with: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main"))
         await secondTask.value
-        #expect(controller.state.currentLevel?.items.first?.subtitle == "origin/main")
+        #expect(controller.state.currentLevel?.items.last?.subtitle == "origin/main")
+    }
+
+    @Test("a branch listing failure is shown while From Default remains usable")
+    func branchListingFailureKeepsDefault() async throws {
+        let fixture = Self.makeFixture()
+        let listing = StubWorktreeBranchListing(result: .failure(.unavailable))
+        let controller = makeController(store: fixture.store, branchListing: listing)
+        controller.state.show(prefix: ">")
+        controller.state.recordDefaultStartPoint(
+            .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main"),
+            forRepositoryId: fixture.repository.id)
+        controller.state.pushLevel(
+            CommandBarDataSource.worktreeCreationMenuLevel(
+                repository: fixture.repository,
+                store: fixture.store,
+                repoCache: RepoCacheAtom(),
+                defaultStartPoint: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main")))
+
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        let query = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id])
+        await query.task.value
+
+        let items = try #require(controller.state.currentLevel?.items)
+        #expect(items.contains { $0.title == "From Default" && $0.isEnabled })
+        #expect(items.contains { $0.title == "Unable to list branches" && !$0.isEnabled })
+        #expect(await listing.requestedRepositoryIds == [fixture.repository.id])
+    }
+
+    @Test("a branch answer from an older enrichment revision is replaced")
+    func staleBranchListingIsRequeried() async throws {
+        let fixture = Self.makeFixture()
+        let repoCache = RepoCacheAtom()
+        let listing = SequencedBranchListing()
+        let controller = makeController(store: fixture.store, repoCache: repoCache, branchListing: listing)
+        controller.state.show(prefix: ">")
+        controller.state.pushLevel(Self.menuLevel(fixture: fixture))
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        #expect(await listing.awaitQueries(count: 1) == 1)
+        let firstTask = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+
+        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: fixture.repository.id))
+        await listing.answer(at: 0, with: ["old"])
+        await firstTask.value
+        #expect(controller.state.branchNamesByRepositoryId[fixture.repository.id] == nil)
+        #expect(await listing.awaitQueries(count: 2) == 2)
+        let secondTask = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+        await listing.answer(at: 1, with: ["main", "new"])
+        await secondTask.value
+        #expect(controller.state.branchNamesByRepositoryId[fixture.repository.id] == ["main", "new"])
+    }
+
+    @Test("revisiting a branch level reloads after its enrichment revision changes")
+    func branchListingReloadsOnRevisit() async throws {
+        let fixture = Self.makeFixture()
+        let repoCache = RepoCacheAtom()
+        let listing = StubWorktreeBranchListing(result: .success(["main"]))
+        let controller = makeController(store: fixture.store, repoCache: repoCache, branchListing: listing)
+        controller.state.show(prefix: ">")
+        controller.state.pushLevel(Self.menuLevel(fixture: fixture))
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        let first = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+        await first.value
+        #expect(controller.state.branchNamesByRepositoryId[fixture.repository.id] == ["main"])
+
+        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: fixture.repository.id))
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        let reloaded = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+        await reloaded.value
+        #expect(await listing.requestedRepositoryIds == [fixture.repository.id, fixture.repository.id])
     }
 
     @Test("default answer updates its menu beneath the fork picker")
@@ -234,15 +298,15 @@ struct CommandBarWorktreeCreationTests {
         let resolver = SequencedDefaultStartPointResolver()
         let controller = makeController(store: fixture.store, defaultResolver: resolver)
         controller.state.show(prefix: ">")
-        controller.state.pushLevel(CommandBarDataSource.worktreeCreationMenuLevel(repository: fixture.repository))
+        controller.state.pushLevel(Self.menuLevel(fixture: fixture))
         controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
         #expect(await resolver.awaitQueries(count: 1) == 1)
         let task = try #require(controller.defaultStartPointQueriesByRepositoryId[fixture.repository.id]?.task)
-        controller.executeItem(try #require(controller.state.currentLevel?.items.last))
+        controller.state.pushLevel(CommandBarLevel(id: "child", title: "Child", items: []))
         await resolver.answer(at: 0, with: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main"))
         await task.value
         controller.state.popLevel()
-        #expect(controller.state.currentLevel?.items.first?.subtitle == "origin/main")
+        #expect(controller.state.currentLevel?.items.last?.subtitle == "origin/main")
     }
 
     @Test("a pending default answer cannot restore creation rows after the repository becomes unavailable")
@@ -252,7 +316,7 @@ struct CommandBarWorktreeCreationTests {
         let dispatcher = FakeAppCommandDispatcher()
         let controller = makeController(store: fixture.store, dispatcher: dispatcher, defaultResolver: resolver)
         controller.state.show(prefix: ">")
-        controller.state.pushLevel(CommandBarDataSource.worktreeCreationMenuLevel(repository: fixture.repository))
+        controller.state.pushLevel(Self.menuLevel(fixture: fixture))
         controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
         #expect(await resolver.awaitQueries(count: 1) == 1)
         let task = try #require(controller.defaultStartPointQueriesByRepositoryId[fixture.repository.id]?.task)
@@ -268,13 +332,13 @@ struct CommandBarWorktreeCreationTests {
         #expect(dispatcher.worktreeCreationDispatches.isEmpty)
     }
 
-    @Test("fork answer updates its picker beneath a child level")
+    @Test("fork answer updates its inline row beneath a child level")
     func forkAnswerUpdatesCoveredPicker() async throws {
         let fixture = Self.makeFixture()
         let checker = SequencedForkEligibilityChecker()
         let controller = makeController(store: fixture.store, forkChecker: checker)
         controller.state.show(prefix: ">")
-        controller.state.pushLevel(CommandBarDataSource.worktreeCreationForkPickerLevel(repository: fixture.repository))
+        controller.state.pushLevel(Self.menuLevel(fixture: fixture))
         controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
         #expect(await checker.awaitQueries(count: 1) == 1)
         let task = try #require(controller.forkEligibilityQueriesBySourceWorktreeId[fixture.worktree.id]?.task)
@@ -321,17 +385,16 @@ struct CommandBarWorktreeCreationTests {
         let fixture = Self.makeFixture()
         let checker = SequencedForkEligibilityChecker()
         let controller = makeController(store: fixture.store, forkChecker: checker)
-        func openPicker() throws {
+        func openMenu() throws {
             controller.state.show(prefix: ">")
-            controller.state.pushLevel(
-                CommandBarDataSource.worktreeCreationForkPickerLevel(repository: fixture.repository))
+            controller.state.pushLevel(Self.menuLevel(fixture: fixture))
             controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
         }
-        try openPicker()
+        try openMenu()
         #expect(await checker.awaitQueries(count: 1) == 1)
         let firstTask = try #require(controller.forkEligibilityQueriesBySourceWorktreeId[fixture.worktree.id]?.task)
         controller.state.dismiss()
-        try openPicker()
+        try openMenu()
         #expect(await checker.awaitQueries(count: 2) == 2)
         let secondTask = try #require(controller.forkEligibilityQueriesBySourceWorktreeId[fixture.worktree.id]?.task)
         await checker.answer(at: 0, with: .available)
@@ -376,25 +439,22 @@ struct CommandBarWorktreeCreationTests {
         let controller = makeController(store: fixture.store, dispatcher: dispatcher)
         controller.state.show(prefix: ">")
         controller.state.pushLevel(
-            CommandBarDataSource.worktreeCreationMenuLevel(
-                repository: fixture.repository, defaultStartPoint: .noDefaultBranch))
-        let noDefault = try #require(controller.state.currentLevel?.items.first)
+            Self.menuLevel(
+                fixture: fixture,
+                defaultStartPoint: .noDefaultBranch,
+                eligibilityByWorktreeId: [fixture.worktree.id: .unavailable(reason: "unavailable")]))
+        let noDefault = try #require(controller.state.currentLevel?.items.last)
         #expect(
             snapshot(for: controller, store: fixture.store, dispatcher: dispatcher).dimmedItemIds.contains(noDefault.id)
         )
         controller.executeItem(noDefault)
         #expect(controller.state.currentLevel?.id == "level-newWorktree-menu-\(fixture.repository.id.uuidString)")
-        controller.state.pushLevel(
-            CommandBarDataSource.worktreeCreationForkPickerLevel(
-                repository: fixture.repository,
-                eligibilityByWorktreeId: [fixture.worktree.id: .unavailable(reason: "unavailable")]
-            ))
         let ineligible = try #require(controller.state.currentLevel?.items.first)
         #expect(
             snapshot(for: controller, store: fixture.store, dispatcher: dispatcher).dimmedItemIds.contains(
                 ineligible.id))
         controller.executeItem(ineligible)
-        #expect(controller.state.currentLevel?.id == "level-newWorktree-fork-\(fixture.repository.id.uuidString)")
+        #expect(controller.state.currentLevel?.id == "level-newWorktree-menu-\(fixture.repository.id.uuidString)")
         #expect(dispatcher.worktreeCreationDispatches.isEmpty)
     }
 
@@ -426,20 +486,23 @@ struct CommandBarWorktreeCreationTests {
 
     private func makeController(
         store: WorkspaceStore,
+        repoCache: RepoCacheAtom = RepoCacheAtom(),
         dispatcher: FakeAppCommandDispatcher = FakeAppCommandDispatcher(),
         forkChecker: (any WorktreeForkEligibilityChecking)? = nil,
-        defaultResolver: (any WorktreeDefaultStartPointResolving)? = nil
+        defaultResolver: (any WorktreeDefaultStartPointResolving)? = nil,
+        branchListing: (any WorktreeBranchListing)? = nil
     ) -> CommandBarPanelController {
         CommandBarPanelController(
             store: store,
             octiconLoader: makeCommandBarTestOcticonLoader(),
-            repoCache: RepoCacheAtom(),
+            repoCache: repoCache,
             dispatcher: dispatcher,
             quickOpenDirectoryHandler: { _, _ in },
             commandBarSurface: CommandBarSurfaceAtom(),
             recentsDefaults: recentsDefaultsFixture.makeDefaults(),
             worktreeForkEligibility: forkChecker,
-            defaultStartPointResolver: defaultResolver
+            defaultStartPointResolver: defaultResolver,
+            branchListing: branchListing
         )
     }
 
@@ -450,6 +513,19 @@ struct CommandBarWorktreeCreationTests {
     ) -> CommandBarResultSnapshot {
         CommandBarResultSession(store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
             .snapshot(state: controller.state)
+    }
+
+    private static func menuLevel(
+        fixture: (store: WorkspaceStore, repository: Repo, worktree: Worktree),
+        defaultStartPoint: WorktreeDefaultStartPoint? = nil,
+        eligibilityByWorktreeId: [UUID: WorktreeForkEligibility] = [:]
+    ) -> CommandBarLevel {
+        CommandBarDataSource.worktreeCreationMenuLevel(
+            repository: fixture.repository,
+            store: fixture.store,
+            repoCache: RepoCacheAtom(),
+            defaultStartPoint: defaultStartPoint,
+            eligibilityByWorktreeId: eligibilityByWorktreeId)
     }
 
     private static func makeFixture() -> (store: WorkspaceStore, repository: Repo, worktree: Worktree) {

@@ -221,7 +221,7 @@ extension CommandBarDataSource {
         .map(\.self)
     }
 
-    private static func resolvedRecentWorktrees(
+    static func resolvedRecentWorktrees(
         store: WorkspaceStore
     ) -> [(stableKey: String, repository: Repo, worktree: Worktree)] {
         atom(\.applicationEntityRecency).recentEntities.compactMap { recency in
