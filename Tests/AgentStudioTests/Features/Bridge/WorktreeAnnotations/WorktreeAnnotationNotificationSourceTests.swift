@@ -138,7 +138,7 @@ struct WorktreeAnnotationNotificationSourceTests {
     @Test("same-handle Comment demand changes keep catalog membership")
     func sameHandleDemandChangeKeepsCatalogMembership() async throws {
         let harness = try makeNotificationSourceHarness()
-        _ = try await harness.service.createRootDraft(makeCreateRootDraftProps())
+        let draft = try await harness.service.createRootDraft(makeCreateRootDraftProps())
         let handle = "comment-view-changing-subjects"
         try await harness.source.acceptBatchScope(
             handle: handle,
@@ -166,13 +166,24 @@ struct WorktreeAnnotationNotificationSourceTests {
             worktreeID: "worktree-1",
             scopeRevision: 2
         )
-        let replacement = try #require(await iterator.next())
-        #expect(replacement.mode == .snapshot)
-        #expect(replacement.batch.handle == handle)
-        #expect(replacement.batch.scopeRevision == 2)
-        #expect(replacement.batch.baseRevision == 1)
-        #expect(replacement.batch.puts.count == 3)
-        #expect(replacement.batch.deletes.isEmpty)
+        let message = try #require(draft.threads.first?.messages.first)
+        _ = try await harness.service.saveDraft(
+            .init(
+                sessionID: draft.session.id,
+                messageID: message.id,
+                editToken: "editor-1",
+                expectedMessageRevision: message.semanticRevision,
+                expectedDraftRevision: try #require(message.draft?.draftRevision),
+                now: Date(timeIntervalSince1970: 3)
+            )
+        )
+        let committed = try #require(await iterator.next())
+        #expect(committed.mode == .change)
+        #expect(committed.batch.handle == handle)
+        #expect(committed.batch.scopeRevision == 2)
+        #expect(committed.batch.baseRevision == 1)
+        #expect(committed.batch.puts.count == 3)
+        #expect(committed.batch.deletes.isEmpty)
         openTask.cancel()
         _ = try? await openTask.value
         continuation.finish()

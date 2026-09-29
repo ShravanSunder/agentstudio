@@ -310,6 +310,37 @@ struct BridgeProductCommentCatalogPublisherTests {
         #expect(current.puts.first?.revision == 3)
     }
 
+    @Test("a demand change during a held range read retains the catalog and dirty range")
+    func heldReadSurvivesDemandChange() async throws {
+        let sessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
+        let key = WorktreeAnnotationCatalogKey.session(sessionID)
+        let entry = WorktreeAnnotationCatalogEntry.session(
+            try .init(sessionID: sessionID, semanticRevision: 0)
+        )
+        let rows = CommentCurrentRowsGate([key: entry])
+        let publisher = BridgeProductCommentCatalogPublisher(
+            handle: "comment-handle-1",
+            scopeRevision: 1,
+            readCurrent: { range in try await rows.read(range) }
+        )
+        _ = try await publisher.captureSnapshot()
+        let heldRead = HeldStep<[WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]>(
+            "commentDemandChangeCurrentRows"
+        )
+        await rows.holdNextRead(heldRead)
+        await publisher.invalidate(.session(sessionID))
+        let capture = Task { try await publisher.captureDirty() }
+        _ = try await heldRead.firstArrival()
+        #expect(await publisher.acceptScope(revision: 2))
+        heldRead.release()
+
+        let batch = try #require(await capture.value)
+        #expect(batch.scopeRevision == 2)
+        #expect(batch.baseRevision == 1)
+        #expect(batch.puts.first?.entry == entry)
+        #expect(await publisher.pendingDirtyRangeCount() == 0)
+    }
+
     @Test("new handle resets wire revisions and discards prior dirty keys")
     func newHandleResetsWireCursor() async throws {
         let sessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())

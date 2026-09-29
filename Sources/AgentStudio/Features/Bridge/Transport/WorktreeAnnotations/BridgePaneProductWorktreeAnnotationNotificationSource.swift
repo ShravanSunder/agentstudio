@@ -66,10 +66,7 @@ actor BridgePaneAnnotationNotificationSource {
         admittedBatchScopeByHandle[handle] = .init(revision: scopeRevision)
         firstScopeWaiterByHandle[handle]?.yield(())
         if let publisher = batchPublisherByHandle[handle] {
-            guard await publisher.acceptScope(revision: scopeRevision) else {
-                return
-            }
-            requestBatchResnapshot(handle: handle)
+            _ = await publisher.acceptScope(revision: scopeRevision)
         }
     }
 

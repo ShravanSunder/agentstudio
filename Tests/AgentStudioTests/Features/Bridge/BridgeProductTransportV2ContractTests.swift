@@ -340,6 +340,25 @@ struct BridgeProductTransportV2ContractTests {
                 reviewScope, .object(["kind": .string("review"), "interests": .array([])])
             )
         )
+        let commentScope = BridgeProductJSONValue.object([
+            "kind": .string("comment"), "worktreeId": .string("worktree-1"), "sessionIds": .array([]),
+        ])
+        #expect(
+            BridgeProductViewScopeContract.hasSameMembershipFilter(
+                commentScope,
+                .object([
+                    "kind": .string("comment"), "worktreeId": .string("worktree-1"),
+                    "sessionIds": .array([.string("session-1")]),
+                ])
+            ))
+        #expect(
+            !BridgeProductViewScopeContract.hasSameMembershipFilter(
+                commentScope,
+                .object([
+                    "kind": .string("comment"), "worktreeId": .string("worktree-2"),
+                    "sessionIds": .array([]),
+                ])
+            ))
     }
 
     @Test("a deleted File row cannot carry a read descriptor")

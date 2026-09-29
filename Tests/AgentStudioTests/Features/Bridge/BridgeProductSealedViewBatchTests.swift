@@ -298,6 +298,11 @@ struct BridgeProductSealedViewBatchTests {
         open["subscription"] = ["subscriptionKind": "file.annotations"]
         open["subscriptionId"] = "comment-subscription-1"
         try await harness.openSubscription(open)
+        _ = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+            )
+        )
 
         let view = try #require(
             try await harness.session.openNativeCommentView(
@@ -322,11 +327,33 @@ struct BridgeProductSealedViewBatchTests {
         let replacement = try #require(
             try await harness.session.openNativeCommentView(
                 subscriptionId: "comment-subscription-1",
-                worktreeID: "worktree-1",
+                worktreeID: "worktree-2",
                 productAdmission: harness.productAdmission.context
             )
         )
         #expect(replacement.handle != view.handle)
+        #expect(
+            replacement.scope
+                == .object([
+                    "kind": .string("comment"), "sessionIds": .array([]), "worktreeId": .string("worktree-2"),
+                ]))
+        #expect(
+            try await harness.session.sealCommentCatalogBatch(
+                subscriptionId: "comment-subscription-1",
+                catalogBatch: .init(
+                    handle: replacement.handle, scopeRevision: 0, baseRevision: 0,
+                    targetRevision: 1, puts: [], deletes: []
+                ),
+                mode: .snapshot,
+                productAdmission: harness.productAdmission.context
+            ))
+        let replacementBegin = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease, from: harness.session, productAdmission: harness.productAdmission.context
+            ))
+        #expect(
+            try BridgeProductMetadataFrameDecoder().append(replacementBegin.data).first?.kind
+                == "subscription.batchBegin")
         #expect(
             await harness.session.viewScopeByDomain.keys.filter {
                 $0.viewId == "comment-subscription-1"

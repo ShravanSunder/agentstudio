@@ -79,9 +79,8 @@ actor BridgeProductCommentCatalogPublisher {
         guard !isRetired, let captureID = beginCapture() else { return nil }
         defer { endCapture(captureID) }
         let capturedHandle = handle
-        let capturedScopeRevision = scopeRevision
         let rows = try await readCurrent(.worktree)
-        guard !isRetired, handle == capturedHandle, scopeRevision == capturedScopeRevision else {
+        guard !isRetired, handle == capturedHandle else {
             return nil
         }
         return try install(rows, in: .worktree)
@@ -93,7 +92,6 @@ actor BridgeProductCommentCatalogPublisher {
         else { return nil }
         defer { endCapture(captureID) }
         let capturedHandle = handle
-        let capturedScopeRevision = scopeRevision
         dirtyRanges.remove(range)
         let rows: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry]
         do {
@@ -102,7 +100,7 @@ actor BridgeProductCommentCatalogPublisher {
             if handle == capturedHandle { dirtyRanges.insert(range) }
             throw error
         }
-        guard !isRetired, handle == capturedHandle, scopeRevision == capturedScopeRevision else {
+        guard !isRetired, handle == capturedHandle else {
             return nil
         }
         // A second invalidation during the read remains dirty for another

@@ -6,8 +6,13 @@ enum BridgeProductViewScopeContract {
             case .object(let nextMembers) = next,
             previousMembers["kind"] == nextMembers["kind"]
         else { return false }
-        return previousMembers["kind"] != .string("file")
-            || previousMembers["changeFilter"] == nextMembers["changeFilter"]
+        if previousMembers["kind"] == .string("file") {
+            return previousMembers["changeFilter"] == nextMembers["changeFilter"]
+        }
+        if previousMembers["kind"] == .string("comment") {
+            return previousMembers["worktreeId"] == nextMembers["worktreeId"]
+        }
+        return true
     }
 
     static func fileDemand(

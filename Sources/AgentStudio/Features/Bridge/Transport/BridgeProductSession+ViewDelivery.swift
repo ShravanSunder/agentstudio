@@ -154,7 +154,7 @@ extension BridgeProductSession {
             }),
             let current = viewScopeByDomain[viewDomain],
             current.handle == catalogBatch.handle,
-            current.revision == catalogBatch.scopeRevision
+            current.revision >= catalogBatch.scopeRevision
         else { return false }
         let sealedBatch = try BridgeProductCommentViewBatchFactory.seal(
             .init(
@@ -490,6 +490,14 @@ extension BridgeProductSession {
             request.scopeRevision <= current.revision
         {
             return .superseded
+        }
+        if let current = viewScopeByDomain[viewDomain],
+            current.handle == request.handle,
+            !BridgeProductViewScopeContract.hasSameMembershipFilter(current.scope, request.scope),
+            case .object(let members) = current.scope,
+            members["kind"] == .string("comment")
+        {
+            return .invalidRequest
         }
         if let current = viewScopeByDomain[viewDomain],
             current.handle == request.handle,
