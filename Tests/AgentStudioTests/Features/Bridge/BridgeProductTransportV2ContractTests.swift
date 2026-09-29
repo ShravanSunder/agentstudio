@@ -6,6 +6,24 @@ import Testing
 
 @Suite("Bridge product v2 wire contracts")
 struct BridgeProductTransportV2ContractTests {
+    @Test("content acknowledgement carries a cumulative per-read sequence")
+    func contentAcknowledgementCarriesCumulativeSequence() throws {
+        let acknowledgement: [String: Any] = [
+            "contentRequestId": "content-request-1",
+            "kind": "content.acknowledge",
+            "leaseId": "lease-1",
+            "paneSessionId": "pane-session-1",
+            "receivedThroughContentSequence": 3,
+            "wireVersion": 2,
+            "workerInstanceId": "worker-instance-1",
+        ]
+        let decoded = try decodeAndVerifyRoundTrips(
+            BridgeProductContentFrameAcknowledgement.self,
+            from: [acknowledgement]
+        )
+        #expect(decoded.count == 1)
+    }
+
     @Test("shared startup envelope transcript round-trips without running effects")
     func sharedStartupEnvelopeTranscriptRoundTrips() throws {
         let fixture = try fixtureJSONObject(

@@ -6,14 +6,13 @@ import {
 } from './bridge-product-frame-acknowledgement-contracts.js';
 
 describe('Bridge product frame acknowledgement contracts', () => {
-	test('accepts content frame observations and rejects retired metadata frame observations', () => {
+	test('accepts cumulative content credit and rejects retired frame observations', () => {
 		const contentRequest = {
 			contentRequestId: 'content-request-1',
-			contentSequence: 0,
-			kind: 'stream.frameObserved',
+			receivedThroughContentSequence: 0,
+			kind: 'content.acknowledge',
 			leaseId: 'lease-1',
 			paneSessionId: 'pane-session-1',
-			streamKind: 'content',
 			wireVersion: 2,
 			workerInstanceId: 'worker-instance-1',
 		} as const;
@@ -34,14 +33,13 @@ describe('Bridge product frame acknowledgement contracts', () => {
 		).toBe(false);
 	});
 
-	test('rejects cross-wired, unknown, and structurally invalid content observations', () => {
+	test('rejects cross-wired, unknown, and structurally invalid content credits', () => {
 		const contentRequest = {
 			contentRequestId: 'content-request-1',
-			contentSequence: 0,
-			kind: 'stream.frameObserved',
+			receivedThroughContentSequence: 0,
+			kind: 'content.acknowledge',
 			leaseId: 'lease-1',
 			paneSessionId: 'pane-session-1',
-			streamKind: 'content',
 			wireVersion: 2,
 			workerInstanceId: 'worker-instance-1',
 		} as const;
@@ -51,7 +49,7 @@ describe('Bridge product frame acknowledgement contracts', () => {
 			{ ...contentRequest, leaseId: 'lease/invalid' },
 			{ ...contentRequest, paneSessionId: 'pane/invalid' },
 			{ ...contentRequest, workerInstanceId: 'worker/invalid' },
-			{ ...contentRequest, contentSequence: -1 },
+			{ ...contentRequest, receivedThroughContentSequence: -1 },
 			{ ...contentRequest, unknown: true },
 			{
 				...contentRequest,

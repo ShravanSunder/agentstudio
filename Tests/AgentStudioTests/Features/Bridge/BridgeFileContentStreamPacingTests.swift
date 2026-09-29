@@ -7,8 +7,8 @@ import Testing
 
 @Suite("Bridge File content stream pacing")
 struct BridgeFileContentStreamPacingTests {
-    @Test("large File content waits for each exact worker observation")
-    func largeFileContentWaitsForEachExactWorkerObservation() async throws {
+    @Test("large File content keeps several chunks in flight within its credit window")
+    func largeFileContentKeepsSeveralChunksInFlight() async throws {
         // Arrange
         let finalCanary = Data("bridge-file-stream-final-canary".utf8)
         var sourceData = Data(
@@ -32,7 +32,7 @@ struct BridgeFileContentStreamPacingTests {
 
         // Assert
         #expect(evidence.maximumUnobservedFrameCount <= 1)
-        #expect(evidence.maximumReadAheadCount <= 1)
+        #expect(evidence.maximumReadAheadCount > 1)
         #expect(evidence.pullRejection == nil)
         #expect(evidence.resetHeaders.isEmpty)
         #expect(evidence.errorHeaders.isEmpty)
