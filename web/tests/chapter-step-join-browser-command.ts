@@ -67,6 +67,7 @@ export const verifyStepLineJoins = defineBrowserCommand(
                 const passed = line?.querySelector<HTMLElement>(".chapter-step-progress-fill");
                 const title = line?.querySelector<HTMLElement>(".chapter-title");
                 if (
+                  line === null ||
                   path === null ||
                   passed === null ||
                   passed === undefined ||
