@@ -72,6 +72,8 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
         where Fact: Equatable
     package func expectNext(in scope: Scope, where matches: @Sendable (Fact) -> Bool, _ description: String,
                             fileID: String = #fileID, line: Int = #line, function: String = #function) async throws -> Fact
+    package func expectNextOperation(matching scopeMatches: @Sendable (Scope) -> Bool, opening: @Sendable (Fact) -> Bool, _ description: String,
+                                     fileID: String = #fileID, line: Int = #line, function: String = #function) async throws -> Scope  // H12: discovers, never consumes
     package func mark(_ scope: Scope) async -> OpeningPosition<Scope>  // awaits settleEnqueued, then records; bound to recorder + scope
     package func expectNone(of forbidden: @Sendable (Fact) -> Bool, _ description: String,
                             from opening: OpeningPosition<Scope>, closedBy expectedClose: @Sendable (Fact) -> Bool,
@@ -87,6 +89,8 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
 - **Failures** are thrown errors: `UnexpectedFact`, `SourceEnded`, `FactsLost`, `Cancelled`, `ConcurrentExpectation`, `DuplicateClose`, `FactAfterClose`. Each names the expected fact, the actual fact, the scope and the call site.
 - **Cancellation.** The waiter is registered and cancelled under one lock, with exactly-once settlement; it's removed before being resumed.
 - **Sink shape.** The sink is nonisolated, synchronous and nonthrowing. A MainActor owner adapts at its own boundary: it passes values, never isolated state, and never re-enters the owner.
+
+**Discovery (H12), added 2026-09-29 after the R1 review.** The recorder keeps a set of scopes already returned by discovery. `expectNextOperation` looks at each scope's **first** recorded fact, in history order, and takes the earliest scope that satisfies `scopeMatches` and is not yet in that set. If the fact does not satisfy `opening`, it throws `UnexpectedFact`. Otherwise it adds the scope to the set and returns it. Scope cursors are not moved. The wait loop, sticky failures, source terminals and `ExpectationLog` entries are the same as in `expectNext`. The call-site description is logged with the scope `"discover: <description>"`. Why this lives in the harness: the R1 projector (request `n`, deadline generation) needed it first, every owner that mints identities will need it, and building it per owner produced a second continuation registry with no failure path.
 
 ## EventBus adapter (`AgentStudioTestSupport`)
 
