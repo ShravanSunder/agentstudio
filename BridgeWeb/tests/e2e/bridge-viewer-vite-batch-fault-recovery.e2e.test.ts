@@ -2,11 +2,14 @@ import type { Browser, Page, Request } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
+import type { BridgeProductMetadataFrame } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
 import {
 	selectReviewFile,
+	selectRangeForAnnotation,
 	waitForSelectedFileReady,
 	waitForSelectedReviewReady,
 } from './bridge-viewer-vite-annotation-save-journey.ts';
+import { waitForCommittedAnnotationOutcome } from './bridge-viewer-vite-annotation-wire-response-observation.ts';
 import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { observeSelectedFileRetention } from './bridge-viewer-vite-file-retention-probe.ts';
 import {
@@ -15,6 +18,7 @@ import {
 	type BridgeViewerOwnedViteProductServer,
 } from './bridge-viewer-vite-product-fixture.ts';
 import { bridgeViewerViteProductFileUrl } from './bridge-viewer-vite-product-url.ts';
+import type { BridgeSemanticBatchKind } from './bridge-viewer-vite-semantic-batch-fault.ts';
 import {
 	startBridgeStreamFaultProxy,
 	type BridgeStreamFaultProxy,
@@ -25,6 +29,17 @@ interface ReviewContentRequestObservation {
 	readonly responseStatus: number | null;
 }
 
+type BatchBegin = Extract<BridgeProductMetadataFrame, { readonly kind: 'subscription.batchBegin' }>;
+
+interface MetadataFrameObservation {
+	readonly frames: readonly BridgeProductMetadataFrame[];
+	readonly record: (frame: BridgeProductMetadataFrame) => void;
+	readonly waitFor: (
+		predicate: (frame: BridgeProductMetadataFrame) => boolean,
+		startingAt: number,
+	) => Promise<BridgeProductMetadataFrame>;
+}
+
 test('File and Review semantic part faults recover on the live Vite and Swift stream', async () => {
 	const fixture = await createBridgeViewerViteProductFixture();
 	let server: BridgeViewerOwnedViteProductServer | null = null;
@@ -33,11 +48,16 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 	let page: Page | null = null;
 	let retention: Awaited<ReturnType<typeof observeSelectedFileRetention>> | null = null;
 	let primaryError: unknown;
+	const metadataFrames = observeMetadataFrames();
 	try {
 		server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
-		proxy = await startBridgeStreamFaultProxy(server.origin, { semanticBatchFaults: true });
+		proxy = await startBridgeStreamFaultProxy(server.origin, {
+			onMetadataFrame: metadataFrames.record,
+			semanticBatchFaults: true,
+		});
 		browser = await launchBridgeViewerE2EChromium();
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		const activePage = page;
 		const reviewContentRequests = observeReviewContentRequests(page);
 		page.setDefaultTimeout(0);
 		page.setDefaultNavigationTimeout(0);
@@ -74,7 +94,23 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 		expect(proxy.snapshot().metadataRequestCount).toBe(establishedStreamCount);
 		expect(await retention.stop()).toBeNull();
 		retention = null;
-
+		await proveAnnotationBatchRecovery({
+			kind: 'file.annotations',
+			metadataFrames,
+			page,
+			proxy,
+			selectedContentReady: async (): Promise<void> =>
+				await waitForSelectedFileReady({
+					expected: {
+						lineCount: updatedContent.lineCount,
+						path: fixture.oracle.largeFilePath,
+						sha256: updatedContent.sha256,
+					},
+					oracle: fixture.oracle,
+					page: activePage,
+				}),
+			surface: 'file',
+		});
 		await page
 			.getByTestId('bridge-viewer-mode-host-file')
 			.getByRole('button', { name: 'Review', exact: true })
@@ -135,6 +171,30 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 		expect(Number.isSafeInteger(recoveredReviewRevision)).toBe(true);
 		expect(recoveredReviewRevision).toBeGreaterThan(priorReviewRevision);
 		expect(proxy.snapshot().metadataRequestCount).toBe(establishedStreamCount);
+		await proveAnnotationBatchRecovery({
+			kind: 'review.annotations',
+			metadataFrames,
+			page,
+			proxy,
+			selectedContentReady: async (): Promise<void> =>
+				await waitForSelectedReviewReady({ itemId: recoveredItemId, page: activePage }),
+			surface: 'review',
+		});
+		const siblingReviewRevision = Number(
+			await reviewShell.getAttribute('data-review-metadata-revision'),
+		);
+		const siblingReviewMutation = await fixture.mutateReviewFile();
+		await waitForReviewRevisionAfter(page, siblingReviewRevision);
+		const siblingReviewItemId = await waitForSelectedReviewItemAfterMutation({
+			expectedPath: siblingReviewMutation.path,
+			page,
+			previousItemId: recoveredItemId,
+		});
+		expect(siblingReviewItemId).not.toBe(recoveredItemId);
+		expect(proxy.snapshot().metadataRequestCount).toBe(establishedStreamCount);
+		expect(proxy.snapshot().activeMetadataResponses).toBe(1);
+		expect(proxy.snapshot().lostViewAcknowledgements).toEqual([]);
+		expect(proxy.snapshot().semanticMetadataClosures).toEqual([]);
 	} catch (error: unknown) {
 		const snapshot = proxy?.snapshot();
 		primaryError = new Error(
@@ -177,6 +237,174 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 		});
 	}
 });
+
+function observeMetadataFrames(): MetadataFrameObservation {
+	const frames: BridgeProductMetadataFrame[] = [];
+	const waiters: {
+		readonly predicate: (frame: BridgeProductMetadataFrame) => boolean;
+		readonly resolve: (frame: BridgeProductMetadataFrame) => void;
+		readonly startingAt: number;
+	}[] = [];
+	return {
+		frames,
+		record: (frame): void => {
+			frames.push(frame);
+			const frameIndex = frames.length - 1;
+			for (let waiterIndex = waiters.length - 1; waiterIndex >= 0; waiterIndex -= 1) {
+				const waiter = waiters[waiterIndex];
+				if (waiter === undefined) continue;
+				if (frameIndex < waiter.startingAt || !waiter.predicate(frame)) continue;
+				waiters.splice(waiterIndex, 1);
+				waiter.resolve(frame);
+			}
+		},
+		waitFor: (predicate, startingAt): Promise<BridgeProductMetadataFrame> => {
+			const observed = frames.slice(startingAt).find(predicate);
+			if (observed !== undefined) return Promise.resolve(observed);
+			return new Promise((resolve): void => {
+				waiters.push({ predicate, resolve, startingAt });
+			});
+		},
+	};
+}
+
+async function proveAnnotationBatchRecovery(props: {
+	readonly kind: Extract<BridgeSemanticBatchKind, 'file.annotations' | 'review.annotations'>;
+	readonly metadataFrames: MetadataFrameObservation;
+	readonly page: Page;
+	readonly proxy: BridgeStreamFaultProxy;
+	readonly selectedContentReady: () => Promise<void>;
+	readonly surface: 'file' | 'review';
+}): Promise<void> {
+	const oldBody = `${props.surface} annotation retained through a semantic batch fault`;
+	const oldMessage = await createSavedAnnotation(props.page, props.surface, oldBody);
+	const retained = props.page.locator(
+		`[data-annotation-message-id="${oldMessage.messageId}"][data-annotation-draft="absent"]`,
+	);
+	await retained.getByText(oldBody, { exact: true }).waitFor({ state: 'visible' });
+	const priorBatch = props.metadataFrames.frames.findLast(
+		(frame): frame is BatchBegin =>
+			frame.kind === 'subscription.batchBegin' && frame.subscriptionKind === props.kind,
+	);
+	if (priorBatch === undefined)
+		throw new Error(`${props.kind} never installed its initial catalog.`);
+	const faultStartIndex = props.metadataFrames.frames.length;
+	const streamCount = props.proxy.snapshot().metadataRequestCount;
+	const faultApplied = props.proxy.armSemanticBatchFault({
+		mode: 'drop',
+		subscriptionKind: props.kind,
+	});
+	const retainedAtFault = faultApplied.then(async (fault): Promise<typeof fault> => {
+		await retained.getByText(oldBody, { exact: true }).waitFor({ state: 'visible' });
+		expect(props.proxy.snapshot().metadataRequestCount).toBe(streamCount);
+		return fault;
+	});
+	void retainedAtFault.catch((): void => {});
+	const newBody = `${props.surface} annotation catalog converged after a dropped batch part`;
+	const newMessage = await createSavedReply(
+		props.page,
+		props.surface,
+		oldMessage.threadId,
+		newBody,
+	);
+	const fault = await retainedAtFault;
+	const replacement = await props.metadataFrames.waitFor(
+		(frame): boolean =>
+			frame.kind === 'subscription.batchBegin' &&
+			frame.subscriptionKind === props.kind &&
+			frame.subscriptionId === fault.subscriptionId &&
+			frame.batchId !== fault.batchId,
+		faultStartIndex,
+	);
+	if (replacement.kind !== 'subscription.batchBegin') {
+		throw new Error(`${props.kind} replacement did not begin.`);
+	}
+	await props.proxy.waitForBatchComplete(replacement.batchId);
+	await props.page
+		.locator(
+			`[data-annotation-message-id="${newMessage.messageId}"][data-annotation-draft="absent"]`,
+		)
+		.getByText(newBody, { exact: true })
+		.waitFor({ state: 'visible' });
+	await retained.getByText(oldBody, { exact: true }).waitFor({ state: 'visible' });
+	await props.selectedContentReady();
+	const framesSinceFault = props.metadataFrames.frames.slice(faultStartIndex);
+	const annotationBegins = framesSinceFault.filter(
+		(frame): frame is BatchBegin =>
+			frame.kind === 'subscription.batchBegin' && frame.subscriptionKind === props.kind,
+	);
+	const oldSubscriptionFrames = framesSinceFault.filter(
+		(frame): boolean =>
+			'subscriptionId' in frame && frame.subscriptionId === priorBatch.subscriptionId,
+	);
+	expect(fault.subscriptionId).toBe(priorBatch.subscriptionId);
+	expect(annotationBegins.length).toBeGreaterThanOrEqual(2);
+	expect(
+		annotationBegins.every((begin): boolean => begin.subscriptionId === priorBatch.subscriptionId),
+	).toBe(true);
+	expect(
+		oldSubscriptionFrames.filter(
+			(frame): boolean =>
+				frame.kind === 'subscription.reset' ||
+				frame.kind === 'subscription.end' ||
+				frame.kind === 'subscription.cancelled',
+		),
+	).toEqual([]);
+	expect(props.proxy.snapshot().metadataRequestCount).toBe(streamCount);
+}
+
+async function createSavedAnnotation(
+	page: Page,
+	surface: 'file' | 'review',
+	body: string,
+): Promise<{ readonly messageId: string; readonly threadId: string }> {
+	const created = waitForCommittedAnnotationOutcome(page, 'root.create', surface);
+	await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface });
+	const composer = page.getByRole('textbox', { name: 'Write an annotation in Markdown' });
+	await composer.fill(`${body} Initial`);
+	const creation = await created;
+	const flushed = waitForCommittedAnnotationOutcome(page, 'draft.flush', surface);
+	await composer.fill(body);
+	const flush = await flushed;
+	expect(flush.messageId).toBe(creation.messageId);
+	const saved = waitForCommittedAnnotationOutcome(page, 'draft.save', surface);
+	await page.getByRole('button', { name: 'Save annotation', exact: true }).last().click();
+	const save = await saved;
+	expect(save.messageId).toBe(creation.messageId);
+	await page
+		.locator(`[data-annotation-message-id="${save.messageId}"][data-annotation-draft="absent"]`)
+		.getByText(body, { exact: true })
+		.waitFor({ state: 'visible' });
+	return { messageId: save.messageId, threadId: save.context.threadId };
+}
+
+async function createSavedReply(
+	page: Page,
+	surface: 'file' | 'review',
+	threadId: string,
+	body: string,
+): Promise<{ readonly messageId: string }> {
+	const thread = page.locator(`[data-annotation-thread-id="${threadId}"]`);
+	await thread.getByRole('button', { name: 'Reply to annotation thread', exact: true }).click();
+	const composer = page.getByRole('textbox', { name: 'Reply with Markdown', exact: true });
+	await composer.waitFor({ state: 'visible' });
+	const created = waitForCommittedAnnotationOutcome(page, 'reply.create', surface);
+	await composer.fill(`${body} Initial`);
+	const creation = await created;
+	const flushed = waitForCommittedAnnotationOutcome(page, 'draft.flush', surface);
+	await composer.fill(body);
+	const flush = await flushed;
+	expect(flush.messageId).toBe(creation.messageId);
+	const saved = waitForCommittedAnnotationOutcome(page, 'draft.save', surface);
+	await thread.getByRole('button', { name: 'Save annotation', exact: true }).last().click();
+	const save = await saved;
+	expect(save.messageId).toBe(creation.messageId);
+	await page
+		.locator(`[data-annotation-message-id="${save.messageId}"][data-annotation-draft="absent"]`)
+		.getByText(body, { exact: true })
+		.waitFor({ state: 'visible' });
+	return { messageId: save.messageId };
+}
 
 function observeReviewContentRequests(page: Page): ReviewContentRequestObservation[] {
 	const observations: ReviewContentRequestObservation[] = [];
