@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest';
 
 import fileCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-file-batch-row-corpus.json' with { type: 'json' };
 import sessionCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
-import { BridgeCommWorkerFileMetadataProjection } from './bridge-comm-worker-file-metadata-projection.js';
 import { BridgeCommWorkerFileQueryProjection } from './bridge-comm-worker-file-query-projection.js';
 import {
 	applyFileViewRuntimeMutationToSource,
@@ -138,77 +137,60 @@ describe('Bridge product File batch installer', () => {
 		expect(secondSource.contentItems.map((item) => item.itemId)).not.toContain(file.fileId);
 	});
 
+	test('a complete replacement repairs child parent identity when its directory changes', () => {
+		const installation = fixtureInstallation();
+		const first = installBridgeProductFileBatch(installation);
+		const directoryRecord = installation.records.find(
+			(record) => record.key === fileCorpus.rows[1]?.recordKey,
+		);
+		if (directoryRecord === undefined) throw new Error('Directory fixture missing.');
+		const directory = bridgeProductFileBatchRowSchema.parse(directoryRecord.value);
+		const second = installBridgeProductFileBatch(
+			{
+				...installation,
+				records: installation.records.map((record) =>
+					record.key === directoryRecord.key
+						? { ...record, revision: 2, value: { ...directory, rowId: 'replacement-directory' } }
+						: record,
+				),
+			},
+			first,
+		);
+		expect(second.runtimeRows).toContainEqual({
+			id: 'file-1',
+			index: 1,
+			parentId: 'replacement-directory',
+		});
+		expect(second.runtimeMutation).toMatchObject({
+			kind: 'delta',
+			rowRemovals: [directory.rowId],
+			rowUpserts: expect.arrayContaining([
+				{ id: 'replacement-directory', index: 0, parentId: null },
+				{ id: 'file-1', index: 1, parentId: 'replacement-directory' },
+			]),
+		});
+	});
+
 	test('preserves current File tree facts and derives the same row and runtime identities', () => {
 		const installation = fixtureInstallation();
 		const installed = installBridgeProductFileBatch(installation);
 		const file = bridgeProductFileBatchRowSchema.parse(fileCorpus.rows[0]?.row);
 		const directory = bridgeProductFileBatchRowSchema.parse(fileCorpus.rows[1]?.row);
 		if (directory.fileClass !== null) throw new Error('Directory fixture carries a file class.');
-		const legacyFileClass = file.fileClass;
-		if (legacyFileClass === 'binary')
-			throw new Error('Parity fixture requires the current source row class.');
-		const source = file.descriptorOutcome?.source;
-		if (source === undefined) throw new Error('File outcome fixture missing.');
-
-		const previousProjection = new BridgeCommWorkerFileMetadataProjection();
-		previousProjection.apply({ eventKind: 'file.sourceAccepted', source });
-		previousProjection.apply({
-			eventKind: 'file.treeWindow',
-			finalWindow: true,
-			lineage: { lane: 'visible', loadedBy: 'startup_window' },
-			pathScope: [],
-			rows: [
-				{
-					changeStatus: directory.changeStatus,
-					depth: directory.depth,
-					fileClass: directory.fileClass,
-					fileId: directory.fileId,
-					isDirectory: true,
-					lineCount: directory.lineCount,
-					name: directory.name,
-					parentPath: directory.parentDisplayKey,
-					path: directory.displayKey,
-					rowId: directory.rowId,
-					sizeBytes: directory.sizeBytes,
-				},
-				{
-					changeStatus: file.changeStatus,
-					depth: file.depth,
-					fileClass: legacyFileClass,
-					fileId: file.fileId,
-					isDirectory: false,
-					lineCount: file.lineCount,
-					name: file.name,
-					parentPath: file.parentDisplayKey,
-					path: file.displayKey,
-					rowId: file.rowId,
-					sizeBytes: file.sizeBytes,
-				},
-			],
-			source,
-			startIndex: 0,
-			totalRowCount: 2,
-		});
-		if (file.descriptorOutcome === null) throw new Error('File outcome fixture missing.');
-		const legacyDescriptorPatches = previousProjection.apply({
-			...file.descriptorOutcome,
-			eventKind: 'file.descriptorReady',
-		}).patches;
-
-		const oldRows = previousProjection.snapshot();
-		expect(
-			installed.displayTreeRows.map(({ projectionIndex: _projectionIndex, ...row }) => row),
-		).toEqual(oldRows.treeRows);
-		expect(installed.runtimeRows).toEqual(oldRows.rows);
-		expect(installed.contentItems).toEqual(oldRows.contentItems);
-		expect(installed.contentRequests).toEqual(oldRows.contentRequests);
+		expect(installed.displayTreeRows.map((row) => row.path)).toEqual(['src', 'src/a.ts']);
+		expect(installed.runtimeRows).toEqual([
+			{ id: directory.rowId, index: 0, parentId: null },
+			{ id: file.fileId, index: 1, parentId: directory.rowId },
+		]);
+		expect(installed.contentItems.map((item) => item.itemId)).toEqual([file.fileId]);
+		expect(installed.contentRequests.map((item) => item.itemId)).toEqual([file.fileId]);
 		expect(installed.filePathUpserts).toEqual([{ itemId: file.fileId, path: file.displayKey }]);
 		expect(installed.runtimeMutation).toEqual({
 			kind: 'reset',
-			contentRequestUpserts: oldRows.contentRequests,
-			contentUpserts: oldRows.contentItems,
+			contentRequestUpserts: installed.contentRequests,
+			contentUpserts: installed.contentItems,
 			filePathUpserts: installed.filePathUpserts,
-			rowUpserts: oldRows.rows,
+			rowUpserts: installed.runtimeRows,
 		});
 		expect(installed.displayPatches).toContainEqual({
 			operation: 'batch',
@@ -230,7 +212,13 @@ describe('Bridge product File batch installer', () => {
 			},
 			slice: 'fileStatus',
 		});
-		expect(installed.displayPatches).toContainEqual(legacyDescriptorPatches[0]);
+		expect(installed.displayPatches).toContainEqual(
+			expect.objectContaining({
+				itemId: file.fileId,
+				operation: 'upsert',
+				slice: 'fileItem',
+			}),
+		);
 		for (const patch of installed.displayPatches) {
 			expect(bridgeWorkerFileDisplayPatchSchema.safeParse(patch).success).toBe(true);
 		}

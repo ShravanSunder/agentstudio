@@ -16,10 +16,6 @@ import {
 	bridgeProductFileSourceIdentitySchema,
 	type BridgeProductFileSourceIdentity,
 } from './bridge-product-file-contracts.js';
-import {
-	bridgeProductFileChangeStatusSchema,
-	bridgeProductFileTreeRowSchema,
-} from './bridge-product-file-tree-contracts.js';
 import type { BridgeProductMetadataApplicationOptions } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductRegisteredMetadataApplicationProtocol } from './bridge-product-metadata-application-registry.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
@@ -40,10 +36,6 @@ export type BridgeProductDemandLaneParity = BridgeProductAssert<
 	BridgeProductTypeSetsEqual<z.infer<typeof bridgeProductDemandLaneSchema>, BridgeDemandLane>
 >;
 
-export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT = 256;
-export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_OPERATION_COUNT = 256;
-export const BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT = 256;
-
 export const bridgeProductFileSourceConfigurationSchema = z
 	.object({
 		cwdScope: bridgeProductDisplayPathSchema.nullable(),
@@ -54,85 +46,6 @@ export const bridgeProductFileSourceConfigurationSchema = z
 		worktreeId: z.uuid(),
 	})
 	.strict();
-
-export const bridgeProductFileMetadataLoadedBySchema = z.enum([
-	'startup_window',
-	'foreground',
-	'visible',
-	'nearby',
-	'speculative',
-	'idle',
-	'delta',
-	'reset',
-	'replacement',
-]);
-
-export const bridgeProductFileMetadataLineageSchema = z
-	.object({
-		lane: bridgeProductDemandLaneSchema,
-		loadedBy: bridgeProductFileMetadataLoadedBySchema,
-	})
-	.strict();
-
-const bridgeProductFileTreeOperationSchema = z.discriminatedUnion('op', [
-	z
-		.object({
-			op: z.literal('upsertRows'),
-			rows: z
-				.array(bridgeProductFileTreeRowSchema)
-				.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT)
-				.readonly(),
-		})
-		.strict(),
-	z
-		.object({
-			op: z.literal('removeRows'),
-			paths: z
-				.array(bridgeProductDisplayPathSchema)
-				.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT)
-				.readonly(),
-			rowIds: z
-				.array(bridgeProductIdentifierSchema)
-				.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT)
-				.readonly(),
-		})
-		.strict()
-		.superRefine((operation, context): void => {
-			if (operation.rowIds.length === 0 && operation.paths.length === 0) {
-				context.addIssue({
-					code: 'custom',
-					message: 'File metadata row removal requires a row or path identity.',
-				});
-			}
-		}),
-]);
-
-const bridgeProductFileStatusPatchSchema = z.discriminatedUnion('patchKind', [
-	z
-		.object({
-			ahead: bridgeProductNonnegativeSequenceSchema.nullable(),
-			behind: bridgeProductNonnegativeSequenceSchema.nullable(),
-			branchName: bridgeProductSafeMessageSchema.nullable(),
-			patchKind: z.literal('summary'),
-			staged: bridgeProductNonnegativeSequenceSchema.nullable(),
-			unstaged: bridgeProductNonnegativeSequenceSchema.nullable(),
-			untracked: bridgeProductNonnegativeSequenceSchema.nullable(),
-		})
-		.strict(),
-	z
-		.object({
-			patchKind: z.literal('invalidated'),
-			reason: z.literal('git_status_changed'),
-		})
-		.strict(),
-	z
-		.object({
-			patchKind: z.literal('path'),
-			path: bridgeProductDisplayPathSchema,
-			status: bridgeProductFileChangeStatusSchema.nullable(),
-		})
-		.strict(),
-]);
 
 export const bridgeProductFileVirtualizedExtentKindSchema = z.enum([
 	'exactLineCount',
@@ -446,99 +359,6 @@ function addBridgeProductFilePrefixIssue(
 	context.addIssue({ code: 'custom', message, path: [...path] });
 }
 
-const bridgeProductFileSourceAcceptedEventSchema = z
-	.object({
-		eventKind: z.literal('file.sourceAccepted'),
-		source: bridgeProductFileSourceIdentitySchema,
-	})
-	.strict();
-
-const bridgeProductFileTreeWindowEventSchema = z
-	.object({
-		eventKind: z.literal('file.treeWindow'),
-		finalWindow: z.boolean(),
-		lineage: bridgeProductFileMetadataLineageSchema,
-		pathScope: z
-			.array(bridgeProductDisplayPathSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT)
-			.readonly(),
-		rows: z
-			.array(bridgeProductFileTreeRowSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_TREE_WINDOW_ROW_COUNT)
-			.readonly(),
-		source: bridgeProductFileSourceIdentitySchema,
-		startIndex: bridgeProductNonnegativeSequenceSchema,
-		totalRowCount: bridgeProductNonnegativeSequenceSchema.nullable(),
-	})
-	.strict();
-
-const bridgeProductFileTreeDeltaEventSchema = z
-	.object({
-		eventKind: z.literal('file.treeDelta'),
-		operations: z
-			.array(bridgeProductFileTreeOperationSchema)
-			.max(BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_OPERATION_COUNT)
-			.readonly(),
-		source: bridgeProductFileSourceIdentitySchema,
-	})
-	.strict()
-	.superRefine((event, context): void => {
-		const memberCount = event.operations.reduce(
-			(count, operation) =>
-				count +
-				(operation.op === 'upsertRows'
-					? operation.rows.length
-					: Math.max(operation.rowIds.length, operation.paths.length)),
-			0,
-		);
-		if (memberCount > BRIDGE_PRODUCT_MAXIMUM_FILE_METADATA_DELTA_MEMBER_COUNT) {
-			context.addIssue({
-				code: 'custom',
-				message: 'File metadata tree delta exceeds its aggregate member ceiling.',
-				path: ['operations'],
-			});
-		}
-	});
-
-const bridgeProductFileStatusPatchEventSchema = z
-	.object({
-		eventKind: z.literal('file.statusPatch'),
-		patch: bridgeProductFileStatusPatchSchema,
-		source: bridgeProductFileSourceIdentitySchema,
-	})
-	.strict();
-
-const bridgeProductFileDescriptorReadyEventSchema =
-	bridgeProductFileDescriptorReadyPayloadSchema.safeExtend({
-		eventKind: z.literal('file.descriptorReady'),
-	});
-
-const bridgeProductFileInvalidatedEventSchema = z
-	.object({
-		eventKind: z.literal('file.invalidated'),
-		fileId: bridgeProductIdentifierSchema.nullable(),
-		path: bridgeProductDisplayPathSchema,
-		reason: z.enum([
-			'filesystemEvent',
-			'gitStatusChanged',
-			'contentChanged',
-			'sourceReset',
-			'unknown',
-		]),
-		replacementDescriptor: bridgeProductFileDescriptorReadyPayloadSchema.nullable(),
-		source: bridgeProductFileSourceIdentitySchema,
-	})
-	.strict();
-
-export const bridgeProductFileMetadataEventSchema = z.discriminatedUnion('eventKind', [
-	bridgeProductFileSourceAcceptedEventSchema,
-	bridgeProductFileTreeWindowEventSchema,
-	bridgeProductFileTreeDeltaEventSchema,
-	bridgeProductFileStatusPatchEventSchema,
-	bridgeProductFileDescriptorReadyEventSchema,
-	bridgeProductFileInvalidatedEventSchema,
-]);
-
 function bridgeProductFileSourceIdentitiesEqual(
 	left: BridgeProductFileSourceIdentity,
 	right: BridgeProductFileSourceIdentity,
@@ -575,14 +395,12 @@ export type BridgeProductSubscriptionOptions<
 	BridgeProductProtocolForSubscriptionKind<TSubscriptionKind>
 >;
 export type BridgeProductSubscriptionEvent<
-	TSubscriptionKind extends BridgeProductSubscriptionKind,
+	TSubscriptionKind extends Exclude<BridgeProductSubscriptionKind, 'file.metadata'>,
 > = TSubscriptionKind extends 'file.annotations'
 	? z.infer<typeof bridgeProductFileAnnotationSubscriptionDataSchema>['event']
 	: TSubscriptionKind extends 'review.annotations'
 		? z.infer<typeof bridgeProductReviewAnnotationSubscriptionDataSchema>['event']
-		: TSubscriptionKind extends 'file.metadata'
-			? z.infer<typeof bridgeProductFileMetadataSubscriptionDataSchema>['event']
-			: z.infer<typeof bridgeProductReviewMetadataSubscriptionDataSchema>['event'];
+		: z.infer<typeof bridgeProductReviewMetadataSubscriptionDataSchema>['event'];
 export const bridgeProductFileAnnotationSubscriptionDataSchema = z
 	.object({
 		event: bridgeProductWorktreeAnnotationEventSchema,
@@ -594,13 +412,6 @@ export const bridgeProductReviewAnnotationSubscriptionDataSchema = z
 	.object({
 		event: bridgeProductWorktreeAnnotationEventSchema,
 		subscriptionKind: z.literal('review.annotations'),
-	})
-	.strict();
-
-export const bridgeProductFileMetadataSubscriptionDataSchema = z
-	.object({
-		event: bridgeProductFileMetadataEventSchema,
-		subscriptionKind: z.literal('file.metadata'),
 	})
 	.strict();
 
