@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeWorkerReplacementReason } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
+import { encodeBridgeWorkerViewRecoveryRetryCommand } from './bridge-comm-worker-protocol.js';
 import {
 	BridgePaneCommWorkerSession,
 	disposeBridgePaneCommWorkerSession,
@@ -31,6 +32,7 @@ import {
 } from './bridge-worker-contracts.js';
 
 interface ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot {
+	readonly failureReason: 'bootstrapBudgetExhausted' | null;
 	readonly lastReplacementReason: BridgeWorkerReplacementReason | null;
 	readonly latestFileModeDispatchDisposition:
 		| 'dropped_detached'
@@ -55,6 +57,7 @@ interface ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot {
 		| 'bootstrapping'
 		| 'ready'
 		| 'replacement_requested'
+		| 'failed'
 		| 'disposed';
 }
 
@@ -622,14 +625,114 @@ describe('Bridge pane comm worker session', () => {
 			// Assert: three re-requests, then the session stops asking.
 			expect(nativeBootstrapRequests).toHaveLength(4);
 
-			// Act: a later successful bootstrap and a new failure start a fresh budget.
+			// A user Retry admits one fresh replacement with a fresh budget.
+			dispatcher.dispatch(
+				encodeBridgeWorkerViewRecoveryRetryCommand({
+					epoch: 1,
+					requestId: 'retry-after-budget',
+					view: { kind: 'review.metadata', subscriptionId: 'review-subscription' },
+				}),
+			);
 			session.installNativeBootstrap(makeNativeBootstrap('bounded-second-worker'));
 			await flushMicrotasks();
 			secondWorker.dispatchEvent(new Event('error'));
 			session.handleNativeBootstrapFailure();
 
 			// Assert
-			expect(nativeBootstrapRequests).toHaveLength(6);
+			expect(nativeBootstrapRequests).toHaveLength(7);
+		} finally {
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
+	test('exhausted replacement bootstrap failures settle and drain queued work', () => {
+		const snapshots: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
+		const nativeBootstrapRequests: string[] = [];
+		const client = new RecordingPaneCommWorkerClient();
+		const session = new BridgePaneCommWorkerSession({
+			recordDiagnosticSnapshot: (snapshot): void => {
+				snapshots.push(snapshot);
+			},
+			requestNativeBootstrap: (reason): void => {
+				nativeBootstrapRequests.push(reason);
+			},
+			workerFactory: (): Worker => new RecordingPaneCommWorker(),
+		});
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: makeRuntimeBootstrapRequest('exhausted-replacement-bootstrap'),
+			publishWorkerMessages: client.publish,
+		});
+		try {
+			session.requestWorkerReplacement({ kind: 'workerError' });
+			dispatcher.dispatch(makeSelectCommand('queued-before-exhaustion', 1, 'item-1', 'review'));
+			for (let reply = 0; reply < 4; reply += 1) session.handleNativeBootstrapFailure();
+			dispatcher.dispatch(makeSelectCommand('after-exhaustion', 1, 'item-1', 'review'));
+
+			expect(nativeBootstrapRequests).toHaveLength(4);
+			expect(snapshots.at(-1)).toMatchObject({
+				failureReason: 'bootstrapBudgetExhausted',
+				state: 'failed',
+				queuedCommandCount: 0,
+			});
+			expect(client.messages).toEqual([
+				expect.objectContaining({
+					requestId: 'queued-before-exhaustion',
+					errorKind: 'workerUnavailable',
+				}),
+				expect.objectContaining({ requestId: 'after-exhaustion', errorKind: 'workerUnavailable' }),
+			]);
+		} finally {
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
+	test('a user Retry gets one fresh budget and exhaustion returns to failed without a loop', () => {
+		const snapshots: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
+		const nativeBootstrapRequests: string[] = [];
+		const client = new RecordingPaneCommWorkerClient();
+		const session = new BridgePaneCommWorkerSession({
+			recordDiagnosticSnapshot: (snapshot): void => {
+				snapshots.push(snapshot);
+			},
+			requestNativeBootstrap: (reason): void => {
+				nativeBootstrapRequests.push(reason);
+			},
+			workerFactory: (): Worker => new RecordingPaneCommWorker(),
+		});
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: makeRuntimeBootstrapRequest('retry-budget-bootstrap'),
+			publishWorkerMessages: client.publish,
+		});
+		try {
+			session.requestWorkerReplacement({ kind: 'workerError' });
+			for (let reply = 0; reply < 4; reply += 1) session.handleNativeBootstrapFailure();
+			dispatcher.dispatch(
+				encodeBridgeWorkerViewRecoveryRetryCommand({
+					epoch: 1,
+					requestId: 'retry-budget-command',
+					view: { kind: 'file.metadata', subscriptionId: 'file-subscription' },
+				}),
+			);
+			expect(nativeBootstrapRequests).toHaveLength(5);
+			expect(snapshots.at(-1)).toMatchObject({ state: 'replacement_requested' });
+			expect(client.messages).toContainEqual(
+				expect.objectContaining({
+					requestId: 'retry-budget-command',
+					status: 'ready',
+				}),
+			);
+			for (let reply = 0; reply < 4; reply += 1) session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toHaveLength(8);
+			expect(snapshots.at(-1)).toMatchObject({
+				state: 'failed',
+				failureReason: 'bootstrapBudgetExhausted',
+				queuedCommandCount: 0,
+			});
+			session.handleNativeBootstrapFailure();
+			session.requestWorkerReplacement({ kind: 'workerError' });
+			expect(nativeBootstrapRequests).toHaveLength(8);
 		} finally {
 			dispatcher.dispose();
 			session.dispose();

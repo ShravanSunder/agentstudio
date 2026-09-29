@@ -135,6 +135,7 @@ describe('Bridge Review selection diagnostic', () => {
 			snapshots.push(snapshot);
 		});
 		const snapshot = {
+			failureReason: null,
 			latestFileModeDispatchDisposition: 'posted',
 			latestFileSelectDispatchDisposition: 'queued_not_ready',
 			latestReviewSelectDispatchDisposition: null,
@@ -191,6 +192,7 @@ describe('Bridge Review selection diagnostic', () => {
 		ensureTestWindow();
 		const dateNow = vi.spyOn(Date, 'now');
 		const sessionSnapshot = {
+			failureReason: null,
 			latestFileModeDispatchDisposition: null,
 			latestFileSelectDispatchDisposition: null,
 			latestReviewSelectDispatchDisposition: null,

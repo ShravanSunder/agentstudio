@@ -58,6 +58,7 @@ export interface BridgePaneSessionPort {
 	) => void;
 	readonly requestWorkerReplacement?: (reason: BridgeWorkerReplacementReason) => void;
 	readonly setNativeBootstrapRequester?: (requester: (reason: 'workerReplacement') => void) => void;
+	readonly setReplacementBootstrapExhaustionHandler?: (onExhausted: () => void) => void;
 	readonly setWorkerReplacementPreparer?: (prepare: () => void) => void;
 }
 
@@ -126,6 +127,10 @@ export function createBridgePaneRuntime(
 	const renderFulfillmentCoordinators = new Set<BridgeMainRenderFulfillmentCoordinator>();
 	const renderDispositionAdmissions = new Set<BridgeMainRenderDispositionAdmission>();
 	const renderStores = new Set<BridgeMainRenderSnapshotStore>();
+	const workerUnavailableViews = new Map<
+		Extract<BridgeWorkerServerToMainMessage, { kind: 'viewRecoveryStatus' }>['view']['kind'],
+		Extract<BridgeWorkerServerToMainMessage, { kind: 'viewRecoveryStatus' }>['view']
+	>();
 	const workerReplacementListeners = new Set<() => void>();
 	let isDisposed = false;
 	let nativeBootstrapInstalled = false;
@@ -196,6 +201,13 @@ export function createBridgePaneRuntime(
 		}
 	};
 	session.setWorkerReplacementPreparer?.(prepareRuntimeForWorkerReplacement);
+	const publishViewRecoveryStatus = (
+		event: Extract<BridgeWorkerServerToMainMessage, { kind: 'viewRecoveryStatus' }>,
+	): void => {
+		const targetSurface = bridgePaneSurfaceForViewRecoveryStatusKind(event.view.kind);
+		surfaceClients.get(targetSurface)?.renderStore.applyViewRecoveryStatusEvent(event);
+		for (const client of rpcClients.values()) client.receive(event);
+	};
 
 	const publishDiagnosticSnapshot = (): void => {
 		try {
@@ -214,8 +226,8 @@ export function createBridgePaneRuntime(
 		publishWorkerMessages: (messages): void => {
 			for (const message of messages) {
 				if (message.kind === 'viewRecoveryStatus') {
-					const targetSurface = bridgePaneSurfaceForViewRecoveryStatusKind(message.view.kind);
-					surfaceClients.get(targetSurface)?.renderStore.applyViewRecoveryStatusEvent(message);
+					publishViewRecoveryStatus(message);
+					continue;
 				}
 				for (const client of rpcClients.values()) client.receive(message);
 				if (
@@ -223,6 +235,26 @@ export function createBridgePaneRuntime(
 					message.requestId === 'pane-runtime-bootstrap' &&
 					message.status === 'ready'
 				) {
+					for (const view of workerUnavailableViews.values()) {
+						const store = surfaceClients.get(
+							bridgePaneSurfaceForViewRecoveryStatusKind(view.kind),
+						)?.renderStore;
+						const current = store?.getViewRecoveryStatus(view.kind);
+						if (
+							current?.view.subscriptionId === view.subscriptionId &&
+							current.status === 'failedRetryable'
+						) {
+							publishViewRecoveryStatus({
+								direction: 'serverWorkerToMain',
+								kind: 'viewRecoveryStatus',
+								status: 'ready',
+								transferDescriptors: [],
+								view,
+								wireVersion: 1,
+							});
+						}
+					}
+					workerUnavailableViews.clear();
 					replayCurrentIntentAfterReplacement();
 				}
 			}
@@ -312,6 +344,29 @@ export function createBridgePaneRuntime(
 			surface,
 		});
 	}
+	session.setReplacementBootstrapExhaustionHandler?.((): void => {
+		for (const kind of [
+			'file.metadata',
+			'file.annotations',
+			'review.metadata',
+			'review.annotations',
+		] as const) {
+			const store = surfaceClients.get(
+				bridgePaneSurfaceForViewRecoveryStatusKind(kind),
+			)?.renderStore;
+			const current = store?.getViewRecoveryStatus(kind);
+			if (current === null || current === undefined) continue;
+			workerUnavailableViews.set(kind, current.view);
+			publishViewRecoveryStatus({
+				direction: 'serverWorkerToMain',
+				kind: 'viewRecoveryStatus',
+				status: 'failedRetryable',
+				transferDescriptors: [],
+				view: current.view,
+				wireVersion: 1,
+			});
+		}
+	});
 	const paneRpcClient = createBridgeWorkerRpcClient({
 		dispatch: dispatcher.dispatch,
 		lifecycleStore,
@@ -500,6 +555,8 @@ function createDefaultBridgePaneSessionPort(
 		requestWorkerReplacement: (reason): void => session.requestWorkerReplacement(reason),
 		setNativeBootstrapRequester: (requester): void =>
 			session.setNativeBootstrapRequester(requester),
+		setReplacementBootstrapExhaustionHandler: (onExhausted): void =>
+			session.setReplacementBootstrapExhaustionHandler(onExhausted),
 		setWorkerReplacementPreparer: (prepare): void => session.setWorkerReplacementPreparer(prepare),
 	};
 }

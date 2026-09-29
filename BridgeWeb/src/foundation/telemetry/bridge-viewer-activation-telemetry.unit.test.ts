@@ -106,6 +106,7 @@ describe('Bridge viewer activation telemetry', () => {
 
 		recordBridgeCommWorkerSessionTelemetrySample({
 			snapshot: {
+				failureReason: null,
 				latestFileModeDispatchDisposition: 'posted',
 				latestFileSelectDispatchDisposition: 'queued_not_ready',
 				latestReviewSelectDispatchDisposition: null,

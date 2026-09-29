@@ -76,6 +76,71 @@ describe('Bridge pane runtime view recovery', () => {
 			runtime.dispose();
 		}
 	});
+
+	test('worker bootstrap exhaustion fails every recorded view until a successor is ready', async () => {
+		const { createBridgePaneRuntime } = await loadBridgePaneRuntimeModule();
+		let publishWorkerMessages:
+			| ((messages: readonly BridgeWorkerServerToMainMessage[]) => void)
+			| undefined;
+		let reportExhaustion: (() => void) | undefined;
+		const session: BridgePaneSessionPort = {
+			createDispatcher: (dispatcherProps): BridgePaneCommWorkerDispatcher => {
+				publishWorkerMessages = dispatcherProps.publishWorkerMessages;
+				return { dispatch: (): void => {}, dispose: (): void => {} };
+			},
+			dispose: (): void => {},
+			installNativeBootstrap: (): void => {},
+			setReplacementBootstrapExhaustionHandler: (callback): void => {
+				reportExhaustion = callback;
+			},
+		};
+		const runtime = createBridgePaneRuntime({
+			sessionFactory: (): BridgePaneSessionPort => session,
+		});
+		try {
+			const fileStore = runtime.surfaceClient('fileView').renderStore;
+			const reviewStore = runtime.surfaceClient('review').renderStore;
+			const views = [
+				{ kind: 'file.metadata', subscriptionId: 'file-metadata-1' },
+				{ kind: 'file.annotations', subscriptionId: 'file-comments-1' },
+				{ kind: 'review.metadata', subscriptionId: 'review-metadata-1' },
+				{ kind: 'review.annotations', subscriptionId: 'review-comments-1' },
+			] as const;
+			for (const view of views) {
+				publishWorkerMessages?.([
+					{
+						direction: 'serverWorkerToMain',
+						kind: 'viewRecoveryStatus',
+						status: 'ready',
+						transferDescriptors: [],
+						view,
+						wireVersion: 1,
+					},
+				]);
+			}
+			reportExhaustion?.();
+			for (const view of views) {
+				const store = view.kind.startsWith('file.') ? fileStore : reviewStore;
+				expect(store.getViewRecoveryStatus(view.kind)?.status).toBe('failedRetryable');
+			}
+			publishWorkerMessages?.([
+				{
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'pane-runtime-bootstrap',
+					status: 'ready',
+					transferDescriptors: [],
+					wireVersion: 1,
+				},
+			]);
+			for (const view of views) {
+				const store = view.kind.startsWith('file.') ? fileStore : reviewStore;
+				expect(store.getViewRecoveryStatus(view.kind)?.status).toBe('ready');
+			}
+		} finally {
+			runtime.dispose();
+		}
+	});
 });
 
 async function loadBridgePaneRuntimeModule(): Promise<typeof import('./bridge-pane-runtime.js')> {

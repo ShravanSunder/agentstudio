@@ -305,7 +305,7 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 		props.lifecycleStore.failRequest({
 			reason:
 				props.message.kind === 'health'
-					? (props.message.message ?? 'worker_degraded')
+					? (props.message.errorKind ?? props.message.message ?? 'worker_degraded')
 					: props.message.kind === 'subscription'
 						? 'subscription_rejected'
 						: (props.message.message ?? 'comparison_targets_query_failed'),

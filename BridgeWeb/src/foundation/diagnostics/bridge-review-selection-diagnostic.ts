@@ -58,9 +58,11 @@ export type BridgePaneCommWorkerSessionDiagnosticState =
 	| 'bootstrapping'
 	| 'ready'
 	| 'replacement_requested'
+	| 'failed'
 	| 'disposed';
 
 export interface BridgePaneCommWorkerSessionDiagnosticSnapshot {
+	readonly failureReason: 'bootstrapBudgetExhausted' | null;
 	readonly latestFileModeDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
 	readonly latestFileSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;
 	readonly latestReviewSelectDispatchDisposition: BridgeDiagnosticDispatchDisposition | null;

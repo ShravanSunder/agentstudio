@@ -796,6 +796,7 @@ extension BridgeTelemetryWireSchema {
             "awaiting_bootstrap",
             "bootstrapping",
             "disposed",
+            "failed",
             "ready",
             "replacement_requested",
         ],
