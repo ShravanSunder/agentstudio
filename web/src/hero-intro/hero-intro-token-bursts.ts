@@ -145,7 +145,13 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
     ) ?? null;
   const windowNode = root.querySelector<HTMLElement>("[data-hero-terminal-window]");
   const install = root.querySelector<HTMLElement>("[data-hero-intro-install]");
-  const bashRow = visible(".hero-terminal-pane--claude .hero-transcript-row--tool-call");
+  const bashRow =
+    [
+      ...root.querySelectorAll<HTMLElement>(
+        ".hero-terminal-pane--claude .hero-transcript-row--tool-call",
+      ),
+    ].find((row) => row.getClientRects().length > 0 && row.querySelector("[data-hero-bash-dot]")) ??
+    null;
   const firstInstallCommand = install?.querySelector<HTMLElement>(".install-command__line");
   const result = visible(
     `.hero-terminal-pane--${width < 1024 ? "claude" : "codex"} [data-hero-worktree-result]`,

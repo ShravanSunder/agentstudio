@@ -45,6 +45,8 @@ interface FinaleSample {
   readonly installBurstSourceYGap: number;
   readonly installBurstTargetXGap: number;
   readonly installBurstTargetYGap: number;
+  readonly installTokenVerticalStrays: number;
+  readonly tokenLayerViewportOffset: number;
   readonly claudeInputText: string;
   readonly codexInputText: string;
   readonly transcriptClearances: readonly number[];
@@ -337,7 +339,9 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               ...root.querySelectorAll<HTMLElement>(
                 ".hero-terminal-pane--claude .hero-transcript-row--tool-call",
               ),
-            ].find((row) => row.getClientRects().length > 0);
+            ].find(
+              (row) => row.getClientRects().length > 0 && row.querySelector("[data-hero-bash-dot]"),
+            );
             const firstCommand = install.querySelector<HTMLElement>(".install-command__line");
             const tokenLayerForInstall =
               root.querySelector<SVGSVGElement>("[data-hero-token-layer]");
@@ -526,6 +530,16 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               installBurstTargetXGap: commandBounds.left - burstEndX,
               installBurstTargetYGap: Math.abs(
                 burstEndY - (commandBounds.top + commandBounds.height / 2),
+              ),
+              installTokenVerticalStrays: tokens.filter((token) => {
+                const bounds = token.getBoundingClientRect();
+                return (
+                  bounds.top < glyphBounds.top - 20 || bounds.bottom > commandBounds.bottom + 20
+                );
+              }).length,
+              tokenLayerViewportOffset: Math.hypot(
+                tokenLayerForInstall?.getBoundingClientRect().left ?? 0,
+                tokenLayerForInstall?.getBoundingClientRect().top ?? 0,
               ),
               claudeInputText:
                 root.querySelector<HTMLElement>("[data-hero-intro-typed-input]")?.textContent ?? "",

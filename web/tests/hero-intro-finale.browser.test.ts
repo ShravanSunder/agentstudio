@@ -50,6 +50,7 @@ for (const [width, height] of [
     expect(at(7.5).installBurstTargetXGap).toBeGreaterThanOrEqual(4);
     expect(at(7.5).installBurstTargetXGap).toBeLessThanOrEqual(24);
     expect(at(7.5).installBurstTargetYGap).toBeLessThanOrEqual(4);
+    expect(at(7.5).tokenLayerViewportOffset).toBeLessThanOrEqual(1);
     expect(at(7.56).tokenCount).toBeGreaterThan(0);
     expect(at(7.96).tokenCount).toBe(0);
     expect(at(7.5).installOpacity).toBe(0);
@@ -97,6 +98,11 @@ for (const [width, height] of [
         const sample = at(Number((start + fraction * 0.9).toFixed(3)));
         expect(sample.tokenCount, `${width}px burst ${start} at ${fraction}`).toBeGreaterThan(0);
         expect(sample.tokenTextOverlaps, `${width}px burst ${start} at ${fraction}`).toBe(0);
+        if (start === 7.05)
+          expect(
+            sample.installTokenVerticalStrays,
+            `${width}px install token location at ${fraction}`,
+          ).toBe(0);
         if (fraction === 0.5)
           expect(
             Math.max(...sample.tokenVisuals.map((token) => token.opacity)),
