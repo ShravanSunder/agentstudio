@@ -35,7 +35,18 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
             guard !state.finished else { return [] }
             switch event {
             case .fact(let scope, let fact, let sequence):
-                record(scope: scope, fact: fact, sequence: sequence, in: &state)
+                if let terminal = state.sourceTerminal {
+                    state.violations.append(
+                        (
+                            scope,
+                            FactAfterSourceTerminated(
+                                actual: vocabulary.describeFact(fact), terminal: terminal.description,
+                                scope: vocabulary.describeScope(scope), callSite: "source emission"
+                            )
+                        ))
+                } else {
+                    record(scope: scope, fact: fact, sequence: sequence, in: &state)
+                }
             case .ended:
                 state.sourceTerminal = .ended
             case .lost(let description):
@@ -153,6 +164,18 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
             }
             let expectationID = try beginExpectation(scope, description, callSite)
             defer { endExpectation(scope, expectationID) }
+            let firstUnconsumedFact = state.withLock { state -> Fact? in
+                let cursor = state.cursors[scope, default: 0]
+                guard cursor < opening.historyIndex else { return nil }
+                return state.history[cursor..<opening.historyIndex]
+                    .first(where: { $0.scope == scope })?.fact
+            }
+            if let firstUnconsumedFact {
+                throw UnconsumedFactsBeforeOpening(
+                    firstUnconsumedFact: vocabulary.describeFact(firstUnconsumedFact),
+                    scope: vocabulary.describeScope(scope), callSite: callSite
+                )
+            }
             var nextIndex = opening.historyIndex
             while true {
                 try Task.checkCancellation()
@@ -321,6 +344,13 @@ private struct RecordedFact<Scope: Hashable & Sendable, Fact: Sendable>: Sendabl
 private enum SourceTerminal: Sendable {
     case ended
     case cancelled
+
+    var description: String {
+        switch self {
+        case .ended: "ended"
+        case .cancelled: "cancelled"
+        }
+    }
 }
 
 private struct RecorderState<Scope: Hashable & Sendable, Fact: Sendable>: Sendable {

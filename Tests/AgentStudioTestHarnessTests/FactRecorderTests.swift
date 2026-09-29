@@ -82,6 +82,7 @@ struct FactRecorderTests {
         let opening = await marking.value
         recorder.append(scope: "scope", fact: .mainActorEmitted)
 
+        try await recorder.expectNext(in: "scope", .actorEmitted)
         try await recorder.expectNone(
             of: { $0 == .actorEmitted }, "actor fact", from: opening,
             closedBy: { $0 == .mainActorEmitted }
@@ -257,6 +258,45 @@ struct FactRecorderTests {
         try await recorder.finish()
     }
 
+    @Test("a negative interval rejects an unconsumed fact before its opening")
+    func negativeIntervalRejectsUnconsumedEarlierFact() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.sink("scope", .actorEmitted)
+        let opening = await recorder.mark("scope")
+        source.sink("scope", .mainActorEmitted)
+        source.end()
+
+        do {
+            try await recorder.expectNone(
+                of: { $0 == .otherClose }, "other close", from: opening,
+                closedBy: { $0 == .mainActorEmitted }
+            )
+            Issue.record("the unconsumed earlier fact was skipped")
+        } catch let error as UnconsumedFactsBeforeOpening {
+            #expect(error.scope == "scope")
+            #expect(error.firstUnconsumedFact == "actorEmitted")
+        }
+        try await recorder.expectNext(in: "scope", .actorEmitted)
+        try await recorder.finish()
+    }
+
+    @Test("consuming an earlier fact permits a later negative interval")
+    func consumedFactBeforeNegativeInterval() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.sink("scope", .actorEmitted)
+        try await recorder.expectNext(in: "scope", .actorEmitted)
+        let opening = await recorder.mark("scope")
+        source.sink("scope", .mainActorEmitted)
+
+        try await recorder.expectNone(
+            of: { $0 == .otherClose }, "other close", from: opening,
+            closedBy: { $0 == .mainActorEmitted }
+        )
+        try await recorder.finish()
+    }
+
     @Test("a different closing disposition cannot close the negative interval")
     func wrongCloseFails() async throws {
         let source = makeSource()
@@ -322,6 +362,56 @@ struct FactRecorderTests {
 
         await #expect(throws: Cancelled.self) {
             try await recorder.expectNext(in: "scope", .actorEmitted)
+        }
+        try await recorder.finish()
+    }
+
+    @Test("a fact delivered after source end fails the scope and finish")
+    func factAfterSourceEnd() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.end()
+        recorder.receive(.fact(scope: "scope", fact: .actorEmitted, sequence: 1))
+
+        do {
+            try await recorder.expectNext(in: "scope", .actorEmitted)
+            Issue.record("a post-end fact satisfied the expectation")
+        } catch let error as FactAfterSourceTerminated {
+            #expect(error.scope == "scope")
+            #expect(error.actual == "actorEmitted")
+            #expect(error.terminal == "ended")
+        }
+        await #expect(throws: FactAfterSourceTerminated.self) { try await recorder.finish() }
+    }
+
+    @Test("a fact delivered after cancellation fails the scope and finish")
+    func factAfterSourceCancellation() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.cancel()
+        recorder.receive(.fact(scope: "scope", fact: .actorEmitted, sequence: 1))
+
+        do {
+            try await recorder.expectNext(in: "scope", .actorEmitted)
+            Issue.record("a post-cancellation fact satisfied the expectation")
+        } catch let error as FactAfterSourceTerminated {
+            #expect(error.scope == "scope")
+            #expect(error.actual == "actorEmitted")
+            #expect(error.terminal == "cancelled")
+        }
+        await #expect(throws: FactAfterSourceTerminated.self) { try await recorder.finish() }
+    }
+
+    @Test("a fact buffered before cancellation remains consumable")
+    func bufferedFactBeforeCancellation() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.sink("scope", .actorEmitted)
+        source.cancel()
+
+        try await recorder.expectNext(in: "scope", .actorEmitted)
+        await #expect(throws: Cancelled.self) {
+            try await recorder.expectNext(in: "scope", .mainActorEmitted)
         }
         try await recorder.finish()
     }

@@ -56,6 +56,7 @@ struct EventBusFactSourceTests {
         let recorder = await attach(bus: bus)
         _ = await bus.post(BusTestEnvelope(scope: "operation", fact: .started))
 
+        try await recorder.expectNext(in: "operation", .started)
         let opening = await recorder.mark("operation")
         _ = await bus.post(BusTestEnvelope(scope: "operation", fact: .closed))
 
