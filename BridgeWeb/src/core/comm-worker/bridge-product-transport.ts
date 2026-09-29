@@ -272,17 +272,20 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#controlMux = props.controlMux;
 		this.#createIdentifier =
 			props.createIdentifier ?? ((purpose): string => `${purpose}-${uuidv7()}`);
+		this.#deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;
 		this.#viewScopeOwner = new BridgeProductViewScopeOwner({
 			controlMux: props.controlMux,
 			createIdentifier: (): string => this.#createIdentifier('subscription'),
+			deadlineClock: this.#deadlineClock,
 			maximumConsecutiveResnapshots:
 				props.authority.bootstrap.policy.viewMaximumConsecutiveResnapshots,
+			progressDeadlineMilliseconds:
+				props.authority.bootstrap.policy.viewBatchProgressDeadlineMilliseconds,
 			...(props.onViewRecoveryStatus === undefined
 				? {}
 				: { onViewRecoveryStatus: props.onViewRecoveryStatus }),
 		});
 		this.#executeProductRequest = props.executeProductRequest;
-		this.#deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;
 		this.#batchFrameRouter = new BridgeProductBatchFrameRouter({
 			deadlineClock: this.#deadlineClock,
 			progressDeadlineMilliseconds:

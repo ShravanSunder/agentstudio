@@ -157,6 +157,12 @@ export class BridgeProductBatchFrameRouter {
 			if (tracked !== undefined && !state.receiver.hasIncompleteStage(tracked.begin))
 				this.#clearDomainProgress(frame.subscriptionId, frame.domain);
 		}
+		if (
+			frame.kind === 'subscription.batchBegin' &&
+			acceptance.kind === 'staged' &&
+			acceptance.replacementSnapshotStarted === true
+		)
+			sinks.replacementSnapshot?.(frame);
 		if (acceptance.kind !== 'ignored') {
 			if (frame.kind === 'subscription.batchBegin' && acceptance.kind === 'staged')
 				this.#armProgress(state, frame);
@@ -174,12 +180,6 @@ export class BridgeProductBatchFrameRouter {
 				this.#clearDomainProgress(frame.subscriptionId, frame.domain);
 		}
 		if (acceptance.kind === 'resnapshot') sinks.resnapshot(frame);
-		if (
-			frame.kind === 'subscription.batchBegin' &&
-			acceptance.kind === 'staged' &&
-			acceptance.replacementSnapshotStarted === true
-		)
-			sinks.replacementSnapshot?.(frame);
 		if (
 			frame.kind === 'subscription.batchPart' &&
 			acceptance.kind === 'staged' &&

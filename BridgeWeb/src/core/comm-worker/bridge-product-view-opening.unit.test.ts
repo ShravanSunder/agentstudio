@@ -2,13 +2,13 @@ import { describe, expect, test } from 'vitest';
 
 import type { ViewScopeAdmissionProps } from './bridge-product-view-control-admission.js';
 import { bridgeProductInitialViewOpening } from './bridge-product-view-opening.js';
-import { BridgeProductViewScopeOwner } from './bridge-product-view-scope-owner.js';
+import { createTestViewScopeOwner } from './bridge-product-view-scope-owner.test-support.js';
 
 describe('initial E4 view scope admission', () => {
 	test('admits File scope after subscription open with one stable handle and typed acceptance', async () => {
 		const requests: ViewScopeAdmissionProps[] = [];
 		let nextId = 0;
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => {
 					requests.push(props);
@@ -63,7 +63,7 @@ describe('initial E4 view scope admission', () => {
 				};
 			},
 		};
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				...controlMux,
 				resnapshotView: async (): Promise<never> => {

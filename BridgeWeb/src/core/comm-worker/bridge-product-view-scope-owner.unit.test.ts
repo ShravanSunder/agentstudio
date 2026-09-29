@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
 import { BridgeProductControlAdmissionQueue } from './bridge-product-control-admission-queue.js';
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import type {
 	ViewResnapshotAdmissionProps,
 	ViewScopeAdmissionProps,
 } from './bridge-product-view-control-admission.js';
-import { BridgeProductViewScopeOwner } from './bridge-product-view-scope-owner.js';
+import { createTestViewScopeOwner } from './bridge-product-view-scope-owner.test-support.js';
 
 const emptyFileScope = {
 	changeFilter: { kind: 'none' },
@@ -15,10 +16,107 @@ const emptyFileScope = {
 	pathScope: [],
 } as const;
 
+class ControlledReplacementBeginClock implements BridgeProductDeadlineClock {
+	readonly deadlines: Array<{ active: boolean; delayMilliseconds: number; fire: () => void }> = [];
+	readonly #scheduleWaiters: Array<{ count: number; resolve: () => void }> = [];
+
+	schedule(delayMilliseconds: number, onDeadline: () => void): () => void {
+		const deadline = {
+			active: true,
+			delayMilliseconds,
+			fire: (): void => {
+				if (!deadline.active) throw new Error('Expected an armed replacement-begin deadline.');
+				deadline.active = false;
+				onDeadline();
+			},
+		};
+		this.deadlines.push(deadline);
+		for (const waiter of this.#scheduleWaiters.filter(
+			(candidate) => candidate.count <= this.deadlines.length,
+		)) {
+			waiter.resolve();
+		}
+		this.#scheduleWaiters.splice(
+			0,
+			this.#scheduleWaiters.length,
+			...this.#scheduleWaiters.filter((candidate) => candidate.count > this.deadlines.length),
+		);
+		return (): void => {
+			deadline.active = false;
+		};
+	}
+
+	waitForScheduleCount(count: number): Promise<void> {
+		if (this.deadlines.length >= count) return Promise.resolve();
+		return new Promise((resolve): void => {
+			this.#scheduleWaiters.push({ count, resolve });
+		});
+	}
+
+	activeDeadline(): (typeof this.deadlines)[number] {
+		const deadline = this.deadlines.find((candidate) => candidate.active);
+		if (deadline === undefined) throw new Error('Expected an active replacement-begin deadline.');
+		return deadline;
+	}
+}
+
 describe('W2 desired view scope owner', () => {
+	test('accepted resnapshots without replacement begins exhaust the view budget and Retry rearms it', async () => {
+		const clock = new ControlledReplacementBeginClock();
+		const requests: ViewResnapshotAdmissionProps[] = [];
+		const statuses: string[] = [];
+		const owner = createTestViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					requests.push(props);
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (): string => 'view-identity',
+			deadlineClock: clock,
+			maximumConsecutiveResnapshots: 2,
+			onViewRecoveryStatus: (status): void => {
+				statuses.push(`${status.view.subscriptionId}:${status.status}`);
+			},
+			progressDeadlineMilliseconds: 5_000,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-1',
+			subscriptionKind: 'file.metadata',
+		});
+		owner.register({
+			scope: { kind: 'review', interests: [] },
+			subscriptionId: 'review-1',
+			subscriptionKind: 'review.metadata',
+		});
+
+		await owner.resnapshot('file-1');
+		expect(clock.activeDeadline().delayMilliseconds).toBe(5_000);
+		clock.activeDeadline().fire();
+		await clock.waitForScheduleCount(2);
+		expect(requests).toHaveLength(2);
+		clock.activeDeadline().fire();
+		expect(owner.recoveryState('file-1')).toEqual({
+			consecutiveResnapshots: 2,
+			status: 'failedRetryable',
+		});
+		expect(owner.recoveryState('review-1')).toEqual({ consecutiveResnapshots: 0, status: 'ready' });
+		expect(statuses).toContain('file-1:failedRetryable');
+		await owner.retryView('file-1');
+		expect(requests).toHaveLength(3);
+		expect(owner.recoveryState('file-1')).toEqual({
+			consecutiveResnapshots: 1,
+			status: 'recovering',
+		});
+		owner.retire('file-1');
+		expect(clock.deadlines.every((deadline) => !deadline.active)).toBe(true);
+	});
+
 	test('a certified Review install under older demand resets recovery without changing latest scope', async () => {
 		const scopes: ViewScopeAdmissionProps[] = [];
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => {
 					scopes.push(props);
@@ -75,7 +173,7 @@ describe('W2 desired view scope owner', () => {
 			readonly sequence: number;
 			readonly scope: ViewScopeAdmissionProps['scope'];
 		}> = [];
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: (props) =>
 					queue.enqueue(async () => {
@@ -111,7 +209,7 @@ describe('W2 desired view scope owner', () => {
 			readonly view: { readonly kind: string; readonly subscriptionId: string };
 			readonly status: 'failedRetryable' | 'ready' | 'recovering';
 		}> = [];
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => acceptedScope(props),
 				resnapshotView: async (props) => acceptedResnapshot(props),
@@ -185,7 +283,7 @@ describe('W2 desired view scope owner', () => {
 
 	test('counts unsuccessful page resnapshots per view, stops at the budget, and rearms on Retry', async () => {
 		const resnapshots: ViewResnapshotAdmissionProps[] = [];
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => acceptedScope(props),
 				resnapshotView: async (props) => {
@@ -215,9 +313,16 @@ describe('W2 desired view scope owner', () => {
 		await owner.resnapshot('file-subscription-1');
 		expect(owner.recoveryState('file-subscription-1')).toEqual({
 			consecutiveResnapshots: 2,
-			status: 'failedRetryable',
+			status: 'recovering',
+		});
+		owner.observeReplacementSnapshot({
+			handle: 'view-identity',
+			incarnation: 'view-identity',
+			scopeRevision: 0,
+			subscriptionId: 'file-subscription-1',
 		});
 		await owner.resnapshot('file-subscription-1');
+		expect(owner.recoveryState('file-subscription-1')?.status).toBe('failedRetryable');
 		expect(resnapshots).toHaveLength(2);
 		await owner.retryView('file-subscription-1');
 		expect(resnapshots).toHaveLength(3);
@@ -230,7 +335,7 @@ describe('W2 desired view scope owner', () => {
 	test('coalesces overlapping admissions and fences their late settlement after retirement', async () => {
 		let resolveAdmission: (() => void) | undefined;
 		let requestCount = 0;
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => acceptedScope(props),
 				resnapshotView: async (props) => {
@@ -276,7 +381,7 @@ describe('W2 desired view scope owner', () => {
 			number,
 			{ resolve: () => void; reject: (error: Error) => void }
 		>();
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => acceptedScope(props),
 				resnapshotView: async (props) => {
@@ -309,7 +414,7 @@ describe('W2 desired view scope owner', () => {
 	});
 
 	test('counts native replacement once and resets only after a certified install', async () => {
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => acceptedScope(props),
 				resnapshotView: async (props) => acceptedResnapshot(props),
@@ -368,7 +473,7 @@ describe('W2 desired view scope owner', () => {
 			},
 		} satisfies Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>;
 		let nextIdentifier = 0;
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux,
 			createIdentifier: (): string => `view-identity-${++nextIdentifier}`,
 			maximumConsecutiveResnapshots: 3,
@@ -414,7 +519,7 @@ describe('W2 desired view scope owner', () => {
 			},
 			resnapshotView: async (props: ViewResnapshotAdmissionProps) => acceptedResnapshot(props),
 		} satisfies Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>;
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux,
 			createIdentifier: (): string => 'view-identity',
 			maximumConsecutiveResnapshots: 3,

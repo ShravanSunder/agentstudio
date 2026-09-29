@@ -1,3 +1,4 @@
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import type { ViewResnapshotAdmissionProps } from './bridge-product-view-control-admission.js';
 import type { BridgeProductViewScopeRequest } from './bridge-product-view-control-wire-contracts.js';
@@ -13,6 +14,8 @@ interface DesiredView {
 	readonly incarnation: string;
 	resnapshotInFlight: Promise<void> | null;
 	resnapshotRequested: boolean;
+	clearReplacementBeginDeadline: (() => void) | null;
+	replacementBeginDeadlineGeneration: number;
 	readonly subscriptionId: string;
 	readonly subscriptionKind: ViewKind;
 	currentAdmission: AbortController | null;
@@ -39,7 +42,9 @@ export type BridgeProductViewScopeSettlement =
 export class BridgeProductViewScopeOwner {
 	readonly #controlMux: Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>;
 	readonly #createIdentifier: () => string;
+	readonly #deadlineClock: BridgeProductDeadlineClock;
 	readonly #maximumConsecutiveResnapshots: number;
+	readonly #progressDeadlineMilliseconds: number;
 	readonly #onViewRecoveryStatus:
 		| ((status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>) => void)
 		| undefined;
@@ -48,13 +53,16 @@ export class BridgeProductViewScopeOwner {
 	constructor(props: {
 		readonly controlMux: Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>;
 		readonly createIdentifier: () => string;
+		readonly deadlineClock: BridgeProductDeadlineClock;
 		readonly maximumConsecutiveResnapshots: number;
 		readonly onViewRecoveryStatus?: (
 			status: Pick<BridgeWorkerViewRecoveryStatusEvent, 'status' | 'view'>,
 		) => void;
+		readonly progressDeadlineMilliseconds: number;
 	}) {
 		this.#controlMux = props.controlMux;
 		this.#createIdentifier = props.createIdentifier;
+		this.#deadlineClock = props.deadlineClock;
 		this.#onViewRecoveryStatus = props.onViewRecoveryStatus;
 		if (
 			!Number.isSafeInteger(props.maximumConsecutiveResnapshots) ||
@@ -63,6 +71,13 @@ export class BridgeProductViewScopeOwner {
 			throw new Error('View resnapshot budget must be a positive safe integer.');
 		}
 		this.#maximumConsecutiveResnapshots = props.maximumConsecutiveResnapshots;
+		if (
+			!Number.isSafeInteger(props.progressDeadlineMilliseconds) ||
+			props.progressDeadlineMilliseconds <= 0
+		) {
+			throw new Error('Replacement begin progress deadline must be a positive safe integer.');
+		}
+		this.#progressDeadlineMilliseconds = props.progressDeadlineMilliseconds;
 	}
 
 	register(props: {
@@ -83,6 +98,8 @@ export class BridgeProductViewScopeOwner {
 			incarnation: this.#createIdentifier(),
 			resnapshotInFlight: null,
 			resnapshotRequested: false,
+			clearReplacementBeginDeadline: null,
+			replacementBeginDeadlineGeneration: 0,
 			scopeRevision: 0,
 			subscriptionId: props.subscriptionId,
 			subscriptionKind,
@@ -106,6 +123,7 @@ export class BridgeProductViewScopeOwner {
 		view.desiredScope = props.scope;
 		view.resnapshotInFlight = null;
 		view.resnapshotRequested = false;
+		this.#clearReplacementBeginDeadline(view);
 		const scopeRevision = view.scopeRevision;
 		const admission = new AbortController();
 		view.currentAdmission = admission;
@@ -159,17 +177,21 @@ export class BridgeProductViewScopeOwner {
 		if (view.resnapshotRequested) return Promise.resolve();
 		view.consecutiveResnapshots += 1;
 		view.resnapshotRequested = true;
-		this.#emitRecoveryStatus(view, this.#recoveryStatusFor(view));
+		this.#emitRecoveryStatus(view, 'recovering');
 		try {
 			const admission = this.#controlMux.resnapshotView(request);
 			const inFlight = admission.then(
 				(): void => {
-					if (view.resnapshotInFlight === inFlight) view.resnapshotInFlight = null;
+					if (view.resnapshotInFlight === inFlight) {
+						view.resnapshotInFlight = null;
+						if (view.resnapshotRequested) this.#armReplacementBeginDeadline(view, request.domain);
+					}
 				},
 				(error: unknown): never => {
 					if (view.resnapshotInFlight === inFlight) {
 						view.resnapshotInFlight = null;
 						view.resnapshotRequested = false;
+						this.#clearReplacementBeginDeadline(view);
 					}
 					throw error;
 				},
@@ -178,6 +200,7 @@ export class BridgeProductViewScopeOwner {
 			return inFlight;
 		} catch (error) {
 			view.resnapshotRequested = false;
+			this.#clearReplacementBeginDeadline(view);
 			return Promise.reject(error);
 		}
 	}
@@ -185,6 +208,7 @@ export class BridgeProductViewScopeOwner {
 	observeReplacementSnapshot(identity: ViewIdentity): void {
 		const view = this.#matchingView(identity);
 		if (view === undefined) return;
+		this.#clearReplacementBeginDeadline(view);
 		if (view.resnapshotRequested) {
 			view.resnapshotRequested = false;
 			return;
@@ -193,7 +217,7 @@ export class BridgeProductViewScopeOwner {
 			this.#maximumConsecutiveResnapshots,
 			view.consecutiveResnapshots + 1,
 		);
-		this.#emitRecoveryStatus(view, this.#recoveryStatusFor(view));
+		this.#emitRecoveryStatus(view, 'recovering');
 	}
 
 	recordCertifiedInstall(identity: ViewIdentity): void {
@@ -203,6 +227,7 @@ export class BridgeProductViewScopeOwner {
 				? candidate
 				: undefined;
 		if (view === undefined) return;
+		this.#clearReplacementBeginDeadline(view);
 		view.consecutiveResnapshots = 0;
 		view.resnapshotRequested = false;
 		this.#emitRecoveryStatus(view, 'ready');
@@ -213,7 +238,7 @@ export class BridgeProductViewScopeOwner {
 		if (view === undefined) return null;
 		return {
 			consecutiveResnapshots: view.consecutiveResnapshots,
-			status: this.#recoveryStatusFor(view),
+			status: view.recoveryStatus ?? 'ready',
 		};
 	}
 
@@ -222,18 +247,36 @@ export class BridgeProductViewScopeOwner {
 		if (view === undefined) return;
 		await view.resnapshotInFlight?.catch((): void => {});
 		if (this.#views.get(subscriptionId) !== view) return;
+		this.#clearReplacementBeginDeadline(view);
 		view.consecutiveResnapshots = 0;
 		view.resnapshotRequested = false;
 		this.#emitRecoveryStatus(view, 'recovering');
 		await this.resnapshot(subscriptionId);
 	}
 
-	#recoveryStatusFor(view: DesiredView): BridgeWorkerViewRecoveryStatusEvent['status'] {
-		return view.consecutiveResnapshots === 0
-			? 'ready'
-			: view.consecutiveResnapshots >= this.#maximumConsecutiveResnapshots
-				? 'failedRetryable'
-				: 'recovering';
+	#armReplacementBeginDeadline(view: DesiredView, domain: string): void {
+		this.#clearReplacementBeginDeadline(view);
+		const generation = view.replacementBeginDeadlineGeneration;
+		view.clearReplacementBeginDeadline = this.#deadlineClock.schedule(
+			this.#progressDeadlineMilliseconds,
+			(): void => {
+				if (
+					this.#views.get(view.subscriptionId) !== view ||
+					view.replacementBeginDeadlineGeneration !== generation ||
+					!view.resnapshotRequested
+				)
+					return;
+				this.#clearReplacementBeginDeadline(view);
+				view.resnapshotRequested = false;
+				void this.resnapshot(view.subscriptionId, domain).catch((): void => {});
+			},
+		);
+	}
+
+	#clearReplacementBeginDeadline(view: DesiredView): void {
+		view.replacementBeginDeadlineGeneration += 1;
+		view.clearReplacementBeginDeadline?.();
+		view.clearReplacementBeginDeadline = null;
 	}
 
 	#emitRecoveryStatus(
@@ -260,6 +303,7 @@ export class BridgeProductViewScopeOwner {
 	retire(subscriptionId: string): void {
 		const view = this.#views.get(subscriptionId);
 		view?.currentAdmission?.abort();
+		if (view !== undefined) this.#clearReplacementBeginDeadline(view);
 		this.#views.delete(subscriptionId);
 	}
 }

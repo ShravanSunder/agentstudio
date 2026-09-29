@@ -11,7 +11,7 @@ import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock
 import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
 import { BridgeProductViewBatchReceiver } from './bridge-product-view-batch-receiver.js';
-import { BridgeProductViewScopeOwner } from './bridge-product-view-scope-owner.js';
+import { createTestViewScopeOwner } from './bridge-product-view-scope-owner.test-support.js';
 
 const noDeadlineClock: BridgeProductDeadlineClock = { schedule: () => (): void => {} };
 
@@ -24,6 +24,7 @@ function createRouter(): BridgeProductBatchFrameRouter {
 
 class ControlledBatchDeadlineClock implements BridgeProductDeadlineClock {
 	readonly deadlines: Array<{ active: boolean; fire: () => void }> = [];
+	peakActiveDeadlineCount = 0;
 
 	schedule(_delayMilliseconds: number, onDeadline: () => void): () => void {
 		const deadline = {
@@ -35,6 +36,10 @@ class ControlledBatchDeadlineClock implements BridgeProductDeadlineClock {
 			},
 		};
 		this.deadlines.push(deadline);
+		this.peakActiveDeadlineCount = Math.max(
+			this.peakActiveDeadlineCount,
+			this.deadlines.filter((candidate) => candidate.active).length,
+		);
 		return (): void => {
 			deadline.active = false;
 		};
@@ -197,7 +202,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		const installations: string[] = [];
 		const identities = ['handle-1', 'incarnation-1'];
 		let nextIdentity = 0;
-		const owner = new BridgeProductViewScopeOwner({
+		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => ({
 					...props,
@@ -222,7 +227,9 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 				},
 			} satisfies Pick<BridgeProductControlMux, 'resnapshotView' | 'setViewScope'>,
 			createIdentifier: (): string => identities[nextIdentity++] ?? 'unexpected-identity',
+			deadlineClock: clock,
 			maximumConsecutiveResnapshots: 3,
+			progressDeadlineMilliseconds: 5_000,
 		});
 		owner.register({
 			scope: { kind: 'review', interests: [] },
@@ -268,6 +275,7 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		router.accept(part({ batchId: 'retry', key: 'retry', revision: 5, value: 'ready' }));
 		router.accept(complete({ batchId: 'retry' }));
 		expect(installations).toEqual(['retry']);
+		expect(clock.peakActiveDeadlineCount).toBe(1);
 		expect(owner.recoveryState(identity.subscriptionId)).toEqual({
 			consecutiveResnapshots: 0,
 			status: 'ready',
