@@ -411,8 +411,12 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(surfaceCoordinatorIndex < undoRecoveryIndex)
         #expect(ipcBootSource.contains("prepareOptionalApplicationLocalSchema()"))
         #expect(ipcBootSource.contains("waitUntilFirstInteractiveFramePublished()"))
-        #expect(ipcBootSource.contains("appIPCInitializationTask?.cancel()"))
+        #expect(ipcBootSource.contains("let initializationTask = appIPCInitializationTask"))
+        #expect(ipcBootSource.contains("initializationTask?.cancel()"))
         #expect(ipcBootSource.contains("await initializationTask?.value"))
+        #expect(ipcBootSource.contains("await appIPCServer?.joinConnectionHandlers()"))
+        #expect(ipcBootSource.contains("await finishAppIPCSessionsIngestion()"))
+        #expect(!ipcBootSource.contains("func stopAppIPCServer()"))
         #expect(ipcBootSource.contains("let paneIPCIdentityOwner = paneIPCIdentityOwner!"))
         #expect(!ipcBootSource.contains("self.appIPCInitializationTask = nil"))
         #expect(
