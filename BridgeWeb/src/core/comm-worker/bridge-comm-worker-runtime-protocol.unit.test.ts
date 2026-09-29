@@ -6,6 +6,7 @@ import {
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerReviewComparisonUpdateCommand,
+	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
@@ -310,9 +311,7 @@ describe('Bridge comm worker runtime protocol', () => {
 			4,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		expect(reviewProductSource.viewScopes.map(({ scope }) => scope)).toEqual([
-			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'idle' }] },
-		]);
+		expect(reviewProductSource.viewScopes).toEqual([]);
 
 		// Act: promote before the first snapshot commits, then start content work.
 		dispatch.message(
@@ -324,6 +323,19 @@ describe('Bridge comm worker runtime protocol', () => {
 				requestId: 'request-promote-before-native-open',
 				surface: 'review',
 				visibleItemIds: ['item-1'],
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(reviewProductSource.viewScopes.map(({ scope }) => scope)).toEqual([
+			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'visible' }] },
+		]);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 5,
+				requestId: 'request-select-before-native-open',
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+				surface: 'review',
 			}),
 		);
 		dispatch.message(
@@ -338,12 +350,6 @@ describe('Bridge comm worker runtime protocol', () => {
 			}),
 		);
 		clockMs += 1;
-		const renderCompletion = drainBridgeWorkerVisibleDemandRuntimeUntil({
-			hasExpectedEvent: () =>
-				postedMessages.some(({ message }) => message.kind === 'reviewPierreRenderJob'),
-			scheduledDrains,
-			startIndex: 0,
-		});
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert: neither the native open nor command acknowledgement can overtake the newest role.
@@ -354,12 +360,17 @@ describe('Bridge comm worker runtime protocol', () => {
 		firstInterestCommit.resolve();
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(reviewProductSource.viewScopes.map(({ scope }) => scope)).toEqual([
-			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'idle' }] },
 			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'visible' }] },
+			{ kind: 'review', interests: [{ itemIds: ['item-1'], lane: 'foreground' }] },
 		]);
 		expect(openedDescriptorIds).toEqual([]);
 		secondInterestCommit.resolve();
-		await renderCompletion;
+		await drainBridgeWorkerVisibleDemandRuntimeUntil({
+			hasExpectedEvent: () =>
+				postedMessages.some(({ message }) => message.kind === 'reviewPierreRenderJob'),
+			scheduledDrains,
+			startIndex: 0,
+		});
 		await flushBridgeWorkerRuntimeContinuations();
 		expect(openedDescriptorIds).toHaveLength(2);
 		expect(
