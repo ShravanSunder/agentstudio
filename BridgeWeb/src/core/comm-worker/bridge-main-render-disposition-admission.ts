@@ -34,6 +34,7 @@ export interface BridgeMainRenderDispositionAdmission {
 	readonly enqueue: (receipt: BridgeWorkerRenderDispositionReceipt) => void;
 	readonly prepareForWorkerReplacement: () => void;
 	readonly resumeAfterWorkerReplacement: () => void;
+	readonly resumeAfterViewRecovery: () => void;
 	readonly snapshot: () => BridgeMainRenderDispositionAdmissionSnapshot;
 }
 
@@ -43,6 +44,7 @@ export interface CreateBridgeMainRenderDispositionAdmissionProps {
 	readonly maximumBatchSize?: number;
 	readonly maximumPendingReceiptCount?: number;
 	readonly now?: () => number;
+	readonly onProbeExhausted?: () => void;
 	readonly requestWorkerReplacement: (source: BridgeWorkerRuntimeRecoverySource) => void;
 	readonly surface: BridgePaneSurface;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
@@ -180,12 +182,12 @@ export function createBridgeMainRenderDispositionAdmission(
 		inFlightBatch = null;
 		for (const key of settledBatch.receiptKeys) admittedReceiptKeys.delete(key);
 		const workerProgressed = request.state === 'acked' || request.state === 'failed';
-		let shouldRequestWorkerReplacement = false;
+		let probeExhausted = false;
 		const outcome: BridgeRenderDispositionTerminalOutcome =
 			request.state === 'acked' ? 'acked' : request.state === 'failed' ? 'degraded' : 'timed_out';
 		if (settledBatch.kind === 'probe') {
 			deliveryState = workerProgressed ? 'ordinary' : 'stalled';
-			shouldRequestWorkerReplacement = !workerProgressed;
+			probeExhausted = !workerProgressed;
 		} else if (request.state === 'timed_out' || request.state === 'superseded') {
 			deliveryState = 'probe_available';
 		} else {
@@ -204,8 +206,8 @@ export function createBridgeMainRenderDispositionAdmission(
 			outcome,
 			phase: 'render_disposition_batch_terminal',
 		});
-		if (shouldRequestWorkerReplacement) {
-			props.requestWorkerReplacement('renderDispositionProbeExhausted');
+		if (probeExhausted) {
+			props.onProbeExhausted?.();
 			return;
 		}
 		dispatchNextBatch();
@@ -228,6 +230,15 @@ export function createBridgeMainRenderDispositionAdmission(
 			phase: 'render_disposition_admission_cleared',
 		});
 		clearReceipts();
+	};
+	const resumeAdmission = (): void => {
+		if (isDisposed) return;
+		clearReceipts();
+		duplicateReceiptCount = 0;
+		pendingReceiptHighWaterMark = 0;
+		producedReceiptCount = 0;
+		deliveryState = 'ordinary';
+		subscribeLifecycle();
 	};
 
 	return {
@@ -263,15 +274,8 @@ export function createBridgeMainRenderDispositionAdmission(
 			dispatchNextBatch();
 		},
 		prepareForWorkerReplacement,
-		resumeAfterWorkerReplacement: (): void => {
-			if (isDisposed) return;
-			clearReceipts();
-			duplicateReceiptCount = 0;
-			pendingReceiptHighWaterMark = 0;
-			producedReceiptCount = 0;
-			deliveryState = 'ordinary';
-			subscribeLifecycle();
-		},
+		resumeAfterWorkerReplacement: resumeAdmission,
+		resumeAfterViewRecovery: resumeAdmission,
 		snapshot: (): BridgeMainRenderDispositionAdmissionSnapshot => ({
 			deliveryState,
 			duplicateReceiptCount,

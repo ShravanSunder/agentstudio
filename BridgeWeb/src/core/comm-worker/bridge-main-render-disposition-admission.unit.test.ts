@@ -25,10 +25,15 @@ describe('Bridge main render disposition admission', () => {
 		).toEqual([['item-1'], ['item-2', 'item-3']]);
 	});
 
-	test('requests existing worker replacement once after the recovery probe times out', () => {
+	test('fails only the view after the recovery probe times out without replacing the worker', () => {
 		// Arrange
 		const requestWorkerReplacement = vi.fn();
-		const harness = createAdmissionHarness({ maximumBatchSize: 1, requestWorkerReplacement });
+		const onProbeExhausted = vi.fn();
+		const harness = createAdmissionHarness({
+			maximumBatchSize: 1,
+			onProbeExhausted,
+			requestWorkerReplacement,
+		});
 		for (let index = 1; index <= 4; index += 1) harness.admission.enqueue(makeQueuedReceipt(index));
 
 		// Act
@@ -40,8 +45,11 @@ describe('Bridge main render disposition admission', () => {
 		// Assert
 		expect(harness.dispatched).toHaveLength(2);
 		expect(harness.admission.snapshot().deliveryState).toBe('stalled');
-		expect(requestWorkerReplacement).toHaveBeenCalledOnce();
-		expect(requestWorkerReplacement).toHaveBeenCalledWith('renderDispositionProbeExhausted');
+		expect(onProbeExhausted).toHaveBeenCalledOnce();
+		expect(requestWorkerReplacement).not.toHaveBeenCalled();
+		harness.admission.resumeAfterViewRecovery();
+		harness.admission.enqueue(makeQueuedReceipt(5));
+		expect(harness.dispatched).toHaveLength(3);
 	});
 
 	test('clears unknown debt when the FIFO recovery probe reaches a worker terminal', () => {
@@ -175,6 +183,7 @@ describe('Bridge main render disposition admission', () => {
 function createAdmissionHarness(options: {
 	readonly maximumBatchSize?: number;
 	readonly maximumPendingReceiptCount?: number;
+	readonly onProbeExhausted?: () => void;
 	readonly requestWorkerReplacement?: () => void;
 	readonly telemetrySamples?: BridgeTelemetrySample[];
 }): {
@@ -209,6 +218,7 @@ function createAdmissionHarness(options: {
 			? {}
 			: { maximumPendingReceiptCount: options.maximumPendingReceiptCount }),
 		requestWorkerReplacement: options.requestWorkerReplacement ?? ((): void => {}),
+		onProbeExhausted: options.onProbeExhausted ?? ((): void => {}),
 		surface: 'review',
 		...(options.telemetrySamples === undefined
 			? {}

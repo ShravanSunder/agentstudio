@@ -208,6 +208,19 @@ export function createBridgePaneRuntime(
 		surfaceClients.get(targetSurface)?.renderStore.applyViewRecoveryStatusEvent(event);
 		for (const client of rpcClients.values()) client.receive(event);
 	};
+	const failRenderView = (surface: 'fileView' | 'review'): void => {
+		const kind = surface === 'fileView' ? 'file.metadata' : 'review.metadata';
+		const current = surfaceClients.get(surface)?.renderStore.getViewRecoveryStatus(kind);
+		if (current === null || current === undefined) return;
+		publishViewRecoveryStatus({
+			direction: 'serverWorkerToMain',
+			kind: 'viewRecoveryStatus',
+			status: 'failedRetryable',
+			transferDescriptors: [],
+			view: current.view,
+			wireVersion: 1,
+		});
+	};
 
 	const publishDiagnosticSnapshot = (): void => {
 		try {
@@ -315,6 +328,7 @@ export function createBridgePaneRuntime(
 					}),
 				),
 			lifecycleStore,
+			onProbeExhausted: (): void => failRenderView(surface),
 			requestWorkerReplacement,
 			surface,
 			telemetryClient: admissionTelemetryRecorder,
@@ -325,6 +339,12 @@ export function createBridgePaneRuntime(
 		renderDispositionAdmissions.add(renderDispositionAdmission);
 		renderFulfillmentCoordinators.add(renderFulfillmentCoordinator);
 		const sendSurfaceCommand = (command: BridgeWorkerRpcCommandInput): string => {
+			if (
+				command.command === 'viewRecoveryRetry' &&
+				command.view.kind === (surface === 'fileView' ? 'file.metadata' : 'review.metadata')
+			) {
+				renderDispositionAdmission.resumeAfterViewRecovery();
+			}
 			recordReplacementReplayEntry(command, rpcClient.send);
 			return rpcClient.send(command);
 		};
