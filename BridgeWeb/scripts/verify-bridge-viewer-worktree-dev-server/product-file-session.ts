@@ -642,9 +642,7 @@ export class BridgeVerifierProductFileSession {
 			} catch {
 				refusalBody = null;
 			}
-			const refusal = bridgeProductContentAcknowledgementRefusedSchema.safeParse(
-				refusalBody,
-			);
+			const refusal = bridgeProductContentAcknowledgementRefusedSchema.safeParse(refusalBody);
 			if (
 				refusal.success &&
 				refusal.data.contentRequestId === body.contentRequestId &&
