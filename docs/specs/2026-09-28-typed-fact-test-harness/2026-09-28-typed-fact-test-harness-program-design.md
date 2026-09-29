@@ -178,12 +178,14 @@ These are owner-local facts: `GitWorkingDirectoryProjector` gets an injected sin
 
 | Scope | Facts |
 |---|---|
-| `intake(worktree)` | `changesetMerged(batchSeq)` · ■ `changesetAccepted(batchSeq)` or `changesetDropped(stale \| superseded \| equal)` |
+| `intake(worktree, batchSeq)` (one operation per filesystem batch) | ■ `changesetAccepted` (taken into a refresh admission) or `changesetCoalesced(into: newerBatchSeq)` or `changesetDropped(stale \| superseded \| equal)` |
 | `refresh(worktree, request n)` | `refreshAdmitted` or `admissionDeferred(capacity \| pacing \| backoff \| visibility)` · `refreshStarted` · ■ `refreshClosed(completed(snapshotChanged, branchChanged) \| equal \| timeout \| unavailable \| capacityExceeded \| superseded \| cancelled \| shutdown)` |
 | `deadline(worktree, kind, generation)`; kind = `automatic \| failure \| capacityFallback \| governorPacing \| visibilityCoalescing \| coalescingWindow` | `deadlineRegistered(kind)` · ■ `deadlineDisposition(admitted \| deferred \| obsolete \| cancelled)` |
 | `capacity(worktree, episode)` | `capacityRetryScheduled` · ■ `capacityRetryClosed(rearmed \| expired \| cancelled)` |
 | `backoff(worktree, episode)` | `backoffOpened(level)` · `backoffAdvanced(level)` · `backoffHalfOpen` · ■ `backoffClosed` |
-| `quarantine(worktree)` | `quarantineOpened` · ■ `quarantineClosed` |
+| `quarantine(worktree, episode)` | `quarantineOpened` · ■ `quarantineClosed` |
 | `lifetime` | ■ `shutdownCompleted` |
+
+Correction 2026-09-29, from the R1 implementer's stop: every scope names one operation. `intake` and `quarantine` lacked an operation identity, because a worktree gets many batches and can be quarantined repeatedly. They now carry `batchSeq` and `episode`. The former non-closing `changesetMerged` is the closing variant `changesetCoalesced(into:)`.
 
 Evidence: 130 projector test waits (41 `waitUntilIdle`, 46 sleep-count waits whose timer kind is ambiguous, 25 whitebox actor-state polls, 13 "temporary proof debt" held-state waits) map onto these closing facts. Emission points are the transitions listed in the R1 inventory (`GitWorkingDirectoryProjector*.swift`).
