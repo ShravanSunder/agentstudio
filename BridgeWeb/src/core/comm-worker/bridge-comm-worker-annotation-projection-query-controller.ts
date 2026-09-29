@@ -673,60 +673,59 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 		let cursor: string | null = null;
 		let expectedPage: BridgeProductAnnotationProjectionPageContract | null = null;
 		let previousPageOrdinal: number | null = null;
-		while (true) {
-			// eslint-disable-next-line no-await-in-loop -- Continuation cursors are single-use and strictly ordered.
-			const result = await this.#queryProjection({
-				cursor,
-				operationCorrelationId: invalidation.operationCorrelationId,
-				reviewPublicationIdentity,
-				sessionIds: [...invalidation.sessionIds],
-				signal,
-				sourceGeneration,
-			});
-			const parsedResult = bridgeProductAnnotationProjectionQueryResultSchema.parse(result);
-			if (parsedResult.kind === 'source_stale') return parsedResult;
-			const descriptor = parsedResult.descriptor;
-			validatePageContract({
-				descriptor,
-				expectedPage,
-				previousPageOrdinal,
-				requestedCursor: cursor,
-				requestedOperationCorrelationId: invalidation.operationCorrelationId,
-				requestedSourceGeneration: sourceGeneration,
-				requestedSurface: this.#surface,
-			});
-			expectedPage ??= descriptor.page;
-			previousPageOrdinal = descriptor.page.pageOrdinal;
-			// eslint-disable-next-line no-await-in-loop -- Each claimed page must complete before its continuation query.
-			let pageBytes: Uint8Array;
-			try {
-				pageBytes = await openAnnotationProjectionPage({
+		let contentTransferResult: 'cancelled' | 'failure' | 'stale' | 'success' = 'failure';
+		try {
+			while (true) {
+				// eslint-disable-next-line no-await-in-loop -- Continuation cursors are single-use and strictly ordered.
+				const result = await this.#queryProjection({
+					cursor,
+					operationCorrelationId: invalidation.operationCorrelationId,
+					reviewPublicationIdentity,
+					sessionIds: [...invalidation.sessionIds],
+					signal,
+					sourceGeneration,
+				});
+				const parsedResult = bridgeProductAnnotationProjectionQueryResultSchema.parse(result);
+				if (parsedResult.kind === 'source_stale') {
+					contentTransferResult = 'stale';
+					return parsedResult;
+				}
+				const descriptor = parsedResult.descriptor;
+				validatePageContract({
+					descriptor,
+					expectedPage,
+					previousPageOrdinal,
+					requestedCursor: cursor,
+					requestedOperationCorrelationId: invalidation.operationCorrelationId,
+					requestedSourceGeneration: sourceGeneration,
+					requestedSurface: this.#surface,
+				});
+				expectedPage ??= descriptor.page;
+				previousPageOrdinal = descriptor.page.pageOrdinal;
+				// eslint-disable-next-line no-await-in-loop -- Each claimed page must complete before its continuation query.
+				const pageBytes = await openAnnotationProjectionPage({
 					descriptor,
 					openContent: this.#transport.openContent,
 					signal,
 				});
-			} catch (error) {
-				this.#recordLifecycle(
-					invalidation.operationCorrelationId,
-					'content_transfer_terminal',
-					'failure',
-					sourceGeneration,
-					stageAttempt,
-				);
-				throw error;
+				decoder.acceptPage(pageBytes, descriptor.page.pageOrdinal);
+				if (descriptor.page.isLastPage) break;
+				cursor = descriptor.page.nextCursor;
 			}
-			decoder.acceptPage(pageBytes, descriptor.page.pageOrdinal);
-			if (descriptor.page.isLastPage) break;
-			cursor = descriptor.page.nextCursor;
+			contentTransferResult = 'success';
+		} catch (error) {
+			contentTransferResult = signal.aborted ? 'cancelled' : 'failure';
+			throw error;
+		} finally {
+			this.#recordLifecycle(
+				invalidation.operationCorrelationId,
+				'content_transfer_terminal',
+				contentTransferResult,
+				sourceGeneration,
+				stageAttempt,
+			);
 		}
 		if (expectedPage === null) throw new Error('Annotation projection returned no pages.');
-		this.#recordLifecycle(
-			invalidation.operationCorrelationId,
-			'content_transfer_terminal',
-			'success',
-			sourceGeneration,
-			stageAttempt,
-		);
 		try {
 			this.#recordLifecycle(
 				invalidation.operationCorrelationId,

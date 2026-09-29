@@ -445,46 +445,54 @@ export class BridgeProductControlMux {
 			},
 		);
 		return admission
-			.then(async ({ request, response }): Promise<TResult> => {
-				const operationResult = await postBridgeProductOperationResult({
-					bootstrap: this.#authority.bootstrap,
-					capabilityHeader: this.#authority.capabilityHeader,
-					deadlineClock: this.deadlineClock,
-					executeProductRequest: this.#executeProductRequest,
-					operationId: response.operationId,
-					waitKind: response.waitKind,
-				});
-				try {
-					props.signal?.throwIfAborted();
-					if (operationResult.outcome !== 'succeeded') {
-						throw new BridgeProductControlRequestError({
-							code: operationResult.failureCode ?? 'internal',
-							message: `Bridge product operation settled as ${operationResult.outcome}.`,
-							outcome: operationResult.outcome,
-							retryAfterMilliseconds: null,
-							retryable: operationResult.outcome === 'outcomeUnknown',
-							...(operationResult.outcome === 'outcomeUnknown' &&
-							request.kind === 'product.call' &&
-							bridgeProductCallIsMutation(request.call.method)
-								? {
-										observeLateOutcome: (): Promise<BridgeProductLateOutcomeObservation> =>
-											this.#observeLateOutcome({
-												operationId: response.operationId,
-												request,
-												acceptResponse: props.acceptResponse,
-											}),
-									}
-								: {}),
-						});
+			.then(({ request, response }): Promise<TResult> => {
+				const nativeResult = (async (): Promise<TResult> => {
+					const operationResult = await postBridgeProductOperationResult({
+						bootstrap: this.#authority.bootstrap,
+						capabilityHeader: this.#authority.capabilityHeader,
+						deadlineClock: this.deadlineClock,
+						executeProductRequest: this.#executeProductRequest,
+						operationId: response.operationId,
+						waitKind: response.waitKind,
+					});
+					try {
+						props.signal?.throwIfAborted();
+						if (operationResult.outcome !== 'succeeded') {
+							throw new BridgeProductControlRequestError({
+								code: operationResult.failureCode ?? 'internal',
+								message: `Bridge product operation settled as ${operationResult.outcome}.`,
+								outcome: operationResult.outcome,
+								retryAfterMilliseconds: null,
+								retryable: operationResult.outcome === 'outcomeUnknown',
+								...(operationResult.outcome === 'outcomeUnknown' &&
+								request.kind === 'product.call' &&
+								bridgeProductCallIsMutation(request.call.method)
+									? {
+											observeLateOutcome: (): Promise<BridgeProductLateOutcomeObservation> =>
+												this.#observeLateOutcome({
+													operationId: response.operationId,
+													request,
+													acceptResponse: props.acceptResponse,
+												}),
+										}
+									: {}),
+							});
+						}
+						const finalResponse = bridgeProductControlResponseSchema.parse(operationResult.result);
+						assertBridgeProductResponseCorrelation({ request, response: finalResponse });
+						return props.acceptResponse(finalResponse, request);
+					} finally {
+						// The native result still frees its slot after the caller has cancelled.
+						this.#scheduleResultAcknowledgement(response.operationId);
 					}
-					const finalResponse = bridgeProductControlResponseSchema.parse(operationResult.result);
-					assertBridgeProductResponseCorrelation({ request, response: finalResponse });
-					return props.acceptResponse(finalResponse, request);
-				} finally {
-					// Reading a known result settles the caller. Ack failure may make this
-					// session suspect, but cannot replace that outcome with a failure.
-					this.#scheduleResultAcknowledgement(response.operationId);
-				}
+				})();
+				void nativeResult.catch((error: unknown): void => {
+					// The caller owns live failures. After local cancellation, only the
+					// background result consumer can surface a late suspect result.
+					if (props.signal?.aborted && error instanceof BridgeProductSessionSuspectError)
+						this.#publishAdmissionSuspect(error);
+				});
+				return settleAdmittedCallerOnAbort(nativeResult, props.signal);
 			})
 			.catch((error: unknown): never => {
 				if (error instanceof BridgeProductSessionSuspectError) this.#publishAdmissionSuspect(error);
@@ -937,4 +945,29 @@ async function postBridgeProductOutcomeReadWithRetry<TResult>(props: {
 		}
 	}
 	throw new BridgeProductSessionSuspectError('result');
+}
+
+function settleAdmittedCallerOnAbort<TResult>(
+	nativeResult: Promise<TResult>,
+	signal: AbortSignal | undefined,
+): Promise<TResult> {
+	if (signal === undefined) return nativeResult;
+	return new Promise<TResult>((resolve, reject): void => {
+		const abortCaller = (): void => {
+			signal.removeEventListener('abort', abortCaller);
+			reject(signal.reason ?? new DOMException('Operation cancelled.', 'AbortError'));
+		};
+		void nativeResult.then(
+			(value): void => {
+				signal.removeEventListener('abort', abortCaller);
+				resolve(value);
+			},
+			(error: unknown): void => {
+				signal.removeEventListener('abort', abortCaller);
+				reject(error);
+			},
+		);
+		if (signal.aborted) abortCaller();
+		else signal.addEventListener('abort', abortCaller, { once: true });
+	});
 }

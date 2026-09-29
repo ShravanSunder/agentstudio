@@ -774,8 +774,10 @@ describe('Bridge product session authority', () => {
 
 	test('drains an admitted result after feature abort while the next admission proceeds', async () => {
 		const requestSequences: number[] = [];
+		const acknowledgedOperations: string[] = [];
 		const firstCallResponse = createBridgeProductDeferred<Response>();
 		const firstResultRequested = createBridgeProductDeferred<void>();
+		const firstResultAcknowledged = createBridgeProductDeferred<void>();
 		const executeProductRequest: ConstructorParameters<
 			typeof BridgeProductSessionAuthorityStore
 		>[0] = async (_route, requestInit): Promise<Response> => {
@@ -804,6 +806,8 @@ describe('Bridge product session authority', () => {
 						},
 					});
 				case 'operation.resultAcknowledgement':
+					acknowledgedOperations.push(body.operationId);
+					if (body.operationId === 'operation-first-call') firstResultAcknowledged.resolve();
 					return responseWithJSON({ ...body, kind: 'operation.resultAcknowledged' });
 				case 'product.call':
 					return responseWithJSON({
@@ -843,6 +847,13 @@ describe('Bridge product session authority', () => {
 			workerDerivationEpoch: 1,
 		});
 		abortController.abort();
+		const firstSettlement = firstCall.then(
+			(): string => 'completed',
+			(): string => 'cancelled',
+		);
+		expect(await Promise.race([firstSettlement, secondCall.then((): string => 'second')])).toBe(
+			'cancelled',
+		);
 		await expect(secondCall).resolves.toBeNull();
 		firstCallResponse.resolve(
 			responseWithJSON({
@@ -860,6 +871,8 @@ describe('Bridge product session authority', () => {
 
 		// Assert
 		await expect(firstCall).rejects.toThrow(/abort/iu);
+		await firstResultAcknowledged.promise;
+		expect(acknowledgedOperations).toContain('operation-first-call');
 		expect(requestSequences).toEqual([1, 2, 3, 4, 5, 6]);
 	});
 });
