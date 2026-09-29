@@ -138,7 +138,8 @@ struct AgentStudioIPCRuntimeAdapterTests {
         let result = try await harness.adapter.sendTerminalInput(
             to: IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
             input: input,
-            correlationId: correlationId
+            correlationId: correlationId,
+            ownPaneAssertion: nil
         )
 
         #expect(result.paneId == pane.id)
