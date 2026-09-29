@@ -112,6 +112,17 @@ struct CommandBarEmbeddedPreview: View {
         Self.buildGroups(from: Self.mockItems(for: scope))
     }
 
+    static func mockTitleMatches(for scope: LauncherPreviewScope) -> [String: Range<Int>] {
+        var matches: [String: Range<Int>] = [:]
+        for item in mockItems(for: scope) {
+            guard let range = item.title.range(of: scope.query, options: .caseInsensitive) else { continue }
+            let lower = item.title.distance(from: item.title.startIndex, to: range.lowerBound)
+            let upper = item.title.distance(from: item.title.startIndex, to: range.upperBound)
+            matches[item.id] = lower..<upper
+        }
+        return matches
+    }
+
     // Legacy accessors (keep tests working against the default .repos scope).
     static let previewQuery: String = LauncherPreviewScope.repos.query
     static var mockItems: [CommandBarItem] { reposMockItems }
@@ -369,7 +380,7 @@ private struct PreviewBody: View {
                 groups: CommandBarEmbeddedPreview.mockGroups(for: scope),
                 octiconLoader: octiconLoader,
                 selectedIndex: 0,
-                searchQuery: scope.query,
+                titleMatchesByItemId: CommandBarEmbeddedPreview.mockTitleMatches(for: scope),
                 onSelect: { _ in }
             )
             .frame(height: AppStyles.Welcome.previewResultsHeight)

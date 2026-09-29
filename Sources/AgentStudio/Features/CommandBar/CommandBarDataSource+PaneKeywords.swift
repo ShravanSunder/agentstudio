@@ -42,4 +42,16 @@ extension CommandBarDataSource {
 
         return result
     }
+
+    static func searchablePaneAndTabFields(_ keywords: [String]) -> [String] {
+        stableUniqueKeywords(keywords).map { keyword in
+            if keyword.hasPrefix("/") {
+                return URL(filePath: keyword).lastPathComponent
+            }
+            if let url = URL(string: keyword), url.isFileURL {
+                return url.lastPathComponent
+            }
+            return keyword
+        }
+    }
 }
