@@ -26,6 +26,9 @@ interface FinaleSample {
   readonly introDotOpacities: readonly number[];
   readonly introDotScales: readonly number[];
   readonly introDotYs: readonly number[];
+  readonly introDotCenterDeltas: readonly number[];
+  readonly introDotTransformIdentities: readonly boolean[];
+  readonly introDotDebug: readonly string[];
   readonly heroBranchDashOffset: number;
   readonly forkDashOffsets: readonly number[];
   readonly rowOpacity: readonly number[];
@@ -72,13 +75,16 @@ export interface FinaleObservation {
   readonly resizeRailStyle: string | null;
   readonly resizeSceneInlineStyles: number;
   readonly resizeRailIntroMarkers: number;
+  readonly resizeRailResidualTransforms: number;
   readonly skipRailClip: string;
   readonly skipFinaleOpacity: readonly number[];
   readonly skipSceneInlineStyles: number;
   readonly skipRailIntroMarkers: number;
+  readonly skipRailResidualTransforms: number;
   readonly reducedRailClip: string;
   readonly reducedFinaleOpacity: readonly number[];
   readonly reducedRailIntroMarkers: number;
+  readonly reducedRailResidualTransforms: number;
 }
 
 export const verifyHeroIntroFinale = defineBrowserCommand(
@@ -234,6 +240,11 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         finalHop.start,
         staircase.end,
         staircase.end + 0.1,
+        ...staircase.hops.flatMap((hop, index) => {
+          const popStart =
+            index === 0 ? staircase.start : (staircase.hops[index - 1]?.arrival ?? hop.start);
+          return [popStart + 0.06, popStart + 0.22];
+        }),
       ].sort((left, right) => left - right);
       const timelineProof = await page.evaluate(
         async (
@@ -581,6 +592,35 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               introDotYs: introNodes.map((node) =>
                 Number(node.querySelector("circle")?.getAttribute("cy")),
               ),
+              introDotCenterDeltas: introNodes.map((node) => {
+                const circle = node.querySelector<SVGCircleElement>("circle");
+                const parent = node.parentElement;
+                if (circle === null || !(parent instanceof SVGGraphicsElement))
+                  throw new Error("Intro dot circle or parent missing");
+                const nodeMatrix = node.getCTM();
+                const parentMatrix = parent.getCTM();
+                if (nodeMatrix === null || parentMatrix === null)
+                  throw new Error("Intro dot matrix missing");
+                const center = new DOMPoint(
+                  Number(circle.getAttribute("cx")),
+                  Number(circle.getAttribute("cy")),
+                );
+                const expected = center.matrixTransform(parentMatrix);
+                const actual = center.matrixTransform(nodeMatrix);
+                return Math.hypot(actual.x - expected.x, actual.y - expected.y);
+              }),
+              // The current chapter's separate CSS pulse may scale the computed
+              // matrix slightly; the intro must leave no GSAP-owned transform.
+              introDotTransformIdentities: introNodes.map(
+                (node) =>
+                  node.style.transform === "" &&
+                  !node.hasAttribute("transform") &&
+                  !node.hasAttribute("data-svg-origin"),
+              ),
+              introDotDebug: introNodes.map(
+                (node) =>
+                  `${node.querySelector("circle")?.getAttribute("cx")},${node.querySelector("circle")?.getAttribute("cy")} origin=${node.getAttribute("data-svg-origin")} transform=${getComputedStyle(node).transform}`,
+              ),
               heroBranchDashOffset:
                 heroBranch === null
                   ? Number.NaN
@@ -688,6 +728,12 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           introMarkers: rail.querySelectorAll(
             "[data-hero-intro-rail-node], [data-hero-intro-rail-path]",
           ).length,
+          residualTransforms: [...rail.querySelectorAll<SVGGElement>("[data-node]")].filter(
+            (node) =>
+              node.hasAttribute("transform") ||
+              node.hasAttribute("data-svg-origin") ||
+              node.style.transform !== "",
+          ).length,
         };
       });
       await page.reload({ waitUntil: "commit" });
@@ -719,6 +765,12 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           introMarkers: rail.querySelectorAll(
             "[data-hero-intro-rail-node], [data-hero-intro-rail-path]",
           ).length,
+          residualTransforms: [...rail.querySelectorAll<SVGGElement>("[data-node]")].filter(
+            (node) =>
+              node.hasAttribute("transform") ||
+              node.hasAttribute("data-svg-origin") ||
+              node.style.transform !== "",
+          ).length,
         };
       });
       await reducedPage.emulateMedia({ reducedMotion: "reduce" });
@@ -738,6 +790,12 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
           introMarkers: rail.querySelectorAll(
             "[data-hero-intro-rail-node], [data-hero-intro-rail-path]",
           ).length,
+          residualTransforms: [...rail.querySelectorAll<SVGGElement>("[data-node]")].filter(
+            (node) =>
+              node.hasAttribute("transform") ||
+              node.hasAttribute("data-svg-origin") ||
+              node.style.transform !== "",
+          ).length,
         };
       });
       return {
@@ -749,13 +807,16 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         resizeRailStyle: resize.style,
         resizeSceneInlineStyles: resize.sceneInlineStyles,
         resizeRailIntroMarkers: resize.introMarkers,
+        resizeRailResidualTransforms: resize.residualTransforms,
         skipRailClip: skipped.clip,
         skipFinaleOpacity: skipped.rowOpacity,
         skipSceneInlineStyles: skipped.sceneInlineStyles,
         skipRailIntroMarkers: skipped.introMarkers,
+        skipRailResidualTransforms: skipped.residualTransforms,
         reducedRailClip: reduced.clip,
         reducedFinaleOpacity: reduced.rowOpacity,
         reducedRailIntroMarkers: reduced.introMarkers,
+        reducedRailResidualTransforms: reduced.residualTransforms,
       };
     } finally {
       await page.close();

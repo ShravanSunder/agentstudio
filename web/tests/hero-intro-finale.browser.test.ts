@@ -99,6 +99,32 @@ for (const [width, height] of [
       }
     }
     expect(staircase.end - staircase.start).toBeLessThanOrEqual(1.600001);
+    const nodeRows = [...new Set(at("settled").introDotYs)];
+    for (const [rowIndex, rowY] of nodeRows.entries()) {
+      const hop = staircase.hops[rowIndex];
+      if (hop === undefined) throw new Error("Intro dot hop missing");
+      const popStart =
+        rowIndex === 0 ? staircase.start : (staircase.hops[rowIndex - 1]?.arrival ?? hop.start);
+      const rowNodeIndexes = at("settled").introDotYs.flatMap((y, index) =>
+        Math.abs(y - rowY) <= 0.5 ? [index] : [],
+      );
+      for (const sampleIndex of rowNodeIndexes) {
+        expect(
+          at(popStart + 0.06).introDotCenterDeltas[sampleIndex],
+          `${width}px row ${rowIndex} mid-pop ${at(popStart + 0.06).introDotDebug[sampleIndex]}`,
+        ).toBeLessThanOrEqual(0.5);
+        expect(
+          at(popStart + 0.22).introDotCenterDeltas[sampleIndex],
+          `${width}px row ${rowIndex} after pop`,
+        ).toBeLessThanOrEqual(0.5);
+        expect(
+          at(popStart + 0.22).introDotTransformIdentities[sampleIndex],
+          `${width}px row ${rowIndex} cleared transform ${at(popStart + 0.22).introDotDebug[sampleIndex]}`,
+        ).toBe(true);
+      }
+    }
+    expect(at("settled").introDotCenterDeltas.every((distance) => distance <= 0.5)).toBe(true);
+    expect(at("settled").introDotTransformIdentities.every(Boolean)).toBe(true);
     const finalHop = staircase.hops.at(-1);
     if (finalHop === undefined) throw new Error("Rail final hop missing");
     expect(at(finalHop.start).heroBranchDashOffset).toBeGreaterThan(0);
@@ -148,12 +174,15 @@ for (const [width, height] of [
     expect(observation.resizeRailStyle).not.toContain("clip-path");
     expect(observation.resizeSceneInlineStyles).toBe(0);
     expect(observation.resizeRailIntroMarkers).toBe(0);
+    expect(observation.resizeRailResidualTransforms).toBe(0);
     expect(observation.skipRailClip).toBe("none");
     expect(observation.skipSceneInlineStyles).toBe(0);
     expect(observation.skipRailIntroMarkers).toBe(0);
+    expect(observation.skipRailResidualTransforms).toBe(0);
     expect(observation.skipFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
     expect(observation.reducedRailClip).toBe("none");
     expect(observation.reducedRailIntroMarkers).toBe(0);
+    expect(observation.reducedRailResidualTransforms).toBe(0);
     expect(observation.reducedFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
   });
 }
