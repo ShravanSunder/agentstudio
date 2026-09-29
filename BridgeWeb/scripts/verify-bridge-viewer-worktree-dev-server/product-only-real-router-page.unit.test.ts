@@ -412,31 +412,9 @@ describe('mountedHeaderOrderViolationForExpectedOrder', () => {
 });
 
 describe('nextFreshReviewTraversalScrollTop', () => {
-	test('skips the already-hydrated body while retaining viewport overlap at the next header', () => {
-		// Arrange
-		const codeScroll = {
-			clientHeight: 1_000,
-			scrollHeight: 40_000,
-			scrollTop: 5_000,
-		};
-
-		// Act
-		const nextScrollTop = nextFreshReviewTraversalScrollTop({
-			codeScroll,
-			visibleItems: [
-				{
-					contentState: 'hydrated',
-					hostBottomOffset: 6_000,
-					hostTopOffset: -250,
-					itemId: 'review-item-42',
-					paintIdentity: 'paint-42',
-					renderedLineCount: 42,
-				},
-			],
-		});
-
-		// Assert
-		expect(nextScrollTop).toBe(10_900);
+	test('keeps every item geometry-visible during forward traversal with viewport overlap', () => {
+		const observedIndexes = simulateReviewTraversal('forward');
+		expect(observedIndexes).toEqual(Array.from({ length: 20 }, (_, index) => index));
 	});
 
 	test('falls back to bounded viewport progress when no host geometry is available', () => {
@@ -447,7 +425,6 @@ describe('nextFreshReviewTraversalScrollTop', () => {
 				scrollHeight: 6_500,
 				scrollTop: 5_000,
 			},
-			visibleItems: [],
 		});
 
 		// Assert
@@ -512,18 +489,9 @@ describe('freshReviewInitialWindowRequiresTraversal', () => {
 });
 
 describe('previousFreshReviewTraversalScrollTop', () => {
-	test('skips the already-hydrated body while retaining viewport overlap at the previous header', () => {
-		// Arrange / Act
-		const previousScrollTop = previousFreshReviewTraversalScrollTop({
-			codeScroll: {
-				clientHeight: 1_000,
-				scrollTop: 10_000,
-			},
-			visibleItems: [{ hostTopOffset: -6_000 }],
-		});
-
-		// Assert
-		expect(previousScrollTop).toBe(3_900);
+	test('keeps every item geometry-visible during reverse traversal with viewport overlap', () => {
+		const observedIndexes = simulateReviewTraversal('backward');
+		expect(observedIndexes).toEqual(Array.from({ length: 20 }, (_, index) => index));
 	});
 
 	test('falls back to bounded viewport progress when no host geometry is available', () => {
@@ -533,13 +501,40 @@ describe('previousFreshReviewTraversalScrollTop', () => {
 				clientHeight: 1_000,
 				scrollTop: 5_000,
 			},
-			visibleItems: [],
 		});
 
 		// Assert
 		expect(previousScrollTop).toBe(4_200);
 	});
 });
+
+function simulateReviewTraversal(direction: 'forward' | 'backward'): number[] {
+	const itemCount = 20;
+	const itemHeight = 100;
+	const clientHeight = 400;
+	const scrollHeight = itemCount * itemHeight;
+	const maximumScrollTop = scrollHeight - clientHeight;
+	const observedIndexes = new Set<number>();
+	let scrollTop = direction === 'forward' ? 0 : maximumScrollTop;
+	for (let stepIndex = 0; stepIndex < itemCount * 2; stepIndex += 1) {
+		const visibleIndexes = Array.from({ length: itemCount }, (_, index) => index).filter(
+			(index) =>
+				(index + 1) * itemHeight > scrollTop && index * itemHeight < scrollTop + clientHeight,
+		);
+		for (const index of visibleIndexes) observedIndexes.add(index);
+		if (direction === 'forward' && scrollTop === maximumScrollTop) break;
+		if (direction === 'backward' && scrollTop === 0) break;
+		scrollTop =
+			direction === 'forward'
+				? nextFreshReviewTraversalScrollTop({
+						codeScroll: { clientHeight, scrollHeight, scrollTop },
+					})
+				: previousFreshReviewTraversalScrollTop({
+						codeScroll: { clientHeight, scrollTop },
+					});
+	}
+	return [...observedIndexes].toSorted((left, right) => left - right);
+}
 
 // A page whose every request and worker belongs to the current generation, as
 // the tests set it; the observer reads generations only through this seam.

@@ -19,27 +19,60 @@ import {
 	bridgeViewerCleanupProofAfterOwnedStops,
 	bridgeViewerProductOnlyRegressionPhase,
 } from './product-only-real-router-regression.ts';
+import { classifyFreshReviewHydrationWindow } from './product-only-real-router-review-hydration-window.ts';
 import { waitForFreshReviewManifestState } from './product-only-real-router-review-proof.ts';
 
 describe('Bridge Viewer product-only real-router regression contract', () => {
-	test('requires paint only after a Review shell has rendered lines or prior paint evidence', async () => {
-		// Arrange
-		const hydrationWindowSource = await readFile(
-			new URL('./product-only-real-router-review-hydration-window.ts', import.meta.url),
-			'utf8',
-		);
+	test('requires a painted Markdown source as well as the selected code canvas', () => {
+		const passingProof = makePassingProductOnlyProof();
+		const missingMarkdownPaint = {
+			...passingProof,
+			fileMarkdownAtReviewFirstSwitch: {
+				articleCharacterCount: 0,
+				canvasVisible: false,
+				selectedDisplayPath: 'README.md',
+				sourcePath: null,
+			},
+		};
 
-		// Act
-		const paintEligibilityIndex = hydrationWindowSource.indexOf(
-			'item.renderedLineCount > 0 || item.publicationId !== null',
-		);
-		const paintValidationIndex = hydrationWindowSource.indexOf('paintEligibleItems.some');
+		expect(
+			collectBridgeViewerProductOnlyContractViolations(missingMarkdownPaint).map(
+				(violation) => violation.code,
+			),
+		).toContain('file.markdown-visible-readable');
+	});
 
-		// Assert
-		expect(paintEligibilityIndex).toBeGreaterThan(0);
-		expect(paintValidationIndex).toBeGreaterThan(paintEligibilityIndex);
-		expect(hydrationWindowSource).toContain('const renderedLineCount = queryAllInOpenShadowRoots(');
-		expect(hydrationWindowSource).toContain("'[data-line][data-line-index]'");
+	test('requires correlated painted Review evidence for a visible hydrated item', () => {
+		const visibleItem = {
+			contentState: 'windowed',
+			itemId: 'review-item-1',
+			publicationId: 'publication-1',
+			renderedLineCount: 8,
+			sourceCorrelations: JSON.stringify([
+				{
+					itemId: 'review-item-1',
+					pierreItemId: 'review-item-1',
+					publicationId: 'publication-1',
+					semanticItemId: 'review-item-1',
+				},
+			]),
+		};
+		const painted = classifyFreshReviewHydrationWindow({
+			excludedItemIds: [],
+			scrollTop: 0,
+			selectedItemId: null,
+			visibleItems: [visibleItem],
+		});
+		const mismatched = classifyFreshReviewHydrationWindow({
+			excludedItemIds: [],
+			scrollTop: 0,
+			selectedItemId: null,
+			visibleItems: [{ ...visibleItem, publicationId: 'other-publication' }],
+		});
+
+		expect(painted.hydratedNonSelectedItemIds).toEqual(['review-item-1']);
+		expect(mismatched.visibleNonSelectedItemIds).toEqual(['review-item-1']);
+		expect(mismatched.hydratedNonSelectedItemIds).toEqual([]);
 	});
 
 	test('uses native Review rename similarity for oracle items', () => {

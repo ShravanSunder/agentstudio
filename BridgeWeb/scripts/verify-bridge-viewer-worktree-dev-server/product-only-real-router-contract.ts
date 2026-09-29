@@ -15,6 +15,7 @@ export const bridgeViewerProductOnlySelectors = {
 		'[data-bridge-viewer-mode-active="true"] [data-testid="bridge-viewer-context-review"]',
 	appRoot: '[data-testid="bridge-app-root"]',
 	fileCodeCanvas: '[data-testid="bridge-file-viewer-code-canvas"]',
+	fileMarkdownCanvas: '[data-testid="bridge-markdown-canvas"]',
 	fileShell: '[data-testid="bridge-file-viewer-shell"]',
 	reviewCodePanel: '[data-testid="bridge-code-view-panel"]',
 	reviewCodeScrollOwner: '[data-testid="bridge-code-view-panel"] .bridge-code-view-scroll-owner',
@@ -176,6 +177,13 @@ export interface BridgeViewerFileProductStateSnapshot {
 	readonly shellCount: number;
 }
 
+export interface BridgeViewerFileMarkdownStateSnapshot {
+	readonly articleCharacterCount: number;
+	readonly canvasVisible: boolean;
+	readonly selectedDisplayPath: string | null;
+	readonly sourcePath: string | null;
+}
+
 export interface BridgeViewerReviewProductStateSnapshot {
 	readonly codePanelVisible: boolean;
 	readonly metadataItemCount: number;
@@ -204,6 +212,10 @@ export interface BridgeViewerReviewHydrationMilestone {
 export interface BridgeViewerReviewHydrationWindowFailure {
 	readonly hydratedNonSelectedItemIds: readonly string[];
 	readonly scrollTop: number;
+	readonly visibleContentStates: readonly {
+		readonly contentState: string | null;
+		readonly itemId: string;
+	}[];
 	readonly visibleNonSelectedItemIds: readonly string[];
 }
 
@@ -289,6 +301,7 @@ export interface BridgeViewerProductOnlyJourneyProof {
 	readonly fileAfterReviewFirstSwitch: BridgeViewerFileProductStateSnapshot;
 	readonly fileAfterFirstAcknowledgement: BridgeViewerFileProductStateSnapshot;
 	readonly fileAtCompletion: BridgeViewerFileProductStateSnapshot;
+	readonly fileMarkdownAtReviewFirstSwitch: BridgeViewerFileMarkdownStateSnapshot;
 	readonly legacyIntakeTranscript: readonly BridgeViewerLegacyIntakeTranscriptEntry[];
 	readonly legacyRouteTranscript: readonly BridgeViewerLegacyRouteTranscriptEntry[];
 	readonly mainWindowProductRouteTranscript: readonly BridgeViewerMainWindowProductRequest[];
@@ -411,6 +424,14 @@ export function collectBridgeViewerProductOnlyContractViolations(
 			actual: proof.fileAtCompletion,
 			code: 'file.product-display-ready',
 			expected: 'File product metadata rows and selected product content are ready',
+		});
+	}
+	if (!fileMarkdownStateReady(proof.fileMarkdownAtReviewFirstSwitch)) {
+		violations.push({
+			actual: proof.fileMarkdownAtReviewFirstSwitch,
+			code: 'file.markdown-visible-readable',
+			expected:
+				'selected Markdown paints a visible article with its exact source path and nonempty text',
 		});
 	}
 	if (!fileSelectedContentNontrivial(proof.fileAtCompletion)) {
@@ -722,6 +743,15 @@ function fileProductStateReady(state: BridgeViewerFileProductStateSnapshot): boo
 		state.renderedDisplayPath === state.selectedDisplayPath &&
 		state.bodyPreviewCharacterCount > 0 &&
 		state.bodyPreviewSha256 !== null
+	);
+}
+
+function fileMarkdownStateReady(state: BridgeViewerFileMarkdownStateSnapshot): boolean {
+	return (
+		state.canvasVisible &&
+		state.selectedDisplayPath !== null &&
+		state.sourcePath === state.selectedDisplayPath &&
+		state.articleCharacterCount > 0
 	);
 }
 

@@ -6,7 +6,7 @@ import type {
 	Request as PlaywrightRequest,
 	Response as PlaywrightResponse,
 } from 'playwright';
-import { chromium, errors } from 'playwright';
+import { chromium } from 'playwright';
 
 import {
 	bridgeViewerProductOnlySelectors,
@@ -33,6 +33,11 @@ import {
 	bridgeViewerJourneyFailureCode,
 	BridgeViewerProductOnlyJourneyFailure,
 } from './product-only-real-router-failure.ts';
+import {
+	readPaintedFileMarkdown,
+	selectFileProofPath,
+	waitForFileProductTerminalState,
+} from './product-only-real-router-file-proof.ts';
 import { BridgeViewerLegacyMetadataCompletion } from './product-only-real-router-legacy-completion.ts';
 import { BridgeViewerProductOpenSettlementCorrelator } from './product-only-real-router-operation-settlements.ts';
 import { installBridgeViewerBrowserErrorCapture } from './product-only-real-router-page-error.ts';
@@ -191,7 +196,24 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			timeout: productJourneyTimeoutMilliseconds,
 		});
 		await waitForViewerMode(page, 'file');
-		await waitForFileProductTerminalState(page);
+		await selectFileProofPath({
+			page,
+			path: 'README.md',
+			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+		});
+		const fileMarkdownAtReviewFirstSwitch = await readPaintedFileMarkdown({
+			page,
+			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+		});
+		await selectFileProofPath({
+			page,
+			path: 'Package.swift',
+			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+		});
+		await waitForFileProductTerminalState({
+			page,
+			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+		});
 		const fileAfterReviewFirstSwitch = await readFileProductState(page);
 
 		pageUrl.searchParams.set('viewer', 'file');
@@ -213,7 +235,15 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			fileOpenResponse.status() === 200 &&
 			reviewOpenResponse.status() === 200
 		) {
-			await waitForFileProductTerminalState(page);
+			await selectFileProofPath({
+				page,
+				path: 'Package.swift',
+				settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+			});
+			await waitForFileProductTerminalState({
+				page,
+				settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+			});
 		}
 		const fileAfterFirstAcknowledgement = await readFileProductState(page);
 		const journeyDocumentGenerationAtStart = documentGenerations.currentGeneration();
@@ -229,7 +259,10 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			timeout: productJourneyTimeoutMilliseconds,
 		});
 		await waitForViewerMode(page, 'file');
-		await waitForFileProductTerminalState(page);
+		await waitForFileProductTerminalState({
+			page,
+			settleTimeoutMilliseconds: productCompositionSettleTimeoutMilliseconds,
+		});
 		await routeObserver.waitForObservedLegacyMetadataCompletion();
 		await routeObserver.waitForAllProductResponses();
 		await routeObserver.flushResponseParsers();
@@ -251,6 +284,7 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			fileAfterReviewFirstSwitch,
 			fileAfterFirstAcknowledgement,
 			fileAtCompletion: await readFileProductState(page),
+			fileMarkdownAtReviewFirstSwitch,
 			legacyIntakeTranscript: await readLegacyIntakeTranscript(page),
 			legacyRouteTranscript: routeObserver.legacyRouteTranscript(),
 			mainWindowProductRouteTranscript: await readMainWindowProductRouteTranscript(page),
@@ -795,54 +829,6 @@ async function readLegacyIntakeTranscript(
 		};
 		return (window as ProofWindow).bridgeViewerProductOnlyLegacyIntakeTranscript ?? [];
 	});
-}
-
-async function waitForFileProductTerminalState(page: Page): Promise<boolean> {
-	return await waitForProductCompositionState(async (): Promise<void> => {
-		await page.waitForFunction(
-			(selectors): boolean => {
-				const shell = document.querySelector(selectors.fileShell);
-				const codeCanvas = document.querySelector(selectors.fileCodeCanvas);
-				const selectedContentState = shell?.getAttribute('data-worktree-open-file-state');
-				const selectedPath = shell?.getAttribute('data-worktree-open-file-path');
-				const renderedPath = codeCanvas?.getAttribute('data-worktree-rendered-file-path');
-				const bodyPreview = codeCanvas?.getAttribute('data-worktree-open-file-body-preview');
-				return (
-					Number(shell?.getAttribute('data-worktree-metadata-tree-row-count') ?? '0') > 0 &&
-					selectedContentState === 'ready' &&
-					selectedPath !== null &&
-					renderedPath === selectedPath &&
-					typeof bodyPreview === 'string' &&
-					bodyPreview.length > 0 &&
-					isVisibleInPage(codeCanvas)
-				);
-
-				// oxlint-disable-next-line unicorn/consistent-function-scoping -- Playwright serializes this browser callback without outer helpers.
-				function isVisibleInPage(element: Element | null): boolean {
-					if (!(element instanceof HTMLElement) || element.closest('[hidden]') !== null)
-						return false;
-					const style = getComputedStyle(element);
-					return (
-						style.display !== 'none' &&
-						style.visibility !== 'hidden' &&
-						element.getClientRects().length > 0
-					);
-				}
-			},
-			bridgeViewerProductOnlySelectors,
-			{ timeout: productCompositionSettleTimeoutMilliseconds },
-		);
-	});
-}
-
-async function waitForProductCompositionState(wait: () => Promise<void>): Promise<boolean> {
-	try {
-		await wait();
-		return true;
-	} catch (error: unknown) {
-		if (error instanceof errors.TimeoutError) return false;
-		throw error;
-	}
 }
 
 async function readFileProductState(page: Page): Promise<BridgeViewerFileProductStateSnapshot> {

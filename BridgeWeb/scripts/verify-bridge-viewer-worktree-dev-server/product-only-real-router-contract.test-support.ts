@@ -30,6 +30,12 @@ export function makePassingProductOnlyProof(
 		fileAfterReviewFirstSwitch: fileState(fileReady),
 		fileAfterFirstAcknowledgement: fileState(fileReady),
 		fileAtCompletion: fileState(fileReady),
+		fileMarkdownAtReviewFirstSwitch: {
+			articleCharacterCount: fileReady ? 128 : 0,
+			canvasVisible: fileReady,
+			selectedDisplayPath: 'README.md',
+			sourcePath: fileReady ? 'README.md' : null,
+		},
 		legacyIntakeTranscript: legacyTraffic
 			? [
 					{
