@@ -8,6 +8,7 @@ enum BridgeProductViewScopeContract {
         else { return false }
         if previousMembers["kind"] == .string("file") {
             return previousMembers["changeFilter"] == nextMembers["changeFilter"]
+                && previousMembers["pathScope"] == nextMembers["pathScope"]
         }
         if previousMembers["kind"] == .string("comment") {
             return previousMembers["worktreeId"] == nextMembers["worktreeId"]

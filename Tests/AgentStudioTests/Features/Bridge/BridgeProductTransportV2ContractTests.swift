@@ -307,7 +307,7 @@ struct BridgeProductTransportV2ContractTests {
             "kind": .string("file"),
             "changeFilter": .object(["kind": .string("none")]),
             "interests": .array([]),
-            "pathScope": .array([]),
+            "pathScope": .array([.string("src")]),
         ])
         let changedFileFilter = BridgeProductJSONValue.object([
             "kind": .string("file"),
@@ -317,10 +317,17 @@ struct BridgeProductTransportV2ContractTests {
                 "kinds": .array([.string("modified")]),
             ]),
             "interests": .array([]),
-            "pathScope": .array([]),
+            "pathScope": .array([.string("src")]),
         ])
         #expect(BridgeProductViewScopeContract.hasSameMembershipFilter(fileScope, changedFileDemand))
         #expect(!BridgeProductViewScopeContract.hasSameMembershipFilter(fileScope, changedFileFilter))
+        let changedFilePathScope = BridgeProductJSONValue.object([
+            "kind": .string("file"),
+            "changeFilter": .object(["kind": .string("none")]),
+            "interests": .array([]),
+            "pathScope": .array([.string("Sources")]),
+        ])
+        #expect(!BridgeProductViewScopeContract.hasSameMembershipFilter(fileScope, changedFilePathScope))
 
         let reviewScope = BridgeProductJSONValue.object([
             "kind": .string("review"),

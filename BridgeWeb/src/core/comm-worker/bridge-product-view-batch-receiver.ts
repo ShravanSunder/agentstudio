@@ -443,12 +443,18 @@ function sameJSON(left: unknown, right: unknown): boolean {
 function sameViewFilter(left: BatchBegin['scope'], right: BatchBegin['scope']): boolean {
 	if (left.kind !== right.kind) return false;
 	if (left.kind !== 'file' || right.kind !== 'file') return true;
-	return sameJSON(left.changeFilter, right.changeFilter);
+	return (
+		sameJSON(left.changeFilter, right.changeFilter) && sameJSON(left.pathScope, right.pathScope)
+	);
 }
 
 function viewFilterKey(scope: BatchBegin['scope']): string {
 	return scope.kind === 'file'
-		? canonicalJSON({ kind: scope.kind, changeFilter: scope.changeFilter })
+		? canonicalJSON({
+				kind: scope.kind,
+				changeFilter: scope.changeFilter,
+				pathScope: scope.pathScope,
+			})
 		: canonicalJSON({ kind: scope.kind });
 }
 
