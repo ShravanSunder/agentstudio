@@ -171,7 +171,8 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
     .hero-first-screen {
       position: relative;
       display: flex;
-      min-height: 100svh;
+      height: 100svh;
+      min-height: 0;
       margin-top: -4.5rem;
       flex-direction: column;
       justify-content: space-evenly;
@@ -179,7 +180,7 @@ const [payoffFirst, payoffSecond] = marketingCopy.hero.headlinePayoff.split(/(?<
       padding-top: calc(4.5rem + clamp(32px, 1.5vw + 3vh, 80px));
       padding-bottom: calc(72px + env(safe-area-inset-bottom));
     }
-    .hero-first-screen .hero-intro-column { display: flex; flex: 1 1 auto; flex-direction: column; margin-top: 0; }
+    .hero-first-screen .hero-intro-column { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; margin-top: 0; }
     .hero-first-screen :global(.hero-intro-root) { display: flex; flex: 1 1 auto; flex-direction: column; }
     .hero-first-screen :global(.hero-terminal-window) { flex: 1 1 auto; }
   }
