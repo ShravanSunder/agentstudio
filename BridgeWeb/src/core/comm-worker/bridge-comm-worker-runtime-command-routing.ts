@@ -213,6 +213,8 @@ function bridgeCommWorkerAnnotationOperationSemanticClass(
 		case 'draft.save':
 		case 'message.viewed.mark':
 		case 'output.handled.clear':
+		case 'output.preference.changeFolder':
+		case 'output.reveal':
 		case 'output.scope.commit':
 		case 'recovery.acknowledge':
 		case 'reply.create':

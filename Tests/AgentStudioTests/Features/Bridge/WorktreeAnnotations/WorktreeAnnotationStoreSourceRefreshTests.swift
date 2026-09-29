@@ -655,11 +655,13 @@ actor RepositoryBackedWorktreeAnnotationAccess: WorktreeAnnotationRepositoryAcce
     func finalizeOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         try repository.finalizeOutputAttempt(
             attemptID: attemptID,
             eventKind: eventKind,
+            destinationPath: destinationPath,
             now: now
         )
     }

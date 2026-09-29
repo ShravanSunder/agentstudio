@@ -31,9 +31,7 @@ struct BridgeDevelopmentAnnotationOutputEffectTests {
                 destinationPath: nil
             )
         )
-        let destinationOutcome = await effect.chooseJSONDestination(
-            suggestedFilename: "review-comments.json"
-        )
+        let destinationOutcome = await effect.chooseJSONDestination()
         let destinationPath: String
         switch destinationOutcome {
         case .selected(let path):
@@ -48,18 +46,21 @@ struct BridgeDevelopmentAnnotationOutputEffectTests {
                 outputKind: .jsonFile,
                 contentType: "application/json",
                 exactBytes: jsonBytes,
-                destinationPath: destinationPath
+                destinationPath: URL(fileURLWithPath: destinationPath).appending(path: "review-comments.json").path,
+                suggestedFilename: "review-comments.json"
             )
         )
 
         // Assert
-        #expect(clipboardOutcome == .succeeded)
-        #expect(jsonOutcome == .succeeded)
+        #expect(clipboardOutcome == .succeeded(destinationPath: nil))
+        #expect(
+            jsonOutcome
+                == .succeeded(destinationPath: effect.outputDirectory.appending(path: "review-comments.json").path))
         #expect(
             try Data(contentsOf: effect.clipboardCaptureURL(for: attemptID)) == markdownBytes
         )
-        #expect(try Data(contentsOf: URL(fileURLWithPath: destinationPath)) == jsonBytes)
-        #expect(URL(fileURLWithPath: destinationPath).deletingLastPathComponent() == effect.outputDirectory)
+        #expect(try Data(contentsOf: effect.outputDirectory.appending(path: "review-comments.json")) == jsonBytes)
+        #expect(URL(fileURLWithPath: destinationPath) == effect.outputDirectory)
     }
 
     @Test("rejects an injected JSON destination outside the isolated development output directory")

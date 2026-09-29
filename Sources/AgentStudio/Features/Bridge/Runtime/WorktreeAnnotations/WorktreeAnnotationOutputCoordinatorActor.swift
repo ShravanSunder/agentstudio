@@ -21,11 +21,13 @@ protocol WorktreeAnnotationOutputServiceAccess: Sendable {
     func finalizeOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput
     func markOutputAttemptFinalizationFailed(
         attemptID: WorktreeAnnotationOutputAttemptID,
         cleanupError: String,
+        destinationPath: String?,
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput
     func markPreparedOutputAttemptsUnknown(now: Date) async throws -> Int
@@ -33,6 +35,7 @@ protocol WorktreeAnnotationOutputServiceAccess: Sendable {
 
 struct WorktreeAnnotationOutputRequest: Sendable {
     let outputKind: WorktreeAnnotationOutputKind
+    let destination: BridgeProductWorktreeAnnotationOperation.OutputDestination?
     let sessionDetail: WorktreeAnnotationSessionDetail
     let selectedMessages: [WorktreeAnnotationSQLiteRepository.OutputMessageSelection]
     let placementsByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection]
@@ -44,6 +47,7 @@ struct WorktreeAnnotationOutputRequest: Sendable {
 
     init(
         outputKind: WorktreeAnnotationOutputKind,
+        destination: BridgeProductWorktreeAnnotationOperation.OutputDestination? = nil,
         sessionDetail: WorktreeAnnotationSessionDetail,
         selectedMessages: [WorktreeAnnotationSQLiteRepository.OutputMessageSelection],
         placementsByThreadID: [WorktreeAnnotationThreadID: WorktreeAnnotationThreadPlacementProjection],
@@ -54,6 +58,7 @@ struct WorktreeAnnotationOutputRequest: Sendable {
         expectedProjectionRevision: Int = 0
     ) {
         self.outputKind = outputKind
+        self.destination = destination
         self.sessionDetail = sessionDetail
         self.selectedMessages = selectedMessages
         self.placementsByThreadID = placementsByThreadID
@@ -93,10 +98,15 @@ enum WorktreeAnnotationOutputCommandOutcome: Equatable, Sendable {
     case destinationCancelled
     case destinationSelectionFailed(String)
     case succeeded(WorktreeAnnotationOutputResultSummary)
-    case effectFailed(summary: WorktreeAnnotationOutputResultSummary, effectError: String)
+    case effectFailed(
+        summary: WorktreeAnnotationOutputResultSummary,
+        effectError: String,
+        effectCode: WorktreeAnnotationOutputFileFailureCode?
+    )
     case effectAndCleanupFailed(
         summary: WorktreeAnnotationOutputResultSummary,
         effectError: String,
+        effectCode: WorktreeAnnotationOutputFileFailureCode?,
         cleanupError: String
     )
     case partialSuccess(summary: WorktreeAnnotationOutputResultSummary, finalizationError: String)
@@ -107,8 +117,8 @@ enum WorktreeAnnotationOutputCommandOutcome: Equatable, Sendable {
             nil
         case .succeeded(let summary):
             summary
-        case .effectFailed(let summary, _),
-            .effectAndCleanupFailed(let summary, _, _),
+        case .effectFailed(let summary, _, _),
+            .effectAndCleanupFailed(let summary, _, _, _),
             .partialSuccess(let summary, _):
             summary
         }
@@ -126,25 +136,35 @@ package struct WorktreeAnnotationOutputEffectRequest: Equatable, Sendable {
     package let contentType: String
     package let exactBytes: Data
     package let destinationPath: String?
+    package let suggestedFilename: String?
 
     package init(
         attemptID: UUID,
         outputKind: WorktreeAnnotationOutputEffectKind,
         contentType: String,
         exactBytes: Data,
-        destinationPath: String?
+        destinationPath: String?,
+        suggestedFilename: String? = nil
     ) {
         self.attemptID = attemptID
         self.outputKind = outputKind
         self.contentType = contentType
         self.exactBytes = exactBytes
         self.destinationPath = destinationPath
+        self.suggestedFilename = suggestedFilename
     }
 }
 
 package enum WorktreeAnnotationOutputEffectOutcome: Equatable, Sendable {
-    case succeeded
+    case succeeded(destinationPath: String?)
+    case cancelled
+    case fileFailure(code: WorktreeAnnotationOutputFileFailureCode, message: String)
     case failed(String)
+}
+
+package enum WorktreeAnnotationOutputFileFailureCode: String, Codable, Equatable, Sendable {
+    case missingFolder = "missing_folder"
+    case permissionDenied = "permission_denied"
 }
 
 package enum WorktreeAnnotationOutputDestinationOutcome: Equatable, Sendable {
@@ -154,9 +174,9 @@ package enum WorktreeAnnotationOutputDestinationOutcome: Equatable, Sendable {
 }
 
 package protocol WorktreeAnnotationOutputEffect: Sendable {
-    func chooseJSONDestination(
-        suggestedFilename: String
-    ) async -> WorktreeAnnotationOutputDestinationOutcome
+    func rememberedJSONFolder() async -> String
+    func chooseJSONDestination() async -> WorktreeAnnotationOutputDestinationOutcome
+    func revealJSONFile(path: String) async -> Bool
 
     func perform(
         _ request: WorktreeAnnotationOutputEffectRequest
@@ -169,11 +189,13 @@ enum WorktreeAnnotationOutputExecutionResult: Equatable, Sendable {
     case succeeded(WorktreeAnnotationSQLiteRepository.PreparedOutput)
     case effectFailed(
         effectError: String,
+        effectCode: WorktreeAnnotationOutputFileFailureCode?,
         output: WorktreeAnnotationSQLiteRepository.PreparedOutput
     )
     case effectAndCleanupFailed(
         output: WorktreeAnnotationSQLiteRepository.PreparedOutput,
         effectError: String,
+        effectCode: WorktreeAnnotationOutputFileFailureCode?,
         cleanupError: String
     )
     case partialSuccess(
@@ -189,12 +211,13 @@ enum WorktreeAnnotationOutputExecutionResult: Equatable, Sendable {
             .destinationSelectionFailed(error)
         case .succeeded(let output):
             .succeeded(.init(output))
-        case .effectFailed(let effectError, let output):
-            .effectFailed(summary: .init(output), effectError: effectError)
-        case .effectAndCleanupFailed(let output, let effectError, let cleanupError):
+        case .effectFailed(let effectError, let effectCode, let output):
+            .effectFailed(summary: .init(output), effectError: effectError, effectCode: effectCode)
+        case .effectAndCleanupFailed(let output, let effectError, let effectCode, let cleanupError):
             .effectAndCleanupFailed(
                 summary: .init(output),
                 effectError: effectError,
+                effectCode: effectCode,
                 cleanupError: cleanupError
             )
         case .partialSuccess(let output, let finalizationError):
@@ -255,10 +278,21 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
         }
     }
 
+    func changeFolder() async -> WorktreeAnnotationOutputDestinationOutcome {
+        await effect.chooseJSONDestination()
+    }
+
+    func revealSavedFile(path: String) async -> Bool {
+        await effect.revealJSONFile(path: path)
+    }
+
     func executeNew(
         _ request: WorktreeAnnotationOutputRequest
     ) async throws -> WorktreeAnnotationOutputExecutionResult {
-        let destinationResolution = await resolveDestination(outputKind: request.outputKind)
+        let destinationResolution = await resolveDestination(
+            outputKind: request.outputKind,
+            destination: request.destination
+        )
         let destinationPath: String?
         switch destinationResolution {
         case .resolved(let path):
@@ -268,7 +302,15 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
         case .failed(let error):
             return .destinationSelectionFailed(error)
         }
+        guard !Task.isCancelled else { return .destinationCancelled }
         let createdAt = now()
+        let timestamp = ISO8601DateFormatter().string(from: createdAt)
+            .replacingOccurrences(of: ":", with: "-")
+        let suggestedFilename = "AgentStudio Review Comments \(timestamp).json"
+        let preparedDestinationPath = destinationPath.map { folderPath in
+            URL(fileURLWithPath: folderPath, isDirectory: true)
+                .appendingPathComponent(suggestedFilename).path
+        }
         let attemptID = await generateAttemptID()
         let materialization = try await Self.materialize(
             request: request,
@@ -291,7 +333,7 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
                 canonicalSnapshot: materialization.snapshot,
                 exactBytes: materialization.exactBytes,
                 markdownPresentation: materialization.markdownPresentation,
-                destinationPath: destinationPath,
+                destinationPath: preparedDestinationPath,
                 repeatedFromAttemptID: nil,
                 selectedMessages: orderedSelection,
                 expectedSessionRevision: request.expectedSessionRevision,
@@ -299,23 +341,18 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
                 now: createdAt
             )
         )
-        return await performEffect(for: prepared)
+        return await performEffect(
+            for: prepared,
+            suggestedFilename: request.outputKind == .jsonFile ? suggestedFilename : nil
+        )
     }
 
     func executeRepeat(
         sourceAttemptID: WorktreeAnnotationOutputAttemptID
     ) async throws -> WorktreeAnnotationOutputExecutionResult {
         let source = try await store.inspectOutputAttempt(attemptID: sourceAttemptID)
-        let destinationResolution = await resolveDestination(outputKind: source.attempt.outputKind)
-        let destinationPath: String?
-        switch destinationResolution {
-        case .resolved(let path):
-            destinationPath = path
-        case .cancelled:
-            return .destinationCancelled
-        case .failed(let error):
-            return .destinationSelectionFailed(error)
-        }
+        // Repeat deliberately rewrites the recorded file, using its exact bytes.
+        let destinationPath = source.attempt.destinationPath
         let repeated = try await store.repeatOutputAttempt(
             sourceAttemptID: sourceAttemptID,
             repeatedAttemptID: await generateAttemptID(),
@@ -346,7 +383,8 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
     }
 
     private func performEffect(
-        for prepared: WorktreeAnnotationSQLiteRepository.PreparedOutput
+        for prepared: WorktreeAnnotationSQLiteRepository.PreparedOutput,
+        suggestedFilename: String? = nil
     ) async -> WorktreeAnnotationOutputExecutionResult {
         let outcome = await effect.perform(
             .init(
@@ -356,24 +394,32 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
                     : .jsonFile,
                 contentType: prepared.attempt.contentType,
                 exactBytes: prepared.attempt.exactBytes,
-                destinationPath: prepared.attempt.destinationPath
+                destinationPath: prepared.attempt.destinationPath,
+                suggestedFilename: suggestedFilename
             )
         )
         switch outcome {
-        case .succeeded:
-            return await finalizeKnownSuccess(prepared)
+        case .succeeded(let destinationPath):
+            return await finalizeKnownSuccess(prepared, destinationPath: destinationPath)
+        case .cancelled:
+            _ = await cancelKnownFailure(prepared, effectError: "Session ended before output began.")
+            return .destinationCancelled
+        case .fileFailure(let code, let message):
+            return await cancelKnownFailure(prepared, effectError: message, effectCode: code)
         case .failed(let effectError):
             return await cancelKnownFailure(prepared, effectError: effectError)
         }
     }
 
     private func finalizeKnownSuccess(
-        _ prepared: WorktreeAnnotationSQLiteRepository.PreparedOutput
+        _ prepared: WorktreeAnnotationSQLiteRepository.PreparedOutput,
+        destinationPath: String?
     ) async -> WorktreeAnnotationOutputExecutionResult {
         do {
             let finalized = try await store.finalizeOutputAttempt(
                 attemptID: prepared.attempt.id,
                 eventKind: prepared.attempt.outputKind == .clipboardMarkdown ? .copied : .exported,
+                destinationPath: destinationPath,
                 now: now()
             )
             return .succeeded(finalized)
@@ -384,6 +430,7 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
                 recordedOutput = try await store.markOutputAttemptFinalizationFailed(
                     attemptID: prepared.attempt.id,
                     cleanupError: finalizationError,
+                    destinationPath: destinationPath,
                     now: now()
                 )
             } catch {
@@ -398,7 +445,8 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
 
     private func cancelKnownFailure(
         _ prepared: WorktreeAnnotationSQLiteRepository.PreparedOutput,
-        effectError: String
+        effectError: String,
+        effectCode: WorktreeAnnotationOutputFileFailureCode? = nil
     ) async -> WorktreeAnnotationOutputExecutionResult {
         do {
             let cancelled = try await store.cancelOutputAttempt(
@@ -406,12 +454,13 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
                 effectError: effectError,
                 now: now()
             )
-            return .effectFailed(effectError: effectError, output: cancelled)
+            return .effectFailed(effectError: effectError, effectCode: effectCode, output: cancelled)
         } catch {
             cancellationProofByAttemptID[prepared.attempt.id] = .init(effectError: effectError)
             return .effectAndCleanupFailed(
                 output: prepared,
                 effectError: effectError,
+                effectCode: effectCode,
                 cleanupError: String(describing: error)
             )
         }
@@ -466,15 +515,20 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
     }
 
     private func resolveDestination(
-        outputKind: WorktreeAnnotationOutputKind
+        outputKind: WorktreeAnnotationOutputKind,
+        destination: BridgeProductWorktreeAnnotationOperation.OutputDestination?
     ) async -> DestinationResolution {
         switch outputKind {
         case .clipboardMarkdown:
             return .resolved(nil)
         case .jsonFile:
-            switch await effect.chooseJSONDestination(
-                suggestedFilename: "AgentStudio Review Comments.json"
-            ) {
+            let outcome: WorktreeAnnotationOutputDestinationOutcome =
+                switch destination {
+                case .remembered: .selected(path: await effect.rememberedJSONFolder())
+                case .choose: await effect.chooseJSONDestination()
+                case nil: .failed("JSON export has no destination selection.")
+                }
+            switch outcome {
             case .selected(let path):
                 guard !path.isEmpty else {
                     return .failed("The selected export destination was empty.")

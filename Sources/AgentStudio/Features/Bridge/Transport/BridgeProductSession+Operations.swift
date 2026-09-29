@@ -38,6 +38,10 @@ extension BridgeProductSession {
         switch annotationOperation {
         case .repeatOutput:
             return .human
+        case .outputPreferenceChangeFolder:
+            return .human
+        case .outputReveal:
+            return .ordinary
         case .outputScopeCommit(let body) where body.outputKind == .jsonFile:
             return .human
         default:

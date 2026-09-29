@@ -451,6 +451,7 @@ package actor WorktreeAnnotationServiceActor {
     func finalizeOutputAttempt(
         attemptID: WorktreeAnnotationOutputAttemptID,
         eventKind: WorktreeAnnotationOutputEventKind,
+        destinationPath: String? = nil,
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
@@ -458,6 +459,7 @@ package actor WorktreeAnnotationServiceActor {
             try await repositoryAccess.finalizeOutputAttempt(
                 attemptID: attemptID,
                 eventKind: eventKind,
+                destinationPath: destinationPath,
                 now: now
             )
         }
@@ -467,6 +469,7 @@ package actor WorktreeAnnotationServiceActor {
     func markOutputAttemptFinalizationFailed(
         attemptID: WorktreeAnnotationOutputAttemptID,
         cleanupError: String,
+        destinationPath: String? = nil,
         now: Date
     ) async throws -> WorktreeAnnotationSQLiteRepository.PreparedOutput {
         try requireMutationAllowed()
@@ -474,6 +477,7 @@ package actor WorktreeAnnotationServiceActor {
             try await repositoryAccess.markOutputAttemptFinalizationFailed(
                 attemptID: attemptID,
                 cleanupError: cleanupError,
+                destinationPath: destinationPath,
                 now: now
             )
         }

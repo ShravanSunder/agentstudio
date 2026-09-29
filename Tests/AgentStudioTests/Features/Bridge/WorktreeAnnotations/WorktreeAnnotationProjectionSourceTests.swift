@@ -596,6 +596,7 @@ private actor ProjectionSnapshotRepositoryAccess: WorktreeAnnotationRepositoryAc
     func finalizeOutputAttempt(
         attemptID _: WorktreeAnnotationOutputAttemptID,
         eventKind _: WorktreeAnnotationOutputEventKind,
+        destinationPath _: String?,
         now _: Date
     ) async throws -> WorktreeAnnotationCommittedMutation<WorktreeAnnotationSQLiteRepository.PreparedOutput> {
         try unsupportedProjectionMutation()
