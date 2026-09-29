@@ -76,13 +76,18 @@ extension CommandBarPanelController {
 
     private func requestBranchListingIfNeeded(for repository: Repo) {
         let generation = state.rootSessionGeneration
+        let enrichmentRevision = repoCache.cacheRevision
+        if let recordedRevision = state.branchListingRevisionByRepositoryId[repository.id],
+            recordedRevision != enrichmentRevision
+        {
+            state.invalidateBranchListing(forRepositoryId: repository.id)
+        }
         guard let branchListing,
             state.branchNamesByRepositoryId[repository.id] == nil,
             !state.branchListingQueryFailures.contains(repository.id),
             branchListingQueriesByRepositoryId[repository.id]?.rootSessionGeneration != generation
         else { return }
         let token = UUIDv7.generate()
-        let enrichmentRevision = repoCache.cacheRevision
         let task = Task { @MainActor [weak self] in
             do {
                 let branchNames = try await branchListing.branchNames(
@@ -97,7 +102,8 @@ extension CommandBarPanelController {
                     self.requestBranchListingIfNeeded(for: repository)
                     return
                 }
-                self.state.recordBranchNames(branchNames, forRepositoryId: repository.id)
+                self.state.recordBranchNames(
+                    branchNames, forRepositoryId: repository.id, enrichmentRevision: enrichmentRevision)
                 self.refreshCreationLevel(for: repository)
             } catch {
                 guard let self, self.state.rootSessionGeneration == generation else { return }
@@ -108,7 +114,8 @@ extension CommandBarPanelController {
                     self.requestBranchListingIfNeeded(for: repository)
                     return
                 }
-                self.state.recordBranchListingQueryFailure(forRepositoryId: repository.id)
+                self.state.recordBranchListingQueryFailure(
+                    forRepositoryId: repository.id, enrichmentRevision: enrichmentRevision)
                 self.refreshCreationLevel(for: repository)
             }
         }

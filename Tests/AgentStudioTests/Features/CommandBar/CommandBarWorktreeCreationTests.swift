@@ -272,6 +272,26 @@ struct CommandBarWorktreeCreationTests {
         #expect(controller.state.branchNamesByRepositoryId[fixture.repository.id] == ["main", "new"])
     }
 
+    @Test("revisiting a branch level reloads after its enrichment revision changes")
+    func branchListingReloadsOnRevisit() async throws {
+        let fixture = Self.makeFixture()
+        let repoCache = RepoCacheAtom()
+        let listing = StubWorktreeBranchListing(result: .success(["main"]))
+        let controller = makeController(store: fixture.store, repoCache: repoCache, branchListing: listing)
+        controller.state.show(prefix: ">")
+        controller.state.pushLevel(Self.menuLevel(fixture: fixture))
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        let first = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+        await first.value
+        #expect(controller.state.branchNamesByRepositoryId[fixture.repository.id] == ["main"])
+
+        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: fixture.repository.id))
+        controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+        let reloaded = try #require(controller.branchListingQueriesByRepositoryId[fixture.repository.id]?.task)
+        await reloaded.value
+        #expect(await listing.requestedRepositoryIds == [fixture.repository.id, fixture.repository.id])
+    }
+
     @Test("default answer updates its menu beneath the fork picker")
     func defaultAnswerUpdatesCoveredMenu() async throws {
         let fixture = Self.makeFixture()
