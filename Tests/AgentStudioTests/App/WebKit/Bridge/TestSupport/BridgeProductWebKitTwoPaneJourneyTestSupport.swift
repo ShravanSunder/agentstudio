@@ -718,16 +718,15 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
                 return reviewShell?.getAttribute('data-selected-content-state') === 'ready' ? true : null;
                 """
         )
-        _ = await traceRecorder.waitForTrace(.reviewPublication)
-        let trace = await traceRecorder.scrubbedTrace()
-        guard trace.hasCanonicalEagerSubscriptions,
-            trace.hasReviewMetadataPublication
+        let trace = await traceRecorder.waitForTrace(.canonicalSubscriptionsAndReviewPublication)
+        guard trace?.hasCanonicalEagerSubscriptions == true,
+            trace?.hasReviewMetadataPublication == true
         else {
             let dom = await BridgeProductWebKitCarrierTestSupport.domSnapshot(controller.page)
             let native = await BridgeProductWebKitCarrierTestSupport.nativeSnapshot(controller)
             let providerSnapshot = await reviewProvider.snapshot()
             throw JourneyError.conditionFailed(
-                "\(paneLabel) real-git Review did not become ready; appRoot=\(dom?.hasAppRoot == true), canonicalSubscriptions=\(trace.hasCanonicalEagerSubscriptions), reviewPublication=\(trace.hasReviewMetadataPublication), reviewState=\(dom?.reviewSelectedContentState ?? "missing"), comparisons=\(providerSnapshot.comparisonCount), blockedComparisons=\(providerSnapshot.blockedComparisonCount), native=\(native)"
+                "\(paneLabel) real-git Review did not become ready; appRoot=\(dom?.hasAppRoot == true), canonicalSubscriptions=\(trace?.hasCanonicalEagerSubscriptions == true), reviewPublication=\(trace?.hasReviewMetadataPublication == true), reviewState=\(dom?.reviewSelectedContentState ?? "missing"), comparisons=\(providerSnapshot.comparisonCount), blockedComparisons=\(providerSnapshot.blockedComparisonCount), native=\(native)"
             )
         }
     }
@@ -759,7 +758,14 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         guard await installation.session.waitUntilProducerFramesQuiescent() else {
             throw JourneyError.conditionFailed("native Review activation lost its producer session")
         }
-        let owner = await controller.productSessionOwner.snapshot()
+        var owner = await controller.productSessionOwner.snapshot()
+        if owner.queuedFrameCount > 0 || owner.inFlightFrameReceiptCount > 0 {
+            // A Review publication admitted after the first idle observation is still in flight.
+            guard await installation.session.waitUntilProducerFramesQuiescent() else {
+                throw JourneyError.conditionFailed("native Review activation lost its producer session")
+            }
+            owner = await controller.productSessionOwner.snapshot()
+        }
         guard owner.queuedFrameCount == 0, owner.inFlightFrameReceiptCount == 0 else {
             throw JourneyError.conditionFailed(
                 "native Review activation left frame delivery queued after producer quiescence "

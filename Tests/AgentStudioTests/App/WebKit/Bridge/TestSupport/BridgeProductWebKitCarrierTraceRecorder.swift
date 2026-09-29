@@ -6,11 +6,14 @@ import Foundation
 actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
     enum TraceCondition: Sendable {
         case reviewPublication
+        case canonicalSubscriptionsAndReviewPublication
 
         func isSatisfied(by trace: BridgeProductWebKitCarrierTrace) -> Bool {
             switch self {
             case .reviewPublication:
                 trace.hasReviewMetadataPublication
+            case .canonicalSubscriptionsAndReviewPublication:
+                trace.hasCanonicalEagerSubscriptions && trace.hasReviewMetadataPublication
             }
         }
     }
