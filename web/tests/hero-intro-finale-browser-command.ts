@@ -35,6 +35,10 @@ interface FinaleSample {
   readonly transcriptClearances: readonly number[];
   readonly transcriptScrollTops: readonly number[];
   readonly transcriptOverflows: readonly number[];
+  readonly firstVisibleRowTopGaps: readonly number[];
+  readonly worktreeRowLineCounts: readonly number[];
+  readonly claudeRowLineCounts: readonly number[];
+  readonly wrappedClaudeRows: readonly string[];
   readonly resultVisibleInPane: boolean;
   readonly offscreenRowPaintLeaks: number;
   readonly codexHeaderVisible: boolean;
@@ -335,6 +339,22 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                 if (transcript === null || pinned === null)
                   throw new Error("Pinned transcript structure is missing");
                 const transcriptBounds = transcript.getBoundingClientRect();
+                const paintedRow = (row: HTMLElement): boolean => {
+                  if (row.getClientRects().length === 0) return false;
+                  for (
+                    let element: Element | null = row;
+                    element !== null && element !== transcript;
+                    element = element.parentElement
+                  ) {
+                    if (Number(getComputedStyle(element).opacity) < 0.05) return false;
+                  }
+                  return true;
+                };
+                const firstVisibleRow = [
+                  ...transcript.querySelectorAll<HTMLElement>(".hero-transcript-row"),
+                ]
+                  .filter(paintedRow)
+                  .find((row) => row.getBoundingClientRect().bottom > transcriptBounds.top + 0.5);
                 const visibleBottom = [
                   ...transcript.querySelectorAll<HTMLElement>(".hero-transcript-row"),
                 ]
@@ -349,6 +369,10 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                   .filter((bottom) => bottom > transcriptBounds.top)
                   .reduce((bottom, candidate) => Math.max(bottom, candidate), transcriptBounds.top);
                 return {
+                  firstVisibleRowTopGap:
+                    firstVisibleRow === undefined
+                      ? 0
+                      : firstVisibleRow.getBoundingClientRect().top - transcriptBounds.top,
                   clearance: pinned.getBoundingClientRect().top - visibleBottom,
                   scrollTop: transcript.scrollTop,
                   overflow: transcript.scrollHeight - transcript.clientHeight,
@@ -421,6 +445,48 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               transcriptOverflows: transcriptMeasurements.map(
                 (measurement) => measurement.overflow,
               ),
+              firstVisibleRowTopGaps: transcriptMeasurements.map(
+                (measurement) => measurement.firstVisibleRowTopGap,
+              ),
+              worktreeRowLineCounts: [
+                ...root.querySelectorAll<HTMLElement>(
+                  ".hero-terminal-pane--claude [data-hero-worktree-row]",
+                ),
+              ]
+                .filter((row) => row.getClientRects().length > 0)
+                .map((row) => {
+                  const range = document.createRange();
+                  range.selectNodeContents(row);
+                  return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)))
+                    .size;
+                }),
+              claudeRowLineCounts: [
+                ...root.querySelectorAll<HTMLElement>(
+                  ".hero-terminal-pane--claude .hero-transcript-row",
+                ),
+              ]
+                .filter((row) => row.getClientRects().length > 0)
+                .map((row) => {
+                  const range = document.createRange();
+                  range.selectNodeContents(row);
+                  return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)))
+                    .size;
+                }),
+              wrappedClaudeRows: [
+                ...root.querySelectorAll<HTMLElement>(
+                  ".hero-terminal-pane--claude .hero-transcript-row",
+                ),
+              ]
+                .filter((row) => row.getClientRects().length > 0)
+                .filter((row) => {
+                  const range = document.createRange();
+                  range.selectNodeContents(row);
+                  return (
+                    new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size >
+                    1
+                  );
+                })
+                .map((row) => row.textContent ?? ""),
               resultVisibleInPane,
               offscreenRowPaintLeaks,
               codexHeaderVisible,

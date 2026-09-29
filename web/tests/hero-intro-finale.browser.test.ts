@@ -97,6 +97,10 @@ for (const [width, height] of [
       ).toBe(true);
     }
     for (const sample of observation.samples) {
+      expect(
+        sample.firstVisibleRowTopGaps.every((gap) => gap >= -0.5),
+        `${sample.time}: complete first row ${sample.firstVisibleRowTopGaps.join(",")}`,
+      ).toBe(true);
       expect(sample.installTransform, `${sample.time}: install transform`).toBe("none");
       expect(sample.realCommandLines, `${sample.time}: command text`).toEqual([
         "$ brew tap ShravanSunder/agentstudio",
@@ -127,6 +131,23 @@ for (const [width, height] of [
     expect(observation.reducedFinaleOpacity.every((opacity) => opacity === 1)).toBe(true);
   });
 }
+
+it("keeps phone worktree rows on one line at approved narrow widths", async () => {
+  for (const width of [360, 390, 414]) {
+    const observation = await commands.verifyHeroIntroFinale(
+      inject("siteHeaderBrowserTestUrl"),
+      width,
+      844,
+    );
+    const settled = observation.samples.find((sample) => sample.time === "settled");
+    if (settled === undefined) throw new Error("Settled hero sample missing");
+    expect(settled.worktreeRowLineCounts).toEqual([1, 1, 1]);
+    expect(
+      settled.claudeRowLineCounts.every((count) => count <= 1),
+      `${width}px wrapped Claude rows: ${settled.wrappedClaudeRows.join(" | ")}`,
+    ).toBe(true);
+  }
+});
 
 it("keeps the hero Codex session in the Agent Studio workspace", async () => {
   const observation = await commands.verifyHeroIntroFinale(

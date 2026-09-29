@@ -23,6 +23,7 @@ import {
 } from "./hero-intro-dom-contract";
 import { addHeroRailStaircase } from "./hero-intro-rail-draw";
 import { addHeroTokenBursts } from "./hero-intro-token-bursts";
+import { snapHeroTranscriptToWholeRow } from "./hero-transcript-scroll";
 
 function requiredTarget(root: HTMLElement, attribute: string): HTMLElement {
   const target = root.querySelector<HTMLElement>(`[${attribute}]`);
@@ -295,6 +296,7 @@ export function buildHeroIntroScene(
     const rowBottom = newestVisible.getBoundingClientRect().bottom;
     const viewportBottom = transcript.getBoundingClientRect().bottom;
     transcript.scrollTop = Math.max(0, transcript.scrollTop + rowBottom - viewportBottom + 2);
+    snapHeroTranscriptToWholeRow(transcript);
   };
   const revealRow = (row: HTMLElement | null | undefined, start: number): void => {
     if (row !== null && row !== undefined)

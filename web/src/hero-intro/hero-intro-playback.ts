@@ -3,6 +3,7 @@ import { gsap } from "gsap";
 import { heroIntroFourthPlaneAttribute, heroIntroStateAttribute } from "./hero-intro-dom-contract";
 import { clearHeroRailStaircase } from "./hero-intro-rail-draw";
 import { collectHeroIntroTargets, buildHeroIntroScene } from "./hero-intro-scene";
+import { snapHeroTranscriptToWholeRow } from "./hero-transcript-scroll";
 
 export interface HeroIntroPlayback {
   readonly timeline: ReturnType<typeof gsap.timeline> | null;
@@ -50,6 +51,7 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
     }
     for (const transcript of root.querySelectorAll<HTMLElement>(".hero-terminal-transcript")) {
       transcript.scrollTop = transcript.scrollHeight;
+      snapHeroTranscriptToWholeRow(transcript);
     }
     root.querySelector(`[${heroIntroFourthPlaneAttribute}]`)?.remove();
     root.querySelector("[data-hero-token-layer]")?.remove();
@@ -108,6 +110,8 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
         },
         seek: (seconds: number): void => {
           timeline?.pause().time(seconds);
+          for (const transcript of root.querySelectorAll<HTMLElement>(".hero-terminal-transcript"))
+            snapHeroTranscriptToWholeRow(transcript);
         },
         finish,
       },
