@@ -8,7 +8,7 @@ package struct CommandBarResultsList: View {
     let groups: [CommandBarItemGroup]
     let octiconLoader: OcticonLoader
     let selectedIndex: Int
-    let searchQuery: String
+    let titleMatchesByItemId: [String: Range<Int>]
     let dimmedItemIds: Set<String>
     let onSelect: (CommandBarItem) -> Void
     let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
@@ -17,7 +17,7 @@ package struct CommandBarResultsList: View {
         groups: [CommandBarItemGroup],
         octiconLoader: OcticonLoader,
         selectedIndex: Int,
-        searchQuery: String = "",
+        titleMatchesByItemId: [String: Range<Int>] = [:],
         dimmedItemIds: Set<String> = [],
         onSelect: @escaping (CommandBarItem) -> Void,
         onShowActions: @escaping @MainActor @Sendable (CommandBarItem) -> Void = { _ in }
@@ -25,7 +25,7 @@ package struct CommandBarResultsList: View {
         self.groups = groups
         self.octiconLoader = octiconLoader
         self.selectedIndex = selectedIndex
-        self.searchQuery = searchQuery
+        self.titleMatchesByItemId = titleMatchesByItemId
         self.dimmedItemIds = dimmedItemIds
         self.onSelect = onSelect
         self.onShowActions = onShowActions
@@ -48,7 +48,7 @@ package struct CommandBarResultsList: View {
                                     item: item,
                                     octiconLoader: octiconLoader,
                                     isSelected: flatIndex == selectedIndex,
-                                    searchQuery: searchQuery,
+                                    titleMatch: titleMatchesByItemId[item.id],
                                     isDimmed: dimmedItemIds.contains(item.id),
                                     onShowActions: { onShowActions(item) }
                                 )
