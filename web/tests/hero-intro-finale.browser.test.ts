@@ -52,6 +52,20 @@ for (const [width, height] of [
     expect(at(7.5).installBurstTargetYGap).toBeLessThanOrEqual(4);
     expect(at(7.5).tokenLayerViewportOffset).toBeLessThanOrEqual(1);
     expect(at(7.56).tokenCount).toBeGreaterThan(0);
+    const installAt = (fraction: number) => at(Number((7.05 + fraction * 0.9).toFixed(3)));
+    for (const fraction of [0.5, 0.6, 0.7, 0.8, 0.9]) {
+      expect(
+        installAt(fraction).tokenCount,
+        `${width}px tokens at ${fraction}`,
+      ).toBeGreaterThanOrEqual(4);
+      expect(installAt(fraction).tokenTextOverlaps).toBe(0);
+    }
+    expect(
+      installAt(0.93).installArrivalTokens.filter(
+        (token) => token.opacity >= 0.5 && token.distance <= 28,
+      ).length,
+      `${width}px visible arrival tokens`,
+    ).toBeGreaterThanOrEqual(3);
     expect(at(7.96).tokenCount).toBe(0);
     expect(at(7.5).installOpacity).toBe(0);
     expect(at(8.2).installOpacity).toBeGreaterThan(0);

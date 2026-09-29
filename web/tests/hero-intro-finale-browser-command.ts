@@ -46,6 +46,7 @@ interface FinaleSample {
   readonly installBurstTargetXGap: number;
   readonly installBurstTargetYGap: number;
   readonly installTokenVerticalStrays: number;
+  readonly installArrivalTokens: readonly { readonly distance: number; readonly opacity: number }[];
   readonly tokenLayerViewportOffset: number;
   readonly claudeInputText: string;
   readonly codexInputText: string;
@@ -168,6 +169,9 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         throw new Error("Hero rail timing schedule is incomplete");
       const holdMiddle = (firstHop.arrival + secondHop.start) / 2;
       const sampleTimes = [
+        ...[0.5, 0.6, 0.7, 0.8, 0.9, 0.93].map((fraction) =>
+          Number((7.05 + fraction * 0.9).toFixed(3)),
+        ),
         0,
         0.2,
         0.3,
@@ -374,7 +378,8 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             ]
               .filter(
                 (row) =>
-                  row.getClientRects().length > 0 && Number(getComputedStyle(row).opacity) > 0.05,
+                  row.getClientRects().length > 0 &&
+                  row.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
               )
               .flatMap((row) => {
                 const range = document.createRange();
@@ -537,6 +542,16 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                   bounds.top < glyphBounds.top - 20 || bounds.bottom > commandBounds.bottom + 20
                 );
               }).length,
+              installArrivalTokens: tokens.map((token) => {
+                const bounds = token.getBoundingClientRect();
+                return {
+                  distance: Math.hypot(
+                    bounds.left + bounds.width / 2 - (commandBounds.left - 14),
+                    bounds.top + bounds.height / 2 - (commandBounds.top + commandBounds.height / 2),
+                  ),
+                  opacity: Number(token.getAttribute("opacity")),
+                };
+              }),
               tokenLayerViewportOffset: Math.hypot(
                 tokenLayerForInstall?.getBoundingClientRect().left ?? 0,
                 tokenLayerForInstall?.getBoundingClientRect().top ?? 0,

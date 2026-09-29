@@ -60,6 +60,13 @@ export function heroBurstTokenOpacity(progress: number): number {
     : 0;
 }
 
+function installBurstTokenOpacity(progress: number): number {
+  if (progress <= 0.04) return 0;
+  if (progress < 0.16) return ((progress - 0.04) / 0.12) * 0.95;
+  if (progress <= 0.95) return 0.95;
+  return ((1 - progress) / 0.05) * 0.95;
+}
+
 function textEnd(element: HTMLElement): HeroPoint {
   const textRange = document.createRange();
   textRange.selectNodeContents(element);
@@ -106,12 +113,11 @@ function visibleTextRects(root: HTMLElement): DOMRect[] {
   for (const footer of root.querySelectorAll<HTMLElement>(
     ".hero-claude-footer, .hero-codex-footer",
   )) {
-    if (footer.getClientRects().length > 0) rectangles.push(footer.getBoundingClientRect());
+    if (footer.checkVisibility({ opacityProperty: true, visibilityProperty: true }))
+      rectangles.push(footer.getBoundingClientRect());
   }
   for (const element of root.querySelectorAll<HTMLElement>(selectors.join(","))) {
-    const style = getComputedStyle(element);
-    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) < 0.05)
-      continue;
+    if (!element.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
       const textNode = walker.currentNode;
@@ -196,8 +202,11 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
           const blocked = visibleTextRects(root);
           tokens.forEach((token, index) => {
             const lag = (index / tokens.length) * 0.3;
-            const progress = clampUnit((state.fraction - lag) / (1 - lag * 0.6));
-            const opacity = heroBurstTokenOpacity(progress);
+            const progress = clampUnit((state.fraction - lag) / (1 - lag));
+            const opacity =
+              label === "burst:install"
+                ? installBurstTokenOpacity(progress)
+                : heroBurstTokenOpacity(progress);
             if (opacity <= 0) return;
             const point = pointAlongHeroRoute(route, easeInOut(progress));
             const offset = (index % 2 === 0 ? -1 : 1) * (3 + ((index * 7) % 6));
@@ -237,12 +246,19 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
     if (pane === null) return null;
     const paneRect = pane.getBoundingClientRect();
     const target = firstInstallCommand.getBoundingClientRect();
+    const boxRect = install.querySelector<HTMLElement>(".install-command")?.getBoundingClientRect();
+    if (boxRect === undefined) return null;
     const clearMarginX = Math.max(source.x + 8, paneRect.right - 18);
+    const gapHeight = boxRect.top - windowRect.bottom;
+    const gapY = gapHeight >= 16 ? windowRect.bottom + gapHeight / 2 : windowRect.bottom + 8;
+    const arrivalX = target.left - 14;
+    const lineMidY = target.top + target.height / 2;
     return [
       { x: source.x + 8, y: source.y },
       { x: clearMarginX, y: source.y },
-      { x: clearMarginX, y: windowRect.bottom + 18 },
-      { x: target.left - 14, y: target.top + target.height / 2 },
+      { x: clearMarginX, y: gapY },
+      { x: arrivalX, y: gapY },
+      { x: arrivalX, y: lineMidY },
     ];
   });
   addBurst("burst:rail", width >= 1024 ? 12.35 : 12.65, railTokens, () => {
