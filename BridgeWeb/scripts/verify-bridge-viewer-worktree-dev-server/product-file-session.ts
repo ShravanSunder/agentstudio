@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import type { BridgeProductBatchFrame } from '../../src/core/comm-worker/bridge-product-batch-wire-contracts.js';
 import { bridgeProductContentRequestSchema } from '../../src/core/comm-worker/bridge-product-content-contracts.js';
 import { BridgeProductContentStreamDecoder } from '../../src/core/comm-worker/bridge-product-content-stream-decoder.js';
-import { BRIDGE_PRODUCT_WIRE_VERSION } from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
+import {
+	BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES,
+	BRIDGE_PRODUCT_WIRE_VERSION,
+} from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
 import {
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE,
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE,
@@ -18,6 +21,7 @@ import {
 import type { BridgeProductFileBatchRow } from '../../src/core/comm-worker/bridge-product-file-batch-row-contracts.js';
 import type { BridgeProductFileMemberStatusRecord } from '../../src/core/comm-worker/bridge-product-file-member-status-contracts.js';
 import {
+	bridgeProductContentAcknowledgementRefusedSchema,
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
 } from '../../src/core/comm-worker/bridge-product-frame-acknowledgement-contracts.js';
@@ -34,6 +38,7 @@ import {
 	bridgeProductMetadataStreamRequestSchema,
 	encodeBridgeProductCapabilityHeader,
 	type BridgeProductControlResponse,
+	type BridgeProductSessionBootstrap,
 } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
 import {
 	BridgeProductViewBatchReceiver,
@@ -79,6 +84,7 @@ export interface BridgeVerifierProductFileSessionProps {
 interface BridgeVerifierProductAuthority {
 	readonly capability: string;
 	readonly paneSessionId: string;
+	readonly policy: BridgeProductSessionBootstrap['policy'];
 	readonly workerInstanceId: string;
 }
 
@@ -93,7 +99,7 @@ export class BridgeVerifierProductFileSession {
 	#controlSequence = 0;
 	readonly #demandedPaths = new Set<string>();
 	readonly #descriptorByPath = new Map<string, FileDescriptorOutcome>();
-	#scopeRevision = -1;
+	#scopeRevision = 0;
 	#batchReceiver: BridgeProductViewBatchReceiver | null = null;
 	#installedFileView: BridgeProductInstalledFileView | null = null;
 	readonly #installations: BridgeProductViewInstallation[] = [];
@@ -320,6 +326,11 @@ export class BridgeVerifierProductFileSession {
 		const decoder = new BridgeProductContentStreamDecoder(contentRequest);
 		const reader = response.body.getReader();
 		let terminal: Awaited<ReturnType<typeof decoder.push>>['terminal'] = null;
+		let unacknowledgedDataFrameCount = 0;
+		let unacknowledgedDataByteCount = 0;
+		const maximumReservedFrameBytes = BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES + 4;
+		const dataFrameWireOverheadBytes = 4 + 1 + 4 + 4 + 33;
+		const policy = this.#requireAuthority().policy;
 		for (;;) {
 			// oxlint-disable-next-line no-await-in-loop -- Content frames must be decoded in stream order.
 			const chunk = await reader.read();
@@ -327,9 +338,19 @@ export class BridgeVerifierProductFileSession {
 			// oxlint-disable-next-line no-await-in-loop -- Content validation is ordered with stream reads.
 			const decoded = await decoder.push(chunk.value);
 			for (const frame of decoded.frames) {
-				if (frame.header.kind !== 'content.accepted' && frame.header.kind !== 'content.data')
+				if (frame.header.kind === 'content.data') {
+					unacknowledgedDataFrameCount += 1;
+					unacknowledgedDataByteCount += dataFrameWireOverheadBytes + frame.payload.byteLength;
+					if (
+						decoded.terminal !== null ||
+						(unacknowledgedDataFrameCount < policy.viewCreditParts &&
+							unacknowledgedDataByteCount <= policy.viewCreditBytes - maximumReservedFrameBytes)
+					)
+						continue;
+				} else if (frame.header.kind !== 'content.accepted') {
 					continue;
-				// oxlint-disable-next-line no-await-in-loop -- This verifier confirms every cumulative receipt.
+				}
+				// oxlint-disable-next-line no-await-in-loop -- ACK0 and window-closing receipts gate ordered source reads.
 				await this.#postContentAcknowledgement({
 					contentRequestId: contentRequest.contentRequestId,
 					receivedThroughContentSequence: frame.header.contentSequence,
@@ -339,6 +360,10 @@ export class BridgeVerifierProductFileSession {
 					wireVersion: contentRequest.wireVersion,
 					workerInstanceId: contentRequest.workerInstanceId,
 				});
+				if (frame.header.kind === 'content.data') {
+					unacknowledgedDataFrameCount = 0;
+					unacknowledgedDataByteCount = 0;
+				}
 			}
 			terminal = decoded.terminal ?? terminal;
 		}
@@ -428,6 +453,7 @@ export class BridgeVerifierProductFileSession {
 		this.#authority = {
 			capability,
 			paneSessionId: delivery.bootstrap.paneSessionId,
+			policy: delivery.bootstrap.policy,
 			workerInstanceId: delivery.bootstrap.workerInstanceId,
 		};
 	}
@@ -609,6 +635,26 @@ export class BridgeVerifierProductFileSession {
 			method: 'POST',
 		});
 		const responseText = await response.text();
+		if (response.status === 404) {
+			let refusalBody: unknown;
+			try {
+				refusalBody = JSON.parse(responseText);
+			} catch {
+				refusalBody = null;
+			}
+			const refusal = bridgeProductContentAcknowledgementRefusedSchema.safeParse(
+				refusalBody,
+			);
+			if (
+				refusal.success &&
+				refusal.data.contentRequestId === body.contentRequestId &&
+				refusal.data.leaseId === body.leaseId &&
+				refusal.data.receivedThroughContentSequence === body.receivedThroughContentSequence &&
+				refusal.data.paneSessionId === body.paneSessionId &&
+				refusal.data.workerInstanceId === body.workerInstanceId
+			)
+				return;
+		}
 		if (response.status !== 204 || responseText.length !== 0) {
 			throw new Error(
 				`Bridge product content acknowledgement failed with status ${response.status}: ${responseText}`,
