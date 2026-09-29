@@ -28,10 +28,10 @@ struct BridgeLiveServerFixtureTrait: SuiteTrait, TestScoping {
                 try await function()
             }
         } catch {
-            fixture.tearDown()
+            await fixture.tearDown()
             throw error
         }
-        fixture.tearDown()
+        await fixture.tearDown()
     }
 }
 
@@ -78,7 +78,12 @@ final class BridgeLiveServerFixtureBox: @unchecked Sendable {
         return Self(fixture: fixture, paneId: paneId)
     }
 
-    func tearDown() {
+    /// `cleanup()` stops the server (no new connections, existing ones
+    /// closed) and removes the socket root; joining afterward proves every
+    /// handler that was still running when the socket closed has actually
+    /// returned, not merely that its connection was closed.
+    func tearDown() async {
         fixture.cleanup()
+        await fixture.server.joinConnectionHandlers()
     }
 }

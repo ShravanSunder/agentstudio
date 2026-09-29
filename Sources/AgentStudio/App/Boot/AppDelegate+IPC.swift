@@ -199,17 +199,6 @@ extension AppDelegate {
         }
     }
 
-    func stopAppIPCServer() {
-        appIPCInitializationTask?.cancel()
-        appIPCInitializationTask = nil
-        paneReportSpoolDrainTask?.cancel()
-        paneReportSpoolDrainTask = nil
-        retireDebugCredentialEscrow()
-        appIPCServer?.stop()
-        appIPCServer = nil
-        finishAppIPCSessionsIngestion()
-    }
-
     /// Only a debug app whose launcher named an escrow file hands out a reusable
     /// credential, and only after the socket is listening: the raw value reaches
     /// disk with the endpoint that accepts it. The credential lives in the
@@ -332,17 +321,19 @@ extension AppDelegate {
         return ingestion
     }
 
-    private func finishAppIPCSessionsIngestion() {
+    private func finishAppIPCSessionsIngestion() async {
         guard let ingestion = appIPCSessionsIngestion else { return }
         appIPCSessionsIngestion = nil
-        Task { await ingestion.finish() }
+        await ingestion.finish()
     }
 
-    /// Ends IPC ingress and nothing else. No durable write happens here and
-    /// nothing waits for one, so this runs before the workspace flush: it
-    /// closes the window in which a late `command.execute` or Bridge open could
-    /// mutate state the flush has already written. The escrow file only names
-    /// the socket, so it is retired here too.
+    /// Ends IPC ingress: no new connection is admitted, in-flight requests are
+    /// cancelled and joined here (before the workspace flush), and any late
+    /// request is refused. No durable write happens here and nothing waits
+    /// for one, so this runs before the workspace flush: it closes the window
+    /// in which a late `command.execute` or Bridge open could mutate state
+    /// the flush has already written. The escrow file only names the socket,
+    /// so it is retired here too.
     func stopAcceptingAppIPCConnections() async {
         if !launchRestoreObservationState.didComplete {
             recordAppIPCStart(unavailable: .restoreBoundsUnavailable)
@@ -353,6 +344,7 @@ extension AppDelegate {
         appIPCInitializationTask = nil
         retireDebugCredentialEscrow()
         appIPCServer?.stopAcceptingConnections()
+        await appIPCServer?.joinConnectionHandlers()
     }
 
     /// The durable half, which runs after the workspace flush. It writes
@@ -364,13 +356,13 @@ extension AppDelegate {
         paneReportSpoolDrainTask = nil
         guard let server = appIPCServer else {
             appIPCPrincipalRegistry?.shutdown()
-            finishAppIPCSessionsIngestion()
+            await finishAppIPCSessionsIngestion()
             appLogger.info("App IPC shutdown completed without a published server or durable drain")
             return
         }
         let result = await server.drainCredentialPersistence()
         appIPCServer = nil
-        finishAppIPCSessionsIngestion()
+        await finishAppIPCSessionsIngestion()
         if result.failedOperationCount > 0 {
             appLogger.warning(
                 "App IPC credential persistence drain completed with \(result.failedOperationCount) failures"

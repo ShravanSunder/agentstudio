@@ -22,39 +22,24 @@ struct AgentStudioIPCSessionsVerticalTests {
     @Test("only a first qualified hook from the pane's own credential changes its activity time")
     func hookActivityAdmissionUsesCommittedPaneProvenance() async throws {
         let harness = try await SessionsVerticalHarness.make(installActivityClock: true)
-        defer { harness.tearDown() }
-        let clock = try #require(harness.appDelegate.paneActivityClock)
-        let activityAtom = harness.appDelegate.atomStore.core.paneActivityTime
         do {
-            let conversationId = "activity-\(harness.boundPaneId.uuidString)"
-            _ = try await harness.sessionEvent(
-                paneId: harness.boundPaneId,
-                provider: SessionsVerticalHarness.qualifiedProvider,
-                name: "sessionStart",
-                conversationId: conversationId,
-                authentication: .boundPane
-            )
-            #expect(try await clock.settled() == .quiescent)
-            #expect(activityAtom.value(for: harness.boundPaneId) == nil)
-
-            let occurrenceId = UUIDv7.generate()
-            let correlationId = UUIDv7.generate()
-            let first = try await harness.sessionEvent(
-                paneId: harness.boundPaneId,
-                provider: SessionsVerticalHarness.qualifiedProvider,
-                name: "turnStart",
-                conversationId: conversationId,
-                occurrenceId: occurrenceId,
-                correlationId: correlationId,
-                authentication: .boundPane
-            )
-            #expect(first.disposition == .admitted)
-            #expect(try await clock.settled() == .quiescent)
-            let firstTime = try #require(activityAtom.value(for: harness.boundPaneId))
-            let firstRevision = activityAtom.revision(for: harness.boundPaneId)
-
+            let clock = try #require(harness.appDelegate.paneActivityClock)
+            let activityAtom = harness.appDelegate.atomStore.core.paneActivityTime
             do {
+                let conversationId = "activity-\(harness.boundPaneId.uuidString)"
                 _ = try await harness.sessionEvent(
+                    paneId: harness.boundPaneId,
+                    provider: SessionsVerticalHarness.qualifiedProvider,
+                    name: "sessionStart",
+                    conversationId: conversationId,
+                    authentication: .boundPane
+                )
+                #expect(try await clock.settled() == .quiescent)
+                #expect(activityAtom.value(for: harness.boundPaneId) == nil)
+
+                let occurrenceId = UUIDv7.generate()
+                let correlationId = UUIDv7.generate()
+                let first = try await harness.sessionEvent(
                     paneId: harness.boundPaneId,
                     provider: SessionsVerticalHarness.qualifiedProvider,
                     name: "turnStart",
@@ -63,44 +48,64 @@ struct AgentStudioIPCSessionsVerticalTests {
                     correlationId: correlationId,
                     authentication: .boundPane
                 )
-            } catch SessionsVerticalHarnessError.requestFailed(let method, let code, _) {
-                #expect(method == "session.event")
-                #expect(code == -32_007)
+                #expect(first.disposition == .admitted)
+                #expect(try await clock.settled() == .quiescent)
+                let firstTime = try #require(activityAtom.value(for: harness.boundPaneId))
+                let firstRevision = activityAtom.revision(for: harness.boundPaneId)
+
+                do {
+                    _ = try await harness.sessionEvent(
+                        paneId: harness.boundPaneId,
+                        provider: SessionsVerticalHarness.qualifiedProvider,
+                        name: "turnStart",
+                        conversationId: conversationId,
+                        occurrenceId: occurrenceId,
+                        correlationId: correlationId,
+                        authentication: .boundPane
+                    )
+                } catch SessionsVerticalHarnessError.requestFailed(let method, let code, _) {
+                    #expect(method == "session.event")
+                    #expect(code == -32_007)
+                }
+                #expect(try await clock.settled() == .quiescent)
+                #expect(activityAtom.value(for: harness.boundPaneId) == firstTime)
+                #expect(activityAtom.revision(for: harness.boundPaneId) == firstRevision)
+
+                let otherConversation = "other-\(harness.sparePaneId.uuidString)"
+                _ = try await harness.sessionEvent(
+                    paneId: harness.sparePaneId,
+                    provider: SessionsVerticalHarness.qualifiedProvider,
+                    name: "sessionStart",
+                    conversationId: otherConversation
+                )
+                _ = try await harness.sessionEvent(
+                    paneId: harness.sparePaneId,
+                    provider: SessionsVerticalHarness.qualifiedProvider,
+                    name: "turnStart",
+                    conversationId: otherConversation
+                )
+                #expect(try await clock.settled() == .quiescent)
+                #expect(activityAtom.value(for: harness.sparePaneId) == nil)
+
+                _ = try await harness.sessionEvent(
+                    paneId: harness.boundPaneId,
+                    provider: SessionsVerticalHarness.qualifiedProvider,
+                    name: "sessionEnd",
+                    conversationId: conversationId,
+                    authentication: .boundPane
+                )
+                #expect(try await clock.settled() == .quiescent)
+                #expect(activityAtom.revision(for: harness.boundPaneId) == firstRevision)
+            } catch {
+                await clock.shutdown()
+                throw error
             }
-            #expect(try await clock.settled() == .quiescent)
-            #expect(activityAtom.value(for: harness.boundPaneId) == firstTime)
-            #expect(activityAtom.revision(for: harness.boundPaneId) == firstRevision)
-
-            let otherConversation = "other-\(harness.sparePaneId.uuidString)"
-            _ = try await harness.sessionEvent(
-                paneId: harness.sparePaneId,
-                provider: SessionsVerticalHarness.qualifiedProvider,
-                name: "sessionStart",
-                conversationId: otherConversation
-            )
-            _ = try await harness.sessionEvent(
-                paneId: harness.sparePaneId,
-                provider: SessionsVerticalHarness.qualifiedProvider,
-                name: "turnStart",
-                conversationId: otherConversation
-            )
-            #expect(try await clock.settled() == .quiescent)
-            #expect(activityAtom.value(for: harness.sparePaneId) == nil)
-
-            _ = try await harness.sessionEvent(
-                paneId: harness.boundPaneId,
-                provider: SessionsVerticalHarness.qualifiedProvider,
-                name: "sessionEnd",
-                conversationId: conversationId,
-                authentication: .boundPane
-            )
-            #expect(try await clock.settled() == .quiescent)
-            #expect(activityAtom.revision(for: harness.boundPaneId) == firstRevision)
-        } catch {
             await clock.shutdown()
+        } catch {
+            await harness.tearDown()
             throw error
         }
-        await clock.shutdown()
+        await harness.tearDown()
     }
 
     @Test("a qualified provider session start binds the pane and an unknown provider does not")

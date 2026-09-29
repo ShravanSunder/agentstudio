@@ -79,22 +79,26 @@ struct AppTerminationDrainDeadlineTests {
     @Test("no IPC request is accepted once the stop stage has run")
     func ipcStopRefusesFurtherRequests() async throws {
         let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        do {
+            let beforeStop = try await harness.response(method: "system.ping", params: .object([:]))
+            #expect(beforeStop.error == nil)
 
-        let beforeStop = try await harness.response(method: "system.ping", params: .object([:]))
-        #expect(beforeStop.error == nil)
+            await harness.appDelegate.stopAcceptingAppIPCConnections()
 
-        await harness.appDelegate.stopAcceptingAppIPCConnections()
-
-        // Connecting must fail outright rather than be refused after login:
-        // the listener is closed, so there is no path by which a late
-        // command.execute or Bridge open reaches the app and mutates state the
-        // workspace flush is about to write.
-        #expect(throws: (any Error).self) {
-            try UnixSocketClient.connect(
-                endpoint: UnixSocketEndpoint(path: harness.socketPath)
-            ).close()
+            // Connecting must fail outright rather than be refused after login:
+            // the listener is closed, so there is no path by which a late
+            // command.execute or Bridge open reaches the app and mutates state the
+            // workspace flush is about to write.
+            #expect(throws: (any Error).self) {
+                try UnixSocketClient.connect(
+                    endpoint: UnixSocketEndpoint(path: harness.socketPath)
+                ).close()
+            }
+        } catch {
+            await harness.tearDown()
+            throw error
         }
+        await harness.tearDown()
     }
 
     @Test("a completing IPC drain still runs after the workspace flush")
