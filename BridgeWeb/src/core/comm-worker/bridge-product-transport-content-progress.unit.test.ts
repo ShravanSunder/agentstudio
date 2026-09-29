@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import { awaitBridgeProductContentProgress } from './bridge-product-content-progress-deadline.js';
 import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
+import { awaitBridgeProductFiniteProgress } from './bridge-product-finite-progress-deadline.js';
 import {
 	createContentTransportHarness,
 	fileContentDescriptor,
@@ -36,7 +36,7 @@ class ControlledContentDeadlineClock implements BridgeProductDeadlineClock {
 describe('Bridge product finite content progress', () => {
 	test('arms the deadline before starting the fetch', async () => {
 		const clock = new ControlledContentDeadlineClock();
-		const result = await awaitBridgeProductContentProgress({
+		const result = await awaitBridgeProductFiniteProgress({
 			abortRead: (): void => {},
 			clock,
 			delayMilliseconds: 5_000,
@@ -61,7 +61,7 @@ describe('Bridge product finite content progress', () => {
 		expect(clock.activeDeadline().delayMilliseconds).toBe(5_000);
 		clock.activeDeadline().fire();
 		await expect(content.terminal).rejects.toMatchObject({
-			name: 'BridgeProductContentProgressDeadlineExpired',
+			name: 'BridgeProductFiniteProgressDeadlineExpired',
 			retryable: true,
 		});
 		harness.server.releaseHeldContentRequestBeforeResponse();
@@ -85,7 +85,7 @@ describe('Bridge product finite content progress', () => {
 		expect(rearmedDeadline?.active).toBe(true);
 		rearmedDeadline?.fire();
 		await expect(content.terminal).rejects.toMatchObject({
-			name: 'BridgeProductContentProgressDeadlineExpired',
+			name: 'BridgeProductFiniteProgressDeadlineExpired',
 			retryable: true,
 		});
 		expect(harness.server.contentReaderCancelCount).toBe(1);

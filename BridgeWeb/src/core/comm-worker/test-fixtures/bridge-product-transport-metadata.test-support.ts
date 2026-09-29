@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 
 import { executeAgentStudioBridgeProductRequest } from '../bridge-product-agent-studio-request-executor.js';
 import { createBridgeProductDeferred } from '../bridge-product-async-queue.js';
+import type { BridgeProductDeadlineClock } from '../bridge-product-deadline-clock.js';
 import type { BridgeProductFileSourceIdentity } from '../bridge-product-file-contracts.js';
 import {
 	bridgeProductFrameAcknowledgementRequestSchema,
@@ -58,6 +59,7 @@ export async function disposeTransportHarnesses(): Promise<void> {
 
 export function createTransportHarness(
 	options: {
+		readonly deadlineClock?: BridgeProductDeadlineClock;
 		readonly fileEpoch?: number;
 		readonly reviewEpoch?: number;
 	} = {},
@@ -97,6 +99,7 @@ export function createTransportHarness(
 	const controlMux = new BridgeProductControlMux({
 		authority,
 		createRequestId: sequenceIdentifier('control-request'),
+		...(options.deadlineClock === undefined ? {} : { deadlineClock: options.deadlineClock }),
 		executeProductRequest: executeAgentStudioBridgeProductRequest,
 	});
 	const harness: TransportHarness = {
@@ -104,6 +107,7 @@ export function createTransportHarness(
 		transport: createBridgeProductTransport({
 			authority,
 			controlMux,
+			...(options.deadlineClock === undefined ? {} : { deadlineClock: options.deadlineClock }),
 			createIdentifier: purposeIdentifier(),
 			executeProductRequest: executeAgentStudioBridgeProductRequest,
 			initialWorkerDerivationEpochs: {

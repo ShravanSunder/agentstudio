@@ -141,13 +141,10 @@ export class BridgeProductSubscriptionState<
 	#released = false;
 	/** Why the release was requested; operations it cut short settle with this. */
 	#releaseReason: Error | null = null;
-	#releaseOperation: Promise<void> | null = null;
 	/** Native ended this subscription (terminal frame or reconciliation). */
 	#nativeTerminalObserved = false;
 	/** Native refused the open, so it never held this subscription. */
 	#openRefusedByNative = false;
-	/** Native accepted the open control, so a release must cancel it. */
-	#openAcknowledged = false;
 	readonly #admitAtWorkerDerivationEpoch: <TAdmission>(
 		admit: (workerDerivationEpoch: number) => TAdmission,
 	) => Promise<TAdmission>;
@@ -161,8 +158,6 @@ export class BridgeProductSubscriptionState<
 		| ((subscriptionId: string, signal: AbortSignal, worktreeId: string | null) => Promise<void>)
 		| undefined;
 	readonly #initialScopeAbortController = new AbortController();
-	#initialScopePending = false;
-	#operation: Promise<void> = Promise.resolve();
 	readonly #protocol: BridgeProductMetadataApplicationProtocol<TKind, TOptions, TOpen>;
 	readonly #readWorkerDerivationEpochAtAdmission: () => number;
 	readonly subscriptionId: string;
@@ -200,11 +195,11 @@ export class BridgeProductSubscriptionState<
 	}
 
 	start(): void {
-		this.#operation = this.#initialize().catch((error: unknown): never => {
+		const initialization = this.#initialize().catch((error: unknown): never => {
 			this.fail(error);
 			throw error;
 		});
-		void this.#operation.catch((): void => {});
+		void initialization.catch((): void => {});
 	}
 
 	get surface(): BridgeProductSurface {
@@ -212,12 +207,10 @@ export class BridgeProductSubscriptionState<
 	}
 
 	/**
-	 * Releases this subscription before its surface advances past its admitted
-	 * epoch. Native refuses controls tagged with a stale epoch, so the cancel must
-	 * be acknowledged first. The consumer learns of the retirement at once; an
-	 * operation waiting on one of this subscription's frames settles with it rather
-	 * than holding the advance. A subscription not yet admitted is left alone: it
-	 * admits at the new epoch. One already releasing settles with that release.
+	 * Retires local state before the surface advances. An admitted open queues its
+	 * native cancel escape before the next epoch is published, but the advance
+	 * never waits for the escape reply. An unadmitted open remains eligible at the
+	 * new epoch.
 	 */
 	retireBeforeWorkerDerivationEpochAdvance(
 		retirement: BridgeProductSubscriptionEpochRetiredError,
@@ -230,35 +223,21 @@ export class BridgeProductSubscriptionState<
 		) {
 			return Promise.resolve();
 		}
-		const consumerRelease = this.#releaseOperation;
-		this.#markReleased(retirement);
-		if (consumerRelease === null) this.#eventQueue.fail(retirement, true);
-		return (consumerRelease ?? this.#queueRelease(retirement)).catch((): void => {});
+		this.#queueRelease(retirement);
+		return Promise.resolve();
 	}
 
 	/**
-	 * Releases after the operations queued before it, then resolves once native
-	 * acknowledges the cancel. Frames native already queued drain silently until
-	 * its terminal; nothing here waits on them.
+	 * Local cancellation settles immediately. The native escape is queued after
+	 * any already queued open admission, independently of its result.
 	 */
 	cancel(): Promise<void> {
-		return (
-			this.#releaseOperation ??
-			this.#queueRelease(new Error('Bridge product subscription was cancelled.'))
-		);
+		this.#queueRelease(new Error('Bridge product subscription was cancelled.'));
+		return Promise.resolve();
 	}
 
 	acceptFrame(frame: BridgeProductSubscriptionFrame): void {
-		if (this.#released && !this.#terminal) {
-			if (
-				frame.kind === 'subscription.cancelled' ||
-				frame.kind === 'subscription.end' ||
-				frame.kind === 'subscription.reset'
-			) {
-				this.#retire();
-			}
-			return;
-		}
+		if (this.#terminal && this.#released) return;
 		if (this.#terminal) {
 			throw new BridgeProductSubscriptionFrameFailure(
 				'subscription_post_terminal',
@@ -394,6 +373,7 @@ export class BridgeProductSubscriptionState<
 
 	async #initialize(): Promise<void> {
 		await this.#ensureMetadataStream();
+		if (this.#released) return;
 		const initialOptions = this.#protocol.optionsSchema.parse(this.#initialOptions);
 		const subscription = this.#protocol.openSchema.parse(
 			this.#protocol.initialOpen(initialOptions),
@@ -404,6 +384,7 @@ export class BridgeProductSubscriptionState<
 		let openAccepted: BridgeProductSubscriptionOpenAccepted;
 		try {
 			openAccepted = await this.#admitAtWorkerDerivationEpoch((workerDerivationEpoch) => {
+				if (this.#released) throw this.#releaseReason;
 				this.#admittedWorkerDerivationEpoch = workerDerivationEpoch;
 				return this.#controlMux.openSubscription({
 					subscription,
@@ -415,53 +396,24 @@ export class BridgeProductSubscriptionState<
 			if (error instanceof BridgeProductControlRequestError) this.#openRefusedByNative = true;
 			throw error;
 		}
-		this.#openAcknowledged = true;
+		if (this.#released) return;
 		if (this.#onOpened !== undefined) {
-			this.#initialScopePending = true;
-			try {
-				await this.#onOpened(
-					this.subscriptionId,
-					this.#initialScopeAbortController.signal,
-					'worktreeId' in openAccepted ? openAccepted.worktreeId : null,
-				);
-			} finally {
-				this.#initialScopePending = false;
-			}
+			await this.#onOpened(
+				this.subscriptionId,
+				this.#initialScopeAbortController.signal,
+				'worktreeId' in openAccepted ? openAccepted.worktreeId : null,
+			);
 		}
 	}
 
-	#enqueue(
-		operation: () => Promise<void>,
-		admission: 'afterPriorSucceeds' | 'afterPriorSettles' = 'afterPriorSucceeds',
-	): Promise<void> {
-		const prior =
-			admission === 'afterPriorSettles' ? this.#operation.catch((): void => {}) : this.#operation;
-		const result = prior.then(operation);
-		this.#operation = result.catch((error: unknown): never => {
-			this.fail(error);
-			throw error;
-		});
-		void this.#operation.catch((): void => {});
-		return result;
-	}
-
-	/**
-	 * Queues the one release of this subscription. It sends the cancel once prior
-	 * operations settle; the control mux is sequenced, so the cancel follows this
-	 * subscription's own open and updates. A cancel is sent whenever native may
-	 * still hold the subscription, even after a local failure.
-	 */
-	#queueRelease(reason: Error): Promise<void> {
-		if (this.#initialScopePending) this.#markReleased(reason);
-		const operation = this.#enqueue(async (): Promise<void> => {
-			this.#markReleased(reason);
-			if (this.#openAcknowledged && !this.#nativeTerminalObserved) {
-				await this.#releaseNativeSubscription();
-			}
-			this.#eventQueue.close(true);
-		}, 'afterPriorSettles');
-		this.#releaseOperation = operation;
-		return operation;
+	/** Locally retires at once, while the single native escape runs in the background. */
+	#queueRelease(reason: Error): void {
+		if (this.#released) return;
+		this.#markReleased(reason);
+		if (this.#nativeMayStillServe()) {
+			void this.#releaseNativeSubscription().catch((): void => {});
+		}
+		this.fail(reason);
 	}
 
 	#markReleased(reason: Error): void {

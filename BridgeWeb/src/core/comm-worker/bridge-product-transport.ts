@@ -32,6 +32,7 @@ import {
 	defaultBridgeProductDeadlineClock,
 	type BridgeProductDeadlineClock,
 } from './bridge-product-deadline-clock.js';
+import { awaitBridgeProductFiniteProgress } from './bridge-product-finite-progress-deadline.js';
 import {
 	bridgeProductFrameAcknowledgementRequestSchema,
 	type BridgeProductFrameAcknowledgementRequest,
@@ -612,14 +613,27 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			throw error;
 		}
 		let response: Response;
+		const readAbortController = new AbortController();
+		let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+		const abortRead = (): void => {
+			readAbortController.abort();
+			void activeReader?.cancel().catch((): void => {});
+		};
 		try {
-			response = await this.#executeProductRequest('stream', {
-				body: encodeBridgeProductRequestBody(request),
-				headers: {
-					'Content-Type': 'application/json',
-					'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
-				},
-				method: 'POST',
+			response = await awaitBridgeProductFiniteProgress({
+				abortRead,
+				clock: this.#deadlineClock,
+				delayMilliseconds: this.#authority.bootstrap.policy.contentProgressDeadlineMilliseconds,
+				pending: () =>
+					this.#executeProductRequest('stream', {
+						body: encodeBridgeProductRequestBody(request),
+						headers: {
+							'Content-Type': 'application/json',
+							'X-AgentStudio-Bridge-Product-Capability': this.#authority.capabilityHeader,
+						},
+						method: 'POST',
+						signal: readAbortController.signal,
+					}),
 			});
 		} catch (error) {
 			this.#recordMetadataStreamFailure('fetch');
@@ -635,6 +649,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			streamOpenCount: this.#metadataStreamHealthDiagnostics.streamOpenCount + 1,
 		};
 		const reader = response.body.getReader();
+		activeReader = reader;
 		const readAhead = new BridgeProductReadAhead(reader);
 		const decoder = new BridgeProductMetadataStreamDecoder(request);
 		try {
@@ -647,7 +662,12 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				let chunk: ReadableStreamReadResult<Uint8Array>;
 				try {
 					// eslint-disable-next-line no-await-in-loop -- Stream chunks are ordered.
-					chunk = await readAhead.next();
+					chunk = await awaitBridgeProductFiniteProgress({
+						abortRead,
+						clock: this.#deadlineClock,
+						delayMilliseconds: this.#authority.bootstrap.policy.contentProgressDeadlineMilliseconds,
+						pending: () => readAhead.next(),
+					});
 				} catch (error) {
 					this.#recordMetadataStreamFailure('read');
 					throw error;

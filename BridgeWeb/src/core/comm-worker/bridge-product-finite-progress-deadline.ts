@@ -1,16 +1,16 @@
 import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 
-export class BridgeProductContentProgressDeadlineExpired extends Error {
+export class BridgeProductFiniteProgressDeadlineExpired extends Error {
 	readonly retryable = true;
 
 	constructor() {
-		super('Bridge product content read made no progress within its deadline.');
-		this.name = 'BridgeProductContentProgressDeadlineExpired';
+		super('Bridge product stream made no progress within its deadline.');
+		this.name = 'BridgeProductFiniteProgressDeadlineExpired';
 	}
 }
 
 /** Bounds one pending network step; every verified chunk starts a fresh step. */
-export async function awaitBridgeProductContentProgress<TValue>(props: {
+export async function awaitBridgeProductFiniteProgress<TValue>(props: {
 	readonly abortRead: () => void;
 	readonly clock: BridgeProductDeadlineClock;
 	readonly delayMilliseconds: number;
@@ -19,7 +19,7 @@ export async function awaitBridgeProductContentProgress<TValue>(props: {
 	let cancelDeadline: () => void = (): void => {};
 	const expired = new Promise<never>((_, reject): void => {
 		cancelDeadline = props.clock.schedule(props.delayMilliseconds, (): void => {
-			reject(new BridgeProductContentProgressDeadlineExpired());
+			reject(new BridgeProductFiniteProgressDeadlineExpired());
 			props.abortRead();
 		});
 	});

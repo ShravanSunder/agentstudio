@@ -21,12 +21,100 @@ import {
 	type BridgeProductSubscriptionFrame,
 	type BridgeProductSubscriptionStateControlMux,
 } from './bridge-product-subscription-state.js';
+import { BridgeProductSurfaceEpochAuthority } from './bridge-product-surface-epoch-authority.js';
 
 type ReviewAnnotationOpen = BridgeProductMetadataApplicationOpen<
 	typeof bridgeProductReviewAnnotationMetadataApplicationProtocol
 >;
 
 describe('Bridge product subscription state', () => {
+	test('cancel settles before a held metadata stream opens and leaves no local subscription', async () => {
+		const metadataReady = createBridgeProductDeferred<void>();
+		let openCount = 0;
+		const terminalSubscriptions: string[] = [];
+		const state = new BridgeProductSubscriptionState({
+			controlMux: {
+				cancelSubscription: async (): Promise<void> => {},
+				openSubscription: async (props): Promise<BridgeProductSubscriptionOpenAccepted> => {
+					openCount += 1;
+					return {
+						kind: 'subscription.openAccepted',
+						paneSessionId: 'pane-session-review',
+						requestId: 'held-metadata-open',
+						requestSequence: 1,
+						subscriptionId: props.subscriptionId,
+						subscriptionKind: 'review.metadata',
+						wireVersion: 2,
+						workerInstanceId: 'worker-instance-review',
+					};
+				},
+			},
+			ensureMetadataStream: (): Promise<void> => metadataReady.promise,
+			initialOptions: {},
+			onTerminal: (subscriptionId): void => {
+				terminalSubscriptions.push(subscriptionId);
+			},
+			protocol: bridgeProductReviewMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 0,
+			subscriptionId: 'held-metadata-subscription',
+		});
+		state.start();
+		const nextEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
+		try {
+			await state.cancel();
+			expect(await nextEvent).toEqual({ done: true, value: undefined });
+			expect(openCount).toBe(0);
+			metadataReady.resolve();
+			expect(terminalSubscriptions).toEqual(['held-metadata-subscription']);
+		} finally {
+			metadataReady.resolve();
+			state.fail(new Error('Held metadata test cleanup.'));
+		}
+	});
+
+	test('cancel sends its escape while an admitted open result is unanswered', async () => {
+		const openRequested = createBridgeProductDeferred<void>();
+		const openReply = createBridgeProductDeferred<BridgeProductSubscriptionOpenAccepted>();
+		let nativeCancelCount = 0;
+		const state = new BridgeProductSubscriptionState({
+			controlMux: {
+				cancelSubscription: async (): Promise<void> => {
+					nativeCancelCount += 1;
+				},
+				openSubscription: (): Promise<BridgeProductSubscriptionOpenAccepted> => {
+					openRequested.resolve();
+					return openReply.promise;
+				},
+			},
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (): void => {},
+			protocol: bridgeProductReviewMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => 0,
+			subscriptionId: 'held-open-result-subscription',
+		});
+		state.start();
+		const nextEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
+		await openRequested.promise;
+		try {
+			await state.cancel();
+			expect(nativeCancelCount).toBe(1);
+			expect(await nextEvent).toEqual({ done: true, value: undefined });
+		} finally {
+			openReply.resolve({
+				kind: 'subscription.openAccepted',
+				paneSessionId: 'pane-session-review',
+				requestId: 'held-open-result',
+				requestSequence: 1,
+				subscriptionId: 'held-open-result-subscription',
+				subscriptionKind: 'review.metadata',
+				wireVersion: 2,
+				workerInstanceId: 'worker-instance-review',
+			});
+			state.fail(new Error('Held open result test cleanup.'));
+		}
+	});
+
 	test('cancellation releases a subscription while its initial view scope reply is held', async () => {
 		const scopeStarted = createBridgeProductDeferred<void>();
 		const scopeAborted = createBridgeProductDeferred<void>();
@@ -218,11 +306,18 @@ describe('Bridge product subscription state', () => {
 		expect(terminalErrors).toEqual([{ drainUntilNativeTerminal: undefined, error: undefined }]);
 	});
 
-	test('still rejects cancellation when native refuses to cancel an active subscription', async () => {
+	test('local cancellation settles while native refuses an active subscription', async () => {
 		// Arrange
 		const harness = createAnnotationControlHarness();
+		let nativeCancelAttempts = 0;
 		const state = new BridgeProductSubscriptionState({
-			controlMux: harness.controlMux,
+			controlMux: {
+				...harness.controlMux,
+				cancelSubscription: async (): Promise<never> => {
+					nativeCancelAttempts += 1;
+					throw new Error('Native refused the cancel.');
+				},
+			},
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: {},
 			onTerminal: (): void => {},
@@ -234,12 +329,12 @@ describe('Bridge product subscription state', () => {
 		await harness.capturedOpen;
 
 		// Act
-		const cancellation = state.cancel();
+		const nextEvent = state.publicSubscription.events[Symbol.asyncIterator]().next();
+		await state.cancel();
 
-		// Assert: the settle-after-failure rule must not hide a live control failure.
-		await expect(cancellation).rejects.toThrow(
-			'Annotation admission harness does not cancel subscriptions.',
-		);
+		// The consumer is released locally; the independent native escape was attempted.
+		expect(await nextEvent).toEqual({ done: true, value: undefined });
+		expect(nativeCancelAttempts).toBe(1);
 	});
 
 	test('drains a subscription whose stale cancel native refused until native retires it for the new epoch', async () => {
@@ -294,7 +389,7 @@ describe('Bridge product subscription state', () => {
 		// Assert: frames native queued before its terminal drain instead of poisoning
 		// the shared stream, and the epoch_retired reset ends the subscription cleanly.
 		expect(lateFrame).not.toThrow();
-		expect(terminalErrors).toEqual([]);
+		expect(terminalErrors).toEqual([undefined]);
 		state.acceptFrame(
 			requireSubscriptionFrame(
 				bridgeProductMetadataFrameSchema.parse({
@@ -307,6 +402,45 @@ describe('Bridge product subscription state', () => {
 			),
 		);
 		expect(terminalErrors).toEqual([undefined]);
+	});
+
+	test('surface epoch admission proceeds while an older native cancel escape is unanswered', async () => {
+		const nativeCancelStarted = createBridgeProductDeferred<void>();
+		const nativeCancelReply = createBridgeProductDeferred<void>();
+		const harness = createAnnotationControlHarness();
+		const authority = new BridgeProductSurfaceEpochAuthority({ review: 1 });
+		const state = new BridgeProductSubscriptionState({
+			controlMux: {
+				...harness.controlMux,
+				cancelSubscription: (): Promise<void> => {
+					nativeCancelStarted.resolve();
+					return nativeCancelReply.promise;
+				},
+			},
+			ensureMetadataStream: async (): Promise<void> => {},
+			initialOptions: {},
+			onTerminal: (): void => {},
+			protocol: bridgeProductReviewAnnotationMetadataApplicationProtocol,
+			readWorkerDerivationEpochAtAdmission: (): number => authority.current('review'),
+			subscriptionId: 'held-native-cancel-subscription',
+		});
+		state.start();
+		await harness.capturedOpen;
+		try {
+			authority.advance('review', (nextEpoch) => [
+				state.retireBeforeWorkerDerivationEpochAdvance(
+					new BridgeProductSubscriptionEpochRetiredError({
+						nextWorkerDerivationEpoch: nextEpoch,
+						surface: 'review',
+					}),
+				),
+			]);
+			await nativeCancelStarted.promise;
+			expect(await authority.admitAt('review', (epoch): number => epoch)).toBe(2);
+		} finally {
+			nativeCancelReply.resolve();
+			state.fail(new Error('Held native cancel test cleanup.'));
+		}
 	});
 
 	test('releases an admitted subscription at its own epoch before a surface advance and leaves an unadmitted one alone', async () => {

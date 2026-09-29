@@ -4,7 +4,6 @@ import type {
 	BridgeProductContentRequestFor,
 	BridgeProductContentTerminal,
 } from './bridge-product-content-contracts.js';
-import { awaitBridgeProductContentProgress } from './bridge-product-content-progress-deadline.js';
 import {
 	BridgeProductContentResponseAdmission,
 	type BridgeProductContentResponseAdmissionLease,
@@ -12,6 +11,7 @@ import {
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
 import type { BridgeProductContentStreamOpening } from './bridge-product-content-stream-opening.js';
 import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
+import { awaitBridgeProductFiniteProgress } from './bridge-product-finite-progress-deadline.js';
 import { BridgeProductReadAhead } from './bridge-product-read-ahead.js';
 import { encodeBridgeProductRequestBody } from './bridge-product-request-body.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
@@ -49,7 +49,7 @@ export async function readBridgeProductContentResponse<
 			opening.abortSignal,
 		);
 		opening.abortSignal.throwIfAborted();
-		const response = await awaitBridgeProductContentProgress({
+		const response = await awaitBridgeProductFiniteProgress({
 			abortRead: (): void => readAbortController.abort(),
 			clock: props.clock,
 			delayMilliseconds: props.authority.bootstrap.policy.contentProgressDeadlineMilliseconds,
@@ -75,7 +75,7 @@ export async function readBridgeProductContentResponse<
 		let terminalResult: BridgeProductContentTerminal<TContentKind> | null = null;
 		while (true) {
 			// eslint-disable-next-line no-await-in-loop -- Stream chunks are ordered.
-			const chunk = await awaitBridgeProductContentProgress({
+			const chunk = await awaitBridgeProductFiniteProgress({
 				abortRead: (): void => {
 					readAbortController.abort();
 					void reader?.cancel().catch((): void => {});

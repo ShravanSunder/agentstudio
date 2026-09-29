@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import validProductSessionCorpus from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import { bridgeProductBatchFrameSchema } from './bridge-product-batch-wire-contracts.js';
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 import {
 	bridgeProductFileMetadataApplicationProtocol,
 	bridgeProductReviewAnnotationMetadataApplicationProtocol,
@@ -28,7 +30,114 @@ afterEach(async () => {
 	}
 });
 
+class ControlledMetadataDeadlineClock implements BridgeProductDeadlineClock {
+	readonly deadlines: Array<{ active: boolean; delayMilliseconds: number; fire: () => void }> = [];
+	readonly #scheduleWaiters: Array<{ count: number; resolve: () => void }> = [];
+
+	schedule(delayMilliseconds: number, onDeadline: () => void): () => void {
+		const deadline = {
+			active: true,
+			delayMilliseconds,
+			fire: (): void => {
+				if (!deadline.active) throw new Error('Expected an active metadata progress deadline.');
+				deadline.active = false;
+				onDeadline();
+			},
+		};
+		this.deadlines.push(deadline);
+		for (const waiter of this.#scheduleWaiters.filter(
+			(candidate) => candidate.count <= this.deadlines.length,
+		)) {
+			waiter.resolve();
+		}
+		this.#scheduleWaiters.splice(
+			0,
+			this.#scheduleWaiters.length,
+			...this.#scheduleWaiters.filter((candidate) => candidate.count > this.deadlines.length),
+		);
+		return (): void => {
+			deadline.active = false;
+		};
+	}
+
+	waitForScheduleCount(count: number): Promise<void> {
+		if (this.deadlines.length >= count) return Promise.resolve();
+		return new Promise((resolve): void => {
+			this.#scheduleWaiters.push({ count, resolve });
+		});
+	}
+
+	activeDeadline(): (typeof this.deadlines)[number] {
+		const deadline = this.deadlines.find((candidate) => candidate.active);
+		if (deadline === undefined) throw new Error('Expected an armed metadata progress deadline.');
+		return deadline;
+	}
+}
+
 describe('Bridge product transport', () => {
+	test('silent metadata fetch has finite progress and cancellation settles without its reply', async () => {
+		const clock = new ControlledMetadataDeadlineClock();
+		const harness = createTransportHarness({ deadlineClock: clock });
+		const fetchStarted = createBridgeProductDeferred<void>();
+		const fetchAborted = createBridgeProductDeferred<void>();
+		const silentFetch = createBridgeProductDeferred<Response>();
+		const serverFetch = harness.server.fetch;
+		vi.stubGlobal(
+			'fetch',
+			async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+				const url =
+					input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+				if (url !== 'agentstudio://rpc/stream') return serverFetch(input, init);
+				fetchStarted.resolve();
+				init?.signal?.addEventListener(
+					'abort',
+					(): void => {
+						fetchAborted.resolve();
+						silentFetch.reject(new Error('Metadata fetch aborted.'));
+					},
+					{ once: true },
+				);
+				return silentFetch.promise;
+			},
+		);
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{},
+		);
+		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
+		try {
+			await fetchStarted.promise;
+			await subscription.cancel();
+			expect(await nextEvent).toEqual({ done: true, value: undefined });
+			expect(harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount).toBe(0);
+			await clock.waitForScheduleCount(1);
+			expect(clock.activeDeadline().delayMilliseconds).toBe(5_000);
+			clock.activeDeadline().fire();
+			await fetchAborted.promise;
+		} finally {
+			silentFetch.reject(new Error('Silent metadata fetch test cleanup.'));
+		}
+	});
+
+	test('an opened metadata response without acceptance expires and clears subscriptions', async () => {
+		const clock = new ControlledMetadataDeadlineClock();
+		const harness = createTransportHarness({ deadlineClock: clock });
+		const subscription = harness.transport.subscribe(
+			bridgeProductReviewMetadataApplicationProtocol,
+			{},
+		);
+		const nextEvent = subscription.events[Symbol.asyncIterator]().next();
+		await harness.server.waitForMetadataStreamOpened();
+		await clock.waitForScheduleCount(2);
+		expect(clock.activeDeadline().delayMilliseconds).toBe(5_000);
+		clock.activeDeadline().fire();
+		await expect(nextEvent).rejects.toMatchObject({
+			name: 'BridgeProductFiniteProgressDeadlineExpired',
+		});
+		expect(harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount).toBe(0);
+		expect(harness.server.metadataReaderCancelCount).toBe(1);
+	});
+
 	test('W4 replacement snapshots exhaust W2 budget and a certified install rearms the same E3', async () => {
 		const harness = createTransportHarness();
 		let replacementCount = 0;
@@ -358,6 +467,11 @@ describe('Bridge product transport', () => {
 				streamSequence: 1,
 				subscriptionId: secondSubscription.subscriptionId,
 			}),
+		);
+		await harness.server.waitForControlRequestWhere(
+			(request) =>
+				request.kind === 'subscription.open' &&
+				request.subscriptionId === secondSubscription.subscriptionId,
 		);
 		const secondCancel = secondSubscription.cancel();
 		await harness.server.waitForControlKind('subscription.cancel');
