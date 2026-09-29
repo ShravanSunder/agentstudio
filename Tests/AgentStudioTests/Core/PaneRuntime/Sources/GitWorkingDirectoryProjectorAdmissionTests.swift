@@ -354,6 +354,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async throws {
         let source = GitProjectorFactSource()
         let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let clock = TestPushClock()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
@@ -425,7 +426,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         blockingReadGate.release()
         _ = await blockingRead.value
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        for worktreeId in worktreeIds {
+            _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        }
         #expect(await actor.lastAcceptedStatusAtByWorktreeId.count == worktreeIds.count)
         #expect(await actor.worktreeTasks.isEmpty)
         #expect(pathProbe.recordedRootPaths.count == rootPaths.count)
@@ -436,6 +439,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         }
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
     }
 
     @Test("root existence is probed only when pending work can consume an admission slot")

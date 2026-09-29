@@ -56,6 +56,7 @@ struct GitWorkingDirectoryProjectorTests {
     func logicalDebtTraceRecordsFailureBackoffTransitions() async throws {
         let source = GitProjectorFactSource()
         let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let traceRuntime = makeGitLogicalDebtTraceRuntime()
         let recorder = AgentStudioPerformanceTraceRecorder(
             traceRuntime: traceRuntime,
@@ -106,11 +107,13 @@ struct GitWorkingDirectoryProjectorTests {
         let retryScheduled = clock.pendingSleepCount == 1
         #expect(retryScheduled)
         clock.advance(by: .milliseconds(50))
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
         #expect(await calls.value() == 2)
         #expect(await actor.logicalDebtSnapshot().logicalDebtCount == 0)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         try await recorder.drain()
         let settlementRecords = try gitLogicalDebtTraceAttributes(from: traceRuntime)
         let debtCounts = settlementRecords.compactMap {
@@ -376,6 +379,7 @@ struct GitWorkingDirectoryProjectorTests {
     func providerNilStatusRetriesOnceAfterBoundedBackoff() async throws {
         let source = GitProjectorFactSource()
         let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = CallCounter()
@@ -446,10 +450,12 @@ struct GitWorkingDirectoryProjectorTests {
         let retriedAndEmittedSnapshot = await calls.value() == 2 && retrySnapshots.last?.branch == "retry-success"
         #expect(retriedAndEmittedSnapshot)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
         #expect(await actor.logicalDebtSnapshot().logicalDebtCount == 0)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
@@ -457,6 +463,7 @@ struct GitWorkingDirectoryProjectorTests {
     func failureBackoffSkipsWhenWorktreeContextChangesBeforeDelay() async throws {
         let source = GitProjectorFactSource()
         let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let callOrder = CallOrderRecorder()
@@ -503,7 +510,7 @@ struct GitWorkingDirectoryProjectorTests {
                 $0.contains { $0.contains("old-retry-root") }
             })).contains { $0.contains("old-retry-root") }
         #expect(oldNilAttemptCompleted)
-        _ = try await source.expectDeadlineRegistered(
+        let oldFailureDeadline = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .failure
         )
         await clock.waitForPendingSleepCount(atLeast: 1)
@@ -522,12 +529,13 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(newContextSnapshotArrived)
 
         clock.advance(by: .milliseconds(50))
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        try await facts.expectNext(in: oldFailureDeadline, .deadlineDisposition(.cancelled))
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         let labels = await callOrder.labels
         #expect(labels.filter { $0.contains("old-retry-root") }.count == 1)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
@@ -588,6 +596,9 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("ignored-only filesChanged event does not call git provider")
     func ignoredOnlyFilesChangedEventDoesNotCallGitProvider() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -601,7 +612,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
 
         let observed = ObservedGitEvents()
@@ -621,17 +633,23 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        try await facts.expectNext(
+            in: .intake(worktreeId: worktreeId, batchSeq: 1), .changesetDropped(.equal)
+        )
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 0)
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
     @Test("identical snapshot result does not emit duplicate snapshot facts")
     func identicalSnapshotResultDoesNotEmitDuplicateSnapshotFacts() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -646,7 +664,8 @@ struct GitWorkingDirectoryProjectorTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .zero,
-            refreshPolicy: AppPolicies.GitRefresh.Policy()
+            refreshPolicy: AppPolicies.GitRefresh.Policy(),
+            factSink: source.sink
         )
 
         let observed = ObservedGitEvents()
@@ -660,17 +679,23 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(firstSnapshotArrived)
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        let equalRefresh = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        #expect(equalRefresh == .equal)
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 2)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
     @Test("equal automatic facts reuse fresh line detail without another detail read")
     func equalAutomaticFactsReuseFreshLineDetail() async throws {
+        let source = GitProjectorFactSource()
+        let projectorFacts = try source.attach()
+        let noDropsFrom = await projectorFacts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let factCalls = CallCounter()
         let detailCalls = CallCounter()
@@ -693,7 +718,8 @@ struct GitWorkingDirectoryProjectorTests {
             coalescingWindow: .zero,
             refreshPolicy: AppPolicies.GitRefresh.Policy(
                 lineDetailFreshnessInterval: .seconds(960)
-            )
+            ),
+            factSink: source.sink
         )
         let observed = ObservedGitEvents()
         let collectionTask = await startCollection(on: bus, observed: observed)
@@ -721,7 +747,9 @@ struct GitWorkingDirectoryProjectorTests {
                 containsGitInternalChanges: true
             )
         )
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: projectorFacts, worktreeId: worktreeId)
+        let equalRefresh = try await source.expectNextRefreshClosed(facts: projectorFacts, worktreeId: worktreeId)
+        #expect(equalRefresh == .equal)
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await factCalls.value() == 2)
         #expect(await actor.worktreeTasks[worktreeId] == nil)
@@ -732,6 +760,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await observed.latestSnapshot(for: worktreeId)?.summary.linesAdded == 7)
 
         await actor.shutdown()
+        try await projectorFacts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
@@ -1108,8 +1137,9 @@ struct GitWorkingDirectoryProjectorTests {
                 )
             )
         })
-        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let source = GitProjectorFactSource()
         let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
@@ -1131,7 +1161,7 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
         #expect((await recorder.recordedCalls(until: { $0.count == 1 })).count == 1)
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
         #expect(await actor.lastStatusEntriesByWorktreeId[worktreeId] != nil)
 
         let coalescingDeadline = clock.now.advanced(by: .milliseconds(500))
@@ -1169,6 +1199,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(lastPathspecs == ["a.txt", "b.txt"])
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
     }
 
     @Test("foreground registration bypasses filesystem-derived coalescing")
@@ -1286,8 +1317,9 @@ struct GitWorkingDirectoryProjectorTests {
                 origin: nil
             )
         }
-        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let source = GitProjectorFactSource()
         let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
@@ -1336,13 +1368,16 @@ struct GitWorkingDirectoryProjectorTests {
             emittedAllSnapshots = emittedAllSnapshots && snapshots.count == 1
         }
         #expect(emittedAllSnapshots)
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        for worktreeId in worktreeIds {
+            _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        }
         let settledDebt = await actor.logicalDebtSnapshot()
         #expect(settledDebt.logicalPendingCount == 0)
         #expect(settledDebt.logicalRunningCount == 0)
         #expect(settledDebt.logicalDebtCount == 0)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
@@ -1943,6 +1978,9 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("registration followed by identical topology assertion is idempotent")
     func registrationFollowedByIdenticalTopologyAssertionIsIdempotent() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -1956,7 +1994,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
 
         let observed = ObservedGitEvents()
@@ -1986,12 +2025,13 @@ struct GitWorkingDirectoryProjectorTests {
                 ]
             )
         )
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
@@ -2066,6 +2106,9 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("stale registration envelope after topology removal does not resurrect worktree")
     func staleRegistrationEnvelopeAfterTopologyRemovalDoesNotResurrectWorktree() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -2079,7 +2122,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
 
         let observed = ObservedGitEvents()
@@ -2111,17 +2155,21 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        #expect(try await facts.expectHandledEnvelope(seq: 10) == .ignored)
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
     @Test("duplicate topology assertion is idempotent")
     func duplicateTopologyAssertionIsIdempotent() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let calls = CallCounter()
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -2135,7 +2183,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
 
         let observed = ObservedGitEvents()
@@ -2158,12 +2207,14 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(firstSnapshotArrived)
 
         await actor.assertTopology(assertion)
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        #expect(await actor.refreshAttribution.nextRequestSequence == 1)
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 1)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
@@ -2419,6 +2470,9 @@ struct GitWorkingDirectoryProjectorTests {
 
     @Test("projector tracks origin per repo and suppresses duplicates across worktrees")
     func suppressesDuplicateOriginEventsAcrossWorktreesInSameRepo() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let repoId = UUID()
         let firstWorktreeId = UUID()
@@ -2433,7 +2487,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
 
         let observed = ObservedGitEvents()
@@ -2466,16 +2521,21 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: firstWorktreeId)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: secondWorktreeId)
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await observed.originEventCount(for: repoId) == 1)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
     @Test("projector only emits originChanged for registration and git config changes")
     func onlyEmitsOriginChangedForRegistrationAndGitConfigChanges() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let repoId = UUID()
         let worktreeId = UUID()
@@ -2494,7 +2554,8 @@ struct GitWorkingDirectoryProjectorTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .zero,
-            refreshPolicy: AppPolicies.GitRefresh.Policy()
+            refreshPolicy: AppPolicies.GitRefresh.Policy(),
+            factSink: source.sink
         )
 
         let observed = ObservedGitEvents()
@@ -2522,7 +2583,8 @@ struct GitWorkingDirectoryProjectorTests {
                 paths: ["Sources/File.swift"]
             )
         )
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() >= 2)
         #expect(await observed.originEventCount(for: repoId) == 1)
@@ -2541,6 +2603,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(secondOriginEvent)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 
@@ -3863,6 +3926,7 @@ struct GitWorkingDirectoryProjectorTests {
     func deadPathWorktreeIsQuarantinedWithBoundedSelfHealDeadline() async throws {
         let source = GitProjectorFactSource()
         let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = CallCounter()
@@ -3917,7 +3981,9 @@ struct GitWorkingDirectoryProjectorTests {
             )
         }
 
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        try await facts.expectNext(
+            in: .intake(worktreeId: worktreeId, batchSeq: 4), .changesetDropped(.stale)
+        )
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
 
         #expect(await calls.value() == 0)
@@ -3927,13 +3993,20 @@ struct GitWorkingDirectoryProjectorTests {
             await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
                 == policy.backgroundCadence
         )
-        _ = try await source.expectDeadlineRegistered(
+        let selfHealDeadline = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .automatic
         )
         await clock.waitForPendingSleepCount(exactly: 1)
 
         clock.advance(by: policy.backgroundCadence)
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await facts.expectNext(
+            in: selfHealDeadline,
+            where: {
+                if case .deadlineDisposition = $0 { return true }
+                return false
+            },
+            "self-heal deadline closed"
+        )
         #expect(
             await actor.automaticRefreshDeadlineByWorktreeId[worktreeId]
                 == policy.backgroundCadence + policy.backgroundCadence
@@ -3946,6 +4019,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(recorder.quarantineEvents().count == 1)
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
         collectionTask.cancel()
     }
 

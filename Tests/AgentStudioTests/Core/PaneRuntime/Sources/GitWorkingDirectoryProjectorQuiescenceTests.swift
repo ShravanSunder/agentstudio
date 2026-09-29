@@ -53,8 +53,24 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         try await facts.finish()
     }
 
-    @Test("coalesced provider work and a later waiter settle after the provider exits")
-    func coalescedProviderAndConcurrentWaiters() async throws {
+    @Test("subscription stream end starts self-shutdown and closes its lifetime")
+    func streamEndStartsShutdown() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let projector = makeProjector(bus: bus, factSink: source.sink)
+        await projector.start()
+
+        await projector.subscriptionStreamDidEnd(lifetime: 1)
+
+        #expect(try await facts.expectShutdownCompleted() == 0)
+        #expect(await projector.isShuttingDown)
+    }
+
+    @Test("coalesced provider work and a later input settle after the provider exits")
+    func coalescedProviderAndLaterInput() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let providerStep = HeldStep<Void>("coalesced status provider")
@@ -66,28 +82,34 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .milliseconds(20),
-            sleepClock: clock
+            sleepClock: clock,
+            factSink: source.sink
         )
         await projector.start()
         let worktreeID = UUIDv7.generate()
         await projector.setActivity(worktreeId: worktreeID, isActiveInApp: true)
         _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: worktreeID))
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeID, kind: .coalescingWindow
+        )
         await clock.waitForPendingSleepCount()
-        let firstWaiter = Task { await projector.waitUntilIdle() }
 
         clock.advance(by: .milliseconds(20))
         _ = try await providerStep.firstArrival()
         _ = await bus.post(ignoredTopologyEnvelope(seq: 2))
-        let secondWaiter = Task { await projector.waitUntilIdle() }
+        #expect(try await facts.expectHandledEnvelope(seq: 2) == .ignored)
         providerStep.release()
 
-        #expect(await firstWaiter.value == .idle(droppedEnvelopes: 0))
-        #expect(await secondWaiter.value == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
+        #expect(await projector.worktreeTasks.isEmpty)
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
     }
 
     @Test("cancelled retired provider remains outstanding until it actually exits")
     func retiredProviderLifetime() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let providerStep = HeldStep<Void>("retired provider", cancellation: .holdThroughCancellation)
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -97,7 +119,8 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
         await projector.start()
         let worktreeID = UUIDv7.generate()
@@ -107,14 +130,20 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
 
         _ = await bus.post(unregisteredEnvelope(seq: 2, worktreeID: worktreeID))
         try await providerStep.cancellationObserved()
-        let idleTask = Task { await projector.waitUntilIdle() }
+        #expect(await projector.outstandingDrainTasks.isEmpty == false)
+        #expect(try await facts.expectHandledEnvelope(seq: 2) == .routed)
         providerStep.release()
-        #expect(await idleTask.value == .idle(droppedEnvelopes: 0))
+        let retiredOutcome = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
+        #expect(retiredOutcome == .cancelled)
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
+        #expect(await projector.outstandingDrainTasks.isEmpty)
     }
 
-    @Test("cancelled waiters and shutdown each resume once")
+    @Test("shutdown joins a cancelled provider before closing the subscription lifetime")
     func cancellationAndShutdown() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let providerStep = HeldStep<Void>("shutdown provider", cancellation: .holdThroughCancellation)
         let provider = StubGitWorkingTreeStatusProvider { _ in
@@ -124,7 +153,8 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
         await projector.start()
         let worktreeID = UUIDv7.generate()
@@ -132,25 +162,19 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: worktreeID))
         _ = try await providerStep.firstArrival()
 
-        let cancelledBeforeEntry = Task { () -> GitProjectorIdleOutcome in
-            withUnsafeCurrentTask { $0?.cancel() }
-            return await projector.waitUntilIdle()
-        }
-        #expect(await cancelledBeforeEntry.value == .cancelled)
-        let cancelledWhileWaiting = Task { await projector.waitUntilIdle() }
-        let shutdownWaiter = Task { await projector.waitUntilIdle() }
-        cancelledWhileWaiting.cancel()
-        #expect(await cancelledWhileWaiting.value == .cancelled)
         let shutdownTask = Task { await projector.shutdown() }
-        #expect(await shutdownWaiter.value == .shutdown)
         try await providerStep.cancellationObserved()
+        #expect(await projector.outstandingDrainTasks.isEmpty == false)
         providerStep.release()
         await shutdownTask.value
-        #expect(await projector.waitUntilIdle() == .shutdown)
+        #expect(try await facts.expectShutdownCompleted() == 0)
+        #expect(await projector.outstandingDrainTasks.isEmpty)
     }
 
     @Test("status failure debt remains outstanding until controlled backoff retries it")
-    func statusBackoffDebt() async {
+    func statusBackoffDebt() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let attempts = StatusAttemptSequence(firstFailure: .providerReturnedNil)
@@ -161,23 +185,30 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
             }),
             coalescingWindow: .zero,
             sleepClock: clock,
-            refreshPolicy: .init(statusFailureBackoffBaseDelay: .milliseconds(10))
+            refreshPolicy: .init(statusFailureBackoffBaseDelay: .milliseconds(10)),
+            factSink: source.sink
         )
         await projector.start()
         let worktreeID = UUIDv7.generate()
         _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: worktreeID))
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeID, kind: .failure
+        )
         await clock.waitForPendingSleepCount()
         #expect(await projector.deferredStatusBackoffChangesetByWorktreeId[worktreeID] != nil)
 
-        let idleTask = Task { await projector.waitUntilIdle() }
         clock.advance(by: .milliseconds(10))
-        #expect(await idleTask.value == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
         #expect(await attempts.callCount == 2)
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
     }
 
     @Test("capacity retry debt remains outstanding until controlled fallback retries it")
-    func capacityRetryDebt() async {
+    func capacityRetryDebt() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let attempts = StatusAttemptSequence(firstFailure: .readCapacityExceeded)
@@ -191,23 +222,29 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
             refreshPolicy: .init(
                 capacityRetryBaseDelay: .milliseconds(10),
                 capacityRetryJitterMaxDelay: .zero
-            )
+            ),
+            factSink: source.sink
         )
         await projector.start()
         let worktreeID = UUIDv7.generate()
         _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: worktreeID))
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeID, kind: .capacityFallback
+        )
         await clock.waitForPendingSleepCount()
         #expect(await projector.capacityRetryWorktreeIds.contains(worktreeID))
 
-        let idleTask = Task { await projector.waitUntilIdle() }
         clock.advance(by: .milliseconds(10))
-        #expect(await idleTask.value == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
         #expect(await attempts.callCount == 2)
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
     }
 
     @Test("admission pacing keeps the second accepted worktree pending")
-    func admissionPacedDebt() async {
+    func admissionPacedDebt() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let attempts = StatusAttemptSequence(firstFailure: nil)
@@ -222,26 +259,33 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
                 backgroundStripeCount: 1,
                 maxConcurrentStatusComputes: 1,
                 minimumAutomaticStartInterval: .milliseconds(10)
-            )
+            ),
+            factSink: source.sink
         )
         await projector.start()
-        _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: UUIDv7.generate()))
-        #expect(await projector.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        let firstWorktreeID = UUIDv7.generate()
+        _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: firstWorktreeID))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: firstWorktreeID)
         #expect(await attempts.callCount == 1)
 
         let secondWorktreeID = UUIDv7.generate()
         _ = await bus.post(filesChangedEnvelope(seq: 2, worktreeID: secondWorktreeID))
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: secondWorktreeID, kind: .governorPacing
+        )
         await clock.waitForPendingSleepCount()
         #expect(await projector.pendingByWorktreeId[secondWorktreeID] != nil)
-        let idleTask = Task { await projector.waitUntilIdle() }
         clock.advance(by: .milliseconds(10))
-        #expect(await idleTask.value == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: secondWorktreeID)
         #expect(await attempts.callCount == 2)
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
     }
 
     @Test("a due periodic deadline stays active through exact-clean renewal")
     func activeDeadlineRenewal() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let renewalStep = HeldStep<Void>("exact-clean deadline renewal")
@@ -260,25 +304,38 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
             ),
             coalescingWindow: .zero,
             sleepClock: clock,
-            refreshPolicy: .init(activePaneCadence: .milliseconds(10))
+            refreshPolicy: .init(activePaneCadence: .milliseconds(10)),
+            factSink: source.sink
         )
         await projector.start()
         let worktreeID = UUIDv7.generate()
         await projector.setActivity(worktreeId: worktreeID, isActiveInApp: true)
         _ = await bus.post(registeredEnvelope(seq: 1, worktreeID: worktreeID))
-        #expect(await projector.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
+        let periodicDeadline = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeID, kind: .automatic
+        )
         await clock.waitForPendingSleepCount()
 
         #expect(clock.advanceToNextPendingSleep())
         _ = try await renewalStep.firstArrival()
-        let idleTask = Task { await projector.waitUntilIdle() }
         renewalStep.release()
-        #expect(await idleTask.value == .idle(droppedEnvelopes: 0))
+        _ = try await facts.expectNext(
+            in: periodicDeadline,
+            where: {
+                if case .deadlineDisposition = $0 { return true }
+                return false
+            },
+            "periodic deadline closed after renewal"
+        )
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
     }
 
-    @Test("work posted during a provider completion extends the same idle await")
-    func followupWorkExtendsWait() async {
+    @Test("work posted during provider completion closes in a second refresh")
+    func followupWorkClosesInSecondRefresh() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let attempts = StatusAttemptSequence(firstFailure: nil)
         let worktreeID = UUIDv7.generate()
@@ -292,27 +349,33 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         let projector = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .zero
+            coalescingWindow: .zero,
+            factSink: source.sink
         )
         await projector.start()
         _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: worktreeID))
 
-        #expect(await projector.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
         #expect(await attempts.callCount == 2)
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
     }
 
-    @Test("collector catch-up waits for output application after projector idle")
+    @Test("collector catch-up waits for output application after the projector refresh closes")
     func collectorAppliesOutputBeforeNegativeAssertion() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let applyStep = HeldStep<Void>("collector snapshot application")
         let collector = ObservedGitEvents()
         await collector.start(on: bus, snapshotApplication: applyStep)
-        let projector = makeProjector(bus: bus)
+        let projector = makeProjector(bus: bus, factSink: source.sink)
         await projector.start()
-        _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: UUIDv7.generate()))
+        let worktreeID = UUIDv7.generate()
+        _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: worktreeID))
 
-        #expect(await projector.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeID)
         _ = try await applyStep.firstArrival()
         let caughtUpTask = Task {
             let outcome = await collector.waitUntilCaughtUp()
@@ -324,6 +387,7 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         #expect(snapshotCount == 1)
 
         await projector.shutdown()
+        #expect(try await facts.expectShutdownCompleted() == 0)
         await collector.shutdown()
     }
 

@@ -69,6 +69,39 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
             }
         }
     }
+
+    func expectShutdownCompleted(lifetime: UInt64 = 1) async throws -> UInt64 {
+        var droppedEnvelopes: UInt64 = 0
+        while true {
+            let fact = try await expectNext(
+                in: .lifetime(lifetime), where: { _ in true }, "shutdown completed"
+            )
+            switch fact {
+            case .envelopesDropped(let count):
+                droppedEnvelopes &+= count
+            case .envelopeHandled:
+                continue
+            case .shutdownCompleted:
+                try await finish()
+                return droppedEnvelopes
+            default:
+                preconditionFailure("Only lifetime facts belong to a lifetime scope")
+            }
+        }
+    }
+
+    func expectNoDroppedEnvelopes(from opening: OpeningPosition<GitProjectorScope>) async throws {
+        try await expectNone(
+            of: {
+                if case .envelopesDropped = $0 { return true }
+                return false
+            },
+            "dropped projector envelopes",
+            from: opening,
+            closedBy: { $0 == .shutdownCompleted }
+        )
+        try await finish()
+    }
 }
 
 private struct UnexpectedProjectorEnvelopeSequence: Error {
@@ -76,17 +109,25 @@ private struct UnexpectedProjectorEnvelopeSequence: Error {
     let actual: UInt64
 }
 
-/// Retains only deadline identities emitted by the injected sink. Tests still
-/// consume and verify the corresponding fact through FactRecorder; this source
-/// resolves a dynamic generation without reading projector scheduler state.
+/// Retains emitted operation identities. Tests still consume and verify their
+/// facts through FactRecorder without reading projector scheduler state.
 final class GitProjectorFactSource: Sendable {
     private let localSource = LocalFactSource(
         vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
     private let deadlineScopes = Mutex(DeadlineScopeState())
+    private let refreshScopes = Mutex(RefreshScopeState())
 
     var sink: GitProjectorFactSink {
         { [self] scope, fact in
             self.localSource.sink(scope, fact)
+            if case .refreshAdmitted = fact, case .refresh(let worktreeId, _) = scope {
+                let waiter = self.refreshScopes.withLock { state -> CheckedContinuation<GitProjectorScope, Never>? in
+                    if let waiter = state.waiters.removeValue(forKey: worktreeId) { return waiter }
+                    state.pending[worktreeId, default: []].append(scope)
+                    return nil
+                }
+                waiter?.resume(returning: scope)
+            }
             guard case .deadlineRegistered(let kind) = fact,
                 case .deadline(let worktreeId, let scopedKind, _) = scope,
                 kind == scopedKind
@@ -112,6 +153,33 @@ final class GitProjectorFactSource: Sendable {
 
     func attach() throws -> FactRecorder<GitProjectorScope, GitProjectorFact> {
         try localSource.attach()
+    }
+
+    func nextRefreshScope(worktreeId: UUID) async -> GitProjectorScope {
+        await withCheckedContinuation { continuation in
+            let pending = refreshScopes.withLock { state -> GitProjectorScope? in
+                if var scopes = state.pending[worktreeId], !scopes.isEmpty {
+                    let scope = scopes.removeFirst()
+                    state.pending[worktreeId] = scopes
+                    return scope
+                }
+                precondition(state.waiters[worktreeId] == nil, "One refresh scope consumer per worktree")
+                state.waiters[worktreeId] = continuation
+                return nil
+            }
+            if let pending { continuation.resume(returning: pending) }
+        }
+    }
+
+    func expectNextRefreshClosed(
+        facts: FactRecorder<GitProjectorScope, GitProjectorFact>,
+        worktreeId: UUID
+    ) async throws -> GitProjectorRefreshOutcome {
+        let scope = await nextRefreshScope(worktreeId: worktreeId)
+        guard case .refresh(_, let requestSequence) = scope else {
+            preconditionFailure("Refresh admission must have a refresh scope")
+        }
+        return try await facts.expectRefreshClosed(worktreeId: worktreeId, requestSequence: requestSequence)
     }
 
     func nextDeadlineScope(worktreeId: UUID, kind: GitProjectorDeadlineKind) async -> GitProjectorScope {
@@ -177,4 +245,9 @@ private struct DeadlineScopeState {
     var waiters: [DeadlineKey: CheckedContinuation<GitProjectorScope, Never>] = [:]
     var anyWorktreePending: [GitProjectorDeadlineKind: [GitProjectorScope]] = [:]
     var anyWorktreeWaiters: [GitProjectorDeadlineKind: CheckedContinuation<GitProjectorScope, Never>] = [:]
+}
+
+private struct RefreshScopeState {
+    var pending: [UUID: [GitProjectorScope]] = [:]
+    var waiters: [UUID: CheckedContinuation<GitProjectorScope, Never>] = [:]
 }

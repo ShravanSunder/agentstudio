@@ -37,14 +37,11 @@ package actor GitWorkingDirectoryProjector {
     private var subscriptionTask: Task<Void, Never>?
     var subscriptionHandle: EventBusSubscription<RuntimeEnvelope>?
     var subscriptionLifetime: UInt64 = 0
-    var handledEnvelopeCount: UInt64 = 0
     var lastEmittedDroppedEnvelopeCount: UInt64 = 0
     var isStarting = false
     var startCompletionWaiters: [CheckedContinuation<Void, Never>] = []
     var shutdownInProgress = false
-    var idleWaiters: [UUID: GitProjectorIdleWaiter] = [:]
     var outstandingDrainTasks: [UInt64: Task<Void, Never>] = [:]
-    var activeDeadlineHandlerCount = 0
     var deadlineTask: Task<Void, Never>?
     var deadlineTaskGeneration: UInt64 = 0
     var deadlineQueue = GitRefreshDeadlineQueue()
@@ -211,7 +208,6 @@ package actor GitWorkingDirectoryProjector {
         subscriptionLifetime &+= 1
         let lifetime = subscriptionLifetime
         subscriptionHandle = stream
-        handledEnvelopeCount = 0
         lastEmittedDroppedEnvelopeCount = 0
         subscriptionTask = Task { [weak self] in
             for await runtimeEnvelope in stream {
@@ -235,7 +231,6 @@ package actor GitWorkingDirectoryProjector {
         guard !shutdownInProgress else { return }
         shutdownInProgress = true
         isShuttingDown = true
-        resolveAllIdleWaiters(as: .shutdown)
         await waitForSubscriptionStartBeforeShutdown()
         let subscription = subscriptionTask
         subscriptionTask?.cancel()
@@ -309,7 +304,6 @@ package actor GitWorkingDirectoryProjector {
         consecutiveStatusFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         nextPeriodicBatchSeqByWorktreeId.removeAll(keepingCapacity: false)
         subscriptionHandle = nil
-        handledEnvelopeCount = 0
         shutdownInProgress = false
         if let factSink, lastClosedFactLifetime != subscriptionLifetime {
             lastClosedFactLifetime = subscriptionLifetime
@@ -446,7 +440,6 @@ package actor GitWorkingDirectoryProjector {
                 forceRefresh: lifetimeChanged
             )
         }
-        resolveIdleWaitersIfPossible()
     }
 
     package func refreshRegisteredWorktreesImmediately() {

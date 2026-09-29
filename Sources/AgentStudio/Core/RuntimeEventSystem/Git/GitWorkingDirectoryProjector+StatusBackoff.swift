@@ -165,7 +165,6 @@ extension GitWorkingDirectoryProjector {
         }
         admitPendingWorktrees()
         rescheduleDeadlineTask()
-        resolveIdleWaitersIfPossible()
     }
 
     func expireCapacityRetry(worktreeId: UUID) {

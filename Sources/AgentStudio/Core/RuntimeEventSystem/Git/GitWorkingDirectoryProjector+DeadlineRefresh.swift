@@ -162,7 +162,6 @@ extension GitWorkingDirectoryProjector {
             }
         }
         scheduleCoalescedVisibilityAdmission()
-        resolveIdleWaitersIfPossible()
     }
 
     func enqueueAttendedMissingBaselineIfNeeded(worktreeId: UUID) {
@@ -280,7 +279,6 @@ extension GitWorkingDirectoryProjector {
                 outcome: .batched
             )
         }
-        resolveIdleWaitersIfPossible()
         closeVisibilityAdmissionFacts(
             admittedWorktreeIds: Set(newlyVisibleWorktreeIds)
         )
@@ -322,17 +320,8 @@ extension GitWorkingDirectoryProjector {
         return nil
     }
 
-    var hasDueRefreshDeadline: Bool {
-        earliestRefreshDeadline.map { $0 <= deadlineClock.now } ?? false
-    }
-
     private func handleDeadlineWake(generation: UInt64) async {
         guard generation == deadlineTaskGeneration, !isShuttingDown else { return }
-        activeDeadlineHandlerCount += 1
-        defer {
-            activeDeadlineHandlerCount -= 1
-            resolveIdleWaitersIfPossible()
-        }
         deadlineTask = nil
         let now = deadlineClock.now
         var evaluatedDeadlineFacts: [(scope: GitProjectorScope, worktreeId: UUID)] = []
