@@ -323,6 +323,10 @@ export function buildHeroIntroScene(
       duration: 0.78,
       ease: "none",
       onUpdate: () => {
+        if (timeline.time() >= 3.4) {
+          typedInput.textContent = "";
+          return;
+        }
         typedInput.textContent = claudePrompt.slice(
           0,
           Math.floor(claudeTyping.fraction * claudePrompt.length),
@@ -350,18 +354,18 @@ export function buildHeroIntroScene(
   };
   if (claudeLift !== null) {
     timeline.set(claudeLift, activePaneStyle, 3.62);
-    timeline.set(claudeLift, { boxShadow: "none", backgroundColor: "transparent" }, 7.85);
+    timeline.set(claudeLift, { boxShadow: "none", backgroundColor: "transparent" }, 7.95);
   }
   if (codexLift !== null && options.width >= 1024) {
-    timeline.set(codexLift, activePaneStyle, 9.52);
-    timeline.set(codexLift, { boxShadow: "none", backgroundColor: "transparent" }, 12.65);
+    timeline.set(codexLift, activePaneStyle, 9.22);
+    timeline.set(codexLift, { boxShadow: "none", backgroundColor: "transparent" }, 12.35);
   }
 
-  timeline.addLabel("beat:codex-prompt", 9.52);
+  timeline.addLabel("beat:codex-prompt", 9.22);
   if (codexTypedInput !== null && codexPlaceholder !== null && options.width >= 1024) {
     const codexPrompt = "map the worktrees";
     const codexTyping = { fraction: 0 };
-    timeline.set(codexPlaceholder, { opacity: 0 }, 9.52);
+    timeline.set(codexPlaceholder, { opacity: 0 }, 9.22);
     timeline.to(
       codexTyping,
       {
@@ -369,21 +373,25 @@ export function buildHeroIntroScene(
         duration: 0.51,
         ease: "none",
         onUpdate: () => {
+          if (timeline.time() >= 9.8) {
+            codexTypedInput.textContent = "";
+            return;
+          }
           codexTypedInput.textContent = codexPrompt.slice(
             0,
             Math.floor(codexTyping.fraction * codexPrompt.length),
           );
         },
       },
-      9.52,
+      9.22,
     );
-    timeline.set(codexTypedInput, { textContent: "" }, 10.1);
-    timeline.set(codexPlaceholder, { opacity: 1 }, 10.1);
+    timeline.set(codexTypedInput, { textContent: "" }, 9.8);
+    timeline.set(codexPlaceholder, { opacity: 1 }, 9.8);
     if (codexCurrentRows !== null)
-      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 10.1);
-    revealRow(visibleCodexRows[0], 10.1);
-    revealRow(codexWorking, 10.15);
-    revealRow(worktreeCommand, 10.95);
+      timeline.to(codexCurrentRows, { opacity: 0, duration: 0.18, ease: "power2.out" }, 9.8);
+    revealRow(visibleCodexRows[0], 9.8);
+    revealRow(codexWorking, 9.85);
+    revealRow(worktreeCommand, 10.65);
   }
 
   const spinnerGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
@@ -434,8 +442,13 @@ export function buildHeroIntroScene(
     );
   }
 
-  timeline.addLabel("beat:install-decode", 7.3);
-  timeline.fromTo(install, { opacity: 0 }, { opacity: 1, duration: 0.25, ease: "power1.out" }, 7.3);
+  timeline.addLabel("beat:install-decode", 7.95);
+  timeline.fromTo(
+    install,
+    { opacity: 0 },
+    { opacity: 1, duration: 0.25, ease: "power1.out" },
+    7.95,
+  );
   const decodeState = { fraction: 0 };
   const glyphs = "▓▒░█<>/\\#$";
   timeline.to(
@@ -466,7 +479,7 @@ export function buildHeroIntroScene(
         }
       },
     },
-    7.3,
+    7.95,
   );
 
   timeline.addLabel("beat:ready", 7.0);
@@ -482,7 +495,7 @@ export function buildHeroIntroScene(
   if (options.width < 1024) {
     const phonePrompt = "map the worktrees";
     const phoneTyping = { fraction: 0 };
-    timeline.set(typedInput, { textContent: "" }, 8.97);
+    timeline.set(typedInput, { textContent: "" }, 9.12);
     timeline.to(
       phoneTyping,
       {
@@ -490,20 +503,24 @@ export function buildHeroIntroScene(
         duration: 0.51,
         ease: "none",
         onUpdate: () => {
+          if (timeline.time() >= 9.7) {
+            typedInput.textContent = "";
+            return;
+          }
           typedInput.textContent = phonePrompt.slice(
             0,
             Math.floor(phoneTyping.fraction * phonePrompt.length),
           );
         },
       },
-      8.97,
+      9.12,
     );
-    timeline.set(typedInput, { textContent: "" }, 9.52);
+    timeline.set(typedInput, { textContent: "" }, 9.7);
     revealRow(
       visibleClaudeRows.find((row) => row.textContent?.includes("map the worktrees")),
-      9.52,
+      9.7,
     );
-    revealRow(phoneWorking, 9.6);
+    revealRow(phoneWorking, 9.75);
     if (phoneWorking !== null) {
       const phoneWorkState = { fraction: 0 };
       const phoneGlyphs = ["✢", "✳", "✶", "✻", "✽"] as const;
@@ -515,14 +532,14 @@ export function buildHeroIntroScene(
           ease: "none",
           onUpdate: () => {
             const elapsed = phoneWorkState.fraction * 1.35;
-            phoneWorking.textContent = `  ⎿ ${phoneGlyphs[Math.floor((9.6 + elapsed) * 8) % phoneGlyphs.length]} Working (${Math.floor(elapsed + 1)}s · esc to interrupt)`;
+            phoneWorking.textContent = `  ⎿ ${phoneGlyphs[Math.floor((9.75 + elapsed) * 8) % phoneGlyphs.length]} Working (${Math.floor(elapsed + 1)}s · esc to interrupt)`;
           },
         },
-        9.6,
+        9.75,
       );
-      timeline.set(phoneWorking, { textContent: "  ⎿ Ran" }, 10.95);
+      timeline.set(phoneWorking, { textContent: "  ⎿ Ran" }, 11.1);
     }
-    revealRow(worktreeCommand, 10.95);
+    revealRow(worktreeCommand, 11.1);
   }
   if (codexWorkingMeta !== null) {
     const workingState = { seconds: 0 };
@@ -536,32 +553,35 @@ export function buildHeroIntroScene(
           codexWorkingMeta.textContent = ` (${Math.floor(workingState.seconds + 1)}s • esc to interrupt)`;
         },
       },
-      10.15,
+      9.85,
     );
   }
+  const worktreeRowStart = options.width >= 1024 ? 10.85 : 11.25;
   worktreeRows.forEach((row, index) => {
-    revealRow(row, 11.15 + index * 0.45);
+    revealRow(row, worktreeRowStart + index * 0.45);
     timeline.fromTo(
       row,
       { "--hero-row-flash": 1 },
       { "--hero-row-flash": 0, duration: 0.45, ease: "power1.out" },
-      11.15 + index * 0.45,
+      worktreeRowStart + index * 0.45,
     );
   });
-  revealRow(codexRunning, 10.95);
+  revealRow(codexRunning, 10.65);
   if (codexVerb !== null) {
-    timeline.set(codexVerb, { textContent: "Running" }, 10.95);
-    timeline.set(codexVerb, { textContent: "Ran" }, 12.6);
+    timeline.set(codexVerb, { textContent: "Running" }, 10.65);
+    timeline.set(codexVerb, { textContent: "Ran" }, 12.3);
   }
   if (codexWorking !== null && options.width >= 1024)
-    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 10.95);
-  timeline.addLabel("beat:codex-result", 12.6);
-  revealRow(worktreeResult, 12.6);
-  timeline.addLabel("beat:rail-handoff", 13.55);
+    timeline.to(codexWorking, { opacity: 0, duration: 0.15, ease: "power2.out" }, 10.65);
+  const worktreeResultStart = options.width >= 1024 ? 12.3 : 12.6;
+  revealRow(worktreeResult, worktreeResultStart);
+  timeline.addLabel("beat:codex-result", worktreeResultStart);
+  const railStart = options.width >= 1024 ? 13.25 : 13.55;
+  timeline.addLabel("beat:rail-handoff", railStart);
   const railTiming =
     rail === null
-      ? { finalHopStart: 13.95, end: 14.05 }
-      : addHeroRailStaircase({ timeline, artwork: rail, start: 13.55 });
+      ? { finalHopStart: railStart + 0.4, end: railStart + 0.5 }
+      : addHeroRailStaircase({ timeline, artwork: rail, start: railStart });
   timeline.fromTo(
     [payoffFirst, payoffSecond],
     { y: 8, opacity: 0 },

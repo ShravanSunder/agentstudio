@@ -44,23 +44,38 @@ for (const [width, height] of [
     expect(at(7.22).tokenCount).toBeGreaterThan(0);
     expect(at(7.22).tokenTextOverlaps).toBe(0);
     expect(at(7.5).tokenCount).toBeGreaterThan(0);
+    expect(at(7.5).installBurstSourceXGap).toBeGreaterThanOrEqual(0);
+    expect(at(7.5).installBurstSourceXGap).toBeLessThanOrEqual(16);
+    expect(at(7.5).installBurstSourceYGap).toBeLessThanOrEqual(4);
+    expect(at(7.5).installBurstTargetXGap).toBeGreaterThanOrEqual(4);
+    expect(at(7.5).installBurstTargetXGap).toBeLessThanOrEqual(24);
+    expect(at(7.5).installBurstTargetYGap).toBeLessThanOrEqual(4);
     expect(at(7.56).tokenCount).toBeGreaterThan(0);
     expect(at(7.96).tokenCount).toBe(0);
-    expect(at(7.5).installOpacity).toBeGreaterThan(0);
-    expect(at(7.8).visibleDecodeLines).toBeGreaterThan(0);
-    expect(at(8.3).visibleDecodeLines).toBe(0);
-    expect(at(8.3).copyOpacity).toBe(1);
+    expect(at(7.5).installOpacity).toBe(0);
+    expect(at(8.2).installOpacity).toBeGreaterThan(0);
+    expect(at(8.2).visibleDecodeLines).toBeGreaterThan(0);
+    expect(at(9.0).visibleDecodeLines).toBe(0);
+    expect(at(9.0).copyOpacity).toBe(1);
     if (width >= 1024) {
+      expect(at(8.82).tokenCount).toBe(0);
       expect(at(8.0).codexTypedText).toBe("");
       expect(at(9.22).codexTypedText).toBe("");
-      expect(at(8.82).tokenCount).toBeGreaterThan(0);
+      expect(at(8.82).tokenCount).toBe(0);
       expect(at(8.82).tokenTextOverlaps).toBe(0);
+      expect(at(9.02).tokenCount).toBe(0);
+      expect(at(9.245).tokenCount).toBe(0);
       expect(at(9.72).codexTypedText.length).toBeGreaterThan(0);
       expect(at(9.72).codexTypedText.length).toBeLessThan("map the worktrees".length);
       expect(at(10.3).codexWorkingOpacity).toBeGreaterThan(0);
       expect(at(11.4).worktreeRowOpacities[0]).toBeGreaterThan(0);
       expect(at(11.0).worktreeResultOpacity).toBe(0);
       expect(at("settled").codexWorkingOpacity).toBe(0);
+    }
+    for (const time of [7.0, 9.0, 11.0, "settled"] as const) {
+      expect(at(time).claudeInputText, `${width}px Claude input after send at ${time}`).toBe("");
+      if (width >= 1024)
+        expect(at(time).codexInputText, `${width}px Codex input after send at ${time}`).toBe("");
     }
     expect(at(11.3).worktreeRowOpacities.some((opacity) => opacity > 0)).toBe(true);
     expect(at(11.3).worktreeResultOpacity).toBe(0);
@@ -73,10 +88,11 @@ for (const [width, height] of [
     expect(at(13.65).railClip).not.toContain("100%");
     expect(at(12.3).firstPayoff).toBe(0);
     const { staircase } = observation;
-    expect(staircase.start).toBeGreaterThanOrEqual(13.55);
-    expect(staircase.start - 13.55).toBeLessThanOrEqual(0.05);
+    const railDrawStart = width >= 1024 ? 13.25 : 13.55;
+    expect(staircase.start).toBeGreaterThanOrEqual(railDrawStart);
+    expect(staircase.start - railDrawStart).toBeLessThanOrEqual(0.05);
     for (const fraction of [0.25, 0.5, 0.75]) {
-      const offsets = [7.05, ...(width >= 1024 ? [8.57] : []), 12.65];
+      const offsets = [7.05, width >= 1024 ? 12.35 : 12.65];
       for (const start of offsets) {
         const sample = at(Number((start + fraction * 0.9).toFixed(3)));
         expect(sample.tokenCount, `${width}px burst ${start} at ${fraction}`).toBeGreaterThan(0);

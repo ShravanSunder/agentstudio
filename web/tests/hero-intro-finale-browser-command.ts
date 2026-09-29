@@ -41,6 +41,12 @@ interface FinaleSample {
     readonly fill: string;
   }[];
   readonly railBurstTargetDistance: number;
+  readonly installBurstSourceXGap: number;
+  readonly installBurstSourceYGap: number;
+  readonly installBurstTargetXGap: number;
+  readonly installBurstTargetYGap: number;
+  readonly claudeInputText: string;
+  readonly codexInputText: string;
   readonly transcriptClearances: readonly number[];
   readonly transcriptScrollTops: readonly number[];
   readonly transcriptOverflows: readonly number[];
@@ -152,7 +158,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         return ys.filter((y, index) => index === 0 || Math.abs(y - (ys[index - 1] ?? y)) > 0.5)
           .length;
       });
-      const staircase = planHeroRailStaircase(rowCount, 13.55);
+      const staircase = planHeroRailStaircase(rowCount, width >= 1024 ? 13.25 : 13.55);
       const firstHop = staircase.hops[0];
       const secondHop = staircase.hops[1];
       const finalHop = staircase.hops.at(-1);
@@ -210,6 +216,7 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         8.82,
         8.795,
         9.02,
+        9.0,
         9.245,
         9.48,
         8.3,
@@ -228,8 +235,10 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
         11.9,
         12.3,
         12.5,
+        12.575,
         12.8,
         12.875,
+        13.025,
         13.1,
         13.325,
         13.56,
@@ -324,9 +333,39 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
             const tokens = [
               ...root.querySelectorAll<SVGTextElement>("[data-hero-token-layer] text"),
             ];
+            const bashRow = [
+              ...root.querySelectorAll<HTMLElement>(
+                ".hero-terminal-pane--claude .hero-transcript-row--tool-call",
+              ),
+            ].find((row) => row.getClientRects().length > 0);
+            const firstCommand = install.querySelector<HTMLElement>(".install-command__line");
+            const tokenLayerForInstall =
+              root.querySelector<SVGSVGElement>("[data-hero-token-layer]");
+            if (bashRow === undefined || firstCommand === null)
+              throw new Error("Install burst anchors missing");
+            const textWalker = document.createTreeWalker(bashRow, NodeFilter.SHOW_TEXT);
+            let lastTextNode: Text | undefined;
+            while (textWalker.nextNode()) {
+              const textNode = textWalker.currentNode;
+              if (textNode instanceof Text && textNode.textContent?.trim()) lastTextNode = textNode;
+            }
+            if (lastTextNode === undefined) throw new Error("Bash row has no text");
+            const lastGlyph = document.createRange();
+            lastGlyph.setStart(lastTextNode, Math.max(0, lastTextNode.length - 1));
+            lastGlyph.setEnd(lastTextNode, lastTextNode.length);
+            const glyphBounds = lastGlyph.getBoundingClientRect();
+            const commandBounds = firstCommand.getBoundingClientRect();
+            const burstStartX = Number(
+              tokenLayerForInstall?.getAttribute("data-hero-install-start-x"),
+            );
+            const burstStartY = Number(
+              tokenLayerForInstall?.getAttribute("data-hero-install-start-y"),
+            );
+            const burstEndX = Number(tokenLayerForInstall?.getAttribute("data-hero-install-end-x"));
+            const burstEndY = Number(tokenLayerForInstall?.getAttribute("data-hero-install-end-y"));
             const textRects = [
               ...root.querySelectorAll<HTMLElement>(
-                ".hero-transcript-row, .hero-claude-input, .hero-codex-input, [data-hero-intro-copy], [data-hero-intro-eyebrow-settled]",
+                ".hero-transcript-row, .hero-claude-input, .hero-codex-input, .hero-claude-footer, .hero-codex-footer, .install-command__line, [data-hero-intro-copy], [data-hero-intro-eyebrow-settled]",
               ),
             ]
               .filter(
@@ -480,6 +519,18 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                 fill: token.getAttribute("fill") ?? "",
               })),
               railBurstTargetDistance,
+              installBurstSourceXGap: burstStartX - glyphBounds.right,
+              installBurstSourceYGap: Math.abs(
+                burstStartY - (glyphBounds.top + glyphBounds.height / 2),
+              ),
+              installBurstTargetXGap: commandBounds.left - burstEndX,
+              installBurstTargetYGap: Math.abs(
+                burstEndY - (commandBounds.top + commandBounds.height / 2),
+              ),
+              claudeInputText:
+                root.querySelector<HTMLElement>("[data-hero-intro-typed-input]")?.textContent ?? "",
+              codexInputText:
+                root.querySelector<HTMLElement>("[data-hero-codex-typed-input]")?.textContent ?? "",
               transcriptClearances: transcriptMeasurements.map(
                 (measurement) => measurement.clearance,
               ),

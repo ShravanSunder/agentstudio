@@ -214,14 +214,14 @@ export const verifyHeroPhoneMidIntro = defineBrowserCommand(
         const readyAfterDecode =
           !readyBeforeDecodeEnds && Number(getComputedStyle(ready).opacity) > 0.99;
         clippedAtAnySample ||= clipped();
-        control.seek(9.22);
+        control.seek(9.4);
         const mapTypedBeforeWork =
           (prompt.textContent ?? "").startsWith("map") &&
           (prompt.textContent?.length ?? 0) < "map the worktrees".length;
         const noCodexBurst =
           pane.querySelectorAll("[data-hero-token-layer] text").length === 0 &&
           document.querySelectorAll("[data-hero-token-layer] text").length === 0;
-        control.seek(9.7);
+        control.seek(9.9);
         const phoneWorkingBeforeRows =
           Number(
             getComputedStyle(pane.querySelector<HTMLElement>("[data-hero-phone-working]") ?? pane)

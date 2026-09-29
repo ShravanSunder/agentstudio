@@ -46,13 +46,14 @@ describe("hero intro scene contract", () => {
       buildHeroIntroScene(fixture, timeline, { width: 1600, height: 1000, seed: 0 });
       expect(timeline.labels["beat:claude-brew"]).toBe(3.95);
       expect(timeline.labels["burst:install"]).toBe(7.05);
-      expect(timeline.labels["burst:codex"]).toBe(8.57);
-      expect(timeline.labels["burst:rail"]).toBe(12.65);
-      expect(timeline.labels["beat:codex-prompt"]).toBe(9.52);
-      expect(timeline.labels["beat:codex-result"]).toBe(12.6);
-      expect(timeline.labels["beat:rail-handoff"]).toBe(13.55);
+      expect(timeline.labels["burst:codex"]).toBeUndefined();
+      expect(timeline.labels["beat:install-decode"]).toBe(7.95);
+      expect(timeline.labels["burst:rail"]).toBe(12.35);
+      expect(timeline.labels["beat:codex-prompt"]).toBe(9.22);
+      expect(timeline.labels["beat:codex-result"]).toBe(12.3);
+      expect(timeline.labels["beat:rail-handoff"]).toBe(13.25);
       expect(timeline.duration()).toBeLessThanOrEqual(16.5);
-      for (const burstStart of [7.05, 8.57, 12.65]) {
+      for (const burstStart of [7.05, 12.35]) {
         expect(
           timeline
             .getChildren(false, true, false)
@@ -119,7 +120,7 @@ describe("hero intro scene contract", () => {
         .getChildren(false, true, false)
         .map((child) => child.startTime());
       expect(tweenStarts.filter((start) => start > 2.4 && start < 2.6)).toEqual([]);
-      expect(tweenStarts.filter((start) => start > 8.12 && start < 8.57)).toEqual([]);
+      expect(tweenStarts.filter((start) => start > 8.77 && start < 9.22)).toEqual([]);
       timeline.time(0.3);
       timeline.time(3.38);
       expect(
@@ -179,12 +180,12 @@ describe("hero intro scene contract", () => {
         throw new Error("Intro timing targets are missing");
       timeline.time(7.32);
       expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(0.35, 1);
-      timeline.time(7.8);
+      timeline.time(8.3);
       expect(Number(getComputedStyle(install).opacity)).toBeCloseTo(1, 1);
       expect(getComputedStyle(install).transform).toBe("none");
       timeline.time(7.7);
       expect(Number(getComputedStyle(arrow).opacity)).toBeCloseTo(1, 1);
-      timeline.time(8.2);
+      timeline.time(8.9);
       const overlays = [...fixture.querySelectorAll<HTMLElement>("[data-install-decode-line]")];
       expect(overlays.every((line) => Number(getComputedStyle(line).opacity) === 0)).toBe(true);
       expect(overlays.map((line) => line.parentElement?.textContent).join(" ")).toContain(

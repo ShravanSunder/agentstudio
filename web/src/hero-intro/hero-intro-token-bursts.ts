@@ -12,7 +12,6 @@ interface RoutePoint extends HeroPoint {
 
 const tokenColours = ["#b4c6e4", "#d4bcad", "#bccfb9", "#c9bfd9", "#b5cdd8", "#d6cdb4"];
 const installTokens = ["brew", "{ }", "✦", "tap", "⟨/⟩", "#", "cask", "▍", "→", "✦", "01"];
-const codexTokens = ["map", "✦", "λ", "{ }", "git", "⟨/⟩", "▍", "✦", "tree", "→", "01"];
 const railTokens = ["wt", "main", "✦", "{ }", "drawer", "▍", "→", "review", "·"];
 const svgNamespace = "http://www.w3.org/2000/svg";
 
@@ -68,6 +67,21 @@ function textEnd(element: HTMLElement): HeroPoint {
   return { x: bounds.right, y: bounds.top + bounds.height / 2 };
 }
 
+function lastGlyphEnd(element: HTMLElement): HeroPoint {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let lastTextNode: Text | undefined;
+  while (walker.nextNode()) {
+    const textNode = walker.currentNode;
+    if (textNode instanceof Text && textNode.textContent?.trim()) lastTextNode = textNode;
+  }
+  if (lastTextNode === undefined) throw new Error("Hero Bash row has no text");
+  const range = document.createRange();
+  range.setStart(lastTextNode, Math.max(0, lastTextNode.length - 1));
+  range.setEnd(lastTextNode, lastTextNode.length);
+  const bounds = range.getBoundingClientRect();
+  return { x: bounds.right, y: bounds.top + bounds.height / 2 };
+}
+
 function intersects(left: DOMRect, right: DOMRect): boolean {
   return (
     left.left < right.right + 2 &&
@@ -82,11 +96,18 @@ function visibleTextRects(root: HTMLElement): DOMRect[] {
     ".hero-transcript-row",
     ".hero-claude-input",
     ".hero-codex-input",
+    ".hero-claude-footer",
+    ".hero-codex-footer",
     ".install-command__line",
     "[data-hero-intro-copy]",
     "[data-hero-intro-eyebrow-settled]",
   ];
   const rectangles: DOMRect[] = [];
+  for (const footer of root.querySelectorAll<HTMLElement>(
+    ".hero-claude-footer, .hero-codex-footer",
+  )) {
+    if (footer.getClientRects().length > 0) rectangles.push(footer.getBoundingClientRect());
+  }
   for (const element of root.querySelectorAll<HTMLElement>(selectors.join(","))) {
     const style = getComputedStyle(element);
     if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) < 0.05)
@@ -124,8 +145,8 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
     ) ?? null;
   const windowNode = root.querySelector<HTMLElement>("[data-hero-terminal-window]");
   const install = root.querySelector<HTMLElement>("[data-hero-intro-install]");
-  const readyArrow = visible("[data-hero-intro-ready-arrow]");
-  const codexInput = root.querySelector<HTMLElement>(".hero-codex-input");
+  const bashRow = visible(".hero-terminal-pane--claude .hero-transcript-row--tool-call");
+  const firstInstallCommand = install?.querySelector<HTMLElement>(".install-command__line");
   const result = visible(
     `.hero-terminal-pane--${width < 1024 ? "claude" : "codex"} [data-hero-worktree-result]`,
   );
@@ -154,6 +175,16 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
             if (endpoint !== undefined) {
               layer.setAttribute("data-hero-burst-end-x", String(endpoint.x));
               layer.setAttribute("data-hero-burst-end-y", String(endpoint.y));
+            }
+          }
+          if (label === "burst:install") {
+            const source = route[0];
+            const endpoint = route.at(-1);
+            if (source !== undefined && endpoint !== undefined) {
+              layer.setAttribute("data-hero-install-start-x", String(source.x));
+              layer.setAttribute("data-hero-install-start-y", String(source.y));
+              layer.setAttribute("data-hero-install-end-x", String(endpoint.x));
+              layer.setAttribute("data-hero-install-end-y", String(endpoint.y));
             }
           }
           const blocked = visibleTextRects(root);
@@ -186,31 +217,29 @@ export function addHeroTokenBursts({ root, timeline, width }: TokenBurstOptions)
   };
 
   addBurst("burst:install", 7.05, installTokens, () => {
-    if (readyArrow === null || windowNode === null || install === null) return null;
-    const source = textEnd(readyArrow);
+    if (
+      bashRow === null ||
+      windowNode === null ||
+      install === null ||
+      firstInstallCommand === undefined ||
+      firstInstallCommand === null
+    )
+      return null;
+    const source = lastGlyphEnd(bashRow);
     const windowRect = windowNode.getBoundingClientRect();
-    const target = install.getBoundingClientRect();
+    const pane = bashRow.closest<HTMLElement>(".hero-terminal-pane");
+    if (pane === null) return null;
+    const paneRect = pane.getBoundingClientRect();
+    const target = firstInstallCommand.getBoundingClientRect();
+    const clearMarginX = Math.max(source.x + 8, paneRect.right - 18);
     return [
-      { x: source.x + 12, y: source.y },
-      { x: source.x + 48, y: windowRect.bottom + 18 },
-      { x: target.left - 24, y: target.top - 18 },
-      { x: target.left + 18, y: target.top + 8 },
+      { x: source.x + 8, y: source.y },
+      { x: clearMarginX, y: source.y },
+      { x: clearMarginX, y: windowRect.bottom + 18 },
+      { x: target.left - 14, y: target.top + target.height / 2 },
     ];
   });
-  if (width >= 1024)
-    addBurst("burst:codex", 8.57, codexTokens, () => {
-      if (readyArrow === null || windowNode === null || codexInput === null) return null;
-      const source = textEnd(readyArrow);
-      const windowRect = windowNode.getBoundingClientRect();
-      const target = codexInput.getBoundingClientRect();
-      return [
-        { x: source.x + 12, y: source.y },
-        { x: source.x + 42, y: windowRect.bottom + 20 },
-        { x: target.left - 20, y: windowRect.bottom + 20 },
-        { x: target.left + 12, y: target.top + target.height / 2 },
-      ];
-    });
-  addBurst("burst:rail", 12.65, railTokens, () => {
+  addBurst("burst:rail", width >= 1024 ? 12.35 : 12.65, railTokens, () => {
     if (result === null || windowNode === null || railNode === null) return null;
     const source = textEnd(result);
     const windowRect = windowNode.getBoundingClientRect();
