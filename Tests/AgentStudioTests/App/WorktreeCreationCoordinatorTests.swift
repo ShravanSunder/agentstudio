@@ -72,6 +72,29 @@ struct WorktreeCreationCoordinatorTests {
             })
     }
 
+    @Test("From Branch creates at the selected local branch reference")
+    func selectedBranchStartPoint() async throws {
+        let fixture = try Self.makeFixture()
+        let ledger = CreationLedger()
+        let coordinator = Self.makeCoordinator(fixture: fixture, ledger: ledger, presented: PresentedFailures())
+
+        let outcome = await coordinator.startCreation(
+            try fixture.request(branch: "feat/new", kind: .fromBranch(referenceName: "refs/heads/feature/source"))
+        ).value
+
+        let destination = fixture.watchedRoot.appending(path: "repo.feat-new", directoryHint: .isDirectory)
+            .standardizedFileURL
+        #expect(outcome == .created(destination: destination))
+        #expect(
+            await ledger.events.contains(
+                .create(
+                    GitCreateWorktreeRequest(
+                        repositoryPath: fixture.repository.repoPath,
+                        destinationPath: destination,
+                        mode: .newBranch(name: "feat/new", startPoint: .named("refs/heads/feature/source"))
+                    ))))
+    }
+
     @Test("no default branch is a typed failure and still releases publication")
     func noDefaultBranchFails() async throws {
         let fixture = try Self.makeFixture()
