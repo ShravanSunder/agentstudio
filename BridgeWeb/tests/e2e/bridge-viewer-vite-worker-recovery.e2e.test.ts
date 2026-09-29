@@ -16,7 +16,10 @@ import {
 	type BridgeViewerOwnedViteProductServer,
 } from './bridge-viewer-vite-product-fixture.ts';
 import { waitForProductCallSettlement } from './bridge-viewer-vite-product-operation-response.ts';
-import { bridgeViewerViteProductReviewUrl } from './bridge-viewer-vite-product-url.ts';
+import {
+	bridgeViewerViteProductReviewUrl,
+	requireBridgeViewerVitePrimaryReviewPath,
+} from './bridge-viewer-vite-product-url.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
 	readBrowserDiagnosticWithinDeadline,
@@ -115,10 +118,16 @@ test.each(['proxy502', 'abortedDelivery'] as const)(
 			const [initialResponse, replacementResponse] = await Promise.all([
 				initialBootstrap,
 				replacementBootstrap,
-				page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-					timeout: 120_000,
-					waitUntil: 'domcontentloaded',
-				}),
+				page.goto(
+					bridgeViewerViteProductReviewUrl(
+						server.origin,
+						requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+					),
+					{
+						timeout: 120_000,
+						waitUntil: 'domcontentloaded',
+					},
+				),
 			]);
 			expect(rejectedReceiptCount).toBe(await admissionAttemptLimit);
 			expect(new Set(replayedAdmissionBodies).size).toBe(1);
@@ -237,10 +246,16 @@ test('reclaims a durable Review draft after worker failure and one unavailable r
 		);
 		const [initialResponse] = await Promise.all([
 			initialBootstrapResponse,
-			page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-				timeout: 120_000,
-				waitUntil: 'domcontentloaded',
-			}),
+			page.goto(
+				bridgeViewerViteProductReviewUrl(
+					server.origin,
+					requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+				),
+				{
+					timeout: 120_000,
+					waitUntil: 'domcontentloaded',
+				},
+			),
 		]);
 		const initialWorkerInstanceId = await bootstrapWorkerInstanceId(initialResponse);
 		await selectReviewFile({ page, path: reviewFile.path });
@@ -352,9 +367,15 @@ test('re-establishes annotation demand after an in-place worker replacement so C
 		);
 		const [initialResponse] = await Promise.all([
 			initialBootstrapResponse,
-			page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-				waitUntil: 'domcontentloaded',
-			}),
+			page.goto(
+				bridgeViewerViteProductReviewUrl(
+					server.origin,
+					requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+				),
+				{
+					waitUntil: 'domcontentloaded',
+				},
+			),
 		]);
 		phase = 'review-ready';
 		await selectReviewFile({ page, path: reviewFile.path });

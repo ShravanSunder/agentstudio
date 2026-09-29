@@ -11,7 +11,10 @@ import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
 } from './bridge-viewer-vite-product-fixture.ts';
-import { bridgeViewerViteProductReviewUrl } from './bridge-viewer-vite-product-url.ts';
+import {
+	bridgeViewerViteProductReviewUrl,
+	requireBridgeViewerVitePrimaryReviewPath,
+} from './bridge-viewer-vite-product-url.ts';
 import { waitForSettledReviewComparison } from './bridge-viewer-vite-review-comparison-observation.ts';
 
 const proportionalRefreshTimeoutMilliseconds = 120_000;
@@ -40,10 +43,16 @@ describe('Bridge Viewer proportional Review refresh E2E', () => {
 			server = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const reviewContentRequests = observeReviewContentRequests(page);
-			await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-				timeout: proportionalRefreshTimeoutMilliseconds,
-				waitUntil: 'domcontentloaded',
-			});
+			await page.goto(
+				bridgeViewerViteProductReviewUrl(
+					server.origin,
+					requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+				),
+				{
+					timeout: proportionalRefreshTimeoutMilliseconds,
+					waitUntil: 'domcontentloaded',
+				},
+			);
 			const affectedFile = fixture.oracle.reviewFiles[0];
 			const unchangedFile = fixture.oracle.reviewFiles[1];
 			if (affectedFile === undefined || unchangedFile === undefined) {

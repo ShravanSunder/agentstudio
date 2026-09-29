@@ -7,7 +7,10 @@ import {
 	startBridgeViewerOwnedViteProductServer,
 	type BridgeViewerOwnedViteProductServer,
 } from './bridge-viewer-vite-product-fixture.ts';
-import { bridgeViewerViteProductReviewUrl } from './bridge-viewer-vite-product-url.ts';
+import {
+	bridgeViewerViteProductReviewUrl,
+	requireBridgeViewerVitePrimaryReviewPath,
+} from './bridge-viewer-vite-product-url.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
 	openReviewComparisonPicker,
@@ -27,10 +30,16 @@ test('Review settles after switching the comparison target to another branch and
 		browser = await chromium.launch({ channel: 'chrome', headless: true });
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		const diagnostics = observeBrowserRuntimeDiagnostics(page);
-		await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-			timeout: roundTripTimeoutMilliseconds,
-			waitUntil: 'domcontentloaded',
-		});
+		await page.goto(
+			bridgeViewerViteProductReviewUrl(
+				server.origin,
+				requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+			),
+			{
+				timeout: roundTripTimeoutMilliseconds,
+				waitUntil: 'domcontentloaded',
+			},
+		);
 		await waitForSettledReviewComparison({
 			expectedTargetLabel: 'HEAD',
 			expectedTargetOID: fixture.oracle.baseRef,

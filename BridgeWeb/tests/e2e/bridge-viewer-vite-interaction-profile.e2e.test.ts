@@ -102,7 +102,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		});
 		const reviewFile = fixture.oracle.reviewFiles[0];
 		if (reviewFile === undefined) throw new Error('Profile requires a real changed source file.');
-		await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
+		await page.goto(bridgeViewerViteProductReviewUrl(server.origin, reviewFile.path), {
 			waitUntil: 'domcontentloaded',
 		});
 		await selectReviewFile({ page, path: reviewFile.path });

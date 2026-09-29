@@ -37,6 +37,7 @@ import { waitForProductCallSettlement } from './bridge-viewer-vite-product-opera
 import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
+	requireBridgeViewerVitePrimaryReviewPath,
 } from './bridge-viewer-vite-product-url.ts';
 import {
 	installReviewRenderObservation,
@@ -132,9 +133,15 @@ async function runReleasedDraftReloadJourney(props: {
 		if (reviewFile === undefined) {
 			throw new Error('Review released-draft journey requires a changed review file.');
 		}
-		await page.goto(bridgeViewerViteProductReviewUrl(props.server.origin), {
-			waitUntil: 'domcontentloaded',
-		});
+		await page.goto(
+			bridgeViewerViteProductReviewUrl(
+				props.server.origin,
+				requireBridgeViewerVitePrimaryReviewPath(props.oracle),
+			),
+			{
+				waitUntil: 'domcontentloaded',
+			},
+		);
 		await selectReviewFile({ page, path: reviewFile.path });
 		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
 		await selectRangeForAnnotation({ endLine: 5, page, startLine: 2, surface: 'review' });
@@ -223,7 +230,10 @@ export async function runAnnotationSaveJourney(props: {
 		await page.goto(
 			props.surface === 'file'
 				? bridgeViewerViteProductFileUrl(props.server.origin, props.oracle.largeFilePath)
-				: bridgeViewerViteProductReviewUrl(props.server.origin),
+				: bridgeViewerViteProductReviewUrl(
+						props.server.origin,
+						requireBridgeViewerVitePrimaryReviewPath(props.oracle),
+					),
 			{
 				waitUntil: 'domcontentloaded',
 			},

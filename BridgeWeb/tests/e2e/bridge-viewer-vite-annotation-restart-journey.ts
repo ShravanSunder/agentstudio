@@ -21,6 +21,7 @@ import { waitForProductCallSettlement } from './bridge-viewer-vite-product-opera
 import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
+	requireBridgeViewerVitePrimaryReviewPath,
 } from './bridge-viewer-vite-product-url.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
@@ -60,10 +61,13 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			serverB = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			browser = await launchBridgeViewerE2EChromium();
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
-			await page.goto(bridgeViewerViteProductFileUrl(serverB.origin), {
-				timeout: annotationRestartJourneyTimeoutMilliseconds,
-				waitUntil: 'domcontentloaded',
-			});
+			await page.goto(
+				bridgeViewerViteProductFileUrl(serverB.origin, fixture.oracle.largeFilePath),
+				{
+					timeout: annotationRestartJourneyTimeoutMilliseconds,
+					waitUntil: 'domcontentloaded',
+				},
+			);
 			await waitForSelectedFileReady({ oracle: fixture.oracle, page });
 			await page
 				.getByText('File Save must settle from its exact command receipt.', { exact: true })
@@ -77,10 +81,16 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			});
 			expect(fileAfterRestart).toEqual(fileBeforeRestart.outputIdentity);
 
-			await page.goto(bridgeViewerViteProductReviewUrl(serverB.origin), {
-				timeout: annotationRestartJourneyTimeoutMilliseconds,
-				waitUntil: 'domcontentloaded',
-			});
+			await page.goto(
+				bridgeViewerViteProductReviewUrl(
+					serverB.origin,
+					requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+				),
+				{
+					timeout: annotationRestartJourneyTimeoutMilliseconds,
+					waitUntil: 'domcontentloaded',
+				},
+			);
 			const reviewOriginFile = fixture.oracle.reviewFiles[0];
 			if (reviewOriginFile === undefined) {
 				throw new Error('Restart journey requires a Review-origin file.');
@@ -159,10 +169,16 @@ export function registerBridgeViewerViteAnnotationSystemJourneyTests(): void {
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const runtimeDiagnostics = observeBrowserRuntimeDiagnostics(page);
 			const annotationCommandTrace = observeReviewAnnotationCommandTrace(page);
-			await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-				timeout: annotationRestartJourneyTimeoutMilliseconds,
-				waitUntil: 'domcontentloaded',
-			});
+			await page.goto(
+				bridgeViewerViteProductReviewUrl(
+					server.origin,
+					requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+				),
+				{
+					timeout: annotationRestartJourneyTimeoutMilliseconds,
+					waitUntil: 'domcontentloaded',
+				},
+			);
 			const affectedFile = fixture.oracle.reviewFiles[0];
 			const unaffectedFile = fixture.oracle.reviewFiles[1];
 			if (affectedFile === undefined || unaffectedFile === undefined) {

@@ -29,6 +29,7 @@ import {
 import {
 	bridgeViewerViteProductFileUrl,
 	bridgeViewerViteProductReviewUrl,
+	requireBridgeViewerVitePrimaryReviewPath,
 } from './bridge-viewer-vite-product-url.ts';
 import {
 	observeBrowserRuntimeDiagnostics,
@@ -135,10 +136,16 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		try {
 			page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const contentRequests = observeProductContentRequests(page);
-			await page.goto(bridgeViewerViteProductReviewUrl(server.origin), {
-				timeout: productJourneyTimeoutMilliseconds,
-				waitUntil: 'domcontentloaded',
-			});
+			await page.goto(
+				bridgeViewerViteProductReviewUrl(
+					server.origin,
+					requireBridgeViewerVitePrimaryReviewPath(oracle),
+				),
+				{
+					timeout: productJourneyTimeoutMilliseconds,
+					waitUntil: 'domcontentloaded',
+				},
+			);
 			await page.waitForSelector('[data-testid="review-viewer-shell"]', {
 				timeout: productJourneyTimeoutMilliseconds,
 			});
@@ -382,10 +389,16 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			serverA = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			const pageA = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const pageADiagnostics = observeBrowserRuntimeDiagnostics(pageA);
-			await pageA.goto(bridgeViewerViteProductReviewUrl(serverA.origin), {
-				timeout: productJourneyTimeoutMilliseconds,
-				waitUntil: 'domcontentloaded',
-			});
+			await pageA.goto(
+				bridgeViewerViteProductReviewUrl(
+					serverA.origin,
+					requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+				),
+				{
+					timeout: productJourneyTimeoutMilliseconds,
+					waitUntil: 'domcontentloaded',
+				},
+			);
 			try {
 				await pageA.waitForFunction(
 					(): boolean =>
@@ -434,10 +447,16 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			serverB = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			const pageB = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 			const pageBDiagnostics = observeBrowserRuntimeDiagnostics(pageB);
-			await pageB.goto(bridgeViewerViteProductReviewUrl(serverB.origin), {
-				timeout: productJourneyTimeoutMilliseconds,
-				waitUntil: 'domcontentloaded',
-			});
+			await pageB.goto(
+				bridgeViewerViteProductReviewUrl(
+					serverB.origin,
+					requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
+				),
+				{
+					timeout: productJourneyTimeoutMilliseconds,
+					waitUntil: 'domcontentloaded',
+				},
+			);
 			const processBObservation = await waitForSettledReviewComparisonWithDiagnostics({
 				diagnostics: pageBDiagnostics,
 				expectedTargetLabel: fixture.oracle.comparisonTargetName,
