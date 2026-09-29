@@ -362,7 +362,7 @@ struct CommandBarRecencyProjectionTests {
             store: store
         )
         #expect(
-            Set(meaningfulRepositories.filter { $0.id.hasPrefix("repo-") }.map(\.id))
+            Set(meaningfulRepositories.filter { $0.id.hasPrefix("repo-") && !$0.id.hasPrefix("repo-wt-") }.map(\.id))
                 == Set([
                     "repo-\(recentRepositoryID.uuidString)",
                     "repo-\(remainingRepositoryID.uuidString)",
