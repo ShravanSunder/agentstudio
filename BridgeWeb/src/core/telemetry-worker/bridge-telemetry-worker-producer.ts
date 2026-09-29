@@ -175,7 +175,7 @@ export function createBridgeTelemetryWorkerProducer(
 			retainedPreReadyRequiredSampleEncodedBytes + encodedBytes >
 				preReadyRequiredSampleMaxEncodedBytes
 		) {
-			appendPreReadyLoss(sequence, true, 'queue_saturated');
+			appendPreReadyLoss(sequence, true, optionalLossReason);
 			return { disposition: 'loss_recorded', sequence };
 		}
 		preReadyEntries.push({ encodedBytes, kind: 'sample', sample, sequence });

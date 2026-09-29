@@ -372,7 +372,12 @@ export async function runAnnotationSaveJourney(props: {
 			page,
 		});
 		page.off('request', observeProjectionRequest);
-		await drainAnnotationLifecycleTelemetry(page);
+		const telemetryDrain = await drainAnnotationLifecycleTelemetry(page);
+		const telemetrySidecar = isUnknownRecord(telemetryDrain) ? telemetryDrain['sidecar'] : null;
+		if (!isUnknownRecord(telemetrySidecar)) {
+			throw new Error('Annotation lifecycle telemetry drain had no sidecar loss summary.');
+		}
+		expect(telemetrySidecar['requiredLossCount']).toBe(0);
 		const postSaveResult = await props.afterProjectedSave?.({
 			page,
 			savedBody,

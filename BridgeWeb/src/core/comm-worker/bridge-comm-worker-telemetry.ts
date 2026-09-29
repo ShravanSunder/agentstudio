@@ -164,7 +164,7 @@ export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly lane: BridgeCommWorkerTelemetryLane;
 	readonly payloadClass?: string;
 	readonly queueWaitMilliseconds?: number;
-	readonly result?: 'failed' | 'success' | 'unavailable';
+	readonly result?: 'cancelled' | 'failed' | 'success' | 'unavailable';
 	readonly resultReason?: BridgeCommWorkerTelemetryResultReason;
 	readonly semanticClass?: BridgeCommWorkerTelemetrySemanticClass;
 	readonly sourceEpoch?: number;
