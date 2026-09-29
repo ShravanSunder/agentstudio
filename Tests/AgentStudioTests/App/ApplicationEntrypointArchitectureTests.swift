@@ -417,9 +417,10 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("await finishAppIPCSessionsIngestion()"))
         #expect(!ipcBootSource.contains("func stopAppIPCServer()"))
 
-        // Connection handlers are joined in the durable drain, after the
-        // credential drain completes, and never in the ingress-only stop —
-        // joining there would block the pre-flush stage on in-flight work.
+        // Connection handlers are joined in the durable drain, before the
+        // credential drain runs, and never in the ingress-only stop — a
+        // handler mid-request can still enqueue persistence work, so the
+        // credential drain must not start until every handler has quiesced.
         let stopAcceptingRange = try #require(
             ipcBootSource.range(of: "func stopAcceptingAppIPCConnections() async {"))
         // Ends at drainAppIPCCredentialPersistence()'s own doc comment, not its
@@ -435,7 +436,7 @@ struct ApplicationEntrypointArchitectureTests {
             ipcBootSource.range(of: "await server.drainCredentialPersistence()")?.lowerBound)
         let joinConnectionHandlersIndex = try #require(
             ipcBootSource.range(of: "await server.joinConnectionHandlers()")?.lowerBound)
-        #expect(credentialDrainCallIndex < joinConnectionHandlersIndex)
+        #expect(joinConnectionHandlersIndex < credentialDrainCallIndex)
         #expect(ipcBootSource.contains("let paneIPCIdentityOwner = paneIPCIdentityOwner!"))
         #expect(!ipcBootSource.contains("self.appIPCInitializationTask = nil"))
         #expect(

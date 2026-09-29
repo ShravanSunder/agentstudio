@@ -138,9 +138,15 @@ struct AppTerminationDrainDeadlineTests {
             // bearing, not incidental.
             await harness.appDelegate.stopAcceptingAppIPCConnections()
 
+            // A deadline that cannot fire on its own: `.completed` below can
+            // only be produced by the real drain finishing, never by winning
+            // a race against the wall clock — the timeout argument is
+            // unreachable, not a correctness budget.
+            let withheldDeadline = ReleasableGate()
             let stages = TerminationStageRecorder()
             let outcome = await runBoundedIPCDrainAfterWorkspaceFlush(
-                timeout: .seconds(5),
+                timeout: .seconds(2),
+                delay: AsyncDelay { _ in await withheldDeadline.wait() },
                 workspaceFlush: { stages.record("workspaceFlush") },
                 ipcDrain: {
                     stages.record("ipcDrainStarted")
@@ -152,6 +158,7 @@ struct AppTerminationDrainDeadlineTests {
                     stages.record("ipcDrainCompleted")
                 }
             )
+            withheldDeadline.release()
 
             #expect(outcome == .completed)
             #expect(stages.names == ["workspaceFlush", "ipcDrainStarted", "ipcDrainCompleted"])

@@ -42,12 +42,11 @@ struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
             )
         }
 
-        // Event-driven: waits for the port to have genuinely parked a
-        // continuation, not for a fixed duration. Asserts on what the wait
-        // itself observed (a genuine entry, not one already recorded before
-        // this call), not on a second, later read.
-        let handlerHadToPark = await port.waitUntilEntered()
-        #expect(handlerHadToPark)
+        // Event-driven: resolves once the port has genuinely parked a
+        // continuation, whether this call's own registration or the entry
+        // itself won that race — waitUntilEntered is a latched fact, not an
+        // observation of which side arrived first.
+        _ = await port.waitUntilEntered()
         #expect(fixture.server.trackedConnectionHandlerCount == 1)
 
         await fixture.server.joinConnectionHandlers()
@@ -63,14 +62,44 @@ struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
         _ = try? await heldRequest.value
     }
 
-    /// `waitUntilEntered()`'s `hasEntered` flag only ever transitions
-    /// false -> true, so calling it twice on the same port deterministically
-    /// exercises both orderings with no race: the first call either raced or
-    /// followed the entry and must itself observe it, and the second call
-    /// begins only after that observation — entry has unambiguously already
-    /// happened by then, whatever the scheduler did with the first call.
-    @Test("waitUntilEntered reports its own observation once, then a late call separately")
-    func waitUntilEnteredDistinguishesOwnObservationFromALateCall() async throws {
+    /// waitUntilEntered() awaits a latched fact — "has this fresh port's
+    /// handler entered" — not which side of a race arrived first, so both
+    /// orderings must resolve the same way. This exercises the waiter-first
+    /// ordering causally: waitUntilAWaiterHasRegistered() is a deterministic
+    /// barrier proving the wait genuinely parked before entry happens, not a
+    /// hope that the scheduler picked that order.
+    @Test("waitUntilEntered resolves once entry follows an already-registered waiter")
+    func waitUntilEnteredResolvesWhenEntryFollowsARegisteredWaiter() async throws {
+        let port = SuspendingTerminalWaitPort()
+        let handle = IPCHandle(kind: .pane, reference: .canonicalUUID(UUIDv7.generate()))
+
+        let waitObservationTask = Task { await port.waitUntilEntered() }
+        _ = await port.waitUntilAWaiterHasRegistered()
+
+        let entryTask = Task {
+            try? await port.waitForTerminal(
+                handle,
+                condition: .commandFinished,
+                timeout: .seconds(60),
+                afterSequence: nil,
+                ownPaneAssertion: nil
+            )
+        }
+
+        #expect(await waitObservationTask.value)
+
+        entryTask.cancel()
+        _ = await entryTask.value
+        #expect(port.observedCancellation)
+    }
+
+    /// Exercises the entry-first ordering causally: the second call on a
+    /// port whose handler has already entered cannot observe anything but
+    /// the latched fact — hasEntered only ever transitions false -> true, so
+    /// by the time this call begins entry has unambiguously already
+    /// happened, independent of what the first call raced against.
+    @Test("waitUntilEntered resolves once entry has already happened before the call")
+    func waitUntilEnteredResolvesWhenEntryPrecedesTheCall() async throws {
         let port = SuspendingTerminalWaitPort()
         let handle = IPCHandle(kind: .pane, reference: .canonicalUUID(UUIDv7.generate()))
 
@@ -84,11 +113,12 @@ struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
             )
         }
 
-        let firstObservation = await port.waitUntilEntered()
-        #expect(firstObservation)
+        // This call's own branch is scheduler-dependent and unasserted; only
+        // its completion (entry has now unambiguously happened) matters.
+        _ = await port.waitUntilEntered()
 
-        let secondObservation = await port.waitUntilEntered()
-        #expect(!secondObservation)
+        let lateObservation = await port.waitUntilEntered()
+        #expect(lateObservation)
 
         waitTask.cancel()
         _ = try? await waitTask.value
@@ -109,6 +139,8 @@ final class SuspendingTerminalWaitPort: AppIPCRuntimePort, @unchecked Sendable {
     nonisolated(unsafe) private var entrySignalContinuation: CheckedContinuation<Bool, Never>?
     nonisolated(unsafe) private var hasEntered = false
     nonisolated(unsafe) private var cancelled = false
+    nonisolated(unsafe) private var waiterRegisteredSignalContinuation: CheckedContinuation<Bool, Never>?
+    nonisolated(unsafe) private var hasRegisteredWaiter = false
 
     nonisolated init() {}
 
@@ -116,21 +148,41 @@ final class SuspendingTerminalWaitPort: AppIPCRuntimePort, @unchecked Sendable {
         lock.withLock { cancelled }
     }
 
-    /// Suspends until `waitForTerminal` has stored its continuation — the
-    /// request has genuinely reached and parked inside this port, not merely
-    /// been dispatched to the connection handler. Returns `true` when this
-    /// call itself observed that entry (the normal case); `false` if entry
-    /// had already happened before this call, so a caller asserts on the
-    /// wait's own observation rather than a second, later read.
+    /// Waits for the latched fact "this fresh port's handler has entered" —
+    /// not for which side of a race arrived first. Both orderings resolve to
+    /// `true`: a call that registers before entry is resumed by
+    /// `markEntered()`, and a call that starts after entry already happened
+    /// observes the latch directly. `hasEntered` only ever transitions
+    /// false -> true, so there is nothing to race once it is set.
     nonisolated func waitUntilEntered() async -> Bool {
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             let alreadyEntered = lock.withLock { () -> Bool in
                 if hasEntered { return true }
                 entrySignalContinuation = continuation
+                hasRegisteredWaiter = true
+                let waiterSignal = waiterRegisteredSignalContinuation
+                waiterRegisteredSignalContinuation = nil
+                waiterSignal?.resume(returning: true)
                 return false
             }
             if alreadyEntered {
-                continuation.resume(returning: false)
+                continuation.resume(returning: true)
+            }
+        }
+    }
+
+    /// Confirms a `waitUntilEntered()` call has genuinely stored its
+    /// continuation, so a test can construct the waiter-first ordering
+    /// deterministically instead of hoping the scheduler picks it.
+    nonisolated func waitUntilAWaiterHasRegistered() async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let alreadyRegistered = lock.withLock { () -> Bool in
+                if hasRegisteredWaiter { return true }
+                waiterRegisteredSignalContinuation = continuation
+                return false
+            }
+            if alreadyRegistered {
+                continuation.resume(returning: true)
             }
         }
     }

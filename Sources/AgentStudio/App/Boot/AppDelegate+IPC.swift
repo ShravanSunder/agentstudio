@@ -348,10 +348,12 @@ extension AppDelegate {
     /// through the same serialized workspace datastore actor the offline spool
     /// drain admits through, and that drain holds a file lock across admission,
     /// so the spool drain is cancelled and joined before this waits on anything
-    /// else. In-flight connection handlers are joined here too, after the
-    /// credential drain: a handler still running at this point cannot durably
-    /// write past `drainCredentialPersistence()`, so joining it earlier would
-    /// only delay the workspace flush this stage already runs after.
+    /// else. In-flight connection handlers are joined next, before the
+    /// credential drain: a handler mid-request can still enqueue persistence
+    /// work (`auth.login`'s `schedulePersistence` call, for one), and the
+    /// drain only waits for what is already queued when it starts. Joining
+    /// first is what makes every handler-originated write visible to this
+    /// drain, not an afterthought to it.
     ///
     /// Requires `stopAcceptingAppIPCConnections()` to have already run:
     /// `joinConnectionHandlers()`'s own precondition is that callers close
@@ -371,8 +373,8 @@ extension AppDelegate {
             appLogger.info("App IPC shutdown completed without a published server or durable drain")
             return
         }
-        let result = await server.drainCredentialPersistence()
         await server.joinConnectionHandlers()
+        let result = await server.drainCredentialPersistence()
         appIPCServer = nil
         await finishAppIPCSessionsIngestion()
         if result.failedOperationCount > 0 {

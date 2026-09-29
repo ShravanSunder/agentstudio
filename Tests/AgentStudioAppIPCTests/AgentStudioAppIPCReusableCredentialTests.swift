@@ -219,6 +219,75 @@ struct AgentStudioAppIPCReusableCredentialTests {
         #expect(barrierPort.registrationCallCount == 1)
     }
 
+    /// Joining connection handlers before draining credentials is the fix for
+    /// S1/R9: a handler that authenticated enqueues its registration
+    /// synchronously, on its own task, before that task returns — so by the
+    /// time the handler is joined, the enqueue has already happened and the
+    /// drain that follows cannot observe an empty queue. This proves the
+    /// converse failure mode does not resurface: the drain does not return
+    /// while that enqueued write is still in flight.
+    @Test("joining handlers before draining credentials keeps a handler's enqueued write inside the drain")
+    func joiningHandlersBeforeDrainingCredentialsKeepsAHandlersEnqueuedWriteInsideTheDrain() async throws {
+        let fixture = try ReusableCredentialFixture()
+        defer { fixture.cleanup() }
+        let datastore = fixture.makeDatastore()
+        guard await fixture.prepareDatastoreForIPC(datastore) else {
+            Issue.record("Database preparation failed")
+            return
+        }
+        let repository = IPCContinuityRepository(datastore: datastore)
+        let barrierPort = HeldCredentialContinuityPort(repository: repository)
+        let serverFixture = try fixture.makeServer(
+            credentialResolver: IPCContinuityCredentialResolver(repository: repository),
+            credentialContinuityPort: barrierPort
+        )
+        defer { serverFixture.cleanup() }
+        try serverFixture.server.start()
+        let token = AgentStudioIPCSubjectToken(rawValue: "join-before-drain-token")
+        try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
+            paneID: serverFixture.boundPaneId,
+            workspaceID: serverFixture.workspaceId,
+            credentialRecordID: UUIDv7.generate(),
+            verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+        )
+
+        // The handler's own task: it enqueues synchronously (inside
+        // auth.login's authenticate closure) before returning the response,
+        // so the login round trip already proves the enqueue happened.
+        let response = try await fixture.loginResponse(fixture: serverFixture, token: token, requestID: 90)
+        #expect(try decodeResponseResult(IPCAuthStatusResult.self, from: response).isAuthenticated)
+        // Event-driven: the worker has genuinely started the held write, not
+        // merely been enqueued and left pending.
+        await barrierPort.waitUntilRegistrationHeld()
+        #expect(barrierPort.registrationCallCount == 1)
+
+        serverFixture.server.stopAcceptingConnections()
+        // The handler's own task is independent of the credential worker
+        // task the held write is parked in, so joining it does not itself
+        // wait on the held write — this is the production ordering, not an
+        // incidental step.
+        await serverFixture.server.joinConnectionHandlers()
+
+        let stages = ReusableCredentialStageRecorder()
+        let drainTask = Task {
+            let result = await serverFixture.server.drainCredentialPersistence()
+            stages.record("drainCompleted")
+            return result
+        }
+        // No wait or poll here: releaseRegistration() is the only thing that
+        // can resume the continuation the held write is parked in, so
+        // recording immediately before it is a genuine causal barrier, not a
+        // race — drainTask cannot record "drainCompleted" before this line
+        // runs, regardless of scheduling.
+        stages.record("aboutToRelease")
+        barrierPort.releaseRegistration()
+
+        let result = await drainTask.value
+        #expect(stages.names == ["aboutToRelease", "drainCompleted"])
+        #expect(result.failedOperationCount == 0)
+        #expect(barrierPort.registrationCallCount == 1)
+    }
+
     @Test("graceful shutdown persists an unused issued token that authenticates after reopen")
     func gracefulShutdownPersistsUnusedIssuedToken() async throws {
         let fixture = try ReusableCredentialFixture()
@@ -500,6 +569,20 @@ private final class HeldCredentialContinuityPort: AgentStudioIPCCredentialContin
             }
             if resumeNow { continuation.resume() }
         }
+    }
+}
+
+/// Records call order across the test body and a background Task; the
+/// lock (rather than MainActor) is what makes that safe, since this suite
+/// is not MainActor-isolated.
+private final class ReusableCredentialStageRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedNames: [String] = []
+
+    var names: [String] { lock.withLock { storedNames } }
+
+    func record(_ name: String) {
+        lock.withLock { storedNames.append(name) }
     }
 }
 
