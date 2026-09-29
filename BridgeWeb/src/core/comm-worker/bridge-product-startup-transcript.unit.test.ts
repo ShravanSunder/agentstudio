@@ -117,8 +117,8 @@ const invalidStartupTranscriptSchema = z
 	.strict();
 
 const frozenFixtureHashes = {
-	invalid: '78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8',
-	valid: 'c2396824c7282dbaf87a33dc11c65e20cd4bddc8b04f73c854a787932bc5c36b',
+	invalid: 'e51803d06d8dafd56d6c694569ed238bb3dd8bddadfec6d26b2834b5d5892a68',
+	valid: '29ddcc6601f7b531f637cf9a3c57a1dbdeee6dcc9e60087218ea951c7edc4498',
 } as const;
 
 describe('Bridge product startup transcript', () => {
@@ -194,13 +194,13 @@ describe('Bridge product startup transcript', () => {
 		}
 	});
 
-	test('accepts content observations and rejects retired metadata observations', () => {
+	test('accepts cumulative content credit and rejects retired metadata observations', () => {
 		// Arrange
 		const fixture = loadValidFixture();
 		const contentCases = fixture.observationCases.filter(
 			(observationCase) => observationStreamKind(observationCase.request) === 'content',
 		);
-		const metadataCases = fixture.observationCases.filter(
+		const metadataCases = loadInvalidFixture().cases.filter(
 			(observationCase) => observationStreamKind(observationCase.request) === 'metadata',
 		);
 
@@ -217,6 +217,7 @@ describe('Bridge product startup transcript', () => {
 		for (const parseResult of contentParseResults) {
 			expect(parseResult.result.success, parseResult.name).toBe(true);
 		}
+		expect(metadataParseResults).toHaveLength(4);
 		expect(metadataParseResults.every((result) => !result.success)).toBe(true);
 	});
 
@@ -259,8 +260,10 @@ function readFixtureBytes(relativePath: string): Buffer {
 }
 
 function observationStreamKind(value: unknown): string | undefined {
-	if (typeof value !== 'object' || value === null || !('streamKind' in value)) {
+	if (typeof value !== 'object' || value === null) {
 		return undefined;
 	}
+	if ('kind' in value && value.kind === 'content.acknowledge') return 'content';
+	if (!('streamKind' in value)) return undefined;
 	return typeof value.streamKind === 'string' ? value.streamKind : undefined;
 }

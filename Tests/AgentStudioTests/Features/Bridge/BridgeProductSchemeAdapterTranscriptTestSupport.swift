@@ -7,17 +7,23 @@ import Foundation
 
 struct BridgeProductSchemeTranscriptFixture {
     static let expectedSHA256 =
-        "c2396824c7282dbaf87a33dc11c65e20cd4bddc8b04f73c854a787932bc5c36b"
+        "29ddcc6601f7b531f637cf9a3c57a1dbdeee6dcc9e60087218ea951c7edc4498"
 
     let bytes: Data
     let root: [String: Any]
 
     static func load() throws -> Self {
+        try loadFixture(relativePath: "Tests/BridgeContractFixtures/valid/bridge-product-startup-transcript.json")
+    }
+
+    static func loadInvalid() throws -> Self {
+        try loadFixture(relativePath: "Tests/BridgeContractFixtures/invalid/bridge-product-startup-transcript.json")
+    }
+
+    private static func loadFixture(relativePath: String) throws -> Self {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let bytes = try Data(
-            contentsOf: projectRoot.appending(
-                path: "Tests/BridgeContractFixtures/valid/bridge-product-startup-transcript.json"
-            )
+            contentsOf: projectRoot.appending(path: relativePath)
         )
         let root = try JSONSerialization.jsonObject(with: bytes) as? [String: Any]
         guard let root else { throw BridgeProductSchemeTranscriptFixtureError.invalidRoot }
@@ -50,6 +56,21 @@ struct BridgeProductSchemeTranscriptFixture {
             throw BridgeProductSchemeTranscriptFixtureError.missingValue(name)
         }
         return try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
+    }
+
+    func invalidRequestData(named name: String) throws -> Data {
+        let entry = try namedEntry(name, collection: "cases")
+        guard let request = entry["request"] as? [String: Any] else {
+            throw BridgeProductSchemeTranscriptFixtureError.missingValue(name)
+        }
+        return try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
+    }
+
+    func decodeInvalidRequest<DecodedValue: Decodable>(
+        _ type: DecodedValue.Type,
+        named name: String
+    ) throws -> DecodedValue {
+        try BridgeProductStrictJSON.decode(type, from: invalidRequestData(named: name))
     }
 
     func decodeTranscriptValue<DecodedValue: Decodable>(

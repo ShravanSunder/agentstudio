@@ -675,12 +675,12 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             )
         else { return }
         guard
-            await waitForExactWorkerObservation(
-                openingResult,
-                lease: lease,
+            case .enqueued = openingResult,
+            await session.waitForContentAcknowledgement(
+                for: lease,
+                sequence: 0,
                 productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission,
-                session: session
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         else {
             recordClaimedComparisonTargetCancellation(comparisonTargetReservation)
@@ -815,7 +815,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             readPlan.descriptor == request.descriptor
         else {
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
-            try? await enqueueUnavailableContentTerminal(
+            try? await enqueueSupersededContentTerminal(
                 for: lease,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission,
@@ -911,6 +911,14 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         var hasher = SHA256()
         while foregroundWorkAdmission.withValidAdmission({ true }) == true {
             guard
+                await session.waitForContentCredit(
+                    for: lease,
+                    byteCount: BridgeProductContentCreditReadState.maximumReservedFrameByteCount,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                )
+            else { return nil }
+            guard
                 let chunk = try await reader.nextChunk(
                     maximumByteCount: AppPolicies.Bridge.contentProducerChunkBytes
                 )
@@ -961,18 +969,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     )
                 }
             )
-            guard
-                foregroundWorkAdmission.withValidAdmission({ true }) == true,
-                await waitForExactWorkerObservation(
-                    result,
-                    lease: lease,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    session: session
-                )
-            else {
-                return nil
-            }
+            guard case .enqueued = result,
+                foregroundWorkAdmission.withValidAdmission({ true }) == true
+            else { return nil }
             byteCount = nextByteCount
         }
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return nil }

@@ -808,13 +808,17 @@ struct BridgeProductSealedViewBatchTests {
         #expect(begin.publicationId == publicationId)
         try decoder.finish()
 
-        var credits = BridgeProductViewCreditWindow(maximumParts: 2, maximumBytes: 1_000_000)
-        credits.open(viewDomain, handle: sealed.handle)
-        let firstAdmitted = credits.admitPart(for: viewDomain, handle: sealed.handle, sequence: 1, byteCount: 100)
-        let secondAdmitted = credits.admitPart(for: viewDomain, handle: sealed.handle, sequence: 2, byteCount: 100)
-        let thirdBeforeReceipt = credits.admitPart(for: viewDomain, handle: sealed.handle, sequence: 3, byteCount: 100)
-        let firstReceived = credits.acknowledge(for: viewDomain, handle: sealed.handle, through: 1)
-        let thirdAfterReceipt = credits.admitPart(for: viewDomain, handle: sealed.handle, sequence: 3, byteCount: 100)
+        var credits = BridgeProductCreditWindow(maximumParts: 2, maximumBytes: 1_000_000)
+        credits.open(.view(viewDomain), handle: sealed.handle)
+        let firstAdmitted = credits.admitPart(
+            for: .view(viewDomain), handle: sealed.handle, sequence: 1, byteCount: 100)
+        let secondAdmitted = credits.admitPart(
+            for: .view(viewDomain), handle: sealed.handle, sequence: 2, byteCount: 100)
+        let thirdBeforeReceipt = credits.admitPart(
+            for: .view(viewDomain), handle: sealed.handle, sequence: 3, byteCount: 100)
+        let firstReceived = credits.acknowledge(for: .view(viewDomain), handle: sealed.handle, through: 1)
+        let thirdAfterReceipt = credits.admitPart(
+            for: .view(viewDomain), handle: sealed.handle, sequence: 3, byteCount: 100)
         #expect(firstAdmitted && secondAdmitted && !thirdBeforeReceipt)
         #expect(firstReceived && thirdAfterReceipt)
     }

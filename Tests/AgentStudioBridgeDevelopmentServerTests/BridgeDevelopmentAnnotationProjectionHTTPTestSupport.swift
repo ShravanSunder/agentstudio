@@ -167,12 +167,6 @@ private func openHTTPAnnotationProjectionContent(
     var reachedTerminal = false
     while !reachedTerminal {
         let frame = try await recorder.nextFrame()
-        try await acknowledgeHTTPContentFrame(
-            client: client,
-            connection: connection,
-            request: strictRequest,
-            contentSequence: frame.header.contentSequence
-        )
         switch frame.header {
         case .accepted(let accepted):
             guard case .annotationProjection(let identity) = accepted.identity,
@@ -183,8 +177,20 @@ private func openHTTPAnnotationProjectionContent(
             else {
                 throw HTTPAnnotationProjectionIntegrationError.acceptedIdentityMismatch
             }
+            try await acknowledgeHTTPContentThrough(
+                client: client,
+                connection: connection,
+                request: strictRequest,
+                receivedThroughContentSequence: frame.header.contentSequence
+            )
         case .data:
             pageData.append(frame.payload)
+            try await acknowledgeHTTPContentThrough(
+                client: client,
+                connection: connection,
+                request: strictRequest,
+                receivedThroughContentSequence: frame.header.contentSequence
+            )
         case .end(let end):
             guard end.endOfSource,
                 end.observedByteLength == pageData.count,
@@ -202,11 +208,11 @@ private func openHTTPAnnotationProjectionContent(
     return pageData
 }
 
-private func acknowledgeHTTPContentFrame(
+private func acknowledgeHTTPContentThrough(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
     request: BridgeProductAnnotationProjectionContentRequest,
-    contentSequence: Int
+    receivedThroughContentSequence: Int
 ) async throws {
     let capabilityHeader = try #require(
         HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
@@ -214,11 +220,10 @@ private func acknowledgeHTTPContentFrame(
     let body = try JSONSerialization.data(
         withJSONObject: [
             "contentRequestId": request.contentRequestID,
-            "contentSequence": contentSequence,
-            "kind": "stream.frameObserved",
+            "receivedThroughContentSequence": receivedThroughContentSequence,
+            "kind": "content.acknowledge",
             "leaseId": request.leaseID,
             "paneSessionId": request.paneSessionID,
-            "streamKind": "content",
             "wireVersion": request.wireVersion,
             "workerInstanceId": request.workerInstanceID,
         ],
@@ -236,7 +241,7 @@ private func acknowledgeHTTPContentFrame(
     guard response.status == .noContent else {
         throw unexpectedHTTPAnnotationResponse(
             response,
-            context: "annotation projection frame acknowledgement sequence \(contentSequence)"
+            context: "annotation projection cumulative credit through \(receivedThroughContentSequence)"
         )
     }
 }

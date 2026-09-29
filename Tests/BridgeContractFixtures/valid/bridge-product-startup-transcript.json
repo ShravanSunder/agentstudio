@@ -403,221 +403,133 @@
   ],
   "observationCases": [
     {
-      "name": "metadata-sequence-zero",
-      "expectedDisposition": "accepted",
-      "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "metadata",
-        "wireVersion": 2,
-        "paneSessionId": "pane-session-startup-1",
-        "workerInstanceId": "worker-instance-startup-1",
-        "metadataStreamId": "metadata-stream-startup-1",
-        "streamSequence": 0
-      }
-    },
-    {
-      "name": "metadata-exact-replay",
-      "expectedDisposition": "idempotentReplay",
-      "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "metadata",
-        "wireVersion": 2,
-        "paneSessionId": "pane-session-startup-1",
-        "workerInstanceId": "worker-instance-startup-1",
-        "metadataStreamId": "metadata-stream-startup-1",
-        "streamSequence": 0
-      }
-    },
-    {
-      "name": "metadata-skipped-sequence",
-      "expectedDisposition": "rejectedSequenceGap",
-      "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "metadata",
-        "wireVersion": 2,
-        "paneSessionId": "pane-session-startup-1",
-        "workerInstanceId": "worker-instance-startup-1",
-        "metadataStreamId": "metadata-stream-startup-1",
-        "streamSequence": 2
-      }
-    },
-    {
-      "name": "metadata-foreign-stream",
-      "expectedDisposition": "rejectedForeignIdentity",
-      "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "metadata",
-        "wireVersion": 2,
-        "paneSessionId": "pane-session-startup-1",
-        "workerInstanceId": "worker-instance-startup-1",
-        "metadataStreamId": "metadata-stream-foreign-1",
-        "streamSequence": 1
-      }
-    },
-    {
-      "name": "metadata-stale-worker",
-      "expectedDisposition": "rejectedStaleWorker",
-      "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "metadata",
-        "wireVersion": 2,
-        "paneSessionId": "pane-session-startup-1",
-        "workerInstanceId": "worker-instance-startup-1",
-        "metadataStreamId": "metadata-stream-startup-1",
-        "streamSequence": 7
-      }
-    },
-    {
-      "name": "metadata-post-terminal",
-      "expectedDisposition": "rejectedPostTerminal",
-      "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "metadata",
-        "wireVersion": 2,
-        "paneSessionId": "pane-session-startup-1",
-        "workerInstanceId": "worker-instance-startup-1",
-        "metadataStreamId": "metadata-stream-startup-1",
-        "streamSequence": 8
-      }
-    },
-    {
       "name": "content-accepted-sequence-zero",
       "expectedDisposition": "accepted",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 0
+        "receivedThroughContentSequence": 0
       }
     },
     {
       "name": "content-data-sequence-one",
       "expectedDisposition": "accepted",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 1
+        "receivedThroughContentSequence": 1
       }
     },
     {
       "name": "content-end-sequence-two",
       "expectedDisposition": "accepted",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 2
+        "receivedThroughContentSequence": 2
       }
     },
     {
       "name": "content-exact-replay",
       "expectedDisposition": "idempotentReplay",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 2
+        "receivedThroughContentSequence": 2
       }
     },
     {
       "name": "content-skipped-sequence",
       "expectedDisposition": "rejectedSequenceGap",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 2
+        "receivedThroughContentSequence": 2
       }
     },
     {
       "name": "content-foreign-request",
       "expectedDisposition": "rejectedForeignIdentity",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-foreign-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 1
+        "receivedThroughContentSequence": 1
       }
     },
     {
       "name": "content-foreign-lease",
       "expectedDisposition": "rejectedForeignIdentity",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-foreign-1",
-        "contentSequence": 1
+        "receivedThroughContentSequence": 1
       }
     },
     {
       "name": "content-stale-worker",
       "expectedDisposition": "rejectedStaleWorker",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 1
+        "receivedThroughContentSequence": 1
       }
     },
     {
       "name": "content-changed-reuse",
       "expectedDisposition": "rejectedChangedReuse",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-changed-1",
-        "contentSequence": 1
+        "receivedThroughContentSequence": 1
       }
     },
     {
       "name": "content-post-terminal",
       "expectedDisposition": "rejectedPostTerminal",
       "request": {
-        "kind": "stream.frameObserved",
-        "streamKind": "content",
+        "kind": "content.acknowledge",
         "wireVersion": 2,
         "paneSessionId": "pane-session-startup-1",
         "workerInstanceId": "worker-instance-startup-1",
         "contentRequestId": "content-request-startup-1",
         "leaseId": "lease-startup-1",
-        "contentSequence": 3
+        "receivedThroughContentSequence": 3
       }
     }
   ],
@@ -630,7 +542,7 @@
     "replacement": {
       "retiredWorkerInstanceId": "worker-instance-startup-1",
       "replacementWorkerInstanceId": "worker-instance-startup-2",
-      "staleObservationCase": "metadata-stale-worker"
+      "staleObservationCase": "content-stale-worker"
     },
     "zeroResidue": {
       "sessions": 0,

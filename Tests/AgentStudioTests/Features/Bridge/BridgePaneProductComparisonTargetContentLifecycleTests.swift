@@ -846,6 +846,11 @@ extension BridgeComparisonTargetContentLifecycleTests {
         case .cancelled, .finished, .rejected:
             throw TestError.expectedFrame
         }
+        #expect(
+            await harness.session.acknowledgeProducerFrameConsumed(
+                openingDelivery.receipt,
+                productAdmission: harness.productAdmission.context
+            ))
         let opening = try #require(
             decoder.append(openingDelivery.frame.data).first
         )
@@ -879,19 +884,18 @@ extension BridgeComparisonTargetContentLifecycleTests {
             let frame = try #require(
                 decoder.append(delivery.frame.data).first
             )
-            let observed = await harness.session.acknowledgeContentFrameObservation(
-                try contentFrameAcknowledgement(
-                    for: request.admission,
-                    contentSequence: delivery.frame.sequence
-                ),
-                productAdmission: harness.productAdmission.context
-            )
             switch frame.header {
             case .data:
+                let observed = await harness.session.acknowledgeContentFrameObservation(
+                    try contentFrameAcknowledgement(
+                        for: request.admission,
+                        contentSequence: delivery.frame.sequence
+                    ),
+                    productAdmission: harness.productAdmission.context
+                )
                 #expect(observed)
                 body.append(frame.payload)
             case .end(let header):
-                #expect(observed)
                 try await harness.closeProducer(lease)
                 #expect((await harness.session.producerSnapshot()).hasZeroResidue)
                 return ContentResult(
@@ -904,7 +908,6 @@ extension BridgeComparisonTargetContentLifecycleTests {
                     retryable: nil
                 )
             case .error(let header):
-                #expect(observed)
                 try await harness.closeProducer(lease)
                 #expect((await harness.session.producerSnapshot()).hasZeroResidue)
                 return ContentResult(
@@ -917,7 +920,6 @@ extension BridgeComparisonTargetContentLifecycleTests {
                     retryable: header.retryable
                 )
             case .accepted, .reset:
-                #expect(observed)
                 Issue.record("Unexpected non-terminal comparison content frame")
             }
         }
@@ -946,6 +948,11 @@ extension BridgeComparisonTargetContentLifecycleTests {
         guard case .frame(let delivery) = result else {
             throw TestError.expectedFrame
         }
+        #expect(
+            await session.acknowledgeProducerFrameConsumed(
+                delivery.receipt,
+                productAdmission: productAdmission
+            ))
         return delivery
     }
 
@@ -955,11 +962,10 @@ extension BridgeComparisonTargetContentLifecycleTests {
     ) throws -> BridgeProductContentFrameAcknowledgement {
         let data = try JSONSerialization.data(withJSONObject: [
             "contentRequestId": admission.contentRequestId,
-            "contentSequence": contentSequence,
-            "kind": "stream.frameObserved",
+            "receivedThroughContentSequence": contentSequence,
+            "kind": "content.acknowledge",
             "leaseId": admission.leaseId,
             "paneSessionId": admission.paneSessionId,
-            "streamKind": "content",
             "wireVersion": admission.wireVersion,
             "workerInstanceId": admission.workerInstanceId,
         ])

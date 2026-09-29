@@ -20,7 +20,6 @@ import {
 	bridgeProductContentRequestSchema,
 	bridgeProductSurfaceForContentKind,
 	type BridgeProductContentDescriptor,
-	type BridgeProductContentFrameFor,
 	type BridgeProductContentKind,
 	type BridgeProductContentRequestFor,
 } from './bridge-product-content-contracts.js';
@@ -751,17 +750,16 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		}
 	}
 
-	async #acknowledgeContentFrame<TContentKind extends BridgeProductContentKind>(
+	async #acknowledgeContentReceipt<TContentKind extends BridgeProductContentKind>(
 		request: BridgeProductContentRequestFor<TContentKind>,
-		frame: BridgeProductContentFrameFor<TContentKind>,
+		receivedThroughContentSequence: number,
 	): Promise<void> {
 		const acknowledgement = bridgeProductFrameAcknowledgementRequestSchema.parse({
 			contentRequestId: request.contentRequestId,
-			contentSequence: frame.header.contentSequence,
-			kind: 'stream.frameObserved',
+			receivedThroughContentSequence,
+			kind: 'content.acknowledge',
 			leaseId: request.leaseId,
 			paneSessionId: request.paneSessionId,
-			streamKind: 'content',
 			wireVersion: request.wireVersion,
 			workerInstanceId: request.workerInstanceId,
 		});
@@ -906,7 +904,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			abortSignal,
 			readResponse: (opening) =>
 				readBridgeProductContentResponse({
-					acknowledgeFrame: (request, frame) => this.#acknowledgeContentFrame(request, frame),
+					acknowledgeReceivedThrough: (contentRequest, receivedThroughContentSequence) =>
+						this.#acknowledgeContentReceipt(contentRequest, receivedThroughContentSequence),
 					authority: this.#authority,
 					clock: this.#deadlineClock,
 					executeProductRequest: this.#executeProductRequest,

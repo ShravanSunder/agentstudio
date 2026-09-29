@@ -376,7 +376,6 @@ struct BridgeProductReviewAvailabilityTests {
         #expect(complete.identity.batchId == begin.identity.batchId)
         #expect(itemKeys == (await AvailabilityBatchKeyProjection().expectedKeys(for: expectedItemIds)))
         #expect((await harness.session.producerSnapshot()).queuedFrameCount == 0)
-        #expect((await harness.session.producerSnapshot()).pendingProducerObservationPacingWaiterCount == 0)
         await coordinator.uninstall(lease: lease)
         #expect(await pump.cancel())
     }

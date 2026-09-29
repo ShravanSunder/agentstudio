@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	bridgeProductContentAcknowledgementRefusedSchema,
 	bridgeProductFrameAcknowledgementRejectedStatusSchema,
 	bridgeProductFrameAcknowledgementRequestSchema,
 } from './bridge-product-frame-acknowledgement-contracts.js';
@@ -75,6 +76,29 @@ describe('Bridge product frame acknowledgement contracts', () => {
 		for (const unsupportedStatus of [200, 201, 204, 418, 500]) {
 			expect(
 				bridgeProductFrameAcknowledgementRejectedStatusSchema.safeParse(unsupportedStatus).success,
+			).toBe(false);
+		}
+	});
+
+	test('requires an exact unknown-read refusal envelope', () => {
+		const refusal = {
+			contentRequestId: 'content-request-1',
+			kind: 'content.acknowledgementRefused',
+			leaseId: 'lease-1',
+			paneSessionId: 'pane-session-1',
+			reason: 'unknownRead',
+			receivedThroughContentSequence: 1,
+			wireVersion: 2,
+			workerInstanceId: 'worker-instance-1',
+		} as const;
+		expect(bridgeProductContentAcknowledgementRefusedSchema.parse(refusal)).toEqual(refusal);
+		for (const invalidRefusal of [
+			{ ...refusal, reason: 'unknownContent' },
+			{ ...refusal, receivedThroughContentSequence: -1 },
+			{ ...refusal, unknown: true },
+		]) {
+			expect(
+				bridgeProductContentAcknowledgementRefusedSchema.safeParse(invalidRefusal).success,
 			).toBe(false);
 		}
 	});

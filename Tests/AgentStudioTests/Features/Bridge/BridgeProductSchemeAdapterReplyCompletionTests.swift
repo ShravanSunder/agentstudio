@@ -183,7 +183,7 @@ struct BridgeProductSchemeAdapterReplyCompletionTests {
             request: bridgeProductSchemeRequest(
                 route: BridgeProductWireContract.commandRoute,
                 capability: harness.capabilityHeader,
-                body: try contentFrameAcknowledgementBody(
+                body: try contentAcknowledgementBody(
                     for: contentRequest.admission,
                     contentSequence: 0
                 )

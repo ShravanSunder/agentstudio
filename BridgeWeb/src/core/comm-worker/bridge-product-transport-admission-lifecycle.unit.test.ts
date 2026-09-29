@@ -84,9 +84,7 @@ describe('Bridge product content response admission lifecycle', () => {
 		expect(replacementStartedBeforeFetchSettlement).toBe(true);
 		expect(
 			harness.server.frameAcknowledgements.filter(
-				(acknowledgement) =>
-					acknowledgement.streamKind === 'content' &&
-					acknowledgement.contentRequestId === obsolete.contentRequestId,
+				(acknowledgement) => acknowledgement.contentRequestId === obsolete.contentRequestId,
 			),
 		).toEqual([]);
 	});

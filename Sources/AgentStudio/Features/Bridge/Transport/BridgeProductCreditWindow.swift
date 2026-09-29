@@ -8,9 +8,27 @@ struct BridgeProductViewOutstandingPart: Sendable {
     let admissionOrder: Int
 }
 
-/// Shares each E3's transport credit budget across its domains while retaining
-/// receipt attribution by view, domain and incarnation. The handle fences old acks.
-struct BridgeProductViewCreditWindow {
+enum BridgeProductCreditScope: Hashable {
+    case view(BridgeProductViewDomainKey)
+    case contentRead(contentRequestId: String, leaseId: String)
+
+    var accountingKey: BridgeProductCreditAccountingKey {
+        switch self {
+        case .view(let viewDomain): .view(viewDomain.viewId)
+        case .contentRead(let contentRequestId, let leaseId):
+            .contentRead(contentRequestId: contentRequestId, leaseId: leaseId)
+        }
+    }
+}
+
+enum BridgeProductCreditAccountingKey: Hashable {
+    case view(String)
+    case contentRead(contentRequestId: String, leaseId: String)
+}
+
+/// N3's common part and byte accounting. A view's domains share one budget;
+/// each finite content read has an independent scope and budget.
+struct BridgeProductCreditWindow {
     private struct OutstandingPart {
         let sequence: Int
         let byteCount: Int
@@ -20,8 +38,9 @@ struct BridgeProductViewCreditWindow {
 
     private struct ViewState {
         let handle: String
-        var receivedThroughSequence = 0
-        var lastAdmittedSequence = 0
+        let firstSequence: Int
+        var receivedThroughSequence: Int
+        var lastAdmittedSequence: Int
         var outstandingParts: [OutstandingPart] = []
         var outstandingBytes = 0
     }
@@ -33,8 +52,8 @@ struct BridgeProductViewCreditWindow {
 
     private let maximumParts: Int
     private let maximumBytes: Int
-    private var stateByViewDomain: [BridgeProductViewDomainKey: ViewState] = [:]
-    private var creditUsageByViewId: [String: ViewCreditUsage] = [:]
+    private var stateByScope: [BridgeProductCreditScope: ViewState] = [:]
+    private var creditUsageByAccountingKey: [BridgeProductCreditAccountingKey: ViewCreditUsage] = [:]
     private var nextAdmissionOrder = 0
 
     init(maximumParts: Int, maximumBytes: Int) {
@@ -43,24 +62,31 @@ struct BridgeProductViewCreditWindow {
         self.maximumBytes = maximumBytes
     }
 
-    mutating func open(_ viewDomain: BridgeProductViewDomainKey, handle: String) {
+    mutating func open(_ scope: BridgeProductCreditScope, handle: String, firstSequence: Int = 1) {
         precondition(!handle.isEmpty)
-        close(viewDomain)
-        stateByViewDomain[viewDomain] = ViewState(handle: handle)
+        precondition(firstSequence >= 0)
+        close(scope)
+        stateByScope[scope] = ViewState(
+            handle: handle,
+            firstSequence: firstSequence,
+            receivedThroughSequence: firstSequence - 1,
+            lastAdmittedSequence: firstSequence - 1
+        )
     }
 
-    mutating func close(_ viewDomain: BridgeProductViewDomainKey) {
-        guard let state = stateByViewDomain.removeValue(forKey: viewDomain) else { return }
-        adjustUsage(for: viewDomain.viewId, parts: -state.outstandingParts.count, bytes: -state.outstandingBytes)
+    mutating func close(_ scope: BridgeProductCreditScope) {
+        guard let state = stateByScope.removeValue(forKey: scope) else { return }
+        adjustUsage(for: scope.accountingKey, parts: -state.outstandingParts.count, bytes: -state.outstandingBytes)
     }
 
-    func outstandingPartCount(for viewDomain: BridgeProductViewDomainKey) -> Int {
-        stateByViewDomain[viewDomain]?.outstandingParts.count ?? 0
+    func outstandingPartCount(for scope: BridgeProductCreditScope) -> Int {
+        stateByScope[scope]?.outstandingParts.count ?? 0
     }
 
     func oldestUnacknowledgedPart() -> BridgeProductViewOutstandingPart? {
-        stateByViewDomain.compactMap { viewDomain, state in
-            state.outstandingParts.first.map { part in
+        stateByScope.compactMap { scope, state in
+            guard case .view(let viewDomain) = scope else { return nil }
+            return state.outstandingParts.first.map { part in
                 BridgeProductViewOutstandingPart(
                     viewDomain: viewDomain,
                     handle: state.handle,
@@ -79,12 +105,20 @@ struct BridgeProductViewCreditWindow {
     /// A late receipt for already returned or abandoned credits is a no-op.
     /// It may be answered without releasing any capacity a second time.
     func wasAlreadySatisfied(
-        for viewDomain: BridgeProductViewDomainKey,
+        for scope: BridgeProductCreditScope,
         handle: String,
         through sequence: Int
     ) -> Bool {
-        guard let state = stateByViewDomain[viewDomain], state.handle == handle else { return false }
-        return sequence > 0 && sequence <= state.receivedThroughSequence
+        guard let state = stateByScope[scope], state.handle == handle else { return false }
+        return sequence >= state.firstSequence && sequence <= state.receivedThroughSequence
+    }
+
+    func canAdmitPart(for scope: BridgeProductCreditScope, byteCount: Int) -> Bool {
+        let usage = creditUsageByAccountingKey[scope.accountingKey] ?? ViewCreditUsage()
+        return stateByScope[scope] != nil
+            && byteCount > 0
+            && byteCount <= maximumBytes - usage.byteCount
+            && usage.partCount < maximumParts
     }
 
     var maximumPartByteCount: Int { maximumBytes }
@@ -94,28 +128,28 @@ struct BridgeProductViewCreditWindow {
     /// sealed batch can keep its monotonic sequence. A late receipt cannot
     /// release successor capacity.
     mutating func abandonOutstanding(
-        for viewDomain: BridgeProductViewDomainKey,
+        for scope: BridgeProductCreditScope,
         throughReservedSequence: Int? = nil
     ) {
-        guard var state = stateByViewDomain[viewDomain] else { return }
-        adjustUsage(for: viewDomain.viewId, parts: -state.outstandingParts.count, bytes: -state.outstandingBytes)
+        guard var state = stateByScope[scope] else { return }
+        adjustUsage(for: scope.accountingKey, parts: -state.outstandingParts.count, bytes: -state.outstandingBytes)
         state.outstandingParts.removeAll()
         state.outstandingBytes = 0
         let abandonedThroughSequence = max(state.lastAdmittedSequence, throughReservedSequence ?? 0)
         state.lastAdmittedSequence = abandonedThroughSequence
         state.receivedThroughSequence = abandonedThroughSequence
-        stateByViewDomain[viewDomain] = state
+        stateByScope[scope] = state
     }
 
     mutating func admitPart(
-        for viewDomain: BridgeProductViewDomainKey,
+        for scope: BridgeProductCreditScope,
         handle: String,
         sequence: Int,
         byteCount: Int,
         admittedAt: Duration = .zero
     ) -> Bool {
-        let usage = creditUsageByViewId[viewDomain.viewId] ?? ViewCreditUsage()
-        guard var state = stateByViewDomain[viewDomain],
+        let usage = creditUsageByAccountingKey[scope.accountingKey] ?? ViewCreditUsage()
+        guard var state = stateByScope[scope],
             state.handle == handle,
             sequence == state.lastAdmittedSequence + 1,
             byteCount > 0,
@@ -135,19 +169,19 @@ struct BridgeProductViewCreditWindow {
         )
         state.outstandingBytes += byteCount
         state.lastAdmittedSequence = sequence
-        adjustUsage(for: viewDomain.viewId, parts: 1, bytes: byteCount)
-        stateByViewDomain[viewDomain] = state
+        adjustUsage(for: scope.accountingKey, parts: 1, bytes: byteCount)
+        stateByScope[scope] = state
         return true
     }
 
     /// A cumulative receipt is valid only through a part this view admitted.
     /// Duplicate and speculative receipts do not change the credit balance.
     mutating func acknowledge(
-        for viewDomain: BridgeProductViewDomainKey,
+        for scope: BridgeProductCreditScope,
         handle: String,
         through receivedSequence: Int
     ) -> Bool {
-        guard var state = stateByViewDomain[viewDomain],
+        guard var state = stateByScope[scope],
             state.handle == handle,
             receivedSequence > state.receivedThroughSequence,
             receivedSequence <= state.lastAdmittedSequence
@@ -162,20 +196,20 @@ struct BridgeProductViewCreditWindow {
         state.outstandingBytes -= returnedByteCount
         state.outstandingParts.removeFirst(returnedPartCount)
         state.receivedThroughSequence = receivedSequence
-        adjustUsage(for: viewDomain.viewId, parts: -returnedPartCount, bytes: -returnedByteCount)
-        stateByViewDomain[viewDomain] = state
+        adjustUsage(for: scope.accountingKey, parts: -returnedPartCount, bytes: -returnedByteCount)
+        stateByScope[scope] = state
         return true
     }
 
-    private mutating func adjustUsage(for viewId: String, parts: Int, bytes: Int) {
-        var usage = creditUsageByViewId[viewId] ?? ViewCreditUsage()
+    private mutating func adjustUsage(for accountingKey: BridgeProductCreditAccountingKey, parts: Int, bytes: Int) {
+        var usage = creditUsageByAccountingKey[accountingKey] ?? ViewCreditUsage()
         usage.partCount += parts
         usage.byteCount += bytes
         precondition(usage.partCount >= 0 && usage.byteCount >= 0)
         if usage.partCount == 0 && usage.byteCount == 0 {
-            creditUsageByViewId.removeValue(forKey: viewId)
+            creditUsageByAccountingKey.removeValue(forKey: accountingKey)
         } else {
-            creditUsageByViewId[viewId] = usage
+            creditUsageByAccountingKey[accountingKey] = usage
         }
     }
 }

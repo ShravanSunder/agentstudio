@@ -6,8 +6,8 @@ import WebKit
 
 @Suite("Bridge product scheme adapter transcript")
 struct BridgeProductSchemeAdapterTranscriptTests {
-    @Test("shared fixture identity and content observation command branch are frozen")
-    func sharedFixtureAndContentObservationBranchAreFrozen() throws {
+    @Test("shared fixture identity and cumulative content credit command branch are frozen")
+    func sharedFixtureAndContentCreditBranchAreFrozen() throws {
         // Arrange
         let fixture = try BridgeProductSchemeTranscriptFixture.load()
 
@@ -20,26 +20,26 @@ struct BridgeProductSchemeAdapterTranscriptTests {
         // Assert
         #expect(fixture.sha256Hex == BridgeProductSchemeTranscriptFixture.expectedSHA256)
         #expect(fixture.transcriptCount == 21)
-        #expect(fixture.observationCaseCount == 16)
+        #expect(fixture.observationCaseCount == 10)
         guard case .contentFrameAcknowledgement = command else {
-            Issue.record("Content observation did not decode through the V0b command branch")
+            Issue.record("Content credit did not decode through the command branch")
             return
         }
     }
 
     @Test("retired metadata frame observations are rejected by the command package")
     func retiredMetadataFrameObservationsAreRejected() throws {
-        let fixture = try BridgeProductSchemeTranscriptFixture.load()
+        let fixture = try BridgeProductSchemeTranscriptFixture.loadInvalid()
         #expect(throws: (any Error).self) {
-            try fixture.decodeObservationRequest(
+            try fixture.decodeInvalidRequest(
                 BridgeProductCommandPackage.self,
-                named: "metadata-sequence-zero"
+                named: "metadata-unknown-key"
             )
         }
     }
 
-    @Test("mixed metadata and content streams keep content observation separate")
-    func mixedMetadataAndContentStreamsKeepContentObservationSeparate() async throws {
+    @Test("mixed metadata and content streams keep cumulative content credit separate")
+    func mixedMetadataAndContentStreamsKeepContentCreditSeparate() async throws {
         // Arrange
         let fixture = try BridgeProductSchemeTranscriptFixture.load()
         let workerOpen = try fixture.decodeTranscriptValue(
@@ -211,12 +211,12 @@ struct BridgeProductSchemeAdapterTranscriptTests {
             let pacedSnapshot = await harness.session.producerSnapshot()
             #expect(pacedSnapshot.activeContentLeaseCount == 1)
             #expect(
-                pacedSnapshot.inFlightFrameReceiptCount == 1,
-                "Only finite content retains a frame observation receipt"
+                pacedSnapshot.inFlightFrameReceiptCount == 0,
+                "The scheme adapter consumes its frame receipt before page credit returns"
             )
             #expect(
-                pacedSnapshot.pendingFrameWaiterCount == 1,
-                "The idle metadata response waits for its next frame while content owns its separate receipt"
+                pacedSnapshot.pendingFrameWaiterCount == 2,
+                "Both the metadata and finite content pumps wait for their next local frame"
             )
             return contentReply
         } catch {
@@ -260,7 +260,7 @@ struct BridgeProductSchemeAdapterTranscriptTests {
         )
         #expect(
             contentObservation.response?.statusCode == 204,
-            "Content frame observations must route outside the ordinary control mux"
+            "Cumulative content credits must route outside the ordinary control mux"
         )
         #expect(contentObservation.body.isEmpty)
         #expect(contentObservation.events == [.response])
@@ -276,16 +276,7 @@ struct BridgeProductSchemeAdapterTranscriptTests {
         #expect(contentObservationReplay.body.isEmpty)
         #expect(contentObservationReplay.events == [.response])
 
-        let foreignContentObservation = try await collectBridgeProductSchemeReply(
-            adapter: harness.adapter,
-            request: harness.request(
-                route: BridgeProductWireContract.commandRoute,
-                body: try fixture.observationRequestData(named: "content-foreign-lease")
-            )
-        )
-        #expect(foreignContentObservation.response?.statusCode == 409)
-        #expect(foreignContentObservation.body.isEmpty)
-        #expect(foreignContentObservation.events == [.response])
+        try await assertForeignContentCreditRefusal(fixture: fixture, harness: harness)
         #expect(
             await harness.provider.snapshot.controlRequestKinds.count
                 == controlCountBeforeContentObservation
@@ -329,6 +320,28 @@ struct BridgeProductSchemeAdapterTranscriptTests {
                 "subscription.open",
             ]
         )
+    }
+
+    private func assertForeignContentCreditRefusal(
+        fixture: BridgeProductSchemeTranscriptFixture,
+        harness: BridgeProductSchemeAdapterTranscriptHarness
+    ) async throws {
+        let foreignContentObservation = try await collectBridgeProductSchemeReply(
+            adapter: harness.adapter,
+            request: harness.request(
+                route: BridgeProductWireContract.commandRoute,
+                body: try fixture.observationRequestData(named: "content-foreign-lease")
+            )
+        )
+        #expect(foreignContentObservation.response?.statusCode == 409)
+        let foreignRefusal = try BridgeProductStrictJSON.decode(
+            BridgeProductContentAcknowledgementRefusedResponse.self,
+            from: foreignContentObservation.body
+        )
+        #expect(foreignRefusal.reason == .invalidReadIdentity)
+        #expect(foreignRefusal.contentRequestId == "content-request-startup-1")
+        #expect(foreignRefusal.leaseId == "lease-foreign-1")
+        #expect(foreignContentObservation.events == [.response, .data])
     }
 
     private func transcriptValueData(

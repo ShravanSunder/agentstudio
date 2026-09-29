@@ -21,7 +21,7 @@ struct BridgeProductViewSenderState {
     }
 
     private var dirtyKeys: BridgeProductViewDirtyKeyAccumulator
-    private var credits: BridgeProductViewCreditWindow
+    var credits: BridgeProductCreditWindow
     private var activeByLogicalDomain: [BridgeProductLogicalViewDomain: BridgeProductViewDomainKey] = [:]
     private var emissionByViewDomain: [BridgeProductViewDomainKey: Emission] = [:]
     private var schedulingOrder: [BridgeProductViewDomainKey] = []
@@ -38,7 +38,7 @@ struct BridgeProductViewSenderState {
         }
         activeByLogicalDomain[logical] = viewDomain
         dirtyKeys.open(viewDomain, scanGeneration: scanGeneration)
-        credits.open(viewDomain, handle: handle)
+        credits.open(.view(viewDomain), handle: handle)
     }
 
     mutating func close(_ viewDomain: BridgeProductViewDomainKey) {
@@ -47,7 +47,7 @@ struct BridgeProductViewSenderState {
             activeByLogicalDomain.removeValue(forKey: logical)
         }
         dirtyKeys.removeViewDomain(viewDomain)
-        credits.close(viewDomain)
+        credits.close(.view(viewDomain))
         emissionByViewDomain.removeValue(forKey: viewDomain)
         schedulingOrder.removeAll { $0 == viewDomain }
     }
@@ -133,7 +133,7 @@ struct BridgeProductViewSenderState {
                 }
                 guard
                     credits.admitPart(
-                        for: viewDomain,
+                        for: .view(viewDomain),
                         handle: emission.batch.handle,
                         sequence: partFrame.deliverySequence,
                         byteCount: byteCount,
@@ -163,7 +163,7 @@ struct BridgeProductViewSenderState {
         handle: String,
         through deliverySequence: Int
     ) -> Bool {
-        credits.acknowledge(for: viewDomain, handle: handle, through: deliverySequence)
+        credits.acknowledge(for: .view(viewDomain), handle: handle, through: deliverySequence)
     }
 
     func acknowledgementWasAlreadySatisfied(
@@ -171,7 +171,7 @@ struct BridgeProductViewSenderState {
         handle: String,
         through deliverySequence: Int
     ) -> Bool {
-        credits.wasAlreadySatisfied(for: viewDomain, handle: handle, through: deliverySequence)
+        credits.wasAlreadySatisfied(for: .view(viewDomain), handle: handle, through: deliverySequence)
     }
 
     mutating func resnapshot(_ viewDomain: BridgeProductViewDomainKey) {
@@ -180,13 +180,13 @@ struct BridgeProductViewSenderState {
         let reservedThroughSequence = emissionByViewDomain[viewDomain].map { emission in
             emission.batch.firstDeliverySequence + emission.batch.parts.count - 1
         }
-        credits.abandonOutstanding(for: viewDomain, throughReservedSequence: reservedThroughSequence)
+        credits.abandonOutstanding(for: .view(viewDomain), throughReservedSequence: reservedThroughSequence)
         emissionByViewDomain.removeValue(forKey: viewDomain)
         schedulingOrder.removeAll { $0 == viewDomain }
     }
 
     func outstandingPartCount(for viewDomain: BridgeProductViewDomainKey) -> Int {
-        credits.outstandingPartCount(for: viewDomain)
+        credits.outstandingPartCount(for: .view(viewDomain))
     }
 
     func oldestUnacknowledgedPart() -> BridgeProductViewOutstandingPart? {

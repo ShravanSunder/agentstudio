@@ -16,10 +16,20 @@ export const bridgeProductFrameAcknowledgementRequestSchema = z
 	.object({
 		...bridgeProductFrameAcknowledgementCommonIdentityShape,
 		contentRequestId: bridgeProductIdentifierSchema,
-		contentSequence: bridgeProductNonnegativeSequenceSchema,
-		kind: z.literal('stream.frameObserved'),
+		receivedThroughContentSequence: bridgeProductNonnegativeSequenceSchema,
+		kind: z.literal('content.acknowledge'),
 		leaseId: bridgeProductIdentifierSchema,
-		streamKind: z.literal('content'),
+	})
+	.strict();
+
+export const bridgeProductContentAcknowledgementRefusedSchema = z
+	.object({
+		...bridgeProductFrameAcknowledgementCommonIdentityShape,
+		contentRequestId: bridgeProductIdentifierSchema,
+		receivedThroughContentSequence: bridgeProductNonnegativeSequenceSchema,
+		kind: z.literal('content.acknowledgementRefused'),
+		leaseId: bridgeProductIdentifierSchema,
+		reason: z.literal('unknownRead'),
 	})
 	.strict();
 

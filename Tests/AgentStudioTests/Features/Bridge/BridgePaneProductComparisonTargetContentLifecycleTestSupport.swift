@@ -121,15 +121,17 @@ extension BridgeComparisonTargetContentLifecycleTests {
                 productAdmission: productAdmission
             )
             #expect(delivery.frame.sequence == expectedSequence)
-            #expect(
-                await session.acknowledgeContentFrameObservation(
-                    try contentFrameAcknowledgement(
-                        for: request.admission,
-                        contentSequence: delivery.frame.sequence
-                    ),
-                    productAdmission: productAdmission
+            if expectedSequence == 1 {
+                #expect(
+                    await session.acknowledgeContentFrameObservation(
+                        try contentFrameAcknowledgement(
+                            for: request.admission,
+                            contentSequence: delivery.frame.sequence
+                        ),
+                        productAdmission: productAdmission
+                    )
                 )
-            )
+            }
         }
         let retirement = await session.beginProducerRetirement(
             lease,

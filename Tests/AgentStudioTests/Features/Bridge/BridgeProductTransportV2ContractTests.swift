@@ -24,6 +24,25 @@ struct BridgeProductTransportV2ContractTests {
         #expect(decoded.count == 1)
     }
 
+    @Test("unknown content read acknowledgement has a definitive typed refusal")
+    func unknownContentReadAcknowledgementRefusalRoundTrips() throws {
+        let refusal: [String: Any] = [
+            "contentRequestId": "content-request-1",
+            "kind": "content.acknowledgementRefused",
+            "leaseId": "lease-1",
+            "paneSessionId": "pane-session-1",
+            "reason": "unknownRead",
+            "receivedThroughContentSequence": 3,
+            "wireVersion": 2,
+            "workerInstanceId": "worker-instance-1",
+        ]
+        let decoded = try decodeAndVerifyRoundTrips(
+            BridgeProductContentAcknowledgementRefusedResponse.self,
+            from: [refusal]
+        )
+        #expect(decoded.first?.reason == .unknownRead)
+    }
+
     @Test("shared startup envelope transcript round-trips without running effects")
     func sharedStartupEnvelopeTranscriptRoundTrips() throws {
         let fixture = try fixtureJSONObject(

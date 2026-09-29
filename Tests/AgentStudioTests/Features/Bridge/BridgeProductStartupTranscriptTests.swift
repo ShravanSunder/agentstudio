@@ -16,9 +16,9 @@ struct BridgeProductStartupTranscriptTests {
     private static let invalidMirrorPath =
         "BridgeWeb/src/test-fixtures/bridge-contract-fixtures/invalid/bridge-product-startup-transcript.json"
     private static let validFixtureSHA256 =
-        "c2396824c7282dbaf87a33dc11c65e20cd4bddc8b04f73c854a787932bc5c36b"
+        "29ddcc6601f7b531f637cf9a3c57a1dbdeee6dcc9e60087218ea951c7edc4498"
     private static let invalidFixtureSHA256 =
-        "78da34fabc8fdfeb2316df0b21e819691ea2bb4e861a74cbee3270231d6494c8"
+        "e51803d06d8dafd56d6c694569ed238bb3dd8bddadfec6d26b2834b5d5892a68"
 
     @Test("Swift source fixtures and TypeScript mirrors have frozen byte identity")
     func fixturesHaveFrozenByteIdentity() throws {
@@ -128,8 +128,8 @@ struct BridgeProductStartupTranscriptTests {
     @Test("retired metadata observation is rejected by the command package")
     func retiredMetadataObservationIsRejected() throws {
         // Arrange
-        let fixture = try loadFixture(relativePath: Self.validFixturePath)
-        let observationCases = try fixtureArray(named: "observationCases", in: fixture)
+        let fixture = try loadFixture(relativePath: Self.invalidFixturePath)
+        let observationCases = try fixtureArray(named: "cases", in: fixture)
         let metadataCase = try #require(
             observationCases.first { observationCase in
                 (observationCase["request"] as? [String: Any])?["streamKind"] as? String
@@ -144,8 +144,8 @@ struct BridgeProductStartupTranscriptTests {
         }
     }
 
-    @Test("content accepted data and end observations decode through the command package")
-    func contentFrameObservationsDecodeThroughCommandPackage() throws {
+    @Test("content accepted data and end cumulative credits decode through the command package")
+    func contentCumulativeCreditsDecodeThroughCommandPackage() throws {
         // Arrange
         let fixture = try loadFixture(relativePath: Self.validFixturePath)
         let observationCases = try fixtureArray(named: "observationCases", in: fixture)
@@ -159,7 +159,7 @@ struct BridgeProductStartupTranscriptTests {
         let requiredCases = try requiredCaseNames.map { requiredName in
             try #require(
                 observationCases.first { $0["name"] as? String == requiredName },
-                "Missing required content observation \(requiredName)"
+                "Missing required content credit \(requiredName)"
             )
         }
 
@@ -169,7 +169,7 @@ struct BridgeProductStartupTranscriptTests {
             let request = try #require(requiredCase["request"] as? [String: Any])
             let package = try decodeCommandPackage(request)
             guard case .contentFrameAcknowledgement = package else {
-                Issue.record("\(name) did not decode as a content frame acknowledgement")
+                Issue.record("\(name) did not decode as a cumulative content acknowledgement")
                 continue
             }
         }

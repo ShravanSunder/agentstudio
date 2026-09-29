@@ -14,8 +14,6 @@ struct BridgeProductSessionLifecycleHarness {
         maximumMutationWatches: Int = AppPolicies.Bridge.maximumProductMutationWatches,
         deadlineClock: (any Clock<Duration> & Sendable)? = nil,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
-        producerObservationPacingRegistrationObserver:
-            BridgeProductSession.ProducerObservationPacingRegistrationObserver? = nil,
         viewEmissionWaiterRegistrationObserver:
             BridgeProductSession.ViewEmissionWaiterRegistrationObserver? = nil
     ) async throws -> Self {
@@ -28,8 +26,6 @@ struct BridgeProductSessionLifecycleHarness {
             maximumMutationWatches: maximumMutationWatches,
             deadlineClock: deadlineClock,
             producerQueueLimits: producerQueueLimits,
-            producerObservationPacingRegistrationObserver:
-                producerObservationPacingRegistrationObserver,
             viewEmissionWaiterRegistrationObserver: viewEmissionWaiterRegistrationObserver
         )
         let harness = try Self(

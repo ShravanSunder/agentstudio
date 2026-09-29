@@ -534,21 +534,24 @@ struct BridgeProductSchemeAdapter: Sendable {
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
     ) async throws {
-        guard
-            await session.acknowledgeContentFrameObservation(
-                acknowledgement,
-                productAdmission: productAdmission
+        let disposition = await session.contentAcknowledgementDisposition(
+            acknowledgement,
+            productAdmission: productAdmission
+        )
+        if case .refused(let reason) = disposition {
+            let responseBytes = try JSONEncoder().encode(
+                BridgeProductContentAcknowledgementRefusedResponse(
+                    acknowledgement: acknowledgement,
+                    reason: reason
+                )
             )
-        else {
-            try await sendResponse(
-                statusCode: 409,
-                url: responseURL,
-                contentType: "application/json",
-                contentLength: 0,
+            try await sendOperationResponse(
+                responseBytes,
+                statusCode: reason == .unknownRead ? 404 : 409,
+                responseURL: responseURL,
                 productAdmission: productAdmission,
                 continuation: continuation
             )
-            continuation.finish()
             return
         }
         try await sendResponse(
@@ -758,12 +761,7 @@ struct BridgeProductSchemeAdapter: Sendable {
                         continuation: continuation
                     )
                 }
-                let frameAccepted: Bool
-                if case .content = producerRoute {
-                    frameAccepted = await pump.waitUntilFrameObserved(delivery.receipt)
-                } else {
-                    frameAccepted = await pump.acknowledgeFrameConsumed(delivery.receipt)
-                }
+                let frameAccepted = await pump.acknowledgeFrameConsumed(delivery.receipt)
                 guard frameAccepted else {
                     if productAdmission.withValidAdmission({ true }) != true {
                         throw BridgeProductSchemeAdapterError.admissionInvalid

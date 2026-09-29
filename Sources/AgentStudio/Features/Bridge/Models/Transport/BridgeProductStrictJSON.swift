@@ -94,6 +94,7 @@ enum BridgeProductStrictJSON {
             "contentHashesByRole",
             "contentKind",
             "contentRequestId",
+            "receivedThroughContentSequence",
             "contentRole",
             "contentRoles",
             "contentSequence",

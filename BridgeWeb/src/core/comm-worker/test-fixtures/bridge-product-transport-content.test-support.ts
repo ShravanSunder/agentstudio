@@ -49,6 +49,7 @@ export function createContentTransportHarness(
 	maximumConcurrentContentResponses?: number,
 	frameAcknowledgementTimeoutMilliseconds?: number,
 	deadlineClock?: BridgeProductDeadlineClock,
+	viewCreditBytes?: number,
 ): {
 	readonly server: TestContentProductServer;
 	readonly transport: ReturnType<typeof createBridgeProductTransport>;
@@ -69,7 +70,7 @@ export function createContentTransportHarness(
 				telemetryPreReadyBufferMaxSamples: 128,
 				workerSettlementDeadlineMilliseconds: 5_000,
 				viewAcknowledgementDeadlineMilliseconds: 4_000,
-				viewCreditBytes: 524_288,
+				viewCreditBytes: viewCreditBytes ?? 524_288,
 				viewCreditParts: 8,
 				viewMaximumConsecutiveResnapshots: 3,
 				viewMaximumDirtyKeys: 4_096,
@@ -123,16 +124,28 @@ export class TestContentProductServer {
 	readonly #operationIdByRequestId = new Map<string, string>();
 	#nextOperationOrdinal = 1;
 	readonly frameAcknowledgements: BridgeProductFrameAcknowledgementRequest[] = [];
+	unknownReadRefusalCount = 0;
+	readonly #contentBodyAfterOpeningAcknowledgement = new Map<string, () => void>();
+	readonly #contentTerminalAfterDataAcknowledgement = new Map<string, () => void>();
 	holdContentResponses = false;
+	gateContentBodyOnOpeningAcknowledgement = false;
+	leaveContentOpenAfterData = false;
+	leaveContentOpenAfterTerminal = false;
+	splitContentDataFrames = false;
+	gateContentTerminalOnDataAcknowledgement = false;
 	holdNextContentRequestBeforeResponse = false;
 	leaveContentOpenAfterAcceptance = false;
 	nextContentRequestFailure: Error | null = null;
 	nextContentResponseKind: 'ordinary' | 'read-error' | 'unexpected-eof' = 'ordinary';
 	nextAcknowledgementStatus = 204;
+	mismatchNextUnknownReadRefusal = false;
+	malformNextUnknownReadRefusal = false;
+	loseNextAcknowledgementReply = false;
 	resyncFailure: Error | null = null;
 	readonly requestRoutes: string[] = [];
 	#heldAcknowledgement: Promise<void> | null = null;
 	#heldContentRequestId: string | null = null;
+	#heldContentSequence: number | null = null;
 	#metadataController: ReadableStreamDefaultController<Uint8Array> | null = null;
 	#metadataRequest: BridgeProductMetadataStreamRequest | null = null;
 	#releaseHeldContentRequestBeforeResponse: (() => void) | null = null;
@@ -161,7 +174,7 @@ export class TestContentProductServer {
 			typeof body === 'object' &&
 			body !== null &&
 			'kind' in body &&
-			body.kind === 'stream.frameObserved'
+			body.kind === 'content.acknowledge'
 		) {
 			return await this.#acknowledgeFrame(body);
 		}
@@ -173,8 +186,12 @@ export class TestContentProductServer {
 		this.#metadataController.enqueue(encodeBridgeProductMetadataFrame(frame));
 	}
 
-	holdContentAcknowledgement(contentRequestId: string): void {
+	holdContentAcknowledgement(
+		contentRequestId: string,
+		receivedThroughContentSequence?: number,
+	): void {
 		this.#heldContentRequestId = contentRequestId;
+		this.#heldContentSequence = receivedThroughContentSequence ?? null;
 		this.#heldAcknowledgement = new Promise<void>((resolve): void => {
 			this.#releaseHeldAcknowledgement = resolve;
 		});
@@ -185,6 +202,7 @@ export class TestContentProductServer {
 		if (release === null) throw new Error('No content acknowledgement is held.');
 		this.#heldAcknowledgement = null;
 		this.#heldContentRequestId = null;
+		this.#heldContentSequence = null;
 		this.#releaseHeldAcknowledgement = null;
 		release();
 	}
@@ -221,14 +239,51 @@ export class TestContentProductServer {
 		const request = bridgeProductFrameAcknowledgementRequestSchema.parse(body);
 		this.frameAcknowledgements.push(request);
 		if (
-			request.streamKind === 'content' &&
-			request.contentRequestId === this.#heldContentRequestId
+			request.contentRequestId === this.#heldContentRequestId &&
+			(this.#heldContentSequence === null ||
+				request.receivedThroughContentSequence === this.#heldContentSequence)
 		) {
 			if (this.#heldAcknowledgement === null) throw new Error('Held acknowledgement is missing.');
 			await this.#heldAcknowledgement;
 		}
 		const status = this.nextAcknowledgementStatus;
 		this.nextAcknowledgementStatus = 204;
+		if (this.loseNextAcknowledgementReply) {
+			this.loseNextAcknowledgementReply = false;
+			throw new Error('Synthetic lost acknowledgement reply.');
+		}
+		if (status === 204 && request.receivedThroughContentSequence === 0) {
+			this.#contentBodyAfterOpeningAcknowledgement.get(request.contentRequestId)?.();
+			this.#contentBodyAfterOpeningAcknowledgement.delete(request.contentRequestId);
+		}
+		if (status === 204 && request.receivedThroughContentSequence > 0) {
+			this.#contentTerminalAfterDataAcknowledgement.get(request.contentRequestId)?.();
+			this.#contentTerminalAfterDataAcknowledgement.delete(request.contentRequestId);
+		}
+		if (status === 404) {
+			this.unknownReadRefusalCount += 1;
+			if (this.malformNextUnknownReadRefusal) {
+				this.malformNextUnknownReadRefusal = false;
+				return jsonResponse({ kind: 'content.acknowledgementRefused' }, 404);
+			}
+			const contentRequestId = this.mismatchNextUnknownReadRefusal
+				? 'content-request-foreign'
+				: request.contentRequestId;
+			this.mismatchNextUnknownReadRefusal = false;
+			return jsonResponse(
+				{
+					contentRequestId,
+					kind: 'content.acknowledgementRefused',
+					leaseId: request.leaseId,
+					paneSessionId: request.paneSessionId,
+					reason: 'unknownRead',
+					receivedThroughContentSequence: request.receivedThroughContentSequence,
+					wireVersion: request.wireVersion,
+					workerInstanceId: request.workerInstanceId,
+				},
+				404,
+			);
+		}
 		return new Response(null, { status });
 	}
 
@@ -371,6 +426,60 @@ export class TestContentProductServer {
 				}),
 			);
 		}
+		if (this.gateContentBodyOnOpeningAcknowledgement) {
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					cancel: (): void => {
+						this.contentReaderCancelCount += 1;
+						this.#contentBodyAfterOpeningAcknowledgement.delete(request.contentRequestId);
+						this.#contentTerminalAfterDataAcknowledgement.delete(request.contentRequestId);
+					},
+					start: (controller): void => {
+						controller.enqueue(encodeMinimalControlFrame(0x01, 0, acceptedBody));
+						this.#contentBodyAfterOpeningAcknowledgement.set(request.contentRequestId, (): void => {
+							controller.enqueue(
+								encodeMinimalDataFrame(
+									1,
+									0,
+									this.splitContentDataFrames
+										? Uint8Array.from([97])
+										: Uint8Array.from([97, 98, 99]),
+									request.operationCorrelationId,
+								),
+							);
+							if (this.splitContentDataFrames) {
+								controller.enqueue(
+									encodeMinimalDataFrame(
+										2,
+										1,
+										Uint8Array.from([98, 99]),
+										request.operationCorrelationId,
+									),
+								);
+							}
+							const finishContent = (): void => {
+								controller.enqueue(
+									encodeMinimalControlFrame(0x03, this.splitContentDataFrames ? 3 : 2, {
+										endOfSource: true,
+										observedByteLength: 3,
+										observedSha256: abcSha256,
+										operationCorrelationId: request.operationCorrelationId,
+									}),
+								);
+								if (!this.leaveContentOpenAfterTerminal) controller.close();
+							};
+							if (this.leaveContentOpenAfterData) return;
+							if (this.gateContentTerminalOnDataAcknowledgement) {
+								this.#contentTerminalAfterDataAcknowledgement.set(
+									request.contentRequestId,
+									finishContent,
+								);
+							} else finishContent();
+						});
+					},
+				}),
+			);
+		}
 		return new Response(
 			Uint8Array.from(
 				concatenateBytes(
@@ -449,10 +558,10 @@ function parseBody(init?: RequestInit): unknown {
 	throw new Error('Expected a binary request body.');
 }
 
-function jsonResponse(value: unknown): Response {
+function jsonResponse(value: unknown, status = 200): Response {
 	return new Response(JSON.stringify(value), {
 		headers: { 'Content-Type': 'application/json' },
-		status: 200,
+		status,
 	});
 }
 

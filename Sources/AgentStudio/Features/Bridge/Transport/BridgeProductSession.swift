@@ -8,11 +8,14 @@ struct BridgeProductViewResnapshotSignal: Equatable, Sendable {
     let subscriptionKind: BridgeProductSubscriptionKind
 }
 
+enum BridgeProductContentAcknowledgementDisposition: Equatable {
+    case accepted
+    case refused(BridgeProductContentAcknowledgementRefusalReason)
+}
+
 actor BridgeProductSession {
     typealias ProducerLifecycleAcknowledger =
         @Sendable (BridgeProductProducerLifecycleAcknowledgement) async -> Bool
-    typealias ProducerObservationPacingRegistrationObserver =
-        @Sendable (BridgeProductProducerLease, Int) -> Void
     typealias ProducerFrameWaiterRegistrationObserver = @Sendable (BridgeProductProducerLease) -> Void
     typealias ResultWaiterRegistrationObserver = @Sendable (String) -> Void
     typealias ViewEmissionWaiterRegistrationObserver = @Sendable (BridgeProductViewDomainKey) -> Void
@@ -24,7 +27,6 @@ actor BridgeProductSession {
     let viewDeadlineElapsed: @Sendable () -> Duration
     let operationDelay: AsyncDelay
     let paneSessionId: String
-    let producerObservationPacingRegistrationObserver: ProducerObservationPacingRegistrationObserver?
     let producerFrameWaiterRegistrationObserver: ProducerFrameWaiterRegistrationObserver?
     let resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver?
     let viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver?
@@ -32,8 +34,8 @@ actor BridgeProductSession {
         didSet { resumeProducerFrameQuiescenceWaitersIfReady() }
     }
     var producerFrameQuiescenceWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
-    private var lastAcceptedContentFrameAcknowledgementByProducerLease:
-        [BridgeProductProducerLease: BridgeProductContentFrameAcknowledgement] = [:]
+    var contentCreditsByProducerLease: [BridgeProductProducerLease: BridgeProductContentCreditReadState] = [:]
+    var contentCreditWaitersByProducerLease: [BridgeProductProducerLease: BridgeProductContentCreditWaiter] = [:]
     private var revocationState = BridgeProductSessionRevocationState.idle
     let workerInstanceId: String
     var contentAdmissionByProducerLease: [BridgeProductProducerLease: BridgeProductContentAdmission] = [:]
@@ -41,8 +43,6 @@ actor BridgeProductSession {
     var producerFrameObservationByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameObservation] =
         [:]
     var producerFrameWaitersByLease: [BridgeProductProducerLease: BridgeProductSessionProducerFrameWaiter] = [:]
-    var producerObservationPacingWaitersByLease:
-        [BridgeProductProducerLease: [UUID: BridgeProductProducerPacingWaiter]] = [:]
     var producerRetirementStateByLease: [BridgeProductProducerLease: BridgeProductSessionProducerRetirementState] = [:]
     var controlReplay: BridgeProductControlReplayCache {
         didSet { resumeControlReplayIdleWaitersIfReady() }
@@ -87,8 +87,6 @@ actor BridgeProductSession {
         maximumMutationWatches: Int = AppPolicies.Bridge.maximumProductMutationWatches,
         deadlineClock: (any Clock<Duration> & Sendable)? = nil,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
-        producerObservationPacingRegistrationObserver:
-            ProducerObservationPacingRegistrationObserver? = nil,
         producerFrameWaiterRegistrationObserver: ProducerFrameWaiterRegistrationObserver? = nil,
         resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver? = nil,
         viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver? = nil
@@ -112,8 +110,6 @@ actor BridgeProductSession {
         self.viewDeadlineElapsed = Self.elapsedClock(resolvedDeadlineClock)
         self.operationDelay = deadlineClock.map(AsyncDelay.clock) ?? .taskSleep
         self.operationTable = BridgeProductOperationTable(maximumMutationWatches: maximumMutationWatches)
-        self.producerObservationPacingRegistrationObserver =
-            producerObservationPacingRegistrationObserver
         self.producerFrameWaiterRegistrationObserver = producerFrameWaiterRegistrationObserver
         self.resultWaiterRegistrationObserver = resultWaiterRegistrationObserver
         self.viewEmissionWaiterRegistrationObserver = viewEmissionWaiterRegistrationObserver
@@ -212,6 +208,10 @@ actor BridgeProductSession {
             if case .accepted(let lease) = registration {
                 contentAdmissionByProducerLease[lease] = admission
                 productAdmissionByProducerLease[lease] = productAdmission
+                contentCreditsByProducerLease[lease] = .init(
+                    admission: admission,
+                    credits: &viewSenderState.credits
+                )
             }
             return registration
         } ?? .rejected(.closing)
@@ -230,6 +230,16 @@ actor BridgeProductSession {
                 for: lease,
                 build: build
             )
+            if case .enqueued(let frame) = result,
+                contentCreditsByProducerLease[lease] != nil
+            {
+                precondition(
+                    contentCreditsByProducerLease[lease]?.admit(
+                        sequence: frame.sequence,
+                        byteCount: frame.data.count,
+                        credits: &viewSenderState.credits
+                    ) == true, "Opening content frame exceeded its empty credit window")
+            }
             resumeProducerFrameWaiterIfPossible(for: lease, admissionAlreadyHeld: true)
             return result
         } ?? .rejected(.lifecycleClosed)
@@ -270,23 +280,6 @@ actor BridgeProductSession {
         } ?? .rejected(.lifecycleClosed)
     }
 
-    func enqueueContentFrame(
-        for lease: BridgeProductProducerLease,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        build: @Sendable (Int) throws -> BridgeProductProducerFrame,
-        overflowReset: @Sendable (Int) throws -> BridgeProductProducerFrame
-    ) throws -> BridgeProductProducerEnqueueResult {
-        try foregroundWorkAdmission.withValidAdmission {
-            try enqueueProducerFrame(
-                for: lease,
-                productAdmission: productAdmission,
-                build: build,
-                overflowReset: overflowReset
-            )
-        } ?? .rejected(.lifecycleClosed)
-    }
-
     func enqueueTerminalProducerFrame(
         for lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
@@ -307,7 +300,7 @@ actor BridgeProductSession {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         build: @Sendable (Int) throws -> BridgeProductProducerFrame
-    ) throws -> BridgeProductProducerEnqueueResult {
+    ) async throws -> BridgeProductProducerEnqueueResult {
         try foregroundWorkAdmission.withValidAdmission {
             try enqueueTerminalProducerFrame(
                 for: lease,
@@ -348,12 +341,9 @@ actor BridgeProductSession {
             productAdmissionByProducerLease.removeValue(
                 forKey: acknowledgement.producerLease
             )
-            resolveProducerObservationPacingCancellation(
-                for: acknowledgement.producerLease
-            )
-            clearContentFrameObservationReplay(
-                for: acknowledgement.producerLease
-            )
+            contentCreditsByProducerLease.removeValue(forKey: acknowledgement.producerLease)?
+                .close(credits: &viewSenderState.credits)
+            cancelContentCreditWaiter(for: acknowledgement.producerLease)
         }
         return acknowledged
     }
@@ -412,38 +402,43 @@ actor BridgeProductSession {
         _ acknowledgement: BridgeProductContentFrameAcknowledgement,
         productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
+        contentAcknowledgementDisposition(
+            acknowledgement,
+            productAdmission: productAdmission
+        ) == .accepted
+    }
+
+    func contentAcknowledgementDisposition(
+        _ acknowledgement: BridgeProductContentFrameAcknowledgement,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> BridgeProductContentAcknowledgementDisposition {
         productAdmission.withValidAdmission {
             guard lifecycle == .active,
                 acknowledgement.paneSessionId == paneSessionId,
                 acknowledgement.workerInstanceId == workerInstanceId
             else {
-                return false
-            }
-            if let replayLease = lastAcceptedContentFrameAcknowledgementByProducerLease.first(
-                where: { $0.value == acknowledgement }
-            )?.key {
-                return producerAdmissionMatches(productAdmission, for: replayLease)
+                return .refused(.invalidReadIdentity)
             }
             guard
-                let receipt = producerRegistry.inFlightContentFrameReceipt(
-                    matching: acknowledgement
-                ), producerAdmissionMatches(productAdmission, for: receipt.producerLease),
-                acknowledgeProducerFrameObserved(receipt)
-            else {
-                return false
-            }
-            lastAcceptedContentFrameAcknowledgementByProducerLease[receipt.producerLease] =
-                acknowledgement
-            return true
-        } ?? false
-    }
-
-    func clearContentFrameObservationReplay(
-        for producerLease: BridgeProductProducerLease
-    ) {
-        lastAcceptedContentFrameAcknowledgementByProducerLease.removeValue(
-            forKey: producerLease
-        )
+                let entry = contentAdmissionByProducerLease.first(where: {
+                    $0.value.contentRequestId == acknowledgement.contentRequestId
+                })
+            else { return .refused(.unknownRead) }
+            let (lease, admission) = entry
+            guard admission.leaseId == acknowledgement.leaseId,
+                admission.paneSessionId == acknowledgement.paneSessionId,
+                admission.workerInstanceId == acknowledgement.workerInstanceId,
+                producerAdmissionMatches(productAdmission, for: lease)
+            else { return .refused(.invalidReadIdentity) }
+            guard
+                contentCreditsByProducerLease[lease]?.acknowledge(
+                    through: acknowledgement.receivedThroughContentSequence,
+                    credits: &viewSenderState.credits
+                ) == true
+            else { return .refused(.invalidSequence) }
+            resumeContentCreditWaiterIfPossible(for: lease)
+            return .accepted
+        } ?? .refused(.invalidReadIdentity)
     }
 
     func beginControl(
@@ -679,9 +674,13 @@ actor BridgeProductSession {
         let activeWaiters = Array(activeLifecycleWaiters.values)
         activeLifecycleWaiters.removeAll(keepingCapacity: false)
         for waiter in activeWaiters { waiter.resume(returning: false) }
-        lastAcceptedContentFrameAcknowledgementByProducerLease.removeAll(
-            keepingCapacity: false
-        )
+        for lease in contentCreditWaitersByProducerLease.keys {
+            cancelContentCreditWaiter(for: lease)
+        }
+        for readState in contentCreditsByProducerLease.values {
+            readState.close(credits: &viewSenderState.credits)
+        }
+        contentCreditsByProducerLease.removeAll(keepingCapacity: false)
         if let pendingControl {
             try? controlReplay.abandon(token: pendingControl.token)
             self.pendingControl = nil
@@ -781,7 +780,6 @@ actor BridgeProductSession {
     }
 
     private func producerOperationFinished(_ lease: BridgeProductProducerLease) {
-        resolveProducerObservationPacingCancellation(for: lease)
         producerRegistry.producerOperationFinished(lease)
         resumeProducerFrameWaiterIfPossible(for: lease)
     }

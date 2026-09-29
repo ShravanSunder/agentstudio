@@ -2,18 +2,17 @@ import Foundation
 
 private enum ContentAcknowledgementCodingKeys: String, CodingKey, CaseIterable {
     case contentRequestId
-    case contentSequence
     case kind
     case leaseId
     case paneSessionId
-    case streamKind
+    case receivedThroughContentSequence
     case wireVersion
     case workerInstanceId
 }
 
 struct BridgeProductContentFrameAcknowledgement: Codable, Equatable, Sendable {
     let contentRequestId: String
-    let contentSequence: Int
+    let receivedThroughContentSequence: Int
     let leaseId: String
     let paneSessionId: String
     let wireVersion: Int
@@ -25,21 +24,19 @@ struct BridgeProductContentFrameAcknowledgement: Codable, Equatable, Sendable {
             allowedKeys: Set(
                 ContentAcknowledgementCodingKeys.allCases.map(\.rawValue)
             ),
-            contract: "content stream.frameObserved request"
+            contract: "content.acknowledge request"
         )
         let container = try decoder.container(
             keyedBy: ContentAcknowledgementCodingKeys.self
         )
-        guard try container.decode(String.self, forKey: .kind) == "stream.frameObserved",
-            try container.decode(String.self, forKey: .streamKind) == "content"
-        else {
+        guard try container.decode(String.self, forKey: .kind) == "content.acknowledge" else {
             throw BridgeProductContractDecoding.invalidValue(
-                "Invalid content stream.frameObserved discriminator",
+                "Invalid content.acknowledge discriminator",
                 codingPath: decoder.codingPath
             )
         }
         self.contentRequestId = try container.decode(String.self, forKey: .contentRequestId)
-        self.contentSequence = try container.decode(Int.self, forKey: .contentSequence)
+        self.receivedThroughContentSequence = try container.decode(Int.self, forKey: .receivedThroughContentSequence)
         self.leaseId = try container.decode(String.self, forKey: .leaseId)
         self.paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
         self.wireVersion = try container.decode(Int.self, forKey: .wireVersion)
@@ -49,8 +46,8 @@ struct BridgeProductContentFrameAcknowledgement: Codable, Equatable, Sendable {
             codingPath: decoder.codingPath
         )
         try BridgeProductContractDecoding.validateNonnegative(
-            contentSequence,
-            name: "contentSequence",
+            receivedThroughContentSequence,
+            name: "receivedThroughContentSequence",
             codingPath: decoder.codingPath
         )
         try BridgeProductContractDecoding.validateIdentifier(
@@ -76,11 +73,79 @@ struct BridgeProductContentFrameAcknowledgement: Codable, Equatable, Sendable {
             keyedBy: ContentAcknowledgementCodingKeys.self
         )
         try container.encode(contentRequestId, forKey: .contentRequestId)
-        try container.encode(contentSequence, forKey: .contentSequence)
-        try container.encode("stream.frameObserved", forKey: .kind)
+        try container.encode("content.acknowledge", forKey: .kind)
         try container.encode(leaseId, forKey: .leaseId)
         try container.encode(paneSessionId, forKey: .paneSessionId)
-        try container.encode("content", forKey: .streamKind)
+        try container.encode(receivedThroughContentSequence, forKey: .receivedThroughContentSequence)
+        try container.encode(wireVersion, forKey: .wireVersion)
+        try container.encode(workerInstanceId, forKey: .workerInstanceId)
+    }
+}
+
+enum BridgeProductContentAcknowledgementRefusalReason: String, Codable, Equatable, Sendable {
+    case unknownRead
+    case invalidReadIdentity
+    case invalidSequence
+}
+
+struct BridgeProductContentAcknowledgementRefusedResponse: Codable, Sendable {
+    let contentRequestId: String
+    let leaseId: String
+    let paneSessionId: String
+    let receivedThroughContentSequence: Int
+    let reason: BridgeProductContentAcknowledgementRefusalReason
+    let wireVersion: Int
+    let workerInstanceId: String
+
+    init(
+        acknowledgement: BridgeProductContentFrameAcknowledgement,
+        reason: BridgeProductContentAcknowledgementRefusalReason
+    ) {
+        contentRequestId = acknowledgement.contentRequestId
+        leaseId = acknowledgement.leaseId
+        paneSessionId = acknowledgement.paneSessionId
+        receivedThroughContentSequence = acknowledgement.receivedThroughContentSequence
+        self.reason = reason
+        wireVersion = acknowledgement.wireVersion
+        workerInstanceId = acknowledgement.workerInstanceId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case contentRequestId
+        case kind
+        case leaseId
+        case paneSessionId
+        case receivedThroughContentSequence
+        case reason
+        case wireVersion
+        case workerInstanceId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard try container.decode(String.self, forKey: .kind) == "content.acknowledgementRefused" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid content acknowledgement refusal kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        contentRequestId = try container.decode(String.self, forKey: .contentRequestId)
+        leaseId = try container.decode(String.self, forKey: .leaseId)
+        paneSessionId = try container.decode(String.self, forKey: .paneSessionId)
+        receivedThroughContentSequence = try container.decode(Int.self, forKey: .receivedThroughContentSequence)
+        reason = try container.decode(BridgeProductContentAcknowledgementRefusalReason.self, forKey: .reason)
+        wireVersion = try container.decode(Int.self, forKey: .wireVersion)
+        workerInstanceId = try container.decode(String.self, forKey: .workerInstanceId)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(contentRequestId, forKey: .contentRequestId)
+        try container.encode("content.acknowledgementRefused", forKey: .kind)
+        try container.encode(leaseId, forKey: .leaseId)
+        try container.encode(paneSessionId, forKey: .paneSessionId)
+        try container.encode(receivedThroughContentSequence, forKey: .receivedThroughContentSequence)
+        try container.encode(reason, forKey: .reason)
         try container.encode(wireVersion, forKey: .wireVersion)
         try container.encode(workerInstanceId, forKey: .workerInstanceId)
     }
@@ -97,7 +162,6 @@ enum BridgeProductCommandPackage: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case kind
-        case streamKind
     }
 
     init(from decoder: Decoder) throws {
@@ -119,13 +183,7 @@ enum BridgeProductCommandPackage: Decodable, Sendable {
             self = .viewAcknowledgement(
                 try BridgeProductViewAcknowledgementRequest(from: decoder)
             )
-        case "stream.frameObserved":
-            guard try container.decode(String.self, forKey: .streamKind) == "content" else {
-                throw BridgeProductContractDecoding.invalidValue(
-                    "Invalid stream.frameObserved stream kind",
-                    codingPath: decoder.codingPath
-                )
-            }
+        case "content.acknowledge":
             self = .contentFrameAcknowledgement(
                 try BridgeProductContentFrameAcknowledgement(from: decoder)
             )

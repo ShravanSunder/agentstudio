@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import Foundation
 import Testing
@@ -124,7 +125,8 @@ struct BridgePaneProductContentActivityAdmissionTests {
         // A larger wire envelope must not silently increase ordinary File read/cancellation quanta.
         #expect(firstDataFrame.payload.count == 128 * 1024)
         #expect(await context.fileReaderHarness.openCount == 1)
-        #expect(await context.fileReaderHarness.readCount == 1)
+        #expect(await context.fileReaderHarness.readCount >= 1)
+        #expect(await context.fileReaderHarness.readCount <= AppPolicies.Bridge.productViewCreditParts)
         #expect(await context.fileReaderHarness.closeCount == 0)
 
         // Act
@@ -146,7 +148,7 @@ struct BridgePaneProductContentActivityAdmissionTests {
 
         // Assert
         let hiddenSnapshot = await context.harness.session.producerSnapshot()
-        #expect(await context.fileReaderHarness.readCount == 1)
+        #expect(await context.fileReaderHarness.readCount <= AppPolicies.Bridge.productViewCreditParts)
         #expect(await context.fileReaderHarness.closeCount == 1)
         #expect(hiddenSnapshot.queuedFrameCount == 0)
         #expect(hiddenSnapshot.activeProducerTaskCount == 0)
@@ -157,7 +159,10 @@ struct BridgePaneProductContentActivityAdmissionTests {
     @MainActor
     func hidingRetiresQueuedUnobservedFileData() async throws {
         // Arrange
-        let sourceBytes = Data("queued-before-hide".utf8)
+        let sourceBytes = Data(
+            repeating: 0x71,
+            count: AppPolicies.Bridge.productViewCreditBytes * 2
+        )
         let request = try activityFileContentRequest(
             content: sourceBytes,
             identifier: "activity-queued-before-hide"
@@ -180,12 +185,12 @@ struct BridgePaneProductContentActivityAdmissionTests {
             )
         )
         let queuedSnapshot = await waitForActivityContentState(context) { snapshot in
-            snapshot.queuedFrameCount == 1
-                && snapshot.pendingProducerObservationPacingWaiterCount == 1
+            snapshot.queuedFrameCount >= 1
         }
-        #expect(queuedSnapshot.queuedFrameCount == 1)
+        #expect(queuedSnapshot.queuedFrameCount >= 1)
         #expect(queuedSnapshot.inFlightFrameReceiptCount == 0)
-        #expect(await context.fileReaderHarness.readCount == 1)
+        #expect(await context.fileReaderHarness.readCount >= 1)
+        #expect(await context.fileReaderHarness.readCount <= AppPolicies.Bridge.productViewCreditParts)
         #expect(await context.fileReaderHarness.closeCount == 0)
 
         // Act
@@ -197,7 +202,6 @@ struct BridgePaneProductContentActivityAdmissionTests {
         // Assert
         #expect(hiddenSnapshot.activeProducerTaskCount == 0)
         #expect(hiddenSnapshot.queuedFrameCount == 0)
-        #expect(hiddenSnapshot.pendingProducerObservationPacingWaiterCount == 0)
         #expect(await context.fileReaderHarness.closeCount == 1)
         if hiddenSnapshot.activeProducerTaskCount == 0 {
             let hiddenPull = await context.harness.session.pullProducerFrame(
@@ -310,15 +314,6 @@ struct BridgePaneProductContentActivityAdmissionTests {
         // Act
         let resetDelivery = try await requiredActivityContentFrame(context)
         let resetFrame = try #require(try decoder.append(resetDelivery.frame.data).first)
-        #expect(
-            await context.harness.session.acknowledgeContentFrameObservation(
-                try activityContentFrameAcknowledgement(
-                    for: request.admission,
-                    contentSequence: resetDelivery.frame.sequence
-                ),
-                productAdmission: context.harness.productAdmission.context
-            )
-        )
         let finishedSnapshot = await waitForActivityContentState(context) { snapshot in
             snapshot.activeProducerTaskCount == 0
         }
@@ -440,15 +435,6 @@ struct BridgePaneProductContentActivityAdmissionTests {
         )
         let endDelivery = try await requiredActivityContentFrame(context)
         let endFrame = try #require(try decoder.append(endDelivery.frame.data).first)
-        #expect(
-            await context.harness.session.acknowledgeContentFrameObservation(
-                try activityContentFrameAcknowledgement(
-                    for: request.admission,
-                    contentSequence: endDelivery.frame.sequence
-                ),
-                productAdmission: context.harness.productAdmission.context
-            )
-        )
         await waitForActivityContentProducerToFinish(context)
 
         // Assert
@@ -507,15 +493,6 @@ struct BridgePaneProductContentActivityAdmissionTests {
         )
         let endDelivery = try await requiredActivityContentFrame(context)
         let endFrame = try #require(try decoder.append(endDelivery.frame.data).first)
-        #expect(
-            await context.harness.session.acknowledgeContentFrameObservation(
-                try activityContentFrameAcknowledgement(
-                    for: request.admission,
-                    contentSequence: endDelivery.frame.sequence
-                ),
-                productAdmission: context.harness.productAdmission.context
-            )
-        )
         await waitForActivityContentProducerToFinish(context)
 
         // Assert
@@ -831,6 +808,11 @@ private func requiredActivityContentFrame(
     else {
         throw ActivityContentAdmissionTestError.expectedProducerFrame
     }
+    #expect(
+        await context.harness.session.acknowledgeProducerFrameConsumed(
+            delivery.receipt,
+            productAdmission: context.harness.productAdmission.context
+        ))
     return delivery
 }
 
@@ -877,11 +859,10 @@ private func activityContentFrameAcknowledgement(
     let data = try JSONSerialization.data(
         withJSONObject: [
             "contentRequestId": admission.contentRequestId,
-            "contentSequence": contentSequence,
-            "kind": "stream.frameObserved",
+            "receivedThroughContentSequence": contentSequence,
+            "kind": "content.acknowledge",
             "leaseId": admission.leaseId,
             "paneSessionId": admission.paneSessionId,
-            "streamKind": "content",
             "wireVersion": admission.wireVersion,
             "workerInstanceId": admission.workerInstanceId,
         ],

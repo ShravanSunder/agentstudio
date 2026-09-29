@@ -614,7 +614,7 @@ struct BridgeProductSchemeAdapterTests {
             request: bridgeProductSchemeRequest(
                 route: BridgeProductWireContract.commandRoute,
                 capability: harness.capabilityHeader,
-                body: try contentFrameAcknowledgementBody(
+                body: try contentAcknowledgementBody(
                     for: contentRequest.admission,
                     contentSequence: 0
                 )
@@ -646,18 +646,17 @@ struct BridgeProductSchemeAdapterTests {
 
 }
 
-func contentFrameAcknowledgementBody(
+func contentAcknowledgementBody(
     for admission: BridgeProductContentAdmission,
     contentSequence: Int
 ) throws -> Data {
     try JSONSerialization.data(
         withJSONObject: [
             "contentRequestId": admission.contentRequestId,
-            "contentSequence": contentSequence,
-            "kind": "stream.frameObserved",
+            "receivedThroughContentSequence": contentSequence,
+            "kind": "content.acknowledge",
             "leaseId": admission.leaseId,
             "paneSessionId": admission.paneSessionId,
-            "streamKind": "content",
             "wireVersion": admission.wireVersion,
             "workerInstanceId": admission.workerInstanceId,
         ],

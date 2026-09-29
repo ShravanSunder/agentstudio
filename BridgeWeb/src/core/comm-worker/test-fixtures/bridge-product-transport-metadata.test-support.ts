@@ -187,7 +187,7 @@ export class TestProductServer {
 			return typeof body === 'object' &&
 				body !== null &&
 				'kind' in body &&
-				body.kind === 'stream.frameObserved'
+				body.kind === 'content.acknowledge'
 				? await Promise.race([this.#acknowledgeFrame(body), this.#shutdownSignal.promise])
 				: await Promise.race([this.#handleControl(body), this.#shutdownSignal.promise]);
 		}

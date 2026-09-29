@@ -158,7 +158,6 @@ struct BridgeProductSessionDiagnosticSnapshot: Equatable, Sendable {
     let pendingControlCount: Int
     let activeSubscriptionCount: Int
     let producerFrameWaiterCount: Int
-    let producerPacingWaiterCount: Int
     let producerRetirementCount: Int
     let producer: BridgeProductProducerRegistrySnapshot
 }

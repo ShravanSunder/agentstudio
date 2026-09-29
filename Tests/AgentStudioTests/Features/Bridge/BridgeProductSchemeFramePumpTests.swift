@@ -56,7 +56,7 @@ struct BridgeProductSchemeFramePumpTests {
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
     }
 
-    @Test("worker observation releases only the exact in-flight frame")
+    @Test("local pump consumption releases only the exact in-flight frame")
     func workerObservationRequiresExactReceipt() async throws {
         // Arrange
         let fixture = try await makeFramePumpFixture(identitySuffix: "worker-observation")
@@ -82,7 +82,6 @@ struct BridgeProductSchemeFramePumpTests {
         let exactAccepted = await fixture.harness.session.acknowledgeProducerFrameObserved(
             delivery.receipt
         )
-        let observed = await pump.waitUntilFrameObserved(delivery.receipt)
         let duplicateAccepted = await fixture.harness.session.acknowledgeProducerFrameObserved(
             delivery.receipt
         )
@@ -93,7 +92,6 @@ struct BridgeProductSchemeFramePumpTests {
         #expect(afterForgery.queuedFrameCount == 1)
         #expect(afterForgery.inFlightFrameReceiptCount == 1)
         #expect(exactAccepted)
-        #expect(observed)
         #expect(!duplicateAccepted)
         #expect(afterObservation.queuedFrameCount == 0)
         #expect(afterObservation.inFlightFrameReceiptCount == 0)
@@ -103,7 +101,7 @@ struct BridgeProductSchemeFramePumpTests {
         #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)
     }
 
-    @Test("cancellation resolves a pending worker observation exactly once")
+    @Test("cancellation abandons a pulled frame before local consumption")
     func cancellationResolvesPendingWorkerObservation() async throws {
         // Arrange
         let fixture = try await makeFramePumpFixture(identitySuffix: "observation-cancel")
@@ -117,16 +115,13 @@ struct BridgeProductSchemeFramePumpTests {
         let delivery = try #require(frameDelivery(await pump.nextFrame()))
 
         // Act
-        async let observed = pump.waitUntilFrameObserved(delivery.receipt)
         let cancelled = await pump.cancel()
-        let observationResult = await observed
         let lateAccepted = await fixture.harness.session.acknowledgeProducerFrameObserved(
             delivery.receipt
         )
 
         // Assert
         #expect(cancelled)
-        #expect(!observationResult)
         #expect(!lateAccepted)
         try await fixture.operation.cancellationObserved()
         #expect((await fixture.harness.session.producerSnapshot()).hasZeroResidue)

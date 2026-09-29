@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES } from './bridge-product-contract-primitives.js';
 import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
 import { awaitBridgeProductFiniteProgress } from './bridge-product-finite-progress-deadline.js';
 import {
@@ -89,5 +90,39 @@ describe('Bridge product finite content progress', () => {
 			retryable: true,
 		});
 		expect(harness.server.contentReaderCancelCount).toBe(1);
+	});
+
+	test('a stalled data-credit reply leaves body progress under the finite deadline', async () => {
+		const clock = new ControlledContentDeadlineClock();
+		const harness = createContentTransportHarness(
+			0,
+			undefined,
+			10_000,
+			clock,
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_FRAME_BYTES + 4,
+		);
+		harness.server.gateContentBodyOnOpeningAcknowledgement = true;
+		harness.server.leaveContentOpenAfterData = true;
+		harness.server.holdContentAcknowledgement('content-request-1', 1);
+		const content = harness.transport.openContent(
+			fileContentDescriptor('held-data-credit'),
+			new AbortController().signal,
+		);
+
+		await harness.server.waitForFrameAcknowledgementCount(2);
+		expect(
+			harness.server.frameAcknowledgements.map(
+				(acknowledgement) => acknowledgement.receivedThroughContentSequence,
+			),
+		).toEqual([0, 1]);
+		const bodyDeadline = clock.deadlines.findLast(
+			(deadline) => deadline.delayMilliseconds === 5_000,
+		);
+		expect(bodyDeadline?.active).toBe(true);
+		bodyDeadline?.fire();
+		await expect(content.terminal).rejects.toMatchObject({
+			name: 'BridgeProductFiniteProgressDeadlineExpired',
+		});
+		harness.server.releaseHeldContentAcknowledgement();
 	});
 });

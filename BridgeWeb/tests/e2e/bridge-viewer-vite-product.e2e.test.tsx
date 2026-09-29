@@ -508,6 +508,11 @@ function assertJourneyFreshness(props: {
 			(entry): boolean => entry.contentKind === 'review.content' && entry.httpStatus === 200,
 		),
 	).toBe(true);
+	expect(
+		props.journeyObservations.productRouteTranscript.filter(
+			(entry): boolean => entry.requestKind === 'content.acknowledge' && entry.httpStatus === 404,
+		),
+	).toHaveLength(0);
 }
 
 async function waitForSelectedFileReady(props: {
