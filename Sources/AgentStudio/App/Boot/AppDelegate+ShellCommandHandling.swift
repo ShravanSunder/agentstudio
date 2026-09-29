@@ -245,7 +245,7 @@ extension AppDelegate: ShellCommandHandling {
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        if WorktreeCreationKind(command: command) != nil {
+        if command == .newWorktreeFromBranch || WorktreeCreationKind(command: command) != nil {
             return canExecuteWorktreeCreation(command, targetId: target, targetType: targetType)
         }
         guard command == .updateRepositoryFacts else {
