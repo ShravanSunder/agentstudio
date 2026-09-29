@@ -9,6 +9,61 @@ import Testing
 
 @Suite("Bridge product view acknowledgement deadline")
 struct BridgeProductViewAcknowledgementDeadlineTests {
+    @Test("floor retirement releases an unacknowledged view and its pending deadline")
+    func floorRetirementReleasesViewCreditAndDeadline() async throws {
+        let clock = TestPushClock()
+        let (registrations, registrationContinuation) = AsyncStream.makeStream(
+            of: BridgeProductViewDomainKey.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let harness = try await BridgeProductSessionLifecycleHarness.opened(
+            deadlineClock: clock,
+            viewEmissionWaiterRegistrationObserver: { registrationContinuation.yield($0) }
+        )
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let view = try await openDeadlineTestView(
+            harness: harness,
+            lease: lease,
+            subscriptionId: "floor-retired-file-view",
+            handle: "floor-retired-handle",
+            incarnation: "floor-retired-incarnation",
+            requestSequences: (open: 2, scope: 3)
+        )
+        try await sealDeadlineTestBatch(harness: harness, view: view, partCount: 2)
+        #expect(try await nextDeadlineTestViewFrame(harness: harness, lease: lease).kind == "subscription.batchBegin")
+        #expect(try await nextDeadlineTestViewFrame(harness: harness, lease: lease).kind == "subscription.batchPart")
+        let waiting = Task {
+            await harness.session.awaitViewEmissionCompletion(for: view.viewDomain, handle: view.handle)
+        }
+        var registrationIterator = registrations.makeAsyncIterator()
+        #expect(await registrationIterator.next() == view.viewDomain)
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        let registration = await harness.session.registerContentProducer(
+            request: try bridgeProductFileContentRequest(
+                identitySuffix: "floor-retired-view",
+                workerDerivationEpoch: 2
+            ),
+            productAdmission: harness.productAdmission.context
+        ) { _ in }
+        let contentLease = try bridgeProductAcceptedLease(registration)
+        let outstandingAfterRetirement = await harness.session.viewSenderState.outstandingPartCount(
+            for: view.viewDomain
+        )
+        #expect(outstandingAfterRetirement == 0)
+        #expect(await harness.session.acceptedViewScope(subscriptionId: view.subscriptionId) == nil)
+        if outstandingAfterRetirement != 0 {
+            // Keep a red-first run from leaving its held waiter alive after the assertion.
+            await harness.session.closeViewDomains(subscriptionId: view.subscriptionId)
+        }
+        #expect(await waiting.value == .retired)
+        await clock.waitForPendingSleepCount(exactly: 0)
+        #expect(await harness.session.subscriptionSnapshot(subscriptionId: view.subscriptionId) == nil)
+        registrationContinuation.finish()
+        _ = await harness.session.stopProducer(contentLease)
+        try await harness.closeProducer(lease)
+    }
+
     @Test("an initial Comment part can expire before E4 scope without ending its E3")
     func initialCommentPartExpiresBeforeScope() async throws {
         let clock = TestPushClock()

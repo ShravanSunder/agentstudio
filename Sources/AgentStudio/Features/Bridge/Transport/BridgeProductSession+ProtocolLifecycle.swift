@@ -94,6 +94,7 @@ extension BridgeProductSession {
         guard !subscriptions.isEmpty else { return }
         let target = try? activeMetadataFrameTarget()
         for subscription in subscriptions {
+            closeViewDomains(subscriptionId: subscription.subscriptionId)
             guard
                 let delivery = protocolSubscriptionDeliveryById.removeValue(
                     forKey: subscription.subscriptionId
