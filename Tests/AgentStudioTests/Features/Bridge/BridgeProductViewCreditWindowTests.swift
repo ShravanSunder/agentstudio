@@ -64,6 +64,40 @@ struct BridgeProductViewCreditWindowTests {
         #expect(credits.outstandingPartCount(for: successor) == 1)
     }
 
+    @Test("a full File part window leaves a sibling Review E3 able to receive")
+    func siblingPartWindowsAreIndependent() {
+        var credits = BridgeProductViewCreditWindow(maximumParts: 1, maximumBytes: 8)
+        let file = BridgeProductViewDomainKey(viewId: "file-view", domain: .singleDomain, incarnation: "first")
+        let review = BridgeProductViewDomainKey(viewId: "review-view", domain: .singleDomain, incarnation: "first")
+        credits.open(file, handle: "file-handle")
+        credits.open(review, handle: "review-handle")
+
+        let fileAdmitted = credits.admitPart(for: file, handle: "file-handle", sequence: 1, byteCount: 4)
+        let reviewAdmitted = credits.admitPart(for: review, handle: "review-handle", sequence: 1, byteCount: 4)
+        #expect(fileAdmitted && reviewAdmitted)
+        #expect(credits.outstandingPartCount(for: file) == 1)
+        #expect(credits.outstandingPartCount(for: review) == 1)
+        let reviewAcknowledged = credits.acknowledge(for: review, handle: "review-handle", through: 1)
+        let reviewNextAdmitted = credits.admitPart(for: review, handle: "review-handle", sequence: 2, byteCount: 4)
+        #expect(reviewAcknowledged && reviewNextAdmitted)
+        #expect(credits.outstandingPartCount(for: file) == 1)
+    }
+
+    @Test("a full File byte window leaves a sibling Review E3 able to receive")
+    func siblingByteWindowsAreIndependent() {
+        var credits = BridgeProductViewCreditWindow(maximumParts: 2, maximumBytes: 4)
+        let file = BridgeProductViewDomainKey(viewId: "file-view", domain: .singleDomain, incarnation: "first")
+        let review = BridgeProductViewDomainKey(viewId: "review-view", domain: .singleDomain, incarnation: "first")
+        credits.open(file, handle: "file-handle")
+        credits.open(review, handle: "review-handle")
+
+        let fileAdmitted = credits.admitPart(for: file, handle: "file-handle", sequence: 1, byteCount: 4)
+        let reviewAdmitted = credits.admitPart(for: review, handle: "review-handle", sequence: 1, byteCount: 4)
+        #expect(fileAdmitted && reviewAdmitted)
+        #expect(credits.outstandingPartCount(for: file) == 1)
+        #expect(credits.outstandingPartCount(for: review) == 1)
+    }
+
     @Test("late acknowledgement after resnapshot is satisfied without returning successor credit")
     func abandonedReceiptIsSatisfiedWithoutDoubleCredit() {
         var credits = BridgeProductViewCreditWindow(maximumParts: 1, maximumBytes: 8)

@@ -8,8 +8,8 @@ struct BridgeProductViewOutstandingPart: Sendable {
     let admissionOrder: Int
 }
 
-/// Shares one transport credit budget across domains while retaining receipt
-/// attribution by view, domain and incarnation. The handle fences old acks.
+/// Shares each E3's transport credit budget across its domains while retaining
+/// receipt attribution by view, domain and incarnation. The handle fences old acks.
 struct BridgeProductViewCreditWindow {
     private struct OutstandingPart {
         let sequence: Int
@@ -26,11 +26,15 @@ struct BridgeProductViewCreditWindow {
         var outstandingBytes = 0
     }
 
+    private struct ViewCreditUsage {
+        var partCount = 0
+        var byteCount = 0
+    }
+
     private let maximumParts: Int
     private let maximumBytes: Int
     private var stateByViewDomain: [BridgeProductViewDomainKey: ViewState] = [:]
-    private var outstandingPartCount = 0
-    private var outstandingByteCount = 0
+    private var creditUsageByViewId: [String: ViewCreditUsage] = [:]
     private var nextAdmissionOrder = 0
 
     init(maximumParts: Int, maximumBytes: Int) {
@@ -47,8 +51,7 @@ struct BridgeProductViewCreditWindow {
 
     mutating func close(_ viewDomain: BridgeProductViewDomainKey) {
         guard let state = stateByViewDomain.removeValue(forKey: viewDomain) else { return }
-        outstandingPartCount -= state.outstandingParts.count
-        outstandingByteCount -= state.outstandingBytes
+        adjustUsage(for: viewDomain.viewId, parts: -state.outstandingParts.count, bytes: -state.outstandingBytes)
     }
 
     func outstandingPartCount(for viewDomain: BridgeProductViewDomainKey) -> Int {
@@ -95,8 +98,7 @@ struct BridgeProductViewCreditWindow {
         throughReservedSequence: Int? = nil
     ) {
         guard var state = stateByViewDomain[viewDomain] else { return }
-        outstandingPartCount -= state.outstandingParts.count
-        outstandingByteCount -= state.outstandingBytes
+        adjustUsage(for: viewDomain.viewId, parts: -state.outstandingParts.count, bytes: -state.outstandingBytes)
         state.outstandingParts.removeAll()
         state.outstandingBytes = 0
         let abandonedThroughSequence = max(state.lastAdmittedSequence, throughReservedSequence ?? 0)
@@ -112,12 +114,13 @@ struct BridgeProductViewCreditWindow {
         byteCount: Int,
         admittedAt: Duration = .zero
     ) -> Bool {
+        let usage = creditUsageByViewId[viewDomain.viewId] ?? ViewCreditUsage()
         guard var state = stateByViewDomain[viewDomain],
             state.handle == handle,
             sequence == state.lastAdmittedSequence + 1,
             byteCount > 0,
-            byteCount <= maximumBytes - outstandingByteCount,
-            outstandingPartCount < maximumParts
+            byteCount <= maximumBytes - usage.byteCount,
+            usage.partCount < maximumParts
         else {
             return false
         }
@@ -132,8 +135,7 @@ struct BridgeProductViewCreditWindow {
         )
         state.outstandingBytes += byteCount
         state.lastAdmittedSequence = sequence
-        outstandingPartCount += 1
-        outstandingByteCount += byteCount
+        adjustUsage(for: viewDomain.viewId, parts: 1, bytes: byteCount)
         stateByViewDomain[viewDomain] = state
         return true
     }
@@ -160,9 +162,20 @@ struct BridgeProductViewCreditWindow {
         state.outstandingBytes -= returnedByteCount
         state.outstandingParts.removeFirst(returnedPartCount)
         state.receivedThroughSequence = receivedSequence
-        outstandingPartCount -= returnedPartCount
-        outstandingByteCount -= returnedByteCount
+        adjustUsage(for: viewDomain.viewId, parts: -returnedPartCount, bytes: -returnedByteCount)
         stateByViewDomain[viewDomain] = state
         return true
+    }
+
+    private mutating func adjustUsage(for viewId: String, parts: Int, bytes: Int) {
+        var usage = creditUsageByViewId[viewId] ?? ViewCreditUsage()
+        usage.partCount += parts
+        usage.byteCount += bytes
+        precondition(usage.partCount >= 0 && usage.byteCount >= 0)
+        if usage.partCount == 0 && usage.byteCount == 0 {
+            creditUsageByViewId.removeValue(forKey: viewId)
+        } else {
+            creditUsageByViewId[viewId] = usage
+        }
     }
 }
