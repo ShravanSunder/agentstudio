@@ -1,4 +1,4 @@
-import type { Browser, Page } from 'playwright';
+import type { Browser, Page, Request } from 'playwright';
 import { expect, test } from 'vitest';
 
 import { runAllOwnedCleanupOperations } from '../../scripts/dev-server/bridge-development-server-process.ts';
@@ -20,6 +20,11 @@ import {
 	type BridgeStreamFaultProxy,
 } from './bridge-viewer-vite-stream-fault-proxy.ts';
 
+interface ReviewContentRequestObservation {
+	readonly itemId: string | null;
+	readonly responseStatus: number | null;
+}
+
 test('File and Review semantic part faults recover on the live Vite and Swift stream', async () => {
 	const fixture = await createBridgeViewerViteProductFixture();
 	let server: BridgeViewerOwnedViteProductServer | null = null;
@@ -33,6 +38,7 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 		proxy = await startBridgeStreamFaultProxy(server.origin, { semanticBatchFaults: true });
 		browser = await launchBridgeViewerE2EChromium();
 		page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+		const reviewContentRequests = observeReviewContentRequests(page);
 		page.setDefaultTimeout(0);
 		page.setDefaultNavigationTimeout(0);
 		await page.goto(bridgeViewerViteProductFileUrl(proxy.origin, fixture.oracle.largeFilePath), {
@@ -97,24 +103,37 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 			await reviewShell.getAttribute('data-review-metadata-revision'),
 		);
 		expect(Number.isSafeInteger(priorReviewRevision)).toBe(true);
+		const reviewContentRequestCountBeforeMutation = reviewContentRequests.length;
 		const reorderApplied = proxy.armSemanticBatchFault({
 			mode: 'reorder',
 			subscriptionKind: 'review.metadata',
 		});
-		expect((await fixture.mutateReviewFile()).path).toBe(reviewFile.path);
+		const changedReviewFile = await fixture.mutateReviewFile();
+		expect(changedReviewFile.path).toBe(reviewFile.path);
 		expect(await reorderApplied).toMatchObject({
 			mode: 'reorder',
 			subscriptionKind: 'review.metadata',
 		});
-		const reorderedBatch = proxy.snapshot().semanticFaultsApplied.at(-1);
-		if (reorderedBatch === undefined)
-			throw new Error('Review reorder fault has no batch identity.');
-		await proxy.waitForBatchComplete(reorderedBatch.batchId);
 		await waitForReviewRevisionAfter(page, priorReviewRevision);
-		await waitForSelectedReviewReady({ itemId: reviewFile.itemId, page });
-		expect(await reviewShell.getAttribute('data-review-metadata-revision')).not.toBe(
-			String(priorReviewRevision),
+		const recoveredItemId = await waitForSelectedReviewItemAfterMutation({
+			expectedPath: changedReviewFile.path,
+			page,
+			previousItemId: reviewFile.itemId,
+		});
+		expect(recoveredItemId).not.toBe(reviewFile.itemId);
+		expect(
+			reviewContentRequests
+				.slice(reviewContentRequestCountBeforeMutation)
+				.some(
+					(request): boolean =>
+						request.itemId === recoveredItemId && request.responseStatus === 200,
+				),
+		).toBe(true);
+		const recoveredReviewRevision = Number(
+			await reviewShell.getAttribute('data-review-metadata-revision'),
 		);
+		expect(Number.isSafeInteger(recoveredReviewRevision)).toBe(true);
+		expect(recoveredReviewRevision).toBeGreaterThan(priorReviewRevision);
 		expect(proxy.snapshot().metadataRequestCount).toBe(establishedStreamCount);
 	} catch (error: unknown) {
 		const snapshot = proxy?.snapshot();
@@ -158,6 +177,159 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 		});
 	}
 });
+
+function observeReviewContentRequests(page: Page): ReviewContentRequestObservation[] {
+	const observations: ReviewContentRequestObservation[] = [];
+	const observationByRequest = new WeakMap<Request, number>();
+	page.on('request', (request): void => {
+		if (
+			request.method() !== 'POST' ||
+			new URL(request.url()).pathname !== '/__bridge-product/content'
+		)
+			return;
+		let bodyValue: unknown;
+		try {
+			bodyValue = JSON.parse(request.postData() ?? 'null');
+		} catch {
+			return;
+		}
+		if (typeof bodyValue !== 'object' || bodyValue === null || Array.isArray(bodyValue)) return;
+		const body = bodyValue as Readonly<Record<string, unknown>>;
+		if (body['contentKind'] !== 'review.content') return;
+		const descriptorValue = body['descriptor'];
+		const descriptor =
+			typeof descriptorValue === 'object' &&
+			descriptorValue !== null &&
+			!Array.isArray(descriptorValue)
+				? (descriptorValue as Readonly<Record<string, unknown>>)
+				: null;
+		const itemId = descriptor?.['itemId'];
+		observationByRequest.set(
+			request,
+			observations.push({
+				itemId: typeof itemId === 'string' ? itemId : null,
+				responseStatus: null,
+			}) - 1,
+		);
+	});
+	page.on('response', (response): void => {
+		const observationIndex = observationByRequest.get(response.request());
+		if (observationIndex === undefined) return;
+		const observation = observations[observationIndex];
+		if (observation === undefined) return;
+		observations[observationIndex] = { ...observation, responseStatus: response.status() };
+	});
+	return observations;
+}
+
+async function waitForSelectedReviewItemAfterMutation(props: {
+	readonly expectedPath: string;
+	readonly page: Page;
+	readonly previousItemId: string;
+}): Promise<string> {
+	return await props.page.evaluate(
+		({ expectedPath, previousItemId }): Promise<string> =>
+			new Promise((resolve): void => {
+				let checkForReadyItem = (): void => {};
+				let observeOpenShadowRoots = (_root: ParentNode): void => {};
+				const observer = new MutationObserver((mutations): void => {
+					for (const mutation of mutations) {
+						if (mutation.type !== 'childList') continue;
+						for (const node of mutation.addedNodes) {
+							if (node instanceof Element) observeOpenShadowRoots(node);
+						}
+					}
+					checkForReadyItem();
+				});
+				const observedRoots = new WeakSet<Node>();
+				const observeRoot = (root: Node): void => {
+					if (observedRoots.has(root)) return;
+					observedRoots.add(root);
+					observer.observe(root, {
+						attributeFilter: [
+							'data-selected-item-id',
+							'data-selected-content-state',
+							'data-selected-display-path',
+							'data-bridge-painted-source-correlations',
+						],
+						attributes: true,
+						childList: true,
+						subtree: true,
+					});
+				};
+				observeOpenShadowRoots = (root: ParentNode): void => {
+					if (root instanceof Element && root.shadowRoot !== null) {
+						observeRoot(root.shadowRoot);
+						observeOpenShadowRoots(root.shadowRoot);
+					}
+					for (const element of root.querySelectorAll('*')) {
+						if (element.shadowRoot === null) continue;
+						observeRoot(element.shadowRoot);
+						observeOpenShadowRoots(element.shadowRoot);
+					}
+				};
+				const hasPaintedItem = (panel: Element, itemId: string): boolean => {
+					const roots: ParentNode[] = [panel];
+					while (roots.length > 0) {
+						const root = roots.shift();
+						if (root === undefined) break;
+						for (const container of root.querySelectorAll(
+							'diffs-container[data-bridge-painted-source-correlations]',
+						)) {
+							const encodedCorrelations = container.getAttribute(
+								'data-bridge-painted-source-correlations',
+							);
+							if (encodedCorrelations === null) continue;
+							let correlations: unknown;
+							try {
+								correlations = JSON.parse(encodedCorrelations);
+							} catch {
+								continue;
+							}
+							if (
+								Array.isArray(correlations) &&
+								correlations.some(
+									(correlation): boolean =>
+										typeof correlation === 'object' &&
+										correlation !== null &&
+										'itemId' in correlation &&
+										correlation.itemId === itemId,
+								)
+							)
+								return true;
+						}
+						if (root instanceof Element && root.shadowRoot !== null) roots.push(root.shadowRoot);
+						for (const element of root.querySelectorAll('*')) {
+							if (element.shadowRoot !== null) roots.push(element.shadowRoot);
+						}
+					}
+					return false;
+				};
+				checkForReadyItem = (): void => {
+					const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+					const itemId = panel?.getAttribute('data-selected-item-id') ?? null;
+					if (
+						panel === null ||
+						itemId === null ||
+						itemId === previousItemId ||
+						panel.getAttribute('data-selected-display-path') !== expectedPath ||
+						panel.getAttribute('data-selected-content-state') !== 'ready' ||
+						!hasPaintedItem(panel, itemId)
+					)
+						return;
+					observer.disconnect();
+					resolve(itemId);
+				};
+				observeRoot(document.body);
+				observeOpenShadowRoots(document.body);
+				checkForReadyItem();
+			}),
+		{
+			expectedPath: props.expectedPath,
+			previousItemId: props.previousItemId,
+		},
+	);
+}
 
 async function waitForReviewRevisionAfter(page: Page, priorRevision: number): Promise<void> {
 	await page.evaluate(
