@@ -1,0 +1,106 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import AgentStudioTestSupport
+import AgentStudioWorktreeOperations
+import Foundation
+import Testing
+
+@testable import AgentStudioCommandBar
+
+@MainActor
+@Suite("Command Bar worktree branch level", .serialized)
+struct CommandBarWorktreeBranchLevelTests {
+    @Test("fork sources are inline and recent branches exclude default, deduplicate, and cap at five")
+    func inlineForksAndRecentBranches() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
+            let store = WorkspaceStore(
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology)
+            let repositoryPath = URL(filePath: "/tmp/branch-level-\(UUIDv7.generate().uuidString)/repo")
+            let repository = store.addRepo(at: repositoryPath)
+            let mainWorktree = Worktree(
+                id: UUIDv7.generate(), repoId: repository.id, name: "repo", path: repositoryPath,
+                isMainWorktree: true)
+            let featureWorktrees = (1...7).map { number in
+                Worktree(
+                    id: UUIDv7.generate(), repoId: repository.id, name: "feature-\(number)",
+                    path: repositoryPath.deletingLastPathComponent().appending(path: "feature-\(number)"),
+                    isMainWorktree: false)
+            }
+            store.reconcileDiscoveredWorktrees(repository.id, worktrees: [mainWorktree] + featureWorktrees)
+            let currentRepository = try #require(store.repositoryTopologyAtom.repo(repository.id))
+            let repoCache = RepoCacheAtom()
+            repoCache.setWorktreeEnrichment(
+                WorktreeEnrichment(
+                    worktreeId: mainWorktree.id, repoId: repository.id, branch: "main"))
+            for (offset, worktree) in featureWorktrees.enumerated() {
+                repoCache.setWorktreeEnrichment(
+                    WorktreeEnrichment(
+                        worktreeId: worktree.id, repoId: repository.id, branch: "feature-\(offset + 1)"))
+                try coreAtoms.applicationEntityRecency.recordOpened(
+                    repositoryStableKey: currentRepository.stableKey,
+                    worktreeStableKey: worktree.stableKey,
+                    at: Date().addingTimeInterval(Double(offset - 10)))
+            }
+            let available = Dictionary(
+                uniqueKeysWithValues: currentRepository.worktrees.map { ($0.id, WorktreeForkEligibility.available) })
+            let level = CommandBarDataSource.worktreeCreationMenuLevel(
+                repository: currentRepository,
+                store: store,
+                repoCache: repoCache,
+                defaultStartPoint: .resolved(displayRef: "origin/main", startPoint: "refs/remotes/origin/main"),
+                branchNames: ["main", "other"] + (1...7).map { "feature-\($0)" },
+                eligibilityByWorktreeId: available,
+                focusedWorktreeId: featureWorktrees[6].id)
+
+            let forks = level.items.filter { $0.group == "FORK A WORKTREE" }
+            let branches = level.items.filter { $0.group == "FROM A BRANCH" }
+            #expect(forks.map(\.title) == ["feature-7", "repo"] + (1...6).map { "feature-\($0)" })
+            #expect(
+                branches.map(\.title) == [
+                    "From Default", "feature-7", "feature-6", "feature-5", "feature-4", "feature-3",
+                ])
+            #expect(level.searchOnlyItems.map(\.title) == ["other", "feature-1", "feature-2"])
+            #expect(forks.allSatisfy { $0.isEnabled })
+            guard case .navigate(let forkNameLevel) = forks[0].action,
+                case .navigate(let branchNameLevel) = branches[1].action
+            else {
+                Issue.record("Expected direct name-entry levels")
+                return
+            }
+            #expect(forkNameLevel.textEntry != nil)
+            #expect(branchNameLevel.title == "From feature-7")
+            let row = try #require(branchNameLevel.textEntry?.rowsForInput(.init(text: "new-feature")).first)
+            guard case .createWorktree(let draft) = row.action else {
+                Issue.record("Expected a typed branch creation row")
+                return
+            }
+            let branchName = try WorktreeBranchName.validated("new-feature").get()
+            #expect(
+                CommandBarWorktreeCreationResolver.resolve(draft: draft)
+                    == .dispatch(
+                        .init(
+                            kind: .fromBranch(referenceName: "refs/heads/feature-7"),
+                            targetId: repository.id, branchName: branchName)))
+
+            let state = CommandBarState()
+            state.show(prefix: ">")
+            state.pushLevel(level)
+            let resultSession = CommandBarResultSession(
+                store: store, repoCache: repoCache, dispatcher: FakeAppCommandDispatcher())
+            let emptyDocuments = resultSession.prepareSearch(state: state).documentSet
+            #expect(!emptyDocuments.documents.contains { $0.title == "other" })
+            state.rawInput = "other"
+            let searchable = resultSession.prepareSearch(state: state).documentSet
+            let found = await SearchService().search(
+                SearchRequest(
+                    sequence: SearchRequestSequence(1), text: "other", recentItemIds: [],
+                    documentSet: searchable))
+            #expect(searchable.generation > emptyDocuments.generation)
+            #expect(
+                found.groups.flatMap(\.matches).contains {
+                    $0.itemId.rawValue == "newWorktree-from-branch-\(repository.id.uuidString)-other"
+                })
+        }
+    }
+}

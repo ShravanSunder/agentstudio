@@ -24,27 +24,16 @@ struct InFlightBranchListingQuery {
 extension CommandBarPanelController {
     func requestCreationQueriesIfNeeded(for level: CommandBarLevel) {
         switch level.creationQuery {
-        case .defaultStartPoint(let repository):
-            requestDefaultStartPointIfNeeded(for: repository)
         case .branchListing(let repository):
             requestDefaultStartPointIfNeeded(for: repository)
             requestBranchListingIfNeeded(for: repository)
-        case .forkEligibility(let repository):
-            requestForkPickerEligibilityIfNeeded(for: repository)
+            requestForkEligibilityIfNeeded(for: repository)
         case .worktreeEligibility(let repository, let worktree):
-            requestForkPickerEligibilityIfNeeded(for: repository, worktrees: [worktree])
+            requestForkEligibilityIfNeeded(for: repository, worktrees: [worktree])
         case nil:
             break
         }
-        if case .some(.defaultStartPoint(let repository)) = level.creationQuery,
-            state.defaultStartPointByRepositoryId[repository.id] != nil
-        {
-            refreshCreationLevel(for: repository)
-        }
         if case .some(.branchListing(let repository)) = level.creationQuery {
-            refreshCreationLevel(for: repository)
-        }
-        if case .some(.forkEligibility(let repository)) = level.creationQuery {
             refreshCreationLevel(for: repository)
         }
         if case .some(.worktreeEligibility(let repository, _)) = level.creationQuery {
@@ -130,7 +119,7 @@ extension CommandBarPanelController {
         )
     }
 
-    private func requestForkPickerEligibilityIfNeeded(for repository: Repo, worktrees: [Worktree]? = nil) {
+    private func requestForkEligibilityIfNeeded(for repository: Repo, worktrees: [Worktree]? = nil) {
         guard let worktreeForkEligibility else { return }
         let generation = state.rootSessionGeneration
         for worktree in worktrees ?? repository.worktrees {
@@ -167,11 +156,7 @@ extension CommandBarPanelController {
 
     private func refreshCreationLevel(_ level: CommandBarLevel, for repository: Repo) {
         switch level.creationQuery {
-        case .defaultStartPoint(let queriedRepository) where queriedRepository.id == repository.id:
-            break
         case .branchListing(let queriedRepository) where queriedRepository.id == repository.id:
-            break
-        case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
             break
         case .worktreeEligibility(let queriedRepository, _) where queriedRepository.id == repository.id:
             break
@@ -183,30 +168,22 @@ extension CommandBarPanelController {
             return
         }
         switch level.creationQuery {
-        case .defaultStartPoint(let queriedRepository) where queriedRepository.id == repository.id:
-            state.replaceLevel(
-                CommandBarDataSource.worktreeCreationMenuLevel(
-                    repository: currentRepository,
-                    defaultStartPoint: state.defaultStartPointByRepositoryId[repository.id],
-                    defaultQueryFailed: state.defaultStartPointQueryFailures.contains(repository.id)
-                ))
         case .branchListing(let queriedRepository) where queriedRepository.id == repository.id:
             state.replaceLevel(
                 CommandBarDataSource.worktreeCreationMenuLevel(
                     repository: currentRepository,
+                    store: store,
+                    repoCache: repoCache,
                     defaultStartPoint: state.defaultStartPointByRepositoryId[repository.id],
                     defaultQueryFailed: state.defaultStartPointQueryFailures.contains(repository.id),
-                    branchListingFailed: state.branchListingQueryFailures.contains(repository.id)
+                    branchNames: state.branchNamesByRepositoryId[repository.id],
+                    branchListingFailed: state.branchListingQueryFailures.contains(repository.id),
+                    eligibilityByWorktreeId: state.forkEligibilityBySourceWorktreeId,
+                    focusedWorktreeId: focusedWorktreeId(in: currentRepository)
                 ))
-        case .forkEligibility(let queriedRepository) where queriedRepository.id == repository.id:
-            let eligibility = state.forkEligibilityBySourceWorktreeId
-            let focusedWorktreeId = focusedWorktreeId(in: currentRepository)
-            state.replaceLevel(
-                CommandBarDataSource.worktreeCreationForkPickerLevel(
-                    repository: currentRepository,
-                    eligibilityByWorktreeId: eligibility,
-                    focusedWorktreeId: focusedWorktreeId
-                ))
+            if state.currentLevel?.id == level.id, !state.searchQuery.isEmpty {
+                queryChanged(text: state.rawInput)
+            }
         case .worktreeEligibility(let queriedRepository, let worktree) where queriedRepository.id == repository.id:
             guard let currentWorktree = currentRepository.worktrees.first(where: { $0.id == worktree.id }) else {
                 replaceCreationLevelWithoutActions(level)

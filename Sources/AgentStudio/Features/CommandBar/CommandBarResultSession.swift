@@ -33,6 +33,7 @@ final class CommandBarResultSession {
     @ObservationIgnored private var rowGenerationValue: UInt64 = 0
     @ObservationIgnored private var preparedSearch: CommandBarPreparedSearch?
     @ObservationIgnored private var preparedLevelVisitRevision: Int?
+    @ObservationIgnored private var preparedNestedHasFilter: Bool?
     @ObservationIgnored private var lastPresentationSnapshot: CommandBarResultSnapshot?
     @ObservationIgnored private var topologyInvalidation: (generation: SearchDocumentGeneration, atNanoseconds: UInt64)?
     private(set) var rootItemSnapshotInvalidationRevision = 0
@@ -50,6 +51,7 @@ final class CommandBarResultSession {
     func navigationChanged() {
         advanceRowGeneration()
         preparedLevelVisitRevision = nil
+        preparedNestedHasFilter = nil
         lastPresentationSnapshot = nil
     }
 
@@ -220,12 +222,16 @@ final class CommandBarResultSession {
             focusedPane: focusedPane,
             commandContext: commandContext
         )
-        if state.isNested, preparedLevelVisitRevision != state.levelVisitRevision {
+        let nestedHasFilter = state.isNested ? !state.searchQuery.isEmpty : nil
+        if state.isNested,
+            preparedLevelVisitRevision != state.levelVisitRevision || preparedNestedHasFilter != nestedHasFilter
+        {
             advanceRowGeneration()
         } else if !state.isNested, preparedLevelVisitRevision != nil {
             advanceRowGeneration()
         }
         preparedLevelVisitRevision = state.isNested ? state.levelVisitRevision : nil
+        preparedNestedHasFilter = nestedHasFilter
 
         if let preparedSearch, preparedSearch.documentSet.generation == currentRowGeneration {
             return preparedSearch
@@ -313,7 +319,7 @@ final class CommandBarResultSession {
                         CommandBarTextEntryInput(
                             text: state.searchQuery
                         ))
-                } ?? level.items
+                } ?? (level.items + (state.searchQuery.isEmpty ? [] : level.searchOnlyItems))
             )
         }
 

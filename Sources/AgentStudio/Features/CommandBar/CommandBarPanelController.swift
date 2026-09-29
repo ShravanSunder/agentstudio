@@ -439,6 +439,7 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )
@@ -500,6 +501,7 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )
@@ -648,6 +650,7 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )

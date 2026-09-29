@@ -269,11 +269,13 @@ extension CommandBarDataSource {
     static func buildRepoLevel(
         repo: Repo,
         store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         buildRepoLevel(
             repo: repo,
             store: store,
+            repoCache: repoCache,
             presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store),
             dispatcher: dispatcher
         )
@@ -282,6 +284,7 @@ extension CommandBarDataSource {
     static func buildRepoLevel(
         repo: Repo,
         store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
         presenceByWorktreeId: [UUID: WorktreePresence],
         dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
@@ -301,7 +304,9 @@ extension CommandBarDataSource {
                     group: "Worktrees",
                     groupPriority: 2,
                     hasChildren: true,
-                    action: .navigate(worktreeCreationMenuLevel(repository: repo)),
+                    action: .navigate(
+                        worktreeCreationMenuLevel(
+                            repository: repo, store: store, repoCache: repoCache)),
                     command: .newWorktree
                 ))
         }
