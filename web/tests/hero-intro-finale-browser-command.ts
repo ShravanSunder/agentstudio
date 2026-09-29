@@ -36,6 +36,7 @@ interface FinaleSample {
   readonly transcriptScrollTops: readonly number[];
   readonly transcriptOverflows: readonly number[];
   readonly firstVisibleRowTopGaps: readonly number[];
+  readonly firstVisibleRowDebug: readonly string[];
   readonly worktreeRowLineCounts: readonly number[];
   readonly claudeRowLineCounts: readonly number[];
   readonly wrappedClaudeRows: readonly string[];
@@ -351,7 +352,9 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                   return true;
                 };
                 const firstVisibleRow = [
-                  ...transcript.querySelectorAll<HTMLElement>(".hero-transcript-row"),
+                  ...transcript.querySelectorAll<HTMLElement>(
+                    ".hero-claude-startup, .hero-codex-startup, .hero-transcript-row",
+                  ),
                 ]
                   .filter(paintedRow)
                   .find((row) => row.getBoundingClientRect().bottom > transcriptBounds.top + 0.5);
@@ -373,6 +376,10 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
                     firstVisibleRow === undefined
                       ? 0
                       : firstVisibleRow.getBoundingClientRect().top - transcriptBounds.top,
+                  firstVisibleRowDebug:
+                    firstVisibleRow === undefined
+                      ? "none"
+                      : `${firstVisibleRow.className}: ${firstVisibleRow.textContent?.trim().slice(0, 50)}; bottom=${firstVisibleRow.getBoundingClientRect().bottom - transcriptBounds.top}; scroll=${transcript.scrollTop}/${transcript.scrollHeight - transcript.clientHeight}`,
                   clearance: pinned.getBoundingClientRect().top - visibleBottom,
                   scrollTop: transcript.scrollTop,
                   overflow: transcript.scrollHeight - transcript.clientHeight,
@@ -447,6 +454,9 @@ export const verifyHeroIntroFinale = defineBrowserCommand(
               ),
               firstVisibleRowTopGaps: transcriptMeasurements.map(
                 (measurement) => measurement.firstVisibleRowTopGap,
+              ),
+              firstVisibleRowDebug: transcriptMeasurements.map(
+                (measurement) => measurement.firstVisibleRowDebug,
               ),
               worktreeRowLineCounts: [
                 ...root.querySelectorAll<HTMLElement>(

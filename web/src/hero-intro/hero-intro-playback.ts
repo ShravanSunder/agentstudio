@@ -50,7 +50,8 @@ export function initializeHeroIntroPlayback(root: HTMLElement): HeroIntroPlaybac
       target.removeAttribute("style");
     }
     for (const transcript of root.querySelectorAll<HTMLElement>(".hero-terminal-transcript")) {
-      transcript.scrollTop = transcript.scrollHeight;
+      const bottomPadding = Number.parseFloat(getComputedStyle(transcript).paddingBottom);
+      transcript.scrollTop = transcript.scrollHeight - transcript.clientHeight - bottomPadding;
       snapHeroTranscriptToWholeRow(transcript);
     }
     root.querySelector(`[${heroIntroFourthPlaneAttribute}]`)?.remove();

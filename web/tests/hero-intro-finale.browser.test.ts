@@ -99,7 +99,7 @@ for (const [width, height] of [
     for (const sample of observation.samples) {
       expect(
         sample.firstVisibleRowTopGaps.every((gap) => gap >= -0.5),
-        `${sample.time}: complete first row ${sample.firstVisibleRowTopGaps.join(",")}`,
+        `${sample.time}: complete first row ${sample.firstVisibleRowTopGaps.join(",")} ${sample.firstVisibleRowDebug.join(" | ")}`,
       ).toBe(true);
       expect(sample.installTransform, `${sample.time}: install transform`).toBe("none");
       expect(sample.realCommandLines, `${sample.time}: command text`).toEqual([

@@ -12,7 +12,11 @@ export function snapHeroTranscriptToWholeRow(transcript: HTMLElement): void {
     }
     return true;
   };
-  const partial = [...transcript.querySelectorAll<HTMLElement>(".hero-transcript-row")]
+  const partial = [
+    ...transcript.querySelectorAll<HTMLElement>(
+      ".hero-claude-startup, .hero-codex-startup, .hero-transcript-row",
+    ),
+  ]
     .filter(visibleRow)
     .filter((row) => {
       const bounds = row.getBoundingClientRect();
