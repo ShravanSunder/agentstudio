@@ -174,6 +174,63 @@ describe('Bridge worker render fulfillment registry', () => {
 		});
 	});
 
+	test('leases an in-window queued Review publication, retries once, then reports exhaustion', () => {
+		let nowMilliseconds = 0;
+		const registry = createRegistry(reviewContext, (): number => nowMilliseconds);
+		const first = registry.beginPublication({
+			job: makeRenderJob('visible-review-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		registry.applyDisposition(disposition(first.receiptIdentity, 'queued', 1));
+		registry.updateVisibleItemIds(['visible-review-item']);
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBe(100);
+		nowMilliseconds = 100;
+		expect(registry.expireVisibleQueuedLeases()).toEqual({
+			exhaustedItemIds: [],
+			retryableItemIds: ['visible-review-item'],
+		});
+		expect(registry.getItemState('visible-review-item')?.stage).toBe('retry_wait');
+		nowMilliseconds = 105;
+		expect(registry.releaseReadyRetries()).toEqual(['visible-review-item']);
+		const retry = registry.beginPublication({
+			job: makeRenderJob('visible-review-item'),
+			publicationSequence: 9,
+			workerDerivationEpoch: 3,
+		});
+		expect(retry.shouldPublish).toBe(true);
+		registry.applyDisposition(disposition(retry.receiptIdentity, 'queued', 106));
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBe(205);
+		nowMilliseconds = 205;
+		expect(registry.expireVisibleQueuedLeases()).toEqual({
+			exhaustedItemIds: ['visible-review-item'],
+			retryableItemIds: [],
+		});
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBeNull();
+	});
+
+	test('keeps an out-of-window queued Review publication dormant and clears a lease on exit', () => {
+		let nowMilliseconds = 0;
+		const registry = createRegistry(reviewContext, (): number => nowMilliseconds);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('virtualized-review-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 1));
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBeNull();
+		registry.updateVisibleItemIds(['virtualized-review-item']);
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBe(100);
+		registry.updateVisibleItemIds([]);
+		nowMilliseconds = 200;
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBeNull();
+		expect(registry.expireVisibleQueuedLeases()).toEqual({
+			exhaustedItemIds: [],
+			retryableItemIds: [],
+		});
+		expect(registry.getItemState('virtualized-review-item')?.stage).toBe('queued');
+	});
+
 	test('retires publication residency before the same semantic window is republished', () => {
 		// Arrange
 		const registry = createRegistry(reviewContext);

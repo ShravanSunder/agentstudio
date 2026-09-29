@@ -11,11 +11,90 @@ import {
 import {
 	encodeBridgeWorkerReviewInvalidateCommand,
 	encodeBridgeWorkerSelectCommand,
+	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import { makeReviewPublication } from './bridge-main-render-fulfillment-coordinator.test-support.js';
 import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
+import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 describe('Bridge comm worker Review metadata reset', () => {
+	test('the viewport arms a queued render lease and exhaustion reaches only the Review recovery owner', () => {
+		const itemId = 'visible-queued-review-item';
+		let nowMilliseconds = 0;
+		const exhaustedItemIds: string[][] = [];
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata(itemId)],
+			now: (): number => nowMilliseconds,
+			renderReceiptLeaseDurationMilliseconds: 10,
+			renderRetryBackoffMilliseconds: 5,
+			onReviewVisibleRenderExhausted: (itemIds): void => {
+				exhaustedItemIds.push([...itemIds]);
+			},
+			rows: [{ id: itemId, parentId: null, index: 0 }],
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+			scheduleSelectedFileViewContentReadyPreparation: ignoreScheduledSelectedFileViewPreparation,
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 7,
+				requestId: 'select-visible-queued',
+				selectedItemId: itemId,
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
+		const store = scheduledPreparations[0]?.store;
+		if (store === undefined) throw new Error('Expected the selected Review store.');
+		handler.handleMessage(
+			encodeBridgeWorkerViewportCommand({
+				epoch: 7,
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+				requestId: 'viewport-visible-queued',
+				surface: 'review',
+				visibleItemIds: [itemId],
+			}),
+		);
+		const first = store.renderFulfillmentRegistry.beginPublication({
+			job: makeReviewPublication({ itemId, publicationSequence: 1 }).job,
+			publicationSequence: 1,
+			workerDerivationEpoch: 1,
+		});
+		store.renderFulfillmentRegistry.applyDisposition(
+			bridgeWorkerRenderDispositionReceiptSchema.parse({
+				...first.receiptIdentity,
+				disposition: 'queued',
+				kind: 'render.disposition',
+				receivedAtMilliseconds: 0,
+			}),
+		);
+		nowMilliseconds = 10;
+		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+		expect(exhaustedItemIds).toEqual([]);
+		nowMilliseconds = 15;
+		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+		expect(scheduledPreparations.length).toBeGreaterThan(1);
+		const retry = store.renderFulfillmentRegistry.beginPublication({
+			job: makeReviewPublication({ itemId, publicationSequence: 2 }).job,
+			publicationSequence: 2,
+			workerDerivationEpoch: 1,
+		});
+		store.renderFulfillmentRegistry.applyDisposition(
+			bridgeWorkerRenderDispositionReceiptSchema.parse({
+				...retry.receiptIdentity,
+				disposition: 'queued',
+				kind: 'render.disposition',
+				receivedAtMilliseconds: 15,
+			}),
+		);
+		nowMilliseconds = 25;
+		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
+		expect(exhaustedItemIds).toEqual([[itemId]]);
+	});
+
 	test('releases a selected render retry with the invalidated demand epoch', () => {
 		// Arrange
 		const itemId = 'item-invalidated-retry';

@@ -36,6 +36,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	) => string;
 	readonly now?: () => number;
 	readonly onReviewMetadataPostCommitFailure?: (error: unknown) => void;
+	readonly onReviewVisibleRenderExhausted?: (itemIds: readonly string[]) => void;
 	readonly renderFulfillmentContext?: Omit<BridgeWorkerRenderFulfillmentRegistryContext, 'surface'>;
 	readonly renderFulfillmentNow?: () => number;
 	readonly renderReceiptLeaseDurationMilliseconds?: number;

@@ -485,6 +485,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			: { renderFulfillmentContext: props.renderFulfillmentContext }),
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		onReviewMetadataPostCommitFailure: publishReviewMetadataPostCommitFailure,
+		onReviewVisibleRenderExhausted: (): void => productTransport?.failReviewRender?.(),
 		scheduleSelectedReviewContentReadyPreparation:
 			reviewDemandScheduling.scheduleSelectedContentReadyPreparation,
 		scheduleReviewMetadataReset: reviewDemandScheduling.scheduleMetadataReset,
@@ -831,6 +832,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				: null;
 		const messages =
 			renderDispositionApplication?.messages ?? handler.handleMessage(parsedMessage.data);
+		if (parsedMessage.data.command === 'viewport' && parsedMessage.data.surface === 'review') {
+			advanceRenderFulfillmentLifecycle('review');
+		}
 		if (parsedMessage.data.command === 'reviewPublicationInstalled') {
 			installedReviewSource.recordInstallation(parsedMessage.data);
 		}

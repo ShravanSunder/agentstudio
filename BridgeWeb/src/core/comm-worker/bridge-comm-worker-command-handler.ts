@@ -292,6 +292,11 @@ export function createBridgeCommWorkerCommandHandler(
 			const expiredItemIds =
 				reviewStore.renderFulfillmentRegistry.expireReceiptLeases(atMilliseconds);
 			for (const itemId of expiredItemIds) props.releaseExpiredReviewPublication?.(itemId);
+			const visibleQueuedExpiry =
+				reviewStore.renderFulfillmentRegistry.expireVisibleQueuedLeases(atMilliseconds);
+			if (visibleQueuedExpiry.exhaustedItemIds.length > 0) {
+				props.onReviewVisibleRenderExhausted?.(visibleQueuedExpiry.exhaustedItemIds);
+			}
 			const releasedItemIds =
 				reviewStore.renderFulfillmentRegistry.releaseReadyRetries(atMilliseconds);
 			if (releasedItemIds.length > 0) {

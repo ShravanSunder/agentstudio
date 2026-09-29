@@ -136,6 +136,7 @@ export interface BridgeProductTransportSession extends BridgeProductTransport {
 	resnapshotView?(props: ViewResnapshotAdmissionProps): Promise<void>;
 	resnapshotLatestView?(subscriptionId: string, domain: string): Promise<void>;
 	retryView?(subscriptionId: string): Promise<void>;
+	failReviewRender?(): void;
 	/**
 	 * Advances the surface to a new worker derivation epoch and returns it. Every
 	 * subscription admitted on that surface at an older epoch ends for its consumer
@@ -364,6 +365,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 
 	retryView(subscriptionId: string): Promise<void> {
 		return this.#viewScopeOwner.retryView(subscriptionId);
+	}
+
+	failReviewRender(): void {
+		this.#viewScopeOwner.failViewsOfKind('review.metadata');
 	}
 
 	async setViewScopeForSubscription(props: {

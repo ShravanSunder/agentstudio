@@ -61,6 +61,43 @@ class ControlledReplacementBeginClock implements BridgeProductDeadlineClock {
 }
 
 describe('W2 desired view scope owner', () => {
+	test('render exhaustion fails only the Review metadata view and its Retry uses the existing resnapshot', async () => {
+		const statuses: string[] = [];
+		const requests: ViewResnapshotAdmissionProps[] = [];
+		const owner = createTestViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					requests.push(props);
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (): string => 'view-identity',
+			maximumConsecutiveResnapshots: 2,
+			onViewRecoveryStatus: (status): void => {
+				statuses.push(`${status.view.subscriptionId}:${status.status}`);
+			},
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'file-1',
+			subscriptionKind: 'file.metadata',
+		});
+		owner.register({
+			scope: { kind: 'review', interests: [] },
+			subscriptionId: 'review-1',
+			subscriptionKind: 'review.metadata',
+		});
+		owner.failViewsOfKind('review.metadata');
+		expect(owner.recoveryState('review-1')?.status).toBe('failedRetryable');
+		expect(owner.recoveryState('file-1')?.status).toBe('ready');
+		expect(statuses).toContain('review-1:failedRetryable');
+		expect(requests).toHaveLength(0);
+		await owner.retryView('review-1');
+		expect(owner.recoveryState('review-1')?.status).toBe('recovering');
+		expect(requests).toHaveLength(1);
+	});
+
 	test('accepted resnapshots without replacement begins exhaust the view budget and Retry rearms it', async () => {
 		const clock = new ControlledReplacementBeginClock();
 		const requests: ViewResnapshotAdmissionProps[] = [];

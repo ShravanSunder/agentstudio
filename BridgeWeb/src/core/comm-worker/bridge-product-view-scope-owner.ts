@@ -242,6 +242,16 @@ export class BridgeProductViewScopeOwner {
 		};
 	}
 
+	failViewsOfKind(kind: ViewKind): void {
+		for (const view of this.#views.values()) {
+			if (view.subscriptionKind !== kind) continue;
+			this.#clearReplacementBeginDeadline(view);
+			view.consecutiveResnapshots = this.#maximumConsecutiveResnapshots;
+			view.resnapshotRequested = false;
+			this.#emitRecoveryStatus(view, 'failedRetryable');
+		}
+	}
+
 	async retryView(subscriptionId: string): Promise<void> {
 		const view = this.#views.get(subscriptionId);
 		if (view === undefined) return;
