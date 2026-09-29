@@ -10,6 +10,54 @@ import Testing
 @MainActor
 @Suite("Command Bar worktree branch level", .serialized)
 struct CommandBarWorktreeBranchLevelTests {
+    @Test("a branch listing arriving after typing refreshes real search results")
+    func lateBranchListingRefreshesSearch() async throws {
+        try await withAsyncTestCoreAtoms { coreAtoms in
+            let store = WorkspaceStore(
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology)
+            let repositoryPath = URL(filePath: "/tmp/branch-search-\(UUIDv7.generate().uuidString)/repo")
+            let repository = store.addRepo(at: repositoryPath)
+            let currentRepository = try #require(store.repositoryTopologyAtom.repo(repository.id))
+            let repoCache = RepoCacheAtom()
+            let listing = SequencedBranchListing()
+            let controller = CommandBarPanelController(
+                store: store,
+                octiconLoader: makeCommandBarTestOcticonLoader(),
+                repoCache: repoCache,
+                dispatcher: FakeAppCommandDispatcher(),
+                quickOpenDirectoryHandler: { _, _ in },
+                commandBarSurface: CommandBarSurfaceAtom(),
+                recentsDefaults: CommandBarRecentsDefaultsFixture().makeDefaults(),
+                branchListing: listing)
+            controller.state.show(prefix: ">")
+            controller.state.pushLevel(
+                CommandBarDataSource.worktreeCreationMenuLevel(
+                    repository: currentRepository, store: store, repoCache: repoCache))
+            controller.requestCreationQueriesIfNeeded(for: try #require(controller.state.currentLevel))
+            #expect(await listing.awaitQueries(count: 1) == 1)
+            let listingTask = try #require(controller.branchListingQueriesByRepositoryId[repository.id]?.task)
+
+            controller.state.rawInput = "feature/source"
+            controller.queryChanged(text: controller.state.rawInput)
+            let initialSearch = try #require(controller.pendingSearchTask)
+            await initialSearch.value
+            #expect(
+                controller.state.appliedSearchResult?.displayedItems.contains {
+                    $0.title == "feature/source"
+                } == false)
+
+            await listing.answer(at: 0, with: ["feature/source"])
+            await listingTask.value
+            let refreshedSearch = try #require(controller.pendingSearchTask)
+            await refreshedSearch.value
+            #expect(
+                controller.state.appliedSearchResult?.displayedItems.contains {
+                    $0.title == "feature/source"
+                } == true)
+        }
+    }
+
     @Test("worktree search and fork rows show a known branch beneath the name")
     func knownBranchSecondaryLine() throws {
         try withTestCoreAtoms { coreAtoms in
