@@ -5,11 +5,11 @@ import type {
 } from './bridge-comm-worker-annotation-catalog-applicator.js';
 import {
 	BridgeCommWorkerAnnotationProjectionQueryController,
-	bridgeCommWorkerAnnotationProjectionTransport,
 	type BridgeCommWorkerAnnotationProjectionDemand,
 	type BridgeCommWorkerAnnotationProjectionPublication,
 	type BridgeCommWorkerAnnotationProjectionSourceAuthorityStalePublication,
 } from './bridge-comm-worker-annotation-projection-query-controller.js';
+import { bridgeCommWorkerAnnotationProjectionTransport } from './bridge-comm-worker-annotation-projection-transport.js';
 import {
 	fileMetadataInterestsInPriorityOrder,
 	reviewMetadataInterestLaneForDemandRole,
@@ -213,8 +213,8 @@ export class BridgeCommWorkerProductController {
 		catalog: BridgeCommWorkerAnnotationCatalog,
 		surface: 'file' | 'review',
 	): void {
+		if (!this.#annotationProjectionBySurface[surface].acceptInstalledCatalog(catalog)) return;
 		this.#onAnnotationCatalog({ catalog, surface });
-		this.#annotationProjectionBySurface[surface].acceptInstalledCatalog(catalog);
 	}
 
 	setAnnotationProjectionSurfaceActive(

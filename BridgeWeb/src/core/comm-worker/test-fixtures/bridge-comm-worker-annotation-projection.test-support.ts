@@ -217,7 +217,10 @@ export async function createHarness(props: {
 	};
 }
 
-export function createNotificationQueue(surface: 'file' | 'review'): TestNotificationQueue {
+export function createNotificationQueue(
+	surface: 'file' | 'review',
+	authority?: { readonly subscriptionId: string; readonly worktreeId: string },
+): TestNotificationQueue {
 	const events = new BridgeProductBoundedAsyncQueue<never>(1);
 	let catalogReceiver:
 		| ((catalog: ReturnType<typeof installBridgeProductCommentBatch>) => void)
@@ -232,12 +235,12 @@ export function createNotificationQueue(surface: 'file' | 'review'): TestNotific
 		surface === 'file'
 			? {
 					...base,
-					subscriptionId: 'file-annotation-notifications',
+					subscriptionId: authority?.subscriptionId ?? 'file-annotation-notifications',
 					subscriptionKind: 'file.annotations',
 				}
 			: {
 					...base,
-					subscriptionId: 'review-annotation-notifications',
+					subscriptionId: authority?.subscriptionId ?? 'review-annotation-notifications',
 					subscriptionKind: 'review.annotations',
 				};
 	return {
@@ -251,13 +254,13 @@ export function createNotificationQueue(surface: 'file' | 'review'): TestNotific
 				revision,
 				subscriptionId: subscription.subscriptionId,
 				subscriptionKind: subscription.subscriptionKind,
-				worktreeId,
+				worktreeId: authority?.worktreeId ?? worktreeId,
 			});
 			catalogReceiver(
 				installBridgeProductCommentBatch(installation, {
 					subscriptionId: subscription.subscriptionId,
 					workerDerivationEpoch: 1,
-					worktreeId,
+					worktreeId: authority?.worktreeId ?? worktreeId,
 				}),
 			);
 		},

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { installBridgeProductCommentBatch } from './bridge-product-comment-batch-installer.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import {
 	createHarness,
@@ -9,6 +10,7 @@ import {
 	flushTaskQueue,
 	flushTaskQueueUntil,
 	makeProjectionPages,
+	makeCommentCatalogInstallation,
 	installSessionCatalog,
 	sessionId,
 	uuidv7,
@@ -123,6 +125,60 @@ describe('Bridge comm worker annotation projection query controller', () => {
 		harness.notifications.installCatalog(101);
 		await harness.controller.waitForIdle();
 		expect(harness.querySessionIds).toEqual([[], [], [sessionId]]);
+	});
+
+	test('a different worktree retires Comment E3 and retains the last good projection until replacement install', async () => {
+		const firstNotifications = createNotificationQueue('file');
+		const replacementNotifications = createNotificationQueue('file', {
+			subscriptionId: 'file-annotation-worktree-2',
+			worktreeId: 'worktree-annotations-2',
+		});
+		const harness = await createHarness({
+			notificationQueues: [firstNotifications, replacementNotifications],
+			pages: await makeProjectionPages(1, 8),
+		});
+		try {
+			harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+			harness.controller.ensureSubscription();
+			firstNotifications.installCatalog(8);
+			await harness.controller.waitForIdle();
+			const lastGood = harness.publications.at(-1);
+			expect(lastGood?.snapshot.worktreeId).toBe('worktree-annotations-1');
+
+			const changedWorktree = installBridgeProductCommentBatch(
+				makeCommentCatalogInstallation({
+					entries: [{ kind: 'session', semanticRevision: 1, sessionId }],
+					revision: 9,
+					subscriptionId: firstNotifications.subscription.subscriptionId,
+					subscriptionKind: 'file.annotations',
+					worktreeId: 'worktree-annotations-2',
+				}),
+				{
+					subscriptionId: firstNotifications.subscription.subscriptionId,
+					workerDerivationEpoch: 1,
+					worktreeId: 'worktree-annotations-2',
+				},
+			);
+			harness.controller.acceptInstalledCatalog(changedWorktree);
+			expect(harness.subscriptionCount()).toBe(2);
+			expect(harness.scopeUpdates).not.toContainEqual(
+				expect.objectContaining({
+					subscriptionId: firstNotifications.subscription.subscriptionId,
+					worktreeId: 'worktree-annotations-2',
+				}),
+			);
+			expect(harness.publications.at(-1)).toBe(lastGood);
+			replacementNotifications.installCatalog(1);
+			await harness.controller.waitForIdle();
+			expect(harness.scopeUpdates).toContainEqual(
+				expect.objectContaining({
+					subscriptionId: replacementNotifications.subscription.subscriptionId,
+					worktreeId: 'worktree-annotations-2',
+				}),
+			);
+		} finally {
+			await harness.controller.dispose();
+		}
 	});
 
 	test('finishes the empty-demand control read before retained demand loads rich content', async () => {

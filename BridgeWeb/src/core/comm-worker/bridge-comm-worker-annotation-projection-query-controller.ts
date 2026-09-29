@@ -9,6 +9,10 @@ import {
 	BridgeCommWorkerAnnotationProjectionDecoder,
 	type BridgeWorkerAnnotationProjectionSnapshot,
 } from './bridge-comm-worker-annotation-projection-decoder.js';
+import {
+	openAnnotationProjectionPage,
+	validatePageContract,
+} from './bridge-comm-worker-annotation-projection-page.js';
 import { scheduleBridgeCommWorkerTaskBoundary } from './bridge-comm-worker-task-boundary.js';
 import { BridgeIncrementalSha256 } from './bridge-incremental-sha256.js';
 import {
@@ -21,7 +25,6 @@ import type {
 	BridgeProductContentStream,
 	BridgeProductMetadataApplicationSubscription,
 } from './bridge-product-transport-contract.js';
-import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	bridgeProductAnnotationProjectionQueryResultSchema,
 	type BridgeProductAnnotationProjectionContentDescriptor,
@@ -168,13 +171,21 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 	}
 
 	/** W4 has certified and installed the Comment catalog for this surface. */
-	acceptInstalledCatalog(catalog: BridgeCommWorkerAnnotationCatalog): void {
-		if (this.#disposed) return;
+	acceptInstalledCatalog(catalog: BridgeCommWorkerAnnotationCatalog): boolean {
+		if (this.#disposed) return false;
 		if (
 			this.#subscription !== null &&
 			catalog.authority.subscriptionId !== this.#subscription.subscriptionId
 		) {
-			return;
+			return false;
+		}
+		if (
+			this.#subscription !== null &&
+			this.#installedCatalog !== null &&
+			catalog.authority.worktreeId !== this.#installedCatalog.authority.worktreeId
+		) {
+			this.#replaceSubscriptionForWorktree();
+			return false;
 		}
 		const initialCatalog = this.#installedCatalog === null;
 		this.#installedCatalog = catalog;
@@ -195,6 +206,28 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			sourceGeneration: this.#sourceGeneration ?? 0,
 			worktreeId: catalog.authority.worktreeId,
 		});
+		return true;
+	}
+
+	#replaceSubscriptionForWorktree(): void {
+		const subscription = this.#subscription;
+		this.#subscription = null;
+		this.#installedCatalog = null;
+		this.#lastSubmittedScopeSignature = null;
+		this.#invalidation = null;
+		this.#invalidationGeneration += 1;
+		this.#abortController?.abort();
+		this.#onConvergence({
+			operationCorrelationId: null,
+			state: { catalogAuthorityRetired: true, kind: 'refreshing' },
+			surface: this.#surface,
+		});
+		if (subscription !== null) {
+			void subscription.cancel().catch((error: unknown): void => {
+				this.sourceUnavailable(error);
+			});
+		}
+		this.ensureSubscription();
 	}
 
 	/** File placement follows the installed File version, even when its source generation is unchanged. */
@@ -849,97 +882,4 @@ function projectionMeetsInstalledCatalogCurrentness(
 		}
 	}
 	return true;
-}
-
-export function bridgeCommWorkerAnnotationProjectionTransport(
-	productTransport: BridgeProductTransportSession,
-): BridgeCommWorkerAnnotationProjectionTransport {
-	return {
-		callProjection: (surface, request, signal): Promise<unknown> =>
-			surface === 'file'
-				? productTransport.call('file.annotations.projection.query', request, { signal })
-				: productTransport.call('review.annotations.projection.query', request, { signal }),
-		openContent: (descriptor, signal) =>
-			productTransport.openContent(descriptor, signal, descriptor.page.operationCorrelationId),
-		subscribe: (surface) =>
-			surface === 'file'
-				? productTransport.subscribe(bridgeProductFileAnnotationMetadataApplicationProtocol, {})
-				: productTransport.subscribe(bridgeProductReviewAnnotationMetadataApplicationProtocol, {}),
-		setScope: async ({ sessionIds, subscriptionId, worktreeId }): Promise<void> => {
-			if (productTransport.setViewScopeForSubscription === undefined) {
-				throw new Error('Comment view scope admission is unavailable.');
-			}
-			const settlement = await productTransport.setViewScopeForSubscription({
-				scope: { kind: 'comment', sessionIds, worktreeId },
-				subscriptionId,
-			});
-			if (settlement.kind === 'cancelled') {
-				throw new Error('Comment view scope admission was superseded.');
-			}
-		},
-	};
-}
-
-async function openAnnotationProjectionPage(props: {
-	readonly descriptor: BridgeProductAnnotationProjectionContentDescriptor;
-	readonly openContent: BridgeCommWorkerAnnotationProjectionTransport['openContent'];
-	readonly signal: AbortSignal;
-}): Promise<Uint8Array<ArrayBuffer>> {
-	const contentStream: BridgeProductContentStream<'annotation.projection'> = props.openContent(
-		props.descriptor,
-		props.signal,
-	);
-	const drain = (async (): Promise<void> => {
-		for await (const frame of contentStream.frames) void frame;
-	})();
-	const [, terminal] = await Promise.all([drain, contentStream.terminal]);
-	if (terminal.kind !== 'complete') {
-		throw new Error('Annotation projection content did not complete.');
-	}
-	if (
-		terminal.descriptorId !== props.descriptor.descriptorId ||
-		terminal.observedByteLength !== props.descriptor.maximumBytes ||
-		terminal.bytes.byteLength !== props.descriptor.maximumBytes ||
-		!terminal.endOfSource
-	) {
-		throw new Error('Annotation projection content terminal does not match its descriptor.');
-	}
-	return new Uint8Array(terminal.bytes);
-}
-
-function validatePageContract(props: {
-	readonly descriptor: BridgeProductAnnotationProjectionContentDescriptor;
-	readonly expectedPage: BridgeProductAnnotationProjectionPageContract | null;
-	readonly previousPageOrdinal: number | null;
-	readonly requestedCursor: string | null;
-	readonly requestedOperationCorrelationId: string;
-	readonly requestedSourceGeneration: number;
-	readonly requestedSurface: BridgeCommWorkerAnnotationSurface;
-}): void {
-	const expectedOrdinal = props.previousPageOrdinal === null ? 0 : props.previousPageOrdinal + 1;
-	if (
-		props.descriptor.surface !== props.requestedSurface ||
-		props.descriptor.page.operationCorrelationId !== props.requestedOperationCorrelationId ||
-		props.descriptor.page.sourceGeneration !== props.requestedSourceGeneration ||
-		props.descriptor.page.pageOrdinal !== expectedOrdinal ||
-		(props.requestedCursor === null) !== (props.descriptor.page.pageOrdinal === 0)
-	) {
-		throw new Error('Annotation projection page does not match its query authority or order.');
-	}
-	if (props.expectedPage === null) return;
-	for (const field of [
-		'aggregateSha256',
-		'expectedMessageCount',
-		'expectedPageCount',
-		'expectedSessionCount',
-		'expectedThreadCount',
-		'operationCorrelationId',
-		'projectionRevision',
-		'snapshotId',
-		'sourceGeneration',
-	] as const) {
-		if (props.descriptor.page[field] !== props.expectedPage[field]) {
-			throw new Error(`Annotation projection page changed ${field} within one snapshot.`);
-		}
-	}
 }
