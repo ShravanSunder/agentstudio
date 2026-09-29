@@ -10,6 +10,61 @@ import Testing
 @MainActor
 @Suite("Command Bar worktree branch level", .serialized)
 struct CommandBarWorktreeBranchLevelTests {
+    @Test("worktree search and fork rows show a known branch beneath the name")
+    func knownBranchSecondaryLine() throws {
+        try withTestCoreAtoms { coreAtoms in
+            let store = WorkspaceStore(
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology)
+            let repositoryPath = URL(filePath: "/tmp/branch-line-\(UUIDv7.generate().uuidString)/repo")
+            let repository = store.addRepo(at: repositoryPath)
+            let mainWorktree = Worktree(
+                id: UUIDv7.generate(), repoId: repository.id, name: "repo", path: repositoryPath,
+                isMainWorktree: true)
+            let branchWorktree = Worktree(
+                id: UUIDv7.generate(), repoId: repository.id, name: "topic",
+                path: repositoryPath.deletingLastPathComponent().appending(path: "topic"))
+            store.reconcileDiscoveredWorktrees(repository.id, worktrees: [mainWorktree, branchWorktree])
+            let currentRepository = try #require(store.repositoryTopologyAtom.repo(repository.id))
+            let currentMain = try #require(currentRepository.worktrees.first { $0.isMainWorktree })
+            let repoCache = RepoCacheAtom()
+            repoCache.setWorktreeEnrichment(
+                WorktreeEnrichment(
+                    worktreeId: branchWorktree.id, repoId: repository.id, branch: "feature/topic"))
+            let branchIcon = AppCommand.newWorktreeFromBranch.definition.icon
+
+            let searchRows = CommandBarDataSource.searchableRepositoryAndWorktreeItems(
+                store: store, repoCache: repoCache, repositoryGroup: "Repos",
+                repositoryPriority: 0, worktreePriority: 1)
+            let branchSearchRow = try #require(
+                searchRows.first {
+                    $0.id == "repo-wt-\(branchWorktree.id.uuidString)"
+                })
+            let mainSearchRow = try #require(
+                searchRows.first {
+                    $0.id == "repo-wt-\(currentMain.id.uuidString)"
+                })
+            #expect(branchSearchRow.secondaryLine == .init(text: "feature/topic", icon: branchIcon))
+            #expect(branchSearchRow.subtitle == repository.name)
+            #expect(mainSearchRow.secondaryLine == nil)
+
+            let menu = CommandBarDataSource.worktreeCreationMenuLevel(
+                repository: currentRepository, store: store, repoCache: repoCache,
+                eligibilityByWorktreeId: [currentMain.id: .available, branchWorktree.id: .available])
+            let branchForkRow = try #require(
+                menu.items.first {
+                    $0.id == "newWorktree-fork-source-\(branchWorktree.id.uuidString)"
+                })
+            let mainForkRow = try #require(
+                menu.items.first {
+                    $0.id == "newWorktree-fork-source-\(currentMain.id.uuidString)"
+                })
+            #expect(branchForkRow.secondaryLine == .init(text: "feature/topic", icon: branchIcon))
+            #expect(branchForkRow.subtitle == repository.name)
+            #expect(mainForkRow.secondaryLine == nil)
+        }
+    }
+
     @Test("fork sources are inline and recent branches exclude default, deduplicate, and cap at five")
     func inlineForksAndRecentBranches() async throws {
         try await withAsyncTestCoreAtoms { coreAtoms in

@@ -95,6 +95,8 @@ extension CommandBarDataSource {
                     id: "repo-wt-\(worktree.id.uuidString)",
                     title: worktree.name,
                     subtitle: repository.name,
+                    secondaryLine: worktreeBranchSecondaryLine(
+                        forWorktreeId: worktree.id, repoCache: repoCache),
                     icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
                     group: Group.worktrees,
                     groupPriority: worktreePriority,
@@ -107,6 +109,18 @@ extension CommandBarDataSource {
             }
         }
         return repositoryItems + worktreeItems
+    }
+
+    static func worktreeBranchSecondaryLine(
+        forWorktreeId worktreeId: UUID,
+        repoCache: RepoCacheAtom
+    ) -> CommandBarItemSecondaryLine? {
+        guard let branch = repoCache.worktreeEnrichment(for: worktreeId)?.branch,
+            !branch.isEmpty
+        else { return nil }
+        return CommandBarItemSecondaryLine(
+            text: branch,
+            icon: AppCommand.newWorktreeFromBranch.definition.icon)
     }
 
     static func unifiedWorktreeItem(

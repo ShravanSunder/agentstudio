@@ -92,6 +92,8 @@ extension CommandBarDataSource {
                     id: "newWorktree-fork-source-\(worktree.id.uuidString)",
                     title: worktree.name,
                     subtitle: reason ?? repository.name,
+                    secondaryLine: worktreeBranchSecondaryLine(
+                        forWorktreeId: worktree.id, repoCache: repoCache),
                     icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
                     group: "FORK A WORKTREE",
                     groupPriority: 0,
