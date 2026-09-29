@@ -143,34 +143,53 @@ describe('Bridge product transport recovery edges', () => {
 		harness.server.shutdown();
 	});
 
-	test('completes an admitted local cancel on authoritative native_missing without reopening', async () => {
-		const harness = createTransportHarness();
-		const first = await establishFileSubscription(harness);
-		const cancel = first.subscription.cancel();
-		await harness.server.waitForControlKind('subscription.cancel');
-		harness.server.resyncHandler = (request): Response =>
-			resyncResponse(request, [
-				{
-					disposition: 'reopenRequired',
-					reason: 'native_missing',
-					requiredWorkerDerivationEpoch: 0,
-					subscriptionId: first.subscription.subscriptionId,
-					subscriptionKind: 'file.metadata',
-				},
-			]);
-		harness.server.failMetadataReader(new Error('lost cancellation terminal'));
-		await harness.server.waitForMetadataStream(2);
-		let settled = false;
-		observeSettlement(cancel, (): void => {
-			settled = true;
+	test('treats authoritative unknown_subscription on cancel as benign without reopening', async () => {
+		const suspectReasons: string[] = [];
+		const harness = createTransportHarness({
+			onSessionSuspect: (reason): void => {
+				suspectReasons.push(reason);
+			},
 		});
-		expect(settled).toBe(false);
-		const replacement = harness.server.requiredMetadataRequest(1);
-		harness.server.emitMetadata(metadataAccepted(replacement, 3, 'resumed'));
-		await cancel;
+		harness.server.cancelHandler = (request): Response =>
+			new Response(
+				JSON.stringify({
+					code: 'unknown_subscription',
+					kind: 'request.error',
+					nextExpectedRequestSequence: request.requestSequence + 1,
+					paneSessionId: request.paneSessionId,
+					requestId: request.requestId,
+					requestSequence: request.requestSequence,
+					retryAfterMilliseconds: null,
+					retryable: false,
+					safeMessage: null,
+					wireVersion: request.wireVersion,
+					workerInstanceId: request.workerInstanceId,
+				}),
+				{ headers: { 'Content-Type': 'application/json' }, status: 404 },
+			);
+		const first = await establishFileSubscription(harness);
+		await harness.server.waitForControlKind('subscription.open');
+		await first.subscription.cancel();
+		await harness.server.waitForControlKind('subscription.cancel');
+		const second = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			source: fileSourceConfiguration(),
+		});
+		await harness.server.waitForControlKind('subscription.open', 2);
 		expect(
-			harness.server.controlRequests.filter((request) => request.kind === 'subscription.open'),
+			harness.server.controlRequests.filter(
+				(request) =>
+					request.kind === 'subscription.open' &&
+					request.subscriptionId === first.subscription.subscriptionId,
+			),
 		).toHaveLength(1);
+		expect(
+			harness.server.controlRequests.filter((request) => request.kind === 'subscription.cancel'),
+		).toHaveLength(1);
+		expect(
+			harness.server.controlRequests.filter((request) => request.kind === 'workerSession.resync'),
+		).toHaveLength(0);
+		expect(suspectReasons).toEqual([]);
+		expect(second.subscriptionId).not.toBe(first.subscription.subscriptionId);
 		harness.server.shutdown();
 	});
 	test('holds a fresh subscription behind an in-flight resync and does not open a second stream', async () => {
