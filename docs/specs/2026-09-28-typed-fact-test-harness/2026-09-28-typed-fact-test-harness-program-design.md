@@ -182,7 +182,7 @@ These are owner-local facts: `GitWorkingDirectoryProjector` gets an injected sin
 
 | Scope | Facts |
 |---|---|
-| `intake(worktree, batchSeq)` (one operation per filesystem batch) | ■ `changesetAccepted` (taken into a refresh admission) or `changesetCoalesced(into: newerBatchSeq)` or `changesetDropped(stale \| superseded \| equal)` |
+| `intake(worktree, registration, batchSeq)` (one operation per filesystem batch within one registration) | ■ `changesetAccepted` (taken into a refresh admission) or `changesetCoalesced(into: newerBatchSeq)` or `changesetDropped(stale \| superseded \| equal)` |
 | `refresh(worktree, request n)` | `refreshAdmitted` · `refreshStarted` · ■ `refreshClosed(completed(snapshotChanged, branchChanged) \| equal \| timeout \| unavailable \| capacityExceeded \| superseded \| cancelled \| shutdown)` |
 | `deadline(worktree, kind, generation)`; kind = `automatic \| failure \| capacityFallback \| governorPacing \| visibilityCoalescing \| coalescingWindow` | `deadlineRegistered(kind)` · ■ `deadlineDisposition(admitted \| deferred \| obsolete \| cancelled)` |
 | `capacity(worktree, episode)` | `capacityRetryScheduled` · ■ `capacityRetryClosed(rearmed \| expired \| cancelled)` |
@@ -191,6 +191,8 @@ These are owner-local facts: `GitWorkingDirectoryProjector` gets an injected sin
 | `lifetime(subscriptionLifetime)` | `envelopesDropped(count)` · `envelopeHandled(seq, ignored \| routed)` · ■ `shutdownCompleted` |
 
 Correction 2026-09-29, from the R1 implementer's stop: every scope names one operation. `intake` and `quarantine` lacked an operation identity, because a worktree gets many batches and can be quarantined repeatedly. They now carry `batchSeq` and `episode`. The former non-closing `changesetMerged` is the closing variant `changesetCoalesced(into:)`.
+
+Correction 2026-09-29 (PR #396 review), decided by main: `batchSeq` is not unique for a worktree within one recorder. The registration changeset always uses `batchSeq` 0, the projector's periodic sequence restarts when a worktree is unregistered, and `FilesystemActor` restarts its per-root sequence when a root is registered again. The intake scope therefore also carries `registration`, a per-worktree generation that the projector mints in `applyRegistration`. The projector keeps this generation only while a fact sink is attached, so production state is unchanged. When a worktree is unregistered, its observed and closed intake scopes for that registration are retired. That keeps the tracking bounded while still rejecting a duplicate close within one registration.
 
 Correction 2026-09-29 (second R1 stop), decided by main:
 
