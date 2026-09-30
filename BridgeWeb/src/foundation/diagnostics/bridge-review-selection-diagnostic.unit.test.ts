@@ -3,6 +3,9 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
 	observeBridgePaneCommWorkerSessionDiagnosticSnapshots,
 	readBridgeReviewSelectionDiagnostic,
+	recordBridgeReviewInstallationGateDiagnostic,
+	recordBridgeReviewCandidateSourceDiagnostic,
+	recordBridgeReviewDisplayPatchDiagnostic,
 	recordBridgePaneCommWorkerSessionDiagnosticSnapshot,
 	recordBridgePaneRuntimeDiagnosticSnapshot,
 	recordBridgeFileModeSendAttempt,
@@ -19,6 +22,64 @@ afterEach(() => {
 });
 
 describe('Bridge Review selection diagnostic', () => {
+	test('retains the latest installation gate decision and native admission without clearing prior admission', () => {
+		ensureTestWindow();
+		recordBridgeReviewInstallationGateDiagnostic({
+			activeIdentity: { publicationId: 'active-publication' },
+			confirmedDisplayedPublicationId: null,
+			pendingCandidate: { publicationId: 'first-candidate', role: 'installing' },
+			lastGateDecision: { kind: 'rejected', reason: 'nativeAdmissionRejected' },
+			lastNativeAdmissionResult: {
+				candidatePublicationId: 'first-candidate',
+				status: 'rejected',
+			},
+		});
+		recordBridgeReviewInstallationGateDiagnostic({
+			activeIdentity: { publicationId: 'active-publication' },
+			confirmedDisplayedPublicationId: null,
+			pendingCandidate: { publicationId: 'successor', role: 'updateReady' },
+			lastGateDecision: { kind: 'held', reason: 'attention' },
+			lastNativeAdmissionResult: {
+				candidatePublicationId: 'first-candidate',
+				status: 'rejected',
+			},
+		});
+		recordBridgeReviewDisplayPatchDiagnostic({
+			publicationId: 'successor',
+			sourceStatus: 'stale',
+			targetCandidatePublicationId: 'successor',
+			stageOutcome: 'accepted',
+			reason: 'stagedCandidate',
+		});
+		recordBridgeReviewCandidateSourceDiagnostic({ publicationId: 'successor', status: 'stale' });
+
+		expect(readBridgeReviewSelectionDiagnostic()?.reviewInstallationGate).toEqual({
+			activeIdentity: { publicationId: 'active-publication' },
+			confirmedDisplayedPublicationId: null,
+			pendingCandidate: { publicationId: 'successor', role: 'updateReady' },
+			lastGateDecision: { kind: 'held', reason: 'attention' },
+			lastNativeAdmissionResult: {
+				candidatePublicationId: 'first-candidate',
+				status: 'rejected',
+			},
+		});
+		expect(readBridgeReviewSelectionDiagnostic()).toMatchObject({
+			lastReviewDisplayPatch: {
+				publicationId: 'successor',
+				sourceStatus: 'stale',
+				targetCandidatePublicationId: 'successor',
+				stageOutcome: 'accepted',
+				reason: 'stagedCandidate',
+			},
+			reviewCandidateSource: { publicationId: 'successor', status: 'stale' },
+		});
+		recordBridgeReviewCandidateSourceDiagnostic({ publicationId: 'successor', status: 'ready' });
+		expect(readBridgeReviewSelectionDiagnostic()?.reviewCandidateSource).toEqual({
+			publicationId: 'successor',
+			status: 'ready',
+		});
+	});
+
 	test('records only scrub-safe cumulative selection boundary counts', () => {
 		// Arrange
 		ensureTestWindow();

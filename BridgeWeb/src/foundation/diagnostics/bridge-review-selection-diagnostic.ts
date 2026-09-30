@@ -1,6 +1,9 @@
 import type { BridgeWorkerReplacementReason } from './bridge-worker-replacement-reason.js';
 
 export interface BridgeReviewSelectionDiagnostic {
+	reviewInstallationGate?: BridgeReviewInstallationGateDiagnostic;
+	reviewCandidateSource?: BridgeReviewCandidateSourceDiagnostic | null;
+	lastReviewDisplayPatch?: BridgeReviewDisplayPatchDiagnostic;
 	commWorkerSessionReadyFirstObservedAtEpochMilliseconds?: number;
 	fileModeSendAttemptCount?: number;
 	fileModeSendSynchronousFailureCount?: number;
@@ -29,6 +32,52 @@ export interface BridgeReviewSelectionDiagnostic {
 	selectionSubmittedCount: number;
 	selectionDroppedCount: number;
 	sessionState?: BridgePaneCommWorkerSessionDiagnosticState;
+}
+
+export interface BridgeReviewCandidateSourceDiagnostic {
+	readonly publicationId: string;
+	readonly status: string | null;
+}
+
+export interface BridgeReviewDisplayPatchDiagnostic {
+	readonly publicationId: string | null;
+	readonly sourceStatus: string | null;
+	readonly targetCandidatePublicationId: string | null;
+	readonly stageOutcome: 'accepted' | 'refused' | 'active' | 'unscoped';
+	readonly reason:
+		| 'activePublication'
+		| 'candidateIdentityMismatch'
+		| 'staleDisplayEvent'
+		| 'stagedCandidate'
+		| 'unscopedPublication';
+}
+
+export interface BridgeReviewInstallationGateDiagnostic {
+	readonly activeIdentity: { readonly publicationId: string } | null;
+	readonly confirmedDisplayedPublicationId: string | null;
+	readonly pendingCandidate: {
+		readonly publicationId: string;
+		readonly role: 'installing' | 'provisional' | 'updateReady';
+	} | null;
+	readonly lastGateDecision: {
+		readonly kind: 'admitted' | 'held' | 'rejected' | 'requested' | 'skipped';
+		readonly reason:
+			| 'attention'
+			| 'candidateMismatch'
+			| 'candidateMissing'
+			| 'closed'
+			| 'installInFlight'
+			| 'nativeAdmissionAdmitted'
+			| 'nativeAdmissionFailed'
+			| 'nativeAdmissionRejected'
+			| 'provisionalMarkRejected'
+			| 'receiptPending'
+			| 'requestSubmitted';
+	};
+	readonly lastNativeAdmissionResult: {
+		readonly candidatePublicationId: string;
+		readonly status: 'admitted' | 'rejected';
+	} | null;
 }
 
 export interface BridgeWorkerReplacementDiagnosticFact {
@@ -239,6 +288,30 @@ export function recordBridgePaneRuntimeDiagnosticSnapshot(
 	if (snapshot.nativeBootstrapInstallAcceptedCount > 0) {
 		diagnostic.nativeBootstrapInstallAcceptedFirstObservedAtEpochMilliseconds ??= Date.now();
 	}
+}
+
+export function recordBridgeReviewInstallationGateDiagnostic(
+	snapshot: BridgeReviewInstallationGateDiagnostic,
+): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.reviewInstallationGate = snapshot;
+}
+
+export function recordBridgeReviewCandidateSourceDiagnostic(
+	snapshot: BridgeReviewCandidateSourceDiagnostic | null,
+): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.reviewCandidateSource = snapshot;
+}
+
+export function recordBridgeReviewDisplayPatchDiagnostic(
+	snapshot: BridgeReviewDisplayPatchDiagnostic,
+): void {
+	const diagnostic = ensureBridgeReviewSelectionDiagnostic();
+	if (diagnostic === null) return;
+	diagnostic.lastReviewDisplayPatch = snapshot;
 }
 
 export function readBridgeReviewSelectionDiagnostic(): BridgeReviewSelectionDiagnostic | null {

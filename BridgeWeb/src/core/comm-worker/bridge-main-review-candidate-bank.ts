@@ -71,6 +71,10 @@ export interface BridgeMainReviewCandidateSnapshotUpdate {
 }
 export interface BridgeMainReviewCandidateStore {
 	readonly getReviewRefreshPresentation: () => BridgeMainReviewRefreshPresentation;
+	readonly getReviewCandidateSourceDiagnostic: () => {
+		readonly publicationId: string;
+		readonly status: string | null;
+	} | null;
 	readonly subscribeReviewRefreshPresentation: (listener: () => void) => () => void;
 	readonly setReviewCandidateCodeViewItem: (props: {
 		readonly identity: BridgeMainReviewPublicationIdentity;
@@ -136,6 +140,18 @@ export class BridgeMainReviewCandidateBankOwner {
 
 	get currentPresentation(): BridgeMainReviewRefreshPresentation {
 		return this.#presentation;
+	}
+
+	get currentCandidateSourceDiagnostic(): {
+		readonly publicationId: string;
+		readonly status: string | null;
+	} | null {
+		const candidate = this.#candidate;
+		if (candidate === null) return null;
+		return {
+			publicationId: candidate.identity.publicationId,
+			status: candidate.snapshot.reviewSourceSlice?.status ?? null,
+		};
 	}
 
 	stage(props: {

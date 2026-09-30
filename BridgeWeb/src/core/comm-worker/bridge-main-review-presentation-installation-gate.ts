@@ -1,3 +1,8 @@
+import {
+	recordBridgeReviewInstallationGateDiagnostic,
+	recordBridgeReviewCandidateSourceDiagnostic,
+	type BridgeReviewInstallationGateDiagnostic,
+} from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import type { BridgeWorkerRuntimeRecoverySource } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import type {
 	BridgeMainReviewEffectivePresentationClass,
@@ -106,6 +111,30 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 	// Retained paint does not establish native display ownership for a replacement worker.
 	let confirmedDisplayedPublicationId =
 		props.store.getReviewRefreshPresentation().activeIdentity?.publicationId ?? null;
+	let lastNativeAdmissionResult: BridgeMainReviewInstallAdmissionResult | null = null;
+	const recordGateDecision = (
+		decision: BridgeReviewInstallationGateDiagnostic['lastGateDecision'],
+	): void => {
+		const presentation = props.store.getReviewRefreshPresentation();
+		recordBridgeReviewCandidateSourceDiagnostic(props.store.getReviewCandidateSourceDiagnostic());
+		recordBridgeReviewInstallationGateDiagnostic({
+			activeIdentity:
+				presentation.activeIdentity === null
+					? null
+					: { publicationId: presentation.activeIdentity.publicationId },
+			confirmedDisplayedPublicationId,
+			pendingCandidate:
+				presentation.candidate === null
+					? null
+					: {
+							publicationId: presentation.candidate.identity.publicationId,
+							role: presentation.candidate.role,
+						},
+			lastGateDecision: decision,
+			lastNativeAdmissionResult,
+		});
+	};
+	recordGateDecision({ kind: 'skipped', reason: 'candidateMissing' });
 
 	const candidateMatchesStore = (candidate: ReadyCandidate): boolean => {
 		const storedCandidate = props.store.getReviewRefreshPresentation().candidate;
@@ -166,6 +195,16 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			pendingInstalledReceiptCandidate !== null ||
 			(!reinstallsRetainedPublication && !candidateMatchesStore(candidate))
 		) {
+			recordGateDecision({
+				kind: 'skipped',
+				reason: isClosed
+					? 'closed'
+					: installationInFlightPublicationId !== null
+						? 'installInFlight'
+						: pendingInstalledReceiptCandidate !== null
+							? 'receiptPending'
+							: 'candidateMismatch',
+			});
 			return;
 		}
 		const requestLifecycleRevision = lifecycleRevision;
@@ -244,6 +283,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			phase: 'installRequested',
 			trigger,
 		});
+		recordGateDecision({ kind: 'requested', reason: 'requestSubmitted' });
 		let result: BridgeMainReviewInstallAdmissionResult;
 		try {
 			result = await props.installationPort.requestInstallAdmission({
@@ -271,8 +311,10 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				resultReason: requestIsCurrent ? 'admissionFailed' : 'promotionStale',
 				trigger,
 			});
+			recordGateDecision({ kind: 'rejected', reason: 'nativeAdmissionFailed' });
 			return;
 		}
+		lastNativeAdmissionResult = result;
 		if (
 			isClosed ||
 			requestLifecycleRevision !== lifecycleRevision ||
@@ -306,6 +348,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			) {
 				readyCandidate = null;
 			}
+			recordGateDecision({ kind: 'rejected', reason: 'nativeAdmissionRejected' });
 			if (reinstallsRetainedPublication) await evaluateReadyCandidate();
 			return;
 		}
@@ -327,6 +370,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			resultReason: 'none',
 			trigger,
 		});
+		recordGateDecision({ kind: 'admitted', reason: 'nativeAdmissionAdmitted' });
 		pendingInstalledReceiptCandidate = candidate;
 		const receiptConfirmed = await sendPendingInstalledReceipt();
 		if (
@@ -364,6 +408,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 					phase: 'candidateHeld',
 				});
 			}
+			recordGateDecision({ kind: 'held', reason: 'attention' });
 			return;
 		}
 		if (
@@ -372,6 +417,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				role: 'provisional',
 			})
 		) {
+			recordGateDecision({ kind: 'rejected', reason: 'provisionalMarkRejected' });
 			return;
 		}
 		await installCandidate(candidate, 'automatic');
@@ -431,6 +477,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			activeEditorFileIdentities = nextActiveEditorFileIdentities;
 			const storedCandidate = props.store.getReviewRefreshPresentation().candidate;
 			if (storedCandidate === null) {
+				recordGateDecision({ kind: 'skipped', reason: 'candidateMissing' });
 				const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
 				if (
 					confirmedDisplayedPublicationId === null &&
@@ -455,8 +502,14 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				return;
 			}
 			const candidate = readyCandidateFromEvent(event, storedCandidate);
-			if (candidate === null) return;
-			if (!candidateMatchesStore(candidate)) return;
+			if (candidate === null) {
+				recordGateDecision({ kind: 'skipped', reason: 'candidateMismatch' });
+				return;
+			}
+			if (!candidateMatchesStore(candidate)) {
+				recordGateDecision({ kind: 'skipped', reason: 'candidateMismatch' });
+				return;
+			}
 			if (
 				readyCandidate !== null &&
 				readyCandidatesAreEquivalent(readyCandidate, candidate) &&

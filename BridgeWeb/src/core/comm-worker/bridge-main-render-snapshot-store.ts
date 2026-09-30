@@ -528,6 +528,8 @@ export function createBridgeMainRenderSnapshotStore(
 			snapshot.reviewSourceSlice,
 		getReviewRefreshPresentation: (): BridgeMainReviewRefreshPresentation =>
 			reviewCandidateBankOwner.currentPresentation,
+		getReviewCandidateSourceDiagnostic: () =>
+			reviewCandidateBankOwner.currentCandidateSourceDiagnostic,
 		getReviewTreeRowSnapshot: (rowId): BridgeMainReviewTreeDisplayRow | undefined =>
 			reviewTreeRowById.get(rowId),
 		getReviewTreeRowAtIndex: (treeRowIndex): BridgeMainReviewTreeDisplayRow | null | undefined =>

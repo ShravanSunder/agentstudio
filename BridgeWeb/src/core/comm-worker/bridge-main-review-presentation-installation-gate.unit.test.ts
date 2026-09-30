@@ -579,6 +579,13 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 	}
 
 	getReviewRefreshPresentation = (): BridgeMainReviewRefreshPresentation => this.presentation;
+	getReviewCandidateSourceDiagnostic = (): {
+		readonly publicationId: string;
+		readonly status: string | null;
+	} | null =>
+		this.presentation.candidate === null
+			? null
+			: { publicationId: this.presentation.candidate.identity.publicationId, status: 'ready' };
 	subscribeReviewRefreshPresentation = (): (() => void) => (): void => {};
 	setReviewCandidateCodeViewItem = (): boolean => false;
 	startReviewCandidate = (): boolean => false;

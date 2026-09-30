@@ -233,7 +233,10 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                       failedShell: document.querySelector('[data-testid="bridge-review-metadata-failed-shell"]') !== null,
                       pageReadyState: diagnostic?.pageReadyState ?? 'missing',
                       sessionState: diagnostic?.sessionState ?? 'missing',
-                      replacementRequestCount: diagnostic?.replacementRequestCount ?? 0
+                      replacementRequestCount: diagnostic?.replacementRequestCount ?? 0,
+                      reviewInstallationGate: diagnostic?.reviewInstallationGate ?? null,
+                      reviewCandidateSource: diagnostic?.reviewCandidateSource ?? null,
+                      lastReviewDisplayPatch: diagnostic?.lastReviewDisplayPatch ?? null
                     });
                     """
             )

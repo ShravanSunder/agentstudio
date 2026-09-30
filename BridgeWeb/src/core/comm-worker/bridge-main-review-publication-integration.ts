@@ -1,3 +1,8 @@
+import {
+	recordBridgeReviewCandidateSourceDiagnostic,
+	recordBridgeReviewDisplayPatchDiagnostic,
+	type BridgeReviewDisplayPatchDiagnostic,
+} from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import type { BridgeWorkerRuntimeRecoverySource } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { prepareBridgeMainPierreItemForPresentation } from './bridge-main-pierre-item-adapter.js';
@@ -403,21 +408,52 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 				}
 				case 'reviewDisplayPatch': {
 					const publicationIdentity = message.reviewPublicationIdentity;
-					if (publicationIdentity === null) props.store.applyReviewDisplayPatchEvent(message);
-					else {
+					const sourceStatus =
+						message.patches.find((patch) => patch.slice === 'reviewSource')?.payload.status ?? null;
+					const recordDisplayPatch = (
+						stage: Pick<BridgeReviewDisplayPatchDiagnostic, 'stageOutcome' | 'reason'>,
+					): void => {
+						recordBridgeReviewDisplayPatchDiagnostic({
+							publicationId: publicationIdentity?.publicationId ?? null,
+							sourceStatus,
+							targetCandidatePublicationId:
+								props.store.getReviewRefreshPresentation().candidate?.identity.publicationId ??
+								null,
+							...stage,
+						});
+						recordBridgeReviewCandidateSourceDiagnostic(
+							props.store.getReviewCandidateSourceDiagnostic(),
+						);
+					};
+					if (publicationIdentity === null) {
+						props.store.applyReviewDisplayPatchEvent(message);
+						recordDisplayPatch({ stageOutcome: 'unscoped', reason: 'unscopedPublication' });
+					} else {
 						const identity = mainReviewPublicationIdentity(publicationIdentity);
 						const activeIdentity = props.store.getReviewRefreshPresentation().activeIdentity;
 						if (activeIdentity !== null && identitiesAreExact(activeIdentity, identity)) {
 							props.store.applyReviewDisplayPatchEvent(message);
+							recordDisplayPatch({ stageOutcome: 'active', reason: 'activePublication' });
 							const activeEpoch = publicationEpochById.get(identity.publicationId);
 							if (activeEpoch === undefined || message.epoch > activeEpoch) {
 								publicationEpochById.set(identity.publicationId, message.epoch);
 							}
 							return true;
 						}
+						const candidateIdentity =
+							props.store.getReviewRefreshPresentation().candidate?.identity;
 						if (!props.store.stageReviewCandidateDisplayEvent({ event: message, identity })) {
+							recordDisplayPatch({
+								stageOutcome: 'refused',
+								reason:
+									candidateIdentity === undefined ||
+									!identitiesAreExact(candidateIdentity, identity)
+										? 'candidateIdentityMismatch'
+										: 'staleDisplayEvent',
+							});
 							return true;
 						}
+						recordDisplayPatch({ stageOutcome: 'accepted', reason: 'stagedCandidate' });
 						const previousCandidate = deferredCandidateIdentity;
 						publicationEpochById.set(identity.publicationId, message.epoch);
 						if (previousCandidate !== null && !identitiesAreExact(previousCandidate, identity)) {
