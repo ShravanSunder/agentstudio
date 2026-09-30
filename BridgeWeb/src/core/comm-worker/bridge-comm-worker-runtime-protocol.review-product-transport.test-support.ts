@@ -21,6 +21,7 @@ import type {
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
 import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 type ReviewAnnotationMetadataSubscription = BridgeProductMetadataApplicationSubscription<
 	typeof bridgeProductReviewAnnotationMetadataApplicationProtocol
@@ -203,6 +204,7 @@ export function makeReviewProductTransport(props: {
 	let reviewEpoch = props.initialReviewEpoch ?? 0;
 	const scopeRevisionBySubscriptionId = new Map<string, number>();
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'review') reviewEpoch += 1;
 			return surface === 'review' ? reviewEpoch : 0;

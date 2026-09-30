@@ -75,6 +75,37 @@ class ControlledMetadataDeadlineClock implements BridgeProductDeadlineClock {
 }
 
 describe('Bridge product transport', () => {
+	test('reopen exhaustion for a retired E3 uses the existing recovery status and native policy', async () => {
+		const statuses: string[] = [];
+		const harness = createTransportHarness({
+			deadlineClock: new ControlledMetadataDeadlineClock(),
+			onViewRecoveryStatus: (status): void => {
+				statuses.push(`${status.view.kind}:${status.status}`);
+			},
+		});
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			source: fileSourceConfiguration(),
+		});
+		const stream = await harness.server.waitForMetadataStreamOpened();
+		harness.server.emitMetadata(metadataAccepted(stream, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				kind: 'file.metadata',
+				request: stream,
+				streamSequence: 1,
+				subscriptionId: subscription.subscriptionId,
+			}),
+		);
+		await harness.server.waitForControlRequest('subscription.setScope');
+		await subscription.cancel();
+		harness.transport.reportMetadataReopenExhausted('file.metadata');
+		expect(statuses.at(-1)).toBe('file.metadata:failedRetryable');
+		expect(harness.transport.metadataReopenPolicy.viewMaximumConsecutiveResnapshots).toBe(3);
+		await harness.transport.retryView?.(subscription.subscriptionId);
+		expect(statuses.at(-1)).toBe('file.metadata:recovering');
+	});
+
 	test('File render failure uses the real view Retry facade without declaring the session suspect', async () => {
 		const statuses: string[] = [];
 		const suspectReasons: string[] = [];

@@ -46,11 +46,11 @@ import {
 	bridgeProductMetadataRouteFailure,
 	type BridgeProductMetadataRouteFailureCode,
 } from './bridge-product-metadata-route-failure.js';
-import {
-	BridgeProductMetadataStreamDecoder,
-	type BridgeProductMetadataStreamDecoderDiagnostics,
-	type BridgeProductMetadataStreamIdentityField,
-} from './bridge-product-metadata-stream-decoder.js';
+import { BridgeProductMetadataStreamDecoder } from './bridge-product-metadata-stream-decoder.js';
+import type {
+	BridgeProductMetadataStreamHealthDiagnostics,
+	BridgeProductMetadataStreamFailureStage,
+} from './bridge-product-metadata-stream-health-diagnostics.js';
 import { BridgeProductReadAhead } from './bridge-product-read-ahead.js';
 import { encodeBridgeProductRequestBody } from './bridge-product-request-body.js';
 import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
@@ -133,6 +133,11 @@ type ViewRecoveryStatus = Parameters<
 >[0];
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
+	readonly metadataReopenPolicy: Pick<
+		BridgeProductSessionAuthority['bootstrap']['policy'],
+		'viewMaximumConsecutiveResnapshots'
+	>;
+	reportMetadataReopenExhausted(kind: 'file.metadata' | 'review.metadata'): void;
 	setViewScopeForSubscription?(props: {
 		readonly scope: BridgeProductViewScopeRequest['scope'];
 		readonly subscriptionId: string;
@@ -172,46 +177,11 @@ export type BridgeProductPaneSurfaceSelectionFrame = Extract<
 	{ readonly kind: 'pane.surfaceSelectionRequested' }
 >;
 
-export interface BridgeProductMetadataStreamHealthDiagnostics {
-	readonly lastSubscriptionTermination: {
-		readonly subscriptionId: string;
-		readonly outcome: 'terminal' | 'failed';
-		readonly reason: BridgeProductMetadataRouteFailureCode | null;
-	} | null;
-	readonly routeFailureSubscriptionId: string | null;
-	readonly activeSubscriptionCount: number;
-	readonly committedFrameCount: number;
-	readonly decoderState: BridgeProductMetadataStreamDecoderDiagnostics['state'];
-	readonly expectedNextStreamSequence: number;
-	readonly failureStage: BridgeProductMetadataStreamFailureStage | null;
-	readonly failureCode: BridgeProductMetadataStreamDecoderDiagnostics['failureCode'];
-	readonly identityMismatchField: BridgeProductMetadataStreamIdentityField | null;
-	readonly lastChunkByteCount: number;
-	readonly lastCommittedFrameKind: BridgeProductMetadataFrame['kind'] | null;
-	readonly lastRoutedFrameKind: BridgeProductMetadataFrame['kind'] | null;
-	readonly lifecycleState: BridgeProductMetadataStreamLifecycleState;
-	readonly peakRetainedByteCount: number;
-	readonly pushCount: number;
-	readonly readFulfilledCount: number;
-	readonly readPending: boolean;
-	readonly readRequestCount: number;
-	readonly receivedByteCount: number;
-	readonly retainedByteCount: number;
-	readonly routeFailureCode: BridgeProductMetadataRouteFailureCode | null;
-	readonly routedFrameCount: number;
-	readonly streamOpenCount: number;
-}
-
-export type BridgeProductMetadataStreamFailureStage =
-	| 'authority'
-	| 'decode'
-	| 'fetch'
-	| 'finish'
-	| 'read'
-	| 'route'
-	| 'unexpectedEof';
-
-export type BridgeProductMetadataStreamLifecycleState = 'failed' | 'idle' | 'opening' | 'reading';
+export type {
+	BridgeProductMetadataStreamHealthDiagnostics,
+	BridgeProductMetadataStreamFailureStage,
+	BridgeProductMetadataStreamLifecycleState,
+} from './bridge-product-metadata-stream-health-diagnostics.js';
 export type { BridgeProductMetadataRouteFailureCode } from './bridge-product-metadata-route-failure.js';
 
 export function createBridgeProductTransport(
@@ -383,6 +353,16 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			return Promise.resolve();
 		}
 		return this.#viewScopeOwner.retryView(subscriptionId);
+	}
+
+	get metadataReopenPolicy(): BridgeProductTransportSession['metadataReopenPolicy'] {
+		return this.#authority.bootstrap.policy;
+	}
+
+	reportMetadataReopenExhausted(kind: 'file.metadata' | 'review.metadata'): void {
+		const previous = this.#viewRecoveryStatusByKind.get(kind);
+		if (previous !== undefined)
+			this.#publishViewRecoveryStatus({ ...previous, status: 'failedRetryable' });
 	}
 
 	#publishViewRecoveryStatus(status: ViewRecoveryStatus): void {

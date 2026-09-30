@@ -7,6 +7,7 @@ import { bridgeProductFileMetadataApplicationProtocol } from './bridge-product-m
 import { BridgeProductSubscriptionResetError } from './bridge-product-subscription-state.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
 type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
@@ -30,6 +31,141 @@ const installedFileSource = {
 } as const;
 
 describe('Bridge comm worker File metadata recovery', () => {
+	test('Retry reopens discovery that failed before E3 and accepts its certified tree', async () => {
+		const events = new BridgeProductBoundedAsyncQueue<never>(1);
+		let discoveryCount = 0;
+		let subscriptionCount = 0;
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => {
+				if (++discoveryCount === 1) throw new Error('Source discovery unavailable.');
+				return { source: currentFileSourceConfiguration, status: 'available' };
+			},
+			productTransport: fileEpochTransport(),
+			subscribeFile: () => {
+				subscriptionCount += 1;
+				return fileSubscription('file-pre-e3-retry', events);
+			},
+		});
+		try {
+			await expect(controller.ensureFileSource()).rejects.toThrow('Source discovery unavailable.');
+			expect(subscriptionCount).toBe(0);
+			await controller.retryMetadataView('file');
+			expect(subscriptionCount).toBe(1);
+			controller.acceptInstalledFileBatch({
+				certified: true,
+				source: installedFileSource,
+				subscriptionId: 'file-pre-e3-retry',
+				workerDerivationEpoch: 1,
+			});
+		} finally {
+			events.close(true);
+		}
+	});
+
+	test('equal demand epochs do not renew a failed view but a material selected-path change does', async () => {
+		const events = [
+			new BridgeProductBoundedAsyncQueue<never>(1),
+			new BridgeProductBoundedAsyncQueue<never>(1),
+			new BridgeProductBoundedAsyncQueue<never>(1),
+		];
+		const failures = [makeDeferred<void>(), makeDeferred<void>()];
+		let subscriptionCount = 0;
+		let failureCount = 0;
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => ({
+				source: currentFileSourceConfiguration,
+				status: 'available',
+			}),
+			onFileMetadataFailure: (): void => {
+				failureCount += 1;
+				failures[failureCount - 1]?.resolve();
+			},
+			productTransport: fileEpochTransport(),
+			subscribeFile: () => {
+				const queue = events[subscriptionCount++];
+				if (queue === undefined) throw new Error('Unexpected File reopen.');
+				return fileSubscription(`file-demand-budget-${subscriptionCount}`, queue);
+			},
+		});
+		try {
+			await controller.updateFileMetadataDemand({
+				epoch: 1,
+				nearbyPaths: [],
+				selectedPath: 'a.swift',
+				visiblePaths: [],
+			});
+			await controller.ensureFileSource();
+			events[0]?.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await failures[0]?.promise;
+			events[1]?.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await failures[1]?.promise;
+			await controller.updateFileMetadataDemand({
+				epoch: 2,
+				nearbyPaths: [],
+				selectedPath: 'a.swift',
+				visiblePaths: [],
+			});
+			await controller.ensureFileSource().catch((): void => {});
+			expect(subscriptionCount).toBe(2);
+			await controller.updateFileMetadataDemand({
+				epoch: 3,
+				nearbyPaths: [],
+				selectedPath: 'b.swift',
+				visiblePaths: [],
+			});
+			await controller.ensureFileSource();
+			expect(subscriptionCount).toBe(3);
+		} finally {
+			for (const queue of events) queue.close(true);
+		}
+	});
+
+	test('automatic ensures cannot escape the reopen budget across failed E3 replacements', async () => {
+		const exhaustedKinds: string[] = [];
+		const events = [
+			new BridgeProductBoundedAsyncQueue<never>(1),
+			new BridgeProductBoundedAsyncQueue<never>(1),
+			new BridgeProductBoundedAsyncQueue<never>(1),
+		];
+		const failures = [makeDeferred<void>(), makeDeferred<void>()];
+		let subscriptionCount = 0;
+		let failureCount = 0;
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => ({
+				source: currentFileSourceConfiguration,
+				status: 'available',
+			}),
+			onFileMetadataFailure: (): void => {
+				failureCount += 1;
+				failures[failureCount - 1]?.resolve();
+			},
+			productTransport: fileEpochTransport((kind): void => {
+				exhaustedKinds.push(kind);
+			}),
+			subscribeFile: () => {
+				const queue = events[subscriptionCount++];
+				if (queue === undefined) throw new Error('Unexpected File reopen.');
+				return fileSubscription(`file-budget-${subscriptionCount}`, queue);
+			},
+		});
+		try {
+			await controller.ensureFileSource();
+			events[0]?.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await failures[0]?.promise;
+			expect(subscriptionCount).toBe(2);
+			events[1]?.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await failures[1]?.promise;
+			await controller.ensureFileSource().catch((): void => {});
+			await controller.sendProductControl(fileActiveViewerModeCommand());
+			expect(subscriptionCount).toBe(2);
+			expect(exhaustedKinds).toContain('file.metadata');
+			await controller.retryMetadataView('file');
+			expect(subscriptionCount).toBe(3);
+		} finally {
+			for (const queue of events) queue.close(true);
+		}
+	});
+
 	test.each(['stale_source', 'snapshot_required'] as const)(
 		'an active %s reset rediscovers File metadata without another UI action',
 		async (reason) => {
@@ -82,47 +218,57 @@ describe('Bridge comm worker File metadata recovery', () => {
 		},
 	);
 
-	test('a certified File batch permits a later automatic reset recovery', async () => {
-		const firstEvents = new BridgeProductBoundedAsyncQueue<never>(1);
-		const secondEvents = new BridgeProductBoundedAsyncQueue<never>(1);
-		const thirdEvents = new BridgeProductBoundedAsyncQueue<never>(1);
-		const secondOpened = makeDeferred<void>();
-		const thirdOpened = makeDeferred<void>();
-		let subscriptionCount = 0;
-		const events = [firstEvents, secondEvents, thirdEvents] as const;
-		const controller = new BridgeCommWorkerProductController({
-			callCurrentFileSource: async () => ({
-				source: currentFileSourceConfiguration,
-				status: 'available',
-			}),
-			productTransport: fileEpochTransport(),
-			subscribeFile: () => {
-				const eventQueue = events[subscriptionCount];
-				if (eventQueue === undefined) throw new Error('Unexpected fourth File subscription.');
-				subscriptionCount += 1;
-				if (subscriptionCount === 2) secondOpened.resolve();
-				if (subscriptionCount === 3) thirdOpened.resolve();
-				return fileSubscription(`file-reset-${subscriptionCount}`, eventQueue);
-			},
-		});
-		await controller.ensureFileSource();
-		try {
-			firstEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
-			await secondOpened.promise;
-			controller.acceptInstalledFileBatch({
-				source: installedFileSource,
-				subscriptionId: 'file-reset-2',
-				workerDerivationEpoch: 2,
+	test.each([true, false])(
+		'only certified File installs renew recovery (certified=%s)',
+		async (certified) => {
+			const firstEvents = new BridgeProductBoundedAsyncQueue<never>(1);
+			const secondEvents = new BridgeProductBoundedAsyncQueue<never>(1);
+			const thirdEvents = new BridgeProductBoundedAsyncQueue<never>(1);
+			const secondOpened = makeDeferred<void>();
+			const thirdOpened = makeDeferred<void>();
+			const secondFailure = makeDeferred<void>();
+			let failureCount = 0;
+			let subscriptionCount = 0;
+			const events = [firstEvents, secondEvents, thirdEvents] as const;
+			const controller = new BridgeCommWorkerProductController({
+				onFileMetadataFailure: (): void => {
+					if (++failureCount === 2) secondFailure.resolve();
+				},
+				callCurrentFileSource: async () => ({
+					source: currentFileSourceConfiguration,
+					status: 'available',
+				}),
+				productTransport: fileEpochTransport(),
+				subscribeFile: () => {
+					const eventQueue = events[subscriptionCount];
+					if (eventQueue === undefined) throw new Error('Unexpected fourth File subscription.');
+					subscriptionCount += 1;
+					if (subscriptionCount === 2) secondOpened.resolve();
+					if (subscriptionCount === 3) thirdOpened.resolve();
+					return fileSubscription(`file-reset-${subscriptionCount}`, eventQueue);
+				},
 			});
-			secondEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
-			await thirdOpened.promise;
-			expect(subscriptionCount).toBe(3);
-		} finally {
-			firstEvents.close(true);
-			secondEvents.close(true);
-			thirdEvents.close(true);
-		}
-	});
+			await controller.ensureFileSource();
+			try {
+				firstEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+				await secondOpened.promise;
+				controller.acceptInstalledFileBatch({
+					certified,
+					source: installedFileSource,
+					subscriptionId: 'file-reset-2',
+					workerDerivationEpoch: 2,
+				});
+				secondEvents.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+				if (certified) await thirdOpened.promise;
+				else await secondFailure.promise;
+				expect(subscriptionCount).toBe(certified ? 3 : 2);
+			} finally {
+				firstEvents.close(true);
+				secondEvents.close(true);
+				thirdEvents.close(true);
+			}
+		},
+	);
 
 	test('retries File source discovery after a transient rejection', async () => {
 		// Arrange
@@ -291,9 +437,12 @@ function fileSubscription(
 	};
 }
 
-function fileEpochTransport(): BridgeProductTransportSession {
+function fileEpochTransport(
+	onExhausted?: BridgeProductTransportSession['reportMetadataReopenExhausted'],
+): BridgeProductTransportSession {
 	let fileEpoch = 0;
 	return {
+		...createTestMetadataReopenPort(onExhausted),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			return surface === 'file' ? fileEpoch : 0;

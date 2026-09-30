@@ -10,6 +10,7 @@ import {
 import { BridgeProductSubscriptionResetError } from './bridge-product-subscription-state.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import {
 	deferred,
 	makeCommentCatalogInstallation,
@@ -102,6 +103,7 @@ describe('Bridge comm worker annotation source reconciliation', () => {
 		});
 		await controller.ensureFileSource();
 		controller.acceptInstalledFileBatch({
+			certified: true,
 			source: fileSourceIdentity(10),
 			subscriptionId: 'file-metadata-1',
 			workerDerivationEpoch: 1,
@@ -136,6 +138,7 @@ describe('Bridge comm worker annotation source reconciliation', () => {
 		expect(fileSubscriptionCount).toBe(2);
 
 		controller.acceptInstalledFileBatch({
+			certified: true,
 			source: fileSourceIdentity(11),
 			subscriptionId: 'file-metadata-2',
 			workerDerivationEpoch: 2,
@@ -287,6 +290,7 @@ function unusedProductTransport(): BridgeProductTransportSession {
 	let fileEpoch = 0;
 	let reviewEpoch = 0;
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			else reviewEpoch += 1;

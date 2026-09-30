@@ -32,6 +32,7 @@ import type {
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
 import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import type {
 	BridgeWorkerFileViewContentMetadata,
 	BridgeWorkerReviewContentMetadata,
@@ -252,6 +253,7 @@ export function createBridgeCommWorkerReviewProductTestSource(
 		subscriptionKind: 'review.metadata',
 	};
 	const productTransport: BridgeProductTransportSession = {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'review') currentWorkerDerivationEpoch += 1;
 			return surface === 'review' ? currentWorkerDerivationEpoch : 0;

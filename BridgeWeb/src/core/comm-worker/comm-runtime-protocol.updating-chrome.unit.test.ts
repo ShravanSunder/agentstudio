@@ -24,6 +24,7 @@ import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import type {
 	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerServerToMainMessage,
@@ -479,6 +480,7 @@ function createPanePresentationTestTransport(props: {
 		subscriptionKind: 'review.metadata',
 	};
 	const productTransport: BridgeProductTransportSession = {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			if (surface === 'review') reviewEpoch += 1;

@@ -21,6 +21,65 @@ const reviewRecoveryControls: readonly BridgeProductControlCommand[] = [
 ];
 
 describe('Bridge comm worker Review metadata recovery', () => {
+	test('automatic ensures and target queries cannot escape a failed E3 reopen budget', async () => {
+		const exhaustedKinds: string[] = [];
+		const events = [
+			new BridgeProductBoundedAsyncQueue<never>(1),
+			new BridgeProductBoundedAsyncQueue<never>(1),
+			new BridgeProductBoundedAsyncQueue<never>(1),
+		];
+		const failures = [makeDeferred<void>(), makeDeferred<void>()];
+		let subscriptionCount = 0;
+		let failureCount = 0;
+		const subscriptions = events.map((queue, index) =>
+			reviewSubscription(`review-budget-${index}`, queue),
+		);
+		const firstSubscription = subscriptions[0];
+		if (firstSubscription === undefined) throw new Error('First Review fixture missing.');
+		const controller = new BridgeCommWorkerProductController({
+			onReviewMetadataFailure: (): void => {
+				failureCount += 1;
+				failures[failureCount - 1]?.resolve();
+			},
+			productTransport: {
+				...makeReviewProductTransport({
+					calledMethods: [],
+					onCall: (): null => null,
+					reviewSubscription: firstSubscription,
+					subscribedKinds: [],
+				}),
+				reportMetadataReopenExhausted: (kind): void => {
+					exhaustedKinds.push(kind);
+				},
+			},
+			subscribeReview: () => {
+				const subscription = subscriptions[subscriptionCount++];
+				if (subscription === undefined) throw new Error('Unexpected Review reopen.');
+				return subscription;
+			},
+		});
+		try {
+			controller.ensureReviewMetadata();
+			events[0]?.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await failures[0]?.promise;
+			expect(subscriptionCount).toBe(2);
+			events[1]?.fail(new BridgeProductSubscriptionResetError('stale_source'), true);
+			await failures[1]?.promise;
+			try {
+				controller.ensureReviewMetadata();
+			} catch {
+				/* Budget refusal is allowed. */
+			}
+			await controller.sendProductControl({ method: 'review.comparisonTargets.query', params: {} });
+			expect(subscriptionCount).toBe(2);
+			expect(exhaustedKinds).toContain('review.metadata');
+			await controller.retryMetadataView('review');
+			expect(subscriptionCount).toBe(3);
+		} finally {
+			for (const queue of events) queue.close(true);
+		}
+	});
+
 	test('a current Review subscription reset reopens once without another UI action', async () => {
 		// Arrange
 		const firstEvents = new BridgeProductBoundedAsyncQueue<never>(8);

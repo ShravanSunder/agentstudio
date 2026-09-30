@@ -33,6 +33,10 @@ import { BridgeProductSubscriptionResetError } from './bridge-product-subscripti
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import type { BridgeProductViewScopeRequest } from './bridge-product-view-control-wire-contracts.js';
+import {
+	BridgeProductViewReopenLifecycle,
+	type BridgeProductMetadataSurface,
+} from './bridge-product-view-reopen-lifecycle.js';
 
 type FileMetadataProtocol = typeof bridgeProductFileMetadataApplicationProtocol;
 type FileMetadataSubscription = BridgeProductMetadataApplicationSubscription<FileMetadataProtocol>;
@@ -118,12 +122,11 @@ export class BridgeCommWorkerProductController {
 	#fileDemandEpoch = 0;
 	#hasFileMetadataDemand = false;
 	#fileSourceEnsure: Promise<void> | null = null;
-	#fileResetRecoveryAttempted = false;
+	readonly #metadataViewLifecycle: BridgeProductViewReopenLifecycle;
 	#reviewSubscription: ReviewMetadataSubscription | null = null;
 	readonly #reviewInterestItemIdsByLane = new Map<ReviewMetadataInterestLane, readonly string[]>();
 	#reviewInterestUpdate: Promise<void> = Promise.resolve();
 	#reviewInterestRevision = 0;
-	#reviewResetRecoveryAttempted = false;
 	#reviewDesiredInterestSignature: string | null = null;
 	#reviewWorkerDerivationEpoch = 0;
 	#latestActiveViewerModeRequestOrdinal = 0;
@@ -151,6 +154,9 @@ export class BridgeCommWorkerProductController {
 			options: BridgeProductMetadataApplicationOptions<ReviewMetadataProtocol>,
 		) => ReviewMetadataSubscription;
 	}) {
+		this.#metadataViewLifecycle = new BridgeProductViewReopenLifecycle(
+			props.productTransport.metadataReopenPolicy.viewMaximumConsecutiveResnapshots,
+		);
 		this.#onActiveViewerModeAdmitted = props.onActiveViewerModeAdmitted ?? ignoreActiveViewerMode;
 		this.#onFileMetadataFailure = props.onFileMetadataFailure ?? ignoreFileMetadataFailure;
 		this.#onFileMetadataDemandFailure =
@@ -284,10 +290,17 @@ export class BridgeCommWorkerProductController {
 
 	ensureFileSource(): Promise<void> {
 		if (this.#fileSourceEnsure !== null) return this.#fileSourceEnsure;
+		try {
+			this.#metadataViewLifecycle.admitOpen('file');
+		} catch (error) {
+			this.#productTransport.reportMetadataReopenExhausted('file.metadata');
+			return Promise.reject(error);
+		}
 		const discoveryAttempt = this.#discoverAndOpenFileSource();
 		const memoizedAttempt = discoveryAttempt.catch((error: unknown): never => {
 			if (this.#fileSourceEnsure === memoizedAttempt) {
 				this.#fileSourceEnsure = null;
+				this.#metadataViewLifecycle.recordFailure('file', error);
 			}
 			throw error;
 		});
@@ -296,6 +309,7 @@ export class BridgeCommWorkerProductController {
 	}
 
 	acceptInstalledFileBatch(props: {
+		readonly certified: boolean;
 		readonly source: BridgeProductFileSourceIdentity;
 		readonly subscriptionId: string;
 		readonly workerDerivationEpoch: number;
@@ -309,7 +323,7 @@ export class BridgeCommWorkerProductController {
 		this.#fileSource = props.source;
 		this.#annotationSourceGeneration.file = props.source.subscriptionGeneration;
 		this.#publishAnnotationProjectionDemand('file');
-		this.#fileResetRecoveryAttempted = false;
+		if (props.certified) this.#metadataViewLifecycle.recordCertifiedInstall('file');
 		this.#scheduleFileMetadataInterestPublication();
 	}
 
@@ -326,11 +340,25 @@ export class BridgeCommWorkerProductController {
 			this.#reviewWorkerDerivationEpoch !== props.workerDerivationEpoch
 		)
 			return;
-		this.#reviewResetRecoveryAttempted = false;
+		this.#metadataViewLifecycle.recordCertifiedInstall('review');
+	}
+
+	async retryMetadataView(surface: BridgeProductMetadataSurface): Promise<void> {
+		this.#metadataViewLifecycle.retry(surface);
+		if (surface === 'file') {
+			if (this.#fileSubscription === null) this.#fileSourceEnsure = null;
+			await this.ensureFileSource();
+		} else this.ensureReviewMetadata();
 	}
 
 	ensureReviewMetadata(): void {
 		if (this.#reviewSubscription !== null) return;
+		try {
+			this.#metadataViewLifecycle.admitOpen('review');
+		} catch (error) {
+			this.#productTransport.reportMetadataReopenExhausted('review.metadata');
+			throw error;
+		}
 		const workerDerivationEpoch = this.#productTransport.advanceWorkerDerivationEpoch('review');
 		this.#reviewWorkerDerivationEpoch = workerDerivationEpoch;
 		this.#reviewDesiredInterestSignature = JSON.stringify([]);
@@ -346,6 +374,7 @@ export class BridgeCommWorkerProductController {
 			}
 		} catch (error) {
 			this.#reviewDesiredInterestSignature = null;
+			this.#metadataViewLifecycle.recordFailure('review', error);
 			this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 			throw error;
 		}
@@ -368,6 +397,10 @@ export class BridgeCommWorkerProductController {
 					itemId: command.params.fileId,
 				});
 			case 'review.comparison.update':
+				this.#metadataViewLifecycle.materialDesiredChange(
+					'review',
+					JSON.stringify(command.params.target),
+				);
 				this.#ensureReviewMetadataForInteractiveControl();
 				return await this.#productTransport.call('review.comparison.update', {
 					target: command.params.target,
@@ -523,11 +556,8 @@ export class BridgeCommWorkerProductController {
 		} catch (error) {
 			if (subscription !== this.#reviewSubscription) return;
 			this.#retireFailedReviewMetadataSubscription(subscription);
-			if (
-				error instanceof BridgeProductSubscriptionResetError &&
-				!this.#reviewResetRecoveryAttempted
-			) {
-				this.#reviewResetRecoveryAttempted = true;
+			this.#metadataViewLifecycle.recordFailure('review', error);
+			if (error instanceof BridgeProductSubscriptionResetError) {
 				try {
 					this.ensureReviewMetadata();
 				} catch {
@@ -540,6 +570,7 @@ export class BridgeCommWorkerProductController {
 		if (subscription !== this.#reviewSubscription) return;
 		const error = new Error('Bridge Review metadata subscription ended unexpectedly.');
 		this.#retireFailedReviewMetadataSubscription(subscription);
+		this.#metadataViewLifecycle.recordFailure('review', error);
 		this.#onReviewMetadataFailure(error, workerDerivationEpoch);
 		throw error;
 	}
@@ -564,6 +595,10 @@ export class BridgeCommWorkerProductController {
 		const selectedOrVisiblePathSet = new Set([...selectedPaths, ...visiblePaths]);
 		const nearbyPaths = uniqueFileDemandPaths(demand.nearbyPaths).filter(
 			(path) => !selectedOrVisiblePathSet.has(path),
+		);
+		this.#metadataViewLifecycle.materialDesiredChange(
+			'file',
+			JSON.stringify({ selectedPaths, visiblePaths, nearbyPaths }),
 		);
 		this.#replaceFileInterestLane('foreground', selectedPaths);
 		this.#replaceFileInterestLane('visible', visiblePaths);
@@ -701,11 +736,8 @@ export class BridgeCommWorkerProductController {
 			}
 		} catch (error) {
 			if (!this.#retireFailedFileMetadataSubscription(subscription)) return;
-			if (
-				error instanceof BridgeProductSubscriptionResetError &&
-				!this.#fileResetRecoveryAttempted
-			) {
-				this.#fileResetRecoveryAttempted = true;
+			this.#metadataViewLifecycle.recordFailure('file', error);
+			if (error instanceof BridgeProductSubscriptionResetError) {
 				await this.ensureFileSource().catch((): void => {});
 			}
 			this.#onFileMetadataFailure(error, workerDerivationEpoch);
@@ -713,6 +745,7 @@ export class BridgeCommWorkerProductController {
 		}
 		if (!this.#retireFailedFileMetadataSubscription(subscription)) return;
 		const error = new Error('Bridge File metadata subscription ended unexpectedly.');
+		this.#metadataViewLifecycle.recordFailure('file', error);
 		this.#onFileMetadataFailure(error, workerDerivationEpoch);
 		throw error;
 	}

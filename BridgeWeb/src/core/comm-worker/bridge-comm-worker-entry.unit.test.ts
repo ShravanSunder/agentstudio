@@ -34,6 +34,7 @@ import { BRIDGE_PRODUCT_WIRE_VERSION } from './bridge-product-contract-primitive
 import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import { bridgeProductControlRequestSchema } from './bridge-product-session-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerServerToMainMessageSchema,
@@ -694,6 +695,7 @@ function createInstalledBridgeCommWorkerEntryHarness(
 function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 	const workerDerivationEpochs = { file: 0, review: 0 };
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			workerDerivationEpochs[surface] += 1;
 			return workerDerivationEpochs[surface];
