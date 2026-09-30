@@ -107,7 +107,7 @@ export class BridgeProductViewScopeOwner {
 			subscriptionKind,
 		});
 		const view = this.#views.get(props.subscriptionId);
-		if (view !== undefined) this.#emitRecoveryStatus(view, 'ready');
+		if (view !== undefined) this.#emitRecoveryStatus(view, 'recovering');
 	}
 
 	async setScope(props: {
@@ -132,6 +132,7 @@ export class BridgeProductViewScopeOwner {
 		view.resnapshotRequested = false;
 		this.#clearReplacementBeginDeadline(view);
 		view.awaitingBegin = requiresBatchBegin;
+		if (requiresBatchBegin) this.#emitRecoveryStatus(view, 'recovering');
 		const scopeRevision = view.scopeRevision;
 		const admission = new AbortController();
 		view.currentAdmission = admission;

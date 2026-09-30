@@ -540,9 +540,37 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			productController?.retryAnnotationProjection(surface);
 		},
 		retryView: (view): void => {
-			const productTransport = props.productTransport;
 			if (productTransport?.retryView === undefined) return;
-			void productTransport.retryView(view.subscriptionId).catch((): void => {
+			const viewRetry = productTransport.retryView(view.subscriptionId);
+			void (async (): Promise<void> => {
+				let sourceRetry: Promise<void> = Promise.resolve();
+				switch (view.kind) {
+					case 'file.metadata':
+						sourceRetry = productController?.ensureFileSource() ?? sourceRetry;
+						break;
+					case 'review.metadata':
+						productController?.ensureReviewMetadata();
+						break;
+					case 'file.annotations':
+						sourceRetry = (productController?.ensureFileSource() ?? sourceRetry).then((): void => {
+							productController?.retryAnnotationProjection('file');
+						});
+						break;
+					case 'review.annotations':
+						productController?.ensureReviewMetadata();
+						productController?.retryAnnotationProjection('review');
+						break;
+				}
+				await Promise.all([viewRetry, sourceRetry]);
+			})().catch((): void => {
+				port.postMessage({
+					direction: 'serverWorkerToMain',
+					kind: 'viewRecoveryStatus',
+					status: 'failedRetryable',
+					transferDescriptors: [],
+					view,
+					wireVersion: 1,
+				});
 				port.postMessage(buildBridgeWorkerRuntimeDegradedHealthEvent());
 			});
 		},
