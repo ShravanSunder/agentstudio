@@ -491,6 +491,52 @@ struct AgentStudioIPCRuntimeAdapterTests {
         await runtime.waitForActiveSubscriptionCount(exactly: 0)
     }
 
+    /// `waitForTerminalEvent` races a timeout child against a stream-reading
+    /// child inside one `withTaskGroup`; cancelling the parent task should
+    /// resolve that race without needing the timeout's own deadline to be
+    /// reached. This never calls `waitClock.advance(...)`, so the assertions
+    /// below can only be satisfied through the cancellation path, not the
+    /// natural timeout path `terminalWaitTimesOutWhenNoExportedFactMatches`
+    /// already covers.
+    @Test("terminal wait resolves as timed out on cancellation, with the clock's own deadline never reached")
+    func terminalWaitResolvesAsTimedOutOnCancellationWithoutClockAdvancing() async throws {
+        let waitClock = TestPushClock()
+        let eventBus = makeTestPaneRuntimeEventBus()
+        let harness = RuntimeAdapterHarness(
+            eventBus: eventBus,
+            terminalEventWaitClock: waitClock
+        )
+        let pane = harness.createTerminalPane()
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(existingUUID: pane.id))
+        harness.runtimeRegistry.register(runtime)
+
+        // A long timeout: without cancellation resolving this, only an
+        // explicit `waitClock.advance(...)` could still complete it, and
+        // this test never calls that.
+        let waitTask = Task {
+            try await harness.adapter.waitForTerminal(
+                IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+                condition: .commandFinished,
+                timeout: .seconds(3600), ownPaneAssertion: nil
+            )
+        }
+        await runtime.waitForSubscriptionCount(atLeast: 1)
+        // Event-driven: waits for the timeout child to have genuinely parked
+        // its sleep against the controlled clock, not for a fixed duration.
+        await waitClock.waitForPendingSleepCount()
+
+        waitTask.cancel()
+
+        do {
+            _ = try await waitTask.value
+            Issue.record("terminal.wait unexpectedly succeeded after cancellation")
+        } catch let error as AppIPCRuntimeError {
+            #expect(error.reason == .timeout)
+        }
+        await waitClock.waitForPendingSleepCount(exactly: 0)
+        await runtime.waitForActiveSubscriptionCount(exactly: 0)
+    }
+
     @Test("terminal send reports missing runtime separately from missing pane")
     func terminalSendReportsMissingRuntimeSeparatelyFromMissingPane() async throws {
         let harness = RuntimeAdapterHarness()

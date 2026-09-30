@@ -16,14 +16,12 @@ import Testing
 /// same process that checks it, so it cannot show a difference the wire
 /// introduces.
 @MainActor
-@Suite("App IPC command catalog discovery", .serialized)
+@Suite(
+    "App IPC command catalog discovery", .serialized, SessionsVerticalHarnessTrait(providerProfiles: .defaultProfiles))
 struct AgentStudioIPCCommandCatalogDiscoveryTests {
-    init() { installTestCoreAtomsIfNeeded() }
-
     @Test("the live debug catalog decodes into an invocable command catalog")
     func liveDebugCatalogDecodes() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
 
         let methodCatalog = try await harness.methodCatalog()
         let discovery = try IPCCommandDiscovery(methodCatalog: methodCatalog)
@@ -44,8 +42,7 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
 
     @Test("every advertised command survives the client's descriptor round trip")
     func everyAdvertisedCommandSurvivesTheRoundTrip() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
 
         let methodCatalog = try await harness.methodCatalog()
         let advertisedList = try #require(
@@ -83,16 +80,15 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
     }
     @Test("the bundled CLI reaches the server for command.list and command.execute")
     func bundledCLIReachesTheServerForCommands() async throws {
-        let harness = try await SessionsVerticalHarness.make()
-        defer { harness.tearDown() }
-        let cli = try commandLineExecutableURL()
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let cli = try CatalogCommandLineHelper.commandLineExecutableURL()
 
         let environment = [
             "AGENTSTUDIO_IPC_SOCKET": harness.socketPath,
             "AGENTSTUDIO_PANE_TOKEN": harness.token.rawValue,
             "PATH": "/usr/bin:/bin",
         ]
-        let listing = try await runCommandLineInterface(
+        let listing = try await CatalogCommandLineHelper.runCommandLineInterface(
             executableURL: cli, arguments: ["command.list"], environment: environment)
 
         #expect(listing.exitCode == 0, "command.list stderr: \(listing.standardError)")
@@ -101,7 +97,7 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
         let executionPayload = """
             {"commandId":"showReposSidebar","correlationId":"\(UUIDv7.generate().uuidString)",            "arguments":{"kind":"workspaceWindow",            "workspaceWindowId":"\(harness.workspaceWindowId.uuidString)"}}
             """
-        let execution = try await runCommandLineInterface(
+        let execution = try await CatalogCommandLineHelper.runCommandLineInterface(
             executableURL: cli,
             arguments: ["command.execute", "--json", executionPayload],
             environment: environment)
@@ -115,6 +111,11 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
         #expect(execution.standardError.contains("\"fieldPath\":\"$.commandId\""))
     }
 
+}
+
+@MainActor
+@Suite("App IPC stable-channel catalog refusal", .serialized, PaneAgentHarnessTrait())
+struct AgentStudioIPCStableCatalogRefusalTests {
     /// Stable-channel names the bundled CLI must send for the app to refuse:
     /// commands whose argument variants the stable union may not carry, and a
     /// debug-only method.
@@ -130,9 +131,8 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
         arguments: HiddenStableName.allCases
     )
     func bundledCLIReachesTheAppForAHiddenStableName(name: HiddenStableName) async throws {
-        let harness = try await PaneAgentControlHarness.make(channel: .stable)
-        defer { harness.tearDown() }
-        let cli = try commandLineExecutableURL()
+        let harness = try #require(PaneAgentHarnessContext.current).harness
+        let cli = try CatalogCommandLineHelper.commandLineExecutableURL()
         let environment = [
             "AGENTSTUDIO_IPC_SOCKET": harness.socketPath,
             "AGENTSTUDIO_PANE_TOKEN": try harness.agentToken(boundTo: harness.mainPaneId).rawValue,
@@ -140,7 +140,7 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
         ]
         let before = harness.workspaceFacts()
 
-        let execution = try await runCommandLineInterface(
+        let execution = try await CatalogCommandLineHelper.runCommandLineInterface(
             executableURL: cli, arguments: try cliArguments(for: name, harness: harness), environment: environment)
 
         // None of these is in the stable catalog. The CLI must still send it,
@@ -175,7 +175,11 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
         return ["command.execute", "--json", payload]
     }
 
-    private func commandLineExecutableURL() throws -> URL {
+}
+
+@MainActor
+private enum CatalogCommandLineHelper {
+    static func commandLineExecutableURL() throws -> URL {
         let buildDirectory = try #require(ProcessInfo.processInfo.environment["SWIFT_BUILD_DIR"])
         let testFileURL = URL(fileURLWithPath: #filePath)
         let projectRoot =
@@ -196,7 +200,7 @@ struct AgentStudioIPCCommandCatalogDiscoveryTests {
     /// here would deadlock against the very request the CLI is making. Files
     /// rather than pipes because `command.list` returns far more than a pipe
     /// buffer holds, and a single-threaded pipe drain would stall on it.
-    private nonisolated func runCommandLineInterface(
+    nonisolated static func runCommandLineInterface(
         executableURL: URL,
         arguments: [String],
         environment: [String: String]

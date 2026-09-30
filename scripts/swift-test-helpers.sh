@@ -1205,6 +1205,24 @@ aggregate_serial_non_webkit_suite_filters() {
       'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
       'AgentStudioIPCBridgeServiceTests'
     printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeRenderDiagnosticsTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeSearchModeTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeNonBridgeTargetTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeDiagnosticTargetTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgePaneAgentTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeRejectedControlTests'
+    printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCCommandExecuteContractTests.swift' \
       'AgentStudioAppIPCCommandExecuteContractTests'
     printf '%s:%s\n' \
@@ -1213,6 +1231,9 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AppIPCErrorCorrectionTests.swift' \
       'AppIPCErrorCorrectionTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCConnectionHandlerLifecycleTests.swift' \
+      'AgentStudioAppIPCConnectionHandlerLifecycleTests'
   )"; then
     echo "[test] failed to create explicit serialized-suite candidates" >&2
     return 1

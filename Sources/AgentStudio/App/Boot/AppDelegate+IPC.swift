@@ -199,17 +199,6 @@ extension AppDelegate {
         }
     }
 
-    func stopAppIPCServer() {
-        appIPCInitializationTask?.cancel()
-        appIPCInitializationTask = nil
-        paneReportSpoolDrainTask?.cancel()
-        paneReportSpoolDrainTask = nil
-        retireDebugCredentialEscrow()
-        appIPCServer?.stop()
-        appIPCServer = nil
-        finishAppIPCSessionsIngestion()
-    }
-
     /// Only a debug app whose launcher named an escrow file hands out a reusable
     /// credential, and only after the socket is listening: the raw value reaches
     /// disk with the endpoint that accepts it. The credential lives in the
@@ -332,10 +321,10 @@ extension AppDelegate {
         return ingestion
     }
 
-    private func finishAppIPCSessionsIngestion() {
+    private func finishAppIPCSessionsIngestion() async {
         guard let ingestion = appIPCSessionsIngestion else { return }
         appIPCSessionsIngestion = nil
-        Task { await ingestion.finish() }
+        await ingestion.finish()
     }
 
     /// Ends IPC ingress and nothing else. No durable write happens here and
@@ -358,19 +347,36 @@ extension AppDelegate {
     /// The durable half, which runs after the workspace flush. It writes
     /// through the same serialized workspace datastore actor the offline spool
     /// drain admits through, and that drain holds a file lock across admission,
-    /// so it is retired before this waits on anything.
+    /// so the spool drain is cancelled and joined before this waits on anything
+    /// else. In-flight connection handlers are joined next, before the
+    /// credential drain: a handler mid-request can still enqueue persistence
+    /// work (`auth.login`'s `schedulePersistence` call, for one), and the
+    /// drain only waits for what is already queued when it starts. Joining
+    /// first is what makes every handler-originated write visible to this
+    /// drain, not an afterthought to it.
+    ///
+    /// Requires `stopAcceptingAppIPCConnections()` to have already run:
+    /// `joinConnectionHandlers()`'s own precondition is that callers close
+    /// connections first, which is what unblocks a handler parked on the
+    /// socket. This does not re-call `stopAcceptingConnections()` as a
+    /// safety net — it queues new credential persistence via
+    /// `beginGracefulShutdownAndSnapshotUnsavedCredentials()`, and nothing
+    /// after this point drains it.
     func drainAppIPCCredentialPersistence() async {
-        paneReportSpoolDrainTask?.cancel()
+        let spoolDrainTask = paneReportSpoolDrainTask
+        spoolDrainTask?.cancel()
         paneReportSpoolDrainTask = nil
+        await spoolDrainTask?.value
         guard let server = appIPCServer else {
             appIPCPrincipalRegistry?.shutdown()
-            finishAppIPCSessionsIngestion()
+            await finishAppIPCSessionsIngestion()
             appLogger.info("App IPC shutdown completed without a published server or durable drain")
             return
         }
+        await server.joinConnectionHandlers()
         let result = await server.drainCredentialPersistence()
         appIPCServer = nil
-        finishAppIPCSessionsIngestion()
+        await finishAppIPCSessionsIngestion()
         if result.failedOperationCount > 0 {
             appLogger.warning(
                 "App IPC credential persistence drain completed with \(result.failedOperationCount) failures"
