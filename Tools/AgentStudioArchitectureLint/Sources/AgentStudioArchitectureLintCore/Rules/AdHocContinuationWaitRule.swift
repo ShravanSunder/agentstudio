@@ -43,13 +43,11 @@ struct AdHocContinuationWaitRule: ArchitectureRule {
 
 extension ArchitectureLintContext {
     fileprivate var isRepositoryTestSourceOutsideHarness: Bool {
-        guard let relativePath = workspaceRelativePath else {
-            return false
-        }
-        let path = "/\(relativePath)"
-        return path.hasPrefix("/Tests/")
-            && !path.hasPrefix("/Tests/AgentStudioTestHarness/")
-            && path.hasSuffix(".swift")
+        let path = workspaceRelativePath ?? normalizedPath
+        let testPath = "/\(path)"
+        return testPath.hasSuffix(".swift")
+            && testPath.contains("/Tests/")
+            && !testPath.contains("/Tests/AgentStudioTestHarness/")
     }
 }
 
