@@ -22,9 +22,13 @@ import type { BridgeWorkerReviewPierreRenderJobEvent } from './bridge-worker-con
 import { bridgeWorkerRenderDispositionReceiptSchema } from './bridge-worker-render-fulfillment.js';
 
 describe('Review render recovery Retry composition', () => {
-	test.each(['visible', 'selected'] as const)(
-		'exhaustion then Retry and an identical bank paint surviving %s demand',
-		async (demand) => {
+	test.each([
+		['visible', 'queued'],
+		['selected', 'queued'],
+		['visible', 'missing'],
+	] as const)(
+		'exhaustion then Retry and an identical bank paint surviving %s demand after %s delivery',
+		async (demand, delivery) => {
 			let nowMilliseconds = 0;
 			let failedRenderCount = 0;
 			const retriedSubscriptionIds: string[] = [];
@@ -138,13 +142,13 @@ describe('Review render recovery Retry composition', () => {
 				scheduled.active = false;
 				scheduled.wake();
 			};
-			disposition(latestPublication(), 'queued');
+			if (delivery === 'queued') disposition(latestPublication(), 'queued');
 			advanceWake(5_000);
 			advanceWake(5_025);
 			await whenPrepared();
 			expect(publications()).toHaveLength(2);
 			const exhaustedPublication = latestPublication();
-			disposition(exhaustedPublication, 'queued');
+			if (delivery === 'queued') disposition(exhaustedPublication, 'queued');
 			advanceWake(10_025);
 			await whenPrepared();
 			expect(failedRenderCount).toBe(1);

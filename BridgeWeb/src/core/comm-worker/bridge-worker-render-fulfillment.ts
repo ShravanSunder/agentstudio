@@ -63,6 +63,7 @@ export const bridgeWorkerRenderRejectionReasonSchema = z.enum([
 ]);
 
 export const bridgeWorkerRenderDispositionReceiptSchema = z.discriminatedUnion('disposition', [
+	z.object({ ...bridgeWorkerRenderReceiptBaseShape, disposition: z.literal('held') }).strict(),
 	z
 		.object({
 			...bridgeWorkerRenderReceiptBaseShape,
@@ -189,15 +190,17 @@ export type BridgeWorkerRenderFulfillmentStage =
 	| 'desired'
 	| 'preparing'
 	| 'published'
+	| 'held'
 	| 'queued'
 	| 'applied'
 	| 'painted'
+	| 'failed'
 	| 'retry_wait';
 
 interface BridgeWorkerActiveRenderAttempt {
 	readonly attemptId: string;
 	readonly receiptLeaseExpiresAtMilliseconds: number;
-	readonly highestDisposition: 'queued' | 'applied' | null;
+	readonly highestDisposition: 'held' | 'queued' | 'applied' | null;
 }
 
 type BridgeWorkerClosedRenderAttempt =
@@ -248,6 +251,7 @@ export type BridgeWorkerRenderFulfillmentEvent =
 	| BridgeWorkerPaintReleasedReceipt
 	| BridgeWorkerReceiptLeaseExpired
 	| { readonly kind: 'retry.ready'; readonly atMilliseconds: number }
+	| { readonly kind: 'delivery.exhausted' }
 	| BridgeWorkerSelectionAcceptedReceipt;
 
 export function createBridgeWorkerRenderFulfillment(props: {
@@ -309,6 +313,9 @@ export function reduceBridgeWorkerRenderFulfillment(
 			return expireReceiptLease(state, bridgeWorkerReceiptLeaseExpiredSchema.parse(event));
 		case 'retry.ready':
 			return releaseRetry(state, event);
+		case 'delivery.exhausted':
+			assertStage(state, 'retry_wait', event.kind);
+			return updateState(state, { stage: 'failed', retryAtMilliseconds: null });
 		case 'selection.accepted':
 			return acceptPaintedSelection(state, bridgeWorkerSelectionAcceptedReceiptSchema.parse(event));
 	}
@@ -422,8 +429,19 @@ function applyRenderDisposition(
 			retryAtMilliseconds,
 		});
 	}
+	if (event.disposition === 'held') {
+		if (state.surface !== 'review')
+			throw new BridgeWorkerRenderReceiptRejectionError(
+				'Only Review may deliberately hold render fulfillment.',
+			);
+		if (activeAttempt.highestDisposition !== null) return state;
+		return updateState(state, {
+			stage: 'held',
+			activeAttempt: Object.freeze({ ...activeAttempt, highestDisposition: 'held' }),
+		});
+	}
 	const expectedDisposition =
-		activeAttempt.highestDisposition === null
+		activeAttempt.highestDisposition === null || activeAttempt.highestDisposition === 'held'
 			? 'queued'
 			: activeAttempt.highestDisposition === 'queued'
 				? 'applied'

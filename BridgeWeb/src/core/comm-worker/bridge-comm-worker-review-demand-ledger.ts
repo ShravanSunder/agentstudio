@@ -349,6 +349,7 @@ export function createBridgeCommWorkerReviewDemandLedger(props: {
 		},
 		releasePublished: (receipt): boolean => {
 			if (
+				receipt.disposition !== 'held' &&
 				receipt.disposition !== 'queued' &&
 				receipt.disposition !== 'rejected' &&
 				receipt.disposition !== 'superseded'

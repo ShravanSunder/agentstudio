@@ -24,6 +24,100 @@ const reviewContext: BridgeWorkerRenderFulfillmentRegistryContext = {
 };
 
 describe('Bridge worker render fulfillment registry', () => {
+	test('File rejects held receipts before any File operation can settle from them', () => {
+		const registry = createRegistry({ ...reviewContext, surface: 'file' });
+		const publication = registry.beginPublication({
+			job: makeRenderJob('file-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'held', 1)).status,
+		).toBe('rejected');
+		expect(registry.getItemState('file-item')?.stage).toBe('published');
+	});
+	test('held receipts are identity fenced, duplicate inert, and cannot regress queued or terminal work', () => {
+		const registry = createRegistry(reviewContext);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('held-item'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		const held = disposition(publication.receiptIdentity, 'held', 1);
+		expect(registry.applyDisposition(held).status).toBe('accepted');
+		expect(registry.applyDisposition(held).status).toBe('duplicate');
+		expect(registry.applyDisposition({ ...held, workerDerivationEpoch: 2 }).status).toBe(
+			'rejected',
+		);
+		expect(registry.applyDisposition({ ...held, attemptId: 'foreign-attempt' }).status).toBe(
+			'rejected',
+		);
+		registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 2));
+		expect(registry.applyDisposition(held).status).toBe('duplicate');
+		expect(registry.getItemState('held-item')?.stage).toBe('queued');
+		registry.applyDisposition(disposition(publication.receiptIdentity, 'applied', 3));
+		registry.applyDisposition(disposition(publication.receiptIdentity, 'painted', 4));
+		expect(registry.applyDisposition(held).status).toBe('rejected');
+		registry.resetPublications();
+		registry.beginPublication({
+			job: makeRenderJob('held-item'),
+			publicationSequence: 9,
+			workerDerivationEpoch: 4,
+		});
+		expect(registry.applyDisposition(held).status).toBe('rejected');
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 5)).status,
+		).toBe('rejected');
+	});
+
+	test('source churn preserves an exact held attempt and removal fences its late receipts', () => {
+		const registry = createRegistry(reviewContext);
+		const job = makeRenderJob('held-item');
+		const publication = registry.beginPublication({
+			job,
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		registry.applyDisposition(disposition(publication.receiptIdentity, 'held', 1));
+		expect(registry.requeuePublicationsForSourceChurn(2)).toEqual([]);
+		expect(
+			registry.beginPublication({ job, publicationSequence: 9, workerDerivationEpoch: 3 })
+				.shouldPublish,
+		).toBe(false);
+		expect(registry.nextLifecycleWakeAtMilliseconds()).toBeNull();
+		registry.retireRemovedItemsForSourceChurn(['held-item']);
+		expect(registry.getItemState('held-item')).toBeNull();
+		expect(
+			registry.applyDisposition(disposition(publication.receiptIdentity, 'queued', 3)).status,
+		).toBe('rejected');
+	});
+
+	test('held and queued receipts and unchanged source churn do not renew a missing-delivery probe', () => {
+		let nowMilliseconds = 0;
+		const registry = createRegistry(reviewContext, (): number => nowMilliseconds);
+		const job = makeRenderJob('held-item');
+		registry.beginPublication({ job, publicationSequence: 8, workerDerivationEpoch: 3 });
+		nowMilliseconds = 100;
+		registry.expireReceiptLeases();
+		nowMilliseconds = 105;
+		registry.releaseReadyRetries();
+		const retry = registry.beginPublication({
+			job,
+			publicationSequence: 9,
+			workerDerivationEpoch: 3,
+		});
+		registry.applyDisposition(disposition(retry.receiptIdentity, 'held', 106));
+		registry.requeuePublicationsForSourceChurn(107);
+		registry.updateVisibleItemIds(['held-item']);
+		registry.applyDisposition(disposition(retry.receiptIdentity, 'queued', 108));
+		nowMilliseconds = 205;
+		expect(registry.expireVisibleQueuedLeases()).toEqual({
+			exhaustedItemIds: ['held-item'],
+			retryableItemIds: [],
+		});
+		expect(registry.getItemState('held-item')?.stage).toBe('failed');
+		expect(registry.releaseReadyRetries()).toEqual([]);
+	});
 	test('releases only the current painted receipt back to desired', () => {
 		const registry = createRegistry(reviewContext);
 		const publication = registry.beginPublication({

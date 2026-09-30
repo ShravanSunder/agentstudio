@@ -67,6 +67,7 @@ export interface BridgeMainRenderFulfillmentCoordinator {
 	readonly dispose: () => void;
 	readonly isBoundFinalItem: (item: BridgeMainRenderPublicationItem) => boolean;
 	readonly readBoundFinalItem: (itemId: string) => BridgeMainRenderPublicationItem | undefined;
+	readonly holdPublication: (publication: BridgeMainRenderPublication) => void;
 	readonly markPublicationQueued: (publication: BridgeMainRenderPublication) => void;
 	readonly retireWorkerInstance: () => void;
 	readonly releasePaintedCopy: (itemId: string) => boolean;
@@ -110,7 +111,7 @@ interface BridgeMainPendingRenderPublication {
 	postRenderObserved: boolean;
 	queuedSubmissionObserved: boolean;
 	residency: BridgeMainPierreItemResidency;
-	stage: 'accepted' | 'queued' | 'applied';
+	stage: 'accepted' | 'held' | 'queued' | 'applied';
 }
 
 export function createBridgeMainRenderFulfillmentCoordinator(
@@ -170,7 +171,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 
 	const sendPositiveDisposition = (
 		entry: BridgeMainPendingRenderPublication,
-		disposition: 'queued' | 'applied' | 'painted',
+		disposition: 'held' | 'queued' | 'applied' | 'painted',
 	): void => {
 		props.sendDisposition(
 			bridgeWorkerRenderDispositionReceiptSchema.parse({
@@ -278,7 +279,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 		if (renderedItem === null) return;
 		if (renderedItem.readableContentMatchesItem) entry.postRenderObserved = true;
 		clearPaintedSourceCorrelation(renderedItem);
-		if (entry.stage === 'accepted') return;
+		if (entry.stage === 'accepted' || entry.stage === 'held') return;
 		if (entry.residency !== 'reusedPainted' && !entry.postRenderObserved) return;
 		if (entry.stage === 'queued') {
 			sendPositiveDisposition(entry, 'applied');
@@ -294,42 +295,64 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 		reconcileEntry(entry, entry.latestPostRenderReadback);
 	};
 
+	const acceptPublication = (
+		publication: BridgeMainRenderPublication,
+		resumeHeld: boolean = true,
+	): BridgeMainRenderPublicationAdmission => {
+		if (isDisposed) {
+			throw new Error('Bridge main render fulfillment coordinator is disposed.');
+		}
+		assertBridgeMainRenderPublicationIdentity(publication);
+		const identityKey = bridgeMainRenderReceiptIdentityKey(publication.renderReceiptIdentity);
+		if (terminalPublicationIdentityKeys.has(identityKey)) return 'duplicate';
+		const logicalItemId = publication.job.itemId;
+		const pierreItemId = publication.job.payload.item.id;
+		const existingEntry =
+			pendingByPierreItemId.get(pierreItemId) ??
+			findPendingPublicationByLogicalItemId(pendingByPierreItemId, logicalItemId);
+		if (existingEntry?.identityKey === identityKey) {
+			if (resumeHeld && existingEntry.stage === 'held') {
+				existingEntry.stage = 'accepted';
+				return 'accepted';
+			}
+			return 'duplicate';
+		}
+		if (existingEntry !== undefined) {
+			closePendingPublication(existingEntry, 'superseded', 'stale_submission');
+		}
+		const entry: BridgeMainPendingRenderPublication = {
+			animationFrameHandle: null,
+			finalItemBound: false,
+			identityKey,
+			item: publication.job.payload.item,
+			latestPostRenderReadback: null,
+			logicalItemId,
+			pierreItemId,
+			postRenderObserved: false,
+			publication,
+			publicationItem: publication.job.payload.item,
+			queuedSubmissionObserved: false,
+			residency: 'replaced',
+			stage: 'accepted',
+		};
+		retainedPaintedEvidenceByFinalItem.delete(entry.publicationItem);
+		pendingByPierreItemId.set(pierreItemId, entry);
+		pendingByPublicationItem.set(entry.publicationItem, entry);
+		return 'accepted';
+	};
 	return {
-		acceptPublication: (publication): BridgeMainRenderPublicationAdmission => {
-			if (isDisposed) {
-				throw new Error('Bridge main render fulfillment coordinator is disposed.');
-			}
-			assertBridgeMainRenderPublicationIdentity(publication);
-			const identityKey = bridgeMainRenderReceiptIdentityKey(publication.renderReceiptIdentity);
-			if (terminalPublicationIdentityKeys.has(identityKey)) return 'duplicate';
-			const logicalItemId = publication.job.itemId;
-			const pierreItemId = publication.job.payload.item.id;
-			const existingEntry =
-				pendingByPierreItemId.get(pierreItemId) ??
-				findPendingPublicationByLogicalItemId(pendingByPierreItemId, logicalItemId);
-			if (existingEntry?.identityKey === identityKey) return 'duplicate';
-			if (existingEntry !== undefined) {
-				closePendingPublication(existingEntry, 'superseded', 'stale_submission');
-			}
-			const entry: BridgeMainPendingRenderPublication = {
-				animationFrameHandle: null,
-				finalItemBound: false,
-				identityKey,
-				item: publication.job.payload.item,
-				latestPostRenderReadback: null,
-				logicalItemId,
-				pierreItemId,
-				postRenderObserved: false,
-				publication,
-				publicationItem: publication.job.payload.item,
-				queuedSubmissionObserved: false,
-				residency: 'replaced',
-				stage: 'accepted',
-			};
-			retainedPaintedEvidenceByFinalItem.delete(entry.publicationItem);
-			pendingByPierreItemId.set(pierreItemId, entry);
-			pendingByPublicationItem.set(entry.publicationItem, entry);
-			return 'accepted';
+		acceptPublication,
+		holdPublication: (publication): void => {
+			acceptPublication(publication, false);
+			const entry = pendingByPierreItemId.get(publication.job.payload.item.id);
+			if (
+				entry?.identityKey !==
+					bridgeMainRenderReceiptIdentityKey(publication.renderReceiptIdentity) ||
+				entry.stage !== 'accepted'
+			)
+				return;
+			sendPositiveDisposition(entry, 'held');
+			entry.stage = 'held';
 		},
 		bindPublicationItem: (bindProps): void => {
 			if (isDisposed) return;

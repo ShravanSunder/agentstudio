@@ -315,8 +315,15 @@ export function createBridgeCommWorkerCommandHandler(
 			for (const itemId of expiredItemIds) props.releaseExpiredReviewPublication?.(itemId);
 			const visibleQueuedExpiry =
 				reviewStore.renderFulfillmentRegistry.expireVisibleQueuedLeases(atMilliseconds);
-			if (visibleQueuedExpiry.exhaustedItemIds.length > 0) {
-				props.onReviewVisibleRenderExhausted?.(visibleQueuedExpiry.exhaustedItemIds);
+			const exhaustedItemIds = [
+				...visibleQueuedExpiry.exhaustedItemIds,
+				...expiredItemIds.filter(
+					(itemId) =>
+						reviewStore.renderFulfillmentRegistry.getItemState(itemId)?.stage === 'failed',
+				),
+			];
+			if (exhaustedItemIds.length > 0) {
+				props.onReviewVisibleRenderExhausted?.(exhaustedItemIds);
 			}
 			const releasedItemIds =
 				reviewStore.renderFulfillmentRegistry.releaseReadyRetries(atMilliseconds);

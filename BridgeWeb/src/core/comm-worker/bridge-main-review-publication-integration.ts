@@ -83,6 +83,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		| 'acceptPublication'
 		| 'bindPublicationItem'
 		| 'isBoundFinalItem'
+		| 'holdPublication'
 		| 'markPublicationQueued'
 		| 'rejectPublication'
 	>;
@@ -302,6 +303,11 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		) {
 			rejectDeferredCandidatePierre();
 		}
+		if (presentation.candidate?.role === 'updateReady') {
+			for (const publication of deferredCandidatePierreByItemId.values()) {
+				props.renderFulfillmentCoordinator.holdPublication(publication.message);
+			}
+		}
 		flushPromotedCandidatePierre();
 		prunePublicationEpochs();
 	};
@@ -311,6 +317,16 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 		route: PublicationRoute,
 	): void => {
 		if (route.kind === 'candidate') {
+			const displaced = deferredCandidatePierreByItemId.get(message.job.itemId);
+			if (
+				displaced?.message.renderReceiptIdentity.attemptId ===
+					message.renderReceiptIdentity.attemptId &&
+				JSON.stringify(displaced.message.renderReceiptIdentity) ===
+					JSON.stringify(message.renderReceiptIdentity)
+			)
+				return;
+			if (displaced !== undefined)
+				props.renderFulfillmentCoordinator.rejectPublication(displaced.message, 'stale_submission');
 			const preparedItem = prepareBridgeMainPierreItemForPresentation({
 				currentItem: undefined,
 				presentationItem: message.job.payload.item,
@@ -338,6 +354,9 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 				publicationItem: message.job.payload.item,
 				residency: preparedItem.residency,
 			});
+			if (props.store.getReviewRefreshPresentation().candidate?.role === 'updateReady') {
+				props.renderFulfillmentCoordinator.holdPublication(message);
+			}
 			return;
 		}
 		if (!props.store.reviewCatalogContainsItem(message.job.itemId)) {
@@ -551,6 +570,7 @@ export function createBridgeMainReviewPublicationIntegration(props: {
 				props.store.subscribeReviewRefreshPresentation(handlePresentationChanged);
 			unsubscribeWorkerReplacement = props.store.subscribeWorkerReplacement((): void => {
 				publicationEpochById.clear();
+				rejectDeferredCandidatePierre();
 				installationGate.prepareForWorkerReplacement();
 			});
 		},
