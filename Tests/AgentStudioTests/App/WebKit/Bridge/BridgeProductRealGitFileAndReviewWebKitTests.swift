@@ -533,12 +533,25 @@ extension WebKitSerializedTests {
             let retiringState = controller.reviewPublicationCoordinator.diagnosticSnapshot
             let traceAfterFailure = await harness.traceRecorder.scrubbedTrace()
             await harness.reviewMetadataSource.releaseReplay()
+            let pendingReplayReadback = await reviewReplayPendingReadback(
+                controller: controller,
+                receipts: harness.controllerTarget.applicationReceipts
+            )
             guard
-                await harness.controllerTarget.waitForAcceptedApplication(
-                    publicationId: secondPublication.publicationId,
-                    timeout: .seconds(15)
+                try await awaitBridgeWebKitMilestone(
+                    "committed B accepted application \(secondPublication.publicationId); \(pendingReplayReadback)",
+                    operation: {
+                        await harness.controllerTarget.waitForAcceptedApplication(
+                            publicationId: secondPublication.publicationId
+                        )
+                    }
                 )
             else {
+                Issue.record(
+                    BridgeWebKitMilestoneHang(
+                        milestone: "committed B accepted application",
+                        lastObservation: pendingReplayReadback
+                    ))
                 throw TransactionalPublicationTestError.replayDidNotApply
             }
             let receiptsAfterReplay = harness.controllerTarget.applicationReceipts
@@ -562,6 +575,24 @@ extension WebKitSerializedTests {
                 traceAfterFailure: traceAfterFailure,
                 traceBeforeFailure: firstCheckpoint.trace
             )
+        }
+
+        private func reviewReplayPendingReadback(
+            controller: BridgePaneController,
+            receipts: [BridgeProductWebKitCarrierApplicationReceipt]
+        ) async -> String {
+            let pageReadback =
+                (try? await controller.page.callJavaScript(
+                    """
+                    const diagnostic = window.__bridgeReviewSelectionDiagnostic;
+                    return JSON.stringify({
+                      reviewInstallationGate: diagnostic?.reviewInstallationGate ?? null,
+                      reviewCandidateSource: diagnostic?.reviewCandidateSource ?? null,
+                      lastReviewDisplayPatch: diagnostic?.lastReviewDisplayPatch ?? null
+                    });
+                    """
+                )) as? String ?? "unavailable"
+            return "page=\(pageReadback),postReleaseReceipts=\(receipts)"
         }
 
         private func assertTransactionalPublicationProof(
