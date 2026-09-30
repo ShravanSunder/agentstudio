@@ -177,6 +177,22 @@ The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and
 - No modal dialogs, toasts, or full-view overlays for these states. This follows the owner's standing preference for persistent indicators over transient popups.
 - Retry, status text and comment actions (Re-attach, Resolve) use the app's command and action display system, like every other control.
 
+#### Non-content states: one set, drawn one way everywhere (U13; owner, 2026-09-30)
+
+Every Bridge surface region (the File tree, File content, Markdown, the Review list and diff, the Comments drawer) has exactly four non-content states, and each is drawn the same way on every surface.
+
+| State | When it is shown | What it looks like | Ends in |
+|---|---|---|---|
+| **Loading** | Only while the region's first complete snapshot is being fetched or installed | A skeleton shaped like that region's real content (tree rows, code lines, diff hunks, comment cards), with a muted pulse | Content, **Empty** or **Failed**, within R1's bounds. It stops the moment the region settles |
+| **Empty** | A complete snapshot certifies there is nothing to show (for example, no changes, or no file selected) | One quiet line of copy in the content area | — |
+| **Updating** | New content is on its way while the last good content is shown | The last good content stays; a small shared indicator in the header | Content or **Failed** |
+| **Failed** | The region cannot show current content | The shared alert plus the shared **Retry**, in the same place on every surface. The copy says what failed | A new attempt (Retry) |
+
+- **R40.** A region MUST show exactly one of these states or its content. A settled region (Empty, Failed, or content) MUST NOT show a Loading skeleton, a spinner, or "loading", "waiting" or "pending" copy anywhere, including its rails and headers. A Loading or Updating state that cannot settle is an R1 wait with no ender.
+- **R41.** **Failed has a scope, not a separate state.** A *view* failure's Retry starts a new attempt for that view (R17). When the pane itself never started (no view exists yet), the same Failed state is shown for the whole pane, and its Retry runs the app's existing **Reload Bridge** command, the same command as the menu, command bar and automation. There is no second reload path.
+- **R42.** A Failed region keeps any last good content readable and marked stale (R19); Failed replaces content only when there is nothing good to show (`unavailable`).
+- **R43.** Loading, Empty, Updating and Failed are built from shared components and the shared Retry control, not per-surface hand-rolled markup. Their labels come from the command and action display system.
+
 ![Review keeps the last good diff readable, marked stale, with an Update unavailable pill and a Retry button. An inline comment thread stays usable.](assets/review-degraded-retry.png)
 
 *Review when updates fail: the diff stays readable, the header says so, and Retry is one click away. Comments keep working (R17, R19).*
@@ -237,6 +253,7 @@ It inherits, and may not override, opening, cancelling, retiring, batching, per-
 | R7, R28 | The contract suite passing for all four current data kinds at all three layers |
 | R11–R15 | Automated behavior with held and invalidated builds, plus convergence assertions (finite attempts, then quiescence) |
 | R16–R20 | Automated behavior plus visual evidence of each C-UI state in the running app |
+| R40–R43 | Browser tests of Loading, Empty, Updating and Failed for every region, plus running-app visual evidence that a settled region never shows a skeleton, spinner or loading/waiting copy |
 | R21–R27 | Automated behavior (File and Review parity), SQLite state inspection for E12, and visual evidence of the C-COM states |
 | R30–R32 | Repo lint (`no-timed-wait-in-tests` once PR #358 lands) and review of the replaced tests |
 | R31 | Each wedge test's failing run on the pre-change code, plus its passing run |
@@ -257,5 +274,6 @@ It inherits, and may not override, opening, cancelling, retiring, batching, per-
 | U9 | E15 | R10 | failure behavior | controlled clock, fault injection |
 | U10 | all | R28–R32 | S3 | lint, failing-then-passing runs |
 | U11 | E4 E6 | R4 | failure behavior | automated (held human wait plus pane close) |
+| U13 | E2 E7 E14 | R40–R43 | C-UI (non-content states) | browser tests of each state per region; visual evidence in the running app that no settled region shows loading/waiting |
 | U12 | E2 E7 E17 | R33–R38 | C-UI (filters) | automated scope/filter tests, no-Review-build assertion, visual |
 | U1, U2 (agent show) | E5 E17 E19 | R39 | failure behavior | background open with no mounted page → opened, notification posted, nothing on screen changes; background open into a visible pane → the displayed file and focus unchanged; take over → approval requested, approved → shown at the line via the human-click path, declined → stays opened in background; missing file → not found; closed pane → pane unavailable; exactly one reply each: automated + E2E |
