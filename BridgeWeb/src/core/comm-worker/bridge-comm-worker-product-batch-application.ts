@@ -200,9 +200,11 @@ export class BridgeCommWorkerProductBatchApplication {
 								identity === null
 									? null
 									: {
-											disposition: reviewCandidateStartDispositionFromRefreshImpact(
-												presentation.publication.classifiedRefreshImpact,
-											),
+											disposition: reviewCandidateStartDispositionFromRefreshImpact({
+												impact: presentation.publication.classifiedRefreshImpact,
+												previous,
+												successor: presentation,
+											}),
 											identity,
 										};
 							if (readyFacts !== null)

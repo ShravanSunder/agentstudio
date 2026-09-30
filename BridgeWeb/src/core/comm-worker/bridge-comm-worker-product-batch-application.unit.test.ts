@@ -11,12 +11,21 @@ import {
 	bridgeProductBatchFrameSchema,
 	type BridgeProductBatchFrame,
 } from './bridge-product-batch-wire-contracts.js';
-import { bridgeProductReviewBatchRecordSchema } from './bridge-product-review-batch-record-contracts.js';
+import {
+	bridgeProductReviewBatchRecordSchema,
+	type BridgeProductReviewBatchRecord,
+} from './bridge-product-review-batch-record-contracts.js';
 import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
 import type {
 	BridgeWorkerReviewDisplayPatch,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+
+type ReviewBatchItem = Extract<BridgeProductReviewBatchRecord, { readonly recordKind: 'item' }>;
+type ReviewBatchPublication = Extract<
+	BridgeProductReviewBatchRecord,
+	{ readonly recordKind: 'publication' }
+>;
 
 function batchBegin(
 	subscriptionKind: 'file.metadata' | 'review.metadata' | 'file.annotations',
@@ -282,4 +291,195 @@ describe('Bridge comm worker product batch application owner', () => {
 		);
 		expect(application.handleMetadataFailure(2)).toBe('retainedActive');
 	});
+
+	test('refines empty native impact from retired and successor Review runtime signatures', async () => {
+		const { application, publishedMessages } = reviewImpactApplication();
+		await application
+			.sinks()
+			.install(
+				reviewImpactInstallation({ item: reviewImpactItem('review-item-old', 'a'), revision: 12 }),
+			);
+		publishedMessages.length = 0;
+
+		await application.sinks().install(
+			reviewImpactInstallation({
+				item: reviewImpactItem('review-item-new', 'b'),
+				impact: ordinaryReviewImpact([]),
+				revision: 13,
+			}),
+		);
+
+		expect(publishedMessages[0]).toMatchObject({
+			kind: 'reviewCandidateStarted',
+			disposition: {
+				affectedStableFileIdentities: ['review-item-old', 'review-item-new'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'ordinary' },
+			},
+		});
+	});
+
+	test('passes native Review impact through when no predecessor is installed', async () => {
+		const { application, publishedMessages } = reviewImpactApplication();
+		await application.sinks().install(
+			reviewImpactInstallation({
+				item: reviewImpactItem('review-item-new', 'b'),
+				impact: ordinaryReviewImpact(['native-file']),
+				revision: 12,
+			}),
+		);
+
+		expect(publishedMessages[0]).toMatchObject({
+			disposition: {
+				affectedStableFileIdentities: ['native-file'],
+				kind: 'sameSource',
+				presentationClass: { kind: 'ordinary' },
+			},
+		});
+	});
+
+	test('leaves native unknown Review impact symbolic across a changed successor', async () => {
+		const { application, publishedMessages } = reviewImpactApplication();
+		await application
+			.sinks()
+			.install(
+				reviewImpactInstallation({ item: reviewImpactItem('review-item-old', 'a'), revision: 12 }),
+			);
+		publishedMessages.length = 0;
+		await application.sinks().install(
+			reviewImpactInstallation({
+				item: reviewImpactItem('review-item-new', 'b'),
+				impact: {
+					addedLineCount: null,
+					affectedFileCount: null,
+					affectedStableFileIdentities: [],
+					deletedLineCount: null,
+					newlyImportedCommitCount: null,
+					preDeliveryPresentationClass: { kind: 'promoted', reason: 'unknown' },
+				},
+				revision: 13,
+			}),
+		);
+
+		expect(publishedMessages[0]).toMatchObject({
+			disposition: {
+				affectedStableFileIdentities: [],
+				kind: 'sameSource',
+				presentationClass: { kind: 'promoted', reason: 'unknown' },
+			},
+		});
+	});
+
+	test('keeps affected Review identities empty when successor signatures are identical', async () => {
+		const { application, publishedMessages } = reviewImpactApplication();
+		const item = reviewImpactItem('review-item-1', 'a');
+		await application.sinks().install(reviewImpactInstallation({ item, revision: 12 }));
+		publishedMessages.length = 0;
+		await application
+			.sinks()
+			.install(reviewImpactInstallation({ item, impact: ordinaryReviewImpact([]), revision: 13 }));
+
+		expect(publishedMessages[0]).toMatchObject({
+			disposition: { affectedStableFileIdentities: [], kind: 'sameSource' },
+		});
+	});
 });
+
+function reviewImpactApplication(): {
+	readonly application: BridgeCommWorkerProductBatchApplication;
+	readonly publishedMessages: BridgeWorkerServerToMainMessage[];
+} {
+	const publishedMessages: BridgeWorkerServerToMainMessage[] = [];
+	let sequence = 0;
+	return {
+		application: new BridgeCommWorkerProductBatchApplication({
+			applyComment: (): void => {},
+			applyFile: (): void => {},
+			applyReview: (): void => {},
+			createSequence: (): number => ++sequence,
+			publishMessage: (message): void => {
+				publishedMessages.push(message);
+			},
+			publishReviewDisplay: (): void => {},
+			requestResnapshot: (): void => {},
+			requestResnapshotLatest: (): void => {},
+			workerDerivationEpoch: (): number => 2,
+		}),
+		publishedMessages,
+	};
+}
+
+function reviewImpactInstallation(props: {
+	readonly item: ReviewBatchItem;
+	readonly impact?: ReviewBatchPublication['classifiedRefreshImpact'];
+	readonly revision: number;
+}): BridgeProductViewInstallation {
+	const fixture = bridgeProductReviewBatchRecordSchema.parse(reviewCorpus.records[2]?.record);
+	if (fixture.recordKind !== 'publication' || fixture.displayed === null) {
+		throw new Error('Review impact fixture requires a displayed publication.');
+	}
+	const publicationId =
+		props.revision === 12
+			? fixture.displayed.publicationId
+			: '00000000-0000-7000-8000-000000000014';
+	const publication = bridgeProductReviewBatchRecordSchema.parse({
+		...fixture,
+		classifiedRefreshImpact: props.impact ?? null,
+		desired: { ...fixture.desired, status: 'ready' },
+		displayed: { ...fixture.displayed, publicationId, revision: props.revision },
+		publicationId,
+		revision: props.revision,
+	});
+	return {
+		begin: {
+			...batchBegin('review.metadata'),
+			publicationId,
+			targetRevision: props.revision,
+		},
+		domain: 'default',
+		records: [
+			{ key: props.item.itemId, revision: 1, value: props.item },
+			{ key: 'publication', revision: props.revision, value: publication },
+		],
+	};
+}
+
+function reviewImpactItem(itemId: string, digestCharacter: string): ReviewBatchItem {
+	const fixture = bridgeProductReviewBatchRecordSchema.parse(reviewCorpus.records[0]?.record);
+	if (fixture.recordKind !== 'item' || fixture.contentByRole.head.state !== 'available') {
+		throw new Error('Review impact fixture requires an available head item.');
+	}
+	const digest = digestCharacter.repeat(64);
+	const item = bridgeProductReviewBatchRecordSchema.parse({
+		...fixture,
+		itemId,
+		contentByRole: {
+			...fixture.contentByRole,
+			head: {
+				state: 'available',
+				source: {
+					...fixture.contentByRole.head.source,
+					contentDigest: { ...fixture.contentByRole.head.source.contentDigest, value: digest },
+					descriptorId: `descriptor-${itemId}`,
+					itemId,
+				},
+			},
+		},
+		contentHashesByRole: { ...fixture.contentHashesByRole, head: digest },
+	});
+	if (item.recordKind !== 'item') throw new Error('Review impact fixture item is invalid.');
+	return item;
+}
+
+function ordinaryReviewImpact(
+	affectedStableFileIdentities: readonly string[],
+): NonNullable<ReviewBatchPublication['classifiedRefreshImpact']> {
+	return {
+		addedLineCount: 0,
+		affectedFileCount: 0,
+		affectedStableFileIdentities,
+		deletedLineCount: 0,
+		newlyImportedCommitCount: 0,
+		preDeliveryPresentationClass: { kind: 'ordinary' },
+	};
+}
