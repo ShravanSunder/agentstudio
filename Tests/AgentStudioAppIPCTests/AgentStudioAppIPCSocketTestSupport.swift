@@ -133,6 +133,7 @@ struct TestFrameReader {
         }
         while true {
             let data = try connection.receive(maxBytes: 4096)
+            guard !data.isEmpty else { throw TestFrameReaderError.endOfStream }
             queuedFrames.append(contentsOf: try decoder.append(data))
             if !queuedFrames.isEmpty {
                 return queuedFrames.removeFirst()
@@ -152,6 +153,7 @@ struct TestFrameReader {
         }
         while true {
             let data = try await receiveDataWithoutBlockingMainActor(connection: connection)
+            guard !data.isEmpty else { throw TestFrameReaderError.endOfStream }
             queuedFrames.append(contentsOf: try decoder.append(data))
             if !queuedFrames.isEmpty {
                 return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
