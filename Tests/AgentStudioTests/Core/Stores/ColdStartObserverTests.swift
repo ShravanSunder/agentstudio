@@ -398,6 +398,23 @@ struct ColdStartObserverTests {
     /// real `NOTE_EXEC`, not just the immediate post-registration check --
     /// the scripted sequence's middle entry proves that immediate check
     /// still sees `.pendingSetsid` (the real process hasn't exec'd yet).
+    ///
+    /// Amended a third time 2026-09-30, against real evidence, not a guess:
+    /// a plain `sleep 0.05` before the real exec raced the test's own async
+    /// setup under load -- the scripted immediate-post-registration check
+    /// always answers `.pendingSetsid` regardless of what the real process
+    /// has actually done, so if the real exec happened before
+    /// `beginSetsidWatch`'s registration (possible under load, since
+    /// nothing bounded that race), the watch registered too late to ever
+    /// see its `NOTE_EXEC`, and the observer hung until the final `/bin/sleep
+    /// 300` itself exited (`.failed`, not `.handedOff`, after minutes, not
+    /// milliseconds). A deterministic FIFO hold point (the same pattern
+    /// `43f02d4c8` uses against real zmx) removes the race instead of
+    /// tolerating it: the real process cannot reach its own exec until this
+    /// test releases it, and the release itself waits for `ScriptedSyscalls`'
+    /// own call-count event -- proof the immediate post-registration check
+    /// (call 2) has already happened, which only occurs after
+    /// `beginSetsidWatch`'s `DispatchSource` has already registered.
     @Test("unexpectedProcessGroup re-observes at the real exec and discovers correctly")
     func pendingSetsidReobservesAtRealExecAndDiscovers() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
@@ -407,9 +424,12 @@ struct ColdStartObserverTests {
         let socketPath = temporaryDirectory.appending(path: "session").path
         FileManager.default.createFile(atPath: socketPath, contents: nil)
 
+        let holdFIFOPath = try makeFIFOPath()
+        defer { try? FileManager.default.removeItem(atPath: holdFIFOPath) }
+
         let controlledProcess = Process()
         controlledProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
-        controlledProcess.arguments = ["-c", "sleep 0.05; exec /bin/sleep 300"]
+        controlledProcess.arguments = ["-c", "read _ < '\(holdFIFOPath)'; exec /bin/sleep 300"]
         controlledProcess.standardOutput = FileHandle.nullDevice
         controlledProcess.standardError = FileHandle.nullDevice
         try controlledProcess.run()
@@ -431,9 +451,12 @@ struct ColdStartObserverTests {
         syscalls.observeSessionResults = [
             .pendingSetsid(terminalPID: terminalPID),
             // The immediate post-registration check (register-then-check):
-            // the real process's 50ms sleep hasn't elapsed yet.
+            // the real process is still blocked at the FIFO hold, so it
+            // genuinely hasn't exec'd yet -- deterministically, not by
+            // timing luck.
             .pendingSetsid(terminalPID: terminalPID),
-            // The check the real NOTE_EXEC event triggers.
+            // The check the real NOTE_EXEC event triggers, once this test
+            // releases the hold below.
             .identity(identity),
         ]
         // beginDiscovery's directory watch can harmlessly re-fire beyond
@@ -445,14 +468,22 @@ struct ColdStartObserverTests {
         syscalls.processArgumentsResult = .success(makeEmptyArgumentVectorBuffer())
         let observer = ColdStartObserver(syscalls: syscalls)
 
-        let outcome = await observer.observeColdStart(
+        async let outcome = observer.observeColdStart(
             zmxDirectory: temporaryDirectory,
             socketPath: socketPath,
             bootID: "test-boot-id",
             attemptID: ColdRestoreAttemptID.generate()
         )
 
-        #expect(outcome == .handedOff)
+        // Release only once the observer's own immediate post-registration
+        // check has genuinely happened -- an event ScriptedSyscalls itself
+        // reports, never a poll or a sleep.
+        await syscalls.waitUntilObserveSessionCalled(atLeast: 2)
+        let fifoWriteDescriptor = try await openFIFOForWriting(atPath: holdFIFOPath)
+        try await closeFIFOWriteDescriptor(fifoWriteDescriptor)
+
+        let settledOutcome = await outcome
+        #expect(settledOutcome == .handedOff)
         #expect(syscalls.observeSessionCallCount == 3)
     }
 
