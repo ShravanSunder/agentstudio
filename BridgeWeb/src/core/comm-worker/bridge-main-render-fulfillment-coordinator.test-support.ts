@@ -367,6 +367,7 @@ export function testRenderedElement(
 ): BridgeMainRenderedItemReadback['element'] {
 	return {
 		isConnected,
+		getAttribute: (qualifiedName): string | null => attributes.get(qualifiedName) ?? null,
 		removeAttribute: (qualifiedName): void => {
 			attributes.delete(qualifiedName);
 		},

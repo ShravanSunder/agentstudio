@@ -178,12 +178,57 @@ describe('Bridge main render disposition admission', () => {
 		expect(JSON.stringify(telemetrySamples)).not.toContain('item-1');
 		expect(JSON.stringify(telemetrySamples)).not.toContain('batch-1');
 	});
+
+	test('settles painted publication evidence only after all its admitted receipts reach terminals', () => {
+		const settlements: Array<{ publicationId: string; outcome: string }> = [];
+		const harness = createAdmissionHarness({
+			maximumBatchSize: 1,
+			onPublicationSettled: (settlement): void => {
+				settlements.push(settlement);
+			},
+		});
+		const queued = { ...makeQueuedReceipt(1), publicationId: 'publication-a' };
+		const painted = { ...makePaintedReceipt(1), publicationId: 'publication-a' };
+		harness.admission.enqueue(queued);
+		harness.admission.enqueue(painted);
+
+		expect(settlements).toEqual([]);
+		harness.ack('batch-1');
+		expect(settlements).toEqual([]);
+		harness.ack('batch-2');
+		expect(settlements).toEqual([{ publicationId: 'publication-a', outcome: 'settled-ok' }]);
+	});
+
+	test('reports failed painted publication settlement and keeps later publications separate', () => {
+		const settlements: Array<{ publicationId: string; outcome: string }> = [];
+		const harness = createAdmissionHarness({
+			maximumBatchSize: 1,
+			onPublicationSettled: (settlement): void => {
+				settlements.push(settlement);
+			},
+		});
+		harness.admission.enqueue({ ...makePaintedReceipt(1), publicationId: 'publication-a' });
+		harness.admission.enqueue({ ...makePaintedReceipt(2), publicationId: 'publication-b' });
+
+		harness.fail('batch-1');
+		expect(settlements).toEqual([{ publicationId: 'publication-a', outcome: 'settled-failed' }]);
+		expect(harness.dispatched).toHaveLength(2);
+		harness.ack('batch-2');
+		expect(settlements).toEqual([
+			{ publicationId: 'publication-a', outcome: 'settled-failed' },
+			{ publicationId: 'publication-b', outcome: 'settled-ok' },
+		]);
+	});
 });
 
 function createAdmissionHarness(options: {
 	readonly maximumBatchSize?: number;
 	readonly maximumPendingReceiptCount?: number;
 	readonly onProbeExhausted?: () => void;
+	readonly onPublicationSettled?: (settlement: {
+		readonly publicationId: string;
+		readonly outcome: 'settled-ok' | 'settled-failed';
+	}) => void;
 	readonly requestWorkerReplacement?: () => void;
 	readonly telemetrySamples?: BridgeTelemetrySample[];
 }): {
@@ -219,6 +264,9 @@ function createAdmissionHarness(options: {
 			: { maximumPendingReceiptCount: options.maximumPendingReceiptCount }),
 		requestWorkerReplacement: options.requestWorkerReplacement ?? ((): void => {}),
 		onProbeExhausted: options.onProbeExhausted ?? ((): void => {}),
+		...(options.onPublicationSettled === undefined
+			? {}
+			: { onPublicationSettled: options.onPublicationSettled }),
 		surface: 'review',
 		...(options.telemetrySamples === undefined
 			? {}
@@ -257,4 +305,8 @@ function makeQueuedReceipt(index: number): BridgeWorkerRenderDispositionReceipt 
 		kind: 'render.disposition',
 		receivedAtMilliseconds: index,
 	};
+}
+
+function makePaintedReceipt(index: number): BridgeWorkerRenderDispositionReceipt {
+	return { ...makeQueuedReceipt(index), disposition: 'painted' };
 }

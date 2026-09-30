@@ -45,6 +45,10 @@ export interface CreateBridgeMainRenderDispositionAdmissionProps {
 	readonly maximumPendingReceiptCount?: number;
 	readonly now?: () => number;
 	readonly onProbeExhausted?: () => void;
+	readonly onPublicationSettled?: (settlement: {
+		readonly publicationId: string;
+		readonly outcome: 'settled-ok' | 'settled-failed';
+	}) => void;
 	readonly requestWorkerReplacement: (source: BridgeWorkerRuntimeRecoverySource) => void;
 	readonly surface: BridgePaneSurface;
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
@@ -61,6 +65,7 @@ interface InFlightBatch {
 	readonly duplicateReceiptCountAtDispatch: number;
 	readonly kind: 'ordinary' | 'probe';
 	readonly receiptKeys: readonly string[];
+	readonly receipts: readonly BridgeWorkerRenderDispositionReceipt[];
 	readonly receiptCount: number;
 	readonly requestId: string;
 }
@@ -85,6 +90,10 @@ export function createBridgeMainRenderDispositionAdmission(
 	const admittedReceiptKeys = new Set<string>();
 	const now = props.now ?? performance.now.bind(performance);
 	const pendingReceipts: PendingReceipt[] = [];
+	const pendingPublicationReceipts = new Map<
+		string,
+		{ count: number; hasPaintedReceipt: boolean; failed: boolean }
+	>();
 	let deliveryState: BridgeMainRenderDispositionDeliveryState = 'ordinary';
 	let duplicateReceiptCount = 0;
 	let producedReceiptCount = 0;
@@ -98,6 +107,7 @@ export function createBridgeMainRenderDispositionAdmission(
 
 	const clearReceipts = (): void => {
 		pendingReceipts.length = 0;
+		pendingPublicationReceipts.clear();
 		admittedReceiptKeys.clear();
 		inFlightBatch = null;
 	};
@@ -164,6 +174,7 @@ export function createBridgeMainRenderDispositionAdmission(
 			kind,
 			receiptCount: entries.length,
 			receiptKeys: entries.map((entry) => entry.key),
+			receipts: entries.map((entry) => entry.receipt),
 			requestId,
 		};
 		recordAdmissionTelemetry({
@@ -185,6 +196,20 @@ export function createBridgeMainRenderDispositionAdmission(
 		let probeExhausted = false;
 		const outcome: BridgeRenderDispositionTerminalOutcome =
 			request.state === 'acked' ? 'acked' : request.state === 'failed' ? 'degraded' : 'timed_out';
+		for (const receipt of settledBatch.receipts) {
+			const publication = pendingPublicationReceipts.get(receipt.publicationId);
+			if (publication === undefined) continue;
+			publication.count -= 1;
+			if (request.state !== 'acked') publication.failed = true;
+			if (publication.count !== 0) continue;
+			pendingPublicationReceipts.delete(receipt.publicationId);
+			if (publication.hasPaintedReceipt) {
+				props.onPublicationSettled?.({
+					publicationId: receipt.publicationId,
+					outcome: publication.failed ? 'settled-failed' : 'settled-ok',
+				});
+			}
+		}
 		if (settledBatch.kind === 'probe') {
 			deliveryState = workerProgressed ? 'ordinary' : 'stalled';
 			probeExhausted = !workerProgressed;
@@ -259,6 +284,14 @@ export function createBridgeMainRenderDispositionAdmission(
 			}
 			producedReceiptCount += 1;
 			admittedReceiptKeys.add(key);
+			const publication = pendingPublicationReceipts.get(receipt.publicationId) ?? {
+				count: 0,
+				failed: false,
+				hasPaintedReceipt: false,
+			};
+			publication.count += 1;
+			publication.hasPaintedReceipt ||= receipt.disposition === 'painted';
+			pendingPublicationReceipts.set(receipt.publicationId, publication);
 			pendingReceipts.push({ enqueuedAtMilliseconds: now(), key, receipt });
 			pendingReceiptHighWaterMark = Math.max(pendingReceiptHighWaterMark, retainedReceiptCount());
 			if (retainedReceiptCount() >= maximumPendingReceiptCount) {

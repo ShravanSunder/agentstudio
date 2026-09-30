@@ -40,6 +40,7 @@ interface BridgeMainRetainedPaintedEvidence {
 export interface BridgeMainRenderedItemReadback {
 	readonly element: {
 		readonly isConnected: boolean;
+		readonly getAttribute: (qualifiedName: string) => string | null;
 		readonly removeAttribute: (qualifiedName: string) => void;
 		readonly setAttribute: (qualifiedName: string, value: string) => void;
 	};
@@ -478,7 +479,27 @@ function matchingRenderedItemForExactItem(
 }
 
 const BRIDGE_PAINTED_SOURCE_CORRELATIONS_ATTRIBUTE = 'data-bridge-painted-source-correlations';
-const BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE = 'data-bridge-painted-publication-id';
+export const BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE = 'data-bridge-painted-publication-id';
+const BRIDGE_RENDER_DISPOSITION_SETTLED_PUBLICATION_ID_ATTRIBUTE =
+	'data-bridge-render-disposition-settled-publication-id';
+const BRIDGE_RENDER_DISPOSITION_SETTLED_OUTCOME_ATTRIBUTE =
+	'data-bridge-render-disposition-settled-outcome';
+
+export function stampBridgeRenderDispositionSettlementEvidence(props: {
+	readonly elements: Iterable<Pick<Element, 'getAttribute' | 'setAttribute'>>;
+	readonly outcome: 'settled-ok' | 'settled-failed';
+	readonly publicationId: string;
+}): void {
+	for (const element of props.elements) {
+		if (element.getAttribute(BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE) !== props.publicationId)
+			continue;
+		element.setAttribute(
+			BRIDGE_RENDER_DISPOSITION_SETTLED_PUBLICATION_ID_ATTRIBUTE,
+			props.publicationId,
+		);
+		element.setAttribute(BRIDGE_RENDER_DISPOSITION_SETTLED_OUTCOME_ATTRIBUTE, props.outcome);
+	}
+}
 
 function retainAndStampPaintedSourceCorrelation(
 	entry: BridgeMainPendingRenderPublication,
@@ -537,6 +558,10 @@ function clearPaintedSourceCorrelation(renderedItem: BridgeMainRenderedItemReadb
 	try {
 		renderedItem.element.removeAttribute(BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE);
 		renderedItem.element.removeAttribute(BRIDGE_PAINTED_SOURCE_CORRELATIONS_ATTRIBUTE);
+		renderedItem.element.removeAttribute(
+			BRIDGE_RENDER_DISPOSITION_SETTLED_PUBLICATION_ID_ATTRIBUTE,
+		);
+		renderedItem.element.removeAttribute(BRIDGE_RENDER_DISPOSITION_SETTLED_OUTCOME_ATTRIBUTE);
 	} catch {
 		// Packaged proof metadata is diagnostic-only and cannot gate product fulfillment.
 	}
@@ -547,7 +572,12 @@ function stampRetainedPaintedEvidence(
 	evidence: BridgeMainRetainedPaintedEvidence,
 ): void {
 	try {
-		clearPaintedSourceCorrelation(renderedItem);
+		if (
+			renderedItem.element.getAttribute(BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE) !==
+			evidence.publicationId
+		) {
+			clearPaintedSourceCorrelation(renderedItem);
+		}
 		renderedItem.element.setAttribute(
 			BRIDGE_PAINTED_SOURCE_CORRELATIONS_ATTRIBUTE,
 			evidence.encodedSourceCorrelations,

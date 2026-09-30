@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import type { JSHandle, Page, Request } from 'playwright';
 import { describe, expect, test } from 'vitest';
 
@@ -51,6 +55,10 @@ interface AppliedReviewPublicationObservation {
 	readonly publicationId: string;
 }
 
+interface AppliedReviewPublicationWithDisplayed extends AppliedReviewPublicationObservation {
+	readonly displayed: ReviewRevisionIdentity;
+}
+
 describe('Bridge Viewer proportional Review refresh E2E', () => {
 	test('keeps an unchanged selected item mounted without unrelated content opens after one changed worktree file', async () => {
 		const fixture = await createBridgeViewerViteProductFixture();
@@ -96,8 +104,59 @@ describe('Bridge Viewer proportional Review refresh E2E', () => {
 			const contentRequestCountBeforeRefresh = reviewContentRequests.length;
 
 			const reviewMutation = await fixture.mutateReviewFile();
-			const refreshedIdentity = await appliedPublications.nextAfter(initialComparison);
+			const refreshedApplied = await appliedPublications.nextAfter(initialComparison);
+			const refreshedIdentity = refreshedApplied.displayed;
 			await waitForSelectedReviewReady({ itemId: unchangedFile.itemId, page });
+			const unchangedContainerRetained = await reviewItemContainerMatchesHandle({
+				handle: unchangedPaintedContainer,
+				itemId: unchangedFile.itemId,
+				page,
+			});
+			const refreshContentRequests = reviewContentRequests.slice(contentRequestCountBeforeRefresh);
+
+			expect(reviewMutation.path).toBe(affectedFile.path);
+			expect(refreshedIdentity.packageId).toBe(initialComparison.packageId);
+			expect(refreshedIdentity.reviewGeneration).toBe(initialComparison.reviewGeneration);
+			expect(refreshedIdentity.revision).toBeGreaterThan(initialComparison.revision);
+			expect(unchangedContainerRetained).toBe(true);
+			expect(
+				refreshContentRequests.every(
+					(request): boolean =>
+						request.itemId !== null &&
+						request.itemId !== unchangedFile.itemId &&
+						request.responseStatus === 200,
+				),
+			).toBe(true);
+			expect(
+				refreshContentRequests.some((request): boolean => request.itemId === unchangedFile.itemId),
+			).toBe(false);
+
+			await selectReviewFile({ page, path: reviewMutation.path });
+			const selectedChangedPanel = page.locator(
+				`[data-testid="bridge-code-view-panel"][data-selected-display-path=${JSON.stringify(reviewMutation.path)}][data-selected-content-state="ready"]`,
+			);
+			await selectedChangedPanel.waitFor({ state: 'attached' });
+			const successorItemId = await selectedChangedPanel.getAttribute('data-selected-item-id');
+			expect(successorItemId).toMatch(/\S/u);
+			const changedBody = await readFile(join(fixture.oracle.worktreeRoot, reviewMutation.path));
+			const changedSha256 = createHash('sha256').update(changedBody).digest('hex');
+			const paintedChangedItem = await waitForPaintedReviewItemContainer({
+				itemId: successorItemId ?? '',
+				observedSha256: changedSha256,
+				page,
+			});
+			const renderPublicationId = await paintedChangedItem.evaluate(
+				(container): string | null =>
+					container?.getAttribute('data-bridge-painted-publication-id') ?? null,
+			);
+			expect(renderPublicationId).toMatch(/^publication-\S+$/u);
+			const settledChangedItem = page.locator(
+				`diffs-container[data-bridge-painted-publication-id="${renderPublicationId}"][data-bridge-render-disposition-settled-publication-id="${renderPublicationId}"]`,
+			);
+			await settledChangedItem.waitFor({ state: 'visible' });
+			expect(
+				await settledChangedItem.getAttribute('data-bridge-render-disposition-settled-outcome'),
+			).toBe('settled-ok');
 			const telemetryReports = await drainReviewRefreshTelemetry(page);
 			const telemetryLossSummary = requireTelemetryLossSummary(telemetryReports.drained);
 			const lossAttribution = requireReviewRefreshLossAttribution({
@@ -122,34 +181,11 @@ describe('Bridge Viewer proportional Review refresh E2E', () => {
 					`Review refresh candidate was observed with required telemetry loss: ${JSON.stringify({ candidateReady, candidates: telemetryObservation.candidates, lossSummary: telemetryLossSummary, lossAttribution })}`,
 				);
 			}
-			const unchangedContainerRetained = await reviewItemContainerMatchesHandle({
-				handle: unchangedPaintedContainer,
-				itemId: unchangedFile.itemId,
-				page,
-			});
-			const refreshContentRequests = reviewContentRequests.slice(contentRequestCountBeforeRefresh);
-
-			expect(reviewMutation.path).toBe(affectedFile.path);
-			expect(refreshedIdentity.packageId).toBe(initialComparison.packageId);
-			expect(refreshedIdentity.reviewGeneration).toBe(initialComparison.reviewGeneration);
-			expect(refreshedIdentity.revision).toBeGreaterThan(initialComparison.revision);
 			expect(candidateReady).toEqual({
 				affectedStableFileCount: retiredAndSuccessorAffectedFileIdentityCount,
 				presentationClass: 'ordinary',
 				reviewGeneration: initialComparison.reviewGeneration,
 			});
-			expect(unchangedContainerRetained).toBe(true);
-			expect(
-				refreshContentRequests.every(
-					(request): boolean =>
-						request.itemId !== null &&
-						request.itemId !== unchangedFile.itemId &&
-						request.responseStatus === 200,
-				),
-			).toBe(true);
-			expect(
-				refreshContentRequests.some((request): boolean => request.itemId === unchangedFile.itemId),
-			).toBe(false);
 		} catch (error: unknown) {
 			primaryFailure = { error };
 		} finally {
@@ -219,7 +255,9 @@ function observeReviewContentRequests(page: Page): ReviewContentRequestObservati
 function observeAppliedReviewPublications(page: Page): {
 	readonly dispose: () => void;
 	readonly next: () => Promise<AppliedReviewPublicationObservation>;
-	readonly nextAfter: (predecessor: ReviewRevisionIdentity) => Promise<ReviewRevisionIdentity>;
+	readonly nextAfter: (
+		predecessor: ReviewRevisionIdentity,
+	) => Promise<AppliedReviewPublicationWithDisplayed>;
 } {
 	const cancellation = new AbortController();
 	const observations: AppliedReviewPublicationObservation[] = [];
@@ -318,7 +356,7 @@ function observeAppliedReviewPublications(page: Page): {
 			}
 		},
 		next,
-		nextAfter: async (predecessor): Promise<ReviewRevisionIdentity> => {
+		nextAfter: async (predecessor): Promise<AppliedReviewPublicationWithDisplayed> => {
 			for (;;) {
 				const observation = await next();
 				const displayed = observation.displayed;
@@ -328,7 +366,7 @@ function observeAppliedReviewPublications(page: Page): {
 					displayed.reviewGeneration === predecessor.reviewGeneration &&
 					displayed.revision > predecessor.revision
 				)
-					return displayed;
+					return { ...observation, displayed };
 			}
 		},
 	};
@@ -480,10 +518,11 @@ function requireReviewRefreshLossAttribution(props: {
 
 async function waitForPaintedReviewItemContainer(props: {
 	readonly itemId: string;
+	readonly observedSha256?: string;
 	readonly page: Page;
 }): Promise<JSHandle<Element | null>> {
 	return await props.page.waitForFunction(
-		(itemId: string): Element | null => {
+		({ itemId, observedSha256 }): Element | null => {
 			for (const container of document.querySelectorAll(
 				'diffs-container[data-bridge-painted-source-correlations]',
 			)) {
@@ -504,14 +543,16 @@ async function waitForPaintedReviewItemContainer(props: {
 							typeof correlation === 'object' &&
 							correlation !== null &&
 							'itemId' in correlation &&
-							correlation.itemId === itemId,
+							correlation.itemId === itemId &&
+							(observedSha256 === undefined ||
+								('observedSha256' in correlation && correlation.observedSha256 === observedSha256)),
 					)
 				)
 					return container;
 			}
 			return null;
 		},
-		props.itemId,
+		{ itemId: props.itemId, observedSha256: props.observedSha256 },
 		{ timeout: proportionalRefreshTimeoutMilliseconds },
 	);
 }

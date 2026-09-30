@@ -16,7 +16,9 @@ import {
 	type BridgeMainRenderDispositionAdmission,
 } from './bridge-main-render-disposition-admission.js';
 import {
+	BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE,
 	createBridgeMainRenderFulfillmentCoordinator,
+	stampBridgeRenderDispositionSettlementEvidence,
 	type BridgeMainRenderFulfillmentCoordinator,
 } from './bridge-main-render-fulfillment-coordinator.js';
 import {
@@ -329,6 +331,14 @@ export function createBridgePaneRuntime(
 				),
 			lifecycleStore,
 			onProbeExhausted: (): void => failRenderView(surface),
+			onPublicationSettled: (settlement): void => {
+				if (typeof document === 'undefined') return;
+				stampBridgeRenderDispositionSettlementEvidence({
+					elements: document.querySelectorAll(`[${BRIDGE_PAINTED_PUBLICATION_ID_ATTRIBUTE}]`),
+					outcome: settlement.outcome,
+					publicationId: settlement.publicationId,
+				});
+			},
 			requestWorkerReplacement,
 			surface,
 			telemetryClient: admissionTelemetryRecorder,
