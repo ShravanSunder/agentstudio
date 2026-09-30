@@ -3,6 +3,7 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
 /** One rendered glyph, read from the served home page with its real styles. */
 export interface TopologyGlyphObservation {
   readonly kind: string;
+  readonly finaleTerminal: boolean;
   readonly chapterState: string | undefined;
   readonly revealed: boolean;
   /** The lane color the node sits on (the group's `color`). */
@@ -17,7 +18,7 @@ export interface TopologyGlyphObservation {
     /** The glyph's own `color`: the incoming lane for a merge ring. */
     readonly color: string;
   };
-  /** Merge nodes only: the inner dot. */
+  /** Merge and finale end rings: the inner dot. */
   readonly core:
     | { readonly radius: number; readonly fill: string; readonly opacity: string }
     | undefined;
@@ -26,15 +27,18 @@ export interface TopologyGlyphObservation {
 
 /** One port's line, read with its real styles. */
 export interface TopologyPortObservation {
+  readonly stepLine: boolean;
   readonly source: string;
+  readonly terminal: boolean;
   readonly strokeWidth: string;
   readonly laneStrokeWidth: string;
-  /** The computed `stroke`: a `url(#…)` gradient reference when the port leaves a worktree lane. */
+  /** The computed stroke, including a gradient reference for non-step worktree ports. */
   readonly stroke: string;
   readonly firstStopColor: string | undefined;
   /** The computed stroke of the lane the port leaves. */
   readonly sourceLaneStroke: string | undefined;
-  readonly nodeRadius: number;
+  readonly nodeCount: number;
+  readonly endpointOffset: number;
 }
 
 export interface TopologyNodeVocabularyResult {
@@ -43,6 +47,8 @@ export interface TopologyNodeVocabularyResult {
   readonly beforeReveal: readonly TopologyGlyphObservation[];
   readonly afterReveal: readonly TopologyGlyphObservation[];
   readonly ports: readonly TopologyPortObservation[];
+  readonly stepLineCount: number;
+  readonly routeFilters: readonly string[];
 }
 
 function readPorts(): TopologyPortObservation[] {
@@ -60,21 +66,43 @@ function readPorts(): TopologyPortObservation[] {
     ) ?? artwork.querySelector<SVGPathElement>("[data-mainline]");
   return [...artwork.querySelectorAll<SVGGElement>('[data-route-kind="attach"]')].map((group) => {
     const core = group.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
-    const node = group.querySelector<SVGCircleElement>("[data-topology-port-node]");
-    if (core === null || node === null || anyLane === null) {
-      throw new Error("A port is missing its line or node");
+    if (core === null || anyLane === null) {
+      throw new Error("An attach branch is missing its line");
     }
+    const anchorId = group.dataset["routeAnchor"];
+    const target =
+      (group.dataset["targetEdge"] === "left"
+        ? document.querySelector(`[data-rail-step-line-target="${anchorId ?? ""}"]`)
+        : null) ?? document.querySelector(`[data-rail-surface-target="${anchorId ?? ""}"]`);
+    if (target === null) throw new Error("An attach branch has no target");
+    const matrix = core.getScreenCTM();
+    if (matrix === null) throw new Error("An attach branch has no screen transform");
+    const endpoint = core.getPointAtLength(core.getTotalLength()).matrixTransform(matrix);
+    const bounds = target.getBoundingClientRect();
+    const endpointOffset =
+      group.dataset["targetEdge"] === "top"
+        ? Math.abs(endpoint.y - bounds.top)
+        : Math.abs(endpoint.x - bounds.left);
     const source = group.dataset["routeSource"] ?? "";
+    const stepLine =
+      document.querySelector(`[data-rail-step-line-target="${anchorId ?? ""}"]`) !== null;
     const firstStop = group.querySelector("[data-topology-port-gradient] stop");
-    const sourceLane = laneCore(source);
+    const sourceLane = stepLine
+      ? artwork.querySelector<SVGPathElement>(
+          `[data-route-kind="worktree"][data-route-column="${group.dataset["routeParentColumn"] ?? ""}"] > [data-topology-path-role="core"]`,
+        )
+      : laneCore(source);
     return {
+      stepLine,
       source,
+      terminal: group.hasAttribute("data-topology-terminal-route"),
       strokeWidth: getComputedStyle(core).strokeWidth,
       laneStrokeWidth: getComputedStyle(anyLane).strokeWidth,
       stroke: getComputedStyle(core).stroke,
       firstStopColor: firstStop === null ? undefined : getComputedStyle(firstStop).stopColor,
       sourceLaneStroke: sourceLane === null ? undefined : getComputedStyle(sourceLane).stroke,
-      nodeRadius: node.r.baseVal.value,
+      nodeCount: group.querySelectorAll("[data-topology-port-node]").length,
+      endpointOffset,
     };
   });
 }
@@ -86,16 +114,17 @@ function readGlyphs(): TopologyGlyphObservation[] {
   }
   return [...artwork.querySelectorAll<SVGGElement>("[data-node]")].map((node) => {
     const glyph = node.querySelector<SVGCircleElement>(
-      ".node-commit, .node-chapter, .node-merge-ring",
+      ".node-commit, .node-chapter, .node-merge-ring, .node-end-ring",
     );
     if (glyph === null) {
       throw new Error("A topology node has no glyph");
     }
     const glyphStyle = getComputedStyle(glyph);
-    const core = node.querySelector<SVGCircleElement>(".node-merge-core");
+    const core = node.querySelector<SVGCircleElement>(".node-merge-core, .node-end-core");
     const terminal = node.querySelector<SVGCircleElement>(".node-terminal");
     return {
       kind: node.dataset["nodeKind"] ?? "",
+      finaleTerminal: node.hasAttribute("data-topology-terminal-node"),
       chapterState: node.dataset["chapterState"],
       revealed: node.hasAttribute("data-topology-node-revealed"),
       laneColor: getComputedStyle(node).color,
@@ -130,7 +159,7 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
     const applicationPage = await context.newPage();
     try {
       await applicationPage.setViewportSize({ width: 1920, height: 1080 });
-      await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
+      await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
       await applicationPage.waitForSelector(
         "[data-full-page-topology][data-topology-reveal-edge-y]",
         {
@@ -138,32 +167,63 @@ export const verifyTopologyNodeVocabulary = defineBrowserCommand(
         },
       );
       const beforeReveal = await applicationPage.evaluate(readGlyphs);
+      const routeFilters = await applicationPage.evaluate(() =>
+        [...document.querySelectorAll<SVGGElement>("[data-topology-route-group]")].map(
+          (route) => getComputedStyle(route).filter,
+        ),
+      );
       await applicationPage.evaluate(() => {
         window.scrollTo(0, document.documentElement.scrollHeight);
       });
-      await applicationPage.waitForFunction(() =>
-        [...document.querySelectorAll("[data-full-page-topology] [data-node]")].every((node) =>
-          node.hasAttribute("data-topology-node-revealed"),
-        ),
+      await applicationPage.evaluate(
+        async (): Promise<void> =>
+          await new Promise((resolve): void => {
+            const artwork = document.querySelector("[data-full-page-topology]");
+            if (artwork === null) throw new Error("Topology artwork is missing");
+            const allNodesRevealed = (): boolean =>
+              [...artwork.querySelectorAll("[data-node]")].every((node) =>
+                node.hasAttribute("data-topology-node-revealed"),
+              );
+            const observer = new MutationObserver((): void => {
+              if (!allNodesRevealed()) return;
+              observer.disconnect();
+              resolve();
+            });
+            observer.observe(artwork, {
+              attributes: true,
+              attributeFilter: ["data-topology-node-revealed"],
+              subtree: true,
+            });
+            if (allNodesRevealed()) {
+              observer.disconnect();
+              resolve();
+            }
+          }),
       );
-      await applicationPage.evaluate(async () => {
-        await Promise.all(
-          document
-            .getAnimations()
-            .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
-            .map((animation) => animation.finished),
-        );
-      });
+      // The final glyph state is independent of transition timing. Disable
+      // motion after the scroll has revealed every node before reading paint.
+      await applicationPage.emulateMedia({ reducedMotion: "reduce" });
       const afterReveal = await applicationPage.evaluate(readGlyphs);
       const { canvasColor, primaryColor } = await applicationPage.evaluate(() => {
-        const port = document.querySelector("[data-topology-port-node]");
+        const branch = document.querySelector("[data-route-kind=attach]");
         return {
           canvasColor: getComputedStyle(document.body).backgroundColor,
-          primaryColor: port === null ? "" : getComputedStyle(port).fill,
+          primaryColor: branch === null ? "" : getComputedStyle(branch).color,
         };
       });
       const ports = await applicationPage.evaluate(readPorts);
-      return { canvasColor, primaryColor, beforeReveal, afterReveal, ports };
+      const stepLineCount = await applicationPage.evaluate(
+        () => document.querySelectorAll("[data-rail-step-line-target]").length,
+      );
+      return {
+        canvasColor,
+        primaryColor,
+        beforeReveal,
+        afterReveal,
+        ports,
+        stepLineCount,
+        routeFilters,
+      };
     } finally {
       await applicationPage.close();
     }

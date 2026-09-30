@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -397,7 +398,8 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
     private let holdFirstBootstrapStart: Bool
     private var firstBootstrapStartHeld = false
     private var firstBootstrapStartHeldWaiters: [CheckedContinuation<Int, Never>] = []
-    private var firstBootstrapStartRelease: CheckedContinuation<Void, Never>?
+    private let firstBootstrapStartStep = HeldStep<Void>(
+        "first bootstrap start", cancellation: .holdThroughCancellation)
 
     init(holdFirstBootstrapStart: Bool) {
         self.holdFirstBootstrapStart = holdFirstBootstrapStart
@@ -411,9 +413,7 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
             let waiters = firstBootstrapStartHeldWaiters
             firstBootstrapStartHeldWaiters.removeAll(keepingCapacity: false)
             for waiter in waiters { waiter.resume(returning: bootstrapStartedCount) }
-            await withCheckedContinuation { continuation in
-                firstBootstrapStartRelease = continuation
-            }
+            try? await firstBootstrapStartStep.arrive(())
         }
         guard event.stage == .bootstrapFinished else { return }
         bootstrapFinishedCount += 1
@@ -432,8 +432,7 @@ private actor BootstrapContextLifecycleRecorder: BridgeProductMetadataLifecycleT
     }
 
     func releaseFirstBootstrapStart() {
-        firstBootstrapStartRelease?.resume()
-        firstBootstrapStartRelease = nil
+        firstBootstrapStartStep.release()
     }
 
     func waitUntilBootstrapFinished(count: Int) async -> Int {

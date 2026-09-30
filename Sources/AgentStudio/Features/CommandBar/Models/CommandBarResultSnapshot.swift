@@ -7,6 +7,7 @@ struct CommandBarResultSnapshot {
     let allItems: [CommandBarItem]
     let filteredItems: [CommandBarItem]
     let groups: [CommandBarItemGroup]
+    let titleMatchesByItemId: [String: Range<Int>]
     let displayedItems: [CommandBarItem]
     let selectedItem: CommandBarItem?
     let dimmedItemIds: Set<String>

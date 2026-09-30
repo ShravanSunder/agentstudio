@@ -85,11 +85,9 @@ struct ForgeActorCapacityReservationTests {
 
         let retryDelay = AppPolicies.ForgeRefresh.capacityRecheckDelay
         fixture.advance(by: retryDelay)
-        for _ in 0..<1000
-        where performanceRecorder.snapshots.reduce(0, { $0 + $1.deadline.fired }) == 0 {
-            await Task.yield()
-        }
+        let deadlineSnapshot = await performanceRecorder.waitForDeadlineFire()
 
+        #expect(deadlineSnapshot?.deadline.fired == 1)
         #expect(performanceRecorder.snapshots.reduce(0) { $0 + $1.deadline.fired } == 1)
         #expect(fixture.clock.scheduledSleepGeneration == scheduledSleepGeneration)
         #expect(fixture.clock.pendingSleepCount == 0)
@@ -105,14 +103,31 @@ struct ForgeActorCapacityReservationTests {
 private final class ForgeCapacityPerformanceRecorder: ForgePerformanceRecording, @unchecked Sendable {
     private let lock = NSLock()
     private var recordedSnapshots: [ForgePerformanceSnapshot] = []
+    private let deadlineFiredSnapshots: AsyncStream<ForgePerformanceSnapshot>
+    private let deadlineFiredContinuation: AsyncStream<ForgePerformanceSnapshot>.Continuation
+
+    init() {
+        let (stream, continuation) = AsyncStream<ForgePerformanceSnapshot>.makeStream()
+        deadlineFiredSnapshots = stream
+        deadlineFiredContinuation = continuation
+    }
 
     var snapshots: [ForgePerformanceSnapshot] {
         lock.withLock { recordedSnapshots }
     }
 
+    func waitForDeadlineFire() async -> ForgePerformanceSnapshot? {
+        var iterator = deadlineFiredSnapshots.makeAsyncIterator()
+        return await iterator.next()
+    }
+
     func recordForgePerformanceSnapshot(_ snapshot: ForgePerformanceSnapshot) {
         lock.withLock {
             recordedSnapshots.append(snapshot)
+        }
+        if snapshot.deadline.fired > 0 {
+            deadlineFiredContinuation.yield(snapshot)
+            deadlineFiredContinuation.finish()
         }
     }
 }

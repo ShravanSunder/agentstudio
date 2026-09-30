@@ -13,6 +13,8 @@
 
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
+# shellcheck source=scripts/swift-package-sandbox.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swift-package-sandbox.sh"
 
 # Maximum test cases Swift Testing may run concurrently inside one test process.
 # OPT-IN, WITH NO DEFAULT, ON PURPOSE.
@@ -59,14 +61,38 @@ swift_test_parallelization_width_label() {
 # How many isolated suite PROCESSES the aggregate phase runs at once. Process
 # fan-out follows the machine: never more than one per core, and never more
 # than 4 (the fan-out that developer machines already used).
+# Agent sandboxes can deny sysctl reads. Fall back to sysconf through getconf,
+# then to 1: fewer processes is always safe, only slower.
+swift_test_cpu_count() {
+  local cpu_count
+  cpu_count="$(sysctl -n hw.ncpu 2>/dev/null || true)"
+  if ! [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+  fi
+  if ! [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    cpu_count=1
+  fi
+  echo "$cpu_count"
+}
+
 swift_test_isolated_process_concurrency() {
   local cpu_count
-  cpu_count="$(sysctl -n hw.ncpu)"
+  cpu_count="$(swift_test_cpu_count)"
   if [ "$cpu_count" -lt 4 ]; then
     echo "$cpu_count"
   else
     echo 4
   fi
+}
+
+# Keep WebKit suites serial until the time-coupled Bridge waits are event-driven.
+# BridgeProductStreamWebKitFeasibilityWebKitTests.swift:21,26 use 30s/8s waits, and
+# BridgeProductRealGitFileAndReviewWebKitTests.swift:145 waits for foreground
+# catch-up; all three exceeded their budgets under three-process, three-core CI.
+SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY=1
+
+swift_test_webkit_process_concurrency() {
+  echo "$SWIFT_TEST_WEBKIT_PROCESS_CONCURRENCY"
 }
 
 # Largest number of tests whose START EVENT had been posted but whose result had
@@ -203,10 +229,18 @@ LANE_STACK_SAMPLE_TOOL="${LANE_STACK_SAMPLE_TOOL:-/usr/bin/sample}"
 # Lane labels are prose ("native-concurrent fast non-WebKit suites"), so they are
 # slugged before reaching a filename.
 lane_event_stream_label_slug() {
-  printf '%s' "${1:-lane}" \
+  local label="${1:-lane}"
+  local label_slug
+  label_slug="$(printf '%s' "$label" \
     | tr '[:upper:]' '[:lower:]' \
     | tr -cs 'a-z0-9' '-' \
-    | sed -E 's/^-+//; s/-+$//'
+    | sed -E 's/^-+//; s/-+$//')"
+  if [ "${#label_slug}" -gt 91 ]; then
+    local label_hash
+    label_hash="$(printf '%s' "$label" | shasum -a 256 | cut -c 1-10)"
+    label_slug="${label_slug:0:80}-$label_hash"
+  fi
+  printf '%s\n' "$label_slug"
 }
 
 # Copies the event stream somewhere durable and prints where. Called on the paths
@@ -250,41 +284,68 @@ lane_evidence_stem() {
   echo "$LANE_EVENT_STREAM_DIR/lane-$(lane_event_stream_label_slug "$1")-$(date +%Y%m%dT%H%M%S)-$$"
 }
 
-# The held steps a hung lane was still waiting on. The causal-test harness
+# The held steps and typed facts a hung lane was still waiting on. The harness
 # appends one TAB-separated line per event, with a single O_APPEND write:
 #   waiting<TAB><instance id><TAB><name><TAB><fileID function>
 #   arrived<TAB><instance id><TAB><name>
 # Names contain spaces, so only tabs separate fields. An arrival settles only
 # the wait with the same instance id: two steps can share a name, and one
 # instance arriving (even before any wait was logged) must not hide another
-# instance's missing arrival. Every wait left unmatched is printed, in the
-# order it was logged. A missing or empty log prints nothing.
+# instance's missing arrival. Expectation ids pair expecting with settled even
+# when settled is first. Only newline-terminated records count; a killed writer
+# may leave a partial last line. Every unmatched wait is printed in log order.
 print_held_steps_unarrived_at_timeout() {
   local held_step_log="${1:-}"
-  local held_step_name
-  local held_step_id
-  local held_step_test
+  local lane_output="${2:-}"
+  local record_kind field_one field_two field_three field_four field_five
 
-  [ -n "$held_step_log" ] && [ -s "$held_step_log" ] || return 0
-  /usr/bin/awk -F '\t' '
-    $1 == "waiting" && NF >= 3 && $2 != "" {
-      if (!($2 in waiting_name)) { order_id[++order_count] = $2 }
-      waiting_name[$2] = $3
-      waiting_test[$2] = $4
-      next
-    }
-    $1 == "arrived" && NF >= 2 && $2 != "" { arrived[$2] = 1 }
-    END {
-      for (position = 1; position <= order_count; position++) {
-        instance_id = order_id[position]
-        if (!(instance_id in arrived)) {
-          printf "%s\t%s\t%s\n", waiting_name[instance_id], instance_id, waiting_test[instance_id]
+  if [ -n "$held_step_log" ] && [ -s "$held_step_log" ]; then
+    /usr/bin/perl -ne '
+      next unless /\n\z/;
+      chomp;
+      my @field = split /\t/, $_, -1;
+      if ($field[0] eq "waiting" && @field >= 3 && $field[1] ne "") {
+        push @step_order, $field[1] unless exists $step_name{$field[1]};
+        $step_name{$field[1]} = $field[2];
+        $step_test{$field[1]} = $field[3] // "";
+      } elsif ($field[0] eq "arrived" && @field >= 2 && $field[1] ne "") {
+        $arrived{$field[1]} = 1;
+      } elsif ($field[0] eq "expecting" && @field >= 6 && $field[1] ne "") {
+        push @expectation_order, $field[1] unless exists $expected_case{$field[1]};
+        $expected_case{$field[1]} = $field[2];
+        $scope{$field[1]} = $field[3];
+        $test{$field[1]} = $field[4];
+        $site{$field[1]} = $field[5];
+      } elsif ($field[0] eq "settled" && @field >= 3 && $field[1] ne "") {
+        $settled{$field[1]} = 1;
+      }
+      END {
+        for my $id (@step_order) {
+          print join("\t", "held", $step_name{$id}, $id, $step_test{$id}), "\n"
+            unless $arrived{$id};
+        }
+        for my $id (@expectation_order) {
+          print join("\t", "expectation", $id, $expected_case{$id}, $scope{$id}, $test{$id}, $site{$id}), "\n"
+            unless $settled{$id};
         }
       }
-    }
-  ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r held_step_name held_step_id held_step_test; do
-    echo "[$LOG_PREFIX] lane-report held_step_unarrived name=$held_step_name id=$held_step_id test=$held_step_test"
-  done || true
+    ' "$held_step_log" 2>/dev/null | while IFS=$'\t' read -r record_kind field_one field_two field_three field_four field_five; do
+      case "$record_kind" in
+        held)
+          printf '[%s] lane-report held_step_unarrived name=%s id=%s test=%s\n' \
+            "$LOG_PREFIX" "$field_one" "$field_two" "$field_three"
+          ;;
+        expectation)
+          printf '[%s] lane-report fact_expected id=%s expected=%s scope=%s test=%s site=%s\n' \
+            "$LOG_PREFIX" "$field_one" "$field_two" "$field_three" "$field_four" "$field_five"
+          ;;
+      esac
+    done || true
+  fi
+  if [ -n "$lane_output" ] && [ -f "$lane_output" ] && \
+    /usr/bin/grep -Fq '[agentstudio-test-log] unavailable ' "$lane_output"; then
+    printf '[%s] lane-report held_step_log_unavailable\n' "$LOG_PREFIX"
+  fi
 }
 
 # A held-step log is evidence only when a test wrote to it.
@@ -668,6 +729,9 @@ large|BridgeReviewSmokeFrameLivenessTests|concurrent
 large|BridgeWorktreeRefreshSessionTests|concurrent
 large|CIFastLaneWorkflowTests|concurrent
 large|CIFirstAttemptGateWorkflowTests|concurrent
+large|CISwiftBuildCachePublishScriptTests|concurrent
+large|CISwiftBuildInputsScriptTests|concurrent
+benchmark|CommandBarSearchBenchmarkTests|process-global
 large|CursorPackageInstallerTests|concurrent
 large|DarwinCompositeFSEventContinuityTests|process-global
 large|DarwinFSEventStreamClientTests|process-global
@@ -678,10 +742,12 @@ large|DarwinSharedLocalFSEventObserverTests|process-global
 large|DerivedActivityNotificationIntegrationTests|process-global
 large|DerivedTerminalActivityNotificationRegressionTests|process-global
 large|DrawerCommandIntegrationTests|process-global
+large|DrawerZoomFrameCurrencyIntegrationTests|process-global
 e2e|E2ESerializedTests|serial
 e2e|E2ESerializedTests/FilesystemSourceE2ETests|serial
 e2e|E2ESerializedTests/ZmxBackendIntegrationTests|serial
 zmx|E2ESerializedTests/ZmxE2ETests|serial
+large|ExpectationLogTests|process-global
 large|FilesystemActorActivityTests|process-global
 large|FilesystemActorShellGitIntegrationTests|concurrent
 large|FilesystemFetchHeadGitPipelineIntegrationTests|process-global
@@ -750,6 +816,7 @@ large|SwiftLaneHangEvidenceTests|concurrent
 large|SwiftLaneIsolationListGateTests|concurrent
 large|SwiftLaneReceiptTests|concurrent
 large|SwiftLaneRunnerReportTests|concurrent
+large|SwiftPackageSandboxScriptTests|concurrent
 large|TerminalActivityAgentSettledHeuristicTests|process-global
 large|TitlePanePerformanceWorkloadScriptTests|concurrent
 large|TopologyEventPipelineIntegrationTests|process-global
@@ -1163,6 +1230,24 @@ aggregate_serial_non_webkit_suite_filters() {
       'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
       'AgentStudioIPCBridgeServiceTests'
     printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeRenderDiagnosticsTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeSearchModeTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeNonBridgeTargetTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeDiagnosticTargetTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgePaneAgentTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioIPCBridgeServiceTests.swift' \
+      'AgentStudioIPCBridgeRejectedControlTests'
+    printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCCommandExecuteContractTests.swift' \
       'AgentStudioAppIPCCommandExecuteContractTests'
     printf '%s:%s\n' \
@@ -1171,6 +1256,9 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AppIPCErrorCorrectionTests.swift' \
       'AppIPCErrorCorrectionTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCConnectionHandlerLifecycleTests.swift' \
+      'AgentStudioAppIPCConnectionHandlerLifecycleTests'
   )"; then
     echo "[test] failed to create explicit serialized-suite candidates" >&2
     return 1
@@ -1332,7 +1420,7 @@ run_fast_serial_process_swift_tests() {
 
   for fast_process_global_suite_filter in "${fast_process_global_suite_filters[@]}"; do
     timing_batch=$((timing_batch + 1))
-    LANE_TIMING_FILTER="$fast_process_global_suite_filter" \
+    LANE_TIMING_PHASE=fast-process-global LANE_TIMING_FILTER="$fast_process_global_suite_filter" \
       LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
       LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" run_swift_with_timeout \
       "isolated fast process-global suite: $fast_process_global_suite_filter" \
@@ -1354,7 +1442,7 @@ prebuild_swift_tests() {
           run_swift_with_timeout \
             "prebuild test bundles" \
             "$PREBUILD_TIMEOUT_SECONDS" \
-            swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" \
+            swift build $(swift_package_sandbox_arguments) --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" \
             -Xswiftc -stats-output-dir -Xswiftc "$SWIFT_BUILD_STATS_DIR"
           return $?
         fi
@@ -1366,72 +1454,26 @@ prebuild_swift_tests() {
   run_swift_with_timeout \
     "prebuild test bundles" \
     "$PREBUILD_TIMEOUT_SECONDS" \
-    swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+    swift build $(swift_package_sandbox_arguments) --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
 }
 
 run_aggregate_serial_non_webkit_swift_tests() {
-  local process_global_concurrency
-  process_global_concurrency="$(swift_test_isolated_process_concurrency)"
-  echo "[$LOG_PREFIX] isolated process-global concurrency: $process_global_concurrency"
-  local swift_test_bundle
-  swift_test_bundle="$(swift_testing_bundle_path)"
-  local swift_testing_helper
-  swift_testing_helper="$(swift_testing_helper_path)"
-  local testing_framework_path
-  testing_framework_path="$(swift_testing_framework_path)"
   local aggregate_serial_suite_filter
   local aggregate_serial_suite_filters
-  local -a process_global_batch_pids=()
-  local inventory_status=0
+  local -a selected_filters=()
 
   if ! aggregate_serial_suite_filters="$(aggregate_serial_non_webkit_suite_filters)"; then
     printf '[test] failed to generate aggregate serial non-WebKit suite list\n' >&2
     return 1
   fi
-  local timing_eligible_ms timing_batch=0 timing_slot=0
-  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-
   while IFS= read -r aggregate_serial_suite_filter; do
     [ -n "$aggregate_serial_suite_filter" ] || continue
-    if [ "$timing_slot" -eq 0 ]; then timing_batch=$((timing_batch + 1)); fi
-    timing_slot=$((timing_slot + 1))
-    (
-      export LANE_TIMING_FILTER="$aggregate_serial_suite_filter"
-      export LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT="$timing_slot"
-      export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
-      run_swift_with_timeout \
-        "isolated process-global non-WebKit suite: $aggregate_serial_suite_filter" \
-        "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
-        DYLD_FRAMEWORK_PATH="$testing_framework_path" \
-        "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-        --filter "$(swift_test_isolated_suite_filter_pattern "$aggregate_serial_suite_filter")" \
-        "$swift_test_bundle" --testing-library swift-testing
-    ) &
-    process_global_batch_pids+=("$!" "$aggregate_serial_suite_filter")
-
-    if [ "${#process_global_batch_pids[@]}" -eq $((process_global_concurrency * 2)) ]; then
-      # Record the failure and keep going: stopping here is what hid 324 of 336
-      # suites behind one crashed process.
-      wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
-      process_global_batch_pids=()
-      timing_slot=0
-    fi
+    selected_filters+=("$aggregate_serial_suite_filter")
   done <<<"$aggregate_serial_suite_filters"
-
-  if [ "${#process_global_batch_pids[@]}" -gt 0 ]; then
-    wait_for_process_global_suite_batch "${process_global_batch_pids[@]}" || inventory_status=1
-  fi
-  return "$inventory_status"
+  dispatch_isolated_suites fast "${selected_filters[@]}"
 }
 
 run_large_process_global_swift_tests() {
-  local swift_test_bundle
-  swift_test_bundle="$(swift_testing_bundle_path)"
-  local swift_testing_helper
-  swift_testing_helper="$(swift_testing_helper_path)"
-  local testing_framework_path
-  testing_framework_path="$(swift_testing_framework_path)"
   local lane_inventory large_process_global_suite_filter large_process_global_suite_output
   local -a large_process_global_suite_filters=()
 
@@ -1451,23 +1493,7 @@ run_large_process_global_swift_tests() {
     [ -n "$large_process_global_suite_filter" ] || continue
     large_process_global_suite_filters+=("$large_process_global_suite_filter")
   done <<<"$large_process_global_suite_output"
-  local timing_eligible_ms timing_batch=0
-  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-
-  for large_process_global_suite_filter in "${large_process_global_suite_filters[@]}"; do
-    timing_batch=$((timing_batch + 1))
-    LANE_TIMING_FILTER="$large_process_global_suite_filter" \
-      LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
-      LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" \
-      run_swift_with_timeout \
-      "isolated large process-global suite: $large_process_global_suite_filter" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
-      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
-      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
-      --filter "$(swift_test_isolated_suite_filter_pattern "$large_process_global_suite_filter")" \
-      "$swift_test_bundle" --testing-library swift-testing
-  done
+  dispatch_isolated_suites large "${large_process_global_suite_filters[@]}"
 }
 
 swift_testing_bundle_path() {
@@ -1516,30 +1542,152 @@ swift_test_failed_isolated_suite_count() {
   /usr/bin/awk 'END { print NR + 0 }' "$tally_file"
 }
 
-# Takes interleaved `pid filter` pairs rather than bare pids, so a failing child
-# can be named. Pairs, not a delimiter, because suite filters are regexes.
-wait_for_process_global_suite_batch() {
-  local suite_process_pid
-  local suite_filter
-  local suite_status
-  local batch_status=0
+# The dispatcher reaps reporting subshells by PID. Each reporter waits for its
+# wrapper, so a wrapper killed before publishing its worker status still has a
+# terminal outcome. FIFO records are atomic (shorter than PIPE_BUF). Bash 3.2
+# needs neither wait -n nor a signal trap interrupting a blocked FIFO read.
+dispatch_isolated_suites() {
+  local lane_kind="$1"
+  shift
+  [ "$#" -gt 0 ] || return 0
+  local -a suite_filters=("$@") active_pids=() active_filters=()
+  local concurrency next_filter=0 active_count=0 dispatch_ordinal=0
+  local slot suite_filter reporter_pid completed_slot completed_pid completed_status completed_reason waited_status
+  local lane_status=0 timing_eligible_ms dispatch_dir fifo_path
+  if [ "$lane_kind" = webkit ]; then
+    concurrency="$(swift_test_webkit_process_concurrency)"
+    echo "[$LOG_PREFIX] WebKit process-global concurrency: $concurrency"
+  else
+    concurrency="$(swift_test_isolated_process_concurrency)"
+    echo "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
+  fi
+  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
+  mkdir -p "$LANE_EVENT_STREAM_DIR"
+  dispatch_dir="$(mktemp -d "${LANE_EVENT_STREAM_DIR:-${TMPDIR:-/tmp}}/agentstudio-isolated-dispatch.XXXXXX")"
+  fifo_path="$dispatch_dir/completions"
+  mkfifo "$fifo_path"
+  exec 7<>"$fifo_path"
+  SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
 
-  while [ "$#" -gt 0 ]; do
-    suite_process_pid="$1"
-    suite_filter="$2"
-    shift 2
-    # `|| suite_status=$?` rather than toggling `set -e`: toggling it here would
-    # silently re-enable it for a caller that had turned it off.
-    suite_status=0
-    wait "$suite_process_pid" || suite_status=$?
-    if [ "$suite_status" -ne 0 ]; then
-      batch_status=1
-      echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
-        "status=$suite_status signal=$(swift_test_signal_name "$suite_status")" >&2
-      swift_test_record_failed_isolated_suite "$suite_filter" "$suite_status"
+  while [ "$next_filter" -lt "${#suite_filters[@]}" ] || [ "$active_count" -gt 0 ]; do
+    for ((slot=1; slot<=concurrency && next_filter<${#suite_filters[@]}; slot++)); do
+      [ -z "${active_pids[$slot]:-}" ] || continue
+      suite_filter="${suite_filters[$next_filter]}"
+      next_filter=$((next_filter + 1))
+      dispatch_ordinal=$((dispatch_ordinal + 1))
+      (
+        local child_status=0 completion_reason=completed worker_pid=""
+        (
+          # Keep the wrapper's Bash 3.2 PID handshake before worker launch.
+          # The reporter, rather than this fallible wrapper, owns FIFO output.
+          /bin/sh -c 'printf "%s\n" "$PPID"' >"$dispatch_dir/pid-$slot"
+          read -r child_pid <"$dispatch_dir/pid-$slot"
+          rm -f "$dispatch_dir/pid-$slot"
+          export LANE_TIMING_PHASE="$lane_kind" LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
+          export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
+          export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
+          local worker_status=0
+          (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
+          local worker_pid=$!
+          # If SIGKILL lands before this write, the reporter has no worker PID to reap.
+          printf '%s\n' "$worker_pid" >"$dispatch_dir/worker-$slot"
+          wait "$worker_pid" || worker_status=$?
+          printf '%s\n' "$worker_status" >"$dispatch_dir/status-$slot"
+          exit "$worker_status"
+        ) &
+        local reporting_child_pid=$!
+        wait "$reporting_child_pid" || child_status=$?
+        if [ ! -f "$dispatch_dir/status-$slot" ]; then
+          completion_reason=wrapper_exited_without_completion
+          if [ -r "$dispatch_dir/worker-$slot" ] && read -r worker_pid <"$dispatch_dir/worker-$slot"; then
+            [ -z "$worker_pid" ] || terminate_lane_child_tree TERM "$worker_pid"
+          fi
+        fi
+        rm -f "$dispatch_dir/pid-$slot" "$dispatch_dir/status-$slot" "$dispatch_dir/worker-$slot" || true
+        # The writer's PPID is the reporter, including on Bash 3.2 where $$
+        # still names the lane shell. No fallible reporter PID handshake.
+        /bin/sh -c 'printf "%s %s %s %s\n" "$1" "$PPID" "$2" "$3"' \
+          sh "$slot" "$child_status" "$completion_reason" >&7
+        exit "$child_status"
+      ) &
+      reporter_pid=$!
+      active_pids[$slot]="$reporter_pid"
+      active_filters[$slot]="$suite_filter"
+      SWIFT_TEST_ACTIVE_ISOLATED_PIDS="$SWIFT_TEST_ACTIVE_ISOLATED_PIDS $reporter_pid"
+      active_count=$((active_count + 1))
+    done
+
+    if ! read -r -u 7 completed_slot completed_pid completed_status completed_reason; then
+      lane_status=1
+      break
+    fi
+    reporter_pid="${active_pids[$completed_slot]:-}"
+    if [ -z "$reporter_pid" ] || [ "$reporter_pid" != "$completed_pid" ]; then
+      echo "[$LOG_PREFIX] invalid isolated completion: slot=$completed_slot pid=$completed_pid" >&2
+      lane_status=1
+      break
+    fi
+    waited_status=0
+    wait "$reporter_pid" || waited_status=$?
+    suite_filter="${active_filters[$completed_slot]}"
+    active_pids[$completed_slot]=""
+    active_filters[$completed_slot]=""
+    active_count=$((active_count - 1))
+    SWIFT_TEST_ACTIVE_ISOLATED_PIDS=" ${active_pids[*]}"
+    if [ "$completed_status" -ne 0 ] || [ "$waited_status" -ne "$completed_status" ] ||
+      [ "$completed_reason" != completed ]; then
+      lane_status=1
+      if [ "$lane_kind" != webkit ] || [ "$completed_reason" != completed ]; then
+        echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
+          "status=$completed_status signal=$(swift_test_signal_name "$completed_status") reason=$completed_reason" >&2
+        swift_test_record_failed_isolated_suite "$suite_filter" "$completed_status"
+      fi
     fi
   done
-  return "$batch_status"
+
+  if [ "$active_count" -gt 0 ]; then
+    swift_test_terminate_active_isolated_suites
+  fi
+  SWIFT_TEST_ACTIVE_ISOLATED_PIDS=""
+  exec 7>&-
+  rm -f "$fifo_path"
+  rmdir "$dispatch_dir"
+  return "$lane_status"
+}
+
+run_selected_isolated_suite() {
+  local lane_kind="$1" suite_filter="$2"
+  if [ "$lane_kind" = webkit ]; then
+    run_webkit_suite "$suite_filter"
+    return $?
+  fi
+  local swift_test_bundle swift_testing_helper testing_framework_path
+  local label="isolated process-global non-WebKit suite: $suite_filter"
+  if [ "$lane_kind" = large ]; then
+    label="isolated large process-global suite: $suite_filter"
+  fi
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  swift_testing_helper="$(swift_testing_helper_path)"
+  testing_framework_path="$(swift_testing_framework_path)"
+  run_swift_with_timeout \
+    "$label" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+    DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+    "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+    --filter "$(swift_test_isolated_suite_filter_pattern "$suite_filter")" \
+    "$swift_test_bundle" --testing-library swift-testing
+}
+
+swift_test_terminate_active_isolated_suites() {
+  local suite_pid
+  for suite_pid in ${SWIFT_TEST_ACTIVE_ISOLATED_PIDS:-}; do
+    terminate_lane_child_tree TERM "$suite_pid"
+  done
+  for suite_pid in ${SWIFT_TEST_ACTIVE_ISOLATED_PIDS:-}; do
+    terminate_lane_child_tree KILL "$suite_pid"
+    wait "$suite_pid" 2>/dev/null || true
+  done
 }
 
 # The fast concurrent phase is the default lane minus the exact inventory rows
@@ -1575,7 +1723,7 @@ run_fast_non_webkit_swift_tests() {
   run_swift_with_timeout \
     "native-concurrent fast non-WebKit suites" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --skip "$fast_lane_skip_pattern" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
@@ -1603,7 +1751,7 @@ run_large_non_webkit_swift_tests() {
     run_swift_with_timeout \
       "parallel large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --filter "$large_concurrent_filter_pattern" \
       --skip "$large_serial_filter_pattern|$large_process_global_filter_pattern" \
@@ -1612,14 +1760,14 @@ run_large_non_webkit_swift_tests() {
     run_swift_with_timeout \
       "serial large process suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$large_serial_filter_pattern" \
       --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$large_concurrent_filter_pattern|$large_serial_filter_pattern" \
       --skip "$large_process_global_filter_pattern" \
       --build-path "$BUILD_PATH"
@@ -1678,21 +1826,18 @@ webkit_leaf_suite_filters() {
 }
 
 run_webkit_suites() {
-  echo "--- WebKit serialized tests (serial) ---"
+  echo "--- WebKit serialized tests (isolated processes) ---"
   local webkit_filters
   if ! webkit_filters="$(webkit_suite_filters)"; then
     echo "[test] failed to generate WebKit suite list" >&2
     return 1
   fi
-  local timing_eligible_ms timing_batch=0
-  timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
-
+  local -a selected_filters=()
   while IFS= read -r filter; do
     [ -n "$filter" ] || continue
-    timing_batch=$((timing_batch + 1))
-    LANE_TIMING_FILTER="$filter" LANE_TIMING_BATCH="$timing_batch" LANE_TIMING_SLOT=1 \
-      LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms" run_webkit_suite "$filter" || return $?
+    selected_filters+=("$filter")
   done <<<"$webkit_filters"
+  dispatch_isolated_suites webkit "${selected_filters[@]}"
 }
 
 swift_test_watchdog_state() {
@@ -1736,15 +1881,19 @@ write_lane_timing_sidecar() {
     LANE_TIMING_DISPATCH="$dispatch_ms" LANE_TIMING_START="$child_start_ms" \
     LANE_TIMING_EXIT="$child_exit_ms" LANE_TIMING_STATUS="$child_status" \
     LANE_TIMING_COMPLETE="$wrapper_complete_ms" LANE_TIMING_TIMEOUT="$timed_out" \
+    LANE_TIMING_CAP="${LANE_TIMING_CONCURRENCY:-}" \
+    LANE_TIMING_PHASE="${LANE_TIMING_PHASE:-}" \
     LANE_TIMING_EVENT_FILE="$event_stream_path" \
     /usr/bin/perl -MJSON::PP -e '
       sub nullable_number { defined $_[0] && $_[0] =~ /^[0-9]+$/ ? 0 + $_[0] : undef }
       sub nullable_text { defined $_[0] && length $_[0] ? $_[0] : undef }
       my $record = {
         schema_version => 1, lane => $ENV{LANE_TIMING_LANE}, label => $ENV{LANE_TIMING_LABEL},
+        phase => nullable_text($ENV{LANE_TIMING_PHASE}),
         filter => nullable_text($ENV{LANE_TIMING_FILTER}),
         batch_id => nullable_number($ENV{LANE_TIMING_BATCH}),
         slot => nullable_number($ENV{LANE_TIMING_SLOT}),
+        slot_cap => nullable_number($ENV{LANE_TIMING_CAP}),
         eligible_ms => nullable_number($ENV{LANE_TIMING_ELIGIBLE_MS}),
         dispatch_ms => nullable_number($ENV{LANE_TIMING_DISPATCH}),
         command_start_ms => nullable_number($ENV{LANE_TIMING_START}),
@@ -1842,20 +1991,33 @@ run_swift_with_timeout() {
         "$now_epoch"
     )"; then
       echo "[$LOG_PREFIX] lane-report watchdog state generation failed" >&2
+      preserve_lane_event_stream "$label" "$event_stream_file" "$evidence_stem"
+      terminate_lane_child_tree KILL "$command_pid"
+      kill_lane_processes_by_run_token "$event_stream_file"
+      wait "$command_pid" 2>/dev/null || true
+      swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+      discard_empty_held_step_log "$held_step_log"
+      rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
+      local retained_event_stream=""
+      [ -f "$evidence_stem.events.jsonl" ] && retained_event_stream="$evidence_stem.events.jsonl"
       write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
-        "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" ""
+        "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" \
+        "$retained_event_stream"
       return 1
     fi
     read -r last_output_size last_progress_epoch <<<"$watchdog_state"
     local inactive_seconds=$((now_epoch - last_progress_epoch))
 
-    if ! swift_test_watchdog_timeout_status \
-      "$last_progress_epoch" \
-      "$now_epoch" \
-      "$timeout_seconds"
-    then
-      timed_out=1
-      break
+    # Hang tests arm the watchdog only after their child is parked.
+    if [ -z "${LANE_WATCHDOG_ARM_PATH:-}" ] || [ -e "$LANE_WATCHDOG_ARM_PATH" ]; then
+      if ! swift_test_watchdog_timeout_status \
+        "$last_progress_epoch" \
+        "$now_epoch" \
+        "$timeout_seconds"
+      then
+        timed_out=1
+        break
+      fi
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
@@ -1871,7 +2033,7 @@ run_swift_with_timeout() {
     # Read the stream before terminating anything: this names what was still
     # executing at the timeout, not what survived the kill.
     print_running_parameterized_cases_at_timeout "$event_stream_file"
-    print_held_steps_unarrived_at_timeout "$held_step_log"
+    print_held_steps_unarrived_at_timeout "$held_step_log" "$output_file"
     print_timeout_process_diagnostics "$label" "$command_pid" "$evidence_stem"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
@@ -2223,16 +2385,33 @@ run_webkit_suite() {
   local filter="$1"
   local output
   local command_status=0
+  local swift_test_bundle swift_testing_helper testing_framework_path
+  swift_test_bundle="$(swift_testing_bundle_path)"
+  swift_testing_helper="$(swift_testing_helper_path)"
+  testing_framework_path="$(swift_testing_framework_path)"
 
   echo "[webkit] running $filter"
-  # Bypass xcbeautify: `swift test` reports a crashed helper only as
-  # "unexpected signal code N" in its raw output, and the signal is read from it.
+  # Use the already-built helper directly, as in the other isolated phases.
+  # Concurrent `swift test --skip-build` calls contend for SwiftPM's build lock.
+  # Preserve raw output so a signalled helper remains visible in the receipt.
   # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
   _XCB_BYPASS=1
-  # shellcheck disable=SC2086
-  output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
-    --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1) || command_status=$?
+  if [ -n "${EXTRA_SWIFT_TEST_ARGS:-}" ]; then
+    # swiftpm-testing-helper has no coverage option. Let SwiftPM apply the
+    # requested flags to this suite rather than silently dropping them.
+    # shellcheck disable=SC2086
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS} --skip-build --filter "$filter" --build-path "$BUILD_PATH" \
+      2>&1) || command_status=$?
+  else
+    output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+      "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
+      --filter "$filter" "$swift_test_bundle" --testing-library swift-testing \
+      2>&1) || command_status=$?
+  fi
   unset _XCB_BYPASS
   echo "$output"
 

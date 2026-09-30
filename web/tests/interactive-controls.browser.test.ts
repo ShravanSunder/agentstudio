@@ -31,6 +31,17 @@ function addFixture(markup: string): HTMLElement {
   return fixture;
 }
 
+function nextTextMutation(element: HTMLElement, expectedText: string): Promise<void> {
+  return new Promise((resolve): void => {
+    const observer = new MutationObserver((): void => {
+      if (element.textContent !== expectedText) return;
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(element, { childList: true, characterData: true, subtree: true });
+  });
+}
+
 interface ControllableVideoFixture {
   readonly finishPlayback: () => void;
   readonly pauseManually: () => void;
@@ -206,8 +217,10 @@ describe("interactive website controllers", () => {
       value: "hidden",
     });
     document.dispatchEvent(new Event("visibilitychange"));
-
-    await vi.waitFor(() => expect(fixture.pauseSpy).toHaveBeenCalledTimes(1));
+    await new Promise<void>((resolve): void => {
+      requestAnimationFrame((): void => resolve());
+    });
+    expect(fixture.pauseSpy).toHaveBeenCalledTimes(1);
     initializeScrollMaterialSurfaces();
     Reflect.deleteProperty(document, "visibilityState");
   });
@@ -215,6 +228,7 @@ describe("interactive website controllers", () => {
   it("reports copy success and preserves a useful clipboard failure fallback", async () => {
     const fixture = addFixture(`
       <div data-install-root data-install-command="brew install --cask agent-studio">
+        <code data-install-code>brew install --cask agent-studio</code>
         <button data-install-copy>Copy</button>
         <span data-install-status></span>
       </div>
@@ -225,24 +239,48 @@ describe("interactive website controllers", () => {
     const button = requiredButton(root, "[data-install-copy]");
     const status = requiredHtmlElement(root, "[data-install-status]");
 
+    const copiedStatus = nextTextMutation(status, marketingCopy.installation.copiedStatus);
     button.click();
-    await vi.waitFor(() =>
-      expect(status.textContent).toBe(marketingCopy.installation.copiedStatus),
-    );
+    await copiedStatus;
+    expect(status.textContent).toBe(marketingCopy.installation.copiedStatus);
     expect(writeText).toHaveBeenCalledWith("brew install --cask agent-studio");
 
     writeText.mockRejectedValueOnce(new Error("clipboard unavailable"));
+    const failedStatus = nextTextMutation(status, marketingCopy.installation.failedStatus);
     button.click();
-    await vi.waitFor(() =>
-      expect(status.textContent).toBe(marketingCopy.installation.failedStatus),
-    );
+    await failedStatus;
+    expect(status.textContent).toBe(marketingCopy.installation.failedStatus);
 
     dispose();
+  });
+
+  it("initializes a shared install root once and copies once per click", async () => {
+    const fixture = addFixture(`
+      <div data-install-command="brew install --cask agent-studio" data-install-copied-label="Copied ✓">
+        <code data-install-code>brew install --cask agent-studio</code>
+        <button data-install-copy><span data-install-copy-feedback>Copy</span></button>
+        <span data-install-status></span>
+      </div>
+    `);
+    const root = requiredHtmlElement(fixture, "[data-install-command]");
+    const status = requiredHtmlElement(root, "[data-install-status]");
+    const label = requiredHtmlElement(root, "[data-install-copy-feedback]");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const firstDispose = initializeInstallCommand(root);
+    const secondDispose = initializeInstallCommand(root);
+    const copiedStatus = nextTextMutation(status, marketingCopy.installation.copiedStatus);
+    requiredButton(root, "[data-install-copy]").click();
+    await copiedStatus;
+    expect(secondDispose).toBe(firstDispose);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(label.textContent).toBe("Copied ✓");
+    secondDispose();
   });
 
   it("reports copy failure when the Clipboard API is unavailable", async () => {
     const fixture = addFixture(`
       <div data-install-root data-install-command="brew install --cask agent-studio">
+        <code data-install-code>brew install --cask agent-studio</code>
         <button data-install-copy>Copy</button>
         <span data-install-status></span>
       </div>
@@ -255,10 +293,50 @@ describe("interactive website controllers", () => {
 
     button.click();
 
-    await vi.waitFor(() =>
-      expect(status.textContent).toBe(marketingCopy.installation.failedStatus),
-    );
+    expect(status.textContent).toBe(marketingCopy.installation.failedStatus);
     dispose();
     Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("restores the finale copy label exactly two seconds after a successful copy", async () => {
+    const fixture = addFixture(`
+      <div data-install-command="brew tap ShravanSunder/agentstudio\nbrew install --cask agent-studio" data-install-copied-label="Copied ✓" data-install-feedback-ms="2000">
+        <code data-install-code hidden></code>
+        <button data-install-copy><svg><g data-install-copy-icon></g><path data-install-copied-icon data-install-icon-hidden></path></svg><span data-install-copy-feedback>Copy install</span></button>
+        <span data-install-status aria-live="polite"></span>
+      </div>
+    `);
+    const root = requiredHtmlElement(fixture, "[data-install-command]");
+    const button = requiredButton(root, "[data-install-copy]");
+    const label = requiredHtmlElement(root, "[data-install-copy-feedback]");
+    const status = requiredHtmlElement(root, "[data-install-status]");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const dispose = initializeInstallCommand(root);
+    button.click();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith(
+      "brew tap ShravanSunder/agentstudio\nbrew install --cask agent-studio",
+    );
+    expect(label.textContent).toBe("Copied ✓");
+    expect(
+      root.querySelector("[data-install-copy-icon]")?.hasAttribute("data-install-icon-hidden"),
+    ).toBe(true);
+    expect(
+      root.querySelector("[data-install-copied-icon]")?.hasAttribute("data-install-icon-hidden"),
+    ).toBe(false);
+    expect(status.textContent).toBe(marketingCopy.installation.copiedStatus);
+    vi.advanceTimersByTime(1999);
+    expect(label.textContent).toBe("Copied ✓");
+    vi.advanceTimersByTime(1);
+    expect(label.textContent).toBe("Copy install");
+    expect(
+      root.querySelector("[data-install-copy-icon]")?.hasAttribute("data-install-icon-hidden"),
+    ).toBe(false);
+    expect(
+      root.querySelector("[data-install-copied-icon]")?.hasAttribute("data-install-icon-hidden"),
+    ).toBe(true);
+    expect(status.textContent).toBe("");
+    dispose();
   });
 });

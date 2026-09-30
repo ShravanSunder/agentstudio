@@ -74,10 +74,8 @@ struct ForgeActorExplicitUpdateTests {
         }
         await fixture.provider.resolve(callAt: 0, with: .rateLimited(retryAfterSeconds: 300))
         await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-        for _ in 0..<300 { await Task.yield() }
         #expect(await settlementRecorder.outcomes.isEmpty)
         fixture.advance(by: .seconds(299))
-        await Task.yield()
         #expect(await fixture.provider.callCount == 1)
         fixture.advance(by: .seconds(1))
         #expect(await fixture.provider.waitForCallCount(2))
@@ -102,7 +100,7 @@ struct ForgeActorExplicitUpdateTests {
 
     @Test("cold explicit repository update uses represented branches and waits for provider settlement")
     func coldUpdateUsesRepresentedBranches() async throws {
-        let performanceRecorder = ForgePerformanceSnapshotRecorderSpy()
+        let performanceRecorder = ForgePerformanceSnapshotRecorderWithWaiter()
         let fixture = await ForgeActorFixture.make(performanceTraceRecorder: performanceRecorder)
         let repoID = UUIDv7.generate()
         let worktreeID = UUIDv7.generate()
@@ -119,18 +117,48 @@ struct ForgeActorExplicitUpdateTests {
         #expect(admissionSnapshots.reduce(0) { $0 + $1.execution.explicitAdmitted } == 1)
         #expect(admissionSnapshots.reduce(0) { $0 + $1.execution.explicitSettledCompleted } == 0)
         #expect(admissionSnapshots.reduce(0) { $0 + $1.execution.automaticWithoutDemandStarted } == 0)
+        let settlementSnapshotTask = Task {
+            await performanceRecorder.waitForExplicitSettlementSnapshot()
+        }
         await fixture.provider.resolve(callAt: 0, with: .complete([]))
         #expect(await lease.settlement() == .completed)
-        for _ in 0..<1000
-        where performanceRecorder.snapshots.reduce(0, { $0 + $1.execution.explicitSettledCompleted }) == 0 {
-            await Task.yield()
-        }
+        #expect(await settlementSnapshotTask.value)
         let settlementSnapshots = performanceRecorder.snapshots
         #expect(settlementSnapshots.reduce(0) { $0 + $1.execution.explicitAdmitted } == 1)
         #expect(settlementSnapshots.reduce(0) { $0 + $1.execution.explicitSettledCompleted } == 1)
         #expect(settlementSnapshots.reduce(0) { $0 + $1.execution.automaticWithoutDemandStarted } == 0)
         await fixture.actor.shutdown()
         await fixture.stopObserving()
+    }
+}
+
+private final class ForgePerformanceSnapshotRecorderWithWaiter: ForgePerformanceRecording, @unchecked Sendable {
+    private let snapshotRecorder = ForgePerformanceSnapshotRecorderSpy()
+    private let snapshotEvents: AsyncStream<ForgePerformanceSnapshot>
+    private let snapshotContinuation: AsyncStream<ForgePerformanceSnapshot>.Continuation
+
+    init() {
+        let (snapshotEvents, snapshotContinuation) = AsyncStream.makeStream(of: ForgePerformanceSnapshot.self)
+        self.snapshotEvents = snapshotEvents
+        self.snapshotContinuation = snapshotContinuation
+    }
+
+    var snapshots: [ForgePerformanceSnapshot] {
+        snapshotRecorder.snapshots
+    }
+
+    func recordForgePerformanceSnapshot(_ snapshot: ForgePerformanceSnapshot) {
+        snapshotRecorder.recordForgePerformanceSnapshot(snapshot)
+        snapshotContinuation.yield(snapshot)
+    }
+
+    func waitForExplicitSettlementSnapshot() async -> Bool {
+        for await snapshot in snapshotEvents {
+            if snapshot.execution.explicitSettledCompleted == 1 {
+                return true
+            }
+        }
+        return false
     }
 }
 

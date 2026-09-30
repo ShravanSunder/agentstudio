@@ -62,6 +62,65 @@ struct SurfaceManagerNativeRetirementTests {
         // The strong local deliberately survives every retirement assertion.
         withExtendedLifetime(surface) {}
     }
+
+    @Test("undo discards and retires an exited surface")
+    func undoCloseRetiresExitedSurface() throws {
+        var retiredSurfaceIDs: [UUID] = []
+        let paneID = UUIDv7.generate()
+        let sessionID = ZmxSessionID.generateUUIDv7()
+        let surface = Ghostty.SurfaceView(
+            managedSurfaceID: UUIDv7.generate(),
+            appCommandDispatcher: RetirementNoOpAppCommandDispatcher()
+        )
+        let manager = SurfaceManager(
+            maxCreationRetries: 0,
+            healthCheckInterval: 3600,
+            nativeSurfaceRetirement: { retiredSurfaceIDs.append($0.managedSurfaceID) },
+            processExitedCheck: { $0.managedSurfaceID == surface.managedSurfaceID }
+        )
+        let managed = try manager.acceptCreatedSurface(
+            surface,
+            metadata: SurfaceMetadata(paneId: paneID, zmxSessionID: sessionID)
+        ).get()
+        manager.attach(managed.id, to: paneID)
+        manager.retainSurfacesForUndo(forPaneIDs: [paneID])
+
+        let restoredSurface = manager.undoClose(forPaneId: paneID)
+
+        #expect(restoredSurface?.id == nil)
+        #expect(retiredSurfaceIDs == [surface.managedSurfaceID])
+        #expect(!manager.hasNativeAttachments(for: sessionID))
+        #expect(manager.surface(for: managed.id) == nil)
+    }
+
+    @Test("undo restores a retained surface whose process is live")
+    func undoCloseRestoresLiveSurface() throws {
+        var retiredSurfaceIDs: [UUID] = []
+        let paneID = UUIDv7.generate()
+        let sessionID = ZmxSessionID.generateUUIDv7()
+        let surface = Ghostty.SurfaceView(
+            managedSurfaceID: UUIDv7.generate(),
+            appCommandDispatcher: RetirementNoOpAppCommandDispatcher()
+        )
+        let manager = SurfaceManager(
+            maxCreationRetries: 0,
+            healthCheckInterval: 3600,
+            nativeSurfaceRetirement: { retiredSurfaceIDs.append($0.managedSurfaceID) },
+            processExitedCheck: { _ in false }
+        )
+        let managed = try manager.acceptCreatedSurface(
+            surface,
+            metadata: SurfaceMetadata(paneId: paneID, zmxSessionID: sessionID)
+        ).get()
+        manager.attach(managed.id, to: paneID)
+        manager.retainSurfacesForUndo(forPaneIDs: [paneID])
+
+        let restoredSurface = manager.undoClose(forPaneId: paneID)
+
+        #expect(restoredSurface?.id == managed.id)
+        #expect(retiredSurfaceIDs.isEmpty)
+        #expect(manager.hasNativeAttachments(for: sessionID))
+    }
 }
 
 @MainActor

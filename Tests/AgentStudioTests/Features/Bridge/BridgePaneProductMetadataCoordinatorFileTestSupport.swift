@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioTestHarness
 import Foundation
 
 @testable import AgentStudioBridge
@@ -27,8 +28,8 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
     private var finishWaiters: [CheckedContinuation<Bool, Never>] = []
     private var isSourceAcceptanceReleased = false
     private var isOpenReleased = false
-    private var openWaiters: [CheckedContinuation<Void, Never>] = []
-    private var sourceAcceptanceWaiters: [CheckedContinuation<Void, Never>] = []
+    private let openCompletionStep = HeldStep<Void>("file open completion", cancellation: .holdThroughCancellation)
+    private let sourceAcceptanceStep = HeldStep<Void>("file source acceptance", cancellation: .holdThroughCancellation)
     private var startWaiters: [CheckedContinuation<Int, Never>] = []
     private var updateWaiters: [CheckedContinuation<CoordinatorFileUpdateStartObservation, Never>] = []
     private(set) var openObservedCancellation = false
@@ -49,9 +50,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         for waiter in startWaiters { waiter.resume(returning: openStartCount) }
         startWaiters.removeAll(keepingCapacity: false)
         if !isSourceAcceptanceReleased {
-            await withCheckedContinuation { continuation in
-                sourceAcceptanceWaiters.append(continuation)
-            }
+            try await sourceAcceptanceStep.arrive(())
         }
         let sourceEvent = try coordinatorSourceAcceptedEvent()
         try await emit(sourceEvent)
@@ -62,9 +61,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         for waiter in acceptanceWaiters { waiter.resume(returning: accepted.source) }
         acceptanceWaiters.removeAll(keepingCapacity: false)
         if !isOpenReleased {
-            await withCheckedContinuation { continuation in
-                openWaiters.append(continuation)
-            }
+            try await openCompletionStep.arrive(())
         }
         openObservedCancellation = Task.isCancelled
         didFinishOpen = true
@@ -126,8 +123,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
 
     func releaseSourceAcceptance() {
         isSourceAcceptanceReleased = true
-        for waiter in sourceAcceptanceWaiters { waiter.resume() }
-        sourceAcceptanceWaiters.removeAll(keepingCapacity: false)
+        sourceAcceptanceStep.release()
     }
 
     func waitUntilSourceAccepted() async -> BridgeProductFileSourceIdentity {
@@ -139,8 +135,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
 
     func releaseOpen() {
         isOpenReleased = true
-        for waiter in openWaiters { waiter.resume() }
-        openWaiters.removeAll(keepingCapacity: false)
+        openCompletionStep.release()
     }
 
     func waitUntilOpenFinished() async -> Bool {

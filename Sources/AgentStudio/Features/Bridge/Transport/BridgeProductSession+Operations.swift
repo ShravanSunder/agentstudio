@@ -245,7 +245,7 @@ extension BridgeProductSession {
                     let didPark = operationTable.observeResult(
                         operationId: request.operationId,
                         waiterId: waiterId,
-                        continuation: continuation
+                        resume: { continuation.resume(returning: $0) }
                     )
                     if didPark {
                         resultWaiterRegistrationObserver?(request.operationId)
@@ -285,7 +285,7 @@ extension BridgeProductSession {
                     operationId: request.operationId,
                     revision: request.after,
                     waiterId: waiterId,
-                    continuation: continuation
+                    resume: { continuation.resume(returning: $0) }
                 )
                 guard didPark else { return }
                 observationDeadlineTasksByWaiterId[waiterId] = Task { [self] in

@@ -289,6 +289,11 @@ extension Ghostty {
         /// Text accumulator for key events
         var keyTextAccumulator: [String]?
 
+        /// Pending text and performKeyEquivalent state.
+        var leadSurrogate: GhosttyLeadSurrogate?
+
+        var lastPerformKeyEvent: TimeInterval?
+
         /// Content size for the terminal (may differ from frame during resize)
         private var contentSize: NSSize = .zero
         private var lastCommittedGeometry: SurfaceGeometry?
@@ -540,16 +545,6 @@ extension Ghostty {
             RestoreTrace.log(
                 "Ghostty.SurfaceView.pwdDidChange pwd=\(newPwd ?? "nil") \(metricsSnapshotDescription())"
             )
-        }
-
-        func handleCloseRequested(processAlive: Bool) {
-            RestoreTrace.log(
-                "Ghostty.SurfaceView.scheduleCloseRequested processAlive=\(processAlive) mainThread=\(Thread.isMainThread)"
-            )
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.onCloseRequested?(processAlive)
-            }
         }
 
         func updateHostConfigSnapshot(_ snapshot: GhosttyHostConfigSnapshot) {

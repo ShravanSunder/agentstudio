@@ -1,3 +1,4 @@
+import AgentStudioWorktreeOperations
 import Foundation
 import Testing
 
@@ -40,7 +41,7 @@ struct WorktreeDestinationPolicyTests {
 
     @Test("an overlong branch name is rejected with the policy limit")
     func overlongBranchNameIsRejected() {
-        let limit = AppPolicies.WorktreeCreation.maximumBranchNameLength
+        let limit = WorktreeCreationPolicy.maximumBranchNameLength
         let text = String(repeating: "a", count: limit + 1)
 
         #expect(WorktreeBranchName.validated(text).map(\.rawValue) == .failure(.tooLong(maximumLength: limit)))
@@ -65,7 +66,7 @@ struct WorktreeDestinationPolicyTests {
     func folderSlugs(_ testCase: SlugCase) throws {
         let branchName = try WorktreeBranchName.validated(testCase.branch).get()
 
-        #expect(WorktreeDestinationPolicy.folderSlug(for: branchName) == testCase.slug)
+        #expect(WorktreeDestinationNaming.folderSlug(for: branchName) == testCase.slug)
     }
 
     @Test("the destination is a sibling of the main checkout inside the watched folder that discovers it")

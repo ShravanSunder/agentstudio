@@ -6,33 +6,24 @@ package struct RepoExplorerPinnedPaneProjectionRequest: Sendable {
     let paneStatesByID: [UUID: PaneGraphState]
     let tabStatesByID: [UUID: TabGraphState]
     let tabIDsInOrder: [UUID]
-    let activityFactsByPaneID: [UUID: PaneActivityStatusFact]
-    let topologySnapshot: RepositoryTopologyReadSnapshot
-    let organizationPreferences: RepoExplorerPaneOrganizationPreferences
-    let terminalShellExecutablePath: String
+    let activityTimesByPaneID: [UUID: PaneActivityTime]
+    let showsDrawerPanes: Bool
+    let referenceInstant: ContinuousClock.Instant
+    let wallNow: Date
+    let calendar: Calendar
 
     @MainActor
     package init(
-        coreAtoms: CoreAtoms,
-        sidebarPreferences: RepoExplorerSidebarPrefsAtom,
-        referenceDate: Date,
-        calendar: Calendar = .current,
-        terminalShellExecutablePath: String = SessionConfiguration.defaultShell()
+        coreAtoms: CoreAtoms
     ) {
         self.paneStatesByID = coreAtoms.workspacePaneGraph.paneStateSnapshot()
         self.tabStatesByID = coreAtoms.workspaceTabGraph.tabStateSnapshot()
         self.tabIDsInOrder = coreAtoms.workspaceTabGraph.tabIDsInOrder
-        self.activityFactsByPaneID = coreAtoms.paneActivityStatus.statusSnapshot()
-        self.topologySnapshot = coreAtoms.workspaceRepositoryTopology.captureReadSnapshot()
-        self.organizationPreferences = RepoExplorerPaneOrganizationPreferences(
-            groupingMode: sidebarPreferences.groupingMode(for: .panes),
-            subgroupMode: sidebarPreferences.subgroupMode(for: .panes),
-            sortField: sidebarPreferences.sortField(for: .panes),
-            sortOrder: sidebarPreferences.sortDirection(for: .panes),
-            referenceDate: referenceDate,
-            calendar: calendar
-        )
-        self.terminalShellExecutablePath = terminalShellExecutablePath
+        self.activityTimesByPaneID = coreAtoms.paneActivityTime.snapshot()
+        self.showsDrawerPanes = coreAtoms.workspaceSidebarState.showsDrawerPanes
+        self.referenceInstant = ContinuousClock.now
+        self.wallNow = Date()
+        self.calendar = .current
     }
 }
 
@@ -58,9 +49,9 @@ package enum RepoExplorerPinnedPaneProjector {
         }
         try Task.checkCancellation()
 
-        var members: [RepoExplorerPaneOrganizationMember] = []
+        var eligibleMembers: [RepoExplorerPinnedActivityMember] = []
         var seenPaneIDs = Set<UUID>()
-        for (tabOrder, tabID) in request.tabIDsInOrder.enumerated() {
+        for tabID in request.tabIDsInOrder {
             guard let tabState = request.tabStatesByID[tabID] else { continue }
             for paneID in tabState.paneIDs {
                 guard seenPaneIDs.insert(paneID).inserted,
@@ -72,43 +63,24 @@ package enum RepoExplorerPinnedPaneProjector {
                 }
                 try Task.checkCancellation()
 
-                let facets = paneState.durableContextFacets
-                let association = request.topologySnapshot.validatedAssociation(
-                    repoId: facets.repoId,
-                    worktreeId: facets.worktreeId
-                )
-                let shellExecutablePath: String? =
-                    if case .terminal = paneState.paneContent {
-                        request.terminalShellExecutablePath
-                    } else {
-                        nil
-                    }
-                members.append(
-                    RepoExplorerPaneOrganizationMember(
+                eligibleMembers.append(
+                    RepoExplorerPinnedActivityMember(
                         paneID: paneID,
-                        repositoryID: association?.repo.id,
-                        repositoryName: association?.repo.name,
-                        tabID: tabID,
-                        tabOrder: tabOrder,
-                        normalizedTitle: RepoExplorerPaneTitleNormalizer.normalizedTitle(
-                            liveTitle: paneState.title,
-                            cwd: facets.cwd,
-                            shellExecutablePath: shellExecutablePath,
-                            isDrawer: paneState.isDrawerChild
-                        ),
-                        isPinned: true,
-                        activityAt: request.activityFactsByPaneID[paneID]?.observedAt
+                        activityTime: request.activityTimesByPaneID[paneID],
+                        isDrawer: paneState.isDrawerChild,
+                        ownerPaneID: paneState.parentPaneId
                     )
                 )
             }
         }
 
-        return RepoExplorerPinnedPaneNavigationPolicy.orderedPaneIDs(
-            RepoExplorerPaneOrganizationInput(
-                members: members,
-                preferences: request.organizationPreferences
-            )
-        )
+        return RepoExplorerProjection.orderedPinnedPaneGroups(
+            eligibleMembers,
+            showsDrawers: request.showsDrawerPanes,
+            referenceInstant: request.referenceInstant,
+            wallNow: request.wallNow,
+            calendar: request.calendar
+        ).flatMap(\.paneIDs)
     }
 
     @concurrent nonisolated package static func targetPaneID(

@@ -16,10 +16,12 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(lintScript.contains("swiftlint lint --strict"))
         #expect(
             lintScript.contains(
-                "swift build -c release --package-path Tools/AgentStudioArchitectureLint"
+                "swift build $(swift_package_sandbox_arguments) -c release --package-path Tools/AgentStudioArchitectureLint"
             ))
         #expect(lintScript.contains("release/agentstudio-architecture-lint\" --timings"))
         #expect(lintScript.contains("--ledger Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv"))
+        #expect(lintScript.contains("--ledger Tools/AgentStudioArchitectureLint/forbidden-test-wait-ledger.tsv"))
+        #expect(lintScript.contains("--ledger Tools/AgentStudioArchitectureLint/adhoc-continuation-wait-ledger.tsv"))
         #expect(lintScript.contains("run_architecture_lint Sources Tests"))
         #expect(!miseConfig.contains(legacyRunnerScriptPath))
         #expect(!miseConfig.contains("scripts/check-core-boundary-imports.sh"))
@@ -31,7 +33,9 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(!lintScript.contains("run_admission_contract"))
         #expect(lintScript.contains("run_release_contract=0"))
 
-        #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
+        #expect(ciWorkflow.contains("bash scripts/install-ci-lint-tools.sh"))
+        #expect(ciWorkflow.contains("run: mise run lint:portable"))
+        #expect(ciWorkflow.contains("run: mise run lint:release-scripts"))
         #expect(ciWorkflow.contains("mise run test:architecture"))
         #expect(ciWorkflow.contains("Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh"))
         let ratchetScript = try String(
@@ -39,6 +43,8 @@ struct ArchitectureSwiftLintRulesTests {
             encoding: .utf8
         )
         #expect(ratchetScript.contains("\"Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv\""))
+        #expect(ratchetScript.contains("\"Tools/AgentStudioArchitectureLint/forbidden-test-wait-ledger.tsv\""))
+        #expect(ratchetScript.contains("\"Tools/AgentStudioArchitectureLint/adhoc-continuation-wait-ledger.tsv\""))
         #expect(ratchetScript.contains("\"BridgeWeb/architecture-debt-ledger.tsv\""))
         #expect(ciWorkflow.contains("fetch-depth: 0"))
         #expect(!ciWorkflow.contains(legacyBuildToolName))
@@ -82,12 +88,34 @@ struct ArchitectureSwiftLintRulesTests {
         }
         try FileManager.default.copyItem(atPath: fixturePath, toPath: temporaryFile.path)
 
+        let swiftLintLookup = try await runProcess(arguments: ["sh", "-c", "command -v swiftlint"])
+        let processPath = ProcessInfo.processInfo.environment["PATH"] ?? "<unset>"
+        #expect(
+            swiftLintLookup.exitCode == 0,
+            Comment(
+                rawValue: "swiftlint not found on PATH: \(processPath)\n\(processDiagnostics(swiftLintLookup))"
+            )
+        )
+
         let result = try await runProcess(arguments: [
             "swiftlint", "lint", "--strict", "--config", ".swiftlint.yml", temporaryFile.path,
         ])
 
-        #expect(result.exitCode != 0)
-        #expect(result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"))
+        #expect(result.exitCode != 0, Comment(rawValue: processDiagnostics(result)))
+        #expect(
+            result.stdout.contains("no_combine_import") || result.stderr.contains("no_combine_import"),
+            Comment(rawValue: processDiagnostics(result))
+        )
+    }
+
+    private func processDiagnostics(_ result: ScriptRunResult) -> String {
+        """
+        exitCode: \(result.exitCode)
+        stdout:
+        \(result.stdout)
+        stderr:
+        \(result.stderr)
+        """
     }
 
     private func runProcess(arguments: [String]) async throws -> ScriptRunResult {

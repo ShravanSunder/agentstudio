@@ -237,8 +237,10 @@ struct BridgeProductSessionReentrancyTests {
         await heldProducer.waitUntilCancellationObserved()
         #expect((await harness.session.snapshot).workerDerivationEpochBySurface[.file] == 3)
 
+        let producerSnapshot = await harness.session.producerSnapshot()
+
         // Assert
-        #expect((await harness.session.producerSnapshot()).activeProducerCount >= 2)
+        #expect(producerSnapshot.activeProducerCount >= 2)
         await heldProducer.release()
         let newerLease = try #require(newerRegistration.lease)
         try await closeProducer(oldLease, in: harness.session)

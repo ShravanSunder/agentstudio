@@ -533,7 +533,7 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.lastRebuiltAt
     }
 
-    var cacheRevision: Int {
+    package var cacheRevision: Int {
         enrichmentCacheAtom.cacheRevision
     }
 

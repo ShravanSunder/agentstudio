@@ -17,6 +17,9 @@ extension Ghostty.ActionRouter {
             )
             return true
         case .showChildExited:
+            // Abnormal exits return early when this action is handled, leaving the pane open for the
+            // Process Exited overlay. Ghostty also emits it for ordinary exits, which still close
+            // unless `wait_after_command` is enabled.
             scheduleChildExitedStartupTrace(
                 actionTag: rawActionTag,
                 target: target,

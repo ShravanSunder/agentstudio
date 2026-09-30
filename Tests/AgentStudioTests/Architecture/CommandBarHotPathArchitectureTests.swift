@@ -15,20 +15,15 @@ struct CommandBarHotPathArchitectureTests {
             encoding: .utf8
         )
 
-        let repoScopeItems = try #require(
+        let searchItems = try #require(
             source.slice(
-                from: "static func repoScopeItems(", to: "static func everythingWorktreeItems(")
-        )
-        let everythingWorktreeItems = try #require(
-            source.slice(
-                from: "static func everythingWorktreeItems(",
+                from: "static func searchableRepositoryAndWorktreeItems(",
                 to: "static func unifiedWorktreeItem(")
         )
 
-        #expect(repoScopeItems.contains("dispatcher: any AppCommandDispatching"))
-        #expect(repoScopeItems.contains("buildWorktreePresenceByWorktreeId(store: store)"))
-        #expect(everythingWorktreeItems.contains("buildWorktreePresenceByWorktreeId(store: store)"))
-        #expect(!everythingWorktreeItems.contains("buildWorktreePresence(worktree:"))
+        #expect(searchItems.contains("locationsByWorktreeId: worktreeLocationsByWorktreeId(store: store)"))
+        #expect(searchItems.contains("presenceByWorktreeId[worktree.id]"))
+        #expect(!searchItems.contains("buildWorktreePresence(worktree:"))
     }
 
     @Test("view and controller consume CommandBarResultSession instead of independent pipelines")
@@ -94,6 +89,21 @@ struct CommandBarHotPathArchitectureTests {
         )
 
         #expect(!source.contains("resolvingSymlinksInPath"))
+    }
+
+    @Test("command bar matching has one off-main service path")
+    func commandBarHasNoSynchronousMatcher() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourceDirectory = projectRoot.appending(path: "Sources/AgentStudio/Features/CommandBar")
+        let sourceFiles = try #require(
+            FileManager.default.enumerator(at: sourceDirectory, includingPropertiesForKeys: nil)
+        )
+        for case let sourceFile as URL in sourceFiles where sourceFile.pathExtension == "swift" {
+            #expect(sourceFile.lastPathComponent != "CommandBarItemSearch.swift")
+            let source = try String(contentsOf: sourceFile, encoding: .utf8)
+            #expect(!source.contains("FuzzySearch"))
+            #expect(!source.contains("CommandBarSearch.filter"))
+        }
     }
 }
 

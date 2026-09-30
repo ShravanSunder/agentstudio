@@ -137,4 +137,18 @@ extension AppCommand {
             helpText: "Show or merge the Pinned Panes section"
         )
     }
+
+    func togglePanesShowsDrawersDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            shortcut: .togglePanesShowsDrawers,
+            label: "Show Drawers",
+            icon: .system(.rectangleBottomhalfFilled),
+            helpText: "Show or hide drawer panes in the Panes sidebar",
+            surfacePolicy: .exposed([.commandBar, .inlineControl]),
+            targeting: .contextual,
+            commandBarGroupName: "Sidebar",
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar
+        )
+    }
 }

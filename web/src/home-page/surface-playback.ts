@@ -6,6 +6,8 @@
 export interface SurfacePlayback {
   readonly dispose: () => void;
   readonly synchronize: (progress: number, autoplayEnabled: boolean) => void;
+  readonly restart?: () => void;
+  readonly deactivate?: () => void;
 }
 
 export function combineSurfacePlaybacks(playbacks: readonly SurfacePlayback[]): SurfacePlayback {
@@ -19,6 +21,12 @@ export function combineSurfacePlaybacks(playbacks: readonly SurfacePlayback[]): 
       for (const playback of playbacks) {
         playback.synchronize(progress, autoplayEnabled);
       }
+    },
+    restart: (): void => {
+      for (const playback of playbacks) playback.restart?.();
+    },
+    deactivate: (): void => {
+      for (const playback of playbacks) playback.deactivate?.();
     },
   };
 }

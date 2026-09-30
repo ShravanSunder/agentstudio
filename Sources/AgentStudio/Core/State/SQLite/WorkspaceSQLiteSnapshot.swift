@@ -17,6 +17,8 @@ struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
     var windowFrame: CGRect?
     var createdAt: Date
     var updatedAt: Date
+    /// Local drawer presentation choices keyed by owning pane.
+    var drawerPresentationPreferences: [UUID: DrawerPresentationPreference]
 
     init(
         id: UUID,
@@ -27,7 +29,8 @@ struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
         sidebarWidth: CGFloat = 250,
         windowFrame: CGRect? = nil,
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        drawerPresentationPreferences: [UUID: DrawerPresentationPreference] = [:]
     ) {
         self.id = id
         self.name = name
@@ -38,6 +41,7 @@ struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
         self.windowFrame = windowFrame
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.drawerPresentationPreferences = drawerPresentationPreferences
     }
 
     func hasSameSQLiteRepresentation(as other: Self) -> Bool {
@@ -50,5 +54,6 @@ struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
             && windowFrame == other.windowFrame
             && createdAt.timeIntervalSince1970 == other.createdAt.timeIntervalSince1970
             && updatedAt.timeIntervalSince1970 == other.updatedAt.timeIntervalSince1970
+            && drawerPresentationPreferences == other.drawerPresentationPreferences
     }
 }

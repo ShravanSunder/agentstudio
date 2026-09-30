@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -221,8 +222,10 @@ private actor MetadataRetirementOwnershipProbe: BridgeProductMetadataLifecycleTr
 
     nonisolated let observations: AsyncStream<Observation>
     private let continuation: AsyncStream<Observation>.Continuation
-    private var failureCompletionRelease: CheckedContinuation<Void, Never>?
-    private var producerFailureRelease: CheckedContinuation<Void, Never>?
+    private let failureCompletionRelease = HeldStep<Void>(
+        "failed bootstrap reset completion", cancellation: .holdThroughCancellation)
+    private let producerFailureRelease = HeldStep<Void>(
+        "producer failure before reset", cancellation: .holdThroughCancellation)
     private var failedProducerFinishedWaiters:
         [CheckedContinuation<BridgeProductMetadataProducerFailureReason?, Never>] = []
     private var failedProducerFinished = false
@@ -262,15 +265,11 @@ private actor MetadataRetirementOwnershipProbe: BridgeProductMetadataLifecycleTr
 
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async {
         if holdBeforeReset, event.stage == .producerFailed {
-            await withCheckedContinuation { pending in
-                producerFailureRelease = pending
-                continuation.yield(.producerFailedBeforeReset)
-            }
+            continuation.yield(.producerFailedBeforeReset)
+            try? await producerFailureRelease.arrive(())
         } else if event.stage == .subscriptionResetEnqueued, !holdBeforeReset {
-            await withCheckedContinuation { pending in
-                failureCompletionRelease = pending
-                continuation.yield(.resetEnqueued)
-            }
+            continuation.yield(.resetEnqueued)
+            try? await failureCompletionRelease.arrive(())
         } else if event.stage == .bootstrapFinished, event.result == .failure {
             failedProducerReason = event.failureReason
             failedProducerFinished = true
@@ -284,13 +283,11 @@ private actor MetadataRetirementOwnershipProbe: BridgeProductMetadataLifecycleTr
     func record(_: BridgeProductReviewMetadataPublicationTraceEvent) {}
 
     func releaseFailureCompletion() {
-        failureCompletionRelease?.resume()
-        failureCompletionRelease = nil
+        failureCompletionRelease.release()
     }
 
     func releaseProducerFailure() {
-        producerFailureRelease?.resume()
-        producerFailureRelease = nil
+        producerFailureRelease.release()
     }
 
     func waitForFailedProducerReason() async -> BridgeProductMetadataProducerFailureReason? {

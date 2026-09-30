@@ -10,7 +10,7 @@ export const verifySiteHeaderScrollStability = defineBrowserCommand(
     const applicationPage = await context.newPage();
     try {
       await applicationPage.setViewportSize({ height: 844, width: 390 });
-      const response = await applicationPage.goto(pageUrl, { waitUntil: "networkidle" });
+      const response = await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
       if (response === null || !response.ok()) {
         throw new Error(
           `Header browser-test page failed to load: ${applicationPage.url()} (${String(response?.status())})`,
@@ -68,55 +68,47 @@ export const verifySiteHeaderScrollStability = defineBrowserCommand(
           attributes: true,
         });
 
-        const waitForStableHeaderState = async (
+        const awaitHeaderState = (
           expectedVisualState: SiteHeaderStableState["visualState"],
-          expectedScrollY: number,
-        ): Promise<void> => {
-          await new Promise<void>((resolveStable, rejectStable): void => {
-            let lastState = readStableState(elements);
-            let lastAnimationStates: readonly AnimationPlayState[] = [];
-            const timeout = pageWindow.setTimeout((): void => {
-              rejectStable(
-                new Error(
-                  `${expectedVisualState} header did not reach a stable state: ${JSON.stringify({
-                    animationStates: lastAnimationStates,
-                    expectedAnchorHeight: anchorHeight,
-                    expectedScrollY,
-                    lastState,
-                  })}`,
-                ),
-              );
-            }, 10_000);
-            const inspect = (): void => {
-              lastState = readStableState(elements);
-              lastAnimationStates = elements.header
-                .getAnimations()
-                .map((animation): AnimationPlayState => animation.playState);
-              if (
-                lastState.visualState === expectedVisualState &&
-                lastState.scrollY === expectedScrollY &&
-                lastState.anchorHeight === anchorHeight &&
-                lastAnimationStates.every((playState): boolean =>
-                  ["finished", "idle"].includes(playState),
-                )
-              ) {
-                pageWindow.clearTimeout(timeout);
-                resolveStable();
-                return;
-              }
-              pageWindow.requestAnimationFrame(inspect);
-            };
-            inspect();
+        ): Promise<void> =>
+          new Promise((resolve): void => {
+            const observer = new MutationObserver((): void => {
+              if (elements.header.dataset["visualState"] !== expectedVisualState) return;
+              observer.disconnect();
+              resolve();
+            });
+            observer.observe(elements.header, {
+              attributes: true,
+              attributeFilter: ["data-visual-state"],
+            });
+            if (elements.header.dataset["visualState"] === expectedVisualState) {
+              observer.disconnect();
+              resolve();
+            }
           });
+        const awaitHeaderAnimations = async (): Promise<void> => {
+          await Promise.all(
+            elements.header.getAnimations({ subtree: true }).map(async (animation) => {
+              await animation.finished;
+            }),
+          );
         };
 
+        const floatingState = awaitHeaderState("floating");
         pageWindow.scrollTo(0, 33);
-        await waitForStableHeaderState("floating", 33);
+        await floatingState;
+        await awaitHeaderAnimations();
         const floating = readStableState(elements);
+        if (floating.scrollY !== 33 || floating.anchorHeight !== anchorHeight)
+          throw new Error("Floating header layout changed during scroll");
 
+        const restingState = awaitHeaderState("resting");
         pageWindow.scrollTo(0, 0);
-        await waitForStableHeaderState("resting", 0);
+        await restingState;
+        await awaitHeaderAnimations();
         const resting = readStableState(elements);
+        if (resting.scrollY !== 0 || resting.anchorHeight !== anchorHeight)
+          throw new Error("Resting header layout changed during scroll");
         stateObserver.disconnect();
 
         return {

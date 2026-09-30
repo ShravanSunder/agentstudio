@@ -1,4 +1,6 @@
+import AgentStudioTestSupport
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudioCore
@@ -7,6 +9,52 @@ import Testing
 @MainActor
 @Suite("Repository topology store", .serialized)
 struct RepositoryTopologyStoreTests {
+    @Test("sustained topology changes still autosave")
+    func sustainedTopologyChangesStillAutosave() async throws {
+        let workspaceId = UUIDv7.generate()
+        let localFixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let coreDatabase = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(coreDatabase)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreDatabase),
+            preparedApplicationLocalRepository: localFixture.repository
+        )
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let clock = TestPushClock()
+        let savedRepositoryCounts = ValueObservation.tracking { database in
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM repo") ?? 0
+        }.values(in: coreDatabase)
+        var savedRepositoryIterator = savedRepositoryCounts.makeAsyncIterator()
+        #expect(try await savedRepositoryIterator.next() == 0)
+        let store = RepositoryTopologyStore(
+            atom: atom,
+            sqliteDatastore: datastore,
+            persistDebounceDuration: .milliseconds(10),
+            persistMaximumDelay: .milliseconds(50),
+            clock: clock
+        )
+        let repository = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/autosave-max-delay-repository"))
+        store.startObserving()
+
+        for changeIndex in 0..<9 {
+            let nextSleepGeneration = clock.scheduledSleepGeneration
+            coordinator.setRepoPinned(repository.id, isPinned: changeIndex.isMultiple(of: 2))
+            if changeIndex == 0 {
+                await clock.waitForPendingSleepCount(exactly: 2)
+            }
+            await clock.waitForPendingSleepGeneration(nextSleepGeneration)
+            clock.advance(by: .milliseconds(6))
+        }
+
+        #expect(try await savedRepositoryIterator.next() == 1)
+        guard case .loaded(let persisted) = await datastore.loadRepositoryTopologySnapshot() else {
+            Issue.record("expected persisted topology")
+            return
+        }
+        #expect(persisted.repos.map(\.id) == [repository.id])
+    }
+
     @Test("timed absence survives unrelated topology saves and restore")
     func timedAbsenceSurvivesTopologyRoundTrip() async throws {
         let directory = FileManager.default.temporaryDirectory

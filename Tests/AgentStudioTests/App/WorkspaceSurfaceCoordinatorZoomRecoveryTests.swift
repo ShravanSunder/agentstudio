@@ -80,12 +80,13 @@ extension WebKitSerializedTests {
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
             // Assert
+            // Retiring the companion changes viewer availability but preserves the split ratio.
             #expect(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)
                     == ZoomPresentation(
                         sourcePaneId: sourcePane.id,
                         viewerPresentation: .retryable,
-                        transientSplitRatio: nil
+                        transientSplitRatio: 0.4
                     )
             )
             #expect(
@@ -250,12 +251,13 @@ extension WebKitSerializedTests {
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
             // Assert
+            // The source terminal remains in Zoom, so its default split ratio stays attached.
             #expect(
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)
                     == ZoomPresentation(
                         sourcePaneId: sourcePane.id,
                         viewerPresentation: .unavailableVisible,
-                        transientSplitRatio: nil
+                        transientSplitRatio: 0.4
                     )
             )
             #expect(

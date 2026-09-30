@@ -38,10 +38,7 @@ final class TabContextMenuPresenter: NSObject {
         let menu = makeEmptyMenu()
 
         addCommand(.renameTab, whenPresentedIn: presentedCommands, to: menu, canDispatchCommand, onCommand)
-        addCommand(.closeTab, whenPresentedIn: presentedCommands, to: menu, canDispatchCommand, onCommand) {
-            $0.keyEquivalent = "w"
-            $0.keyEquivalentModifierMask = .command
-        }
+        addCommand(.closeTab, whenPresentedIn: presentedCommands, to: menu, canDispatchCommand, onCommand)
         addCommand(.breakUpTab, whenPresentedIn: presentedCommands, to: menu, canDispatchCommand, onCommand)
 
         menu.addItem(.separator())

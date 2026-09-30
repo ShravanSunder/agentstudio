@@ -273,8 +273,8 @@ struct BridgeProductViewAcknowledgementDeadlineTests {
             .subscriptionOpened(subscription),
             productAdmission: harness.productAdmission.context
         )
-        #expect(await fileSource.waitUntilOpened() == view.subscriptionId)
-        #expect(await fileSource.waitForCaptureCount(1) == 1)
+        #expect(try await fileSource.waitUntilOpened() == view.subscriptionId)
+        #expect(try await fileSource.waitForCaptureCount(1) == 1)
         guard
             case .batch(.begin(let initial)) = try await nextDeadlineTestViewFrame(
                 harness: harness, lease: lease
@@ -287,8 +287,8 @@ struct BridgeProductViewAcknowledgementDeadlineTests {
         #expect(try await nextDeadlineTestViewFrame(harness: harness, lease: lease).kind == "subscription.batchPart")
         await clock.waitForPendingSleepCount(atLeast: 1)
         clock.advance(by: AppPolicies.Bridge.productViewAcknowledgementDeadline)
-        #expect(await fileSource.waitForDemandCount(2) == 2)
-        #expect(await fileSource.waitForCaptureCount(2) == 2)
+        #expect(try await fileSource.waitForDemandCount(2) == 2)
+        #expect(try await fileSource.waitForCaptureCount(2) == 2)
 
         var recaptured: BridgeProductBatchBeginFrame?
         while recaptured == nil {
@@ -341,26 +341,27 @@ private struct DeadlineTestView {
 
 private actor DeadlineFileMetadataSource: BridgePaneProductFileMetadataProducing {
     private var activeSubscriptionIds: Set<String> = []
-    private var openedWaiters: [CheckedContinuation<String, Never>] = []
-    private var demandWaiters: [(count: Int, continuation: CheckedContinuation<Int, Never>)] = []
-    private var captureWaiters: [(count: Int, continuation: CheckedContinuation<Int, Never>)] = []
+    private let opened = HeldStep<String>("deadline File source opened")
+    private let demands = FactRecorder<Int, Int>(
+        vocabulary: .init(
+            describeScope: { "File demand \($0)" }, describeFact: { "demand \($0)" }, isClosing: { _, _ in false }))
+    private let captures = FactRecorder<Int, Int>(
+        vocabulary: .init(
+            describeScope: { "File capture \($0)" }, describeFact: { "capture \($0)" }, isClosing: { _, _ in false }))
     private var demandCount = 0
     private var captureCount = 0
     private(set) var openCount = 0
 
-    func waitUntilOpened() async -> String {
-        if let openedSubscriptionId = activeSubscriptionIds.first { return openedSubscriptionId }
-        return await withCheckedContinuation { openedWaiters.append($0) }
-    }
+    func waitUntilOpened() async throws -> String { try await opened.firstArrival() }
 
-    func waitForDemandCount(_ count: Int) async -> Int {
+    func waitForDemandCount(_ count: Int) async throws -> Int {
         if demandCount >= count { return demandCount }
-        return await withCheckedContinuation { demandWaiters.append((count, $0)) }
+        return try await demands.expectNext(in: count, where: { $0 == count }, "File demands count \(count)")
     }
 
-    func waitForCaptureCount(_ count: Int) async -> Int {
+    func waitForCaptureCount(_ count: Int) async throws -> Int {
         if captureCount >= count { return captureCount }
-        return await withCheckedContinuation { captureWaiters.append((count, $0)) }
+        return try await captures.expectNext(in: count, where: { $0 == count }, "File captures count \(count)")
     }
 
     func currentSource() -> BridgeProductFileSourceCurrentResult {
@@ -375,9 +376,8 @@ private actor DeadlineFileMetadataSource: BridgePaneProductFileMetadataProducing
     ) async throws {
         openCount += 1
         activeSubscriptionIds.insert(subscription.subscriptionId)
-        let waiters = openedWaiters
-        openedWaiters.removeAll()
-        for waiter in waiters { waiter.resume(returning: subscription.subscriptionId) }
+        opened.release()
+        try await opened.arrive(subscription.subscriptionId)
     }
 
     func applyViewDemand(
@@ -390,9 +390,7 @@ private actor DeadlineFileMetadataSource: BridgePaneProductFileMetadataProducing
     ) async throws {
         guard activeSubscriptionIds.contains(subscriptionId) else { return }
         demandCount += 1
-        let ready = demandWaiters.filter { demandCount >= $0.count }
-        demandWaiters.removeAll { demandCount >= $0.count }
-        for waiter in ready { waiter.continuation.resume(returning: demandCount) }
+        demands.append(scope: demandCount, fact: demandCount)
     }
 
     func captureKeyedSnapshot(
@@ -411,9 +409,7 @@ private actor DeadlineFileMetadataSource: BridgePaneProductFileMetadataProducing
             )
         else { return nil }
         captureCount += 1
-        let ready = captureWaiters.filter { captureCount >= $0.count }
-        captureWaiters.removeAll { captureCount >= $0.count }
-        for waiter in ready { waiter.continuation.resume(returning: captureCount) }
+        captures.append(scope: captureCount, fact: captureCount)
         let path = "Captured.swift"
         return .init(
             memberStatus: .init(record: .init(source: source), revision: captureCount),
