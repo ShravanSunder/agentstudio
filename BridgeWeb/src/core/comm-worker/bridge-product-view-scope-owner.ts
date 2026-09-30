@@ -14,6 +14,7 @@ interface DesiredView {
 	readonly incarnation: string;
 	resnapshotInFlight: Promise<void> | null;
 	resnapshotRequested: boolean;
+	awaitingBegin: boolean;
 	clearReplacementBeginDeadline: (() => void) | null;
 	replacementBeginDeadlineGeneration: number;
 	readonly subscriptionId: string;
@@ -98,6 +99,7 @@ export class BridgeProductViewScopeOwner {
 			incarnation: this.#createIdentifier(),
 			resnapshotInFlight: null,
 			resnapshotRequested: false,
+			awaitingBegin: false,
 			clearReplacementBeginDeadline: null,
 			replacementBeginDeadlineGeneration: 0,
 			scopeRevision: 0,
@@ -124,6 +126,7 @@ export class BridgeProductViewScopeOwner {
 		view.resnapshotInFlight = null;
 		view.resnapshotRequested = false;
 		this.#clearReplacementBeginDeadline(view);
+		view.awaitingBegin = true;
 		const scopeRevision = view.scopeRevision;
 		const admission = new AbortController();
 		view.currentAdmission = admission;
@@ -141,11 +144,19 @@ export class BridgeProductViewScopeOwner {
 				subscriptionId: view.subscriptionId,
 				subscriptionKind: view.subscriptionKind,
 			});
-			return view.scopeRevision === scopeRevision && !admission.signal.aborted
-				? { kind: 'accepted', scopeRevision }
-				: { kind: 'cancelled' };
+			if (view.scopeRevision !== scopeRevision) return { kind: 'cancelled' };
+			if (admission.signal.aborted) {
+				view.awaitingBegin = false;
+				return { kind: 'cancelled' };
+			}
+			if (view.awaitingBegin) this.#armReplacementBeginDeadline(view, 'default');
+			return { kind: 'accepted', scopeRevision };
 		} catch (error) {
-			if (admission.signal.aborted) return { kind: 'cancelled' };
+			if (admission.signal.aborted) {
+				if (view.scopeRevision === scopeRevision) view.awaitingBegin = false;
+				return { kind: 'cancelled' };
+			}
+			if (view.scopeRevision === scopeRevision) view.awaitingBegin = false;
 			throw error;
 		} finally {
 			props.signal?.removeEventListener('abort', abortAdmission);
@@ -170,6 +181,8 @@ export class BridgeProductViewScopeOwner {
 		const view = this.#matchingView(request);
 		if (view === undefined) return Promise.resolve();
 		if (view.consecutiveResnapshots >= this.#maximumConsecutiveResnapshots) {
+			this.#clearReplacementBeginDeadline(view);
+			view.awaitingBegin = false;
 			this.#emitRecoveryStatus(view, 'failedRetryable');
 			return Promise.resolve();
 		}
@@ -177,6 +190,8 @@ export class BridgeProductViewScopeOwner {
 		if (view.resnapshotRequested) return Promise.resolve();
 		view.consecutiveResnapshots += 1;
 		view.resnapshotRequested = true;
+		view.awaitingBegin = false;
+		this.#clearReplacementBeginDeadline(view);
 		this.#emitRecoveryStatus(view, 'recovering');
 		try {
 			const admission = this.#controlMux.resnapshotView(request);
@@ -184,7 +199,10 @@ export class BridgeProductViewScopeOwner {
 				(): void => {
 					if (view.resnapshotInFlight === inFlight) {
 						view.resnapshotInFlight = null;
-						if (view.resnapshotRequested) this.#armReplacementBeginDeadline(view, request.domain);
+						if (view.resnapshotRequested) {
+							view.awaitingBegin = true;
+							this.#armReplacementBeginDeadline(view, request.domain);
+						}
 					}
 				},
 				(error: unknown): never => {
@@ -209,6 +227,7 @@ export class BridgeProductViewScopeOwner {
 		const view = this.#matchingView(identity);
 		if (view === undefined) return;
 		this.#clearReplacementBeginDeadline(view);
+		view.awaitingBegin = false;
 		if (view.resnapshotRequested) {
 			view.resnapshotRequested = false;
 			return;
@@ -227,7 +246,10 @@ export class BridgeProductViewScopeOwner {
 				? candidate
 				: undefined;
 		if (view === undefined) return;
-		this.#clearReplacementBeginDeadline(view);
+		if (identity.scopeRevision >= view.scopeRevision) {
+			this.#clearReplacementBeginDeadline(view);
+			view.awaitingBegin = false;
+		}
 		view.consecutiveResnapshots = 0;
 		view.resnapshotRequested = false;
 		this.#emitRecoveryStatus(view, 'ready');
@@ -246,6 +268,7 @@ export class BridgeProductViewScopeOwner {
 		for (const view of this.#views.values()) {
 			if (view.subscriptionKind !== kind) continue;
 			this.#clearReplacementBeginDeadline(view);
+			view.awaitingBegin = false;
 			view.consecutiveResnapshots = this.#maximumConsecutiveResnapshots;
 			view.resnapshotRequested = false;
 			this.#emitRecoveryStatus(view, 'failedRetryable');
@@ -258,6 +281,7 @@ export class BridgeProductViewScopeOwner {
 		await view.resnapshotInFlight?.catch((): void => {});
 		if (this.#views.get(subscriptionId) !== view) return;
 		this.#clearReplacementBeginDeadline(view);
+		view.awaitingBegin = false;
 		view.consecutiveResnapshots = 0;
 		view.resnapshotRequested = false;
 		this.#emitRecoveryStatus(view, 'recovering');
@@ -273,10 +297,11 @@ export class BridgeProductViewScopeOwner {
 				if (
 					this.#views.get(view.subscriptionId) !== view ||
 					view.replacementBeginDeadlineGeneration !== generation ||
-					!view.resnapshotRequested
+					!view.awaitingBegin
 				)
 					return;
 				this.#clearReplacementBeginDeadline(view);
+				view.awaitingBegin = false;
 				view.resnapshotRequested = false;
 				void this.resnapshot(view.subscriptionId, domain).catch((): void => {});
 			},
