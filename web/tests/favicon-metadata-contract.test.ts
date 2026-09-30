@@ -172,6 +172,9 @@ describe("site discovery metadata", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toMatch(/^text\/plain\b/u);
     const text = await response.text();
+    expect(await readFile(resolve(productionOutputDirectory, "public", "llms.txt"), "utf8")).toBe(
+      text,
+    );
     const commands = text.match(/```sh\n([\s\S]*?)\n```/u)?.[1];
     expect(commands).toBe(marketingCopy.installation.commands.join("\n"));
     const html = await (await fetch(previewOrigin)).text();
