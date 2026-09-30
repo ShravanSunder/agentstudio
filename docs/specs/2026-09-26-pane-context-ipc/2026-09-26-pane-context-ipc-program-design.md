@@ -1,6 +1,12 @@
 # Enable pane agents: how it is built
 
-Date: 2026-09-30. **Revision 16** (advisor's rev-14 check, five findings plus A1/A2, all accepted after the Lead verified the anchors):
+Date: 2026-09-30. **Revision 17** (advisor rev-16 verification):
+- F1: the last zero-main-actor claims are corrected (the person-action row and the proof boundary).
+- F4: the old producer paragraph is replaced.
+- A1: a fold needs exactly one open prompt with identical `questions`.
+- A2: a no-id elicitation result never resolves; prompts wait for the turn boundary.
+
+**Revision 16** (advisor's rev-14 check, five findings plus A1/A2, all accepted after the Lead verified the anchors):
 - F1: the main-actor list now names the inherited authentication hop and the native person-action effects.
 - F2: the equality baseline is the last *desired* value, and removal joins the lane.
 - F3: the pane-keyed status keeps an ended binding's value.
@@ -306,7 +312,7 @@ installed provider version (Spec R6).
 | failed(summary) | **`StopFailure`** (PR B). The summary is its `error` category; the trace shows `"error":"authentication_failed"` | not in hooks (app-server only), so it stays unknown |
 | provider prompt, approval (S13) | `PermissionRequest` (installed; report-only) opens it. It carries `tool_name`/`tool_input` but no `tool_use_id`, so no completion can be proved to be its own. It resolves at the turn boundary (`Stop`, `StopFailure`, `UserPromptSubmit`) or session end, whether you allowed or denied it in the terminal | `PermissionRequest` (installed; report-only) opens it. The same rule: it resolves at a turn boundary (`Stop`, `UserPromptSubmit`) or session end |
 | provider prompt, question (S13) | **`PreToolUse` with `tool_name == "AskUserQuestion"`** (PR B decodes `tool_name`, `tool_use_id`, question and choices) opens it; that tool's `PostToolUse` resolves it | not in hooks (app-server `requestUserInput` only) |
-| provider prompt, MCP form (S13) | **`Elicitation`** opens it (`mcp_server_name`, `message`, `mode`, `requested_schema`), and **`ElicitationResult`** resolves it (`action`, `content`). The 2.1.286 trace carries **no `elicitation_id`** on either event. A result resolves a prompt only when exactly one elicitation from that server is open; otherwise nothing resolves until a turn boundary. The traces don't establish FIFO (rev 16, A2) | none |
+| provider prompt, MCP form (S13) | **`Elicitation`** opens it (`mcp_server_name`, `message`, `mode`, `requested_schema`), and **`ElicitationResult`** resolves it (`action`, `content`). The 2.1.286 trace carries **no `elicitation_id`** on either event. A no-id result resolves nothing, and prompts without an id resolve at a turn boundary or session end. That's the conservative R3a rule: a lost opening makes any attribution unprovable (rev 17, A2) | none |
 | `Notification` | not a status input. Its `agent_needs_input` type covers only background agent-view sessions and one setup question, not a foreground blocked agent. | none |
 | agent ask | the session's own open `ask` from `agentstudio` (PR B) | same |
 
@@ -557,10 +563,10 @@ struct SessionStatusState: Sendable, Equatable {
 | sessionStart | new state `.bound(g)`; the replaced session gets `.replaced`, its prompts end | recomputed for both |
 | UserPromptSubmit | `turn = .working`; a turn boundary: resolves every open prompt | WORKING unless NEEDS YOU |
 | PreToolUse, SubagentStart/Stop | `turn = .working`; resolves **no** prompt (a parallel tool is not an answer) | WORKING unless NEEDS YOU |
-| PermissionRequest | if `tool_name == "AskUserQuestion"` (rev 16, A1): it **folds into** an open AskUserQuestion prompt from the same turn when one exists; it never opens an approval prompt. If no such prompt was admitted (for example, the PreToolUse delivery failed), it opens a **question** prompt keyed `permission(sequence)`, resolved only at a turn boundary or session end, never by some other call's completion. Otherwise it opens an approval prompt, keyed `permission(sequence)`. It has no `tool_use_id`, and no reliable causal link to one call exists, so it's never tied to a tool call. It resolves only at a turn boundary or session end. | NEEDS YOU(approval), or NEEDS YOU(question) for AskUserQuestion |
+| PermissionRequest | if `tool_name == "AskUserQuestion"` (rev 17, A1): it **folds into** an open AskUserQuestion prompt of the same turn only when exactly one such prompt has an identical `tool_input.questions` and hasn't already absorbed a permission. It never opens an approval prompt. Otherwise, whether PreToolUse was lost, a different question was asked, or two prompts are identical, it opens a **question** prompt keyed `permission(sequence)`. That prompt resolves only at a turn boundary or session end, never by some other call's completion. Any other PermissionRequest opens an approval prompt keyed `permission(sequence)`. It has no `tool_use_id`, and no reliable causal link to one call exists, so it's never tied to a tool call. It resolves only at a turn boundary or session end. | NEEDS YOU(approval), or NEEDS YOU(question) for AskUserQuestion |
 | AskUserQuestion `PreToolUse`, Elicitation | opens a question prompt keyed by `toolCall(id)` or `elicitation(id)` | NEEDS YOU(question) |
 | PostToolUse / PostToolUseFailure | resolves the `toolCall(tool_use_id)` prompt (an AskUserQuestion) with this id, if open. It never resolves a permission prompt. | recomputed |
-| ElicitationResult | resolves `elicitation(elicitation_id)` when an id is present. With no id (the 2.1.286 trace), it resolves a prompt only when **exactly one** elicitation from that MCP server is open in the session. With two or more open, the result is ambiguous and resolves nothing; those prompts wait for a turn boundary or session end (R3a). No FIFO is assumed | recomputed |
+| ElicitationResult | resolves `elicitation(elicitation_id)` **only when an id is present**. With no id (the 2.1.286 trace), a result resolves nothing, because it can't prove which request it answers: that request's opening may have been lost. Elicitation prompts without an id resolve at a turn boundary or session end (R3a). What that costs: after the person answers an MCP form, the pane stays NEEDS YOU(question) until the turn ends, the same honest cost as report-only permissions | recomputed |
 | Stop | `turn = .done(at)`, `seenAfterDone = false`; a turn boundary: resolves every open prompt (a denied tool fires no failure event, and its turn then stops) | IDLE(done), then IDLE(ready) once seen |
 | StopFailure | `turn = .failed(category)`; a turn boundary: resolves every open prompt | FAILED |
 | Codex Interrupt | `turn = .interrupted(at)` | IDLE(interrupted) |
@@ -594,10 +600,12 @@ delayed older summary can't republish NEEDS YOU after the ask resolved. On
 Sessions' lazy open it asks once for `openAskSummaries()` (each with its
 sequence) and joins them the same way.
 
-**Pane viewed** comes from where focus lands on a terminal pane,
-`PaneFocusExecutor.syncTerminalRuntimeFocus(for:)`. That site makes one
-`nonisolated` mailbox submit into Sessions, a lock and a dictionary write, and
-Sessions decides done → ready off-main (rev 14; see "MainActor and atom boundaries").
+**Pane viewed** comes from the point where a **person-initiated** focus has been
+applied successfully (`PaneTabViewController`'s focus path, after
+`paneFocusExecutor.apply` returns true), drawer-child selection included. That
+point makes one `nonisolated` submit into Sessions, `(paneId, viewedAt)`. Sessions
+applies it only to a `done` admitted before `viewedAt` (rev 16; see "MainActor and
+atom boundaries", item 5).
 
 ## Keeping displayed values current
 
@@ -902,7 +910,7 @@ Nothing else. No PR B handler, write, read, deadline or reduction runs on the ma
 | Per-pane session status | latest-state projection | computed by the Sessions reducer after each input | the publication lane below |
 | Pull-request summary | latest-state projection | `PullRequestSummaryFold` in the service, on a Forge fact change | a pure fold; an equal result publishes nothing |
 | `readDetail` and `pane.context.get` | query | service actor | returns a value; nothing is kept in an atom |
-| Person actions | intent with a typed result | service actor | the caller awaits; the main actor only resumes |
+| Person actions | intent with a typed result | the decision and the record run on the service actor | the caller awaits. The native effect (`goToPane` focus, the `openPullRequest` opener) is one thin call on its existing main-actor owner (item 3 above) |
 
 ### The publication lane (one shape, used twice)
 
@@ -944,7 +952,7 @@ Two shapes are deliberately not used:
 
 - **Class `often`:** a busy agent can write its Agent Line or cross status transitions more than 10 times a minute. Hook traffic itself is higher, but step 1 turns it into rare publications.
 - **Telemetry (Per-Stage Outcome Telemetry)** for `pane_context.presentation_apply` and `sessions.status_apply`: the computed count, the equal-suppressed count, the coalesced count, the batch size, and main-actor held time (total and max per batch).
-- **Proof:** a marker-scoped trace with 15–20 active panes (agents writing lines and asks, hooks flowing). It must show main-actor held time per batch under 1 ms, the `heavy` threshold, and zero main-actor time on the IPC, hook and deadline paths, and only the O(1) submit on the pane-viewed path. The CLI's `cli.call_total_ms` is measured separately.
+- **Proof:** a marker-scoped trace with 15–20 active panes (agents writing lines and asks, hooks flowing). It must show main-actor held time per batch under 1 ms, the `heavy` threshold, with main-actor occupancy measured separately from await time. Allowed on the main actor: the inherited authentication revalidation hop per authenticated request (until the membership decision, Gaps item 6), the O(1) pane-viewed and retirement submits, and the thin native person-action effects. No PR B handler, write, read, deadline or reduction may run there. The CLI's `cli.call_total_ms` is measured separately.
 
 ## Call paths
 
