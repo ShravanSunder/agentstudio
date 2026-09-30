@@ -15,6 +15,7 @@ import {
   type SceneTimeline,
 } from "../motion-scenes/scene-contract";
 import { resolveSceneModule } from "../motion-scenes/scene-registry";
+import { createDeferredProofVideo } from "./deferred-proof-video";
 import { findSceneProofLayer, type SceneProofTransition } from "./scene-proof-layer";
 import { publishSceneStepTiming } from "./scene-step-timing-publisher";
 import { combineSurfacePlaybacks, type SurfacePlayback } from "./surface-playback";
@@ -109,6 +110,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   const motionPreference = window.matchMedia(reducedMotionQuery);
   const toggle = surface.querySelector<HTMLButtonElement>(scenePlaybackToggleSelector);
   const proofVideo = surface.querySelector<HTMLVideoElement>("[data-scene-proof-video]");
+  const deferredVideo = createDeferredProofVideo(proofVideo);
   const proofLayer = findSceneProofLayer(surface, sceneRoot);
   const lifecycle = new AbortController();
   const state: ScenePlaybackState = {
@@ -171,6 +173,9 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
       state.proofVideoEnded
     )
       return;
+    deferredVideo.prime();
+    // A loading source holds the poster; canplay resumes this same proof beat.
+    if (proofVideo.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
     automaticVideoPlayPending = true;
     void proofVideo.play().catch(endFailedProofBeat);
   };
@@ -412,6 +417,19 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     { signal: lifecycle.signal },
   );
   proofVideo?.addEventListener("loadedmetadata", publishStepTiming, { signal: lifecycle.signal });
+  proofVideo?.addEventListener(
+    "canplay",
+    (): void => {
+      if (
+        state.awaitingReplay &&
+        state.autoplayEnabled &&
+        state.latestProgress >= startProgress &&
+        motionAllowed()
+      )
+        playProofVideoAutomatically();
+    },
+    { signal: lifecycle.signal },
+  );
   proofVideo?.addEventListener("error", endFailedProofBeat, { signal: lifecycle.signal });
   proofVideo?.addEventListener(
     "ended",
@@ -546,6 +564,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
       }
     },
     dispose: (): void => {
+      deferredVideo.dispose();
       lifecycle.abort();
       activeStepPreview?.remove();
       settle();

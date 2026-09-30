@@ -538,6 +538,7 @@ describe("scene playback", () => {
     proof.innerHTML = "<video data-scene-proof-video controls muted playsinline></video>";
     const video = proof.querySelector("video");
     if (!(video instanceof HTMLVideoElement)) throw new Error("Proof video is missing");
+    Object.defineProperty(video, "readyState", { configurable: true, value: 3 });
     let videoPaused = true;
     Object.defineProperty(video, "paused", { configurable: true, get: (): boolean => videoPaused });
     Object.defineProperty(video, "duration", { configurable: true, get: (): number => 5 });
@@ -585,6 +586,7 @@ describe("scene playback", () => {
     proof.innerHTML = "<video data-scene-proof-video controls muted playsinline></video>";
     const video = proof.querySelector("video");
     if (!(video instanceof HTMLVideoElement)) throw new Error("Proof video is missing");
+    Object.defineProperty(video, "readyState", { configurable: true, value: 3 });
     vi.spyOn(video, "play").mockImplementation(() =>
       failure === "rejected-play" ? Promise.reject(new Error("decode failed")) : Promise.resolve(),
     );
@@ -611,6 +613,7 @@ describe("scene playback", () => {
       "<video data-scene-proof-video controls muted playsinline></video>";
     const video = scene.surface.querySelector("video");
     if (!(video instanceof HTMLVideoElement)) throw new Error("Proof video is missing");
+    Object.defineProperty(video, "readyState", { configurable: true, value: 3 });
     let paused = true;
     Object.defineProperty(video, "paused", { configurable: true, get: () => paused });
     vi.spyOn(video, "play").mockImplementation(() => {
