@@ -174,6 +174,11 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     )
       return;
     deferredVideo.prime();
+    // Near-view loading can fail before the scene hands over to its proof.
+    if (proofVideo.error !== null) {
+      endFailedProofBeat();
+      return;
+    }
     // A loading source holds the poster; canplay resumes this same proof beat.
     if (proofVideo.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
     automaticVideoPlayPending = true;
