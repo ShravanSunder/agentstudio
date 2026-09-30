@@ -25,7 +25,7 @@ struct CLIStoreTests {
             #expect(UUIDv7.isV7(first.identity.storeID))
             #expect(first.identity == second.identity)
             #expect(first.identity.channel == .debug)
-            try first.databaseQueue.read { database in
+            try first.databaseQueue.read { database throws in
                 #expect(try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_store_identity") == 1)
                 #expect(try database.tableExists("cli_outbox"))
                 #expect(
@@ -42,15 +42,15 @@ struct CLIStoreTests {
             defer { fixture.remove() }
             let store = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
 
-            try store.databaseQueue.read { database in
+            try store.databaseQueue.read { database throws in
                 for table in ["cli_store_identity", "cli_outbox"] {
                     let types = try String.fetchAll(
                         database, sql: "SELECT type FROM pragma_table_info(?)", arguments: [table])
                     #expect(!types.isEmpty)
                     #expect(types.allSatisfy { $0 == "TEXT" || $0 == "INTEGER" })
-                    let schema = try #require(
-                        String.fetchOne(
-                            database, sql: "SELECT sql FROM sqlite_master WHERE name = ?", arguments: [table]))
+                    let storedSchema = try String.fetchOne(
+                        database, sql: "SELECT sql FROM sqlite_master WHERE name = ?", arguments: [table])
+                    let schema = try #require(storedSchema)
                     #expect(!schema.uppercased().contains("CHECK"))
                     #expect(!schema.uppercased().contains("REFERENCES"))
                 }
@@ -69,7 +69,7 @@ struct CLIStoreTests {
             let reader = try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug).get()
 
             for store in [writer, reader] {
-                try store.databaseQueue.read { database in
+                try store.databaseQueue.read { database throws in
                     #expect(try String.fetchOne(database, sql: "PRAGMA journal_mode") == "wal")
                     #expect(try Int.fetchOne(database, sql: "PRAGMA busy_timeout") == 50)
                 }
@@ -85,13 +85,14 @@ struct CLIStoreTests {
             let previous = try DatabaseQueue(path: fixture.databaseURL.path)
             let migrator = CLIStoreMigrator.makeMigrator(channel: .beta)
             try migrator.migrate(previous, upTo: CLIStoreMigrator.identityMigration)
-            let originalIdentity = try previous.read { database in
-                try #require(String.fetchOne(database, sql: "SELECT store_id FROM cli_store_identity"))
+            let storedIdentity = try previous.read { database in
+                try String.fetchOne(database, sql: "SELECT store_id FROM cli_store_identity")
             }
+            let originalIdentity = try #require(storedIdentity)
 
             let reader = try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .beta).get()
             #expect(try reader.readOutbox(after: 0).get().entries.isEmpty)
-            try previous.read { database in
+            try previous.read { database throws in
                 #expect(try migrator.appliedMigrations(database) == [CLIStoreMigrator.identityMigration])
                 #expect(try !database.tableExists("cli_outbox"))
             }
