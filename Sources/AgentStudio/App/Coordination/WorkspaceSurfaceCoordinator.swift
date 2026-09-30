@@ -33,6 +33,20 @@ protocol WorkspaceSurfaceManaging: AnyObject {
     func reconcileAttachedVisibility(
         _ visibilityForPaneID: (UUID) -> Bool
     ) -> SurfaceVisibilityReconciliationResult
+
+    /// SR5; Program Design item 3: records that a cold restore's attach
+    /// process ended before handoff was confirmed, so the pane's overlay
+    /// shows the specific restore-start reason instead of the generic
+    /// "Process Exited" copy. A no-op for a pane with no attached surface
+    /// (the pane may have retired before this observation settled).
+    func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure)
+}
+
+/// Default no-op: only `SurfaceManager` needs the real implementation. This
+/// keeps the ~25 test fakes conforming to `WorkspaceSurfaceManaging`
+/// unchanged rather than forcing a stub into every one of them.
+extension WorkspaceSurfaceManaging {
+    func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure) {}
 }
 
 extension SurfaceManager: WorkspaceSurfaceManaging {}

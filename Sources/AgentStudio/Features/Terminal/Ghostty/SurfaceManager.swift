@@ -593,6 +593,16 @@ package final class SurfaceManager {
         surfaceHealth[id] ?? .dead
     }
 
+    /// SR5; Program Design item 3 (`WorkspaceSurfaceManaging`'s doc comment
+    /// carries the full rationale). A no-op if the pane retired before this
+    /// observation settled, or if the pane's surface is already showing a
+    /// terminal health state the periodic reconciliation itself would not
+    /// downgrade (`checkSurfaceHealth`'s widened guard covers this one back).
+    func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure) {
+        guard let surfaceId = surfaceId(forPaneId: paneID) else { return }
+        updateHealth(surfaceId, .unhealthy(reason: .coldRestoreFailed(failure)))
+    }
+
     /// Get current working directory for a surface
     func cwd(for id: UUID) -> URL? {
         metadata(for: id)?.cwd
@@ -797,9 +807,15 @@ extension SurfaceManager {
 
         // Check if process exited
         if ghostty_surface_process_exited(surface) {
-            if case .processExited = surfaceHealth[id] {
-                // Already in exited state
-            } else {
+            switch surfaceHealth[id] {
+            case .processExited:
+                break  // Already in exited state.
+            case .unhealthy(reason: .coldRestoreFailed):
+                // The specific restore-start reason already explains this
+                // exit; the generic "Process Exited" copy would only
+                // overwrite it on this poll's next tick.
+                break
+            default:
                 updateHealth(id, .processExited(exitCode: nil))
             }
             return

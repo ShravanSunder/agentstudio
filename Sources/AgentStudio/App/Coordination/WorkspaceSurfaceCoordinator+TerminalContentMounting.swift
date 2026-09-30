@@ -234,6 +234,7 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             RestoreTrace.log("coldStart handedOff pane=\(paneID)")
         case .failed(let failure):
             RestoreTrace.log("coldStart failed pane=\(paneID) failure=\(failure)")
+            surfaceManager.reportColdRestoreFailure(paneID: paneID, failure: failure)
         case .unobservable(let reason):
             RestoreTrace.log("coldStart unobservable pane=\(paneID) reason=\(reason)")
         }
