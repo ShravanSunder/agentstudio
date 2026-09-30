@@ -296,6 +296,49 @@ struct BridgeProductSessionProducerOwnershipTests {
             ) == nil
         )
     }
+
+    @Test("revoke retires a content producer parked before the mandatory opening acknowledgement")
+    func revokeRetiresACK0ParkedContentProducer() async throws {
+        let harness = try await ProducerSessionHarness.opened()
+        let foreground = await BridgePaneRefreshWorkAdmissionTestContext.foreground().admission
+        let request = try fileContentRequest(identitySuffix: "ack0-revoke", workerDerivationEpoch: 2)
+        let acknowledgementResult = HeldStep<Bool>("openingAcknowledgementWaitFinished")
+        let registration = await harness.session.registerContentProducer(
+            request: request,
+            productAdmission: harness.productAdmission.context
+        ) { lease in
+            _ = try? await harness.session.enqueueRequiredContentOpeningFrame(
+                for: lease,
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: foreground,
+                build: { _ in contentAcceptedProducerFrame(request: request) }
+            )
+            let acknowledged = await harness.session.waitForContentAcknowledgement(
+                for: lease,
+                sequence: 0,
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: foreground
+            )
+            try? await acknowledgementResult.arrive(acknowledged)
+        }
+        let lease = try #require(registration.lease)
+        let opening = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: lease,
+                from: harness.session,
+                productAdmission: harness.productAdmission.context
+            )
+        )
+        #expect(opening.sequence == 0)
+        #expect(await harness.session.contentCreditWaitersByProducerLease[lease] != nil)
+
+        let revocation = await harness.session.revoke(acknowledgeLifecycle: { _ in true })
+        #expect(try await acknowledgementResult.firstArrival() == false)
+        acknowledgementResult.release()
+        #expect(await revocation.wait())
+        #expect((await harness.session.producerSnapshot()).hasZeroResidue)
+        #expect(await harness.session.contentCreditWaitersByProducerLease.isEmpty)
+    }
 }
 
 private struct ProducerSessionHarness {
