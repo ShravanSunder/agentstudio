@@ -76,7 +76,7 @@ Every row's authority state is **authorized**. Priority was assigned by the owne
 - **Protected:** Ghostty/zmx vendors; non-Bridge features; the IPC command catalog; files owned by the CI-guardrails work (PR #358); the release pipeline.
 - **Non-goals:** Markdown images and links; *building* multi-root Bridge (#367 delivers it; this design accommodates its Files collection and comment subject model, merged 2026-09-25); performance tuning beyond freedom from wedges; storing original file bytes; background Review prewarm; compatibility shims or dual code paths.
 - **Limits:**
-  - at most 3 stacked PRs (`gh stack`);
+  - at most 3 PRs stacked at once (`gh stack`). The owner's landing order of 2026-09-25 puts the transport PR first; it lands before the remaining three stack (the Program Design's delivery shape owns the order);
   - a hard cutover;
   - no `#if DEBUG` hooks in production files;
   - no timed waits in tests.
