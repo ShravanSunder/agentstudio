@@ -224,7 +224,8 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
     }
 
     /// Build the cold-restore command (SR3, SR6a, SR10, SR11; Program Design
-    /// choice 2): `zmx attach <id> /bin/sh -c '<script>'`, where the script
+    /// revision 11, choice 2): `zmx attach <id> /bin/sh -c '<script>'
+    /// <startupToken>`, where the script
     ///
     ///   1. unsets every inherited `CLAUDE_CODE_*` marker;
     ///   2. `cd`s to the first existing folder in `plan.folderCandidates`,
@@ -233,18 +234,24 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
     ///      even if every `cd` above it failed);
     ///   3. replays `plan.replayFile` and prints a marker, when present (R2;
     ///      always nil in R1);
-    ///   4. exports `AGENTSTUDIO_RESTORE_ATTEMPT=<attemptID>` (the startup
-    ///      handoff marker S3's observer reads back), then runs
-    ///      `plan.resume`'s argv before the final interactive shell, when
-    ///      present (R3; always nil in R1).
+    ///   4. runs `plan.resume`'s argv before the final interactive shell,
+    ///      when present (R3; always nil in R1), then `exec`s it -- the
+    ///      script's only in-process `exec`, which is what makes the
+    ///      trailing `<startupToken>` argument (`plan.attemptID
+    ///      .startupToken`, the S3 observer's handoff witness) disappear
+    ///      from the leader's arguments exactly at handoff.
     ///
     /// Every value comes from `plan`; this reads nothing ambient. Each
     /// argument is quoted once by `shellEscape`.
     package static func buildColdRestoreCommand(_ plan: TerminalColdRestorePlan) -> String {
         let script = coldRestoreScript(for: plan)
+        // The trailing argument becomes the script's $0 -- the startup token
+        // (Program Design rev 11, item 3). It rides in the terminal leader's
+        // argument vector until the script's only in-process exec replaces
+        // them, which is exactly what the startup observer watches for.
         return
             "\(shellEscape(plan.zmxExecutable.path)) attach \(shellEscape(plan.sessionID.rawValue)) "
-            + "/bin/sh -c \(shellEscape(script))"
+            + "/bin/sh -c \(shellEscape(script)) \(shellEscape(plan.attemptID.startupToken))"
     }
 
     private static func coldRestoreScript(for plan: TerminalColdRestorePlan) -> String {
@@ -267,7 +274,6 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
             lines.append("cat \(shellEscape(replayFile.path)) 2>/dev/null")
             lines.append("echo \(shellEscape("--- restored after restart ---"))")
         }
-        lines.append("export AGENTSTUDIO_RESTORE_ATTEMPT=\(shellEscape(plan.attemptID.rawValue))")
         let loginShellInvocation = "\(shellEscape(plan.loginShell.path)) -i -l"
         if let resume = plan.resume {
             // R3 finalizes the exact resume invocation shape; R1 never

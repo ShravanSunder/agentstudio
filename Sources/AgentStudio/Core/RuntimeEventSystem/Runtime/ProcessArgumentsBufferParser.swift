@@ -1,65 +1,30 @@
 import Foundation
 
 /// Parses the `sysctl(CTL_KERN, KERN_PROCARGS2, pid)` buffer format, the
-/// wire shape `ColdStartObserver`'s handoff check reads to find
-/// `AGENTSTUDIO_RESTORE_ATTEMPT` (Program Design item 3, "the marker").
+/// wire shape `ColdStartObserver`'s handoff check reads to find the startup
+/// token in a process's argument vector (Program Design revision 11, item
+/// 3, "the token"). Only the arguments are used -- macOS returns no
+/// environment to a third-party reader for any process, so this parser
+/// never looks past argv.
 ///
 /// Layout, confirmed empirically against a live macOS process (a native
-/// `Int32` argc, then the exec path, then argc argv strings, then the
-/// environment strings, every string NUL-terminated with NUL padding
-/// between sections):
+/// `Int32` argc, then the exec path, then argc argv strings, every string
+/// NUL-terminated with NUL padding between sections; anything after argv,
+/// including any environment section, is ignored):
 ///
 /// ```
-/// [argc: Int32][exec path\0][\0 padding][argv[0]\0]...[argv[argc-1]\0][\0 padding][envp[0]\0]...
+/// [argc: Int32][exec path\0][\0 padding][argv[0]\0]...[argv[argc-1]\0][...ignored]
 /// ```
 ///
 /// Bounds are never trusted implicitly: a truncated buffer or a missing
 /// terminator ends parsing early rather than reading past the buffer, since
 /// this reads memory the kernel filled for an external, unrelated process.
 enum ProcessArgumentsBufferParser {
-    /// Returns the value of the first `name=<value>` environment entry, or
-    /// `nil` when the buffer is malformed, too short, or the environment
-    /// section is absent or does not contain `name`.
-    ///
-    /// An empty environment section is not distinguished from a malformed
-    /// buffer here — both return `nil`. Callers that need to tell
-    /// "no environment was returned at all" apart from "returned, but this
-    /// variable wasn't in it" (`ColdStartUnobservableReason
-    /// .environmentOmitted`) use `environmentSectionIsPresent(in:)` first.
-    static func environmentValue(named name: String, in buffer: [UInt8]) -> String? {
-        guard let environmentStart = environmentSectionStart(in: buffer) else { return nil }
-        let prefix = "\(name)="
-        var offset = environmentStart
-        while offset < buffer.count {
-            guard let entryEnd = nulTerminatedStringEnd(in: buffer, from: offset) else { break }
-            guard let entry = String(bytes: buffer[offset..<(entryEnd - 1)], encoding: .utf8) else {
-                offset = entryEnd
-                continue
-            }
-            if entry.hasPrefix(prefix) {
-                return String(entry.dropFirst(prefix.count))
-            }
-            offset = entryEnd
-        }
-        return nil
-    }
-
-    /// True when the buffer has at least one byte beyond the argv section —
-    /// XNU either includes the full environment or omits it entirely
-    /// (`ColdStartUnobservableReason.environmentOmitted`'s CS_RESTRICT
-    /// case), so "the environment section is present but empty" and "no
-    /// process actually has zero environment variables" are not outcomes
-    /// this needs to tell apart.
-    static func environmentSectionIsPresent(in buffer: [UInt8]) -> Bool {
-        guard let environmentStart = environmentSectionStart(in: buffer) else { return false }
-        return environmentStart < buffer.count
-    }
-
-    /// Walks past `[argc][exec path\0][padding][argv strings][padding]` and
-    /// returns the offset where the environment section would begin. `nil`
-    /// when the buffer is too short or a string is missing its terminator
-    /// before the buffer ends (a malformed read, not a valid empty section).
-    private static func environmentSectionStart(in buffer: [UInt8]) -> Int? {
+    /// Returns the process's argument vector (never the exec path itself),
+    /// or `nil` when the buffer is malformed, truncated, or too short to
+    /// contain `argc` argv strings -- matching `ColdStartUnobservableReason
+    /// .processArgsUnreadable`'s "returned no argument vector" case.
+    static func argumentVector(in buffer: [UInt8]) -> [String]? {
         guard buffer.count >= MemoryLayout<Int32>.size else { return nil }
         let argumentCount = buffer.withUnsafeBytes {
             $0.loadUnaligned(fromByteOffset: 0, as: Int32.self)
@@ -68,11 +33,18 @@ enum ProcessArgumentsBufferParser {
         var offset = MemoryLayout<Int32>.size
         guard let execPathEnd = nulTerminatedStringEnd(in: buffer, from: offset) else { return nil }
         offset = skipNULPadding(in: buffer, from: execPathEnd)
+
+        var arguments: [String] = []
+        arguments.reserveCapacity(Int(argumentCount))
         for _ in 0..<argumentCount {
             guard let argumentEnd = nulTerminatedStringEnd(in: buffer, from: offset) else { return nil }
+            guard let argument = String(bytes: buffer[offset..<(argumentEnd - 1)], encoding: .utf8) else {
+                return nil
+            }
+            arguments.append(argument)
             offset = argumentEnd
         }
-        return skipNULPadding(in: buffer, from: offset)
+        return arguments
     }
 
     /// The offset one past the first NUL at or after `start`, or `nil` when

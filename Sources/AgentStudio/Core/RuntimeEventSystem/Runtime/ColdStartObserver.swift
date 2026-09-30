@@ -3,17 +3,18 @@ import Dispatch
 import Foundation
 
 /// Proves handoff or failure for one cold-restore attempt entirely from
-/// OS-observable facts (SR4, SR5; Program Design item 3). Two register-then
-/// -check stages, each registering its kqueue-backed watch before checking
-/// so no event between registration and check is missed:
+/// OS-observable facts (SR4, SR5; Program Design revision 11, item 3). Two
+/// register-then-check stages, each registering its kqueue-backed watch
+/// before checking so no event between registration and check is missed:
 ///
 /// 1. **Discovery** — `EVFILT_VNODE` `NOTE_WRITE` on the zmx directory, then
 ///    checks whether the session's socket exists; on appearance, calls
 ///    `ZmxSessionControl.observe` for the new session's identity.
 /// 2. **Handoff** — `EVFILT_PROC` `NOTE_EXEC | NOTE_EXIT` on the identity's
-///    terminal-leader pid, then reads `KERN_PROCARGS2` for the
-///    `AGENTSTUDIO_RESTORE_ATTEMPT` marker (see `ColdStartObserverSyscalls`
-///    for this read's unverified production behavior).
+///    terminal-leader pid, then reads its argument vector via
+///    `KERN_PROCARGS2` (never the environment: macOS returns none to a
+///    third-party reader for any process) and looks for the startup token
+///    (`ColdRestoreAttemptID.startupToken`) among its elements.
 ///
 /// `reportAttachClientExited()` is a third, independent settlement path:
 /// Ghostty's `showChildExited` action is the one event-driven fact present
@@ -25,10 +26,15 @@ import Foundation
 ///
 /// One observer per attempt: `observeColdStart` may be called exactly once.
 package actor ColdStartObserver {
-    private enum MarkerReadResult {
-        case markerFound
-        case markerAbsent
-        case environmentOmitted
+    /// One handoff check's result: read the leader's current argv, then
+    /// decide what it means. `unreadable` means the read itself failed
+    /// (`sysctl` error or no argument vector returned) — whether that
+    /// becomes `.failed` or `.unobservable` still depends on whether
+    /// `NOTE_EXIT` was also observed (a dead process explains an
+    /// unreadable argv; an unreadable argv from a live process does not).
+    private enum HandoffCheckResult {
+        case tokenAbsent
+        case tokenStillPresent
         case unreadable(errno: Int32)
     }
 
@@ -194,12 +200,13 @@ package actor ColdStartObserver {
             }
             return
         }
-        beginHandoffWatch(terminalLeaderPid: identity.terminalLeader.pid, attemptID: attemptID)
+        beginHandoffWatch(identity: identity, attemptID: attemptID)
     }
 
     // MARK: - Stage 2: handoff
 
-    private func beginHandoffWatch(terminalLeaderPid: Int32, attemptID: ColdRestoreAttemptID) {
+    private func beginHandoffWatch(identity: ZmxSessionIdentity, attemptID: ColdRestoreAttemptID) {
+        let terminalLeaderPid = identity.terminalLeader.pid
         let source = DispatchSource.makeProcessSource(
             identifier: terminalLeaderPid,
             eventMask: [.exit, .exec],
@@ -207,7 +214,7 @@ package actor ColdStartObserver {
         )
         source.setEventHandler { [weak self] in
             let exitFired = source.data.contains(.exit)
-            self?.checkForMarkerAndAdvance(pid: terminalLeaderPid, attemptID: attemptID, exitFired: exitFired)
+            self?.checkForHandoffAndAdvance(identity: identity, attemptID: attemptID, exitFired: exitFired)
         }
         source.setCancelHandler {}
         processWatchSource = source
@@ -215,50 +222,70 @@ package actor ColdStartObserver {
 
         // Register first, then check: handoff may already have completed
         // between discovering the identity and registering this watch.
-        checkForMarkerAndAdvance(pid: terminalLeaderPid, attemptID: attemptID, exitFired: false)
+        checkForHandoffAndAdvance(identity: identity, attemptID: attemptID, exitFired: false)
     }
 
-    nonisolated private func checkForMarkerAndAdvance(
-        pid: Int32,
+    /// Runs wherever it's called from — the DispatchSource's own GCD queue
+    /// or synchronously right after registration — never on this actor's
+    /// executor, matching `checkForSocketAndAdvance`'s reasoning.
+    nonisolated private func checkForHandoffAndAdvance(
+        identity: ZmxSessionIdentity,
         attemptID: ColdRestoreAttemptID,
         exitFired: Bool
     ) {
-        let result = readMarker(pid: pid, attemptID: attemptID)
-        Task { await self.handoffChecked(markerResult: result, exitFired: exitFired) }
+        let result = checkHandoff(pid: identity.terminalLeader.pid, attemptID: attemptID)
+        Task {
+            await self.handoffChecked(identity: identity, checkResult: result, exitFired: exitFired)
+        }
     }
 
-    nonisolated private func readMarker(pid: Int32, attemptID: ColdRestoreAttemptID) -> MarkerReadResult {
+    nonisolated private func checkHandoff(pid: Int32, attemptID: ColdRestoreAttemptID) -> HandoffCheckResult {
         switch syscalls.readProcessArgumentsBuffer(pid: pid) {
         case .failure(let errorNumber):
             return .unreadable(errno: errorNumber.rawValue)
         case .success(let buffer):
-            guard ProcessArgumentsBufferParser.environmentSectionIsPresent(in: buffer) else {
-                return .environmentOmitted
+            guard let arguments = ProcessArgumentsBufferParser.argumentVector(in: buffer) else {
+                return .unreadable(errno: EINVAL)
             }
-            let value = ProcessArgumentsBufferParser.environmentValue(
-                named: "AGENTSTUDIO_RESTORE_ATTEMPT",
-                in: buffer
-            )
-            return value == attemptID.rawValue ? .markerFound : .markerAbsent
+            return arguments.contains(attemptID.startupToken) ? .tokenStillPresent : .tokenAbsent
         }
     }
 
-    private func handoffChecked(markerResult: MarkerReadResult, exitFired: Bool) {
+    private func handoffChecked(
+        identity: ZmxSessionIdentity,
+        checkResult: HandoffCheckResult,
+        exitFired: Bool
+    ) {
         guard !isSettled else { return }
-        switch markerResult {
-        case .markerFound:
-            settle(.handedOff)
-        case .environmentOmitted:
-            settle(.unobservable(.environmentOmitted))
-        case .unreadable(let errorNumber):
-            settle(.unobservable(.processArgsUnreadable(errno: errorNumber)))
-        case .markerAbsent:
-            // Still pending unless the leader has also exited: another
-            // exec (or a stray wakeup) without the marker yet is normal —
-            // "no time-only failure" — so this simply waits for the next
-            // EVFILT_PROC event instead of settling here.
+        switch checkResult {
+        case .tokenAbsent:
+            // "the leader is alive, it is still the process from the
+            // discovered session's identity (same pid and start time, so a
+            // reused pid can't pass), and its arguments no longer carry
+            // this attempt's token" — a successful, token-absent read wins
+            // as handed off regardless of whether NOTE_EXIT also fired in
+            // this same event: the token's absence already proves the exec
+            // happened, even if the shell then exited immediately after.
+            if ZmxSessionControl.currentIncarnation(forPID: identity.terminalLeader.pid) == identity.terminalLeader {
+                settle(.handedOff)
+            } else {
+                settle(.unobservable(.identityUnverifiable))
+            }
+        case .tokenStillPresent:
+            // Still pending unless the leader has also exited: another exec
+            // (zmx's own forked child, /bin/sh's re-exec into bash) without
+            // the token gone yet is normal — "no time-only failure" — so
+            // this simply waits for the next EVFILT_PROC event.
             if exitFired {
                 settle(.failed(.exitedBeforeHandoff(exitStatus: nil)))
+            }
+        case .unreadable(let errorNumber):
+            // NOTE_EXIT explains an unreadable argv (the process is gone);
+            // otherwise this is a genuine "couldn't establish the witness."
+            if exitFired {
+                settle(.failed(.exitedBeforeHandoff(exitStatus: nil)))
+            } else {
+                settle(.unobservable(.processArgsUnreadable(errno: errorNumber)))
             }
         }
     }

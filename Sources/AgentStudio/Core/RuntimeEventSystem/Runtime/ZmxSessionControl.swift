@@ -12,6 +12,17 @@ enum ZmxSessionControl {
         return true
     }
 
+    /// The pid's current incarnation (start time included), or `nil` when
+    /// the pid is no longer live. Used by `ColdStartObserver`'s handoff
+    /// check (Program Design revision 11, item 3) to confirm a live leader
+    /// is still the exact process discovered in stage 1 -- same pid **and**
+    /// start time, so a reused pid can't pass as a handoff. Reuses
+    /// `processSnapshot`'s validated read rather than a second raw
+    /// `proc_pidinfo` call.
+    static func currentIncarnation(forPID pid: Int32) -> ZmxProcessIncarnation? {
+        (try? processSnapshot(pid))?.incarnation
+    }
+
     private struct ProcessSnapshot {
         let incarnation: ZmxProcessIncarnation
         let parentPID: Int32

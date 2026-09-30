@@ -1,13 +1,17 @@
 import AgentStudioInfrastructure
 import Foundation
 
-/// Identifies one cold-restore attempt (Program Design item 3, "the marker").
-/// The plan's `attemptID` is exported into the fresh login shell's
-/// environment (`AGENTSTUDIO_RESTORE_ATTEMPT=<attemptID>`) immediately before
-/// its final `exec`, and the startup observer (S3) proves handoff by reading
-/// that exact value back out of the new leader's process arguments. Ephemeral
-/// and per-attempt: never persisted, never restored, and never equal to a
-/// stored `ZmxSessionID`.
+/// Identifies one cold-restore attempt (Program Design revision 11, item 3,
+/// "the token"). `startupToken` is passed as the cold-restore script's `$0`
+/// (`ZmxBackend.buildColdRestoreCommand`), so it lives in the terminal
+/// leader's **argument vector** in every process image before the handoff —
+/// zmx's forked child, `/bin/sh`, and any `/bin/sh`-into-`bash` re-exec — and
+/// the final `exec <loginShell>` replaces the arguments, making it disappear.
+/// The startup observer (S3) proves handoff by finding it gone from a live
+/// leader's current arguments (never the environment: macOS returns no
+/// environment to a third-party reader for any process, confirmed for this
+/// design in round 7). Ephemeral and per-attempt: never persisted, never
+/// restored, and never equal to a stored `ZmxSessionID`.
 package struct ColdRestoreAttemptID: Equatable, Hashable, Sendable {
     package let rawValue: String
 
@@ -17,6 +21,13 @@ package struct ColdRestoreAttemptID: Equatable, Hashable, Sendable {
 
     package init(rawValue: String) {
         self.rawValue = rawValue
+    }
+
+    /// The exact argument the cold-restore script's `$0` carries. Shared by
+    /// the builder (which passes it) and the observer (which watches for its
+    /// absence), so the two never drift.
+    package var startupToken: String {
+        "agentstudio-restore-\(rawValue)"
     }
 }
 

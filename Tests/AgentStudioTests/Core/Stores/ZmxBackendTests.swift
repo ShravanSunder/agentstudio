@@ -578,6 +578,7 @@ final class ZmxBackendTests {
 
     // MARK: - discoverSessionInventory (SR1, SR2; Program Design item 1)
 
+    @Test
     func test_discoverSessionInventory_parsesSuccessfulOutput() async {
         // Arrange
         let sessionID = restoredSessionID("as-inventory-success")
@@ -590,6 +591,7 @@ final class ZmxBackendTests {
         #expect(inventory == .complete([sessionID: .alive(wrapperPid: 100)]))
     }
 
+    @Test
     func test_discoverSessionInventory_nonzeroExitBecomesUnavailable() async {
         // Arrange
         executor.enqueueFailure("boom")
@@ -601,6 +603,7 @@ final class ZmxBackendTests {
         #expect(inventory == .unavailable(.exitedNonZero(1)))
     }
 
+    @Test
     func test_discoverSessionInventory_timeoutIsDistinguishedFromEveryOtherFailure() async {
         // Arrange — ProcessError is the production timeout signal
         // (DefaultProcessExecutor.execute), never a generic thrown error.
@@ -613,6 +616,7 @@ final class ZmxBackendTests {
         #expect(inventory == .unavailable(.timedOut))
     }
 
+    @Test
     func test_discoverSessionInventory_neverRetries() async {
         // Arrange — a single queued failure; a retrying implementation would
         // exhaust the queue and record MockExecutorError.noResponseQueued.
@@ -627,6 +631,7 @@ final class ZmxBackendTests {
 
     // MARK: - buildColdRestoreCommand (SR3, SR6a, SR10, SR11; Program Design item 2)
 
+    @Test
     func test_buildColdRestoreCommand_quotesEachArgumentAsOneWord() {
         // Arrange — a non-default zmx and shell path, and a folder
         // containing both a space and a single quote, so a naive
@@ -652,13 +657,17 @@ final class ZmxBackendTests {
             "\(ZmxBackend.shellEscape("/opt/homebrew/bin/zmx")) attach "
             + "\(ZmxBackend.shellEscape("as-cold-quoting-test")) /bin/sh -c "
         #expect(command.hasPrefix(expectedPrefix))
-        // The folder, quoted as one `cd` argument inside the script.
-        let script = String(command.dropFirst(expectedPrefix.count))
+        // The script is itself one shell-escaped argument (its own internal
+        // quoting, e.g. around the folder path, is doubled by that outer
+        // escape) -- unescape it once to get back the plain script text
+        // before checking for a plain, singly-quoted `cd`/`exec` argument.
+        let script = rawColdRestoreScript(command: command, plan: plan)
         #expect(script.contains("cd \(ZmxBackend.shellEscape(folderWithSpaceAndQuote)) 2>/dev/null"))
         // The non-default login shell, quoted as one argument to `exec`.
         #expect(script.contains("exec \(ZmxBackend.shellEscape("/opt/homebrew/bin/zsh")) -i -l"))
     }
 
+    @Test
     func test_buildColdRestoreCommand_fallsBackThroughFolderCandidatesInOrder() {
         // Arrange
         let plan = makeColdRestorePlan(
@@ -675,7 +684,8 @@ final class ZmxBackendTests {
         )
 
         // Act
-        let script = ZmxBackend.buildColdRestoreCommand(plan)
+        let command = ZmxBackend.buildColdRestoreCommand(plan)
+        let script = rawColdRestoreScript(command: command, plan: plan)
 
         // Assert — saved first (if), then repo main (elif), then home is the
         // unconditional fallback (else), each printing its own notice line.
@@ -687,26 +697,47 @@ final class ZmxBackendTests {
         #expect(script.contains("Restored after restart (saved and repository folders missing"))
     }
 
-    func test_buildColdRestoreCommand_exportsTheMarkerBeforeTheFinalExec() {
-        // Arrange
+    @Test
+    func test_buildColdRestoreCommand_passesTheStartupTokenAsTheScriptsTrailingArgument() {
+        // Arrange -- Program Design revision 11, item 3, "the token": the
+        // attempt id rides as the script's $0, not an exported environment
+        // variable (macOS returns no environment to the S3 observer's reader
+        // for any process).
         let plan = makeColdRestorePlan(
-            attemptID: ColdRestoreAttemptID(rawValue: "0198f000-attempt-marker-test")
+            attemptID: ColdRestoreAttemptID(rawValue: "0198f000-attempt-token-test")
         )
 
         // Act
-        let script = ZmxBackend.buildColdRestoreCommand(plan)
-        let markerRange = script.range(of: "export AGENTSTUDIO_RESTORE_ATTEMPT=")
-        let execRange = script.range(of: "exec ")
+        let command = ZmxBackend.buildColdRestoreCommand(plan)
 
-        // Assert — the marker is exported, and it precedes the final exec
-        // (R1 never resumes, so this is always the plain interactive shell).
-        #expect(script.contains("export AGENTSTUDIO_RESTORE_ATTEMPT='0198f000-attempt-marker-test'"))
-        #expect(script.contains("exec '/bin/zsh' -i -l"))
-        if let markerRange, let execRange {
-            #expect(markerRange.lowerBound < execRange.lowerBound)
-        }
+        // Assert — the command has exactly one trailing argument after the
+        // quoted script, and it's the exact startup token, quoted once.
+        let expectedToken = plan.attemptID.startupToken
+        #expect(expectedToken == "agentstudio-restore-0198f000-attempt-token-test")
+        #expect(command.hasSuffix(" \(ZmxBackend.shellEscape(expectedToken))"))
+        #expect(!command.contains("AGENTSTUDIO_RESTORE_ATTEMPT"))
+        #expect(!command.contains("export"))
     }
 
+    @Test
+    func test_buildColdRestoreCommand_hasNoInProcessExecOtherThanTheFinal() {
+        // Arrange -- item 3 relies on the script's *only* in-process exec
+        // being the final one: every earlier image (zmx's forked child,
+        // /bin/sh, any sh-into-bash re-exec) still carries the token, and
+        // only that one exec replaces the arguments and makes it disappear.
+        let plan = makeColdRestorePlan()
+
+        // Act
+        let command = ZmxBackend.buildColdRestoreCommand(plan)
+        let script = rawColdRestoreScript(command: command, plan: plan)
+        let execOccurrences = script.components(separatedBy: "exec ").count - 1
+
+        // Assert
+        #expect(execOccurrences == 1)
+        #expect(script.contains("exec '/bin/zsh' -i -l"))
+    }
+
+    @Test
     func test_buildColdRestoreCommand_unsetsInheritedClaudeCodeMarkers() {
         // Arrange
         let plan = makeColdRestorePlan()
@@ -717,6 +748,36 @@ final class ZmxBackendTests {
         // Assert
         #expect(script.contains("CLAUDE_CODE_"))
         #expect(script.contains("unset"))
+    }
+
+    /// Extracts and un-escapes `buildColdRestoreCommand`'s inner script from
+    /// its full output. The script is itself one shell-escaped argument (its
+    /// own internal quoting, e.g. around a folder path, is doubled by that
+    /// outer escape), so comparing a plain, singly-quoted substring against
+    /// the raw command never matches. Strips the known outer prefix and the
+    /// known trailing startup-token argument by their exact lengths, then
+    /// reverses `shellEscape` once.
+    private func rawColdRestoreScript(command: String, plan: TerminalColdRestorePlan) -> String {
+        let prefix =
+            "\(ZmxBackend.shellEscape(plan.zmxExecutable.path)) attach "
+            + "\(ZmxBackend.shellEscape(plan.sessionID.rawValue)) /bin/sh -c "
+        let tokenSuffix = " \(ZmxBackend.shellEscape(plan.attemptID.startupToken))"
+        var escapedScript = command
+        #expect(escapedScript.hasPrefix(prefix))
+        #expect(escapedScript.hasSuffix(tokenSuffix))
+        escapedScript.removeFirst(prefix.count)
+        escapedScript.removeLast(tokenSuffix.count)
+        return shellUnescape(escapedScript)
+    }
+
+    /// The inverse of `ZmxBackend.shellEscape`: strips the wrapping quotes
+    /// and un-doubles `'\''` back into `'`.
+    private func shellUnescape(_ escaped: String) -> String {
+        guard escaped.hasPrefix("'"), escaped.hasSuffix("'") else { return escaped }
+        var value = escaped
+        value.removeFirst()
+        value.removeLast()
+        return value.replacingOccurrences(of: "'\\''", with: "'")
     }
 
     private func makeColdRestorePlan(

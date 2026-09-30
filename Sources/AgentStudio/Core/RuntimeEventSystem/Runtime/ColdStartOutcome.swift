@@ -7,9 +7,11 @@ import Foundation
 /// slice only defines the closed vocabulary its consumers (the activation
 /// path's start slots, the placeholder/overlay owner) are written against.
 package enum ColdStartOutcome: Equatable, Sendable {
-    /// `NOTE_EXEC` (or the post-registration check) found
-    /// `AGENTSTUDIO_RESTORE_ATTEMPT` equal to this attempt's id in the
-    /// leader's environment. The login shell is running.
+    /// `NOTE_EXEC` (or the post-registration check) found the leader still
+    /// alive, still the process from the discovered identity (same pid
+    /// **and** start time, so a reused pid can't pass), and its arguments no
+    /// longer carrying this attempt's startup token (Program Design revision
+    /// 11, item 3, "the token"). The login shell is running.
     case handedOff
     /// The attach process ended before handoff was confirmed. Covers a zmx
     /// child dying before exec, a script error, a zmx diagnostic followed by
@@ -39,15 +41,15 @@ package enum ColdStartFailure: Equatable, Sendable {
     case exitedBeforeHandoff(exitStatus: Int32?)
 }
 
-/// Program Design item 3, given verbatim:
-/// `.environmentOmitted | .watchRegistrationFailed(errno:) | .identityUnverifiable | .processArgsUnreadable(errno:)`.
-/// A registration error, a `KERN_PROCARGS2` read that came back without an
-/// environment (XNU omits it for a `CS_RESTRICT` target even for the same
-/// uid), an unverifiable identity, or a process-args read failure. The slot
-/// settles with no false failure and no false handoff; the reason goes to
-/// telemetry only.
+/// Program Design revision 11, item 3, given verbatim:
+/// `.watchRegistrationFailed(errno:) | .identityUnverifiable | .processArgsUnreadable(errno:)`.
+/// A `kqueue` registration error, an unverifiable identity (the leader's
+/// current pid and start time no longer match the identity discovered in
+/// stage 1 -- a reused pid, guarded against), or a process-args read that
+/// failed or returned no argument vector (`EINVAL`, `EIO`, or a zombie
+/// leader). The slot settles with no false failure and no false handoff; the
+/// reason goes to telemetry only.
 package enum ColdStartUnobservableReason: Equatable, Sendable {
-    case environmentOmitted
     case watchRegistrationFailed(errno: Int32)
     case identityUnverifiable
     case processArgsUnreadable(errno: Int32)
