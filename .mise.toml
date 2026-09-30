@@ -307,13 +307,14 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire build "mise run build"
 trap swift_build_slot_release EXIT
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
-swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-swift build --product agentstudio-cli --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+swift build $(swift_package_sandbox_arguments) --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+swift build $(swift_package_sandbox_arguments) --product agentstudio-cli --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.build-bridge-development-server]
@@ -328,13 +329,14 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire build "mise run build-release"
 trap swift_build_slot_release EXIT
 BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
-swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-swift build -c release --product agentstudio-cli --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+swift build $(swift_package_sandbox_arguments) -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+swift build $(swift_package_sandbox_arguments) -c release --product agentstudio-cli --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
@@ -370,9 +372,10 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire test "mise run test:architecture"
 trap swift_build_slot_release EXIT
-swift test --package-path Tools/AgentStudioArchitectureLint \
+swift test $(swift_package_sandbox_arguments) --package-path Tools/AgentStudioArchitectureLint \
   --build-path "${PROJECT_ROOT}/${SWIFT_BUILD_DIR}/architecture-lint"
 """
 
@@ -418,6 +421,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire test "mise run test:swift:coverage"
 trap swift_build_slot_release EXIT
 BUILD_PATH="$SWIFT_BUILD_DIR"
@@ -440,7 +444,7 @@ if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
   run_swift_with_timeout \
     "E2ESerializedTests (coverage)" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test $(swift_package_sandbox_arguments) --enable-code-coverage --skip-build \
       --filter "$(swift_test_lane_filter_pattern e2e)" \
       --skip "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH"
 else
@@ -449,7 +453,7 @@ fi
 
 CODECOV_TMPFILE=$(mktemp)
 run_swift_with_timeout "show-codecov-path" "$TIMEOUT_SECONDS" \
-  bash -c "swift test --show-codecov-path --build-path \"${BUILD_PATH}\" > \"${CODECOV_TMPFILE}\""
+  bash -c "swift test $(swift_package_sandbox_arguments) --show-codecov-path --build-path \"${BUILD_PATH}\" > \"${CODECOV_TMPFILE}\""
 COVERAGE_JSON_PATH=$(cat "$CODECOV_TMPFILE")
 rm -f "$CODECOV_TMPFILE"
 echo "[coverage] JSON: $COVERAGE_JSON_PATH"
@@ -471,13 +475,14 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire test "mise run test:swift:e2e"
 trap swift_build_slot_release EXIT
 source "${PROJECT_ROOT}/scripts/swift-test-helpers.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
-swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build \
+swift build $(swift_package_sandbox_arguments) --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test $(swift_package_sandbox_arguments) --skip-build \
   --filter "$(swift_test_lane_filter_pattern e2e)" \
   --skip "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
@@ -490,13 +495,14 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire test "mise run test:swift:zmx-e2e"
 trap swift_build_slot_release EXIT
 source "${PROJECT_ROOT}/scripts/swift-test-helpers.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
-swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build \
+swift build $(swift_package_sandbox_arguments) --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test $(swift_package_sandbox_arguments) --skip-build \
   --filter "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
@@ -508,6 +514,7 @@ run = """
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire test "mise run test:swift:benchmark"
 trap swift_build_slot_release EXIT
 source "${PROJECT_ROOT}/scripts/swift-test-helpers.sh"
@@ -515,7 +522,7 @@ BUILD_PATH="$SWIFT_BUILD_DIR"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 export _XCB_BYPASS=1
 xcb_pipe=$(_xcb_pipe_cmd)
-swift test --build-path "$BUILD_PATH" --filter "$(swift_test_lane_filter_pattern benchmark)" 2>&1 | $xcb_pipe
+swift test $(swift_package_sandbox_arguments) --build-path "$BUILD_PATH" --filter "$(swift_test_lane_filter_pattern benchmark)" 2>&1 | $xcb_pipe
 """
 
 [tasks.clean-artifacts]
