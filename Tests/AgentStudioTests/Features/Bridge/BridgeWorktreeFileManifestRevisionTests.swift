@@ -402,6 +402,12 @@ struct BridgeWorktreeFileManifestRevisionTests {
         let decoder = try BridgeProductContentFrameDecoder()
         let openingFrames = try decoder.append(opening.data)
         #expect(openingFrames.contains { if case .accepted = $0.header { true } else { false } })
+        #expect(
+            await harness.session.acknowledgeContentFrameObservation(
+                try bridgeProductOpeningContentAcknowledgement(for: request),
+                productAdmission: harness.productAdmission.context
+            )
+        )
         let terminal = try #require(
             await consumeNextBridgeProductProducerFrame(
                 for: lease,
@@ -410,8 +416,8 @@ struct BridgeWorktreeFileManifestRevisionTests {
             ))
         let terminalFrames = try decoder.append(terminal.data)
         if case .error(let errorHeader) = terminalFrames.last?.header {
-            #expect(errorHeader.code == .unsupportedContent)
-            #expect(!errorHeader.retryable)
+            #expect(errorHeader.code == .superseded)
+            #expect(errorHeader.retryable)
         } else {
             Issue.record("Expected a typed unavailable content terminal for the evicted descriptor")
         }

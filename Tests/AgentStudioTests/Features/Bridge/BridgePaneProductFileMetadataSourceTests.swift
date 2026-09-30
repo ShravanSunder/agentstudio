@@ -388,7 +388,16 @@ struct BridgePaneProductFileMetadataSourceTests {
                     productAdmission: harness.productAdmission.context
                 )
             )
-            decodedFrames.append(contentsOf: try decoder.append(queuedFrame.data))
+            let frames = try decoder.append(queuedFrame.data)
+            decodedFrames.append(contentsOf: frames)
+            if frames.contains(where: { if case .accepted = $0.header { true } else { false } }) {
+                #expect(
+                    await harness.session.acknowledgeContentFrameObservation(
+                        try bridgeProductOpeningContentAcknowledgement(for: request),
+                        productAdmission: harness.productAdmission.context
+                    )
+                )
+            }
         }
 
         // Assert
