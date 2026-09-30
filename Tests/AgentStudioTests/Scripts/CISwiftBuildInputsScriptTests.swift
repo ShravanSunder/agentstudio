@@ -92,6 +92,29 @@ struct CISwiftBuildInputsScriptTests {
         }
     }
 
+    @Test("resource-only changes stay warm without claiming a Swift input change")
+    func resourceChangeLeavesSwiftInputCountUnchanged() async throws {
+        let fixture = try SwiftInputFixture()
+        defer { fixture.remove() }
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_700_000_100)], ofItemAtPath: fixture.resource.path)
+        let seed = try await fixture.inventory("seed")
+        try "changed resource".write(to: fixture.resource, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_700_000_200)], ofItemAtPath: fixture.resource.path)
+        let current = try await fixture.inventory("current")
+
+        let receipt = try await fixture.run(
+            "restamp", seed.path.path, current.path.path, includeDiagnostics: true)
+
+        #expect(receipt.hasPrefix("warm "))
+        #expect(receipt.contains("lane-report swift_cache_changed_swift_inputs=0"))
+        let restored = try await fixture.inventory("restored")
+        let resourcePath = "Sources/AgentStudio/Resources/BridgeWeb/index.html"
+        #expect(restored.modificationTimes[resourcePath] == current.modificationTimes[resourcePath])
+        #expect(restored.modificationTimes[resourcePath] != seed.modificationTimes[resourcePath])
+    }
+
     @Test("unchanged copied framework files regain their seed time")
     func copiedFrameworkRestamp() async throws {
         try await assertUnchangedInputRestamped("Frameworks/GhosttyKit.xcframework/binary")
