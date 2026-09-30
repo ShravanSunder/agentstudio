@@ -15,7 +15,7 @@ struct BridgeProductHeldProviderStallTests {
         try await harness.open()
         await harness.provider.holdNextProductCall()
         let admission = try await harness.admit(bridgeProductSchemeReviewCallBody(requestSequence: 3))
-        #expect(await harness.provider.waitUntilProductCallStarted(count: 1) == 1)
+        #expect(try await harness.provider.waitUntilProductCallStarted(count: 1) == 1)
 
         let resultTask = Task { try await harness.result(operationId: admission.operationId) }
         await harness.clock.waitForPendingSleepCount(atLeast: 1)
@@ -63,7 +63,7 @@ struct BridgeProductHeldProviderStallTests {
         try await harness.open()
         await harness.provider.holdNextProductCall()
         let admission = try await harness.admit(bridgeProductSchemeReviewCallBody(requestSequence: 3))
-        #expect(await harness.provider.waitUntilProductCallStarted(count: 1) == 1)
+        #expect(try await harness.provider.waitUntilProductCallStarted(count: 1) == 1)
 
         let pendingReply = bridgeProductSchemeReplyWithRoutingTask(
             adapter: harness.adapter,
@@ -102,7 +102,7 @@ struct BridgeProductHeldProviderStallTests {
         let heldAdmission = try await harness.admit(
             bridgeProductSchemeReviewCallBody(requestSequence: 3)
         )
-        let firstStartedCount = await harness.provider.waitUntilProductCallStarted(count: 1)
+        let firstStartedCount = try await harness.provider.waitUntilProductCallStarted(count: 1)
         #expect(firstStartedCount == 1)
 
         let secondAdmission = try await harness.admit(
@@ -188,7 +188,7 @@ struct BridgeProductHeldProviderStallTests {
         let humanBody = try s13HumanWaitCallBody(requestSequence: 3)
         let humanAdmission = try await harness.admit(humanBody)
         #expect(humanAdmission.waitKind == .human)
-        #expect(await harness.provider.waitUntilProductCallStarted(count: 1) == 1)
+        #expect(try await harness.provider.waitUntilProductCallStarted(count: 1) == 1)
 
         let ordinaryAdmission = try await harness.admit(
             bridgeProductSchemeReviewCallBody(requestSequence: 4)
@@ -278,12 +278,12 @@ struct BridgeProductHeldProviderStallTests {
                 )
             )
         }
-        let startedCount = await provider.waitUntilProductCallStarted(count: 1)
+        let startedCount = try await provider.waitUntilProductCallStarted(count: 1)
         #expect(startedCount == 1)
 
         // Act
         let retirement = Task { await owner.retire(reason: reason) }
-        let invalidationCount = await log.waitUntilRecorded(.comparisonTargetReservationInvalidated, count: 1)
+        let invalidationCount = try await log.waitUntilRecorded(.comparisonTargetReservationInvalidated, count: 1)
         #expect(invalidationCount == 1)
         let activeDuringRetirement = await owner.activeInstallation
         let retirementResult = await retirement.value
@@ -329,21 +329,18 @@ private enum S13Event: Equatable, Sendable {
 
 private actor S13OrderedEventLog {
     private(set) var events: [S13Event] = []
-    private var waiters: [(S13Event, Int, CheckedContinuation<Void, Never>)] = []
+    private let facts = FactRecorder<String, Int>(
+        vocabulary: .init(
+            describeScope: { $0 }, describeFact: { "event count \($0)" }, isClosing: { _, _ in false }))
 
     func record(_ event: S13Event) {
         events.append(event)
-        let ready = waiters.filter { recordedCount(of: $0.0) >= $0.1 }
-        waiters.removeAll { recordedCount(of: $0.0) >= $0.1 }
-        for (_, _, continuation) in ready { continuation.resume() }
+        facts.append(scope: "\(event)-\(recordedCount(of: event))", fact: recordedCount(of: event))
     }
 
-    func waitUntilRecorded(_ event: S13Event, count: Int) async -> Int {
+    func waitUntilRecorded(_ event: S13Event, count: Int) async throws -> Int {
         guard recordedCount(of: event) < count else { return recordedCount(of: event) }
-        await withCheckedContinuation { continuation in
-            waiters.append((event, count, continuation))
-        }
-        return recordedCount(of: event)
+        return try await facts.expectNext(in: "\(event)-\(count)", where: { $0 >= count }, "S13 \(event) recorded")
     }
 
     private func recordedCount(of event: S13Event) -> Int {
@@ -353,10 +350,12 @@ private actor S13OrderedEventLog {
 
 private actor S13HeldProductCallProvider: BridgeProductSchemeProvider {
     private let log: S13OrderedEventLog?
-    private var heldCallContinuation: CheckedContinuation<Void, Never>?
+    private var heldCallStep: HeldStep<Void>?
     private var holdsNextProductCall = false
     private var refusesNextProductCall = false
-    private var productCallStartWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private let starts = FactRecorder<Int, Int>(
+        vocabulary: .init(
+            describeScope: { "product call \($0)" }, describeFact: { "start \($0)" }, isClosing: { _, _ in false }))
     private(set) var productCallStartCount = 0
 
     init(log: S13OrderedEventLog? = nil) {
@@ -371,17 +370,14 @@ private actor S13HeldProductCallProvider: BridgeProductSchemeProvider {
         refusesNextProductCall = true
     }
 
-    func waitUntilProductCallStarted(count: Int) async -> Int {
+    func waitUntilProductCallStarted(count: Int) async throws -> Int {
         guard productCallStartCount < count else { return productCallStartCount }
-        await withCheckedContinuation { continuation in
-            productCallStartWaiters.append((count, continuation))
-        }
-        return productCallStartCount
+        return try await starts.expectNext(in: count, where: { $0 >= count }, "product call started")
     }
 
     func releaseHeldProductCall() {
-        heldCallContinuation?.resume()
-        heldCallContinuation = nil
+        heldCallStep?.release()
+        heldCallStep = nil
     }
 
     func invalidatePendingComparisonTargetReservation() async {
@@ -398,14 +394,12 @@ private actor S13HeldProductCallProvider: BridgeProductSchemeProvider {
                 return try .workerSessionAccepted(correlating: request)
             case .productCall(let callRequest):
                 productCallStartCount += 1
-                let ready = productCallStartWaiters.filter { $0.0 <= productCallStartCount }
-                productCallStartWaiters.removeAll { $0.0 <= productCallStartCount }
-                for (_, continuation) in ready { continuation.resume() }
+                starts.append(scope: productCallStartCount, fact: productCallStartCount)
                 if holdsNextProductCall {
                     holdsNextProductCall = false
-                    await withCheckedContinuation { continuation in
-                        heldCallContinuation = continuation
-                    }
+                    let step = HeldStep<Void>("silent product call", cancellation: .holdThroughCancellation)
+                    heldCallStep = step
+                    try await step.arrive(())
                 }
                 if refusesNextProductCall {
                     refusesNextProductCall = false

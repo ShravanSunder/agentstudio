@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Foundation
 
 @testable import AgentStudioBridge
@@ -18,49 +19,25 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
         }
     }
 
-    private struct TraceWaiter {
-        let condition: TraceCondition
-        let continuation: CheckedContinuation<BridgeProductWebKitCarrierTrace?, Never>
-    }
-
     private var samples: [BridgeTelemetrySample] = []
-    private var traceWaiters: [UUID: TraceWaiter] = [:]
+    private let traces = FactRecorder<String, BridgeProductWebKitCarrierTrace>(
+        vocabulary: .init(describeScope: { $0 }, describeFact: { String(describing: $0) }, isClosing: { _, _ in false })
+    )
 
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano _: UInt64) {
         samples.append(sample)
         let trace = scrubbedTrace()
-        let satisfiedWaiterIDs = traceWaiters.keys.filter { waiterID in
-            traceWaiters[waiterID]?.condition.isSatisfied(by: trace) == true
-        }
-        for waiterID in satisfiedWaiterIDs {
-            traceWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: trace)
+        for condition in [TraceCondition.reviewPublication, .canonicalSubscriptionsAndReviewPublication] {
+            if condition.isSatisfied(by: trace) { traces.append(scope: String(describing: condition), fact: trace) }
         }
     }
 
     func waitForTrace(_ condition: TraceCondition) async -> BridgeProductWebKitCarrierTrace? {
         let current = scrubbedTrace()
         if condition.isSatisfied(by: current) { return current }
-        let waiterID = UUIDv7.generate()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                let current = scrubbedTrace()
-                if condition.isSatisfied(by: current) {
-                    continuation.resume(returning: current)
-                } else {
-                    traceWaiters[waiterID] = .init(condition: condition, continuation: continuation)
-                }
-            }
-        } onCancel: {
-            Task { await self.cancelTraceWaiter(waiterID) }
-        }
-    }
-
-    private func cancelTraceWaiter(_ waiterID: UUID) {
-        traceWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: nil)
+        return try? await traces.expectNext(
+            in: String(describing: condition), where: { condition.isSatisfied(by: $0) },
+            "carrier trace satisfies \(condition)")
     }
 
     func recordDrop(

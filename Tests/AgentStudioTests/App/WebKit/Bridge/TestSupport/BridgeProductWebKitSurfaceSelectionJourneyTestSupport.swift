@@ -199,7 +199,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
         }
 
         let acceptedRequest: BridgePaneSurfaceSelectionRequest =
-            await BridgePaneControllerEventWaits.waitForValue {
+            try await BridgePaneControllerEventWaits.waitForValue {
                 let snapshot = controller.surfaceSelectionAuthority.diagnosticSnapshot
                 guard let lastAcceptedRequest = snapshot.lastAcceptedRequest,
                     snapshot.currentRequest == nil,

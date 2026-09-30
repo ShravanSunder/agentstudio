@@ -201,7 +201,7 @@ struct BridgePaneProductMetadataCoordinatorTests {
             effect,
             productAdmission: harness.productAdmission.context
         )
-        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
+        #expect((try await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
         let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
         #expect(
             await harness.session.acceptViewScope(

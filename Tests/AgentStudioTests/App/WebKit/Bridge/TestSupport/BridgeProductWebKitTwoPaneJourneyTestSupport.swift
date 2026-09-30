@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import AppKit
 import Foundation
@@ -59,7 +60,7 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
     private var blockedComparisonCount = 0
     private var comparisonCount = 0
     private var isNextComparisonArmed = false
-    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+    private var blockedSteps: [HeldStep<Void>] = []
     private var blockedCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(base: any BridgeReviewSourceProvider) {
@@ -88,11 +89,9 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
     }
 
     func releaseBlockedComparisons() {
-        let continuations = releaseContinuations
-        releaseContinuations.removeAll()
-        for continuation in continuations {
-            continuation.resume()
-        }
+        let steps = blockedSteps
+        blockedSteps.removeAll()
+        for step in steps { step.release() }
     }
 
     func snapshot() -> (comparisonCount: Int, blockedComparisonCount: Int) {
@@ -129,9 +128,9 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
             let readyWaiters = blockedCountWaiters.filter { blockedComparisonCount >= $0.count }
             blockedCountWaiters.removeAll { blockedComparisonCount >= $0.count }
             for waiter in readyWaiters { waiter.continuation.resume() }
-            await withCheckedContinuation { continuation in
-                releaseContinuations.append(continuation)
-            }
+            let step = HeldStep<Void>("blocked review comparison", cancellation: .holdThroughCancellation)
+            blockedSteps.append(step)
+            try? await step.arrive(())
         }
     }
 
@@ -509,7 +508,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             requiresReviewRefresh: false
         )
         input.paneOne.worktreeRefreshDriver.scheduleFileCatchUpIfPossible()
-        guard await input.paneOneGitStatusProvider.waitForBlockedStatusReadCount(1) == 1 else {
+        guard try await input.paneOneGitStatusProvider.waitForBlockedStatusReadCount(1) == 1 else {
             throw JourneyError.conditionFailed("File catch-up did not reach its held status read")
         }
         let updatingFileStatus = try await requireArmedStatus(input.paneOne.page)
