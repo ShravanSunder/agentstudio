@@ -39,14 +39,10 @@ async function installedPresentation(
 }
 
 describe('certified Review batch display projection', () => {
-	test('publishes an explicit empty-ready source and empty item and tree banks', async () => {
+	test('does not settle a null package as an identityless empty publication', async () => {
 		const presentation = await installedPresentation([1]);
 		const patches = bridgeCommWorkerReviewDisplayPatchesFromBatch(presentation);
-		expect(patches.find((patch) => patch.slice === 'reviewSource')).toEqual({
-			operation: 'replace',
-			payload: { kind: 'readyEmpty', status: 'readyEmpty' },
-			slice: 'reviewSource',
-		});
+		expect(patches.find((patch) => patch.slice === 'reviewSource')).toBeUndefined();
 		expect(patches.filter((patch) => patch.slice === 'reviewItem')).toMatchObject([
 			{ payload: { items: [], reset: true } },
 		]);
