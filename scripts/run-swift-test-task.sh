@@ -35,11 +35,11 @@ echo "[$LOG_PREFIX] PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"
 # The machine and the tree a lane ran on. The tree identity is captured here and
 # re-checked at the close, so edits made while the lane ran invalidate it.
 print_opening_lane_report() {
-  LANE_CPU_COUNT="$(sysctl -n hw.ncpu)"
+  LANE_CPU_COUNT="$(swift_test_cpu_count)"
   LANE_RECEIPT_HEAD_SHA="$(lane_receipt_head_sha)"
   LANE_RECEIPT_TREE_DIRTY="$(lane_receipt_tree_dirty)"
   echo "[$LOG_PREFIX] lane-report cpu_count=$LANE_CPU_COUNT"
-  echo "[$LOG_PREFIX] lane-report memory_bytes=$(sysctl -n hw.memsize)"
+  echo "[$LOG_PREFIX] lane-report memory_bytes=$(sysctl -n hw.memsize 2>/dev/null || echo unavailable)"
   echo "[$LOG_PREFIX] lane-report parallelization_width=$(swift_test_parallelization_width_label)"
   echo "[$LOG_PREFIX] lane-report isolated_process_concurrency=$(swift_test_isolated_process_concurrency)"
   echo "[$LOG_PREFIX] lane-report xcode=$(xcodebuild -version | tr '\n' ' ')"

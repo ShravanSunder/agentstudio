@@ -59,9 +59,23 @@ swift_test_parallelization_width_label() {
 # How many isolated suite PROCESSES the aggregate phase runs at once. Process
 # fan-out follows the machine: never more than one per core, and never more
 # than 4 (the fan-out that developer machines already used).
+# Agent sandboxes can deny sysctl reads. Fall back to sysconf through getconf,
+# then to 1: fewer processes is always safe, only slower.
+swift_test_cpu_count() {
+  local cpu_count
+  cpu_count="$(sysctl -n hw.ncpu 2>/dev/null || true)"
+  if ! [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+  fi
+  if ! [[ "$cpu_count" =~ ^[1-9][0-9]*$ ]]; then
+    cpu_count=1
+  fi
+  echo "$cpu_count"
+}
+
 swift_test_isolated_process_concurrency() {
   local cpu_count
-  cpu_count="$(sysctl -n hw.ncpu)"
+  cpu_count="$(swift_test_cpu_count)"
   if [ "$cpu_count" -lt 4 ]; then
     echo "$cpu_count"
   else
