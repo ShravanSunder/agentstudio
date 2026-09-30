@@ -878,7 +878,7 @@ private final class RecordingPreparedTerminalMountHandler: PreparedTerminalMount
         admission: TerminalActivationAdmission,
         initialFrame: NSRect?,
         authority: TerminalSurfaceCreationAuthority
-    ) -> TerminalActivationAttemptResult {
+    ) async -> TerminalActivationAttemptResult {
         admissions.append(admission)
         initialFrames.append(initialFrame)
         authorities.append(authority)

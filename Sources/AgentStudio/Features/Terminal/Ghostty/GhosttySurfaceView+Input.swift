@@ -43,6 +43,7 @@ extension Ghostty.SurfaceView {
     }
 
     package override func keyDown(with event: NSEvent) {
+        endRestorePhaseIfLatched()
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
         keyTextAccumulator = []
@@ -406,7 +407,24 @@ extension Ghostty.SurfaceView {
     }
 
     @objc func paste(_ sender: Any?) {
+        endRestorePhaseIfLatched()
         _ = performBindingAction(.pasteFromClipboard)
+    }
+
+    /// SR6b (Program Design item 13): the cold-pane restore-phase latch.
+    /// Nil check for every pane that isn't restoring — the one steady-state
+    /// cost this adds to every keystroke. For a cold pane's first qualifying
+    /// input, one synchronous accumulator call under its own lock; nothing
+    /// async runs from here, so there is no `Task` racing output.
+    func endRestorePhaseIfLatched() {
+        guard let generation = restorePhaseLatch else { return }
+        restorePhaseLatch = nil
+        guard let paneID = SurfaceManager.shared.paneId(for: managedSurfaceID) else { return }
+        Ghostty.ActionRouter.localActionAccumulator.markRestorePhaseEnded(
+            surfaceID: managedSurfaceID,
+            generation: generation,
+            contextBeforeControl: Ghostty.ActionRouter.terminalActivityProjectionContext(paneID: paneID)
+        )
     }
 
     @objc package override func selectAll(_ sender: Any?) {
@@ -500,6 +518,10 @@ extension Ghostty.SurfaceView: @preconcurrency NSTextInputClient {
             return
         }
 
+        // SR6b: `insertText` is the IME's commit callback (a composing
+        // update goes through `setMarkedText` instead), so every call here
+        // is already "committed" — no separate check needed.
+        endRestorePhaseIfLatched()
         unmarkText()
 
         if var accumulator = keyTextAccumulator {

@@ -6,11 +6,14 @@ import Foundation
 
 @MainActor
 protocol PreparedTerminalMountHandling: AnyObject {
+    /// `async`: a cold pane arms its restore phase and awaits the
+    /// acknowledgment before creating its surface (SR6b; Program Design
+    /// item 13). Every other pane returns without ever suspending.
     func mountPreparedTerminalContent(
         admission: TerminalActivationAdmission,
         initialFrame: NSRect?,
         authority: TerminalSurfaceCreationAuthority
-    ) -> TerminalActivationAttemptResult
+    ) async -> TerminalActivationAttemptResult
 }
 
 /// Generation-bound admission boundary between the off-main terminal scheduler
@@ -265,7 +268,7 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
             return .rejected(.custodyReplaced)
         }
 
-        let result = mountHandler.mountPreparedTerminalContent(
+        let result = await mountHandler.mountPreparedTerminalContent(
             admission: admission,
             initialFrame: frame,
             authority: .prepared(claim)

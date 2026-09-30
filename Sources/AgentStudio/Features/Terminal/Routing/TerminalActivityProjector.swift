@@ -20,6 +20,11 @@ enum TerminalActivityOrderedControl: Sendable, Equatable {
     case semanticSignal
     case commandFinished
     case surfaceClosed
+    /// SR6b, the surface route: the cold `GhosttySurfaceView` latch recorded
+    /// person input under `TerminalLocalActionAccumulator`'s lock, which
+    /// detached the pre-input aggregate ahead of this control (Program
+    /// Design item 13). Gating on `restorePhaseByPane` is Panes' consumer.
+    case restorePhaseEnded(RestoreGeneration)
 }
 
 struct TerminalActivityCompactUpdate: Sendable, Equatable {
@@ -51,6 +56,15 @@ enum TerminalActivitySourceInput: Sendable, Equatable {
         precedingAggregate: TerminalActivityAggregateInput?,
         control: TerminalActivityOrderedControl
     )
+    /// SR6b: terminal activation arms a cold pane's restore phase before
+    /// `createSurface` (Program Design item 13). Pane-keyed, not
+    /// surface-keyed: no surface exists yet at arm time.
+    case restorePhaseArmed(paneID: UUID, restoreGeneration: RestoreGeneration)
+    /// SR6b, the no-surface route: a resumed agent's SessionStart fact can
+    /// end the phase (R3) without going through a surface's ordered ingress.
+    /// Always unused in R1, which never auto-resumes; the case exists now so
+    /// the vocabulary is complete ahead of R3.
+    case restorePhaseEnded(paneID: UUID, restoreGeneration: RestoreGeneration)
 }
 
 /// Owns terminal activity derivation and quiet timers off MainActor.
@@ -135,6 +149,12 @@ package actor TerminalActivityProjector {
     private var outcomeSink: OutcomeSink?
     private var lastOutputLineReader: LastOutputLineReader?
     private var paneStates: [UUID: PaneState] = [:]
+    /// SR6b (Program Design item 13, choice 13, step 3). Separate from
+    /// `paneStates`/`PaneState` so surface replacement mid-phase does not
+    /// clear it. R1 owns arm/end recording; the gating this state drives
+    /// inside `consumeAggregateState` (suppressing unseen/activity windows
+    /// and the agent candidate while armed) is Panes' consumer.
+    private var restorePhaseByPane: [UUID: RestoreGeneration] = [:]
     private var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
     private var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
     private var unseenRetirementTasks: [UUID: Task<Void, Never>] = [:]
@@ -415,9 +435,33 @@ package actor TerminalActivityProjector {
         case .surfaceClosed:
             closeSurfaceState(surfaceID: surfaceID, paneID: paneID)
             outcomes.append(.surfaceClosed(surfaceID: surfaceID, paneID: paneID))
+        case .restorePhaseEnded(let generation):
+            endRestorePhase(paneID: paneID, generation: generation)
         }
         await emit(outcomes)
     }
+
+    /// SR6b, arm (Program Design item 13, choice 13, step 3): "a newer
+    /// generation overwrites." R1's own recording; Panes' consumer adds the
+    /// gating this state drives.
+    func armRestorePhase(paneID: UUID, generation: RestoreGeneration) {
+        restorePhaseByPane[paneID] = generation
+    }
+
+    /// SR6b, end (Program Design item 13, choice 13, step 3): only clears
+    /// when `generation` equals the stored value — a stale or duplicate end
+    /// is ignored (dedup). Returns whether it matched, for tests to observe
+    /// this recording boundary directly (the plan's stand-in consumer).
+    @discardableResult
+    func endRestorePhase(paneID: UUID, generation: RestoreGeneration) -> Bool {
+        guard restorePhaseByPane[paneID] == generation else { return false }
+        restorePhaseByPane.removeValue(forKey: paneID)
+        return true
+    }
+
+    /// Test-only observation of the recording boundary above; production
+    /// code never reads this (Panes' consumer holds its own gating state).
+    var restorePhaseGenerationsByPane: [UUID: RestoreGeneration] { restorePhaseByPane }
 
     func markObserved(surfaceID: UUID, paneID: UUID) {
         guard var state = paneStates[paneID], state.surfaceID == surfaceID else { return }

@@ -252,7 +252,8 @@ extension WorkspaceSurfaceCoordinator {
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false,
         authority: TerminalSurfaceCreationAuthority,
-        restoreKind: TerminalRestoreKind? = nil
+        restoreKind: TerminalRestoreKind? = nil,
+        armedRestoreGeneration: RestoreGeneration? = nil
     ) -> TopologyIndependentTerminalMountResult {
         guard isCurrentTerminalPane(pane) else { return .failed(.startupPreparationFailed) }
         if let existing = viewRegistry.terminalView(for: pane.id), let surfaceID = existing.surfaceId {
@@ -323,9 +324,10 @@ extension WorkspaceSurfaceCoordinator {
                     to: pane,
                     preparedRuntime: preparedRuntime
                 )
-            else {
-                return .failed(.surfaceAttachmentFailed)
-            }
+            else { return .failed(.surfaceAttachmentFailed) }
+            // SR6b: nil except a just-armed cold surface; set only here,
+            // after creation succeeds, never before the arm acknowledgment.
+            attachedSurface.restorePhaseLatch = armedRestoreGeneration
 
             let view = TerminalPaneMountView(
                 restoredSurfaceId: managed.id,

@@ -231,6 +231,10 @@ package final class TerminalActivityRouter {
                 precedingAggregate: precedingAggregate,
                 control: control
             )
+        case .restorePhaseArmed(let paneID, let restoreGeneration):
+            await projector.armRestorePhase(paneID: paneID, generation: restoreGeneration)
+        case .restorePhaseEnded(let paneID, let restoreGeneration):
+            await projector.endRestorePhase(paneID: paneID, generation: restoreGeneration)
         }
     }
 

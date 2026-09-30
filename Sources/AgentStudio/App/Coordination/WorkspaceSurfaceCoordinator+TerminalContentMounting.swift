@@ -100,7 +100,7 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         admission: TerminalActivationAdmission,
         initialFrame: NSRect?,
         authority: TerminalSurfaceCreationAuthority
-    ) -> TerminalActivationAttemptResult {
+    ) async -> TerminalActivationAttemptResult {
         let pane = admission.descriptor.pane
         guard case .terminal = pane.content else {
             preconditionFailure("nonterminal pane entered prepared terminal activation")
@@ -111,13 +111,35 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
                 retry: .doNotRetry
             )
         }
+
+        // SR6b (Program Design item 13): a cold pane arms its restore phase
+        // and awaits the acknowledgment before its surface is ever created —
+        // never an unarmed cold surface. Warm, unverified and nil kinds skip
+        // this entirely; they never suspend here.
+        var armedRestoreGeneration: RestoreGeneration?
+        if case .cold = admission.restoreKind {
+            let generation = RestoreGenerationAllocator.allocate()
+            let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
+                paneID: pane.id,
+                restoreGeneration: generation
+            )
+            guard acknowledgment == .armed else {
+                return .failed(
+                    failure: .surfaceCreationFailed(code: "restore_phase_unarmed"),
+                    retry: .doNotRetry
+                )
+            }
+            armedRestoreGeneration = generation
+        }
+
         viewRegistry.ensureSlot(for: pane.id)
         switch createTopologyIndependentTerminalView(
             for: pane,
             initialFrame: initialFrame,
             treatAsRestoredSessionStart: true,
             authority: authority,
-            restoreKind: admission.restoreKind
+            restoreKind: admission.restoreKind,
+            armedRestoreGeneration: armedRestoreGeneration
         ) {
         case .mounted(let mountedContent):
             return .ready(surfaceID: mountedContent.surfaceID)
