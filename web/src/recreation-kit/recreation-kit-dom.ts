@@ -13,6 +13,9 @@ export const kitPresenceAttribute = "data-kit-presence";
 /** `data-kit-phone="hidden"`: an element the phone focused crop leaves out. */
 export const kitPhoneAttribute = "data-kit-phone";
 
+/** `data-kit-visibility="hidden"`: suppress a kit part at every container width. */
+export const kitVisibilityAttribute = "data-kit-visibility";
+
 /** `data-line="<index>"`: one terminal line, in document order. */
 export const kitLineAttribute = "data-line";
 

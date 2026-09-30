@@ -408,6 +408,63 @@ describe("scene bundles for HyperFrames", () => {
     },
   );
 
+  it.each([600, 1280])(
+    "renders the Review thread inline after line 49 without a file tree at %ipx",
+    (stageWidth) => {
+      const bundle = requireBundle("chapter-review");
+      mountStyle(bundle.sceneCss);
+      const root = mountStage(bundle.sceneHtml, stageWidth, bundle.manifest.stage.height);
+      runClassicScript(bundle.sceneJs);
+      const timeline = gsap.timeline({ paused: true });
+      window.AgentStudioScenes?.["chapter-review"]?.buildScene(root, timeline, {
+        width: stageWidth,
+        height: bundle.manifest.stage.height,
+        seed: bundle.manifest.seed,
+      });
+
+      const changedLine = root.querySelector<HTMLElement>(
+        '[data-scene-part="review-changed-line"]',
+      );
+      const nextLine = [...root.querySelectorAll<HTMLElement>(".kit-diff-view__line")].find(
+        (line) => line.querySelector(".kit-diff-view__number")?.textContent === "50",
+      );
+      const thread = root.querySelector<HTMLElement>('[data-scene-part="review-comment-thread"]');
+      const threadSlot = thread?.closest<HTMLElement>(".kit-diff-view__annotation");
+      const fileTree = root.querySelector<HTMLElement>(".kit-file-tree");
+      expect(changedLine).not.toBeNull();
+      expect(nextLine).toBeDefined();
+      expect(thread).not.toBeNull();
+      expect(threadSlot).not.toBeNull();
+      expect(fileTree).not.toBeNull();
+      expect(getComputedStyle(fileTree as HTMLElement).display).toBe("none");
+
+      timeline.time(1.0);
+      expect((threadSlot as HTMLElement).getBoundingClientRect().height).toBeLessThan(1);
+      timeline.time(2.2);
+      expect(changedLine?.nextElementSibling).toBe(threadSlot);
+      expect((threadSlot as HTMLElement).getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        (changedLine as HTMLElement).getBoundingClientRect().bottom - 1,
+      );
+      expect((nextLine as HTMLElement).getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        (threadSlot as HTMLElement).getBoundingClientRect().bottom - 1,
+      );
+      expect(["absolute", "fixed"]).not.toContain(getComputedStyle(thread as HTMLElement).position);
+      expect(thread?.textContent).toContain("1 comment");
+      expect(thread?.textContent).toContain("Open");
+      expect(thread?.querySelector(".scene-review__avatar")?.textContent).toBe("A");
+      expect(thread?.textContent).toContain("Agent");
+      expect(thread?.textContent).toContain("2m");
+      expect(thread?.textContent).toContain("Keep the comparison dated.");
+      expect(thread?.textContent).toContain("The current.md pin can stay brief.");
+      expect(thread?.textContent).toContain("Reply");
+      expect(thread?.textContent).toContain("Resolve");
+      timeline.time(1.0);
+      expect((threadSlot as HTMLElement).getBoundingClientRect().height).toBeLessThan(1);
+      timeline.revert();
+      timeline.kill();
+    },
+  );
+
   it("marks only the truthful truncated sidebar label as allowed overflow", () => {
     const bundle = requireBundle("chapter-many-agents");
     const { width, height } = bundle.manifest.stage;
