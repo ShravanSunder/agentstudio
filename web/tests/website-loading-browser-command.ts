@@ -6,6 +6,43 @@ interface LoadingProofWindow extends Window {
   loadingProofControl?: ScenePlaybackControl;
 }
 
+export interface HeroProofImageObservation {
+  readonly loading: string;
+  readonly fetchPriority: string;
+  readonly completeAtIntroEnd: boolean;
+  readonly decodedBeforeScroll: boolean;
+}
+
+export const verifyHeroProofImage = defineBrowserCommand(
+  async (
+    { context },
+    pageUrl: string,
+    width: number,
+    height: number,
+  ): Promise<HeroProofImageObservation> => {
+    const page = await context.newPage();
+    try {
+      await page.setViewportSize({ width, height });
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector('[data-hero-intro-state="settled"]');
+      return await page.evaluate(async (): Promise<HeroProofImageObservation> => {
+        const image = document.querySelector<HTMLImageElement>("[data-hero-app-frame] picture img");
+        if (image === null) throw new Error("Hero proof image missing");
+        const completeAtIntroEnd = image.complete && image.naturalWidth > 0;
+        await image.decode();
+        return {
+          loading: image.loading,
+          fetchPriority: image.fetchPriority,
+          completeAtIntroEnd,
+          decodedBeforeScroll: scrollY === 0 && image.naturalWidth > 0,
+        };
+      });
+    } finally {
+      await page.close();
+    }
+  },
+);
+
 export interface DeferredVideoObservation {
   readonly initialRequests: number;
   readonly initialBytes: number;

@@ -42,7 +42,10 @@ import {
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
 import { verifyFinaleBookend, verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
-import { verifyDeferredProofVideo } from "./tests/website-loading-browser-command.ts";
+import {
+  verifyDeferredProofVideo,
+  verifyHeroProofImage,
+} from "./tests/website-loading-browser-command.ts";
 import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
 
 export function selectChromeLaunchOptions(
@@ -77,6 +80,7 @@ export default defineConfig({
           browser: {
             commands: {
               verifyDeferredProofVideo,
+              verifyHeroProofImage,
               verifyChapterActivity,
               verifyStepLineJoins,
               buildSceneBundlesForBrowserTest,
