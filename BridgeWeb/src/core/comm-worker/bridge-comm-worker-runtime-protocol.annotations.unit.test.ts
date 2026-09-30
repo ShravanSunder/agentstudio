@@ -24,7 +24,9 @@ import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerMainToServerMessage,
 } from './bridge-worker-contracts.js';
+import { makeFileBatchInstallation } from './comm-runtime-protocol.file-product.test-support.js';
 import { makeCommentCatalogInstallation } from './test-fixtures/bridge-comm-worker-annotation-projection.test-support.js';
+import { fileSourceConfiguration } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
 const annotationWorktreeId = '00000000-0000-7000-8000-000000000001';
 
@@ -243,6 +245,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 			productTransport: createAnnotationProductTransport({
 				calledMethods,
 				fileAnnotationEvents: new BridgeProductBoundedAsyncQueue<never>(1),
+				fileSourceAvailable: true,
 				onBatchFrameSinks: commentBatches.setBatchFrameSinks,
 				onCalledMethod: (method): void => {
 					if (method === 'file.annotations.projection.query') {
@@ -273,6 +276,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 				},
 			}),
 		);
+		await commentBatches.installFileSnapshot();
 		await projectionQueryStarted.promise;
 		await flushBridgeWorkerRuntimeContinuations();
 
@@ -292,7 +296,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 		const fileAnnotationEvents = new BridgeProductBoundedAsyncQueue<never>(1);
 		const commentBatches = createAnnotationBatchPublisher();
 		const heldProjectionQuery = createBridgeProductDeferred<unknown>();
-		const projectionPage = annotationProjectionPage(1, 3);
+		const projectionPage = annotationProjectionPage(1, 11);
 		const projectionQueryStarted = createBridgeProductDeferred<void>();
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
@@ -301,6 +305,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 			productTransport: createAnnotationProductTransport({
 				calledMethods: [],
 				fileAnnotationEvents,
+				fileSourceAvailable: true,
 				onBatchFrameSinks: commentBatches.setBatchFrameSinks,
 				onCalledMethod: (method): void => {
 					if (method === 'file.annotations.projection.query') {
@@ -333,6 +338,7 @@ describe('Bridge comm worker annotation runtime protocol', () => {
 				},
 			}),
 		);
+		await commentBatches.installFileSnapshot();
 		await projectionQueryStarted.promise;
 
 		fileAnnotationEvents.close(false);
@@ -572,6 +578,7 @@ function annotationOutputDescriptor(props: {
 
 function createAnnotationBatchPublisher(): {
 	readonly setBatchFrameSinks: (sinks: BridgeProductBatchFrameSinks) => void;
+	readonly installFileSnapshot: () => Promise<void>;
 	readonly installCatalog: (
 		revision: number,
 		subscriptionKind: 'file.annotations' | 'review.annotations',
@@ -581,6 +588,14 @@ function createAnnotationBatchPublisher(): {
 	return {
 		setBatchFrameSinks: (sinks): void => {
 			state.sinks = sinks;
+		},
+		installFileSnapshot: async (): Promise<void> => {
+			await flushBridgeWorkerRuntimeContinuations();
+			const sinks = state.sinks;
+			if (sinks === null) throw new Error('Expected File batch sinks.');
+			await sinks.install(
+				makeFileBatchInstallation('file.metadata-subscription', { emptyTree: true }),
+			);
 		},
 		installCatalog: async (revision, subscriptionKind): Promise<void> => {
 			await flushBridgeWorkerRuntimeContinuations();
@@ -667,6 +682,7 @@ function annotationProjectionPage(
 
 function createAnnotationProductTransport(props: {
 	readonly calledMethods: string[];
+	readonly fileSourceAvailable?: boolean;
 	readonly failingAnnotationMethod?: 'file.annotations.command' | 'review.annotations.command';
 	readonly fileAnnotationEvents: BridgeProductBoundedAsyncQueue<never>;
 	readonly reviewAnnotationEvents: BridgeProductBoundedAsyncQueue<never>;
@@ -688,6 +704,7 @@ function createAnnotationProductTransport(props: {
 	readonly subscribedKinds: string[];
 }): BridgeProductTransportSession {
 	const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<never>(1);
+	const fileMetadataEvents = new BridgeProductBoundedAsyncQueue<never>(1);
 	return {
 		advanceWorkerDerivationEpoch: (): number => 1,
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double implements only the call variants exercised by this suite.
@@ -709,7 +726,9 @@ function createAnnotationProductTransport(props: {
 			}
 			if (method === props.failingAnnotationMethod) throw new Error('native annotation failure');
 			if (method === 'file.source.current') {
-				return { reason: 'no-file-source-authority', status: 'unavailable' };
+				return props.fileSourceAvailable === true
+					? { source: fileSourceConfiguration(), status: 'available' }
+					: { reason: 'no-file-source-authority', status: 'unavailable' };
 			}
 			if (method === 'file.annotations.command' || method === 'review.annotations.command') {
 				return {
@@ -772,6 +791,7 @@ function createAnnotationProductTransport(props: {
 		setBatchFrameSinks: (sinks): void => {
 			props.onBatchFrameSinks?.(sinks);
 		},
+		setViewScopeForSubscription: async () => ({ kind: 'accepted', scopeRevision: 1 }),
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double closes over its three supported subscription kinds.
 		subscribe: ((protocol: BridgeProductMetadataApplicationProtocolIdentity): unknown => {
 			const subscriptionKind = protocol.kind;
@@ -783,6 +803,8 @@ function createAnnotationProductTransport(props: {
 					return annotationTestSubscription(subscriptionKind, props.reviewAnnotationEvents);
 				case 'review.metadata':
 					return annotationTestSubscription(subscriptionKind, reviewMetadataEvents);
+				case 'file.metadata':
+					return annotationTestSubscription(subscriptionKind, fileMetadataEvents);
 				default:
 					throw new Error(`Unexpected subscription ${subscriptionKind}.`);
 			}
@@ -792,7 +814,7 @@ function createAnnotationProductTransport(props: {
 }
 
 function annotationTestSubscription(
-	subscriptionKind: 'file.annotations' | 'review.annotations' | 'review.metadata',
+	subscriptionKind: 'file.annotations' | 'review.annotations' | 'review.metadata' | 'file.metadata',
 	events: AsyncIterable<never>,
 ): {
 	readonly events: AsyncIterable<never>;

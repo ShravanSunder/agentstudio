@@ -204,6 +204,7 @@ struct BridgeProductSessionLifecycleTests {
         await harness.session.settleControlProviderDispatch(token: fileOpenToken)
         let foregroundWork = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let resetResult = try await harness.session.enqueueSubscriptionReset(
+            originatingMetadataLease: metadataLease,
             subscriptionId: "file-subscription-1",
             reason: .staleSource,
             productAdmission: harness.productAdmission.context,

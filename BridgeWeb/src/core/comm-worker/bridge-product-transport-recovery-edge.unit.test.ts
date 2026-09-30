@@ -14,6 +14,7 @@ import {
 	disposeTransportHarnesses,
 	fileSourceConfiguration,
 	metadataAccepted,
+	subscriptionAccepted,
 	waitForCondition,
 } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 import {
@@ -140,6 +141,103 @@ describe('Bridge product transport recovery edges', () => {
 		const replacement = harness.server.requiredMetadataRequest(1);
 		harness.server.emitMetadata(metadataAccepted(replacement, 1, 'snapshot_required'));
 		await harness.server.waitForControlKind('subscription.open', 2);
+		harness.server.shutdown();
+	});
+
+	test('reopens a retained view whose resnapshot is refused as unknown without poisoning the metadata stream', async () => {
+		// Arrange: native reconciles the ID, then definitively loses it before resnapshot.
+		const harness = createTransportHarness();
+		const first = await establishFileSubscription(harness);
+		const firstTerminal = first.events.next();
+		observeSettlement(firstTerminal, (): void => {});
+		const sibling = harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {});
+		const siblingTerminal = sibling.events[Symbol.asyncIterator]().next();
+		observeSettlement(siblingTerminal, (): void => {});
+		await harness.server.waitForControlKind('subscription.open', 2);
+		const initialStream = harness.server.requiredMetadataRequest();
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				kind: 'review.metadata',
+				request: initialStream,
+				streamSequence: 2,
+				subscriptionId: sibling.subscriptionId,
+			}),
+		);
+		await harness.server.waitForControlKind('subscription.setScope', 2);
+		harness.server.resnapshotHandler = (request): Response => {
+			if (request.subscriptionId === sibling.subscriptionId)
+				return new Response(
+					JSON.stringify({
+						domain: request.domain,
+						handle: request.handle,
+						incarnation: request.incarnation,
+						kind: 'subscription.resnapshotAccepted',
+						paneSessionId: request.paneSessionId,
+						requestId: request.requestId,
+						requestSequence: request.requestSequence,
+						scopeRevision: request.scopeRevision,
+						subscriptionId: request.subscriptionId,
+						subscriptionKind: request.subscriptionKind,
+						wireVersion: request.wireVersion,
+						workerInstanceId: request.workerInstanceId,
+					}),
+					{ status: 200 },
+				);
+			return new Response(
+				JSON.stringify({
+					code: 'unknown_subscription',
+					kind: 'request.error',
+					nextExpectedRequestSequence: request.requestSequence,
+					paneSessionId: request.paneSessionId,
+					requestId: request.requestId,
+					requestSequence: request.requestSequence,
+					retryAfterMilliseconds: null,
+					retryable: false,
+					safeMessage: null,
+					wireVersion: request.wireVersion,
+					workerInstanceId: request.workerInstanceId,
+				}),
+				{ status: 200 },
+			);
+		};
+
+		// Act: the physical reader drops; the replacement stream resumes with this ID retained.
+		harness.server.failMetadataReader(new Error('physical stream disconnected'));
+		await harness.server.waitForControlKind('workerSession.resync');
+		const resync = harness.server.requiredControlRequest('workerSession.resync', 0);
+		expect(resync.activeSubscriptions.map((active) => active.subscriptionId)).toContain(
+			first.subscription.subscriptionId,
+		);
+		expect(resync.activeSubscriptions.map((active) => active.subscriptionId)).toContain(
+			sibling.subscriptionId,
+		);
+		await harness.server.waitForMetadataStream(2);
+		const resumed = harness.server.requiredMetadataRequest(1);
+		if (resumed.resumeFromStreamSequence === null)
+			throw new Error('Expected a resumed metadata stream.');
+		harness.server.emitMetadata(
+			metadataAccepted(resumed, resumed.resumeFromStreamSequence + 1, 'resumed'),
+		);
+		await harness.server.waitForControlKind('subscription.resnapshot');
+
+		// Assert: local identity loss becomes a reset, so the existing view owner can reopen.
+		await expect(firstTerminal).rejects.toThrow(/snapshot_required/iu);
+		const replacement = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			source: fileSourceConfiguration(),
+		});
+		await harness.server.waitForControlKind('subscription.open', 3);
+		await harness.server.waitForControlKind('subscription.resnapshot', 2);
+		expect(replacement.subscriptionId).not.toBe(first.subscription.subscriptionId);
+		expect(harness.server.metadataFetchCount).toBe(2);
+		expect(
+			harness.server.controlRequests.filter(
+				(request) =>
+					request.kind === 'subscription.open' &&
+					request.subscription.subscriptionKind === 'review.metadata',
+			),
+		).toHaveLength(1);
+		expect(harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount).toBe(2);
 		harness.server.shutdown();
 	});
 

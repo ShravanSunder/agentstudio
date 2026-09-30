@@ -593,9 +593,30 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				),
 			);
 			await Promise.all(
-				[...retainedSubscriptionIds].map((subscriptionId) =>
-					this.#viewScopeOwner.resnapshot(subscriptionId),
-				),
+				[...retainedSubscriptionIds].map(async (subscriptionId): Promise<void> => {
+					try {
+						await this.#viewScopeOwner.resnapshot(subscriptionId);
+					} catch (error) {
+						if (
+							!(error instanceof BridgeProductControlRequestError) ||
+							error.code !== 'unknown_subscription'
+						)
+							throw error;
+						const subscription = this.#subscriptions.get(subscriptionId);
+						if (subscription === undefined) return;
+						const claim = subscription.reconciliationClaim();
+						if (claim === null) return;
+						// Native has definitively lost this ID. The existing per-surface reset
+						// recovery opens a new E3 or publishes Retry when its budget is spent.
+						await subscription.applyReconciliation({
+							disposition: 'reopenRequired',
+							reason: 'native_missing',
+							requiredWorkerDerivationEpoch: claim.workerDerivationEpoch,
+							subscriptionId: claim.subscriptionId,
+							subscriptionKind: claim.subscriptionKind,
+						});
+					}
+				}),
 			);
 			recoveryReady.resolve();
 		} catch (error) {

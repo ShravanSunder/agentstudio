@@ -2,6 +2,7 @@ import Foundation
 
 struct BridgePaneProductMetadataProducerExecutionContext: Sendable {
     let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    let metadataLease: BridgeProductProducerLease
     let productAdmission: BridgeProductAdmissionContext
     let session: BridgeProductSession
 }
@@ -11,6 +12,7 @@ enum BridgePaneProductMetadataProducerCompletion: Equatable, Sendable {
     case interrupted
     case failedWithoutReset
     case resetEnqueued
+    case staleProducer
 }
 
 struct BridgePaneProductMetadataProducerTaskLifecycle {
@@ -57,6 +59,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
         let subscriptionKind = request.subscriptionKind
         let productAdmission = request.executionContext.productAdmission
         let foregroundWorkAdmission = request.executionContext.foregroundWorkAdmission
+        let originatingMetadataLease = request.executionContext.metadataLease
         let session = request.executionContext.session
         let taskFinished = request.taskFinished
         let operation = request.operation
@@ -104,6 +107,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
                         )
                     )
                     let resetResult = try? await session.enqueueSubscriptionReset(
+                        originatingMetadataLease: originatingMetadataLease,
                         subscriptionId: subscriptionId,
                         reason: .staleSource,
                         productAdmission: productAdmission,
@@ -119,6 +123,8 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
                                 traceContext: traceContext
                             )
                         )
+                    } else if case .rejected(.unknownLease)? = resetResult {
+                        completion = .staleProducer
                     }
                 }
             }
@@ -128,6 +134,8 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
                     stage: .bootstrapFinished,
                     subscriptionKind: subscriptionKind,
                     result: completion == .completed ? .success : .failure,
+                    failureReason: completion == .staleProducer
+                        ? .producerRejection(.unknownLease) : nil,
                     traceContext: traceContext
                 )
             )

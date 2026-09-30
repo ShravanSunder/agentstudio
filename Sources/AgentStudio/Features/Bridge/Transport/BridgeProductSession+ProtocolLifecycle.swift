@@ -25,6 +25,7 @@ extension BridgeProductSession {
     }
 
     func enqueueSubscriptionReset(
+        originatingMetadataLease: BridgeProductProducerLease,
         subscriptionId: String,
         reason: BridgeProductResetReason,
         productAdmission: BridgeProductAdmissionContext,
@@ -33,7 +34,8 @@ extension BridgeProductSession {
         try foregroundWorkAdmission.withValidAdmission {
             try productAdmission.withValidAdmission {
                 let target = try activeMetadataFrameTarget()
-                guard producerAdmissionMatches(productAdmission, for: target.lease),
+                guard target.lease == originatingMetadataLease,
+                    producerAdmissionMatches(productAdmission, for: target.lease),
                     let delivery = protocolSubscriptionDeliveryById[subscriptionId]
                 else {
                     return .rejected(.unknownLease)

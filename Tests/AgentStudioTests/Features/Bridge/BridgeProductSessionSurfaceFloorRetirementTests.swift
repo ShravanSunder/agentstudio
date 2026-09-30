@@ -54,7 +54,7 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
         #expect(
             await harness.session.subscriptionSnapshot(subscriptionId: "file-subscription-1") != nil
         )
-        #expect(try await deliveryIsGone(harness, subscriptionId: "review-subscription-1"))
+        #expect(try await deliveryIsGone(harness, lease: lease, subscriptionId: "review-subscription-1"))
 
         // Act: the control that advanced the floor completes.
         try await completeDeliveredOpen(
@@ -113,7 +113,7 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
         #expect(
             await harness.session.subscriptionSnapshot(subscriptionId: "review-subscription-1") != nil
         )
-        #expect(try await deliveryIsGone(harness, subscriptionId: "file-subscription-1"))
+        #expect(try await deliveryIsGone(harness, lease: lease, subscriptionId: "file-subscription-1"))
         #expect((await harness.session.snapshot).workerDerivationEpochBySurface[.file] == 3)
         _ = await harness.session.stopProducer(contentLease)
         try await harness.closeProducer(lease)
@@ -174,7 +174,7 @@ struct BridgeProductSessionSurfaceFloorRetirementTests {
         #expect(reopen.subscriptionId == "review-subscription-1")
         #expect(reopen.requiredWorkerDerivationEpoch == 8)
         #expect(await harness.session.takeFloorRetiredSubscriptions().isEmpty)
-        #expect(try await deliveryIsGone(harness, subscriptionId: "review-subscription-1"))
+        #expect(try await deliveryIsGone(harness, lease: lease, subscriptionId: "review-subscription-1"))
         try await harness.closeProducer(lease)
     }
 
@@ -344,10 +344,12 @@ private func nextMetadataFrame(
 /// removed its delivery.
 private func deliveryIsGone(
     _ harness: BridgeProductSessionLifecycleHarness,
+    lease: BridgeProductProducerLease,
     subscriptionId: String
 ) async throws -> Bool {
     let foregroundWork = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
     let result = try await harness.session.enqueueSubscriptionReset(
+        originatingMetadataLease: lease,
         subscriptionId: subscriptionId,
         reason: .staleSource,
         productAdmission: harness.productAdmission.context,

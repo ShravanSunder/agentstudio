@@ -233,6 +233,7 @@ extension BridgePaneProductMetadataCoordinator {
                 (productAdmission.withValidAdmission { true }) == true
             else { return }
             let resetResult = try? await resettingStream.session.enqueueSubscriptionReset(
+                originatingMetadataLease: resettingStream.lease,
                 subscriptionId: subscriptionId,
                 reason: .staleSource,
                 productAdmission: productAdmission,

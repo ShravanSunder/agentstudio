@@ -104,27 +104,26 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		);
 		const initialReviewMetadata = requiredSubscriptionOpen(initialOpenByKind, 'review.metadata');
 
-		// Act
-		const reconciliation = controller.reconcileAnnotationProjectionSourceAuthority({
-			currentSourceGeneration: 2,
-			requestedSourceGeneration: 1,
-			surface: 'file',
-		});
-
-		let nextStreamSequence = 5;
-		const drainedCancellationIds = new Set<string>();
-		await drainSurfaceCancellationsUntilReplacementMetadataOpen({
-			drainedCancellationIds,
-			harness,
-			initialFileAnnotation,
-			initialFileMetadata,
-			nextStreamSequence: (): number => nextStreamSequence,
-			streamRequest,
-			useNextStreamSequence: (): number => {
-				nextStreamSequence += 1;
-				return nextStreamSequence;
-			},
-		});
+		// Act: File's own E3 reset advances its surface epoch. The annotation
+		// sibling has not delivered a cancellation terminal.
+		harness.server.emitMetadata(
+			subscriptionResetFrame({
+				epoch: 1,
+				kind: 'file.metadata',
+				request: streamRequest,
+				streamSequence: 5,
+				subscriptionId: initialFileMetadata.subscriptionId,
+			}),
+		);
+		await harness.server.waitForControlKind('subscription.cancel');
+		await waitForCondition(() =>
+			hasReplacementOpen(
+				harness.server.controlRequests,
+				'file.metadata',
+				initialFileMetadata.subscriptionId,
+			),
+		);
+		let nextStreamSequence = 6;
 
 		const controlRequests = harness.server.controlRequests;
 		const replacementFileMetadata = requiredReplacementOpen(
@@ -135,7 +134,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 
 		// Assert: File content opened at the new epoch while the annotation sibling's
 		// retirement was still undrained, so comments never delay the file itself.
-		expect(drainedCancellationIds).not.toContain(initialFileAnnotation.subscriptionId);
 		expect(replacementFileMetadata.workerDerivationEpoch).toBe(2);
 		// Native refuses controls tagged with a stale epoch once the surface advances,
 		// so the epoch-1 sibling is released before any epoch-2 request reaches it.
@@ -180,10 +178,9 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			nextStreamSequence += 1;
 		}
 
-		await reconciliation;
-
 		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
-			routeFailureCode: null,
+			failureStage: null,
+			streamOpenCount: 1,
 		});
 		expect(
 			controlRequests.filter(
@@ -216,27 +213,16 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			scenario.initialOpenByKind,
 			'file.metadata',
 		);
-		const reconciliation = scenario.controller.reconcileAnnotationProjectionSourceAuthority({
-			currentSourceGeneration: 2,
-			requestedSourceGeneration: 1,
-			surface: 'file',
-		});
-		await scenario.harness.server.waitForControlKind('subscription.cancel');
-		const metadataCancellation = requiredCancellation(
-			scenario.harness.server.controlRequests,
-			initialFileMetadata.subscriptionId,
-		);
 		scenario.harness.server.emitMetadata(
-			subscriptionCancelled({
+			subscriptionResetFrame({
 				epoch: 1,
 				kind: 'file.metadata',
 				request: scenario.streamRequest,
 				streamSequence: 5,
-				subscriptionId: metadataCancellation.subscriptionId,
-				subscriptionSequence: 1,
+				subscriptionId: initialFileMetadata.subscriptionId,
 			}),
 		);
-		await scenario.harness.server.waitForControlKind('subscription.cancel', 2);
+		await scenario.harness.server.waitForControlKind('subscription.cancel');
 		const annotationCancellation = requiredCancellation(
 			scenario.harness.server.controlRequests,
 			initialFileAnnotation.subscriptionId,
@@ -252,8 +238,6 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				subscriptionId: annotationCancellation.subscriptionId,
 			}),
 		);
-		await reconciliation;
-
 		await waitForCondition(() =>
 			hasReplacementOpen(
 				scenario.harness.server.controlRequests,
@@ -283,7 +267,7 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			cancellationRequests(scenario.harness.server.controlRequests).map(
 				(request) => request.subscriptionId,
 			),
-		).toEqual([initialFileMetadata.subscriptionId, initialFileAnnotation.subscriptionId]);
+		).toEqual([initialFileAnnotation.subscriptionId]);
 	});
 
 	test('keeps Review annotations refreshing when native floor-retires the sibling and refuses its stale cancel', async () => {
@@ -320,12 +304,20 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 						{ headers: { 'Content-Type': 'application/json' } },
 					);
 
-		// Act: Review reopens its metadata at epoch 2, and native's terminal arrives.
-		await scenario.controller.reconcileAnnotationProjectionSourceAuthority({
-			currentSourceGeneration: 2,
-			requestedSourceGeneration: 1,
-			surface: 'review',
-		});
+		// Act: Review's own metadata reset advances the surface epoch.
+		const initialReviewMetadata = requiredSubscriptionOpen(
+			scenario.initialOpenByKind,
+			'review.metadata',
+		);
+		scenario.harness.server.emitMetadata(
+			subscriptionResetFrame({
+				epoch: 1,
+				kind: 'review.metadata',
+				request: scenario.streamRequest,
+				streamSequence: 5,
+				subscriptionId: initialReviewMetadata.subscriptionId,
+			}),
+		);
 		await waitForCondition(() =>
 			cancellationRequests(scenario.harness.server.controlRequests).some(
 				(request) => request.subscriptionId === initialReviewAnnotation.subscriptionId,
@@ -337,7 +329,7 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				kind: 'review.annotations',
 				reason: 'epoch_retired',
 				request: scenario.streamRequest,
-				streamSequence: 5,
+				streamSequence: 6,
 				subscriptionId: initialReviewAnnotation.subscriptionId,
 			}),
 		);
@@ -377,26 +369,16 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			scenario.initialOpenByKind,
 			'file.metadata',
 		);
-		const reconciliation = scenario.controller.reconcileAnnotationProjectionSourceAuthority({
-			currentSourceGeneration: 2,
-			requestedSourceGeneration: 1,
-			surface: 'file',
-		});
-		await scenario.harness.server.waitForControlKind('subscription.cancel');
 		scenario.harness.server.emitMetadata(
-			subscriptionCancelled({
+			subscriptionResetFrame({
 				epoch: 1,
 				kind: 'file.metadata',
 				request: scenario.streamRequest,
 				streamSequence: 5,
-				subscriptionId: requiredCancellation(
-					scenario.harness.server.controlRequests,
-					initialFileMetadata.subscriptionId,
-				).subscriptionId,
-				subscriptionSequence: 1,
+				subscriptionId: initialFileMetadata.subscriptionId,
 			}),
 		);
-		await reconciliation;
+		await scenario.harness.server.waitForControlKind('subscription.cancel');
 		await waitForCondition(() =>
 			hasReplacementOpen(
 				scenario.harness.server.controlRequests,
@@ -568,63 +550,6 @@ function requiredCancellation(
 	);
 	if (request === undefined) throw new Error(`Missing cancellation for ${subscriptionId}.`);
 	return request;
-}
-
-async function drainSurfaceCancellationsUntilReplacementMetadataOpen(props: {
-	readonly drainedCancellationIds: Set<string>;
-	readonly harness: ReturnType<typeof createTransportHarness>;
-	readonly initialFileAnnotation: SubscriptionOpenRequest;
-	readonly initialFileMetadata: SubscriptionOpenRequest;
-	readonly nextStreamSequence: () => number;
-	readonly streamRequest: BridgeProductMetadataStreamRequest;
-	readonly useNextStreamSequence: () => number;
-}): Promise<void> {
-	while (
-		!hasReplacementOpen(
-			props.harness.server.controlRequests,
-			'file.metadata',
-			props.initialFileMetadata.subscriptionId,
-		)
-	) {
-		const cancellation = props.harness.server.controlRequests.find(
-			(request): request is SubscriptionCancelRequest =>
-				request.kind === 'subscription.cancel' &&
-				!props.drainedCancellationIds.has(request.subscriptionId),
-		);
-		if (cancellation === undefined) {
-			await waitForCondition(
-				() =>
-					hasReplacementOpen(
-						props.harness.server.controlRequests,
-						'file.metadata',
-						props.initialFileMetadata.subscriptionId,
-					) ||
-					props.harness.server.controlRequests.some(
-						(request) =>
-							request.kind === 'subscription.cancel' &&
-							!props.drainedCancellationIds.has(request.subscriptionId),
-					),
-			);
-			continue;
-		}
-
-		const openRequest =
-			cancellation.subscriptionId === props.initialFileAnnotation.subscriptionId
-				? props.initialFileAnnotation
-				: props.initialFileMetadata;
-		props.harness.server.emitMetadata(
-			subscriptionCancelled({
-				epoch: 1,
-				kind: bridgeProductSubscriptionKindSchema.parse(openRequest.subscription.subscriptionKind),
-				request: props.streamRequest,
-				streamSequence: props.nextStreamSequence(),
-				subscriptionId: cancellation.subscriptionId,
-				subscriptionSequence: 1,
-			}),
-		);
-		props.drainedCancellationIds.add(cancellation.subscriptionId);
-		props.useNextStreamSequence();
-	}
 }
 
 function subscriptionResetFrame(props: {
