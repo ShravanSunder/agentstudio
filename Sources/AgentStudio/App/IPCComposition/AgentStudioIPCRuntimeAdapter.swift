@@ -239,18 +239,6 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
         }
     }
 
-    /// Re-checks a pane agent's own pane in the same main-actor step as the
-    /// read or handoff it guards.
-    private func requireOwnPane(_ assertion: AppIPCOwnPaneAssertion?, paneId: UUID, method: String) throws {
-        guard let assertion else { return }
-        guard
-            workspaceStore.ownPaneAssertionHolds(
-                WorkspaceOwnPaneAssertion(boundPaneId: assertion.boundPaneId), for: paneId)
-        else {
-            throw AuthorizationError.notYetAllowed(method)
-        }
-    }
-
     private func terminalRuntimeSnapshot(for paneId: UUID) throws -> PaneRuntimeSnapshot {
         try terminalRuntime(for: paneId).snapshot()
     }
