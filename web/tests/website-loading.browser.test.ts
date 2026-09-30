@@ -4,6 +4,7 @@ import { commands } from "vitest/browser";
 import type {
   DeferredVideoObservation,
   HeroProofImageObservation,
+  CaptureDeliveryObservation,
 } from "./website-loading-browser-command";
 
 declare module "vitest/browser" {
@@ -14,6 +15,7 @@ declare module "vitest/browser" {
       width: number,
       height: number,
     ): Promise<HeroProofImageObservation>;
+    verifyCaptureDelivery(pageUrl: string): Promise<CaptureDeliveryObservation>;
   }
 }
 
@@ -26,6 +28,24 @@ it("admits the proof video near view and holds its poster until real canplay", a
   expect(observation.requestedNearViewport).toBe(true);
   expect(observation.posterWhileLoading).toBe(true);
   expect(observation.playedAfterReady).toBe(true);
+});
+
+it("serves monotonic capture variants and width-based phone sources", async () => {
+  const observation = await commands.verifyCaptureDelivery(inject("siteHeaderBrowserTestUrl"));
+  expect(observation.groups).toHaveLength(10);
+  for (const group of observation.groups) {
+    const variants = group.variants.toSorted((left, right) => left.width - right.width);
+    for (let index = 1; index < variants.length; index += 1) {
+      expect(
+        variants[index - 1]?.bytes,
+        `${group.name}: ${JSON.stringify(variants)}`,
+      ).toBeLessThanOrEqual(variants[index]?.bytes ?? 0);
+    }
+  }
+  for (const source of observation.phoneSources) {
+    expect(source.srcset).toMatch(/320w.*640w.*1280w/u);
+    expect(source.sizes).toContain("100vw");
+  }
 });
 
 it.each([

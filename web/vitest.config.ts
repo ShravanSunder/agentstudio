@@ -45,6 +45,7 @@ import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-b
 import {
   verifyDeferredProofVideo,
   verifyHeroProofImage,
+  verifyCaptureDelivery,
 } from "./tests/website-loading-browser-command.ts";
 import { verifyWebsiteQualityLayout } from "./tests/website-quality-browser-command.ts";
 
@@ -81,6 +82,7 @@ export default defineConfig({
             commands: {
               verifyDeferredProofVideo,
               verifyHeroProofImage,
+              verifyCaptureDelivery,
               verifyChapterActivity,
               verifyStepLineJoins,
               buildSceneBundlesForBrowserTest,

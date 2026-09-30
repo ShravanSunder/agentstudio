@@ -13,6 +13,62 @@ export interface HeroProofImageObservation {
   readonly decodedBeforeScroll: boolean;
 }
 
+export interface CaptureDeliveryObservation {
+  readonly groups: readonly {
+    readonly name: string;
+    readonly variants: readonly { readonly width: number; readonly bytes: number }[];
+  }[];
+  readonly phoneSources: readonly { readonly srcset: string; readonly sizes: string }[];
+}
+
+export const verifyCaptureDelivery = defineBrowserCommand(
+  async ({ context }, pageUrl: string): Promise<CaptureDeliveryObservation> => {
+    const page = await context.newPage();
+    try {
+      await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      return await page.evaluate(async (): Promise<CaptureDeliveryObservation> => {
+        // Serial transforms bound CPU when the cold Astro image service generates variants.
+        /* eslint-disable no-await-in-loop */
+        const groups: Array<{ name: string; variants: Array<{ width: number; bytes: number }> }> =
+          [];
+        const phoneSources: Array<{ srcset: string; sizes: string }> = [];
+        for (const picture of document.querySelectorAll(
+          "[data-hero-app-frame] picture, [data-scene-proof] picture",
+        )) {
+          const image = picture.querySelector("img");
+          const phone = picture.querySelector<HTMLSourceElement>("source[media]");
+          if (image === null || phone === null) throw new Error("Capture picture is incomplete");
+          phoneSources.push({ srcset: phone.srcset, sizes: phone.sizes });
+          for (const [name, srcset] of [
+            [image.alt, image.srcset],
+            [`${image.alt} phone`, phone.srcset],
+          ]) {
+            if (name === undefined || srcset === undefined)
+              throw new Error("Missing source identity");
+            const variants: Array<{ width: number; bytes: number }> = [];
+            for (const candidate of srcset.split(",")) {
+              const [url, width] = candidate.trim().split(/\s+/u);
+              if (url === undefined || url === "") continue;
+              const response = await fetch(url);
+              if (!response.ok)
+                throw new Error(`Capture source answered ${String(response.status)}`);
+              variants.push({
+                width: Number(width?.replace("w", "") ?? "0"),
+                bytes: (await response.arrayBuffer()).byteLength,
+              });
+            }
+            groups.push({ name, variants });
+          }
+        }
+        /* eslint-enable no-await-in-loop */
+        return { groups, phoneSources };
+      });
+    } finally {
+      await page.close();
+    }
+  },
+);
+
 export const verifyHeroProofImage = defineBrowserCommand(
   async (
     { context },
@@ -64,6 +120,8 @@ export const verifyDeferredProofVideo = defineBrowserCommand(
     try {
       await page.setViewportSize({ width: 1600, height: 1000 });
       await page.addInitScript((): void => {
+        // addInitScript serializes this callback; its guard must travel with it.
+        // oxlint-disable-next-line unicorn/consistent-function-scoping
         const isPlaybackControl = (value: unknown): value is ScenePlaybackControl =>
           typeof value === "object" &&
           value !== null &&
