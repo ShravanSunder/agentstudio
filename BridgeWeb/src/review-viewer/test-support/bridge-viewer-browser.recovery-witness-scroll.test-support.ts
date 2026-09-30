@@ -1,6 +1,10 @@
 import { act } from 'react';
 
 import type { BridgeMainRenderSnapshotStore } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
+import {
+	scrollBridgeReviewRecoveryWitnessTo,
+	waitForBridgeReviewRecoveryDomState,
+} from './bridge-review-recovery-dom-state.test-support.js';
 
 export interface BridgeReviewRecoveryScrollScan {
 	readonly blankPaintSampleCount: number;
@@ -73,16 +77,17 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 	const markerConvergenceSamples: BridgeReviewRecoveryMarkerConvergenceSample[] = [];
 	const scrollTopSamples: number[] = [];
 	const captureScrollSample = async (nextScrollTop: number): Promise<void> => {
-		await act(async (): Promise<void> => {
-			props.scrollOwner.scrollTop = nextScrollTop;
-			props.scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-			await Promise.resolve();
+		await scrollBridgeReviewRecoveryWitnessTo({
+			scrollOwner: props.scrollOwner,
+			scrollTop: nextScrollTop,
 		});
 		if (props.publishDemandedContent !== undefined) {
-			await advanceBridgeReviewRecoveryWitnessFrames(2);
 			await props.publishDemandedContent();
 		}
-		await advanceBridgeReviewRecoveryWitnessFrames(3);
+		await waitForBridgeReviewRecoveryDomState({
+			readState: (): boolean => visibleReviewHeadersAreHydrated(props.scrollOwner),
+			isExpected: (hydrated): boolean => hydrated,
+		});
 		const maximumAvailableScrollTop = Math.max(
 			0,
 			props.scrollOwner.scrollHeight - props.scrollOwner.clientHeight,
@@ -93,6 +98,8 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 		);
 		maximumScrollTop = Math.max(maximumScrollTop, props.scrollOwner.scrollTop);
 		scrollTopSamples.push(props.scrollOwner.scrollTop);
+		// Header adoption announces the hydrated render window. Sample the body separately so a
+		// blank body still fails the witness rather than becoming the wait's success predicate.
 		const renderedText = props.visibleCodeText(props.scrollOwner);
 		if (renderedText.trim().length === 0) blankPaintSampleCount += 1;
 		for (const marker of props.markers) {
@@ -131,8 +138,6 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 		}
 		const markerProgress =
 			props.markers.length === 1 ? 1 : markerIndex / (props.markers.length - 1);
-		let previousScrollHeight = -1;
-		let stableTargetSampleCount = 0;
 		for (
 			let convergenceSampleIndex = 0;
 			convergenceSampleIndex < maximumConvergenceSamplesPerMarker;
@@ -164,12 +169,8 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 						markerProgress,
 						props,
 					});
-			const targetIsStable =
-				currentScrollHeight === previousScrollHeight &&
-				Math.abs(props.scrollOwner.scrollTop - settledTargetScrollTop) <= 1;
-			stableTargetSampleCount = targetIsStable ? stableTargetSampleCount + 1 : 0;
-			previousScrollHeight = currentScrollHeight;
-			if (observedMarkers.has(marker) && stableTargetSampleCount >= 2) {
+			const targetIsStable = Math.abs(props.scrollOwner.scrollTop - settledTargetScrollTop) <= 1;
+			if (observedMarkers.has(marker) && targetIsStable) {
 				break;
 			}
 			const targetItemId = props.markerItemIds?.[markerIndex];
@@ -188,25 +189,15 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 					await captureScrollSample(markerLineScrollTop);
 					if (observedMarkers.has(marker)) break;
 				}
-				for (
-					let stationarySampleIndex = 0;
-					stationarySampleIndex < maximumConvergenceSamplesPerMarker;
-					stationarySampleIndex += 1
-				) {
-					if (props.publishDemandedContent !== undefined) {
-						// oxlint-disable-next-line no-await-in-loop -- The stationary viewport owns each demand/apply turn.
-						await props.publishDemandedContent();
-					}
-					// oxlint-disable-next-line no-await-in-loop -- Each turn advances one real apply/paint boundary without another scroll event.
-					await advanceBridgeReviewRecoveryWitnessFrames(1);
-					const renderedText = props.visibleCodeText(props.scrollOwner);
-					scrollTopSamples.push(props.scrollOwner.scrollTop);
-					if (renderedText.trim().length === 0) blankPaintSampleCount += 1;
-					if (renderedText.includes(marker)) {
-						observedMarkers.add(marker);
-						break;
-					}
-				}
+				// The target is already in the viewport; await its actual paint rather than retrying
+				// stationary frames while asynchronous Pierre work can escape act.
+				// oxlint-disable-next-line no-await-in-loop -- Each marker owns its observed target paint.
+				await waitForBridgeReviewRecoveryDomState({
+					readState: (): string => props.visibleCodeText(props.scrollOwner),
+					isExpected: (text): boolean => text.includes(marker),
+				});
+				observedMarkers.add(marker);
+				break;
 			}
 		}
 	}
@@ -221,6 +212,25 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 		sampleCount: scrollTopSamples.length,
 		scrollTopSamples,
 	};
+}
+
+function visibleReviewHeadersAreHydrated(scrollOwner: HTMLElement): boolean {
+	const viewportBounds = scrollOwner.getBoundingClientRect();
+	const visibleHosts = queryElementsIncludingOpenShadowRoots(scrollOwner, 'diffs-container').filter(
+		(host): boolean => {
+			const bounds = host.getBoundingClientRect();
+			return bounds.bottom > viewportBounds.top && bounds.top < viewportBounds.bottom;
+		},
+	);
+	return (
+		visibleHosts.length > 0 &&
+		visibleHosts.every((host): boolean =>
+			queryElementsIncludingOpenShadowRoots(host, '[data-bridge-code-view-content-state]').some(
+				(header): boolean =>
+					header.getAttribute('data-bridge-code-view-content-state') === 'hydrated',
+			),
+		)
+	);
 }
 
 function bridgeReviewRecoveryMarkerLineScrollTop(props: {
