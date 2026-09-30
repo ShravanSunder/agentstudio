@@ -60,7 +60,7 @@ extension E2ESerializedTests {
                 // Arrange — a real zmx session running a long-lived shell.
                 let sessionID = ZmxSessionID.generateUUIDv7()
                 let zmxPath = try #require(harness.zmxPath)
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: sessionID.rawValue,
                     commandArgs: ["/bin/sh", "-c", "sleep 60"]
@@ -95,7 +95,7 @@ extension E2ESerializedTests {
                 // Arrange
                 let sessionID = ZmxSessionID.generateUUIDv7()
                 let zmxPath = try #require(harness.zmxPath)
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: sessionID.rawValue,
                     commandArgs: ["/bin/sh", "-c", "sleep 60"]
@@ -144,12 +144,12 @@ extension E2ESerializedTests {
                 let stoppedSessionID = ZmxSessionID.generateUUIDv7()
                 let liveSessionID = ZmxSessionID.generateUUIDv7()
                 let zmxPath = try #require(harness.zmxPath)
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: stoppedSessionID.rawValue,
                     commandArgs: ["/bin/sh", "-c", "sleep 60"]
                 )
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: liveSessionID.rawValue,
                     commandArgs: ["/bin/sh", "-c", "sleep 60"]

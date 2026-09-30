@@ -22,6 +22,24 @@ final class ZmxTestHarness: @unchecked Sendable {
         var errorDescription: String? { outcome.diagnostics }
     }
 
+    /// Thrown by `waitUntilSessionSettled` when a freshly spawned session
+    /// never reaches a state the production discovery mechanism can
+    /// observe -- distinct from `ZmxSessionControlFailure`, whose cases all
+    /// assume a session that exists to be inspected.
+    enum SessionSettlementError: Error, LocalizedError {
+        case socketNeverAppeared(sessionId: String)
+        case terminalLeaderExitedBeforeSetsid(terminalPID: Int32)
+
+        var errorDescription: String? {
+            switch self {
+            case .socketNeverAppeared(let sessionId):
+                return "zmx session socket for \(sessionId) never appeared while waiting for settlement"
+            case .terminalLeaderExitedBeforeSetsid(let terminalPID):
+                return "terminal leader pid \(terminalPID) exited before completing setsid"
+            }
+        }
+    }
+
     private struct SpawnedProcess {
         let process: Process
         let processID: pid_t
@@ -252,14 +270,20 @@ final class ZmxTestHarness: @unchecked Sendable {
         )
     }
 
-    /// Spawn a zmx attach command against a real zmx daemon.
+    /// Spawn a zmx attach command against a real zmx daemon and block until
+    /// its terminal leader is past the `setsid` race window (Amended
+    /// 2026-09-30: the identical race `ColdStartObserver.beginSetsidWatch`
+    /// fixes for discovery was also flaking a direct `observe(path:bootID:)`
+    /// caller inspecting a session spawned here before its leader had
+    /// settled -- see `waitUntilSessionSettled`). Every caller that needs a
+    /// real, inspectable session gets one; no sleeps, no retry-until loop.
     ///
     /// The returned process must be awaited by callers through `cleanup()`.
     func spawnZmxSession(
         zmxPath: String,
         sessionId: String,
         commandArgs: [String]
-    ) throws -> Process {
+    ) async throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: zmxPath)
         process.arguments = ["attach", sessionId] + commandArgs
@@ -280,6 +304,7 @@ final class ZmxTestHarness: @unchecked Sendable {
                 processID: processID
             ))
 
+        try await waitUntilSessionSettled(sessionId: sessionId)
         return process
     }
 
@@ -292,8 +317,28 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// itself, so it runs through `/bin/sh -c` exactly as a user pasting it
     /// would.
     ///
+    /// Blocks until the session's terminal leader is past the `setsid` race
+    /// window, same as `spawnZmxSession`. A test that deliberately needs a
+    /// session before that point (or one that never reaches zmx at all, such
+    /// as a bogus `zmxExecutable`) spawns through
+    /// `spawnColdRestoreSessionWithoutWaitingForSettlement` instead.
+    ///
     /// The returned process must be awaited by callers through `cleanup()`.
-    func spawnColdRestoreSession(plan: TerminalColdRestorePlan) throws -> Process {
+    func spawnColdRestoreSession(plan: TerminalColdRestorePlan) async throws -> Process {
+        let process = try spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
+        try await waitUntilSessionSettled(sessionId: plan.sessionID.rawValue)
+        return process
+    }
+
+    /// The half-created counterpart to `spawnColdRestoreSession`: launches
+    /// the attach command and returns immediately, with no wait for the
+    /// session to become discoverable or its leader to complete `setsid`.
+    /// For a test that deliberately exercises a session before, or without
+    /// ever reaching, that point -- for example a bogus `zmxExecutable`
+    /// whose attach client exits before any socket exists.
+    ///
+    /// The returned process must be awaited by callers through `cleanup()`.
+    func spawnColdRestoreSessionWithoutWaitingForSettlement(plan: TerminalColdRestorePlan) throws -> Process {
         let commandLine = ZmxBackend.buildColdRestoreCommand(plan)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -344,6 +389,141 @@ final class ZmxTestHarness: @unchecked Sendable {
             try? await clock.sleep(for: .milliseconds(50))
         }
         return false
+    }
+
+    /// Blocks until a freshly spawned session's terminal leader has
+    /// completed `setsid()`, using the exact production discovery mechanism
+    /// (`ZmxSessionControl.observeForDiscovery`, backed off on a refused
+    /// connect, and an `EVFILT_PROC NOTE_EXEC` watch when setsid hasn't
+    /// landed yet) rather than a sleep or a retry-until poll loop --
+    /// mirroring `ColdStartObserver.attemptDiscoveryConnect` and
+    /// `beginSetsidWatch`. `spawnZmxSession` and `spawnColdRestoreSession`
+    /// call this before returning, so every zmx-e2e test that spawns
+    /// through them starts from a session whose leader is already past the
+    /// setsid race window.
+    @discardableResult
+    private func waitUntilSessionSettled(sessionId: String) async throws -> ZmxSessionIdentity {
+        guard await waitForSessionSocket(sessionId: sessionId, exists: true) else {
+            throw SessionSettlementError.socketNeverAppeared(sessionId: sessionId)
+        }
+        let socketPath = sessionSocketPath(for: sessionId)
+        let bootID = try await WorkspaceUndoJournalClock.current().bootID
+        return try await resolveSettledDiscovery(socketPath: socketPath, bootID: bootID, retryIndex: 0)
+    }
+
+    private func resolveSettledDiscovery(
+        socketPath: String,
+        bootID: String,
+        retryIndex: Int
+    ) async throws -> ZmxSessionIdentity {
+        switch ZmxSessionControl.observeForDiscovery(path: socketPath, bootID: bootID) {
+        case .identity(let identity):
+            return identity
+        case .pendingSetsid(let terminalPID):
+            return try await resolveViaSetsidWatch(terminalPID: terminalPID, socketPath: socketPath, bootID: bootID)
+        case .failure(let failure) where Self.isTransientDuringSettlement(failure):
+            // Amended 2026-09-30 against evidence, not guessed: a fresh
+            // two-daemon spawn ("orphan discovery finds untracked session")
+            // hit .timeout on its first full zmx-e2e run here. This wait
+            // runs right after the socket first appears -- the same early,
+            // racy window `waitForObservedSessionIdentity` below already
+            // tolerates .unavailable/.connectionRefused/.processUnverifiable
+            // /.timeout on for the identical reason ("a busy startup may not
+            // answer within one bounded request"). ColdStartObserver's own
+            // attemptDiscoveryConnect only retries .connectionRefused
+            // because its directory-watch trigger already gives the daemon
+            // more time before the first connect; this harness wait has no
+            // such head start, so it matches the broader, already-proven
+            // tolerance instead.
+            let delaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
+            guard retryIndex < delaysMilliseconds.count else {
+                throw failure
+            }
+            try? await clock.sleep(for: .milliseconds(delaysMilliseconds[retryIndex]))
+            return try await resolveSettledDiscovery(socketPath: socketPath, bootID: bootID, retryIndex: retryIndex + 1)
+        case .failure(let failure):
+            throw failure
+        }
+    }
+
+    private static func isTransientDuringSettlement(_ failure: ZmxSessionControlFailure) -> Bool {
+        switch failure {
+        case .connectionRefused, .unavailable, .processUnverifiable, .timeout:
+            return true
+        case .invalidIdentity, .invalidSocketPath, .invalidResponse, .identityMismatch,
+            .unexpectedProcessParent, .unexpectedProcessGroup, .nativeAttachmentPresent, .awaitingProcessExit:
+            return false
+        }
+    }
+
+    /// Register-then-check, exactly like `ColdStartObserver
+    /// .beginSetsidWatch`/`checkForSetsidAndAdvance`: the leader can
+    /// complete setsid and exec between the `.pendingSetsid` observation
+    /// above and this registration, so the immediate check right after
+    /// `resume()` catches that already-true fact instead of missing the
+    /// kqueue event and hanging. The same event handler serves later
+    /// `NOTE_EXEC`/`NOTE_EXIT` events too, staying armed on a
+    /// still-`.pendingSetsid` read.
+    private func resolveViaSetsidWatch(
+        terminalPID: Int32,
+        socketPath: String,
+        bootID: String
+    ) async throws -> ZmxSessionIdentity {
+        final class SettlementGate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var completed = false
+
+            func tryComplete() -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !completed else { return false }
+                completed = true
+                return true
+            }
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let gate = SettlementGate()
+            let source = DispatchSource.makeProcessSource(
+                identifier: terminalPID,
+                eventMask: [.exit, .exec],
+                queue: DispatchQueue.global(qos: .userInitiated)
+            )
+
+            // `gate` protects only the continuation's single resume, checked
+            // right at each resume point -- a still-`.pendingSetsid` read
+            // touches nothing and simply leaves the watch armed for the
+            // next event, the same shape as `awaitSessionSocketEvent`'s own
+            // `CompletionGate`/`finish` below.
+            func checkAndAdvance(exitFired: Bool) {
+                if exitFired {
+                    guard gate.tryComplete() else { return }
+                    source.cancel()
+                    continuation.resume(
+                        throwing: SessionSettlementError.terminalLeaderExitedBeforeSetsid(terminalPID: terminalPID))
+                    return
+                }
+                switch ZmxSessionControl.observeForDiscovery(path: socketPath, bootID: bootID) {
+                case .identity(let identity):
+                    guard gate.tryComplete() else { return }
+                    source.cancel()
+                    continuation.resume(returning: identity)
+                case .pendingSetsid:
+                    break  // not settled yet; the watch stays armed for the next event
+                case .failure(let failure):
+                    guard gate.tryComplete() else { return }
+                    source.cancel()
+                    continuation.resume(throwing: failure)
+                }
+            }
+
+            source.setEventHandler {
+                checkAndAdvance(exitFired: source.data.contains(.exit))
+            }
+            source.setCancelHandler {}
+            source.resume()
+            checkAndAdvance(exitFired: false)
+        }
     }
 
     private func awaitSessionSocketEvent(

@@ -25,7 +25,7 @@ extension E2ESerializedTests {
                 let sessionID = ZmxSessionID.generateUUIDv7()
                 let zmxPath = try #require(harness.zmxPath)
                 let databaseURL = URL(fileURLWithPath: harness.zmxDir).appendingPathComponent("proof.sqlite")
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let evidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
@@ -57,7 +57,7 @@ extension E2ESerializedTests {
                 #expect(recoveredEvidence == evidence)
                 var replacementEvidence: Data?
                 if withReplacement {
-                    _ = try harness.spawnZmxSession(
+                    _ = try await harness.spawnZmxSession(
                         zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                     try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                     replacementEvidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
@@ -93,7 +93,7 @@ extension E2ESerializedTests {
             try await withRealBackend { harness, backend in
                 let sessionID = ZmxSessionID.generateUUIDv7()
                 let zmxPath = try #require(harness.zmxPath)
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let evidence = try await waitForObservedSessionIdentity(sessionID, backend: backend)
@@ -256,7 +256,7 @@ extension E2ESerializedTests {
             try await withRealBackend { harness, backend in
                 let sessionID = ZmxSessionID.generateUUIDv7()
                 if wasRunning {
-                    _ = try harness.spawnZmxSession(
+                    _ = try await harness.spawnZmxSession(
                         zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
                         commandArgs: ["/bin/sleep", "300"])
                     try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
@@ -272,7 +272,7 @@ extension E2ESerializedTests {
         func observedIdentityProtectsTheRunningSession() async throws {
             try await withRealBackend { harness, backend in
                 let sessionID = ZmxSessionID.generateUUIDv7()
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
                     commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
@@ -296,7 +296,7 @@ extension E2ESerializedTests {
         func verifiedCleanupEndsTheOriginalSession() async throws {
             try await withRealBackend { harness, backend in
                 let sessionID = ZmxSessionID.generateUUIDv7()
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: try #require(harness.zmxPath), sessionId: sessionID.rawValue,
                     commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
@@ -335,7 +335,7 @@ extension E2ESerializedTests {
                 let handle = try await backend.createPaneSession(sessionID: .generateUUIDv7())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: handle.id.rawValue,
                     commandArgs: ["/bin/sleep", "300"]
@@ -395,12 +395,12 @@ extension E2ESerializedTests {
 
                 let handle1 = try await backend.createPaneSession(sessionID: .generateUUIDv7())
                 let handle2 = try await backend.createPaneSession(sessionID: .generateUUIDv7())
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: handle1.id.rawValue,
                     commandArgs: ["/bin/sleep", "300"]
                 )
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: handle2.id.rawValue,
                     commandArgs: ["/bin/sleep", "300"]
@@ -436,7 +436,7 @@ extension E2ESerializedTests {
                 let handle = try await backend.createPaneSession(sessionID: .generateUUIDv7())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: handle.id.rawValue,
                     commandArgs: ["/bin/sleep", "300"]
@@ -470,7 +470,7 @@ extension E2ESerializedTests {
                 let handle = try await backend.createPaneSession(sessionID: .generateUUIDv7())
                 let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
 
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath,
                     sessionId: handle.id.rawValue,
                     commandArgs: ["/bin/sleep", "300"]
@@ -569,7 +569,7 @@ extension E2ESerializedTests {
                 let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
                 let observer = ColdStartObserver()
 
-                _ = try harness.spawnColdRestoreSession(plan: plan)
+                _ = try await harness.spawnColdRestoreSession(plan: plan)
                 let settledOutcome = await observer.observeColdStart(
                     zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
                     socketPath: socketPath,
@@ -605,7 +605,11 @@ extension E2ESerializedTests {
                 let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
                 let observer = ColdStartObserver()
 
-                let process = try harness.spawnColdRestoreSession(plan: plan)
+                // The bogus zmxExecutable means no socket, and no setsid,
+                // ever exists to wait for -- the default, settlement-waiting
+                // spawnColdRestoreSession would just time out on the socket
+                // wait instead of exercising this test's own intent.
+                let process = try harness.spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
                 process.waitUntilExit()
                 #expect(process.terminationStatus != 0, "the missing zmxExecutable must genuinely fail to run")
                 await observer.reportAttachClientExited()
@@ -656,7 +660,7 @@ extension E2ESerializedTests {
                 let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
                 let observer = ColdStartObserver()
 
-                _ = try harness.spawnColdRestoreSession(plan: plan)
+                _ = try await harness.spawnColdRestoreSession(plan: plan)
                 let outcome = await observer.observeColdStart(
                     zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
                     socketPath: socketPath,
@@ -678,7 +682,7 @@ extension E2ESerializedTests {
             try await withRealBackend { harness, backend in
                 let sessionID = ZmxSessionID.generateUUIDv7()
                 let zmxPath = try #require(harness.zmxPath)
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
@@ -687,7 +691,7 @@ extension E2ESerializedTests {
                 // same session id, including within the same second.
                 try await backend.destroySessionByID(sessionID)
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let replacementIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
@@ -718,7 +722,7 @@ extension E2ESerializedTests {
             try await withRealBackend { harness, backend in
                 let sessionID = ZmxSessionID.generateUUIDv7()
                 let zmxPath = try #require(harness.zmxPath)
-                _ = try harness.spawnZmxSession(
+                _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
