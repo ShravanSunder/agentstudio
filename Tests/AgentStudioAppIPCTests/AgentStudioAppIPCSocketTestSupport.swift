@@ -115,6 +115,10 @@ func decodeJSONValue<T: Decodable>(_ type: T.Type, from value: JSONValue) throws
     return try JSONDecoder().decode(type, from: data)
 }
 
+enum TestFrameReaderError: Error, Equatable {
+    case endOfStream
+}
+
 struct TestFrameReader {
     var decoder = NDJSONFrameDecoder(maxFrameBytes: 1_048_576)
     var queuedFrames: [String] = []
