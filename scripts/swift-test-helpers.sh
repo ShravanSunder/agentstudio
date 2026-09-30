@@ -1559,7 +1559,7 @@ dispatch_isolated_suites() {
       next_filter=$((next_filter + 1))
       dispatch_ordinal=$((dispatch_ordinal + 1))
       (
-        local child_status=0 completion_reason=completed
+        local child_status=0 completion_reason=completed worker_pid=""
         (
           # Keep the wrapper's Bash 3.2 PID handshake before worker launch.
           # The reporter, rather than this fallible wrapper, owns FIFO output.
@@ -1572,6 +1572,8 @@ dispatch_isolated_suites() {
           local worker_status=0
           (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
           local worker_pid=$!
+          # If SIGKILL lands before this write, the reporter has no worker PID to reap.
+          printf '%s\n' "$worker_pid" >"$dispatch_dir/worker-$slot"
           wait "$worker_pid" || worker_status=$?
           printf '%s\n' "$worker_status" >"$dispatch_dir/status-$slot"
           exit "$worker_status"
@@ -1580,8 +1582,11 @@ dispatch_isolated_suites() {
         wait "$reporting_child_pid" || child_status=$?
         if [ ! -f "$dispatch_dir/status-$slot" ]; then
           completion_reason=wrapper_exited_without_completion
+          if [ -r "$dispatch_dir/worker-$slot" ] && read -r worker_pid <"$dispatch_dir/worker-$slot"; then
+            [ -z "$worker_pid" ] || terminate_lane_child_tree TERM "$worker_pid"
+          fi
         fi
-        rm -f "$dispatch_dir/pid-$slot" "$dispatch_dir/status-$slot" || true
+        rm -f "$dispatch_dir/pid-$slot" "$dispatch_dir/status-$slot" "$dispatch_dir/worker-$slot" || true
         # The writer's PPID is the reporter, including on Bash 3.2 where $$
         # still names the lane shell. No fallible reporter PID handshake.
         /bin/sh -c 'printf "%s %s %s %s\n" "$1" "$PPID" "$2" "$3"' \
