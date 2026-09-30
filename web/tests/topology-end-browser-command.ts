@@ -1,6 +1,5 @@
 import { defineBrowserCommand } from "@vitest/browser-playwright";
 
-import { saveFinalePillProofImages } from "./finale-pill-proof-images";
 import {
   observeFinalePillSurface,
   type FinalePillSurfaceObservation,
@@ -451,17 +450,6 @@ export const verifyFinaleBookend = defineBrowserCommand(
         });
       });
       const pillSurface = await applicationPage.evaluate(observeFinalePillSurface);
-      const finaleFrame = await applicationPage.screenshot();
-      const finalePill = await applicationPage.locator("[data-finale-split-pill]").screenshot();
-      const stepPill = await applicationPage
-        .locator("#come-back [data-chapter-step-active-label]")
-        .screenshot();
-      await saveFinalePillProofImages({
-        width: proofWidth,
-        frame: finaleFrame,
-        finalePill,
-        stepPill,
-      });
       const resizedTrace = await applicationPage.evaluate(async () => {
         const pill = document.querySelector<HTMLElement>("[data-finale-split-pill]");
         const trace = document.querySelector<SVGPathElement>("[data-finale-border-trace]");

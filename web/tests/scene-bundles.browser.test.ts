@@ -338,22 +338,11 @@ describe("scene bundles for HyperFrames", () => {
           seed: bundle.manifest.seed,
         });
         const samples = [];
-        const evidencePhase =
-          root.querySelector('[data-scene-part="command-shortcut"]') === null
-            ? "baseline"
-            : "fixed";
-        /* eslint-disable no-await-in-loop -- One paused scene must seek and capture each requested frame in order. */
         for (let index = 5; index <= 25; index += 1) {
           const time = index / 10;
           timeline.time(time);
           samples.push(observeQuickFindScene(root, time));
-          await page.screenshot({
-            element: root,
-            path: `__screenshots__/quickfind-81-${evidencePhase}-${stageWidth}-${time.toFixed(1)}.png`,
-          });
         }
-        /* eslint-enable no-await-in-loop */
-        console.info(`quickfind-${stageWidth} ${JSON.stringify(samples)}`);
         const selected = samples.filter(
           (sample) =>
             sample.query === "tool" &&

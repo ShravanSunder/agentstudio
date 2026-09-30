@@ -1,5 +1,3 @@
-import { writeFile } from "node:fs/promises";
-
 import { defineBrowserCommand } from "@vitest/browser-playwright";
 import sharp from "sharp";
 
@@ -78,10 +76,6 @@ export const verifyRailViewportBands = defineBrowserCommand(
         };
       });
       const screenshot = await applicationPage.screenshot();
-      await writeFile(
-        new URL(`../../tmp/proof/line-widths-chapter-${width}.png`, import.meta.url),
-        screenshot,
-      );
       const { data, info } = await sharp(screenshot)
         .removeAlpha()
         .raw()
