@@ -265,7 +265,7 @@ export function initializeTopologyScrollReveal(
       revealProgress >= Number(terminalPath.dataset["topologyPathEnd"]) - 1e-6;
     if (scrollProgress >= 0.9999 || endReachedDispatched || terminalReached) {
       const terminalRing = artwork.querySelector<SVGCircleElement>(
-        "[data-topology-terminal-node] .node-merge-ring",
+        "[data-topology-terminal-node] .node-end-ring",
       );
       const pathBounds = terminalPath?.getBBox();
       const terminalBottomY = Math.max(

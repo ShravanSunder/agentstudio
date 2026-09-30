@@ -596,8 +596,8 @@ function observeEnd(
   const finalPath = finalRoute?.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
   const mainline = artwork?.querySelector<SVGPathElement>("[data-mainline]");
   const terminalNode = finalRoute?.querySelector<SVGGElement>("[data-topology-terminal-node]");
-  const ring = terminalNode?.querySelector<SVGCircleElement>(".node-merge-ring");
-  const core = terminalNode?.querySelector<SVGCircleElement>(".node-merge-core");
+  const ring = terminalNode?.querySelector<SVGCircleElement>(".node-end-ring");
+  const core = terminalNode?.querySelector<SVGCircleElement>(".node-end-core");
   const halo = terminalNode?.querySelector<SVGCircleElement>(".node-terminal-halo");
   if (
     artwork === null ||
@@ -746,7 +746,9 @@ function observeEnd(
     bendDotPlain:
       bendDot?.dataset["nodeKind"] === "commit" &&
       !bendDot.hasAttribute("data-topology-suppressed") &&
-      bendDot.querySelector(".node-terminal, .node-terminal-halo, .node-merge-ring") === null,
+      bendDot.querySelector(
+        ".node-terminal, .node-terminal-halo, .node-merge-ring, .node-end-ring",
+      ) === null,
     innermostLaneX:
       mainlineStart.matrixTransform(mainline.getScreenCTM() ?? matrix).x +
       Number(artwork.dataset["laneCount"]) * Number(artwork.dataset["columnUnit"]),
@@ -840,8 +842,8 @@ export const verifyTopologyEnd = defineBrowserCommand(
         await applicationPage.evaluate(async () => {
           const node = document.querySelector("[data-topology-terminal-node]");
           if (node === null) throw new Error("Terminal node is missing after reveal");
-          const ring = node.querySelector(".node-merge-ring");
-          const core = node.querySelector(".node-merge-core");
+          const ring = node.querySelector(".node-end-ring");
+          const core = node.querySelector(".node-end-core");
           await Promise.all(
             [ring, core].flatMap(
               (part) => part?.getAnimations().map((animation) => animation.finished) ?? [],
@@ -886,7 +888,7 @@ export const verifyTopologyEnd = defineBrowserCommand(
             "#topology-rail-vibrancy-gradient",
           );
           const node = artwork?.querySelector<SVGCircleElement>(
-            "[data-topology-terminal-node] .node-merge-ring",
+            "[data-topology-terminal-node] .node-end-ring",
           );
           const attach = artwork?.querySelector<SVGPathElement>(
             '[data-route-kind="attach"].accent-main [data-topology-path-role="core"]',

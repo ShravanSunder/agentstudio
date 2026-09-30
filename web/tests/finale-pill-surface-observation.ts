@@ -19,7 +19,7 @@ export function observeFinalePillSurface(): FinalePillSurfaceObservation {
   const copy = root?.querySelector<HTMLElement>("[data-install-copy]");
   const trace = root?.querySelector<SVGPathElement>("[data-finale-border-trace]");
   const ring = document.querySelector<SVGCircleElement>(
-    "[data-topology-terminal-node] .node-merge-ring",
+    "[data-topology-terminal-node] .node-end-ring",
   );
   if (!root || !pill || !stepPill || !star || !copy || !trace || !ring)
     throw new Error("Finale painted surface proof missing");
