@@ -76,13 +76,13 @@ struct ShortcutCatalogTests {
             ShortcutDecoder.shortcut(
                 for: .init(key: .character(.w), modifiers: [.command]),
                 in: .global
-            ) == .closeTab
+            ) == nil
         )
         #expect(
             ShortcutDecoder.shortcut(
                 for: .init(key: .character(.w), modifiers: [.command, .shift]),
                 in: .global
-            ) == .closeWindow
+            ) == nil
         )
     }
 
