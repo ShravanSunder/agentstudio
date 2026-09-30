@@ -367,12 +367,22 @@ extension BridgePaneController {
                 drained: nil
             )
         }
-        let sidecar = try await drainTelemetrySidecar(closeAfterDrain: false)
+        let proofInstallation = await telemetrySessionOwner.installation
+        let proofSession = proofInstallation.session
+        let proofCaptureID = await proofSession.beginProofSnapshotCapture()
+        let sidecar: BridgeTelemetrySidecarDrainEnvelope
+        do {
+            sidecar = try await drainTelemetrySidecar(closeAfterDrain: false)
+        } catch {
+            await proofSession.cancelProofSnapshotCapture(proofCaptureID)
+            throw error
+        }
         guard
             sidecar.kind == .report,
             let telemetrySessionId = sidecar.telemetrySessionId,
             let sidecarReport = sidecar.sidecar
         else {
+            await proofSession.cancelProofSnapshotCapture(proofCaptureID)
             return IPCBridgeTelemetryFlushResult(
                 paneId: paneId,
                 kind: .unavailable,
@@ -381,7 +391,20 @@ extension BridgePaneController {
                 drained: nil
             )
         }
-        let native = await telemetrySessionOwner.snapshot
+        guard
+            let native = await proofSession.takeProofSnapshot(
+                for: proofCaptureID,
+                acceptedBatchSequence: sidecarReport.acceptedBatchSequence
+            )
+        else {
+            return IPCBridgeTelemetryFlushResult(
+                paneId: paneId,
+                kind: .unavailable,
+                unavailableReason: .failed,
+                report: nil,
+                drained: nil
+            )
+        }
         let report = BridgeTelemetryProofReport.drain(
             telemetrySessionId: telemetrySessionId,
             sidecar: sidecarReport,
