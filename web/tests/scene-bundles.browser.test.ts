@@ -363,6 +363,51 @@ describe("scene bundles for HyperFrames", () => {
     timeline.kill();
   });
 
+  it.each([600, 1280])(
+    "marks each find-and-focus terminal line as an allowed overlap only while the bar is open at %ipx",
+    (stageWidth) => {
+      const bundle = requireBundle("chapter-find-and-focus");
+      mountStyle(bundle.sceneCss);
+      const root = mountStage(bundle.sceneHtml, stageWidth, bundle.manifest.stage.height);
+      runClassicScript(bundle.sceneJs);
+      const timeline = gsap.timeline({ paused: true });
+      window.AgentStudioScenes?.["chapter-find-and-focus"]?.buildScene(root, timeline, {
+        width: stageWidth,
+        height: bundle.manifest.stage.height,
+        seed: bundle.manifest.seed,
+      });
+
+      const terminalLines = [
+        ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal .kit-terminal__line"),
+      ];
+      const coveredLeaseLine = terminalLines.find((line) =>
+        line.textContent?.includes("Reading src/lease.ts"),
+      );
+      expect(terminalLines.length).toBeGreaterThan(0);
+      expect(coveredLeaseLine).toBeDefined();
+
+      for (const [time, expected] of [
+        [0.3, false],
+        [1.7, true],
+        [2.8, false],
+        [1.7, true],
+        [0.3, false],
+      ] as const) {
+        timeline.time(time);
+        expect(
+          terminalLines.every((line) => line.hasAttribute("data-layout-allow-overlap")),
+          `every terminal line at ${stageWidth}px, t=${time}`,
+        ).toBe(expected);
+        expect(
+          coveredLeaseLine?.hasAttribute("data-layout-allow-overlap"),
+          `lease line itself at ${stageWidth}px, t=${time}`,
+        ).toBe(expected);
+      }
+      timeline.revert();
+      timeline.kill();
+    },
+  );
+
   it("marks only the truthful truncated sidebar label as allowed overflow", () => {
     const bundle = requireBundle("chapter-many-agents");
     const { width, height } = bundle.manifest.stage;

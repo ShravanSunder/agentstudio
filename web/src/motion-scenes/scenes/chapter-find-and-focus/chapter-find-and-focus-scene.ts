@@ -23,6 +23,7 @@ interface FindAndFocusElements {
   readonly worktreesSection: HTMLElement;
   readonly targetLines: readonly HTMLElement[];
   readonly paneTextContainers: readonly HTMLElement[];
+  readonly paneTextLines: readonly HTMLElement[];
   readonly rightPaneCoveredText: HTMLElement;
   readonly targetFocusRing: HTMLElement;
   readonly targetZoomedChip: HTMLElement;
@@ -49,6 +50,9 @@ function resolveFindAndFocusElements(root: HTMLElement): FindAndFocusElements {
       9,
     ),
     paneTextContainers: [...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal")],
+    paneTextLines: [
+      ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal .kit-terminal__line"),
+    ],
     rightPaneCoveredText,
     targetFocusRing: requireScenePart(root, findAndFocusParts.targetFocusRing),
     targetZoomedChip: requireScenePart(root, findAndFocusParts.targetZoomedChip),
@@ -70,6 +74,16 @@ function buildFindAndFocusScene(
   for (const paneTextContainer of elements.paneTextContainers) {
     timeline.set(paneTextContainer, { attr: { "data-layout-allow-occlusion": "" } }, barOpenAt);
   }
+  for (const paneTextLine of elements.paneTextLines) {
+    timeline.set(
+      paneTextLine,
+      {
+        attr: { "data-layout-allow-overlap": "" },
+        onReverseComplete: () => paneTextLine.removeAttribute("data-layout-allow-overlap"),
+      },
+      barOpenAt,
+    );
+  }
   timeline.set(
     elements.rightPaneCoveredText,
     { attr: { "data-layout-allow-overlap": "" } },
@@ -88,6 +102,16 @@ function buildFindAndFocusScene(
       {
         onComplete: () => paneTextContainer.removeAttribute("data-layout-allow-occlusion"),
         onReverseComplete: () => paneTextContainer.setAttribute("data-layout-allow-occlusion", ""),
+      },
+      barClosed,
+    );
+  }
+  for (const paneTextLine of elements.paneTextLines) {
+    timeline.set(
+      paneTextLine,
+      {
+        onComplete: () => paneTextLine.removeAttribute("data-layout-allow-overlap"),
+        onReverseComplete: () => paneTextLine.setAttribute("data-layout-allow-overlap", ""),
       },
       barClosed,
     );
