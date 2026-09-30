@@ -110,33 +110,15 @@ final class BridgeProductWebKitCarrierControllerTarget {
     }
 
     func waitForAcceptedApplication(
-        publicationId: UUID,
-        timeout: Duration
+        publicationId: UUID
     ) async -> Bool {
         guard !hasAcceptedApplication(for: publicationId) else { return true }
         let waiterID = nextApplicationReceiptWaiterID
         nextApplicationReceiptWaiterID += 1
-        return await withTaskGroup(of: Bool?.self) { group in
-            group.addTask { [weak self] in
-                guard let self else { return nil }
-                return await self.waitForAcceptedApplicationEvent(
-                    publicationId: publicationId,
-                    waiterID: waiterID
-                )
-            }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: timeout)
-                    return false
-                } catch {
-                    return nil
-                }
-            }
-            let result = await group.next()
-            group.cancelAll()
-            guard let result else { return false }
-            return result ?? false
-        }
+        return await waitForAcceptedApplicationEvent(
+            publicationId: publicationId,
+            waiterID: waiterID
+        )
     }
 
     private func hasAcceptedApplication(for publicationId: UUID) -> Bool {
