@@ -481,14 +481,11 @@ describe('Bridge comm worker entry', () => {
 				requestId: 'mark-viewed-product-chain',
 			}),
 		);
-		await flushBridgeWorkerRuntimeContinuations();
-		const messages = await productPort.waitForCount(5);
+		const markViewedHealth = await productPort.waitFor(
+			(message) => message.kind === 'health' && message.requestId === 'mark-viewed-product-chain',
+		);
 		// Assert
-		expect(
-			messages.find(
-				(message) => message.kind === 'health' && message.requestId === 'mark-viewed-product-chain',
-			),
-		).toMatchObject({
+		expect(markViewedHealth).toMatchObject({
 			kind: 'health',
 			requestId: 'mark-viewed-product-chain',
 			status: 'ready',
@@ -771,6 +768,16 @@ class BridgeWorkerMessagePortRecorder {
 		if (this.#messages.length >= count) return Promise.resolve([...this.#messages]);
 		return new Promise((resolve): void => {
 			this.#waiters.push({ count, resolve });
+		});
+	}
+
+	waitFor(
+		matches: (message: BridgeWorkerServerToMainWireMessage) => boolean,
+	): Promise<BridgeWorkerServerToMainWireMessage> {
+		const existing = this.#messages.find(matches);
+		if (existing !== undefined) return Promise.resolve(existing);
+		return new Promise((resolve): void => {
+			this.#messageWaiters.push({ matches, resolve });
 		});
 	}
 
