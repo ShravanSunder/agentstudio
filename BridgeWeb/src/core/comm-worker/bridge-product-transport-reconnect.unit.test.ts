@@ -20,14 +20,111 @@ afterEach(async () => {
 });
 
 describe('Bridge product transport metadata reconnection', () => {
+	test('an uninstalled batch begin cannot renew physical-stream recovery', async () => {
+		const harness = createTransportHarness();
+		harness.transport.setBatchFrameSinks?.({
+			install: (): void => {},
+			receipt: (): void => {},
+			resnapshot: (): void => {},
+			resnapshotLatest: (): void => {},
+		});
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			source: fileSourceConfiguration(),
+		});
+		const settled = subscription.events[Symbol.asyncIterator]()
+			.next()
+			.then(
+				(): string => 'delivered',
+				(): string => 'failed',
+			);
+		try {
+			await harness.server.waitForMetadataStream();
+			const initialStream = harness.server.requiredMetadataRequest(0);
+			harness.server.emitMetadata(metadataAccepted(initialStream, 0));
+			harness.server.emitMetadata(
+				subscriptionAccepted({
+					epoch: 0,
+					kind: 'file.metadata',
+					request: initialStream,
+					streamSequence: 1,
+					subscriptionId: subscription.subscriptionId,
+				}),
+			);
+			await harness.server.waitForControlKind('subscription.setScope');
+			const scope = harness.server.requiredControlRequest('subscription.setScope', 0);
+			if (scope.kind !== 'subscription.setScope') throw new Error('Expected File scope.');
+
+			harness.server.failMetadataReader(new Error('first physical disconnect'));
+			await harness.server.waitForControlKind('workerSession.resync');
+			await harness.server.waitForMetadataStream(2);
+			const replacementStream = harness.server.requiredMetadataRequest(1);
+			if (replacementStream.resumeFromStreamSequence === null)
+				throw new Error('Expected resumed metadata stream.');
+			harness.server.emitMetadata(
+				metadataAccepted(
+					replacementStream,
+					replacementStream.resumeFromStreamSequence + 1,
+					'resumed',
+				),
+			);
+			await harness.server.waitForControlKind('subscription.resnapshot');
+			harness.server.emitMetadata(
+				bridgeProductBatchFrameSchema.parse({
+					baseRevision: 0,
+					batchId: 'incomplete-recovered-file',
+					domain: scope.domain,
+					handle: scope.handle,
+					incarnation: scope.incarnation,
+					kind: 'subscription.batchBegin',
+					metadataStreamId: replacementStream.metadataStreamId,
+					mode: 'snapshot',
+					paneSessionId: replacementStream.paneSessionId,
+					partCount: 1,
+					scope: scope.scope,
+					scopeRevision: scope.scopeRevision,
+					streamSequence: replacementStream.resumeFromStreamSequence + 2,
+					subscriptionId: subscription.subscriptionId,
+					subscriptionKind: 'file.metadata',
+					targetRevision: 1,
+					wireVersion: replacementStream.wireVersion,
+					workerInstanceId: replacementStream.workerInstanceId,
+				}),
+			);
+			// EOF preserves the queued begin's wire order while ending the physical stream.
+			harness.server.endMetadataStream();
+			const outcome = await Promise.race([
+				settled,
+				harness.server.waitForControlKind('workerSession.resync', 2).then(
+					(): string => 'recovered-again',
+					(): string => 'no-second-resync',
+				),
+			]);
+			expect(outcome).toBe('failed');
+			expect(
+				harness.server.controlRequests.filter((request) => request.kind === 'workerSession.resync'),
+			).toHaveLength(1);
+		} finally {
+			harness.server.shutdown();
+		}
+	});
+
 	test('resnapshots an installed File view after its physical stream reconnects', async () => {
 		const harness = createTransportHarness();
 		let resolveInstallation: () => void = (): void => {};
 		const installed = new Promise<void>((resolve): void => {
 			resolveInstallation = resolve;
 		});
+		let resolveReplacementInstallation: () => void = (): void => {};
+		const replacementInstalled = new Promise<void>((resolve): void => {
+			resolveReplacementInstallation = resolve;
+		});
+		let installationCount = 0;
 		harness.transport.setBatchFrameSinks?.({
-			install: (): void => resolveInstallation(),
+			install: (): void => {
+				installationCount += 1;
+				if (installationCount === 1) resolveInstallation();
+				if (installationCount === 2) resolveReplacementInstallation();
+			},
 			receipt: (): void => {},
 			resnapshot: (): void => {},
 			resnapshotLatest: (): void => {},
@@ -112,6 +209,37 @@ describe('Bridge product transport metadata reconnection', () => {
 				scopeRevision: acceptedScope.scopeRevision,
 				subscriptionId: subscription.subscriptionId,
 			});
+			const replacementIdentity = {
+				...identity,
+				batchId: 'file-reconnect-batch-2',
+				metadataStreamId: replacementStream.metadataStreamId,
+			};
+			harness.server.emitMetadata(
+				bridgeProductBatchFrameSchema.parse({
+					...replacementIdentity,
+					baseRevision: 1,
+					kind: 'subscription.batchBegin',
+					mode: 'snapshot',
+					partCount: 0,
+					scope,
+					streamSequence: replacementStream.resumeFromStreamSequence + 2,
+					targetRevision: 2,
+				}),
+			);
+			harness.server.emitMetadata(
+				bridgeProductBatchFrameSchema.parse({
+					...replacementIdentity,
+					coveredScope: scope,
+					kind: 'subscription.batchComplete',
+					streamSequence: replacementStream.resumeFromStreamSequence + 3,
+				}),
+			);
+			await replacementInstalled;
+			harness.server.failMetadataReader(new Error('physical stream lost after certified install'));
+			await harness.server.waitForControlKind('workerSession.resync', 2);
+			expect(
+				harness.server.controlRequests.filter((request) => request.kind === 'workerSession.resync'),
+			).toHaveLength(2);
 		} finally {
 			harness.server.shutdown();
 		}

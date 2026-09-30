@@ -345,6 +345,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				install: async (installation): Promise<void> => {
 					await sinks.install(installation);
 					this.#viewScopeOwner.recordCertifiedInstall(installation.begin);
+					this.#metadataRecoveryAttemptedSinceProgress = false;
 					sinks.certifiedInstallCompleted?.(installation.begin);
 				},
 				replacementSnapshot: (frame): void => {
@@ -762,10 +763,6 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 						routedFrameCount: this.#metadataStreamHealthDiagnostics.routedFrameCount + 1,
 					};
 					this.#lastRoutedStreamSequence = frame.streamSequence;
-					// Opening and pane-control replay do not establish subscription progress.
-					if (frame.kind.startsWith('subscription.batch')) {
-						this.#metadataRecoveryAttemptedSinceProgress = false;
-					}
 				}
 			}
 		} catch (error) {
