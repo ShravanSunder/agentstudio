@@ -74,6 +74,41 @@ struct TerminalRestoreKindResolverTests {
         #expect(kinds[PaneId(existingUUID: pane.id)] == .unverified(.warmIdentityUnobservable))
     }
 
+    @Test("N live sessions, exceeding the concurrency bound, all resolve warm with their own identity")
+    func manyLiveSessionsAllResolveWarm() async throws {
+        // Exceeds AppPolicies.Restore.maximumConcurrentIdentityObservations
+        // (4), so the bounded task group must refill from its backlog at
+        // least once rather than only ever running its first wave.
+        let sessionCount = 6
+        let probe = ScriptedProbe()
+        var panesBySessionID: [ZmxSessionID: Pane] = [:]
+        var descriptors: [TerminalActivationDescriptor] = []
+        var inventoryEntries: [ZmxSessionID: ZmxInventoryEntry] = [:]
+        for index in 0..<sessionCount {
+            let sessionID = try restoredSessionID("as-resolver-concurrent-\(index)")
+            let pane = makePane(sessionID: sessionID)
+            panesBySessionID[sessionID] = pane
+            descriptors.append(descriptor(for: pane))
+            inventoryEntries[sessionID] = .alive(wrapperPid: Int32(100 + index))
+            probe.identitiesBySessionID[sessionID] = Data([UInt8(index)])
+        }
+        probe.inventory = .complete(inventoryEntries)
+        let resolver = makeResolver(probe: probe)
+
+        let kinds = await resolver.resolveRestoreKinds(for: descriptors)
+
+        #expect(kinds.count == sessionCount)
+        for (sessionID, pane) in panesBySessionID {
+            guard case .warm(let identity) = kinds[PaneId(existingUUID: pane.id)] else {
+                Issue.record(
+                    "expected .warm for session \(sessionID), got \(String(describing: kinds[PaneId(existingUUID: pane.id)]))"
+                )
+                continue
+            }
+            #expect(identity == probe.identitiesBySessionID[sessionID])
+        }
+    }
+
     @Test("a refused session resolves cold")
     func refusedResolvesCold() async throws {
         let sessionID = try restoredSessionID("as-resolver-refused")

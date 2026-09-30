@@ -304,6 +304,13 @@ package enum AppPolicies {
         /// `.unavailable(.timedOut)`, which makes every pane `.unverified`
         /// rather than delaying the first window.
         package static let inventoryProbeDeadline: Duration = .seconds(2)
+        /// Bounds the warm baseline's off-main fan-out (Program Design
+        /// choice 1): how many `.alive` sessions' `observeSessionIdentity`
+        /// calls `TerminalRestoreKindResolver` runs concurrently in one
+        /// mount, so a large pane count never opens unbounded sockets at
+        /// once. Matches this file's other small per-turn bounds (compare
+        /// `NonterminalContentMount.maximumMountsPerMainActorTurn`).
+        package static let maximumConcurrentIdentityObservations: Int = 4
     }
 
     package enum TerminalNavigation {
