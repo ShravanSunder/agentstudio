@@ -740,7 +740,9 @@ extension E2ESerializedTests {
         // MARK: - Helpers
 
         /// Run backend setup and guaranteed cleanup for each zmx E2E case.
-        private func withRealBackend(
+        /// Not `private`: shared with `ZmxE2ETests+ForcedTiming.swift`, an
+        /// extension of this same struct in a separate file.
+        func withRealBackend(
             _ test: @escaping @Sendable (ZmxTestHarness, ZmxBackend) async throws -> Void
         ) async throws {
             let harness = await ZmxTestHarness()
