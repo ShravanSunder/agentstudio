@@ -384,8 +384,12 @@ export const verifyFinaleBookend = defineBrowserCommand(
           logoOpacity: getComputedStyle(logo).opacity,
           traceOpacity: getComputedStyle(trace.closest("svg") ?? trace).opacity,
           copiedIconVisible:
-            copy.querySelector("[data-install-copied-icon]")?.hasAttribute("hidden") === false &&
-            copy.querySelector("[data-install-copy-icon]")?.hasAttribute("hidden") === true,
+            copy
+              .querySelector("[data-install-copied-icon]")
+              ?.hasAttribute("data-install-icon-hidden") === false &&
+            copy
+              .querySelector("[data-install-copy-icon]")
+              ?.hasAttribute("data-install-icon-hidden") === true,
           railStartFraction,
           railArrivalFraction,
           nodeStartOpacity,

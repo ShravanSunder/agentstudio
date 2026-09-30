@@ -1,12 +1,13 @@
 import { gsap } from "gsap";
 import { afterEach, beforeAll, describe, expect, inject, it, vi } from "vitest";
-import { commands } from "vitest/browser";
+import { commands, page } from "vitest/browser";
 
 // The registry module also declares `window.AgentStudioScenes`, which scene.js fills.
 import type { RegisteredSceneBundle } from "../scripts/scene-bundles/scene-bundle-registry.ts";
 import { sceneIds } from "../src/motion-scenes/scene-contract";
 import { resolveSceneModule } from "../src/motion-scenes/scene-registry";
 import { kitPhoneAttribute } from "../src/recreation-kit/recreation-kit-dom";
+import { observeQuickFindScene } from "./quickfind-scene-observation";
 import type { BuiltSceneBundleFiles } from "./scene-bundle-browser-command.ts";
 
 declare module "vitest/browser" {
@@ -321,6 +322,118 @@ describe("scene bundles for HyperFrames", () => {
     delete window.AgentStudioScenes;
   });
 
+  it.each([600, 1280])(
+    "shows the selected pane search result before quick-find jumps at %ipx",
+    async (stageWidth) => {
+      const bundle = requireBundle("chapter-find-and-focus");
+      await page.viewport(stageWidth, bundle.manifest.stage.height);
+      mountStyle(bundle.sceneCss);
+      const root = mountStage(bundle.sceneHtml, stageWidth, bundle.manifest.stage.height);
+      runClassicScript(bundle.sceneJs);
+      const timeline = gsap.timeline({ paused: true });
+      try {
+        window.AgentStudioScenes?.["chapter-find-and-focus"]?.buildScene(root, timeline, {
+          width: stageWidth,
+          height: bundle.manifest.stage.height,
+          seed: bundle.manifest.seed,
+        });
+        const samples = [];
+        const evidencePhase =
+          root.querySelector('[data-scene-part="command-shortcut"]') === null
+            ? "baseline"
+            : "fixed";
+        /* eslint-disable no-await-in-loop -- One paused scene must seek and capture each requested frame in order. */
+        for (let index = 5; index <= 25; index += 1) {
+          const time = index / 10;
+          timeline.time(time);
+          samples.push(observeQuickFindScene(root, time));
+          await page.screenshot({
+            element: root,
+            path: `__screenshots__/quickfind-81-${evidencePhase}-${stageWidth}-${time.toFixed(1)}.png`,
+          });
+        }
+        /* eslint-enable no-await-in-loop */
+        console.info(`quickfind-${stageWidth} ${JSON.stringify(samples)}`);
+        const selected = samples.filter(
+          (sample) =>
+            sample.query === "tool" &&
+            sample.paneVisible &&
+            sample.paneSelected &&
+            !sample.recentVisible,
+        );
+        expect(selected.length).toBeGreaterThan(0);
+        expect
+          .soft((selected.at(-1)?.time ?? 0) - (selected[0]?.time ?? 0))
+          .toBeGreaterThanOrEqual(0.6 - 0.000001);
+        expect.soft(samples.find((sample) => sample.time === 0.8)?.shortcutVisible).toBe(true);
+        expect.soft(selected.every((sample) => sample.subtitleVisible)).toBe(true);
+        expect
+          .soft(
+            samples
+              .filter((sample) => sample.query !== "")
+              .every((sample) => !sample.recentVisible),
+          )
+          .toBe(true);
+      } finally {
+        timeline.revert();
+        timeline.kill();
+      }
+    },
+  );
+
+  it.each([600, 1280])(
+    "uses native quick-find pane anatomy before the focus jump at %ipx",
+    (stageWidth) => {
+      const bundle = requireBundle("chapter-find-and-focus");
+      mountStyle(bundle.sceneCss);
+      const root = mountStage(bundle.sceneHtml, stageWidth, bundle.manifest.stage.height);
+      runClassicScript(bundle.sceneJs);
+      const timeline = gsap.timeline({ paused: true });
+      try {
+        window.AgentStudioScenes?.["chapter-find-and-focus"]?.buildScene(root, timeline, {
+          width: stageWidth,
+          height: bundle.manifest.stage.height,
+          seed: bundle.manifest.seed,
+        });
+        timeline.time(2);
+        const selected = observeQuickFindScene(root, 2);
+        expect.soft(selected.paneTitle).toBe("Terminal — tool-portal");
+        expect.soft(selected.paneSubtitle).toBe("parallel work · Tab 1 · Pane 2 · Active");
+        expect(selected).toMatchObject({
+          query: "tool",
+          paneVisible: true,
+          paneSelected: true,
+          subtitleVisible: true,
+          recentVisible: false,
+          shortcutVisible: true,
+        });
+        expect(
+          root.querySelector('[data-scene-part="pane-results"] .kit-command-bar__section')
+            ?.textContent,
+        ).toBe("PANES");
+        const focusRing = root.querySelector('[data-scene-part="target-focus-ring"]');
+        expect(Number(gsap.getProperty(focusRing, "opacity"))).toBe(0);
+        timeline.time(3.4);
+        expect(Number(gsap.getProperty(focusRing, "opacity"))).toBeGreaterThan(0.9);
+        timeline.time(2.8);
+        expect(
+          root
+            .querySelector(".kit-terminal__line--activity")
+            ?.hasAttribute("data-layout-allow-overlap"),
+        ).toBe(true);
+        timeline.time(3.1);
+        expect(
+          root
+            .querySelector(".kit-terminal__line--activity")
+            ?.hasAttribute("data-layout-allow-overlap"),
+        ).toBe(false);
+      } finally {
+        timeline.revert();
+        timeline.kill();
+      }
+    },
+  );
+
   it("keeps the quick-find overlay behind the settled panes and scopes its text occlusion", () => {
     const bundle = requireBundle("chapter-find-and-focus");
     const { width, height } = bundle.manifest.stage;
@@ -354,7 +467,11 @@ describe("scene bundles for HyperFrames", () => {
       paneTextContainers.every((pane) => pane.hasAttribute("data-layout-allow-occlusion")),
     ).toBe(true);
     expect(coveredRightLine?.hasAttribute("data-layout-allow-overlap")).toBe(true);
-    timeline.time(2.6);
+    timeline.time(2.8);
+    expect(
+      paneTextContainers.every((pane) => pane.hasAttribute("data-layout-allow-occlusion")),
+    ).toBe(true);
+    timeline.time(3.1);
     expect(
       paneTextContainers.every((pane) => !pane.hasAttribute("data-layout-allow-occlusion")),
     ).toBe(true);
@@ -389,7 +506,8 @@ describe("scene bundles for HyperFrames", () => {
       for (const [time, expected] of [
         [0.3, false],
         [1.7, true],
-        [2.8, false],
+        [2.8, true],
+        [3.1, false],
         [1.7, true],
         [0.3, false],
       ] as const) {

@@ -50,8 +50,8 @@ export function initializeInstallCommand(root: HTMLElement): () => void {
   const copyIcon = root.querySelector<SVGElement>("[data-install-copy-icon]");
   const copiedIcon = root.querySelector<SVGElement>("[data-install-copied-icon]");
   const renderCopiedIcon = (copied: boolean): void => {
-    copyIcon?.toggleAttribute("hidden", copied);
-    copiedIcon?.toggleAttribute("hidden", !copied);
+    copyIcon?.toggleAttribute("data-install-icon-hidden", copied);
+    copiedIcon?.toggleAttribute("data-install-icon-hidden", !copied);
   };
   const feedbackDurationMs = Number(root.dataset["installFeedbackMs"]);
   const resetFeedback = (): void => {

@@ -51,7 +51,7 @@ const terminalRailAttributes = {
       <span class="finale-label-short">{marketingCopy.finalCallToAction.starShort}</span>
     </a>
     <button type="button" class="finale-copy-button relative z-[1] inline-flex items-center justify-center" data-install-copy aria-label={marketingCopy.installation.copyButton}>
-      <svg class="finale-action-icon" viewBox="0 0 24 24" aria-hidden="true"><g data-install-copy-icon><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"></path></g><path data-install-copied-icon d="m5 12 4 4L19 6" hidden></path></svg>
+      <svg class="finale-action-icon" viewBox="0 0 24 24" aria-hidden="true"><g data-install-copy-icon><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"></path></g><path data-install-copied-icon d="m5 12 4 4L19 6" data-install-icon-hidden></path></svg>
       <span class="finale-label-full" data-install-copy-feedback>{marketingCopy.finalCallToAction.copyInstall}</span>
       <span class="finale-label-short" data-install-copy-feedback>{marketingCopy.finalCallToAction.copyShort}</span>
     </button>
@@ -105,7 +105,7 @@ const terminalRailAttributes = {
   .final-star-button:focus-visible, .finale-copy-button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -4px; }
   .finale-action-icon { width: 15px; height: 15px; flex: none; opacity: 0.7; }
   .finale-action-icon path, .finale-action-icon rect { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-  .finale-action-icon [hidden] { display: none; }
+  .finale-action-icon [data-install-icon-hidden] { display: none; }
   .finale-label-short { display: none; }
   .finale-border-trace path { fill: none; stroke: var(--color-floating-glass-border); stroke-width: 1px; }
   .final-cta[data-short-labels] .finale-label-full { display: none; }
