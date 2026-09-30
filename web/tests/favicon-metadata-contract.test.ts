@@ -10,6 +10,7 @@ import {
   campaignAttributionRegistry,
   campaignChannels,
 } from "../src/campaign-attribution/campaign-attribution-registry";
+import { marketingCopy } from "../src/marketing-copy";
 
 const canonicalHomeUrl = "https://getagentstudio.dev/";
 const canonicalSitemapUrl = "https://getagentstudio.dev/sitemap.xml";
@@ -121,6 +122,49 @@ describe("site discovery metadata", () => {
         });
       });
     }
+  });
+
+  it("publishes one truthful structured-data graph from the page's owned facts", async (): Promise<void> => {
+    const html = await (await fetch(previewOrigin)).text();
+    const scripts = [
+      ...html.matchAll(/<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gu),
+    ];
+    expect(scripts).toHaveLength(1);
+    const graphText = scripts[0]?.[1];
+    if (graphText === undefined) throw new Error("Structured data missing");
+    const parsed: unknown = JSON.parse(graphText);
+    expect(parsed).toEqual({
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "@id": `${canonicalHomeUrl}#application`,
+          name: marketingCopy.productName,
+          description: marketingCopy.hero.description,
+          applicationCategory: marketingCopy.applicationCategory,
+          operatingSystem: marketingCopy.installation.systemRequirement
+            .replace(/^Requires /u, "")
+            .replace(/\.$/u, ""),
+          url: canonicalHomeUrl,
+          installUrl: `${marketingCopy.githubUrl}#install`,
+          softwareHelp: { "@type": "CreativeWork", url: `${marketingCopy.githubUrl}#readme` },
+          creator: { "@id": `${canonicalHomeUrl}#creator` },
+        },
+        {
+          "@type": "WebSite",
+          "@id": `${canonicalHomeUrl}#website`,
+          name: marketingCopy.productName,
+          url: canonicalHomeUrl,
+          description: marketingCopy.hero.description,
+        },
+        {
+          "@type": "Person",
+          "@id": `${canonicalHomeUrl}#creator`,
+          name: marketingCopy.finalCallToAction.creatorName,
+          sameAs: [marketingCopy.socialLinks.github.url, marketingCopy.socialLinks.x.url],
+        },
+      ],
+    });
   });
 
   it("advertises a fetchable image favicon from the home page", async (): Promise<void> => {

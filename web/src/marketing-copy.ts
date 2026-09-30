@@ -1,5 +1,6 @@
 export const marketingCopy = {
   productName: "Agent Studio",
+  applicationCategory: "DeveloperApplication",
   hero: {
     eyebrow: "Native macOS. Repo-aware. Terminal-first.",
     headline: "Run dozens of agents in one workspace. Stay oriented. Miss nothing.",

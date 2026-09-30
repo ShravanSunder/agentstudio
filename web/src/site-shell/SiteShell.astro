@@ -7,6 +7,7 @@ import XMark from "@/social-links/XMark.astro";
 import "@/styles/global.css";
 
 import FullPageTopologyBackdrop from "./FullPageTopologyBackdrop.astro";
+import { siteStructuredData } from "./site-structured-data";
 
 interface Props {
   readonly title: string;
@@ -49,6 +50,7 @@ const socialImageUrl = new URL(siteMetadata.socialCard.path, siteMetadata.canoni
     <meta name="twitter:image" content={socialImageUrl} />
     <meta name="twitter:image:alt" content={siteMetadata.socialCard.alt} />
     <title>{title}</title>
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(siteStructuredData).replace(/</gu, "\\u003c")} />
   </head>
   <body>
     <FullPageTopologyBackdrop />
