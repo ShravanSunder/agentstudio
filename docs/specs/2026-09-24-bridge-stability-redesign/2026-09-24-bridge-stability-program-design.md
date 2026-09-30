@@ -653,7 +653,7 @@ The PR1 main assessment, the real-app journey and the Advisor's wedge hunt found
   - `surface`: `current | loading | updating(rest: held|hidden|none) | failed(failure)`.
   - `read`: `loading | complete|partial(identity, hasContent) | failed(failure, retainedIdentity)`.
   - `failure`: `retryable | permanent(correctiveAction)`, with `scope: pane|surface|read`.
-  - Output (closed): `content | loading | empty(noSelection|certified) | updating(rest) | failed(failure, retainsContent)`.
+  - Output (closed): `content | loading | empty(noSelection|certified|noSource) | updating(rest) | failed(failure, retainsContent)`. `noSource` is the settled absence of a File source (a typed `file.source.current` unavailable that isn't an authorization or configuration refusal); a refusal is a permanent `failed`.
   - Per-region adapters in each feature folder (File: `file-viewer/bridge-file-region-presentation.ts`; Review, Comments and Markdown alongside their shells) build the input from existing facts only:
     - `surface`: W2 view recovery status (`bridge-product-view-scope-owner.ts`), keyed member/publication status, and the pane bootstrap outcome;
     - `read`: the Main render snapshot store's installed model and the selected content read;
