@@ -281,6 +281,8 @@ export function installBridgePageHandshakeSession(
 			return;
 		}
 		const requestId = createProductSessionBootstrapRequestId();
+		// A replacement supersedes the request whose page deadline expired.
+		pendingProductBootstrapRequestReasonById.clear();
 		pendingProductBootstrapRequestReasonById.set(requestId, reason);
 		target.dispatchEvent(
 			new CustomEvent('__bridge_product_session_bootstrap_request', {

@@ -105,6 +105,12 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		const windowKey = bridgeWorkerRenderWindowKeyForJob(props.job);
 		const operationCorrelationId = props.operationCorrelationId ?? null;
 		let existingState = this.#fulfillmentByItemId.get(props.job.itemId) ?? null;
+		if (existingState !== null && existingState.identity.windowKey !== windowKey) {
+			this.#deliveryProbeCountByItemId.delete(props.job.itemId);
+			this.#exhaustedItemIds.delete(props.job.itemId);
+			this.#visibleQueuedLeaseByItemId.delete(props.job.itemId);
+			this.#sourceChurnDispositionByItemId.delete(props.job.itemId);
+		}
 		if (
 			existingState !== null &&
 			existingState.identity.windowKey === windowKey &&
@@ -324,9 +330,8 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 				continue;
 			}
 			if (
-				this.#context.surface === 'review' &&
 				(this.#deliveryProbeCountByItemId.get(itemId) ?? 0) >=
-					bridgeRenderDispositionAdmissionPolicy.maximumUnknownDeliveryProbeCount
+				bridgeRenderDispositionAdmissionPolicy.maximumUnknownDeliveryProbeCount
 			) {
 				this.#exhaustPublication(currentState, atMilliseconds);
 				expiredItemIds.push(itemId);

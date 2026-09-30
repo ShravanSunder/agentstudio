@@ -75,6 +75,54 @@ class ControlledMetadataDeadlineClock implements BridgeProductDeadlineClock {
 }
 
 describe('Bridge product transport', () => {
+	test('File render failure uses the real view Retry facade without declaring the session suspect', async () => {
+		const statuses: string[] = [];
+		const suspectReasons: string[] = [];
+		const harness = createTransportHarness({
+			deadlineClock: new ControlledMetadataDeadlineClock(),
+			onSessionSuspect: (reason): void => {
+				suspectReasons.push(reason);
+			},
+			onViewRecoveryStatus: (status): void => {
+				statuses.push(`${status.view.kind}:${status.status}`);
+			},
+		});
+		const subscription = harness.transport.subscribe(bridgeProductFileMetadataApplicationProtocol, {
+			source: fileSourceConfiguration(),
+		});
+		try {
+			const stream = await harness.server.waitForMetadataStreamOpened();
+			harness.server.emitMetadata(metadataAccepted(stream, 0));
+			harness.server.emitMetadata(
+				subscriptionAccepted({
+					epoch: 0,
+					kind: 'file.metadata',
+					request: stream,
+					streamSequence: 1,
+					subscriptionId: subscription.subscriptionId,
+				}),
+			);
+			await harness.server.waitForControlRequest('subscription.setScope');
+			await harness.transport.setViewScopeForSubscription?.({
+				subscriptionId: subscription.subscriptionId,
+				scope: { kind: 'file', changeFilter: { kind: 'none' }, interests: [], pathScope: [] },
+			});
+			if (harness.transport.failFileRender === undefined)
+				throw new Error('Expected the File render failure facade.');
+			harness.transport.failFileRender();
+			expect(statuses.at(-1)).toBe('file.metadata:failedRetryable');
+			await harness.transport.retryView?.(subscription.subscriptionId);
+			expect(statuses.at(-1)).toBe('file.metadata:recovering');
+			expect(
+				harness.server.controlRequests.filter(
+					(request) => request.kind === 'subscription.resnapshot',
+				),
+			).toHaveLength(1);
+			expect(suspectReasons).toEqual([]);
+		} finally {
+			await subscription.cancel();
+		}
+	});
 	test('a failed background cancel escape publishes the existing session-suspect fact', async () => {
 		const suspectFact = createBridgeProductDeferred<string>();
 		const suspectReasons: string[] = [];

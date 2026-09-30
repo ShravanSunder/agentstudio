@@ -65,6 +65,9 @@ export function createTransportHarness(
 			typeof BridgeProductControlMux
 		>[0]['onSessionSuspect'];
 		readonly reviewEpoch?: number;
+		readonly onViewRecoveryStatus?: Parameters<
+			typeof createBridgeProductTransport
+		>[0]['onViewRecoveryStatus'];
 	} = {},
 ): TransportHarness {
 	const authority: BridgeProductSessionAuthority = {
@@ -121,6 +124,9 @@ export function createTransportHarness(
 				review: options.reviewEpoch ?? 0,
 			},
 			metadataApplicationRegistry: bridgeProductMetadataApplicationRegistry,
+			...(options.onViewRecoveryStatus === undefined
+				? {}
+				: { onViewRecoveryStatus: options.onViewRecoveryStatus }),
 		}),
 	};
 	activeHarnesses.add(harness);
