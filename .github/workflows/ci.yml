@@ -534,6 +534,9 @@ jobs:
           test "${{ steps.swift-cache-inventory-before.outputs.valid }}" = true
           test ! -e .build-ci
 
+      - name: Snapshot restored Swift build decisions
+        run: /bin/bash scripts/ci-swift-build-diagnostics.sh before
+
       - name: Start Swift prebuild timer
         id: swift-prebuild-start
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
@@ -542,7 +545,9 @@ jobs:
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "1200"
-        run: mise run --skip-deps test:swift:prebuild
+          _XCB_BYPASS: "1"
+        run: |
+          mise run --skip-deps test:swift:prebuild > tmp/tq/diagnostics/prebuild.log 2>&1
 
       - name: Record Swift prebuild time
         id: swift-prebuild-time
@@ -550,6 +555,19 @@ jobs:
           build_seconds=$(( $(date +%s) - ${{ steps.swift-prebuild-start.outputs.epoch }} ))
           echo "build_seconds=$build_seconds" >> "$GITHUB_OUTPUT"
           echo "lane-report swift_cache_build_seconds=$build_seconds"
+
+      - name: Snapshot completed Swift build decisions
+        if: always()
+        run: /bin/bash scripts/ci-swift-build-diagnostics.sh after
+
+      - name: Upload Swift build decision diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-build-decisions-${{ github.run_id }}
+          path: tmp/tq/diagnostics/
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Test fast lane
         env:
