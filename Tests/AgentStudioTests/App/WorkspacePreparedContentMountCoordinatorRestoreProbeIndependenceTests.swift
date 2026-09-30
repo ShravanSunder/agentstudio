@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -56,8 +57,7 @@ struct MountCoordinatorRestoreProbeIndependenceTests {
         let mountTask = Task { @MainActor in
             await coordinator.mount()
         }
-        let probeEnteredDiscovery = await probe.waitUntilDiscoveryEntered()
-        #expect(probeEnteredDiscovery)
+        try await probe.step.firstArrival()
 
         let firstFrameTask = Task { @MainActor in
             await windowLifecycleStore.waitUntilFirstInteractiveFramePublished()
@@ -97,29 +97,20 @@ private let restoreProbeIndependenceEnabledConfiguration = SessionConfiguration.
 /// counterpart to `WorkspacePreparedContentMountCoordinatorTests`'s own
 /// `SuspendedPreparedContentTerminalPort`.
 private final class HeldZmxSessionRestoreProbe: ZmxSessionRestoreProbing, @unchecked Sendable {
-    private let discoveryEntered = AsyncStream<Void>.makeStream(of: Void.self)
-    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    /// `arrive(())` runs from `discoverSessionInventory()`'s own async
+    /// context, so the async seam (not `arriveBlocking`) is the right one
+    /// here. `step.firstArrival()` is the "entered the hold" signal callers
+    /// await; `step.release()` is the cleanup call.
+    let step = HeldStep<Void>("zmx session restore probe discovery")
 
     func discoverSessionInventory() async -> ZmxSessionInventory {
-        discoveryEntered.continuation.yield()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            releaseContinuation = continuation
-        }
+        try? await step.arrive(())
         return .complete([:])
     }
 
     func observeSessionIdentity(_ sessionID: ZmxSessionID) async throws -> Data? { nil }
 
-    /// Returns once `discoverSessionInventory()` has entered its hold — the
-    /// observed value callers assert readiness from, per this repo's wait-helper
-    /// contract, rather than a later, separately mutated property.
-    func waitUntilDiscoveryEntered() async -> Bool {
-        var iterator = discoveryEntered.stream.makeAsyncIterator()
-        return await iterator.next() != nil
-    }
-
     func release() {
-        releaseContinuation?.resume()
-        releaseContinuation = nil
+        step.release()
     }
 }

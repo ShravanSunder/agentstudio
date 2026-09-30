@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Darwin
 import Dispatch
 import Foundation
@@ -36,10 +37,16 @@ struct ColdStartObserverTests {
         /// `.pendingSetsid` re-checks) sets this to something that stays
         /// consistent with its own scripted sequence instead.
         var observeSessionFallback: ZmxDiscoveryObservation = .failure(.unavailable)
+        /// Test-injected sink for "observeSession was called" facts, the
+        /// call count as the fact value -- set this (via
+        /// `ScriptedSyscalls.observeSessionCallFactVocabulary()` and a
+        /// `LocalFactSource`) only in a test that needs to wait for a
+        /// specific call count through the typed-fact harness, rather than
+        /// a hand-built continuation waiter.
+        var observeSessionCallFactSink: (@Sendable (String, Int) -> Void)?
 
         private let lock = NSLock()
         private var callCount = 0
-        private var callCountWaiters: [(threshold: Int, continuation: CheckedContinuation<Int, Never>)] = []
 
         func openDirectoryForWatching(path: String) -> Result<Int32, POSIXErrorNumber> {
             directoryOpenResult
@@ -58,10 +65,12 @@ struct ColdStartObserverTests {
             let result = observeSessionResults.isEmpty ? observeSessionFallback : observeSessionResults.removeFirst()
             callCount += 1
             let count = callCount
-            let readyWaiters = callCountWaiters.filter { $0.threshold <= count }
-            callCountWaiters.removeAll { $0.threshold <= count }
             lock.unlock()
-            for waiter in readyWaiters { waiter.continuation.resume(returning: count) }
+            // The owner calls the sink synchronously, at this call's own
+            // serialization point -- matching FactRecorder.append's own
+            // contract ("The owner calls this synchronously; it never
+            // creates a task").
+            observeSessionCallFactSink?(Self.observeSessionScope, count)
             return result
         }
 
@@ -71,25 +80,14 @@ struct ColdStartObserverTests {
             return callCount
         }
 
-        /// Event-driven wait for the Nth `observeSession` call to have
-        /// happened -- no polling, no sleeping: a continuation registered
-        /// under the same lock `observeSession` itself resumes under.
-        /// Returns the call count observed at resumption, so a caller
-        /// asserts on that value directly rather than re-reading
-        /// `observeSessionCallCount` afterward.
-        @discardableResult
-        func waitUntilObserveSessionCalled(atLeast threshold: Int) async -> Int {
-            await withCheckedContinuation { continuation in
-                lock.lock()
-                if callCount >= threshold {
-                    let observedCount = callCount
-                    lock.unlock()
-                    continuation.resume(returning: observedCount)
-                    return
-                }
-                callCountWaiters.append((threshold, continuation))
-                lock.unlock()
-            }
+        static let observeSessionScope = "observeSession"
+
+        /// The typed-fact vocabulary for `observeSessionCallFactSink`: the
+        /// scope is fixed (one channel per `ScriptedSyscalls` instance), the
+        /// fact is the call count observed at that call.
+        static func observeSessionCallFactVocabulary() -> FactVocabulary<String, Int> {
+            FactVocabulary(
+                describeScope: { $0 }, describeFact: { "observeSession call #\($0)" }, isClosing: { _, _ in false })
         }
     }
 
@@ -365,6 +363,9 @@ struct ColdStartObserverTests {
         syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
         syscalls.observeSessionResults = Array(
             repeating: .failure(.connectionRefused), count: AppPolicies.Restore.discoveryConnectRetryDelays.count + 1)
+        let observeSessionCallSource = LocalFactSource(vocabulary: ScriptedSyscalls.observeSessionCallFactVocabulary())
+        let observeSessionCallRecorder = try observeSessionCallSource.attach()
+        syscalls.observeSessionCallFactSink = observeSessionCallSource.sink
         let observer = ColdStartObserver(syscalls: syscalls)
 
         let observationTask = Task {
@@ -379,10 +380,12 @@ struct ColdStartObserverTests {
         // Every scripted attempt (the initial connect plus every retry) has
         // genuinely run before the exit fires -- proves the window was
         // still discovering through the whole retry budget, not settled
-        // early by some other path.
+        // early by some other path. Sequential expectNext calls on this one
+        // fact channel are themselves the proof of arrival order.
         let expectedAttempts = AppPolicies.Restore.discoveryConnectRetryDelays.count + 1
-        let observedCallCount = await syscalls.waitUntilObserveSessionCalled(atLeast: expectedAttempts)
-        #expect(observedCallCount == expectedAttempts)
+        for expectedCount in 1...expectedAttempts {
+            try await observeSessionCallRecorder.expectNext(in: ScriptedSyscalls.observeSessionScope, expectedCount)
+        }
         await observer.reportAttachClientExited()
 
         let outcome = await observationTask.value
@@ -466,6 +469,9 @@ struct ColdStartObserverTests {
         // which would spuriously settle unobservable.
         syscalls.observeSessionFallback = .pendingSetsid(terminalPID: terminalPID)
         syscalls.processArgumentsResult = .success(makeEmptyArgumentVectorBuffer())
+        let observeSessionCallSource = LocalFactSource(vocabulary: ScriptedSyscalls.observeSessionCallFactVocabulary())
+        let observeSessionCallRecorder = try observeSessionCallSource.attach()
+        syscalls.observeSessionCallFactSink = observeSessionCallSource.sink
         let observer = ColdStartObserver(syscalls: syscalls)
 
         async let outcome = observer.observeColdStart(
@@ -477,8 +483,12 @@ struct ColdStartObserverTests {
 
         // Release only once the observer's own immediate post-registration
         // check has genuinely happened -- an event ScriptedSyscalls itself
-        // reports, never a poll or a sleep.
-        await syscalls.waitUntilObserveSessionCalled(atLeast: 2)
+        // reports, never a poll or a sleep. Two sequential expectNext calls
+        // (call 1: the initial discovery check; call 2: the immediate
+        // post-registration check) prove both happened in order before
+        // releasing the hold.
+        try await observeSessionCallRecorder.expectNext(in: ScriptedSyscalls.observeSessionScope, 1)
+        try await observeSessionCallRecorder.expectNext(in: ScriptedSyscalls.observeSessionScope, 2)
         let fifoWriteDescriptor = try await openFIFOForWriting(atPath: holdFIFOPath)
         try await closeFIFOWriteDescriptor(fifoWriteDescriptor)
 
@@ -534,17 +544,22 @@ struct ColdStartObserverTests {
     /// off the cooperative pool) or a sleep. Returns the pid that exited,
     /// the observation that satisfied the wait.
     @discardableResult
-    private func waitForRealProcessExit(pid: Int32) async -> Int32 {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
-            let source = DispatchSource.makeProcessSource(
-                identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
-            source.setEventHandler {
-                source.cancel()
-                continuation.resume(returning: pid)
-            }
-            source.setCancelHandler {}
-            source.resume()
+    private func waitForRealProcessExit(pid: Int32) async throws -> Int32 {
+        let step = HeldStep<Int32>("real process NOTE_EXIT")
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
+        source.setEventHandler {
+            source.cancel()
+            // A raw GCD callback on .global(), not inside a Swift Task --
+            // arriveBlocking's own contract for a synchronous seam reached
+            // from a thread that may block.
+            try? step.arriveBlocking(pid)
         }
+        source.setCancelHandler {}
+        source.resume()
+        let exitedPID = try await step.firstArrival()
+        step.release()
+        return exitedPID
     }
 
     /// 2026-09-30 finding: `beginHandoffWatch`'s register-then-check
@@ -586,7 +601,7 @@ struct ColdStartObserverTests {
         // itself never queries process state for this identity; only
         // checkHandoff's scripted argv read does, below.
         let incarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: terminalPID))
-        await waitForRealProcessExit(pid: terminalPID)
+        try await waitForRealProcessExit(pid: terminalPID)
 
         let syscalls = ScriptedSyscalls()
         syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))

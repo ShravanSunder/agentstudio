@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Darwin
 import Dispatch
 import Foundation
@@ -114,16 +115,17 @@ struct ZmxSessionControlZombieLeaderTests {
         let spawnStatus = posix_spawn(&childPID, executablePath, nil, nil, &argv, environ)
         try #require(spawnStatus == 0, "posix_spawn failed with status \(spawnStatus)")
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let source = DispatchSource.makeProcessSource(
-                identifier: childPID, eventMask: .exit, queue: .global(qos: .userInitiated))
-            source.setEventHandler {
-                source.cancel()
-                continuation.resume()
-            }
-            source.setCancelHandler {}
-            source.resume()
+        let step = HeldStep<Void>("real zombie NOTE_EXIT")
+        let source = DispatchSource.makeProcessSource(
+            identifier: childPID, eventMask: .exit, queue: .global(qos: .userInitiated))
+        source.setEventHandler {
+            source.cancel()
+            try? step.arriveBlocking(())
         }
+        source.setCancelHandler {}
+        source.resume()
+        try await step.firstArrival()
+        step.release()
         return childPID
     }
 }

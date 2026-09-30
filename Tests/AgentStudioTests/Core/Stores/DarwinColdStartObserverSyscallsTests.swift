@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Darwin
 import Dispatch
 import Foundation
@@ -130,16 +131,17 @@ struct DarwinColdStartObserverSyscallsTests {
 
         // The real NOTE_EXIT: the child becomes a zombie exactly then, and
         // stays one (unreaped) until this test's own deferred waitpid above.
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let source = DispatchSource.makeProcessSource(
-                identifier: childPID, eventMask: .exit, queue: .global(qos: .userInitiated))
-            source.setEventHandler {
-                source.cancel()
-                continuation.resume()
-            }
-            source.setCancelHandler {}
-            source.resume()
+        let step = HeldStep<Void>("real zombie NOTE_EXIT")
+        let source = DispatchSource.makeProcessSource(
+            identifier: childPID, eventMask: .exit, queue: .global(qos: .userInitiated))
+        source.setEventHandler {
+            source.cancel()
+            try? step.arriveBlocking(())
         }
+        source.setCancelHandler {}
+        source.resume()
+        try await step.firstArrival()
+        step.release()
 
         let incarnation = ZmxProcessIncarnation(pid: childPID, startSeconds: 0, startMicroseconds: 0)
         let state = DarwinColdStartObserverSyscalls().leaderState(of: incarnation)
