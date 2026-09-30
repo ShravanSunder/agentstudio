@@ -28,6 +28,7 @@ describe('Bridge runtime surface metadata Retry', () => {
 			const sourceEvents = new BridgeProductBoundedAsyncQueue<never>(1);
 			const annotationEvents = new BridgeProductBoundedAsyncQueue<never>(1);
 			let annotationOpenCount = 0;
+			const annotationReopened = createBridgeProductDeferred<void>();
 			const { dispatch, waitForMessage } = createRecordingBridgeCommWorkerPort();
 			const transport =
 				surface === 'file'
@@ -55,6 +56,7 @@ describe('Bridge runtime surface metadata Retry', () => {
 				if (protocol.kind === `${surface}.annotations`) {
 					annotationOpenCount += 1;
 					if (annotationOpenCount === 1) throw new Error('initial Comment E3 unavailable');
+					annotationReopened.resolve();
 					// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The protocol-narrowed external fixture returns that exact Comment lifecycle.
 					return {
 						events: annotationEvents,
@@ -111,6 +113,7 @@ describe('Bridge runtime surface metadata Retry', () => {
 						message.kind === 'health' && message.requestId === `${surface}-comment-retry-command`,
 				);
 				expect(retryView).toHaveBeenCalledWith('retired-comment-e3');
+				await annotationReopened.promise;
 				expect(
 					subscriptions.mock.calls.some(([protocol]) => protocol.kind === `${surface}.metadata`),
 				).toBe(true);

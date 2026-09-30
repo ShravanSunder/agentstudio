@@ -17,6 +17,7 @@ import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product
 import type { BridgeProductSubscriptionOptions } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 describe('Bridge comm worker Review product bootstrap', () => {
 	test('opens Review metadata only after Review becomes the active viewer', async () => {
@@ -94,6 +95,7 @@ function productTransportRecordingReviewBootstrap(props: {
 }): BridgeProductTransportSession {
 	let reviewEpoch = 0;
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'review') reviewEpoch += 1;
 			return surface === 'review' ? reviewEpoch : 0;

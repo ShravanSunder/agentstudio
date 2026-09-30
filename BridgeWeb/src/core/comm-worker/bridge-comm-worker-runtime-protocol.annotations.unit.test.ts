@@ -18,6 +18,7 @@ import {
 import type { BridgeProductBatchFrameSinks } from './bridge-product-batch-frame-router.js';
 import type { BridgeProductMetadataApplicationProtocolIdentity } from './bridge-product-metadata-application-protocol.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import type { BridgeProductAnnotationOutputContentDescriptor } from './bridge-product-worktree-annotation-output-contracts.js';
 import type { BridgeProductAnnotationProjectionContentDescriptor } from './bridge-product-worktree-annotation-projection-query-contracts.js';
 import {
@@ -706,6 +707,7 @@ function createAnnotationProductTransport(props: {
 	const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<never>(1);
 	const fileMetadataEvents = new BridgeProductBoundedAsyncQueue<never>(1);
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (): number => 1,
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The annotation runtime test double implements only the call variants exercised by this suite.
 		call: (async (method: string): Promise<unknown> => {

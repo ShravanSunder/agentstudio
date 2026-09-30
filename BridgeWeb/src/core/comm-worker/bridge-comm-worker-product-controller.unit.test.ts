@@ -13,6 +13,7 @@ import {
 	bridgeProductMaximumViewScopeItemCount,
 	type BridgeProductViewScopeRequest,
 } from './bridge-product-view-control-wire-contracts.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 type ProductViewScope = BridgeProductViewScopeRequest['scope'];
 
@@ -51,6 +52,7 @@ describe('Bridge comm worker product controller', () => {
 				...unusedProductTransport((scope): void => {
 					if (scope.kind === 'review') updates.push({ interests: scope.interests });
 				}),
+				...createTestMetadataReopenPort(),
 				advanceWorkerDerivationEpoch: (surface): number => {
 					if (surface === 'review') reviewEpoch += 1;
 					return surface === 'review' ? reviewEpoch : 0;
@@ -109,6 +111,7 @@ describe('Bridge comm worker product controller', () => {
 		const controller = new BridgeCommWorkerProductController({
 			productTransport: {
 				...unusedProductTransport(),
+				...createTestMetadataReopenPort(),
 				advanceWorkerDerivationEpoch: (): number => {
 					derivationEpochBumpCount += 1;
 					return derivationEpochBumpCount;
@@ -192,6 +195,7 @@ describe('Bridge comm worker product controller', () => {
 		sourceDiscovery.resolve({ source: currentFileSourceConfiguration, status: 'available' });
 		await Promise.all([firstEnsure, secondEnsure]);
 		controller.acceptInstalledFileBatch({
+			certified: true,
 			source,
 			subscriptionId: 'discovered-file-subscription',
 			workerDerivationEpoch: 1,
@@ -272,6 +276,7 @@ describe('Bridge comm worker product controller', () => {
 		// Act
 		await controller.ensureFileSource();
 		controller.acceptInstalledFileBatch({
+			certified: true,
 			source,
 			subscriptionId: 'file-subscription-1',
 			workerDerivationEpoch: 1,
@@ -327,6 +332,7 @@ describe('Bridge comm worker product controller', () => {
 		});
 		await controller.ensureFileSource();
 		controller.acceptInstalledFileBatch({
+			certified: true,
 			source,
 			subscriptionId: 'file-subscription-priority',
 			workerDerivationEpoch: 1,
@@ -373,6 +379,7 @@ describe('Bridge comm worker product controller', () => {
 		});
 		await controller.ensureFileSource();
 		controller.acceptInstalledFileBatch({
+			certified: true,
 			source,
 			subscriptionId: 'file-subscription-bounded',
 			workerDerivationEpoch: 1,
@@ -429,6 +436,7 @@ describe('Bridge comm worker product controller', () => {
 		});
 		await controller.ensureFileSource();
 		controller.acceptInstalledFileBatch({
+			certified: true,
 			source,
 			subscriptionId: 'file-subscription-update-failure',
 			workerDerivationEpoch: 1,
@@ -492,6 +500,7 @@ function unusedProductTransport(
 	let fileEpoch = 0;
 	let scopeRevision = 0;
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			return surface === 'file' ? fileEpoch : 0;
@@ -554,6 +563,7 @@ function productTransportWithFileEpochBump(
 	let fileEpoch = 0;
 	return {
 		...unusedProductTransport(onScope),
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') {
 				fileEpoch += 1;

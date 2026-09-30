@@ -20,6 +20,7 @@ import type {
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
 import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 export function makeFileBatchInstallation(
 	subscriptionId: string,
@@ -135,6 +136,7 @@ export function makeFileProductTestTransport(props: {
 		subscriptionKind: 'review.metadata',
 	};
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			if (surface === 'review') reviewEpoch += 1;

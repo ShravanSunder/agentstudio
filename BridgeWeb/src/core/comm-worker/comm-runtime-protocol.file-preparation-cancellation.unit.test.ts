@@ -24,6 +24,7 @@ import type {
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
 import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import type { BridgeWorkerServerToMainMessage } from './bridge-worker-contracts.js';
 import {
 	fileProductTestSource,
@@ -346,6 +347,7 @@ async function createPendingFilePreparationHarness(
 	let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
 	let batchFrameSinks: BridgeProductBatchFrameSinks | null = null;
 	const productTransport: BridgeProductTransportSession = {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			if (surface === 'review') reviewEpoch += 1;
