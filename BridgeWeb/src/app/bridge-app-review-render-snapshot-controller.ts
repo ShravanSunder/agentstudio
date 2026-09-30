@@ -430,11 +430,17 @@ export function useBridgeReviewRenderSnapshotController(
 				}),
 			);
 		},
-		[props.reviewClient],
+		[displayStore, props.reviewClient],
 	);
 	const retryFailedMetadataView = useCallback(
 		(comparisonTarget: BridgeWorkerReviewComparisonUpdateCommand['target'] | null): void => {
-			if (viewRecoveryStatus?.status !== 'failedRetryable') return;
+			const installationFailed =
+				displayStore.getReviewRefreshPresentation().failure?.kind === 'installation';
+			if (
+				viewRecoveryStatus === null ||
+				(!installationFailed && viewRecoveryStatus.status !== 'failedRetryable')
+			)
+				return;
 			props.reviewClient.send(
 				encodeBridgeWorkerViewRecoveryRetryCommand({
 					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
@@ -442,9 +448,10 @@ export function useBridgeReviewRenderSnapshotController(
 					view: viewRecoveryStatus.view,
 				}),
 			);
-			if (comparisonTarget !== null) updateReviewComparisonTarget(comparisonTarget);
+			if (!installationFailed && comparisonTarget !== null)
+				updateReviewComparisonTarget(comparisonTarget);
 		},
-		[props.reviewClient, updateReviewComparisonTarget, viewRecoveryStatus],
+		[displayStore, props.reviewClient, updateReviewComparisonTarget, viewRecoveryStatus],
 	);
 	const queryReviewComparisonTargets = useCallback((): void => {
 		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'loading' });

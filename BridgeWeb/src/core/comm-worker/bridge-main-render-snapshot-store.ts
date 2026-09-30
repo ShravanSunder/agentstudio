@@ -675,6 +675,12 @@ export function createBridgeMainRenderSnapshotStore(
 			if (cleared) publishReviewRefreshPresentation();
 			return cleared;
 		},
+		failReviewInstallation: (identity): boolean => {
+			if (isDisposed) return false;
+			const failed = reviewCandidateBankOwner.failInstallation(identity);
+			if (failed) publishCandidatePresentation();
+			return failed;
+		},
 		promoteReviewCandidate: (identity): boolean =>
 			isDisposed ? false : promoteReviewCandidate(identity),
 		discardReviewCandidate: (identity): boolean =>

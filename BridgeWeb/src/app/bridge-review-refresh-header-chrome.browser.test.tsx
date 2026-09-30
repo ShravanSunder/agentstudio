@@ -260,6 +260,7 @@ function failurePresentation(retryable: boolean): BridgeMainReviewRefreshPresent
 		activeIdentity,
 		candidate: null,
 		failure: {
+			kind: 'promotedRefresh',
 			affectedStableFileIdentities: ['item-1'],
 			identity: candidateIdentity,
 			presentationClass: { kind: 'promoted', reason: 'commits' },

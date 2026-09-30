@@ -728,12 +728,34 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 			failure:
 				start?.kind === 'sameSource' && candidate.effectivePresentationClass.kind === 'promoted'
 					? {
+							kind: 'promotedRefresh',
 							affectedStableFileIdentities: start.affectedStableFileIdentities,
 							identity: candidate.identity,
 							presentationClass: candidate.effectivePresentationClass,
 							retryable: props.retryable,
 						}
 					: null,
+		};
+		return true;
+	};
+	failReviewInstallation = (identity: BridgeMainReviewPublicationIdentity): boolean => {
+		const candidate = this.presentation.candidate;
+		if (
+			candidate === null ||
+			candidate.role !== 'installing' ||
+			!sameIdentity(candidate.identity, identity)
+		)
+			return false;
+		this.presentation = {
+			...this.presentation,
+			candidate: null,
+			failure: {
+				kind: 'installation',
+				identity,
+				retryable: true,
+				presentationClass: candidate.effectivePresentationClass,
+				affectedStableFileIdentities: candidate.affectedStableFileIdentities,
+			},
 		};
 		return true;
 	};

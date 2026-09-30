@@ -218,6 +218,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 	const failureAffectsAttention = (): boolean => {
 		const failure = props.store.getReviewRefreshPresentation().failure;
 		if (failure === null) return false;
+		if (failure.kind === 'installation') return true;
 		if (failure.presentationClass.reason === 'unknown') return attentionFileIdentities.size > 0;
 		return failure.affectedStableFileIdentities.some((fileIdentity): boolean =>
 			attentionFileIdentities.has(fileIdentity),
@@ -344,7 +345,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				installationInFlightPublicationId === candidate.identity.publicationId;
 			if (requestIsCurrent) {
 				installationInFlightPublicationId = null;
-				props.store.discardReviewCandidate(candidate.identity);
+				props.store.failReviewInstallation(candidate.identity);
 				if (
 					readyCandidate !== null &&
 					identitiesAreExact(readyCandidate.identity, candidate.identity)
