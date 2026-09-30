@@ -6,7 +6,7 @@ import Testing
 
 @testable import AgentStudioBridge
 
-@Suite("Worktree annotation agentstudio-git source material")
+@Suite("Worktree annotation agentstudio-git source material", WorktreeAnnotationGitSourceMaterialSeedLifetime())
 struct WorktreeAnnotationGitSourceMaterialProviderTests {
     @Test("an unrelated symlink read failure preserves an exact annotation")
     func unrelatedSymlinkReadFailurePreservesExactAnnotation() async throws {
@@ -311,20 +311,78 @@ struct WorktreeAnnotationGitSourceMaterialProviderTests {
 }
 
 private func makeGitSourceFixture() async throws -> URL {
+    try await WorktreeAnnotationGitSourceMaterialSeedCache.shared.makeCopy()
+}
+
+private func makeGitSourceSeed() async throws -> URL {
     let repositoryURL = try await WorktreeAnnotationGitFixture.create()
-    let sourcesURL = repositoryURL.appending(path: "Sources")
-    try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
-    try "before\nselected line\nafter\n".write(
-        to: sourcesURL.appending(path: "Feature.swift"),
-        atomically: true,
-        encoding: .utf8
-    )
-    try await WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["add", "Sources/Feature.swift"])
-    try await WorktreeAnnotationGitFixture.runGit(
-        at: repositoryURL,
-        args: ["commit", "-m", "Source fixture"]
-    )
-    return repositoryURL
+    do {
+        let sourcesURL = repositoryURL.appending(path: "Sources")
+        try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
+        try "before\nselected line\nafter\n".write(
+            to: sourcesURL.appending(path: "Feature.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try await WorktreeAnnotationGitFixture.runGit(at: repositoryURL, args: ["add", "Sources/Feature.swift"])
+        try await WorktreeAnnotationGitFixture.runGit(
+            at: repositoryURL,
+            args: ["commit", "-m", "Source fixture"]
+        )
+        return repositoryURL
+    } catch {
+        WorktreeAnnotationGitFixture.destroy(repositoryURL)
+        throw error
+    }
+}
+
+private actor WorktreeAnnotationGitSourceMaterialSeedCache {
+    static let shared = WorktreeAnnotationGitSourceMaterialSeedCache()
+
+    private var seedRepositoryURL: URL?
+
+    func prepare() async throws {
+        guard seedRepositoryURL == nil else { return }
+        seedRepositoryURL = try await makeGitSourceSeed()
+    }
+
+    func makeCopy() throws -> URL {
+        guard let seedRepositoryURL else {
+            throw WorktreeAnnotationSeedCacheError.seedNotPrepared
+        }
+        let copyURL = FileManager.default.temporaryDirectory.appending(
+            path: "annotation-source-material-copy-\(UUIDv7.generate().uuidString)"
+        )
+        try FileManager.default.copyItem(at: seedRepositoryURL, to: copyURL)
+        return copyURL
+    }
+
+    func destroySeed() {
+        guard let seedRepositoryURL else { return }
+        WorktreeAnnotationGitFixture.destroy(seedRepositoryURL)
+        self.seedRepositoryURL = nil
+    }
+}
+
+private enum WorktreeAnnotationSeedCacheError: Error {
+    case seedNotPrepared
+}
+
+private struct WorktreeAnnotationGitSourceMaterialSeedLifetime: SuiteTrait, TestScoping {
+    func provideScope(
+        for test: Test,
+        testCase: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        try await WorktreeAnnotationGitSourceMaterialSeedCache.shared.prepare()
+        do {
+            try await function()
+        } catch {
+            await WorktreeAnnotationGitSourceMaterialSeedCache.shared.destroySeed()
+            throw error
+        }
+        await WorktreeAnnotationGitSourceMaterialSeedCache.shared.destroySeed()
+    }
 }
 
 private func makeGitSourceFingerprint() -> WorktreeAnnotationSourceFingerprint {

@@ -87,9 +87,41 @@ struct WorkspaceSQLiteStoreBackend {
                     paneGraph: authoritativeSnapshot.paneGraph,
                     tabGraph: authoritativeSnapshot.tabGraph
                 ),
-                windowState: localWindowState
+                windowState: localWindowState,
+                drawerPresentationPreferences: drawerPresentationPreferencesForComposition(
+                    workspaceId: authoritativeSnapshot.workspace.id,
+                    paneGraph: authoritativeSnapshot.paneGraph,
+                    localRepository: localRepository
+                )
             )
         )
+    }
+
+    /// Validated local drawer presentation rows for owners that are live core
+    /// panes or members of available undo records. Stale rows never create
+    /// panes; if undo membership cannot be read, every stored row hydrates.
+    func drawerPresentationPreferencesForComposition(
+        workspaceId: UUID,
+        paneGraph: WorkspaceCoreRepository.PaneGraphRecord,
+        localRepository: WorkspaceLocalRepository?
+    ) -> [UUID: DrawerPresentationPreference] {
+        guard let records = localRepository.flatMap({ try? $0.fetchDrawerPresentationRecords() }) else {
+            return [:]
+        }
+        let retainedOwnerPaneIds = try? retainedDrawerPresentationOwnerPaneIds(
+            workspaceId: workspaceId,
+            livePaneIds: Set(paneGraph.panes.map(\.id))
+        )
+        return records.reduce(into: [UUID: DrawerPresentationPreference]()) { result, record in
+            if let retainedOwnerPaneIds, !retainedOwnerPaneIds.contains(record.ownerPaneId) { return }
+            result[record.ownerPaneId] = record.validatedPreference
+        }
+    }
+
+    /// Live core panes plus members of available undo records. Throws when
+    /// undo membership cannot be established, so a save never prunes on a guess.
+    func retainedDrawerPresentationOwnerPaneIds(workspaceId: UUID, livePaneIds: Set<UUID>) throws -> Set<UUID> {
+        livePaneIds.union(try coreRepository.fetchAvailableUndoMemberPaneIDs(workspaceID: workspaceId))
     }
 
     func save(_ bundle: WorkspaceSQLiteSaveBundle) throws {
@@ -106,13 +138,24 @@ struct WorkspaceSQLiteStoreBackend {
         try writeLocalSnapshot(bundle.workspace, localRepository: localRepository)
     }
 
+    /// Writes local state after the core commit. A retention-membership read
+    /// failure fails the local save through the caller's existing local-save
+    /// failure path: nothing is written or pruned and the save stays dirty.
     func writeLocalSnapshot(
         _ snapshot: WorkspaceSQLiteSnapshot,
         localRepository: WorkspaceLocalRepository
     ) throws {
+        let retainedOwnerPaneIds = try retainedDrawerPresentationOwnerPaneIds(
+            workspaceId: snapshot.id,
+            livePaneIds: Set(snapshot.panes.map(\.id))
+        )
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: snapshot),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: snapshot),
+            drawerPresentation: .init(
+                preferencesByOwnerPaneId: snapshot.drawerPresentationPreferences,
+                retainedOwnerPaneIds: retainedOwnerPaneIds
+            ),
             completedAt: snapshot.updatedAt
         )
     }
@@ -212,6 +255,7 @@ enum WorkspaceSQLiteStateBridge {
         var tabGraph: WorkspaceCoreRepository.TabGraphRecord
         var cursorState: WorkspaceLocalRepository.CursorStateRecord
         var windowState: WorkspaceLocalRepository.WindowStateRecord?
+        var drawerPresentationPreferences: [UUID: DrawerPresentationPreference] = [:]
     }
 
     static func workspaceRecord(
@@ -444,7 +488,8 @@ enum WorkspaceSQLiteStateBridge {
             sidebarWidth: CGFloat(windowState.sidebarWidth),
             windowFrame: windowState.windowFrame,
             createdAt: snapshot.workspace.createdAt,
-            updatedAt: snapshot.workspace.updatedAt
+            updatedAt: snapshot.workspace.updatedAt,
+            drawerPresentationPreferences: snapshot.drawerPresentationPreferences
         )
     }
 

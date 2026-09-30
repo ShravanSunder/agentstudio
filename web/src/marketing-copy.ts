@@ -1,5 +1,6 @@
 export const marketingCopy = {
   productName: "Agent Studio",
+  applicationCategory: "DeveloperApplication",
   hero: {
     eyebrow: "Native macOS. Repo-aware. Terminal-first.",
     headline: "Run dozens of agents in one workspace. Stay oriented. Miss nothing.",
@@ -7,6 +8,8 @@ export const marketingCopy = {
     headlineSetupSecondBeforeAccent: "in one ",
     headlineSetupSecondAccent: "workspace.",
     headlinePayoff: "Stay oriented. Miss nothing.",
+    scrollCue: "Scroll",
+    scrollCueAriaLabel: "Scroll to the first Agent Studio image",
     description:
       "Agent Studio is a native macOS IDE for parallel coding agents, with your repositories and worktrees within reach. Your agents run in Ghostty terminals with files and diffs right beside them.",
   },
@@ -106,8 +109,6 @@ export const marketingCopy = {
       sessionRestoreVideoLabel: "Agent Studio persistent session restore demonstration",
       sessionRestoreVideoFallback: "This browser cannot play the session restore video.",
     },
-    // Marks the real app screenshot that follows each recreated scene.
-    realCaptureLabel: "Real capture",
   },
   // Accessible names for pause/play controls on motion that runs longer than
   // five seconds (WCAG 2.2.2).
@@ -126,6 +127,7 @@ export const marketingCopy = {
     systemRequirement: "Requires macOS 26 or later.",
   },
   navigation: {
+    skipToContent: "Skip to content",
     homeLabel: "Agent Studio home",
     primaryLabel: "Primary navigation",
     githubAction: "GitHub",
@@ -143,8 +145,11 @@ export const marketingCopy = {
   },
   ghosttyUrl: "https://ghostty.org",
   finalCallToAction: {
-    description: "A native macOS IDE for parallel agents and all your work.",
-    traits: "Native macOS. Repo-aware. Terminal-first.",
+    starOnGitHub: "Star on GitHub",
+    starShort: "Star",
+    copyInstall: "Copy install",
+    copyShort: "Copy",
+    copiedInstall: "Copied ✓",
     technologyCredit: "👻 Built on Ghostty. ",
     creatorPrefix: "🛠️ Made by ",
     creatorName: "Shravan Sunder",

@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioTestHarness
 import Foundation
 import Observation
 import Testing
@@ -83,12 +84,13 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         await gitClock.waitForPendingSleepCount(atLeast: 1)
         gitClock.advance(by: refreshPolicy.backgroundCadence)
 
-        let baselinePublished = await eventually("unknown attended baseline should reach RepoCache") {
-            repoCache.worktreeEnrichment(for: worktree.id)?.snapshot?.summary
-                == expectedStatus.summary
-        }
-        #expect(baselinePublished)
-        let enrichment = try #require(repoCache.worktreeEnrichment(for: worktree.id))
+        let enrichment = try #require(
+            await waitForCacheOutcome(
+                observe: { repoCache.worktreeEnrichment(for: worktree.id) },
+                matching: { $0?.snapshot?.summary == expectedStatus.summary }
+            )
+        )
+        #expect(enrichment.snapshot?.summary == expectedStatus.summary)
         #expect(enrichment.branch == "feature/sidebar-admission")
         #expect(await remoteReferenceProvider.currentStageFetchCallCount() == 0)
         #expect(await forgeProvider.currentCallCount() == 0)
@@ -142,9 +144,14 @@ struct FilesystemGitPipelineDemandIntegrationTests {
     func changedAttentionReusesFreshRepositoryFacts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let gitProvider = DemandIntegrationGitStatusProvider()
-        let remoteReferenceProvider = DemandIntegrationRemoteReferenceProvider()
+        let promotionStep = HeldStep<Void>("promote remote references after the initial baseline closes")
+        defer { promotionStep.retire() }
+        let remoteReferenceProvider = DemandIntegrationRemoteReferenceProvider(promotionStep: promotionStep)
         let forgeProvider = DemandIntegrationForgeProvider()
         let fseventStreamClient = DemandIntegrationSilentFSEventStreamClient()
+        let gitClock = TestPushClock()
+        let projectorFactSource = GitProjectorFactSource()
+        let projectorFacts = try projectorFactSource.attach()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             registrationDiscoveryProvider: DemandIntegrationRegistrationDiscoveryProvider(),
@@ -154,7 +161,9 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             fseventStreamClient: fseventStreamClient,
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
-            gitCoalescingWindow: .zero
+            gitCoalescingWindow: .zero,
+            gitSleepClock: gitClock,
+            projectorFactSink: projectorFactSource.sink
         )
         let rootPath = demandIntegrationFixtureRootPath()
         try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
@@ -190,27 +199,24 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         await pipeline.start()
         await registerAndAssertCanonicalTopology(workspaceStore: workspaceStore, pipeline: pipeline)
         demandCoordinator.accept(initialDemand)
-        await demandCoordinator.waitUntilIdle()
-
-        let allFactsArrived = await eventually("local, remote-reference, and Forge facts should settle") {
-            let remoteFetchCallCount = await remoteReferenceProvider.currentStageFetchCallCount()
-            let forgeCallCount = await forgeProvider.currentCallCount()
-            return repoCache.worktreeEnrichment(for: worktreeId)?.branch == "main"
-                && repoCache.pullRequestFactsForTest(worktreeId: worktreeId)?.openCount == 1
-                && remoteFetchCallCount == 1
-                && forgeCallCount == 1
-        }
-        #expect(allFactsArrived)
-
-        await expectInitialSourceWorkSettled(
-            gitProvider: gitProvider,
-            remoteReferenceProvider: remoteReferenceProvider,
-            forgeProvider: forgeProvider
+        try await proveInitialBaselineAndPromotionReuse(
+            InitialRefreshProofContext(
+                promotionStep: promotionStep,
+                projectorFactSource: projectorFactSource,
+                projectorFacts: projectorFacts,
+                worktreeId: worktreeId,
+                repoCache: repoCache,
+                gitProvider: gitProvider,
+                remoteReferenceProvider: remoteReferenceProvider,
+                forgeProvider: forgeProvider
+            )
         )
+        await settleControlledVisibilityAdmission(pipeline: pipeline, gitClock: gitClock, pendingSleepCount: 2)
 
         let sourceCallsAfterAttentionChange = try await proveChangedAttentionReusesFacts(
             WarmAttentionProofContext(
                 pipeline: pipeline,
+                gitClock: gitClock,
                 demandCoordinator: demandCoordinator,
                 gitProvider: gitProvider,
                 remoteReferenceProvider: remoteReferenceProvider,
@@ -225,6 +231,7 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         try await proveInactiveDemandAndColdMutation(
             ColdDemandProofContext(
                 pipeline: pipeline,
+                gitClock: gitClock,
                 demandCoordinator: demandCoordinator,
                 fseventStreamClient: fseventStreamClient,
                 gitProvider: gitProvider,
@@ -239,6 +246,54 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         )
 
         await shutdown(demandCoordinator: demandCoordinator, pipeline: pipeline, cacheCoordinator: cacheCoordinator)
+        try await projectorFacts.finish()
+    }
+
+    private func proveInitialBaselineAndPromotionReuse(
+        _ context: InitialRefreshProofContext
+    ) async throws {
+        _ = try await context.promotionStep.firstArrival()
+        let initialRefresh = try await context.projectorFactSource.expectNextRefreshClosed(
+            facts: context.projectorFacts,
+            worktreeId: context.worktreeId
+        )
+        #expect(initialRefresh == .completed(snapshotChanged: true, branchChanged: false))
+        let observedCacheFacts = await waitForCacheOutcome(
+            observe: {
+                (
+                    worktree: context.repoCache.worktreeEnrichment(for: context.worktreeId),
+                    pullRequests: context.repoCache.pullRequestFactsForTest(worktreeId: context.worktreeId)
+                )
+            },
+            matching: { $0.worktree?.branch == "main" && $0.pullRequests?.openCount == 1 }
+        )
+        #expect(observedCacheFacts.worktree?.branch == "main")
+        #expect(observedCacheFacts.pullRequests?.openCount == 1)
+        await expectSourceCallCounts(
+            gitProvider: context.gitProvider,
+            remoteReferenceProvider: context.remoteReferenceProvider,
+            forgeProvider: context.forgeProvider,
+            expectedCounts: DemandIntegrationSourceCallCounts(
+                gitStatus: 1, gitLineDetail: 1,
+                remoteCapture: 2, remoteFetch: 1, remotePromote: 0, remoteCleanup: 0, forge: 1
+            )
+        )
+
+        context.promotionStep.release()
+        let promotionRefresh = try await context.projectorFactSource.expectNextRefreshClosed(
+            facts: context.projectorFacts,
+            worktreeId: context.worktreeId
+        )
+        #expect(promotionRefresh == .equal)
+        await expectSourceCallCounts(
+            gitProvider: context.gitProvider,
+            remoteReferenceProvider: context.remoteReferenceProvider,
+            forgeProvider: context.forgeProvider,
+            expectedCounts: DemandIntegrationSourceCallCounts(
+                gitStatus: 2, gitLineDetail: 1,
+                remoteCapture: 2, remoteFetch: 1, remotePromote: 1, remoteCleanup: 1, forge: 1
+            )
+        )
     }
 
     private func proveChangedAttentionReusesFacts(
@@ -274,7 +329,9 @@ struct FilesystemGitPipelineDemandIntegrationTests {
             )
         )
         await context.demandCoordinator.waitUntilIdle()
-        await context.pipeline.waitForRepositoryFactDemandAdmission()
+        await settleControlledVisibilityAdmission(
+            pipeline: context.pipeline, gitClock: context.gitClock, pendingSleepCount: 2
+        )
 
         let sourceCallsAfterAttentionChange = await sourceCallCounts(
             gitProvider: context.gitProvider,
@@ -402,7 +459,9 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         )
         context.demandCoordinator.accept(inactiveDemand)
         await context.demandCoordinator.waitUntilIdle()
-        await context.pipeline.waitForRepositoryFactDemandAdmission()
+        await settleControlledVisibilityAdmission(
+            pipeline: context.pipeline, gitClock: context.gitClock, pendingSleepCount: 1
+        )
 
         let sourceCallsAfterInactivity = await sourceCallCounts(
             gitProvider: context.gitProvider,
@@ -417,33 +476,34 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         context.fseventStreamClient.send(
             FSEventBatch(worktreeId: context.worktreeId, paths: ["Sources/ColdMutation.swift"])
         )
-        let coldMutationSettled = await eventually("cold mutation should run local Git only") {
-            let sourceCalls = await sourceCallCounts(
-                gitProvider: context.gitProvider,
-                remoteReferenceProvider: context.remoteReferenceProvider,
-                forgeProvider: context.forgeProvider
-            )
-            return sourceCalls.gitStatus == sourceCallsAfterInactivity.gitStatus + 1
-                && sourceCalls.remoteFetch == sourceCallsAfterInactivity.remoteFetch
-                && sourceCalls.forge == sourceCallsAfterInactivity.forge
-        }
-        #expect(coldMutationSettled)
+        let observedGitStatusCallCount = await context.gitProvider.waitForStatusCallCount(
+            atLeast: sourceCallsAfterInactivity.gitStatus + 1
+        )
+        let observedRemoteCalls = await context.remoteReferenceProvider.currentCallCounts()
+        let observedForgeCallCount = await context.forgeProvider.currentCallCount()
+        #expect(observedGitStatusCallCount == sourceCallsAfterInactivity.gitStatus + 1)
+        #expect(observedRemoteCalls.fetch == sourceCallsAfterInactivity.remoteFetch)
+        #expect(observedForgeCallCount == sourceCallsAfterInactivity.forge)
         #expect(await context.pipeline.gitLogicalDebtSnapshot().futureAutomaticCount == 0)
     }
 
-    private func eventually(
-        _ description: String,
-        maxTurns: Int = 50_000,
-        condition: @escaping @MainActor () async -> Bool
-    ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if await condition() {
-                return true
+    private func waitForCacheOutcome<TObservation>(
+        observe: @escaping @MainActor () -> TObservation,
+        matching matches: (TObservation) -> Bool
+    ) async -> TObservation {
+        while true {
+            let observation = observe()
+            if matches(observation) {
+                return observation
             }
-            await Task.yield()
+            await withCheckedContinuation { continuation in
+                withObservationTracking {
+                    _ = observe()
+                } onChange: {
+                    continuation.resume()
+                }
+            }
         }
-        Issue.record("\(description) timed out")
-        return false
     }
 
     private func sourceCallCounts(
@@ -466,33 +526,28 @@ struct FilesystemGitPipelineDemandIntegrationTests {
         )
     }
 
-    private func expectInitialSourceWorkSettled(
+    private func expectSourceCallCounts(
         gitProvider: DemandIntegrationGitStatusProvider,
         remoteReferenceProvider: DemandIntegrationRemoteReferenceProvider,
-        forgeProvider: DemandIntegrationForgeProvider
+        forgeProvider: DemandIntegrationForgeProvider,
+        expectedCounts: DemandIntegrationSourceCallCounts
     ) async {
-        let expectedCounts = DemandIntegrationSourceCallCounts(
-            gitStatus: 2,
-            gitLineDetail: 1,
-            remoteCapture: 2,
-            remoteFetch: 1,
-            remotePromote: 1,
-            remoteCleanup: 1,
-            forge: 1
-        )
-        let settled = await eventually("initial source work should settle completely") {
-            await sourceCallCounts(
-                gitProvider: gitProvider,
-                remoteReferenceProvider: remoteReferenceProvider,
-                forgeProvider: forgeProvider
-            ) == expectedCounts
-        }
         let actualCounts = await sourceCallCounts(
             gitProvider: gitProvider,
             remoteReferenceProvider: remoteReferenceProvider,
             forgeProvider: forgeProvider
         )
-        #expect(settled, Comment(rawValue: "initial source call counts: \(actualCounts)"))
+        #expect(actualCounts == expectedCounts, Comment(rawValue: "closed refresh source call counts: \(actualCounts)"))
+    }
+
+    private func settleControlledVisibilityAdmission(
+        pipeline: FilesystemGitPipeline,
+        gitClock: TestPushClock,
+        pendingSleepCount: Int
+    ) async {
+        await gitClock.waitForPendingSleepCount(exactly: pendingSleepCount)
+        gitClock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        await pipeline.waitForRepositoryFactDemandAdmission()
     }
 
     private func shutdown(
@@ -506,8 +561,20 @@ struct FilesystemGitPipelineDemandIntegrationTests {
     }
 }
 
+private struct InitialRefreshProofContext {
+    let promotionStep: HeldStep<Void>
+    let projectorFactSource: GitProjectorFactSource
+    let projectorFacts: FactRecorder<GitProjectorScope, GitProjectorFact>
+    let worktreeId: UUID
+    let repoCache: RepoCacheAtom
+    let gitProvider: DemandIntegrationGitStatusProvider
+    let remoteReferenceProvider: DemandIntegrationRemoteReferenceProvider
+    let forgeProvider: DemandIntegrationForgeProvider
+}
+
 private struct ColdDemandProofContext {
     let pipeline: FilesystemGitPipeline
+    let gitClock: TestPushClock
     let demandCoordinator: RepositoryFactDemandCoordinator
     let fseventStreamClient: DemandIntegrationSilentFSEventStreamClient
     let gitProvider: DemandIntegrationGitStatusProvider
@@ -522,6 +589,7 @@ private struct ColdDemandProofContext {
 
 private struct WarmAttentionProofContext {
     let pipeline: FilesystemGitPipeline
+    let gitClock: TestPushClock
     let demandCoordinator: RepositoryFactDemandCoordinator
     let gitProvider: DemandIntegrationGitStatusProvider
     let remoteReferenceProvider: DemandIntegrationRemoteReferenceProvider
@@ -617,186 +685,5 @@ private final class DemandIntegrationPerformanceRecorder:
         _ snapshot: RepositoryFactDemandPerformanceSnapshot
     ) {
         lock.withLock { recordedSnapshots.append(snapshot) }
-    }
-}
-
-private struct DemandIntegrationRemoteCallCounts: Equatable {
-    let capture: Int
-    let fetch: Int
-    let promote: Int
-    let cleanup: Int
-}
-
-private actor DemandIntegrationGitStatusProvider: GitWorkingTreeStatusProvider {
-    private let status: GitWorkingTreeStatus
-    private(set) var statusCallCount = 0
-    private(set) var lineDetailCallCount = 0
-    private var lineDetailByRootPath: [URL: GitWorkingTreeLineDetail] = [:]
-
-    init(
-        status: GitWorkingTreeStatus = GitWorkingTreeStatus(
-            summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
-            branch: "main",
-            origin: "git@github.com:askluna/agent-studio.git"
-        )
-    ) {
-        self.status = status
-    }
-
-    func statusResult(
-        for rootPath: URL,
-        pathspecs _: [String]?
-    ) async -> GitWorkingTreeStatusResult {
-        .available(recordStatus(for: rootPath))
-    }
-
-    func statusFactsResult(
-        for rootPath: URL,
-        pathspecs _: [String]?
-    ) async -> GitWorkingTreeStatusFactsResult {
-        .available(GitWorkingTreeStatusFacts(status: recordStatus(for: rootPath)))
-    }
-
-    func lineDetailResult(for rootPath: URL) async -> GitWorkingTreeLineDetailResult {
-        lineDetailCallCount += 1
-        guard let detail = lineDetailByRootPath[rootPath.standardizedFileURL] else {
-            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
-        }
-        return .available(detail)
-    }
-
-    func currentStatusCallCount() -> Int { statusCallCount }
-    func currentLineDetailCallCount() -> Int { lineDetailCallCount }
-
-    private func recordStatus(for rootPath: URL) -> GitWorkingTreeStatus {
-        statusCallCount += 1
-        lineDetailByRootPath[rootPath.standardizedFileURL] = GitWorkingTreeLineDetail(status: status)
-        return status
-    }
-}
-
-private actor DemandIntegrationRemoteReferenceProvider: RemoteReferenceRefreshProviding {
-    private let origin = "git@github.com:askluna/agent-studio.git"
-    private(set) var captureCallCount = 0
-    private(set) var stageFetchCallCount = 0
-    private(set) var promoteCallCount = 0
-    private(set) var cleanupCallCount = 0
-
-    func captureRemoteTrackingSnapshot(
-        repositoryPath: URL,
-        remoteName: String
-    ) async throws -> GitRemoteTrackingSnapshot {
-        captureCallCount += 1
-        return GitRemoteTrackingSnapshot(
-            repositoryPath: repositoryPath,
-            repositoryCommonDirectory: repositoryPath.appending(path: ".git"),
-            remoteName: remoteName,
-            configuredRemoteURL: origin,
-            effectiveFetchURL: origin,
-            references: []
-        )
-    }
-
-    func stageFetch(
-        snapshot: GitRemoteTrackingSnapshot,
-        stagingId: UUID
-    ) async throws -> GitStagedFetchResult {
-        stageFetchCallCount += 1
-        return GitStagedFetchResult(
-            snapshot: snapshot,
-            handle: GitStagedFetchHandle(
-                repositoryCommonDirectory: snapshot.repositoryCommonDirectory,
-                stagingID: stagingId
-            ),
-            promotionGuard: nil,
-            updates: [],
-            verifications: [],
-            deletions: []
-        )
-    }
-
-    func promoteStagedFetch(_: GitStagedFetchResult) async throws {
-        promoteCallCount += 1
-    }
-
-    func cleanupStagedFetch(_: GitStagedFetchHandle) async throws {
-        cleanupCallCount += 1
-    }
-
-    func cleanupAbandonedStagedFetches(
-        repositoryCommonDirectory _: URL,
-        retainedStagingIds _: Set<UUID>
-    ) async throws {}
-
-    func currentStageFetchCallCount() -> Int { stageFetchCallCount }
-
-    func currentCallCounts() -> DemandIntegrationRemoteCallCounts {
-        DemandIntegrationRemoteCallCounts(
-            capture: captureCallCount,
-            fetch: stageFetchCallCount,
-            promote: promoteCallCount,
-            cleanup: cleanupCallCount
-        )
-    }
-}
-
-private actor DemandIntegrationForgeProvider: ForgeStatusProvider {
-    private let expectedBranch: String
-    private(set) var callCount = 0
-
-    init(expectedBranch: String = "main") {
-        self.expectedBranch = expectedBranch
-    }
-
-    func pullRequests(
-        origin _: String,
-        demandedBranches: Set<String>
-    ) async -> ForgePullRequestQueryOutcome {
-        callCount += 1
-        guard demandedBranches == [expectedBranch] else {
-            return .failed(message: "unexpected demanded branch scope")
-        }
-        return .complete([
-            ForgePullRequest(
-                headRefName: expectedBranch,
-                url: URL(string: "https://github.com/askluna/agent-studio/pull/1")!
-            )
-        ])
-    }
-
-    func currentCallCount() -> Int { callCount }
-}
-
-private final class DemandIntegrationSilentFSEventStreamClient: FSEventStreamClient, @unchecked Sendable {
-    private let stream: AsyncStream<FSEventIngressItem>
-    private let continuation: AsyncStream<FSEventIngressItem>.Continuation
-
-    init() {
-        (stream, continuation) = AsyncStream.makeStream(of: FSEventIngressItem.self)
-    }
-
-    func events() -> AsyncStream<FSEventIngressItem> { stream }
-    func consumeOverflowRecoveries() -> [FSEventOverflowRecovery] { [] }
-    func register(
-        worktreeId _: UUID,
-        repoId _: UUID,
-        rootPath _: URL
-    ) -> FSEventStreamRegistrationOutcome {
-        .observing
-    }
-    func unregister(worktreeId _: UUID) {}
-    func send(_ batch: FSEventBatch) { continuation.yield(.batch(batch)) }
-    func shutdown() { continuation.finish() }
-}
-
-private struct DemandIntegrationRegistrationDiscoveryProvider: RepoScanner.GitRepositoryDiscoveryProvider {
-    func discoveryOutcome(for url: URL) -> GitRepositoryDiscoveryOutcome {
-        .validated(
-            RepoScanner.ResolvedGitEntry(
-                path: url,
-                kind: .cloneRoot,
-                repositoryKey: "test:\(url.path)"
-            )
-        )
     }
 }

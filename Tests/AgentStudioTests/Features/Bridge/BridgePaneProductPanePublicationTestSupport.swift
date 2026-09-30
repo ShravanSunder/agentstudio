@@ -93,7 +93,8 @@ struct PanePublicationFixture {
             token: token, exactResponseBytes: JSONEncoder().encode(response))
         _ = try await pullMetadataFrame(from: pump)
         await coordinator.apply(effect, productAdmission: harness.productAdmission.context)
-        #expect(await trace.finished(opening.subscription.subscriptionKind, count: bootstrapCount).result == .success)
+        #expect(
+            try await trace.finished(opening.subscription.subscriptionKind, count: bootstrapCount).result == .success)
         await harness.session.settleControlProviderDispatch(token: token)
     }
 
@@ -238,26 +239,24 @@ actor PanePublicationReviewSource: BridgePaneProductReviewMetadataProducing {
 
 actor PanePublicationBootstrapTrace: BridgeProductMetadataLifecycleTraceRecording {
     private var events: [BridgeProductSubscriptionKind: [BridgeProductMetadataLifecycleTraceEvent]] = [:]
-    private var waiters:
-        [(BridgeProductSubscriptionKind, Int, CheckedContinuation<BridgeProductMetadataLifecycleTraceEvent, Never>)] =
-            []
+    private let finishes = FactRecorder<String, BridgeProductMetadataLifecycleTraceEvent>(
+        vocabulary: .init(describeScope: { $0 }, describeFact: { String(describing: $0) }, isClosing: { _, _ in false })
+    )
 
     func count(for kind: BridgeProductSubscriptionKind) -> Int { events[kind, default: []].count }
     func record(_ event: BridgeProductReviewMetadataPublicationTraceEvent) {}
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) {
         guard event.stage == .bootstrapFinished else { return }
         events[event.subscriptionKind, default: []].append(event)
-        let ready = waiters.filter {
-            $0.0 == event.subscriptionKind && $0.1 <= events[event.subscriptionKind, default: []].count
-        }
-        waiters.removeAll {
-            $0.0 == event.subscriptionKind && $0.1 <= events[event.subscriptionKind, default: []].count
-        }
-        for (_, count, waiter) in ready { waiter.resume(returning: events[event.subscriptionKind]![count - 1]) }
+        finishes.append(
+            scope: "\(event.subscriptionKind)-\(events[event.subscriptionKind, default: []].count)", fact: event)
     }
-    func finished(_ kind: BridgeProductSubscriptionKind, count: Int) async -> BridgeProductMetadataLifecycleTraceEvent {
+    func finished(_ kind: BridgeProductSubscriptionKind, count: Int) async throws
+        -> BridgeProductMetadataLifecycleTraceEvent
+    {
         if events[kind, default: []].count >= count { return events[kind]![count - 1] }
-        return await withCheckedContinuation { waiters.append((kind, count, $0)) }
+        return try await finishes.expectNext(
+            in: "\(kind)-\(count)", where: { _ in true }, "bootstrap finished for \(kind), count \(count)")
     }
 }
 

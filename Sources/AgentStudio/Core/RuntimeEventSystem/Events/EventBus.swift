@@ -1,5 +1,6 @@
 import AgentStudioInfrastructure
 import Foundation
+import Synchronization
 import os
 
 private let paneEventBusLogger = Logger(subsystem: "com.agentstudio", category: "PaneEventBus")
@@ -75,20 +76,68 @@ struct EventBusDiagnosticsSnapshot: Equatable, Sendable {
     let totalDroppedEvents: UInt64
 }
 
+/// Counts delivery slots and bufferingNewest evictions for one subscription.
+/// A terminated subscription keeps its final checkpoint for as long as its
+/// handle is retained. A drop replaces the oldest buffered envelope, so a
+/// zero drop count is required to claim complete delivery.
+package struct EventBusDeliveryCheckpoint: Equatable, Sendable {
+    package let enqueuedCount: UInt64
+    package let droppedCount: UInt64
+}
+
+private final class EventBusDeliveryCheckpointBox: Sendable {
+    private let checkpoint = Mutex(EventBusDeliveryCheckpoint(enqueuedCount: 0, droppedCount: 0))
+
+    func recordEnqueued() {
+        checkpoint.withLock { value in
+            value = EventBusDeliveryCheckpoint(
+                enqueuedCount: value.enqueuedCount + 1,
+                droppedCount: value.droppedCount
+            )
+        }
+    }
+
+    func recordDropped() {
+        checkpoint.withLock { value in
+            value = EventBusDeliveryCheckpoint(
+                enqueuedCount: value.enqueuedCount,
+                droppedCount: value.droppedCount + 1
+            )
+        }
+    }
+
+    func snapshot() -> EventBusDeliveryCheckpoint {
+        checkpoint.withLock { $0 }
+    }
+}
+
 package struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable {
     package typealias Element = Envelope
 
     package struct Iterator: AsyncIteratorProtocol {
         private var iterator: AsyncStream<Envelope>.Iterator
         private let recordConsumed: @Sendable () async -> Void
+        private let recordTerminated: @Sendable () async -> Void
+        private var hasRecordedTermination = false
 
-        init(iterator: AsyncStream<Envelope>.Iterator, recordConsumed: @escaping @Sendable () async -> Void) {
+        init(
+            iterator: AsyncStream<Envelope>.Iterator,
+            recordConsumed: @escaping @Sendable () async -> Void,
+            recordTerminated: @escaping @Sendable () async -> Void
+        ) {
             self.iterator = iterator
             self.recordConsumed = recordConsumed
+            self.recordTerminated = recordTerminated
         }
 
         package mutating func next() async -> Envelope? {
-            guard let envelope = await iterator.next() else { return nil }
+            guard let envelope = await iterator.next() else {
+                if !hasRecordedTermination {
+                    hasRecordedTermination = true
+                    await recordTerminated()
+                }
+                return nil
+            }
             await recordConsumed()
             return envelope
         }
@@ -100,23 +149,38 @@ package struct EventBusSubscription<Envelope: Sendable>: AsyncSequence, Sendable
 
     private let stream: AsyncStream<Envelope>
     private let recordConsumed: @Sendable () async -> Void
+    private let recordTerminated: @Sendable () async -> Void
+    private let deliveryCheckpointBox: EventBusDeliveryCheckpointBox
 
-    init(
+    fileprivate init(
         subscriberName: String,
         policy: BusSubscriberPolicy,
         replayStatus: EventBusReplayStatus,
         stream: AsyncStream<Envelope>,
-        recordConsumed: @escaping @Sendable () async -> Void
+        recordConsumed: @escaping @Sendable () async -> Void,
+        recordTerminated: @escaping @Sendable () async -> Void,
+        deliveryCheckpointBox: EventBusDeliveryCheckpointBox
     ) {
         self.subscriberName = subscriberName
         self.policy = policy
         self.replayStatus = replayStatus
         self.stream = stream
         self.recordConsumed = recordConsumed
+        self.recordTerminated = recordTerminated
+        self.deliveryCheckpointBox = deliveryCheckpointBox
+    }
+
+    /// The read itself is the checkpoint's linearization point with bus posts.
+    package func deliveryCheckpoint() -> EventBusDeliveryCheckpoint {
+        deliveryCheckpointBox.snapshot()
     }
 
     package func makeAsyncIterator() -> Iterator {
-        Iterator(iterator: stream.makeAsyncIterator(), recordConsumed: recordConsumed)
+        Iterator(
+            iterator: stream.makeAsyncIterator(),
+            recordConsumed: recordConsumed,
+            recordTerminated: recordTerminated
+        )
     }
 }
 
@@ -157,6 +221,7 @@ package actor EventBus<Envelope: Sendable> {
         let policy: BusSubscriberPolicy
         let replayStatus: EventBusReplayStatus
         let factInterest: FactInterestDescriptor?
+        let deliveryCheckpointBox: EventBusDeliveryCheckpointBox
         var yieldedCount: UInt64 = 0
         var consumedCount: UInt64 = 0
         var liveDroppedCount: UInt64 = 0
@@ -216,6 +281,7 @@ package actor EventBus<Envelope: Sendable> {
         factInterest: FactInterestDescriptor? = nil
     ) -> EventBusSubscription<Envelope> {
         let subscriberID = UUID()
+        let deliveryCheckpointBox = EventBusDeliveryCheckpointBox()
         let replaySnapshot = replaySnapshot()
         let stream = AsyncStream<Envelope>(bufferingPolicy: bufferingPolicy(for: policy)) { continuation in
             continuation.onTermination = { [weak self] _ in
@@ -226,7 +292,8 @@ package actor EventBus<Envelope: Sendable> {
                 subscriberName: subscriberName,
                 policy: policy,
                 replayStatus: replaySnapshot.status,
-                factInterest: factInterest
+                factInterest: factInterest,
+                deliveryCheckpointBox: deliveryCheckpointBox
             )
             self.resolveSubscriberRegistrationWaiters(subscriberName: subscriberName)
             self.performanceReporter?.recordEventBusSubscriberAdded()
@@ -255,7 +322,11 @@ package actor EventBus<Envelope: Sendable> {
             stream: stream,
             recordConsumed: { [weak self] in
                 await self?.recordConsumed(subscriberID)
-            }
+            },
+            recordTerminated: { [weak self] in
+                await self?.removeSubscriber(subscriberID)
+            },
+            deliveryCheckpointBox: deliveryCheckpointBox
         )
     }
 
@@ -426,6 +497,7 @@ package actor EventBus<Envelope: Sendable> {
             subscriber.failureClasses.insert(.criticalPressure)
         }
         subscribers[id] = subscriber
+        subscriber.deliveryCheckpointBox.recordEnqueued()
         performanceReporter?.recordEventBusDeliveryEnqueued()
     }
 
@@ -447,6 +519,7 @@ package actor EventBus<Envelope: Sendable> {
             subscriber.failureClasses.insert(.lossyDrop)
         }
         subscribers[id] = subscriber
+        subscriber.deliveryCheckpointBox.recordDropped()
     }
 
     private func recordReplayTruncation(_ id: UUID) {

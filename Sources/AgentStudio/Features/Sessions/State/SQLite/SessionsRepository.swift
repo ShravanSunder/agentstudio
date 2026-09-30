@@ -11,19 +11,19 @@ package struct SessionsRepository: Sendable {
     package func apply(
         operation: SessionsRepositoryOperation,
         reducing: @Sendable (SessionsRepositoryContext) throws -> SessionsRepositoryReduction
-    ) async throws -> SessionsMutationOutcome {
+    ) async throws -> SessionsSubmissionResult {
         try await sqliteAccess.write { database in
             if let replay = try SessionsRepositoryStorage.loadOperationReplay(
                 database: database,
                 operation: operation
             ) {
-                return replay
+                return SessionsSubmissionResult(outcome: replay, disposition: .replayed)
             }
             if let replay = try SessionsRepositoryStorage.loadOccurrenceReplay(
                 database: database,
                 operation: operation
             ) {
-                return replay
+                return SessionsSubmissionResult(outcome: replay, disposition: .replayed)
             }
             let context = try SessionsRepositoryStorage.loadContext(
                 database: database,
@@ -40,7 +40,7 @@ package struct SessionsRepository: Sendable {
                 commitRevision: commitRevision,
                 database: database
             )
-            return reduction.outcome
+            return SessionsSubmissionResult(outcome: reduction.outcome, disposition: .inserted)
         }
     }
 

@@ -97,6 +97,8 @@ that time through a clock it controls and MUST NOT wait in real time. If a compo
 clock, every clock that can affect the asserted outcome MUST be controllable by the test. *Basis: U4, E6 (tests that
 inject a clock and never advance it; a second real clock inside the same component).*
 
+> Superseded for tests on 2026-09-28: tests no longer await quiescence; negatives use typed closing facts. See [typed-fact test harness](../2026-09-28-typed-fact-test-harness/2026-09-28-typed-fact-test-harness.md).
+
 **R6 — Proving a negative.** When a test must show that something does not happen, it MUST first await quiescence
 (C3) of every component that could cause it, and then assert once, synchronously. *Basis: U5, U6.* *Fails if:* a test
 treats "did not happen during a budget" as "does not happen".

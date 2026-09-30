@@ -451,6 +451,15 @@ extension WorkspaceSurfaceCoordinator {
         case .addWebviewDrawerPane(let parentPaneId, let state):
             executeAddWebviewDrawerPane(parentPaneId: parentPaneId, state: state)
 
+        case .addDrawerChildInBackground(let parentPaneId, let childPaneId, .terminal):
+            try await executeInsertDrawerPane(
+                parentPaneId: parentPaneId, targetDrawerPaneId: nil, direction: .right, sizingMode: .halveTarget,
+                childPaneId: childPaneId, presentation: .background)
+
+        case .addDrawerChildInBackground(let parentPaneId, let childPaneId, .webview(let state)):
+            executeAddWebviewDrawerPane(
+                parentPaneId: parentPaneId, state: state, childPaneId: childPaneId, presentation: .background)
+
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             try await executeDiscardDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
@@ -527,6 +536,18 @@ extension WorkspaceSurfaceCoordinator {
                 direction: direction,
                 sizingMode: sizingMode
             )
+
+        case .setZoomSplitRatio(let tabId, let ratio):
+            _ = store.panePresentationAtom.setZoomSplitRatio(ratio, inTab: tabId)
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
+
+        case .setDrawerNormalHeightRatio(let parentPaneId, let ratio):
+            store.paneAtom.setDrawerNormalHeightRatio(ratio, forOwner: parentPaneId)
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
+
+        case .setDrawerZoomSide(let parentPaneId, let side):
+            store.paneAtom.setDrawerZoomSide(side, forOwner: parentPaneId)
+            Task { [weak self] in await self?.reevaluatePreparedTerminalGeometry() }
 
         case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target, let sizingMode):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "moveDrawerPane")

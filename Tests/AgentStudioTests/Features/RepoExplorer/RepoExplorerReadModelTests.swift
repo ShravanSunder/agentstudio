@@ -199,17 +199,11 @@ extension RepoExplorerReadModelTests {
         #expect(repoProjection.sections.map(\.title) == ["Pinned repos", "Available repos"])
         #expect(repoProjection.sections[0].resolvedGroups.map(\.repoTitle) == ["zeta-favorite"])
         #expect(repoProjection.sections[1].resolvedGroups.map(\.repoTitle) == ["alpha-normal"])
-        #expect(
-            paneProjection.resolvedGroups.map(\.id) == [
-                "panes:panes:repo:\(normalRepoId.uuidString)",
-                "panes:panes:repo:\(favoriteRepoId.uuidString)",
-            ]
-        )
-        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [normalRepoId])
-        #expect(paneProjection.resolvedGroups.last?.repos.map(\.id) == [favoriteRepoId])
+        #expect(paneProjection.resolvedGroups.map(\.id) == ["panes:panes:activity:6"])
+        #expect(Set(paneProjection.resolvedGroups.flatMap(\.repos).map(\.id)) == [normalRepoId, favoriteRepoId])
         #expect(paneProjection.sections.map(\.kind) == [.panes])
         #expect(tabProjection.resolvedGroups.count == 1)
-        #expect(tabProjection.resolvedGroups[0].repos.map(\.id) == [normalRepoId, favoriteRepoId])
+        #expect(Set(tabProjection.resolvedGroups[0].repos.map(\.id)) == [normalRepoId, favoriteRepoId])
         #expect(tabProjection.sections.map(\.kind) == [.panes])
     }
 
@@ -282,7 +276,7 @@ extension RepoExplorerReadModelTests {
         #expect(projection.emptyState == .content)
     }
 
-    @Test("favorites-first projection composes with search and pane grouping")
+    @Test("fixed Activity composes with search without losing the matching pane")
     func favoritesFirstProjectionComposesWithSearchAndPaneGrouping() {
         let normalRepoId = UUID()
         let favoriteRepoId = UUID()
@@ -331,8 +325,12 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        #expect(matchingProjection.resolvedGroups.map(\.id) == ["panes:panes:repo:\(favoriteRepoId.uuidString)"])
+        #expect(matchingProjection.resolvedGroups.map(\.id) == ["panes:panes:activity:6"])
         #expect(matchingProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
+        #expect(
+            matchingProjection.paneRowsByGroupId["panes:panes:activity:6"]?.map(\.destination.paneId)
+                == [favoritePaneId]
+        )
         #expect(noMatchProjection.resolvedGroups.isEmpty)
         #expect(noMatchProjection.emptyState == .searchNoResults)
     }

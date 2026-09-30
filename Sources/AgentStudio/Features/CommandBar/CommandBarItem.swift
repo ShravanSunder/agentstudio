@@ -106,6 +106,8 @@ package struct CommandBarItem: Identifiable {
     package let group: String
     package let groupPriority: Int
     package let keywords: [String]
+    /// Fields admitted to search, independent of subtitle and action metadata.
+    package let searchFields: [String]
     package let hasChildren: Bool
     package let showsActionsButton: Bool
     package let action: CommandBarAction
@@ -127,6 +129,7 @@ package struct CommandBarItem: Identifiable {
         group: String,
         groupPriority: Int,
         keywords: [String] = [],
+        searchFields: [String] = [],
         hasChildren: Bool = false,
         showsActionsButton: Bool = false,
         action: CommandBarAction,
@@ -146,6 +149,7 @@ package struct CommandBarItem: Identifiable {
         self.group = group
         self.groupPriority = groupPriority
         self.keywords = keywords
+        self.searchFields = searchFields
         self.hasChildren = hasChildren
         self.showsActionsButton = showsActionsButton
         self.action = action
@@ -215,6 +219,7 @@ package struct CommandBarItem: Identifiable {
             group: group,
             groupPriority: groupPriority,
             keywords: keywords,
+            searchFields: searchFields,
             hasChildren: hasChildren ?? self.hasChildren,
             showsActionsButton: showsActionsButton ?? self.showsActionsButton,
             action: action ?? self.action,
@@ -317,8 +322,7 @@ package struct CommandBarTextEntryInput: Equatable, Sendable {
 }
 
 package enum CommandBarCreationQuery {
-    case defaultStartPoint(Repo)
-    case forkEligibility(Repo)
+    case branchListing(Repo)
     case worktreeEligibility(Repo, Worktree)
 }
 
@@ -347,6 +351,8 @@ package struct CommandBarLevel: Identifiable {
     package let scopeLabel: String?
     package let breadcrumbIcon: AppEntityIcon?
     package let items: [CommandBarItem]
+    /// Rows searched in this level but absent from its empty-filter presentation.
+    package let searchOnlyItems: [CommandBarItem]
     package let textEntry: CommandBarTextEntry?
     package let creationQuery: CommandBarCreationQuery?
 
@@ -357,6 +363,7 @@ package struct CommandBarLevel: Identifiable {
         scopeLabel: String? = nil,
         breadcrumbIcon: AppEntityIcon? = nil,
         items: [CommandBarItem],
+        searchOnlyItems: [CommandBarItem] = [],
         textEntry: CommandBarTextEntry? = nil,
         creationQuery: CommandBarCreationQuery? = nil
     ) {
@@ -366,6 +373,7 @@ package struct CommandBarLevel: Identifiable {
         self.scopeLabel = scopeLabel
         self.breadcrumbIcon = breadcrumbIcon
         self.items = items
+        self.searchOnlyItems = searchOnlyItems
         self.textEntry = textEntry
         self.creationQuery = creationQuery
     }

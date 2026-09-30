@@ -13,6 +13,7 @@ package struct CommandBarSearchField: View {
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
+    let onInputChanged: @MainActor @Sendable (String, UInt64) -> Void
     let onBackspaceOnEmpty: () -> Void
     let onTabForward: () -> Void
     let onShiftTabBack: () -> Void
@@ -24,6 +25,7 @@ package struct CommandBarSearchField: View {
         onArrowDown: @escaping () -> Void,
         onEnter: @escaping (EnterModifier) -> Void,
         onShortcutTrigger: @escaping (ShortcutTrigger) -> Bool,
+        onInputChanged: @escaping @MainActor @Sendable (String, UInt64) -> Void = { _, _ in },
         onBackspaceOnEmpty: @escaping () -> Void,
         onTabForward: @escaping () -> Void,
         onShiftTabBack: @escaping () -> Void
@@ -34,6 +36,7 @@ package struct CommandBarSearchField: View {
         self.onArrowDown = onArrowDown
         self.onEnter = onEnter
         self.onShortcutTrigger = onShortcutTrigger
+        self.onInputChanged = onInputChanged
         self.onBackspaceOnEmpty = onBackspaceOnEmpty
         self.onTabForward = onTabForward
         self.onShiftTabBack = onShiftTabBack
@@ -46,10 +49,12 @@ package struct CommandBarSearchField: View {
             CommandBarTextField(
                 text: $state.rawInput,
                 placeholder: state.placeholder,
+                selectAllOnFocus: state.shouldSelectRestoredRootQuery,
                 onArrowUp: onArrowUp,
                 onArrowDown: onArrowDown,
                 onEnter: onEnter,
                 onShortcutTrigger: onShortcutTrigger,
+                onInputChanged: onInputChanged,
                 onBackspaceOnEmpty: onBackspaceOnEmpty,
                 onTabForward: onTabForward,
                 onShiftTabBack: onShiftTabBack

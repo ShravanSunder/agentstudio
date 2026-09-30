@@ -76,6 +76,16 @@ package enum DrawerLayout {
     /// Height of the resize handle pill indicator.
     package static let resizeHandlePillHeight: CGFloat = 4
 
+    // MARK: - Pane Zoom Overlay
+
+    /// Fraction of the selected Zoom region's width used by the complete
+    /// drawer outline. The remaining 3% is split into two visible gutters.
+    package static let zoomOutlineWidthRatio: CGFloat = 0.97
+
+    /// Fraction of the selected Zoom region's height used by the complete
+    /// drawer outline, connector included, leaving the upper 15% exposed.
+    package static let zoomOutlineHeightRatio: CGFloat = 0.85
+
     // MARK: - Overlay Positioning
 
     /// Minimum gap between panel edge and tab edge when clamping horizontal position.

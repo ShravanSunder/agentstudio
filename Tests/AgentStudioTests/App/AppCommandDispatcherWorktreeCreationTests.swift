@@ -1,3 +1,4 @@
+import AgentStudioWorktreeOperations
 import Foundation
 import Testing
 
@@ -23,6 +24,24 @@ struct AppCommandDispatcherWorktreeCreationTests {
         #expect(
             shellOwner.interactions == [
                 .targetedCapability(command: .newWorktreeFromDefault, target: request.targetId),
+                .creation(request),
+            ])
+    }
+
+    @Test("a named branch request uses the branch command identity for targeted preflight")
+    func branchRequestUsesBranchCommand() async throws {
+        let shellOwner = RecordingWorktreeCreationShellOwner(outcome: .accepted(operationId: nil))
+        let request = try Self.makeRequest(kind: .fromBranch(referenceName: "refs/heads/source"))
+
+        let accepted = try await withIsolatedCommandDispatcher(
+            configure: { AppCommandDispatcher.shared.appCommandRouter = shellOwner },
+            body: { AppCommandDispatcher.shared.dispatchWorktreeCreation(request) }
+        )
+
+        #expect(accepted)
+        #expect(
+            shellOwner.interactions == [
+                .targetedCapability(command: .newWorktreeFromBranch, target: request.targetId),
                 .creation(request),
             ])
     }

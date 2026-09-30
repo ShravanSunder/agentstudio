@@ -44,6 +44,7 @@ extension GitWorkingDirectoryProjector {
             || capacityRetryWorktreeIds.contains(worktreeId)
             || openStatusBackoffWorktreeIds.contains(worktreeId)
         automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+        cancelDeadlineFact(worktreeId: worktreeId, sourceKind: .automatic)
         pendingVisibilityDeltaWorktreeIds.remove(worktreeId)
         lastProcessedSidebarVisibleWorktreeIds.remove(worktreeId)
         if preservesRequiredIntent {
@@ -135,6 +136,7 @@ extension GitWorkingDirectoryProjector {
         for worktreeId in cadenceChangedWorktreeIds
         where registeredContext(for: worktreeId) != nil && isAutomaticEligible(worktreeId: worktreeId) {
             automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            closeDeadlineFact(worktreeId: worktreeId, sourceKind: .automatic, disposition: .obsolete)
             scheduleAutomaticRefresh(
                 worktreeId: worktreeId,
                 missingBaseline: lastAcceptedStatusAtByWorktreeId[worktreeId] == nil,
@@ -199,6 +201,7 @@ extension GitWorkingDirectoryProjector {
             )
         }
         visibilityAdmissionTask?.cancel()
+        closeVisibilityAdmissionFacts(as: .obsolete)
         pendingVisibilityDeltaWorktreeIds =
             sidebarVisibleWorktreeIds
             .subtracting(lastProcessedSidebarVisibleWorktreeIds)
@@ -206,6 +209,13 @@ extension GitWorkingDirectoryProjector {
 
         let delay = self.delay
         let coalescingWindow = AppPolicies.GitRefresh.visibilityChangeCoalescingWindow
+        let generation: UInt64
+        if factSink != nil {
+            nextVisibilityAdmissionFactGeneration &+= 1
+            generation = nextVisibilityAdmissionFactGeneration
+        } else {
+            generation = 0
+        }
         visibilityAdmissionTask = Task { [weak self, delay, coalescingWindow] in
             do {
                 try await delay.wait(coalescingWindow)
@@ -215,11 +225,13 @@ extension GitWorkingDirectoryProjector {
                 Self.logger.warning(
                     "Unexpected visibility-admission sleep failure: \(String(describing: error), privacy: .public)"
                 )
+                await self?.visibilityAdmissionDelayDidFail(generation: generation)
                 return
             }
             guard !Task.isCancelled else { return }
             await self?.applyCoalescedVisibilityAdmission()
         }
+        registerVisibilityAdmissionFacts(generation: generation)
     }
 
     private func applyCoalescedVisibilityAdmission() {
@@ -272,6 +284,9 @@ extension GitWorkingDirectoryProjector {
                 outcome: .batched
             )
         }
+        closeVisibilityAdmissionFacts(
+            admittedWorktreeIds: Set(newlyVisibleWorktreeIds)
+        )
     }
 
     func rescheduleDeadlineTask() {
@@ -314,19 +329,28 @@ extension GitWorkingDirectoryProjector {
         guard generation == deadlineTaskGeneration, !isShuttingDown else { return }
         deadlineTask = nil
         let now = deadlineClock.now
+        var evaluatedDeadlineFacts: [(scope: GitProjectorScope, worktreeId: UUID)] = []
 
         while let entry = deadlineQueue.first, entry.deadline <= now {
             deadlineQueue.removeFirst()
             guard isCurrentDeadline(entry) else { continue }
+            let factScope = takeDeadlineFact(worktreeId: entry.worktreeId, sourceKind: entry.kind)
             switch entry.kind {
             case .automatic:
                 automaticRefreshDeadlineByWorktreeId.removeValue(forKey: entry.worktreeId)
-                guard admitAutomaticRefreshAfterQuarantine(worktreeId: entry.worktreeId) else { continue }
+                guard admitAutomaticRefreshAfterQuarantine(worktreeId: entry.worktreeId) else {
+                    if let factScope { factSink?(factScope, .deadlineDisposition(.deferred)) }
+                    continue
+                }
                 switch await renewExactCleanAuthorityIfCurrent(
                     worktreeId: entry.worktreeId,
                     deadlineGeneration: generation
                 ) {
-                case .renewed, .stale:
+                case .renewed:
+                    if let factScope { factSink?(factScope, .deadlineDisposition(.deferred)) }
+                    continue
+                case .stale:
+                    if let factScope { factSink?(factScope, .deadlineDisposition(.obsolete)) }
                     continue
                 case .requiresExact(let uncertaintyReason):
                     let admitted = prepareAutomaticRefreshIfCurrent(worktreeId: entry.worktreeId)
@@ -334,18 +358,29 @@ extension GitWorkingDirectoryProjector {
                         recordContinuityUncertaintyTelemetry(uncertaintyReason)
                         recordExactFallbackTelemetry(admitted: admitted)
                     }
-                    guard admitted else { continue }
+                    guard admitted else {
+                        if let factScope { factSink?(factScope, .deadlineDisposition(.obsolete)) }
+                        continue
+                    }
                     tierEligibleWorktreeIds.insert(entry.worktreeId)
+                    if let factScope { evaluatedDeadlineFacts.append((factScope, entry.worktreeId)) }
                     continue
                 }
             case .failure:
                 expireStatusBackoff(worktreeId: entry.worktreeId)
+                if let factScope { evaluatedDeadlineFacts.append((factScope, entry.worktreeId)) }
             case .capacityFallback:
                 expireCapacityRetry(worktreeId: entry.worktreeId)
+                if let factScope { evaluatedDeadlineFacts.append((factScope, entry.worktreeId)) }
             }
         }
         admitPendingWorktrees()
         rescheduleDeadlineTask()
+        for evaluated in evaluatedDeadlineFacts {
+            let disposition: GitProjectorDeadlineDisposition =
+                worktreeTasks[evaluated.worktreeId] == nil ? .deferred : .admitted
+            factSink?(evaluated.scope, .deadlineDisposition(disposition))
+        }
     }
 
     private func renewExactCleanAuthorityIfCurrent(
@@ -393,7 +428,8 @@ extension GitWorkingDirectoryProjector {
     func setRefreshDeadline(
         _ deadline: Duration,
         kind: GitRefreshDeadlineKind,
-        worktreeId: UUID
+        worktreeId: UUID,
+        factKind: GitProjectorDeadlineKind? = nil
     ) {
         switch kind {
         case .automatic:
@@ -409,6 +445,17 @@ extension GitWorkingDirectoryProjector {
         deadlineQueue.insert(
             GitRefreshDeadlineEntry(deadline: deadline, kind: kind, worktreeId: worktreeId)
         )
+        let registeredKind: GitProjectorDeadlineKind
+        if let factKind {
+            registeredKind = factKind
+        } else {
+            switch kind {
+            case .automatic: registeredKind = .automatic
+            case .failure: registeredKind = .failure
+            case .capacityFallback: registeredKind = .capacityFallback
+            }
+        }
+        registerDeadlineFact(worktreeId: worktreeId, sourceKind: kind, factKind: registeredKind)
     }
 
     private func isCurrentDeadline(_ entry: GitRefreshDeadlineEntry) -> Bool {
@@ -458,6 +505,7 @@ extension GitWorkingDirectoryProjector {
         guard registeredContext(for: worktreeId) != nil else { return }
         guard isAutomaticEligible(worktreeId: worktreeId) else {
             automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            cancelDeadlineFact(worktreeId: worktreeId, sourceKind: .automatic)
             rescheduleDeadlineTask()
             return
         }
@@ -465,6 +513,7 @@ extension GitWorkingDirectoryProjector {
             allowsPromptMissingBaseline
         {
             automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            closeDeadlineFact(worktreeId: worktreeId, sourceKind: .automatic, disposition: .obsolete)
             if prepareAutomaticRefreshIfCurrent(worktreeId: worktreeId) {
                 immediateRefreshWorktreeIds.insert(worktreeId)
                 tierEligibleWorktreeIds.insert(worktreeId)
@@ -513,6 +562,7 @@ extension GitWorkingDirectoryProjector {
 
     func recordAutomaticAdmission(worktreeId: UUID, isExplicit: Bool) {
         automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+        closeDeadlineFact(worktreeId: worktreeId, sourceKind: .automatic, disposition: .obsolete)
         guard !isExplicit else { return }
         let trigger = refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId]
         if !isAutomaticEligible(worktreeId: worktreeId),
@@ -548,6 +598,7 @@ extension GitWorkingDirectoryProjector {
         // Visibility may have queued a deadline from the previous sample while this read ran.
         // Completion replaces that estimate with the cadence and duty of the accepted result.
         automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+        closeDeadlineFact(worktreeId: worktreeId, sourceKind: .automatic, disposition: .obsolete)
         scheduleAutomaticRefresh(worktreeId: worktreeId)
     }
 

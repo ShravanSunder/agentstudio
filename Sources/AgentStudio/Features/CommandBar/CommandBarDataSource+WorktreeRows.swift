@@ -60,22 +60,67 @@ extension CommandBarDataSource {
             }
     }
 
-    static func everythingWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return availableRepositories(store: store).flatMap { repo in
-            repo.worktrees.map { worktree in
+    static func searchableRepositoryAndWorktreeItems(
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        repositoryGroup: String,
+        repositoryPriority: Int,
+        worktreePriority: Int
+    ) -> [CommandBarItem] {
+        let repositories = availableRepositories(store: store)
+        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(
+            repos: repositories,
+            locationsByWorktreeId: worktreeLocationsByWorktreeId(store: store)
+        )
+        let repositoryItems = repositories.map { repository in
+            repoRootItem(
+                repo: repository,
+                presenceByWorktreeId: presenceByWorktreeId,
+                group: repositoryGroup,
+                groupPriority: repositoryPriority
+            )
+        }
+        let worktreeItems = repositories.flatMap { repository in
+            repository.worktrees.map { worktree in
                 let presence =
                     presenceByWorktreeId[worktree.id]
-                    ?? emptyWorktreePresence(worktree: worktree, repo: repo)
-                return unifiedWorktreeItem(
-                    worktree: worktree,
-                    repo: repo,
-                    presence: presence,
+                    ?? emptyWorktreePresence(worktree: worktree, repo: repository)
+                var keywords = worktreeKeywords(worktree: worktree, repo: repository)
+                var searchFields = [worktree.name, worktree.path.lastPathComponent]
+                if let branch = repoCache.worktreeEnrichment(for: worktree.id)?.branch {
+                    keywords.append(branch)
+                    searchFields.append(branch)
+                }
+                return CommandBarItem(
+                    id: "repo-wt-\(worktree.id.uuidString)",
+                    title: worktree.name,
+                    subtitle: repository.name,
+                    secondaryLine: worktreeBranchSecondaryLine(
+                        forWorktreeId: worktree.id, repoCache: repoCache),
+                    icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
                     group: Group.worktrees,
-                    groupPriority: Priority.repositories
+                    groupPriority: worktreePriority,
+                    keywords: keywords,
+                    searchFields: searchFields,
+                    hasChildren: true,
+                    action: .worktreeAction(presence: presence),
+                    command: .openWorktree
                 )
             }
         }
+        return repositoryItems + worktreeItems
+    }
+
+    static func worktreeBranchSecondaryLine(
+        forWorktreeId worktreeId: UUID,
+        repoCache: RepoCacheAtom
+    ) -> CommandBarItemSecondaryLine? {
+        guard let branch = repoCache.worktreeEnrichment(for: worktreeId)?.branch,
+            !branch.isEmpty
+        else { return nil }
+        return CommandBarItemSecondaryLine(
+            text: branch,
+            icon: AppCommand.newWorktreeFromBranch.definition.icon)
     }
 
     static func unifiedWorktreeItem(
@@ -93,6 +138,7 @@ extension CommandBarDataSource {
             group: group,
             groupPriority: groupPriority,
             keywords: worktreeKeywords(worktree: worktree, repo: repo),
+            searchFields: [worktree.name, worktree.path.lastPathComponent],
             hasChildren: true,
             action: .worktreeAction(presence: presence),
             command: .openWorktree
@@ -127,6 +173,7 @@ extension CommandBarDataSource {
             group: group,
             groupPriority: groupPriority,
             keywords: repoRootKeywords(repo: repo),
+            searchFields: [repo.name, repo.repoPath.lastPathComponent] + repo.tags,
             hasChildren: true,
             action: .navigateRepo(repositoryID: repo.id)
         )
@@ -135,8 +182,6 @@ extension CommandBarDataSource {
     static func repoRootKeywords(repo: Repo) -> [String] {
         var keywords = ["repo", repo.name, repo.repoPath.lastPathComponent]
         keywords.append(contentsOf: repo.tags)
-        keywords.append(contentsOf: repo.worktrees.map(\.name))
-        keywords.append(contentsOf: repo.worktrees.map { $0.path.lastPathComponent })
         return keywords
     }
 
@@ -238,11 +283,13 @@ extension CommandBarDataSource {
     static func buildRepoLevel(
         repo: Repo,
         store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
         buildRepoLevel(
             repo: repo,
             store: store,
+            repoCache: repoCache,
             presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store),
             dispatcher: dispatcher
         )
@@ -251,6 +298,7 @@ extension CommandBarDataSource {
     static func buildRepoLevel(
         repo: Repo,
         store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
         presenceByWorktreeId: [UUID: WorktreePresence],
         dispatcher: any AppCommandDispatching
     ) -> CommandBarLevel {
@@ -270,7 +318,9 @@ extension CommandBarDataSource {
                     group: "Worktrees",
                     groupPriority: 2,
                     hasChildren: true,
-                    action: .navigate(worktreeCreationMenuLevel(repository: repo)),
+                    action: .navigate(
+                        worktreeCreationMenuLevel(
+                            repository: repo, store: store, repoCache: repoCache)),
                     command: .newWorktree
                 ))
         }
@@ -323,6 +373,7 @@ extension CommandBarDataSource {
                         group: "Worktrees",
                         groupPriority: 2,
                         keywords: worktreeKeywords(worktree: worktree, repo: repo, includeFullPath: true),
+                        searchFields: [worktree.name, worktree.path.lastPathComponent],
                         hasChildren: true,
                         action: .navigate(level),
                         command: .openWorktree

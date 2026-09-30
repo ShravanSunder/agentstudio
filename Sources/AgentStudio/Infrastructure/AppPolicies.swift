@@ -2,6 +2,10 @@ import CoreGraphics
 import Foundation
 
 package enum AppPolicies {
+    package enum Panes {
+        package static let activityTimePublishInterval: Duration = .seconds(10)
+    }
+
     package enum IPC {
         package static let maximumTerminalWaitSeconds: Double = 86_400
         /// One spooled notification is one wire frame, so the drainer accepts
@@ -300,6 +304,8 @@ package enum AppPolicies {
     }
 
     package enum WorkspacePersistence {
+        /// Autosave waits for quiet, but never longer than this after the first unsaved change.
+        package static let autosaveMaximumDelay: Duration = .seconds(2)
         package static let debouncedAutosaveFailureDampingThreshold: Int = 3
         package static let maximumAvailableUndoCloses: Int = 10
         package static let undoGracePeriod: Duration = .seconds(300)
@@ -659,15 +665,6 @@ package enum AppPolicies {
         package static let fallbackCadence: Duration = .seconds(300)
     }
 
-    package enum WorktreeCreation {
-        /// Longest branch name accepted before the Git ref and destination slug are derived.
-        package static let maximumBranchNameLength: Int = 200
-        /// Longest branch-derived folder suffix; keeps the sibling path well under PATH_MAX.
-        package static let maximumDestinationSlugLength: Int = 80
-        /// Joins the source repository folder and the branch slug: `<repo-folder>.<branch-slug>`.
-        package static let destinationSlugSeparator: String = "."
-    }
-
     package enum ZmxStartup {
         package static let reconciliationTimeout: Duration = .seconds(3)
     }
@@ -700,6 +697,21 @@ package enum AppPolicies {
     package enum WorkspaceFocus {
         package enum Terminal {
             package static let stickyBottomBufferPx: CGFloat = 48
+        }
+    }
+
+    package enum PaneZoomSplit {
+        package static let defaultTerminalRatio: Double = 0.40
+        package static let minimumTerminalRatio: Double = 0.30
+        package static let maximumTerminalRatio: Double = 0.60
+
+        package static func containsTerminalRatio(_ ratio: Double) -> Bool {
+            ratio.isFinite && ratio >= minimumTerminalRatio && ratio <= maximumTerminalRatio
+        }
+
+        package static func clampTerminalRatio(_ ratio: Double) -> Double {
+            guard ratio.isFinite else { return defaultTerminalRatio }
+            return min(max(ratio, minimumTerminalRatio), maximumTerminalRatio)
         }
     }
 

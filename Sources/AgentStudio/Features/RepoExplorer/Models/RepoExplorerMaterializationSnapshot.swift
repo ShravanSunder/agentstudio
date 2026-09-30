@@ -233,9 +233,12 @@ struct RepoExplorerRowLayout: Equatable, Sendable {
                 primaryLineHeight: AppStyles.Shell.Sidebar.nativeInlineControlLineHeight
             )
             facts.leadingInset = AppStyles.Shell.Sidebar.nativeGroupChildRowLeadingInset
+            let displayedVariant =
+                pane.displayVariant == .expanded
+                ? pane.variants?.expanded : pane.variants?.compact
             facts.metadataLineCount =
-                (pane.secondaryLine == nil ? 0 : 1)
-                + (pane.branchContextText == nil ? 0 : 1)
+                displayedVariant.map { CGFloat(max(0, $0.fallbackLineCount - 2)) }
+                ?? (pane.secondaryLine == nil ? 0 : 1) + (pane.branchContextText == nil ? 0 : 1)
             facts.chipLineCount = 1
             facts.verticalInset = AppStyles.Shell.Sidebar.nativeRowVerticalInset
             return facts
@@ -309,9 +312,40 @@ struct RepoExplorerMaterializedRow: Equatable, Sendable {
     let layout: RepoExplorerRowLayout
     let representedRepoID: UUID?
     let representedWorktreeID: UUID?
+    let expandedPaneLayout: RepoExplorerRowLayout?
+
+    init(
+        id: RepoExplorerRowID,
+        contentRevision: RepoExplorerRowContentRevision,
+        layout: RepoExplorerRowLayout,
+        representedRepoID: UUID?,
+        representedWorktreeID: UUID?,
+        expandedPaneLayout: RepoExplorerRowLayout? = nil
+    ) {
+        self.id = id
+        self.contentRevision = contentRevision
+        self.layout = layout
+        self.representedRepoID = representedRepoID
+        self.representedWorktreeID = representedWorktreeID
+        self.expandedPaneLayout = expandedPaneLayout
+    }
 
     var presentation: RepoExplorerMaterializedRowPresentation {
         contentRevision.presentation
+    }
+
+    func displayingPaneVariant(_ variant: RepoExplorerPaneDisplayVariant) -> Self {
+        guard case .pane(var pane) = presentation, pane.variants != nil else { return self }
+        pane.displayVariant = variant
+        let displayedPresentation = RepoExplorerMaterializedRowPresentation.pane(pane)
+        return Self(
+            id: id,
+            contentRevision: RepoExplorerRowContentRevision(presentation: displayedPresentation),
+            layout: expandedPaneLayout ?? layout,
+            representedRepoID: representedRepoID,
+            representedWorktreeID: representedWorktreeID,
+            expandedPaneLayout: expandedPaneLayout
+        )
     }
 }
 
@@ -470,12 +504,20 @@ struct RepoExplorerMaterializationSnapshot: Equatable, Sendable {
                 inputs: inputs
             )
             let representedIdentities = representedIdentities(for: presentation)
+            let expandedPaneLayout: RepoExplorerRowLayout?
+            if case .pane(var pane) = presentation, pane.variants != nil {
+                pane.displayVariant = .expanded
+                expandedPaneLayout = RepoExplorerRowLayout.make(for: .pane(pane))
+            } else {
+                expandedPaneLayout = nil
+            }
             return RepoExplorerMaterializedRow(
                 id: entry.id,
                 contentRevision: RepoExplorerRowContentRevision(presentation: presentation),
                 layout: RepoExplorerRowLayout.make(for: presentation),
                 representedRepoID: representedIdentities.repoID,
-                representedWorktreeID: representedIdentities.worktreeID
+                representedWorktreeID: representedIdentities.worktreeID,
+                expandedPaneLayout: expandedPaneLayout
             )
         }
         return Self(rows: rows)
@@ -563,11 +605,9 @@ extension RepoExplorerMaterializationSnapshot {
             return .unassociatedPane(
                 RepoExplorerUnassociatedPanePresentation(
                     destination: destination,
-                    primaryText:
-                        "Pane \(destination.paneIndexInTab + 1) · "
-                        + (paneFacts?.sidebarTerminalTitle ?? "zsh"),
+                    primaryText: paneFacts?.sidebarTerminalTitle ?? "Pane \(destination.paneIndexInTab + 1)",
                     secondaryLine: paneFacts?.secondaryLine,
-                    recencyText: paneFacts?.recencyText ?? "Now",
+                    recencyText: paneFacts?.recencyText ?? "—",
                     recencyTier: paneFacts?.recencyTier ?? .strongBlue,
                     isActive: paneFacts?.isActive ?? false,
                     isDrawerPane: paneFacts?.isDrawerPane ?? false

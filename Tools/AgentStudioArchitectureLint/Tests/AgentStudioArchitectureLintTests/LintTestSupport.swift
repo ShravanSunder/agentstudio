@@ -5,6 +5,9 @@ import SwiftParser
 
 /// Fixture corpora and inline contexts shared by the rule test suites.
 enum LintTestSupport {
+    @MainActor
+    private static var fixtureCorpusResults: [String: Result<[ArchitectureDiagnostic], any Error>] = [:]
+
     static func fixtureRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -13,7 +16,18 @@ enum LintTestSupport {
 
     /// Every site the registry's rules report in one fixture corpus, linted
     /// with the corpus as the workspace root.
+    @MainActor
     static func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
+        if let result = fixtureCorpusResults[corpus] {
+            return try result.get()
+        }
+
+        let result = Result { try lintFixtureCorpusUncached(corpus) }
+        fixtureCorpusResults[corpus] = result
+        return try result.get()
+    }
+
+    private static func lintFixtureCorpusUncached(_ corpus: String) throws -> [ArchitectureDiagnostic] {
         let corpusRoot = fixtureRoot().appendingPathComponent(corpus)
         let files = try SourceFileDiscovery(fileManager: .default)
             .lintedFiles(under: [corpusRoot.path])

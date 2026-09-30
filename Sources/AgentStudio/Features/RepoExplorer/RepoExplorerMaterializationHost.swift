@@ -9,6 +9,7 @@ final class RepoExplorerMaterializationHost: NSView {
     private(set) var isPresentationReady = false
     private(set) var presentedChildView: NSView?
     private(set) var selectedRowID: RepoExplorerRowID?
+    private var pendingFirstChildGroupID: String?
 
     var visibleGeneration: UInt64? {
         acceptedBaseline?.visibleGeneration
@@ -167,13 +168,25 @@ final class RepoExplorerMaterializationHost: NSView {
         guard candidate.proposedRevision == currentBaseline.revision &+ 1 else {
             return reject(candidate, reason: .invalidRevisionTransition)
         }
-        let reconciledSelectionRowID: RepoExplorerRowID?
+        var reconciledSelectionRowID: RepoExplorerRowID?
         if selectedRowID != nil || keyboardInteraction?.isListKeyboardActive == true {
             reconciledSelectionRowID = candidate.nativeUpdatePlan.reconciledSelectionRowID(
                 for: selectedRowID
             )
         } else {
             reconciledSelectionRowID = nil
+        }
+        if let pendingFirstChildGroupID,
+            selectedRowID == .group(groupID: pendingFirstChildGroupID),
+            case .content(let nextSnapshot, _) = candidate.presentation,
+            let groupRow = nextSnapshot.row(id: .group(groupID: pendingFirstChildGroupID)),
+            case .groupHeader(let group) = groupRow.presentation,
+            group.isExpanded,
+            let childRowID = nextSnapshot.navigationIndex.firstChildRowID(
+                for: .group(groupID: pendingFirstChildGroupID)
+            )
+        {
+            reconciledSelectionRowID = childRowID
         }
 
         activeCandidate = candidate
@@ -195,6 +208,11 @@ final class RepoExplorerMaterializationHost: NSView {
         )
         self.acceptedBaseline = acceptedBaseline
         selectedRowID = reconciledSelectionRowID
+        if let pendingFirstChildGroupID,
+            selectedRowID != .group(groupID: pendingFirstChildGroupID)
+        {
+            self.pendingFirstChildGroupID = nil
+        }
         isPresentationReady = true
         keyboardInteraction?.selectedPaneTargetDidChange(
             selectedPaneTarget(), origin: .passiveSynchronization
@@ -243,6 +261,7 @@ final class RepoExplorerMaterializationHost: NSView {
         isPresentationReady = false
         acceptedBaseline = nil
         selectedRowID = nil
+        pendingFirstChildGroupID = nil
         activeCandidate = nil
         contentChild?.detach()
         contentChild = nil
@@ -445,12 +464,12 @@ final class RepoExplorerMaterializationHost: NSView {
         if let selectedRowID {
             switch verticalDirection {
             case .previous:
-                targetRowID = snapshot.navigationIndex.previousNumberedDestinationRowID(before: selectedRowID)
+                targetRowID = snapshot.navigationIndex.previousDestinationRowID(before: selectedRowID)
             case .next:
-                targetRowID = snapshot.navigationIndex.nextNumberedDestinationRowID(after: selectedRowID)
+                targetRowID = snapshot.navigationIndex.nextDestinationRowID(after: selectedRowID)
             }
         } else {
-            targetRowID = snapshot.navigationIndex.numberedDestinationRowIDs.first
+            targetRowID = snapshot.navigationIndex.destinationRowIDs.first
         }
         guard let targetRowID else { return }
         applyKeyboardSelection(targetRowID)
@@ -486,6 +505,7 @@ final class RepoExplorerMaterializationHost: NSView {
             }
             return
         }
+        pendingFirstChildGroupID = group.groupID
         contentChild?.performListKeyboardEffect(
             .setGroupExpanded(groupID: group.groupID, isExpanded: true)
         )
@@ -516,6 +536,7 @@ final class RepoExplorerMaterializationHost: NSView {
             contentChild?.applySelection(rowID: rowID, scrollIntoView: true) == true
         else { return }
         selectedRowID = rowID
+        pendingFirstChildGroupID = nil
         keyboardInteraction?.selectedPaneTargetDidChange(
             selectedPaneTarget(), origin: .arrowNavigation
         )

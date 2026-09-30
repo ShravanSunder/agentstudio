@@ -104,16 +104,45 @@ extension E2ESerializedTests {
         // MARK: - Destroy
 
         @Test
-        func test_destroySessionByID_doesNotThrowForMissingSession() async throws {
-            try await withBackend { _, backend in
-                // zmx kill for a non-existent session should fail gracefully
-                // or throw — either behavior is acceptable in integration context
-                do {
-                    try await backend.destroySessionByID(.generateUUIDv7())
-                } catch {
-                    #expect(error is SessionBackendError)
+        func destroySessionByIDReportsOperationFailedForNonzeroKill() async throws {
+            let executor = MockProcessExecutor()
+            executor.enqueueFailure()
+            let sessionID = ZmxSessionID.generateUUIDv7()
+            let zmxPath = "/test/zmx"
+            let zmxDir = FileManager.default.temporaryDirectory
+                .appending(path: "zmx-backend-failure-\(UUIDv7.generate().uuidString)")
+                .path
+            let backend = ZmxBackend(
+                executor: executor,
+                zmxPath: zmxPath,
+                zmxDir: zmxDir,
+                retryPolicy: .singleAttempt,
+                retrySleep: { _ in }
+            )
+
+            do {
+                try await backend.destroySessionByID(sessionID)
+                Issue.record("Expected a nonzero zmx kill to report operationFailed")
+            } catch let error as SessionBackendError {
+                guard case .operationFailed = error else {
+                    Issue.record("Expected operationFailed, got \(error)")
+                    return
                 }
+            } catch {
+                Issue.record("Expected SessionBackendError.operationFailed, got \(error)")
+                return
             }
+
+            #expect(
+                executor.calls
+                    == [
+                        MockProcessExecutor.Call(
+                            command: zmxPath,
+                            args: ["kill", sessionID.rawValue],
+                            environment: ["ZMX_DIR": zmxDir]
+                        )
+                    ]
+            )
         }
 
         // MARK: - zmx Binary Path Resolution

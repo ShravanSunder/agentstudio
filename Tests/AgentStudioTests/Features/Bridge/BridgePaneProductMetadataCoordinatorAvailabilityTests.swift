@@ -38,7 +38,7 @@ struct BridgeProductReviewAvailabilityTests {
             Issue.record("Expected the E3 Review subscription acceptance")
             return
         }
-        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
+        #expect((try await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
         let reviewPackage = try availabilityReviewPackageFixture()
         let expectedItemIds = await AvailabilityBatchKeyProjection().orderedItemIds(in: reviewPackage)
         let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
@@ -317,7 +317,7 @@ struct BridgeProductReviewAvailabilityTests {
             harness: harness,
             pump: pump
         )
-        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
+        #expect((try await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
         let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
         #expect(
             await harness.session.acceptViewScope(
@@ -421,7 +421,7 @@ struct BridgeProductReviewAvailabilityTests {
         _ = try await openAvailabilityReviewSubscription(
             coordinator: coordinator, harness: harness, pump: pump
         )
-        #expect((await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
+        #expect((try await traceRecorder.waitUntilReviewBootstrapFinished()).result == .success)
         let scopeRequest = try reviewTestViewScopeRequest(itemIds: expectedItemIds)
         #expect(
             await harness.session.acceptViewScope(
@@ -441,7 +441,7 @@ struct BridgeProductReviewAvailabilityTests {
                 foregroundWorkAdmission: initialForegroundAdmission
             )
         }
-        #expect(await reviewSource.waitUntilFirstDeliveryStarted() == predecessor.publicationId)
+        #expect(try await reviewSource.waitUntilFirstDeliveryStarted() == predecessor.publicationId)
 
         activityCoordinator.applyActivity(.loadedHidden)
         await coordinator.suspendForegroundWork()

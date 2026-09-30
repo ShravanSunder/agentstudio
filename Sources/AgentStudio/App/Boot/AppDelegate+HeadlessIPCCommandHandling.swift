@@ -44,7 +44,7 @@ extension AppDelegate {
             // The Inbox feature is dormant. Report that honestly instead of
             // reviving a surface no owner currently implements.
             return .unavailable(.featureUnavailable)
-        case .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+        case .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             // Creation needs a source worktree and a branch name; no parameterized
             // IPC contract carries them yet, so the typed channel reports that.
             return .unavailable(.featureUnavailable)
@@ -55,9 +55,7 @@ extension AppDelegate {
 
     private func executeWindowScopedShellCommand(_ command: AppCommand) -> AppCommandExecutionOutcome {
         switch command {
-        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+        case .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
             // Retired Panes-organization settings. No owner may be revived here.
             return .unavailable(.featureUnavailable)
         case .closeWindow:
@@ -87,7 +85,8 @@ extension AppDelegate {
         case .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
-            .toggleReposSortDirection, .toggleReposShowsPinned, .togglePanesShowsPinned:
+            .toggleReposSortDirection, .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .togglePanesShowsDrawers:
             // The shell owns these regardless of the visible sidebar surface. A
             // setting that does not apply to the current surface is a state
             // refusal, never a claim that the command has no owner.

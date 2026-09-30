@@ -174,7 +174,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
         #expect(repositoryID == repo.id)
         let level = CommandBarDataSource.buildRepoLevel(
-            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+            repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         #expect(level.title == "single-root-repo")
         #expect(level.scopeLabel == "Repository")
         #expect(
@@ -205,7 +205,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
         #expect(repositoryID == repo.id)
         let level = CommandBarDataSource.buildRepoLevel(
-            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+            repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let worktreeItem = try #require(level.items.first { $0.id == "repo-wt-\(main.id.uuidString)" })
         #expect(worktreeItem.keywords.contains("client-alpha"))
     }
@@ -248,6 +248,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let level = CommandBarDataSource.buildRepoLevel(
             repo: storedRepo,
             store: store,
+            repoCache: RepoCacheAtom(),
             dispatcher: FakeAppCommandDispatcher()
         )
 
@@ -350,7 +351,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
         #expect(repositoryID == repo.id)
         let level = CommandBarDataSource.buildRepoLevel(
-            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+            repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         #expect(level.items.contains { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" })
     }
 
@@ -503,7 +504,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
         #expect(repositoryID == repo.id)
         let level = CommandBarDataSource.buildRepoLevel(
-            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+            repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
         #expect(worktreeItem?.subtitle == "main worktree")
         #expect(worktreeItem?.hasChildren == true)
@@ -541,7 +542,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
         #expect(repositoryID == repo.id)
         let level = CommandBarDataSource.buildRepoLevel(
-            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+            repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
         #expect(worktreeItem?.subtitle?.contains("Tab 1") == true)
     }
@@ -592,7 +593,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
         #expect(repositoryID == repo.id)
         let level = CommandBarDataSource.buildRepoLevel(
-            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
+            repo: store.repo(repo.id) ?? repo, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
         #expect(worktreeItem?.subtitle?.contains("2 panes") == true)
     }

@@ -253,6 +253,57 @@ final class GhosttySurfaceShortcutTests {
         }
     }
 
+    @Test(arguments: optionAndCommandOptionChords)
+    func optionChordsStillDispatchFromTheTerminal(shortcut: AppShortcut) {
+        withTestCoreAtoms { atoms in
+            let context = Self.keyWindowContext(atoms)
+            var dispatchedCommands: [AppCommand] = []
+
+            let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                trigger: shortcut.trigger,
+                context: context,
+                sourcePaneId: UUIDv7.generate(),
+                canDispatch: { command, _ in command == shortcut.command },
+                dispatch: { command, _ in dispatchedCommands.append(command) }
+            )
+
+            #expect(result == .dispatched(shortcut.command))
+            #expect(dispatchedCommands == [shortcut.command])
+        }
+    }
+
+    @Test(arguments: optionAndCommandOptionChords)
+    func rejectedOptionChordsAreSwallowed(shortcut: AppShortcut) {
+        withTestCoreAtoms { atoms in
+            let context = Self.keyWindowContext(atoms)
+            var dispatchedCommands: [AppCommand] = []
+
+            let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                trigger: shortcut.trigger,
+                context: context,
+                sourcePaneId: UUIDv7.generate(),
+                canDispatch: { _, _ in false },
+                dispatch: { command, _ in dispatchedCommands.append(command) }
+            )
+
+            #expect(result == .swallowed)
+            #expect(dispatchedCommands.isEmpty)
+        }
+    }
+
+    private static func keyWindowContext(_ atoms: CoreAtoms) -> KeyboardRoutingContext {
+        let windowId = UUIDv7.generate()
+        atoms.windowLifecycle.recordWindowRegistered(windowId)
+        atoms.windowLifecycle.recordWindowBecameKey(windowId)
+        return KeyboardRoutingContext.current(
+            windowLifecycle: atoms.windowLifecycle,
+            managementLayer: atoms.managementLayer,
+            uiState: atoms.workspaceSidebarState,
+            commandBarSurface: atoms.commandBarSurface,
+            transientKeyboardSurface: atoms.transientKeyboardSurface
+        )
+    }
+
     @Test
     func appOwnedTerminalShortcuts_includeScrollAndPromptNavigation() {
         #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom))
@@ -287,6 +338,12 @@ final class GhosttySurfaceShortcutTests {
         #expect(!Ghostty.SurfaceView.appOwnedShortcuts.contains(.showReposSidebar))
     }
 }
+
+/// ⌥⇧J/L, ⌘⌥I/J/K/L and ⌥O: app-owned chords a terminal must keep routing.
+private let optionAndCommandOptionChords: [AppShortcut] = [
+    .jumpToPreviousPrompt, .jumpToNextPrompt, .showArrangementPanel, .previousArrangement,
+    .scrollToBottom, .nextArrangement, .copyCurrentPanePath,
+]
 
 private let terminalNavigationShortcuts: [AppShortcut] = [
     .scrollToBottom, .scrollPageUp, .scrollPageDown, .scrollSmallStepUp,

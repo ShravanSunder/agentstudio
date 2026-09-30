@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import Dispatch
 import Foundation
 import Observation
 
@@ -29,7 +30,30 @@ final class CommandBarResultSession {
     @ObservationIgnored private var lastDisplayedItemIDs: [String] = []
     @ObservationIgnored private var isRootItemSnapshotInvalidated = false
     @ObservationIgnored private var rootItemSnapshotObservationGeneration = 0
+    @ObservationIgnored private var rowGenerationValue: UInt64 = 0
+    @ObservationIgnored private var preparedSearch: CommandBarPreparedSearch?
+    @ObservationIgnored private var preparedLevelVisitRevision: Int?
+    @ObservationIgnored private var preparedNestedHasFilter: Bool?
+    @ObservationIgnored private var lastPresentationSnapshot: CommandBarResultSnapshot?
+    @ObservationIgnored private var topologyInvalidation: (generation: SearchDocumentGeneration, atNanoseconds: UInt64)?
     private(set) var rootItemSnapshotInvalidationRevision = 0
+
+    var currentRowGeneration: SearchDocumentGeneration {
+        SearchDocumentGeneration(rowGenerationValue)
+    }
+
+    func consumeTopologyInvalidation(for generation: SearchDocumentGeneration) -> UInt64? {
+        guard let topologyInvalidation, topologyInvalidation.generation == generation else { return nil }
+        self.topologyInvalidation = nil
+        return topologyInvalidation.atNanoseconds
+    }
+
+    func navigationChanged() {
+        advanceRowGeneration()
+        preparedLevelVisitRevision = nil
+        preparedNestedHasFilter = nil
+        lastPresentationSnapshot = nil
+    }
 
     @ObservationIgnored
     private(set) var rootItemSnapshotBuildCount = 0
@@ -55,6 +79,13 @@ final class CommandBarResultSession {
 
     func snapshot(state: CommandBarState) -> CommandBarResultSnapshot {
         _ = rootItemSnapshotInvalidationRevision
+        if !searchQuery(for: state).isEmpty, let applied = state.appliedSearchResult {
+            return appliedSnapshot(state: state, applied: applied)
+        }
+        if !searchQuery(for: state).isEmpty, let previous = lastPresentationSnapshot {
+            return pendingSnapshot(state: state, previous: previous)
+        }
+
         let focusedPane = currentFocusedPane()
         let commandContext = currentCommandContext(focusedPane: focusedPane)
         let canOpenWorktreeInCurrentTab = canOpenWorktreeInCurrentTab()
@@ -68,12 +99,7 @@ final class CommandBarResultSession {
             query: searchQuery(for: state),
             recentIds: state.recentItemIds
         )
-        let filteredItems = CommandBarSearch.filter(
-            items: searchDocument.items,
-            query: searchDocument.query,
-            recentIds: searchDocument.recentIds,
-            performanceTraceRecorder: performanceTraceRecorder
-        )
+        let filteredItems = searchDocument.query.isEmpty ? searchDocument.items : []
         let groups = CommandBarDataSource.grouped(filteredItems)
         let displayedItems = CommandBarDataSource.displayItems(from: groups)
         let selectedIndex = reconciledSelectedIndex(
@@ -89,12 +115,13 @@ final class CommandBarResultSession {
             displayedItems: displayedItems
         )
 
-        return CommandBarResultSnapshot(
+        let snapshot = CommandBarResultSnapshot(
             itemSnapshot: itemSnapshot,
             searchDocument: searchDocument,
             allItems: itemSnapshot.items,
             filteredItems: filteredItems,
             groups: groups,
+            titleMatchesByItemId: [:],
             displayedItems: displayedItems,
             selectedItem: selectedItem,
             dimmedItemIds: dimmedItemIds(for: displayedItems),
@@ -109,6 +136,173 @@ final class CommandBarResultSession {
             focusedPane: focusedPane,
             commandContext: commandContext
         )
+        lastPresentationSnapshot = snapshot
+        return snapshot
+    }
+
+    private func appliedSnapshot(
+        state: CommandBarState,
+        applied: CommandBarAppliedSearchResult
+    ) -> CommandBarResultSnapshot {
+        let selectedItem = Self.selectedItem(
+            selectedIndex: state.selectedIndex,
+            displayedItems: applied.displayedItems
+        )
+        let snapshot = CommandBarResultSnapshot(
+            itemSnapshot: applied.itemSnapshot,
+            searchDocument: CommandBarSearchDocument(
+                items: applied.itemSnapshot.items,
+                query: searchQuery(for: state),
+                recentIds: state.recentItemIds
+            ),
+            allItems: applied.itemSnapshot.items,
+            filteredItems: applied.displayedItems,
+            groups: applied.groups,
+            titleMatchesByItemId: applied.titleMatchesByItemId,
+            displayedItems: applied.displayedItems,
+            selectedItem: selectedItem,
+            dimmedItemIds: applied.dimmedItemIds,
+            footerHints: FooterHintBuilder.hints(
+                for: selectedItem,
+                isNested: state.isNested,
+                canOpenInCurrentTab: applied.canOpenWorktreeInCurrentTab,
+                scope: state.currentScope
+            ),
+            canOpenWorktreeInCurrentTab: applied.canOpenWorktreeInCurrentTab,
+            currentMode: currentMode(),
+            focusedPane: applied.focusedPane,
+            commandContext: applied.commandContext
+        )
+        lastPresentationSnapshot = snapshot
+        return snapshot
+    }
+
+    private func pendingSnapshot(
+        state: CommandBarState,
+        previous: CommandBarResultSnapshot
+    ) -> CommandBarResultSnapshot {
+        let selectedItem = Self.selectedItem(
+            selectedIndex: state.selectedIndex,
+            displayedItems: previous.displayedItems
+        )
+        let pending = CommandBarResultSnapshot(
+            itemSnapshot: previous.itemSnapshot,
+            searchDocument: CommandBarSearchDocument(
+                items: previous.allItems,
+                query: searchQuery(for: state),
+                recentIds: state.recentItemIds
+            ),
+            allItems: previous.allItems,
+            filteredItems: previous.filteredItems,
+            groups: previous.groups,
+            titleMatchesByItemId: previous.titleMatchesByItemId,
+            displayedItems: previous.displayedItems,
+            selectedItem: selectedItem,
+            dimmedItemIds: previous.dimmedItemIds,
+            footerHints: FooterHintBuilder.hints(
+                for: selectedItem,
+                isNested: state.isNested,
+                canOpenInCurrentTab: previous.canOpenWorktreeInCurrentTab,
+                scope: state.currentScope
+            ),
+            canOpenWorktreeInCurrentTab: previous.canOpenWorktreeInCurrentTab,
+            currentMode: currentMode(),
+            focusedPane: previous.focusedPane,
+            commandContext: previous.commandContext
+        )
+        self.lastPresentationSnapshot = pending
+        return pending
+    }
+
+    func prepareSearch(state: CommandBarState) -> CommandBarPreparedSearch {
+        let focusedPane = currentFocusedPane()
+        let commandContext = currentCommandContext(focusedPane: focusedPane)
+        let itemSnapshot = buildItemSnapshot(
+            state: state,
+            focusedPane: focusedPane,
+            commandContext: commandContext
+        )
+        let nestedHasFilter = state.isNested ? !state.searchQuery.isEmpty : nil
+        if state.isNested,
+            preparedLevelVisitRevision != state.levelVisitRevision || preparedNestedHasFilter != nestedHasFilter
+        {
+            advanceRowGeneration()
+        } else if !state.isNested, preparedLevelVisitRevision != nil {
+            advanceRowGeneration()
+        }
+        preparedLevelVisitRevision = state.isNested ? state.levelVisitRevision : nil
+        preparedNestedHasFilter = nestedHasFilter
+
+        if let preparedSearch, preparedSearch.documentSet.generation == currentRowGeneration {
+            return preparedSearch
+        }
+
+        var rowsById: [SearchItemId: CommandBarItem] = [:]
+        var documents: [SearchDocument] = []
+        var groups: [SearchGroup] = []
+        var seenGroupIds: Set<String> = []
+        for item in itemSnapshot.items {
+            guard let itemId = SearchItemId(item.id), rowsById[itemId] == nil else { continue }
+            rowsById[itemId] = item
+            documents.append(
+                SearchDocument(
+                    itemId: itemId,
+                    kind: searchKind(for: item.kind),
+                    groupId: item.group,
+                    title: item.title,
+                    fields: item.searchFields
+                )
+            )
+            if seenGroupIds.insert(item.group).inserted {
+                groups.append(SearchGroup(id: item.group, priority: item.groupPriority))
+            }
+        }
+        let documentSet = SearchDocumentSet(
+            generation: currentRowGeneration,
+            groups: groups,
+            documents: documents
+        )
+        let prepared = CommandBarPreparedSearch(
+            documentSet: documentSet,
+            itemSnapshot: itemSnapshot,
+            rowsById: rowsById,
+            canOpenWorktreeInCurrentTab: canOpenWorktreeInCurrentTab(),
+            focusedPane: focusedPane,
+            commandContext: commandContext
+        )
+        preparedSearch = prepared
+        return prepared
+    }
+
+    func reconcileSelection(displayedItems: [CommandBarItem], state: CommandBarState) {
+        state.selectedIndex = reconciledSelectedIndex(
+            requestedIndex: state.selectedIndex,
+            displayedItems: displayedItems
+        )
+        lastDisplayedItemIDs = displayedItems.map(\.id)
+    }
+
+    func dimmedItemIds(in displayedItems: [CommandBarItem]) -> Set<String> {
+        dimmedItemIds(for: displayedItems)
+    }
+
+    private func searchKind(for itemKind: CommandBarItemKind) -> SearchKind {
+        switch itemKind {
+        case .repo: .repo
+        case .worktree: .worktree
+        case .pane: .pane
+        case .tab: .tab
+        case .command: .command
+        case .other: .other
+        }
+    }
+
+    private func advanceRowGeneration(topologyInvalidatedAtNanoseconds: UInt64? = nil) {
+        rowGenerationValue += 1
+        preparedSearch = nil
+        topologyInvalidation = topologyInvalidatedAtNanoseconds.map {
+            (generation: currentRowGeneration, atNanoseconds: $0)
+        }
     }
 
     private func buildItemSnapshot(
@@ -125,7 +319,7 @@ final class CommandBarResultSession {
                         CommandBarTextEntryInput(
                             text: state.searchQuery
                         ))
-                } ?? level.items
+                } ?? (level.items + (state.searchQuery.isEmpty ? [] : level.searchOnlyItems))
             )
         }
 
@@ -159,6 +353,8 @@ final class CommandBarResultSession {
             commandContext: commandContext
         )
         cachedRootItemSnapshot = CachedRootItemSnapshot(identity: identity, snapshot: snapshot)
+        let topologyTimestamp = isRootItemSnapshotInvalidated ? topologyInvalidation?.atNanoseconds : nil
+        advanceRowGeneration(topologyInvalidatedAtNanoseconds: topologyTimestamp)
         isRootItemSnapshotInvalidated = false
         rootItemSnapshotBuildCount += 1
         performanceTraceRecorder?.record(
@@ -226,6 +422,7 @@ final class CommandBarResultSession {
     private func invalidateRootItemSnapshot(observationGeneration: Int) {
         guard rootItemSnapshotObservationGeneration == observationGeneration else { return }
         isRootItemSnapshotInvalidated = true
+        advanceRowGeneration(topologyInvalidatedAtNanoseconds: DispatchTime.now().uptimeNanoseconds)
         rootItemSnapshotInvalidationRevision += 1
     }
 
