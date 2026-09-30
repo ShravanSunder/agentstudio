@@ -18,11 +18,15 @@ enum SwiftLaneWrapperExitFixtures {
         printf 'BASH_INTERPRETER version=%s\n' "$BASH_VERSION"
         fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/wrapper-exit-probe.XXXXXX")"
         dispatcher_pid=""
+        worker_pid=""
         cleanup_fixture() {
           if [ -n "$dispatcher_pid" ]; then
             kill -CONT "$dispatcher_pid" 2>/dev/null || true
             terminate_lane_child_tree KILL "$dispatcher_pid"
             wait "$dispatcher_pid" 2>/dev/null || true
+          fi
+          if [ -n "$worker_pid" ]; then
+            kill -KILL "$worker_pid" 2>/dev/null || true
           fi
           rm -f "$fixture_dir"/*
           rmdir "$fixture_dir"
@@ -32,10 +36,27 @@ enum SwiftLaneWrapperExitFixtures {
         SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE="$fixture_dir/failures"
 
         swift_test_isolated_process_concurrency() { echo 1; }
-        run_selected_isolated_suite() { printf 'COMPLETED %s\n' "$2"; }
+        run_selected_isolated_suite() {
+          if [ "$failure_mode" = after-worker ] && [ "$2" = Victim ]; then
+            read -r release <"$fixture_dir/release-worker"
+            return 0
+          fi
+          printf 'COMPLETED %s\n' "$2"
+        }
 
-        # The existing PID handshake is before the worker starts and before the
-        # completion write. Fail exactly there; neither path relies on scheduling.
+        if [ "$failure_mode" = after-worker ]; then
+          # Notify the fixture parent after the real worker PID file has been written.
+          printf() {
+            builtin printf "$@"
+            if [ "$#" -eq 2 ] && [ "$1" = '%s\n' ] && [[ "$2" =~ ^[0-9]+$ ]] &&
+              [ -n "${child_pid:-}" ]; then
+              builtin printf 'WORKER_PID_FILE_WRITTEN %s %s\n' "$2" "$child_pid" >&8
+            fi
+          }
+        fi
+
+        # The kill and errexit modes fail at the existing PID handshake, before
+        # worker launch; after-worker coordinates through the worker file event.
         read() {
           builtin read "$@" || return $?
           if [ "$failure_mode" = coalesced ] && [ "$*" = '-r child_pid' ]; then
@@ -47,7 +68,8 @@ enum SwiftLaneWrapperExitFixtures {
                 ;;
             esac
           fi
-          if [ "$*" = '-r child_pid' ] && [ "$suite_filter" = Victim ]; then
+          if [ "$*" = '-r child_pid' ] && [ "$suite_filter" = Victim ] &&
+            [ "$failure_mode" != after-worker ]; then
             case "$failure_mode" in
               kill) kill -KILL "$child_pid" ;;
               errexit) return 73 ;;
@@ -79,6 +101,13 @@ enum SwiftLaneWrapperExitFixtures {
           if read -r -u 9 unexpected; then exit 46; fi
           if read -r -u 10 unexpected; then exit 47; fi
           kill -CONT "$dispatcher_pid"
+        elif [ "$failure_mode" = after-worker ]; then
+          mkfifo "$fixture_dir/events" "$fixture_dir/release-worker"
+          exec 8<>"$fixture_dir/events"
+          dispatch_isolated_suites fast Victim After & dispatcher_pid=$!
+          read -r event worker_pid wrapper_pid <&8
+          [ "$event" = WORKER_PID_FILE_WRITTEN ] || exit 45
+          kill -KILL "$wrapper_pid"
         else
           dispatch_isolated_suites fast Victim After & dispatcher_pid=$!
         fi
@@ -92,6 +121,12 @@ enum SwiftLaneWrapperExitFixtures {
             expected_status=$'Victim\t73\tnone'
             [ "$failure_mode" != kill ] || expected_status=$'Victim\t137\tKILL'
             grep -q "$expected_status" "$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE"
+            ;;
+          after-worker)
+            [ "$(swift_test_failed_isolated_suite_count)" -eq 1 ] || exit 42
+            grep -q $'Victim\t137\tKILL' "$SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE"
+            if kill -0 "$worker_pid" 2>/dev/null; then exit 48; fi
+            echo 'WRAPPER_WORKER_REAPED'
             ;;
           coalesced)
             [ "$(swift_test_failed_isolated_suite_count)" -eq 2 ] || exit 42

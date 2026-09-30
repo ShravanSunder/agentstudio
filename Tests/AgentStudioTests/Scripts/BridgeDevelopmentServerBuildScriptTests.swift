@@ -22,7 +22,7 @@ struct BridgeDevelopmentServerBuildScriptTests {
         #expect(result.exitCode == 0, "\(result.output)")
         #expect(
             try fixture.compilationArguments() == [
-                "build", "-Xswiftc", "-DSEED_PROOF", "--build-path", ".build-ci",
+                "build", "--disable-sandbox", "-Xswiftc", "-DSEED_PROOF", "--build-path", ".build-ci",
                 "--product", "agentstudio-bridge-dev-server",
                 "-Xswiftc", "-stats-output-dir", "-Xswiftc", statisticsPath,
             ]
@@ -59,7 +59,8 @@ struct BridgeDevelopmentServerBuildScriptTests {
         #expect(result.exitCode == 0, "\(result.output)")
         #expect(
             try fixture.compilationArguments() == [
-                "build", "--build-path", ".build-ci", "--product", "agentstudio-bridge-dev-server",
+                "build", "--disable-sandbox", "--build-path", ".build-ci", "--product",
+                "agentstudio-bridge-dev-server",
             ]
         )
         #expect(result.output.contains("compiler statistics disabled") == !statisticsPath.isEmpty)
@@ -84,6 +85,11 @@ private struct BridgeDevelopmentBuildFixture {
         )
         try Data(Self.vendorVerifier.utf8).write(
             to: buildSlot.rootURL.appending(path: "scripts/vendor-worktree.sh")
+        )
+        // The sandbox policy has its own tests; this fixture verifies that the
+        // build helper forwards its result without depending on host confinement.
+        try Data(Self.sandboxArgumentsHelper.utf8).write(
+            to: buildSlot.rootURL.appending(path: "scripts/swift-package-sandbox.sh")
         )
         let swiftExecutable = buildSlot.fakeExecutableDirectory.appending(path: "swift")
         try Data(Self.swiftCompiler.utf8).write(to: swiftExecutable)
@@ -112,6 +118,12 @@ private struct BridgeDevelopmentBuildFixture {
         set -euo pipefail
         test "$1" = verify
         touch vendor-verified
+        """
+
+    private static let sandboxArgumentsHelper = """
+        swift_package_sandbox_arguments() {
+          printf '%s\\n' '--disable-sandbox'
+        }
         """
 
     private static let swiftCompiler = """

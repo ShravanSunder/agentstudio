@@ -6,6 +6,7 @@ cd "$PROJECT_ROOT"
 
 bash "$PROJECT_ROOT/scripts/vendor-worktree.sh" verify
 source "$PROJECT_ROOT/scripts/swift-build-slot.sh"
+source "$PROJECT_ROOT/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire build "mise run build-bridge-development-server"
 trap swift_build_slot_release EXIT
 
@@ -21,11 +22,11 @@ fi
 # Match the publisher's effective compiler flags even when the Vite supervisor
 # invokes this narrower product build again later in the same CI job.
 # shellcheck disable=SC2086
-swift build \
+swift build $(swift_package_sandbox_arguments) \
   ${EXTRA_SWIFT_TEST_ARGS:-} \
   "${swift_build_arguments[@]}"
 
-swift_bin_path="$(swift build --build-path "$SWIFT_BUILD_DIR" --show-bin-path)"
+swift_bin_path="$(swift build $(swift_package_sandbox_arguments) --build-path "$SWIFT_BUILD_DIR" --show-bin-path)"
 source_executable="$swift_bin_path/agentstudio-bridge-dev-server"
 artifact_directory="$PROJECT_ROOT/.build-bridge-development-server"
 artifact_executable="$artifact_directory/agentstudio-bridge-dev-server"

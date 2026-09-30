@@ -33,6 +33,22 @@ struct SwiftLaneRollingDispatcherTests {
         }
     }
 
+    @Test("a wrapper killed after worker launch is red and its worker is gone at lane return")
+    func wrapperKilledAfterWorkerLaunchReapsWorker() async throws {
+        for bashInterpreter in ["/bin/bash", "/usr/bin/env bash"] {
+            let result = try await runLaneScriptBash(
+                SwiftLaneWrapperExitFixtures.wrapperExitCommand(
+                    bashInterpreter: bashInterpreter, failureMode: "after-worker"
+                )
+            )
+
+            #expect(result.exitCode == 0, Comment(rawValue: result.output))
+            #expect(result.output.contains("COMPLETED After"))
+            #expect(result.output.contains("reason=wrapper_exited_without_completion"))
+            #expect(result.output.contains("WRAPPER_WORKER_REAPED"))
+        }
+    }
+
     @Test("a killed worker reports KILL, finishes the lane, and leaves no children")
     func killedWorkerCompletesDispatcher() async throws {
         let command = #"""
