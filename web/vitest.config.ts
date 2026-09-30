@@ -1,20 +1,24 @@
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
+import { verifyChapterActivity } from "./tests/chapter-activity-browser-command.ts";
 import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-command.ts";
 import {
   verifyChapterAutoplayAtNaturalFraming,
   verifyChapterSceneClicks,
+  verifyManualChapterClaim,
 } from "./tests/chapter-autoplay-browser-command.ts";
 import { verifyChapterScrollGeometry } from "./tests/chapter-scroll-geometry-browser-command.ts";
 import {
   verifyChapterStepHop,
   verifyReducedMotionStepLine,
 } from "./tests/chapter-step-hop-browser-command.ts";
+import { verifyStepLineJoins } from "./tests/chapter-step-join-browser-command.ts";
 import {
   verifyChapterStepRow,
   verifySingleStepChapter,
   verifyChapterTitleAnchors,
+  verifyCaptionTextLayout,
 } from "./tests/chapter-surface-browser-command.ts";
 import {
   verifyHeroIntroLayout,
@@ -70,11 +74,14 @@ export default defineConfig({
           include: ["tests/**/*.browser.test.ts"],
           browser: {
             commands: {
+              verifyChapterActivity,
+              verifyStepLineJoins,
               buildSceneBundlesForBrowserTest,
               verifyRailViewportBands,
               verifyChapterAnchorLanding,
               verifyChapterAutoplayAtNaturalFraming,
               verifyChapterSceneClicks,
+              verifyManualChapterClaim,
               verifyChapterScrollGeometry,
               verifyChapterStepHop,
               verifyReducedMotionStepLine,
@@ -89,6 +96,7 @@ export default defineConfig({
               verifyHeroWorkspace,
               verifyInstallCommandLayout,
               verifyChapterStepRow,
+              verifyCaptionTextLayout,
               verifySingleStepChapter,
               verifyChapterTitleAnchors,
               verifySiteFooterResponsiveLayout,

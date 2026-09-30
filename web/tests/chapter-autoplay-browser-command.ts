@@ -16,6 +16,69 @@ export interface ChapterClickObservation {
   readonly stageImageHash: string;
 }
 
+export interface ManualChapterClaimObservation {
+  readonly afterManualPlay: readonly string[];
+  readonly afterReadingLineCrossing: readonly string[];
+  readonly automaticPause: boolean;
+}
+
+/** A manual play of a non-current chapter must claim the one scene slot. */
+export const verifyManualChapterClaim = defineBrowserCommand(
+  async ({ context }, pageUrl: string): Promise<ManualChapterClaimObservation> => {
+    const applicationPage = await context.newPage();
+    try {
+      await applicationPage.setViewportSize({ width: 1600, height: 1000 });
+      await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await applicationPage.evaluate(async (): Promise<void> => {
+        await document.fonts.ready;
+        const chapter = document.getElementById("many-agents");
+        if (chapter === null) throw new Error("Many-agents chapter is missing");
+        window.scrollTo({
+          top: window.scrollY + chapter.getBoundingClientRect().top - 96,
+          behavior: "instant",
+        });
+      });
+      await applicationPage.waitForSelector(
+        '#many-agents [data-scene-root][data-scene-playback-state="playing"]',
+      );
+      return await applicationPage.evaluate(async (): Promise<ManualChapterClaimObservation> => {
+        const first = document.querySelector<HTMLElement>("#many-agents [data-scene-root]");
+        const second = document.querySelector<HTMLElement>("#context-with-task [data-scene-root]");
+        const secondToggle = document.querySelector<HTMLButtonElement>(
+          "#context-with-task [data-scene-playback-toggle]",
+        );
+        const secondTitle = document.querySelector<HTMLElement>(
+          "#context-with-task .chapter-title",
+        );
+        if (first === null || second === null || secondToggle === null || secondTitle === null)
+          throw new Error("Two chapter scenes and their controls are required");
+        let automaticPause = false;
+        first.addEventListener("agentstudio:scene-step-timing", (event: Event): void => {
+          if (event instanceof CustomEvent)
+            automaticPause = event.detail.running === false && event.detail.manualPause === false;
+        });
+        const phases = (): readonly string[] => [
+          first.dataset["scenePlaybackState"] ?? "missing",
+          second.dataset["scenePlaybackState"] ?? "missing",
+        ];
+        secondToggle.click();
+        const afterManualPlay = phases();
+        const changed = new Promise<void>((resolve) => {
+          document.addEventListener("chapter-activity-changed", () => resolve(), { once: true });
+        });
+        window.scrollTo({
+          top: window.scrollY + secondTitle.getBoundingClientRect().top - window.innerHeight * 0.45,
+          behavior: "instant",
+        });
+        await changed;
+        return { afterManualPlay, afterReadingLineCrossing: phases(), automaticPause };
+      });
+    } finally {
+      await applicationPage.close();
+    }
+  },
+);
+
 export const verifyChapterSceneClicks = defineBrowserCommand(
   async (
     { context },

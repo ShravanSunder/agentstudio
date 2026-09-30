@@ -21,7 +21,24 @@ declare module "vitest/browser" {
 describe("where the rail ends on the home page", () => {
   it("plays the finale once at the rail end and copies both install commands", async () => {
     const observation = await commands.verifyFinaleBookend(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.readyOutlineAt03).toBe(true);
+    expect(observation.traceOpacityAt03).toBe(0);
+    expect(observation.readyOutlineAt08).toBe(false);
+    expect(observation.traceOpacityAt08).toBeGreaterThan(0.9);
+    expect(observation.traceDashFractionAt08).toBeLessThan(1);
+    expect(observation.readyOutlineAfterReverseSeek).toBe(true);
+    expect(observation.traceOpacityAfterReverseSeek).toBe(0);
     expect(observation.eventCount).toBe(1);
+    const firstArc = /A ([\d.]+) ([\d.]+)/u.exec(observation.tracePathData);
+    expect(firstArc).not.toBeNull();
+    expect(Math.abs(Number(firstArc?.[1]) - observation.pillHeight / 2)).toBeLessThanOrEqual(0.5);
+    expect(firstArc?.[1]).toBe(firstArc?.[2]);
+    expect(observation.pillBorderColor).toBe("rgba(0, 0, 0, 0)");
+    expect(observation.pillBorderWidth).toBe("0px");
+    expect(observation.pillOverflowX).toBe("hidden");
+    expect(observation.starLeftOffset).toBeLessThanOrEqual(1);
+    expect(observation.copyRightRadius).not.toBe("0px");
+    expect(observation.terminalHaloDisplay).toBe("none");
     for (const [index, angle] of [0, 7, -12].entries())
       expect(observation.transitionalFanAngles[index]).toBeCloseTo(angle, 1);
     expect(observation.transitionalPlaneBorderWidths).toEqual([1, 1, 1, 1]);
@@ -55,12 +72,34 @@ describe("where the rail ends on the home page", () => {
     expect(observation.narrowTitleFontSize).toBeLessThan(36);
     expect(observation.narrowHeadingOverflow).toBeLessThanOrEqual(0);
   });
+  it("retraces the settled split-pill outline after its width changes", async () => {
+    const observation = await commands.verifyFinaleBookend(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.resizedTraceWidthDelta).toBeLessThanOrEqual(1);
+    expect(observation.resizedViewBoxWidthDelta).toBeLessThanOrEqual(1);
+    expect(observation.settledDashCleared).toBe(true);
+  });
   it("ends at the Star button after the lanes close below the final glass", async () => {
     const observations = await commands.verifyTopologyEnd(
       inject("siteHeaderBrowserTestUrl"),
-      [390, 1280, 1920],
+      [390, 1280, 1920, 2000],
     );
     for (const observation of observations) {
+      expect(
+        Math.abs(observation.pillLeft - observation.lastGlassLeft),
+        `${observation.width}px pill/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.stageLeft - observation.lastGlassLeft),
+        `${observation.width}px row/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(observation.noteLeft - observation.lastGlassLeft),
+        `${observation.width}px note/glass`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        observation.captionToFinaleGap,
+        `${observation.width}px separation`,
+      ).toBeGreaterThanOrEqual(Math.min(Math.max(observation.width * 0.24, 240), 400));
       for (const artwork of observation.artworkStates) {
         const label = `${artwork.width}px ${artwork.state}`;
         expect(
@@ -112,7 +151,32 @@ describe("where the rail ends on the home page", () => {
       expect(observation.terminalNodeCount).toBe(1);
       expect(observation.terminalRouteCount).toBe(1);
       expect(observation.branchViewportMaxFraction).toBeLessThan(0.75);
+      expect(
+        Math.abs(observation.branchStartX - observation.innermostLaneX),
+        `${observation.width}px branch source`,
+      ).toBeLessThanOrEqual(1);
+      if (observation.laneCount > 0)
+        expect(
+          observation.mainlineEndY,
+          `${observation.width}px trunk ends before finale branch`,
+        ).toBeLessThan(observation.branchStartY);
+      else
+        expect(
+          observation.mainlineEndY,
+          `${observation.width}px sole trunk continues to finale`,
+        ).toBeCloseTo(observation.branchStartY, 0);
       expect(observation.branchColumnSpan, String(observation.width)).toBeLessThanOrEqual(2);
+      expect(observation.branchBendCount).toBe(1);
+      expect(observation.bendDotCount, `${observation.width}px bend dot count`).toBe(1);
+      expect(
+        observation.bendDotOffset,
+        `${observation.width}px bend dot centre`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(observation.bendDotPlain, `${observation.width}px plain bend dot`).toBe(true);
+      expect(observation.branchMonotonicX, `${observation.width}px final path moves right`).toBe(
+        true,
+      );
+      expect(observation.mainlineBendCount).toBe(0);
       expect(observation.minimumTitleClearance).toBeGreaterThanOrEqual(12);
       expect(observation.ringRadius).toBe(6);
       expect(observation.coreRadius).toBe(2.5);
@@ -120,11 +184,39 @@ describe("where the rail ends on the home page", () => {
       expect(observation.ringStroke).toBe("rgb(116, 199, 236)");
       expect(observation.coreFill).toBe("rgb(137, 180, 250)");
       expect(observation.branchStroke).toBe("rgb(116, 199, 236)");
-      expect(observation.laneMergeYs).toHaveLength(observation.laneCount);
+      const sideLaneCount = Math.max(0, observation.laneCount - 1);
+      const expectedMerges = sideLaneCount === 0 ? 0 : 1 + Math.floor((sideLaneCount - 1) / 2);
+      expect(observation.laneMergeYs).toHaveLength(expectedMerges);
+      expect(observation.laneStopYs).toHaveLength(sideLaneCount - expectedMerges);
+      expect(observation.duplicateRowDotCount).toBe(0);
+      const trunkMergeY = Math.max(...observation.laneMergeYs);
+      for (const stopY of observation.laneStopYs) {
+        expect(stopY).toBeGreaterThan(observation.lastGlassBottomY);
+        expect(stopY).toBeLessThan(trunkMergeY);
+      }
       for (const mergeY of observation.laneMergeYs) {
         expect(mergeY).toBeGreaterThan(observation.lastGlassBottomY);
         expect(mergeY).toBeLessThan(observation.branchStartY);
       }
+    }
+  });
+  it("ignores the retired finale route query", async () => {
+    const defaultRoutes = await commands.verifyTopologyEnd(
+      inject("siteHeaderBrowserTestUrl"),
+      [390, 1280, 1920],
+    );
+    const queriedRoutes = await commands.verifyTopologyEnd(
+      `${inject("siteHeaderBrowserTestUrl")}?finale=trunk`,
+      [390, 1280, 1920],
+    );
+    for (const [index, defaultRoute] of defaultRoutes.entries()) {
+      const queriedRoute = queriedRoutes[index];
+      if (queriedRoute === undefined) throw new Error("Queried finale route missing");
+      expect(queriedRoute.branchStartX).toBe(defaultRoute.branchStartX);
+      expect(queriedRoute.branchStartY).toBe(defaultRoute.branchStartY);
+      expect(queriedRoute.branchEndX).toBe(defaultRoute.branchEndX);
+      expect(queriedRoute.branchPathData).toBe(defaultRoute.branchPathData);
+      expect(queriedRoute.mainlinePathData).toBe(defaultRoute.mainlinePathData);
     }
   });
 });

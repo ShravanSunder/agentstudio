@@ -1,7 +1,9 @@
 import { playbackStageAttribute } from "../chapters/chapter-dom-contract";
+import { createChapterActivityCoordinator } from "./chapter-activity-coordinator";
 import { createSurfaceScenePlayback } from "./scene-playback";
 import { createScrollAutoplayVideoController } from "./scroll-autoplay-video-controller";
 import { combineSurfacePlaybacks } from "./surface-playback";
+import type { SurfacePlayback } from "./surface-playback";
 
 const viewportEdgeInsetRatio = 0.2;
 // The site's phone boundary, spelled like Tailwind's max-phone: variant.
@@ -111,20 +113,59 @@ export function initializeScrollMaterialSurfaces(): void {
     return;
   }
 
-  const surfaceControllers = surfaces.map((surface) => ({
-    materialSurface: surface,
-    playbackStage: surface.querySelector<HTMLElement>(`[${playbackStageAttribute}]`),
-    surfacePlayback: combineSurfacePlaybacks([
+  const playbackBySurface = new Map<HTMLElement, SurfacePlayback>();
+  let manualOwnerSurface: HTMLElement | undefined;
+  const surfaceControllers = surfaces.map((surface) => {
+    const chapterId = surface.closest<HTMLElement>("[data-chapter-steps-root]")?.dataset[
+      "chapterStepsRoot"
+    ];
+    const claimManualPlay = (): void => {
+      manualOwnerSurface = surface;
+      for (const [otherSurface, playback] of playbackBySurface) {
+        if (otherSurface !== surface) playback.deactivate?.();
+      }
+    };
+    const surfacePlayback = combineSurfacePlaybacks([
       createScrollAutoplayVideoController(surface),
-      createSurfaceScenePlayback(surface),
-    ]),
-  }));
+      createSurfaceScenePlayback(surface, chapterId === undefined ? undefined : claimManualPlay),
+    ]);
+    playbackBySurface.set(surface, surfacePlayback);
+    return {
+      chapterId,
+      materialSurface: surface,
+      playbackStage: surface.querySelector<HTMLElement>(`[${playbackStageAttribute}]`),
+      surfacePlayback,
+    };
+  });
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const chapterActivity = createChapterActivityCoordinator([
+    ...document.querySelectorAll<HTMLElement>("[data-chapter-steps-root]"),
+  ]);
   let pendingAnimationFrame: number | undefined;
   let isDisposed = false;
 
   const synchronizeSurfaces = (): void => {
-    for (const { materialSurface, playbackStage, surfacePlayback } of surfaceControllers) {
+    const activity = chapterActivity.read();
+    if (
+      activity.changed ||
+      manualOwnerSurface?.querySelector<HTMLElement>("[data-scene-root]")?.dataset[
+        "scenePlaybackState"
+      ] !== "playing"
+    ) {
+      manualOwnerSurface = undefined;
+    }
+    if (activity.changed) {
+      for (const { chapterId, surfacePlayback } of surfaceControllers) {
+        if (chapterId !== undefined && chapterId !== activity.activeChapterId)
+          surfacePlayback.deactivate?.();
+      }
+    }
+    for (const {
+      chapterId,
+      materialSurface,
+      playbackStage,
+      surfacePlayback,
+    } of surfaceControllers) {
       if (reducedMotionQuery.matches || document.visibilityState === "hidden") {
         applySurfaceProgress(materialSurface, 1, false);
         surfacePlayback.synchronize(1, false);
@@ -142,8 +183,18 @@ export function initializeScrollMaterialSurfaces(): void {
               viewportHeight: window.innerHeight,
             });
       applySurfaceProgress(materialSurface, materialProgress, true);
-      surfacePlayback.synchronize(playbackProgress, true);
+      if (chapterId === undefined) {
+        surfacePlayback.synchronize(playbackProgress, true);
+      } else if (manualOwnerSurface !== undefined && materialSurface !== manualOwnerSurface) {
+        surfacePlayback.synchronize(0, false);
+      } else if (materialSurface === manualOwnerSurface || chapterId === activity.activeChapterId) {
+        if (chapterId === activity.newlyActiveChapterId) surfacePlayback.restart?.();
+        surfacePlayback.synchronize(1, true);
+      } else {
+        surfacePlayback.synchronize(0, false);
+      }
     }
+    chapterActivity.publish(activity);
   };
 
   const scheduleSurfaceUpdate = (): void => {

@@ -160,7 +160,7 @@ function renderSelectedStep(
               { opacity: 1, transform: "scale(1)" },
               { opacity: 0, transform: "scale(0.2)" },
             ],
-            { duration: 120, easing: "ease-in", fill: "forwards" },
+            { duration: 100, easing: "ease-out", fill: "forwards" },
           )
           .finished.then(() => outgoingLabel.remove())
           .catch(() => outgoingLabel.remove());
