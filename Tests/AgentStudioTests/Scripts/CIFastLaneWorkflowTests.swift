@@ -123,12 +123,17 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
-    @Test("BridgeWeb lanes and Swift backend run in order in one job")
-    func bridgeWebLanesAndSwiftBackendRunInOrderInOneJob() throws {
+    @Test("BridgeWeb JS lanes overlap the Swift backend after setup and join before runtime tests")
+    func bridgeWebJSLanesAndSwiftBackendJoinBeforeRuntimeTests() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let bridgeWebJob = try workflowJob(named: "bridge-web", in: workflow)
         let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
         let bridgeWebLaneStep = try workflowStep(named: "Run BridgeWeb lanes", in: bridgeWebJob)
+        let buildParallelGroup = try namedBlock(
+            startingWith: "      - parallel:\n          - name: Run BridgeWeb lanes",
+            endingBefore: "\n      - name: Test BridgeWeb Swift integration", in: bridgeWebJob)
+        #expect(buildParallelGroup.contains("          - name: Build BridgeWeb Swift development backend"))
+        #expect(buildParallelGroup.contains("pnpm --dir BridgeWeb run build:swift-dev-server"))
         let resourceParallelRange = try #require(
             bridgeWebJob.range(of: "      - parallel:\n          - name: Copy XCFramework")
         )
@@ -169,6 +174,9 @@ struct CIFastLaneWorkflowTests {
         #expect(vendorRestoreRange.upperBound < fixtureRange.lowerBound)
         #expect(packagedBuildRange.upperBound < backendBuildRange.lowerBound)
         #expect(resourceParallelRange.upperBound < backendBuildRange.lowerBound)
+        let jsLaneRange = try #require(bridgeWebJob.range(of: "          - name: Run BridgeWeb lanes"))
+        #expect(resourceParallelRange.upperBound < jsLaneRange.lowerBound)
+        #expect(jsLaneRange.upperBound < integrationRange.lowerBound)
         #expect(backendBuildRange.upperBound < integrationRange.lowerBound)
         #expect(integrationRange.upperBound < e2eRange.lowerBound)
     }
