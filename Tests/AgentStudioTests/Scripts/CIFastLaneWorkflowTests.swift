@@ -856,8 +856,12 @@ struct CIFastLaneWorkflowTests {
                     + "    swift_test_args+=(--skip ZmxE2ETests)"
             )
         )
-        #expect(forwardedArgumentsBlock.contains("swift test --skip-build \"${swift_test_args[@]}\""))
-        #expect(!forwardedArgumentsBlock.contains("swift test --skip-build \"$@\" --skip ZmxE2ETests"))
+        #expect(
+            forwardedArgumentsBlock.contains(
+                "swift test $(swift_package_sandbox_arguments) --skip-build \"${swift_test_args[@]}\""))
+        #expect(
+            !forwardedArgumentsBlock.contains(
+                "swift test $(swift_package_sandbox_arguments) --skip-build \"$@\" --skip ZmxE2ETests"))
         #expect(defaultTestCase.contains("--filter \"$(swift_test_lane_filter_pattern e2e)\""))
         #expect(defaultTestCase.contains("--skip \"$(swift_test_lane_filter_pattern zmx)\""))
         #expect(!defaultTestCase.contains("SWIFT_TEST_INCLUDE_ZMX_E2E"))
