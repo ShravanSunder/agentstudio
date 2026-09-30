@@ -138,7 +138,7 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 						path: markdownPath,
 					},
 					async (): Promise<void> => {
-						await fileHost.locator(`[data-item-path="${markdownPath}"]`).click();
+						await clickMountedFileTreePath({ fileHost, path: markdownPath });
 					},
 				),
 			);
@@ -256,6 +256,58 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		}
 	}
 });
+
+async function clickMountedFileTreePath(props: {
+	readonly fileHost: ReturnType<Page['getByTestId']>;
+	readonly path: string;
+}): Promise<void> {
+	const tree = props.fileHost.getByTestId('bridge-file-viewer-pierre-file-tree');
+	const row = tree.locator(
+		`button[data-item-type="file"][data-item-path=${JSON.stringify(props.path)}]:not([data-file-tree-sticky-row]):not([data-item-parked])`,
+	);
+	await row.scrollIntoViewIfNeeded();
+	await row.evaluate((mountedRow): void => {
+		const root = mountedRow.getRootNode();
+		const scrollOwner =
+			root instanceof ShadowRoot
+				? root.querySelector('[data-file-tree-virtualized-scroll="true"]')
+				: null;
+		if (!(scrollOwner instanceof HTMLElement)) {
+			throw new Error('File tree scroll owner is unavailable.');
+		}
+		const rowRect = mountedRow.getBoundingClientRect();
+		const ownerRect = scrollOwner.getBoundingClientRect();
+		scrollOwner.scrollTop +=
+			rowRect.top + rowRect.height / 2 - (ownerRect.top + ownerRect.height / 2);
+		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+	});
+	await row.waitFor({ state: 'visible' });
+	await tree.evaluate((treeElement): void => {
+		treeElement.addEventListener(
+			'click',
+			(event): void => {
+				const clickedRow = event
+					.composedPath()
+					.find(
+						(candidate): candidate is Element =>
+							candidate instanceof Element &&
+							candidate.getAttribute('data-item-type') === 'file' &&
+							candidate.hasAttribute('data-item-path'),
+					);
+				treeElement.setAttribute(
+					'data-profile-clicked-path',
+					clickedRow?.getAttribute('data-item-path') ?? '',
+				);
+			},
+			{ capture: true, once: true },
+		);
+	});
+	await row.click();
+	expect(await tree.getAttribute('data-profile-clicked-path')).toBe(props.path);
+	await tree.evaluate((treeElement): void => {
+		treeElement.removeAttribute('data-profile-clicked-path');
+	});
+}
 
 async function readAnnotationLifecycleDiagnostic(page: Page): Promise<unknown> {
 	try {
