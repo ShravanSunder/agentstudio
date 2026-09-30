@@ -18,6 +18,47 @@ extension JSONDecoder {
     }
 }
 
+func makeTestAppIPCMethodRegistry(
+    registrations: [AnyAppIPCMethodRegistration],
+    recognizedCommands: [AppIPCRecognizedEntry],
+    channel: AgentStudioIPCChannel
+) throws -> AppIPCMethodRegistry {
+    try AppIPCMethodRegistry(
+        registrations: registrations,
+        recognizedCommands: recognizedCommands,
+        channel: channel,
+        capabilitiesComposition: makeTestIPCSystemCapabilitiesComposition(
+            registrations: registrations,
+            channel: channel
+        )
+    )
+}
+
+func makeTestIPCSystemCapabilitiesComposition(
+    registrations: [AnyAppIPCMethodRegistration],
+    channel: AgentStudioIPCChannel
+) throws -> IPCSystemCapabilitiesComposition {
+    let available = registrations.filter {
+        $0.descriptor.metadata.exposure == .allChannels || channel == .debug
+    }
+    let availableNames = Set(available.map(\.descriptor.metadata.name))
+    let recognizedUnexposedMethods = registrations.map(\.descriptor.metadata)
+        .filter { !availableNames.contains($0.name) }
+        .map {
+            IPCRecognizedUnexposedName(name: $0.name, agentEligibility: $0.agentEligibility ?? .notYetAllowed)
+        }
+        .sorted { $0.name < $1.name }
+    guard let ping = available.first(where: { $0.descriptor.metadata.name == "system.ping" }) else {
+        throw IPCSystemCapabilitiesCompositionError.illustrativeDescriptorMissing
+    }
+    return try IPCSystemCapabilitiesDescriptorFactory.compose(
+        compatibility: .current,
+        availableDescriptors: available.map(\.descriptor),
+        illustrativeDescriptor: ping.descriptor,
+        recognizedUnexposedMethods: recognizedUnexposedMethods
+    )
+}
+
 struct LiveServerFixture {
     let runtimeId = UUID()
     let boundPaneId = UUID()
@@ -41,7 +82,8 @@ struct LiveServerFixture {
         commandComposition: IPCCommandMethodComposition? = nil,
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
-        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil
+        canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,
+        ownPaneScopes: [AppIPCOwnPaneScope] = []
     ) throws {
         let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
         testCredentialResolver = resolvedCredentialResolver as? IPCFixtureCredentialResolver
@@ -63,7 +105,11 @@ struct LiveServerFixture {
             uiPresentationPort: uiPresentationPort,
             sidebarPort: sidebarPort,
             sessionsPort: sessionsPort,
-            permissionApprovalPort: FakePermissionApprovalPort()
+            permissionApprovalPort: FakePermissionApprovalPort(),
+            // Unless a test names scopes, every bound pane is a main-layout
+            // terminal with an empty drawer, so its own pane is itself.
+            ownPaneScopePort: StaticOwnPaneScopePort(scopes: ownPaneScopes),
+            agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
         )
         let eventBroker = IPCEventBroker()
         let catalog = try makeLiveServerBuiltInCatalog(
@@ -84,7 +130,14 @@ struct LiveServerFixture {
                 port: commandPort
             )
         }
-        let methodRegistry = try AppIPCMethodRegistry(registrations: registrations, channel: channel)
+        let methodRegistry = try makeTestAppIPCMethodRegistry(
+            registrations: registrations,
+            recognizedCommands: (commandComposition?.commands ?? []).map {
+                AppIPCRecognizedEntry(
+                    name: $0.id.rawValue, exposure: $0.exposure, agentEligibility: $0.agentEligibility)
+            },
+            channel: channel
+        )
         let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,

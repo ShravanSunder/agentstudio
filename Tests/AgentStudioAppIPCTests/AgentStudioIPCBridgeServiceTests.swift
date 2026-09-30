@@ -617,7 +617,7 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(response.result == nil)
     }
 
-    @Test("pane principals cannot discover the debug-only Bridge open method")
+    @Test("pane principals hear that the Bridge open method is not yet allowed")
     func panePrincipalsCannotDiscoverDebugOnlyBridgeOpenMethod() throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
@@ -651,8 +651,10 @@ struct AgentStudioIPCBridgeServiceTests {
         )
 
         let response = try frameReader.receiveResponse(connection: connection)
-        #expect(response.error?.code == -32_601)
-        #expect(response.error?.message == "method not found")
+        #expect(response.error?.code == -32_011)
+        #expect(
+            response.error?.data
+                == .object(["reason": .string("notYetAllowed"), "name": .string("bridge.diff.load")]))
         #expect(response.result == nil)
     }
 
