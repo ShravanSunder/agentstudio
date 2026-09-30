@@ -20,6 +20,7 @@ import {
 	applyBridgeCommWorkerFileQueryUpdateCommand,
 	BridgeCommWorkerFileQueryProjection,
 } from './bridge-comm-worker-file-query-projection.js';
+import { settleBridgeCommWorkerExhaustedFileRender } from './bridge-comm-worker-file-render-fulfillment-lifecycle.js';
 import { enqueueSelectedBridgeWorkerFileViewContentReadyPreparation } from './bridge-comm-worker-file-view-preparation.js';
 import { createEmptyBridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
 import { createBridgeCommWorkerInstalledReviewSource } from './bridge-comm-worker-installed-review-source.js';
@@ -56,7 +57,9 @@ import {
 } from './bridge-comm-worker-runtime-command-routing.js';
 import {
 	publishBridgeCommWorkerPostCommitFailureBestEffort,
-	rejectUninstalledBridgeFileContentOpen,
+	resolveBridgeCommWorkerFileContentOpen,
+	resolveBridgeCommWorkerPreparationPump,
+	resolveBridgeCommWorkerReviewContentOpen,
 	rejectUninstalledBridgeProductControl,
 	scheduleDefaultBridgeRenderFulfillmentWake,
 } from './bridge-comm-worker-runtime-defaults.js';
@@ -89,15 +92,12 @@ import {
 	recordBridgeCommWorkerTaskTelemetry,
 } from './bridge-comm-worker-telemetry.js';
 import { recordBridgeWorkerOutstandingPublicationTelemetry } from './bridge-render-disposition-telemetry.js';
-import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
 	bridgeWorkerMainToServerMessageSchema,
 	bridgeWorkerAnnotationProjectionConvergenceEventSchema,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
-import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
-import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
 
 export type {
 	BridgeCommWorkerPreparationDrain,
@@ -109,30 +109,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	props: RegisterBridgeCommWorkerRuntimePortProtocolProps,
 ): void {
 	const createSequence = props.createSequence ?? createBridgeWorkerRuntimeSequenceCounter();
-	const pump =
-		props.pump ??
-		createWorkerContentPreparationPump({
-			maxSliceMs: props.maxPreparationSliceMs ?? 8,
-			...(props.now === undefined ? {} : { now: props.now }),
-			...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
-		});
+	const pump = resolveBridgeCommWorkerPreparationPump(props);
 	const schedulePreparationDrain =
 		props.schedulePreparationDrain ?? scheduleDefaultBridgeCommWorkerPreparationDrain;
 	const scheduleRenderFulfillmentWake =
 		props.scheduleRenderFulfillmentWake ?? scheduleDefaultBridgeRenderFulfillmentWake;
 	let sendProductControl = props.sendProductControl ?? rejectUninstalledBridgeProductControl;
 	const productTransport = props.productTransport;
-	const openFileViewContent: BridgeWorkerFileViewContentOpen =
-		props.openFileViewContent ??
-		(productTransport === undefined
-			? rejectUninstalledBridgeFileContentOpen
-			: (descriptor, abortSignal, operationCorrelationId) =>
-					productTransport.openContent(descriptor, abortSignal, operationCorrelationId));
-	const openReviewContent: BridgeWorkerReviewContentOpen | undefined =
-		props.openReviewContent ??
-		(productTransport === undefined
-			? undefined
-			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal));
+	const openFileViewContent = resolveBridgeCommWorkerFileContentOpen(props);
+	const openReviewContent = resolveBridgeCommWorkerReviewContentOpen(props);
 	const openComparisonTargetsContent = bridgeWorkerComparisonTargetsContentOpen(productTransport);
 	const productControlTimeoutMilliseconds = props.productControlTimeoutMilliseconds ?? 5000;
 	const preparationCompletions: Promise<void>[] = [];
@@ -486,6 +471,20 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 		onReviewMetadataPostCommitFailure: publishReviewMetadataPostCommitFailure,
 		onReviewVisibleRenderExhausted: (): void => productTransport?.failReviewRender?.(),
+		onFileVisibleRenderExhausted: (itemIds, store): void => {
+			if (
+				settleBridgeCommWorkerExhaustedFileRender({
+					controller: selectedFileContentOperationController,
+					createSequence,
+					itemIds,
+					port,
+					store,
+					telemetry: selectedFileLifecycleTelemetry,
+				})
+			)
+				selectedFileContentOperationStore = null;
+			productTransport?.failFileRender?.();
+		},
 		scheduleSelectedReviewContentReadyPreparation:
 			reviewDemandScheduling.scheduleSelectedContentReadyPreparation,
 		scheduleReviewMetadataReset: reviewDemandScheduling.scheduleMetadataReset,

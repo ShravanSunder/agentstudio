@@ -24,6 +24,10 @@ import {
 	isBridgeWorkerReviewContentMetadata,
 	publishBridgeCommWorkerFileMetadataDemand,
 } from './bridge-comm-worker-demand-command-handlers.js';
+import {
+	advanceBridgeCommWorkerFileRenderFulfillmentLifecycle,
+	retryBridgeCommWorkerExhaustedFileRender,
+} from './bridge-comm-worker-file-render-fulfillment-lifecycle.js';
 import type { BridgeCommWorkerFileViewRuntimeMutation } from './bridge-comm-worker-file-view-runtime-mutation.js';
 import {
 	applyFileViewRuntimeMutationTrackingSelectedRequest,
@@ -290,23 +294,13 @@ export function createBridgeCommWorkerCommandHandler(
 			),
 		advanceFileRenderFulfillmentLifecycle: (
 			atMilliseconds,
-		): BridgeCommWorkerRenderFulfillmentLifecycleAdvance => {
-			fileViewStore.renderFulfillmentRegistry.expireReceiptLeases(atMilliseconds);
-			const releasedItemIds =
-				fileViewStore.renderFulfillmentRegistry.releaseReadyRetries(atMilliseconds);
-			const selectedState = fileViewStore.getState();
-			if (selectedState.selectedId !== null && releasedItemIds.includes(selectedState.selectedId)) {
-				props.scheduleSelectedFileViewContentReadyPreparation({
-					epoch: selectedState.selectedEpoch,
-					itemId: selectedState.selectedId,
-					store: fileViewStore,
-				});
-			}
-			return {
-				nextWakeAtMilliseconds:
-					fileViewStore.renderFulfillmentRegistry.nextLifecycleWakeAtMilliseconds(),
-			};
-		},
+		): BridgeCommWorkerRenderFulfillmentLifecycleAdvance =>
+			advanceBridgeCommWorkerFileRenderFulfillmentLifecycle({
+				atMilliseconds,
+				store: fileViewStore,
+				onExhausted: props.onFileVisibleRenderExhausted,
+				scheduleSelectedPreparation: props.scheduleSelectedFileViewContentReadyPreparation,
+			}),
 		advanceReviewRenderFulfillmentLifecycle: (
 			atMilliseconds,
 		): BridgeCommWorkerRenderFulfillmentLifecycleAdvance => {
@@ -471,6 +465,12 @@ export function createBridgeCommWorkerCommandHandler(
 									}
 								}
 								props.retryView?.(view);
+								if (view.kind === 'file.metadata')
+									retryBridgeCommWorkerExhaustedFileRender({
+										store: fileViewStore,
+										scheduleSelectedPreparation:
+											props.scheduleSelectedFileViewContentReadyPreparation,
+									});
 							},
 						}),
 				...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),

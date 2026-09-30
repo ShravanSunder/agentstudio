@@ -123,8 +123,9 @@ describe('Bridge comm worker Review metadata reset', () => {
 				visibleItemIds: [itemId],
 			}),
 		);
+		const renderJob = makeReviewPublication({ itemId, publicationSequence: 1 }).job;
 		const first = store.renderFulfillmentRegistry.beginPublication({
-			job: makeReviewPublication({ itemId, publicationSequence: 1 }).job,
+			job: renderJob,
 			publicationSequence: 1,
 			workerDerivationEpoch: 1,
 		});
@@ -143,7 +144,7 @@ describe('Bridge comm worker Review metadata reset', () => {
 		handler.advanceReviewRenderFulfillmentLifecycle(nowMilliseconds);
 		expect(scheduledPreparations.length).toBeGreaterThan(1);
 		const retry = store.renderFulfillmentRegistry.beginPublication({
-			job: makeReviewPublication({ itemId, publicationSequence: 2 }).job,
+			job: renderJob,
 			publicationSequence: 2,
 			workerDerivationEpoch: 1,
 		});
