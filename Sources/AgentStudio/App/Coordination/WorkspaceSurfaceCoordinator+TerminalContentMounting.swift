@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioTerminal
 import AppKit
 import Foundation
@@ -117,7 +118,9 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         // never an unarmed cold surface. Warm, unverified and nil kinds skip
         // this entirely; they never suspend here.
         var armedRestoreGeneration: RestoreGeneration?
-        if case .cold = admission.restoreKind {
+        var coldStartObserver: ColdStartObserver?
+        var coldStartPlan: TerminalColdRestorePlan?
+        if case .cold(let plan) = admission.restoreKind {
             let generation = RestoreGenerationAllocator.allocate()
             let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
                 paneID: pane.id,
@@ -130,6 +133,15 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
                 )
             }
             armedRestoreGeneration = generation
+
+            // Program Design item 3: never a cold surface with no pending
+            // startup-window observer either. Registered before the surface
+            // (and the attach command that could exit fast) exists, so a
+            // `showChildExited` racing registration is never missed.
+            let observer = ColdStartObserver()
+            Ghostty.ActionRouter.registerColdStartAttachExitObserver(paneID: pane.id, observer: observer)
+            coldStartObserver = observer
+            coldStartPlan = plan
         }
 
         viewRegistry.ensureSlot(for: pane.id)
@@ -142,17 +154,78 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             armedRestoreGeneration: armedRestoreGeneration
         ) {
         case .mounted(let mountedContent):
+            if let coldStartObserver, let coldStartPlan {
+                beginObservingColdStart(paneID: pane.id, plan: coldStartPlan, observer: coldStartObserver)
+            }
             return .ready(surfaceID: mountedContent.surfaceID)
         case .failed(.surfaceAttachmentFailed):
+            if coldStartObserver != nil {
+                Ghostty.ActionRouter.unregisterColdStartAttachExitObserver(paneID: pane.id)
+            }
             return .failed(
                 failure: .surfaceAttachmentFailed(code: "prepared_surface_attachment_failed"),
                 retry: .retry
             )
         case .failed:
+            if coldStartObserver != nil {
+                Ghostty.ActionRouter.unregisterColdStartAttachExitObserver(paneID: pane.id)
+            }
             return .failed(
                 failure: .surfaceCreationFailed(code: "prepared_mount_failed"),
                 retry: .retry
             )
+        }
+    }
+
+    /// Program Design item 4: the start slot is held "from the moment its
+    /// surface mounts," not before — native mounting above proceeds
+    /// regardless of slot availability (activation settlement releases once
+    /// the surface is mounted, never once zmx or the shell is ready); only
+    /// this observation is gated behind slot availability, acquired in the
+    /// same order panes already mount (visible first), which is what makes
+    /// "further cold panes wait in the existing activation order" true.
+    /// Runs detached from `mountPreparedTerminalContent`'s own return so a
+    /// slow or pending window never delays activation settlement.
+    private func beginObservingColdStart(
+        paneID: UUID,
+        plan: TerminalColdRestorePlan,
+        observer: ColdStartObserver
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.coldStartSlotGate.acquire()
+            let outcome: ColdStartOutcome
+            if let bootID = try? await WorkspaceUndoJournalClock.current().bootID {
+                let socketPath = plan.zmxDirectory.appending(path: plan.sessionID.rawValue).path
+                outcome = await observer.observeColdStart(
+                    zmxDirectory: plan.zmxDirectory,
+                    socketPath: socketPath,
+                    bootID: bootID,
+                    attemptID: plan.attemptID
+                )
+            } else {
+                outcome = .unobservable(.identityUnverifiable)
+            }
+            await self.coldStartSlotGate.release()
+            Ghostty.ActionRouter.unregisterColdStartAttachExitObserver(paneID: paneID)
+            self.handleColdStartOutcome(outcome, paneID: paneID)
+        }
+    }
+
+    /// SR5: the specific failure reason still needs the existing
+    /// overlay-owner wiring (Program Design item 3's "existing placeholder
+    /// and overlay owner"); `.unobservable` never reaches the person at all
+    /// ("the reason goes to telemetry only" — `RestoreTrace.log` here is
+    /// this restore code path's own established local-diagnostic channel,
+    /// gated behind `AGENTSTUDIO_RESTORE_TRACE`, not OTLP).
+    private func handleColdStartOutcome(_ outcome: ColdStartOutcome, paneID: UUID) {
+        switch outcome {
+        case .handedOff:
+            RestoreTrace.log("coldStart handedOff pane=\(paneID)")
+        case .failed(let failure):
+            RestoreTrace.log("coldStart failed pane=\(paneID) failure=\(failure)")
+        case .unobservable(let reason):
+            RestoreTrace.log("coldStart unobservable pane=\(paneID) reason=\(reason)")
         }
     }
 }

@@ -118,6 +118,12 @@ final class WorkspaceSurfaceCoordinator {
     var preparedTerminalGeometryReevaluationHandler: @MainActor ([PaneId: NSRect]) async -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
+    /// SR4; Program Design item 4: one gate for the whole app session,
+    /// bounding actual in-flight cold starts. Constructed lazily like
+    /// `terminalRestoreRuntime` -- this coordinator has exactly one
+    /// instance per app run in production, so this is effectively the
+    /// app-wide singleton the design calls for.
+    lazy var coldStartSlotGate = ColdStartSlotGate(capacity: AppPolicies.Restore.maximumConcurrentColdStarts)
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
@@ -463,6 +469,10 @@ final class WorkspaceSurfaceCoordinator {
             Task { @MainActor in
                 await Ghostty.ActionRouter.retirePanePermanently(paneID: paneID)
             }
+            // Program Design item 4: "the pane's surface is retired ... ends
+            // the window, removes its kqueue registrations and settles the
+            // slot." A no-op for a pane with no pending cold-start observer.
+            Ghostty.ActionRouter.cancelPendingColdStart(paneID: paneID)
         }
     }
 

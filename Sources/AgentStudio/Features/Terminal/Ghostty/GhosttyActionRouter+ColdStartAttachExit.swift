@@ -38,6 +38,17 @@ package final class ColdStartAttachExitBinding {
         guard let observer = observersByPaneID[paneID] else { return }
         Task { await observer.reportAttachClientExited() }
     }
+
+    /// Program Design item 4, "removes its kqueue registrations and settles
+    /// the slot": retirement or activation cancellation for a pane with a
+    /// pending cold start. `cancel()` unblocks the observer's own
+    /// `observeColdStart` awaiter, whose completion handler releases the
+    /// start slot and unregisters from this binding — this call site does
+    /// not need to duplicate that cleanup.
+    package func cancelPendingColdStart(paneID: UUID) {
+        guard let observer = observersByPaneID[paneID] else { return }
+        Task { await observer.cancel() }
+    }
 }
 
 @MainActor private let coldStartAttachExitBinding = ColdStartAttachExitBinding()
@@ -56,5 +67,10 @@ extension Ghostty.ActionRouter {
     @MainActor
     static func reportColdStartAttachClientExited(paneID: UUID) {
         coldStartAttachExitBinding.reportAttachClientExited(paneID: paneID)
+    }
+
+    @MainActor
+    package static func cancelPendingColdStart(paneID: UUID) {
+        coldStartAttachExitBinding.cancelPendingColdStart(paneID: paneID)
     }
 }
