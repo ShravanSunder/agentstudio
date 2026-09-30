@@ -1,11 +1,6 @@
 name: Swift seed freshness experiment
 
 on:
-  # The first branch push registers this temporary workflow with Actions.
-  # Subsequent source-only experiments are explicit workflow_dispatch runs.
-  push:
-    branches: [ci-warm-cache-determinism]
-    paths: [.github/workflows/ci-swift-seed-freshness-experiment.yml]
   workflow_dispatch:
     inputs:
       mode:
@@ -13,6 +8,9 @@ on:
         options: [publish, consume]
         default: publish
         required: true
+      tested_commit:
+        type: string
+        default: ""
       seed_key:
         type: string
         default: ""
@@ -23,16 +21,12 @@ on:
         required: true
 
 concurrency:
-  group: swift-seed-freshness-experiment
+  group: swift-seed-freshness-experiment-${{ inputs.mode }}
   cancel-in-progress: false
 
 permissions:
   contents: read
   issues: read
-
-env:
-  CI_SWIFT_TRUSTED_PRODUCER_REF: refs/heads/ci-warm-cache-determinism
-  CI_SWIFT_CACHE_NAMESPACE: swift-build-exp-freshness-
 
 jobs:
   swift-test-suite:
@@ -61,6 +55,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ inputs.tested_commit || github.sha }}
+
+      - name: Capture actual tested tree
+        id: tested-tree
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Select Xcode
         id: select-xcode
@@ -178,6 +177,9 @@ jobs:
 
       - name: Compute Swift cache compatibility prefix
         id: swift-cache-prefix
+        env:
+          CI_SWIFT_TRUSTED_PRODUCER_REF: refs/heads/ci-warm-cache-determinism
+          CI_SWIFT_CACHE_NAMESPACE: swift-build-exp-freshness-
         run: |
           mkdir -p "$SWIFT_BUILD_STATS_DIR"
           prefix="$(/bin/bash scripts/ci-swift-build-inputs.sh fingerprint)"
@@ -208,8 +210,10 @@ jobs:
       - name: Inventory Swift build inputs before prebuild
         id: swift-cache-inventory-before
         env:
+          CI_SWIFT_TRUSTED_PRODUCER_REF: refs/heads/ci-warm-cache-determinism
+          CI_SWIFT_CACHE_NAMESPACE: swift-build-exp-freshness-
           CI_SWIFT_BUILD_PATH: .build-ci
-          CI_SWIFT_PRODUCER_COMMIT: ${{ github.sha }}
+          CI_SWIFT_PRODUCER_COMMIT: ${{ steps.tested-tree.outputs.sha }}
           CI_SWIFT_PRODUCER_RUN: ${{ github.run_number }}
           CI_SWIFT_PRODUCER_REF: ${{ github.ref }}
         run: |
@@ -228,6 +232,8 @@ jobs:
         if: inputs.mode == 'consume'
         id: swift-cache-verify
         env:
+          CI_SWIFT_TRUSTED_PRODUCER_REF: refs/heads/ci-warm-cache-determinism
+          CI_SWIFT_CACHE_NAMESPACE: swift-build-exp-freshness-
           CI_SWIFT_BUILD_PATH: .build-ci
         run: |
           restore_seconds="${{ steps.swift-cache-restore-time.outputs.restore_seconds }}"
@@ -251,7 +257,7 @@ jobs:
           echo "swift-cache $disposition restore=${restore_seconds}s"
 
       - name: Inventory main Swift inputs before cold build
-        if: (inputs.mode == 'publish' || github.event_name == 'push')
+        if: inputs.mode == 'publish'
         run: |
           test "${{ steps.swift-cache-inventory-before.outputs.valid }}" = true
           test ! -e .build-ci
@@ -294,11 +300,13 @@ jobs:
       # Publish the completed prebuild before tests can write to its build path.
       # The verified input manifest establishes reuse; test outcomes do not.
       - name: Inventory main Swift inputs after prebuild
-        if: (inputs.mode == 'publish' || github.event_name == 'push') && steps.swift-prebuild.outcome == 'success'
+        if: inputs.mode == 'publish' && steps.swift-prebuild.outcome == 'success'
         id: swift-cache-inventory-after
         env:
+          CI_SWIFT_TRUSTED_PRODUCER_REF: refs/heads/ci-warm-cache-determinism
+          CI_SWIFT_CACHE_NAMESPACE: swift-build-exp-freshness-
           CI_SWIFT_BUILD_PATH: .build-ci
-          CI_SWIFT_PRODUCER_COMMIT: ${{ github.sha }}
+          CI_SWIFT_PRODUCER_COMMIT: ${{ steps.tested-tree.outputs.sha }}
           CI_SWIFT_PRODUCER_RUN: ${{ github.run_number }}
           CI_SWIFT_PRODUCER_REF: ${{ github.ref }}
         run: |
@@ -307,8 +315,8 @@ jobs:
           after="$(python3 -c 'import json; value=json.load(open("tmp/plan-workflows/ci-runs/swift-inputs-after.json")); print(value["manifest_digest"], value["fingerprint"])')"
           if [ "$before" = "$after" ]; then
             echo "unchanged=true" >> "$GITHUB_OUTPUT"
-            echo "lane-report swift_cache_seed_commit=${{ github.sha }}"
-            echo "lane-report swift_cache_tested_tree=${{ github.sha }}"
+            echo "lane-report swift_cache_seed_commit=${{ steps.tested-tree.outputs.sha }}"
+            echo "lane-report swift_cache_tested_tree=${{ steps.tested-tree.outputs.sha }}"
             echo "lane-report swift_cache_changed_swift_inputs=0"
           else
             echo "unchanged=false" >> "$GITHUB_OUTPUT"
@@ -316,13 +324,15 @@ jobs:
           fi
 
       - name: Plan main Swift seed publication
-        if: (inputs.mode == 'publish' || github.event_name == 'push') && steps.swift-cache-inventory-after.outputs.unchanged == 'true'
+        if: inputs.mode == 'publish' && steps.swift-cache-inventory-after.outputs.unchanged == 'true'
         id: swift-publish-plan
         env:
+          CI_SWIFT_TRUSTED_PRODUCER_REF: refs/heads/ci-warm-cache-determinism
+          CI_SWIFT_CACHE_NAMESPACE: swift-build-exp-freshness-
           GH_TOKEN: ${{ github.token }}
           CI_CACHE_API: gh api
         run: |
-          key="${{ steps.swift-cache-prefix.outputs.prefix }}r${{ github.run_number }}-${{ github.sha }}"
+          key="${{ steps.swift-cache-prefix.outputs.prefix }}r${{ github.run_number }}-${{ steps.tested-tree.outputs.sha }}"
           cp tmp/plan-workflows/ci-runs/swift-inputs-after.json .build-ci/ci-swift-build-seed.json
           seed_bytes="$(tar -cf - .build-ci | zstd -T0 -q | wc -c | tr -d ' ')"
           if plan="$(/bin/bash scripts/ci-swift-build-cache-publish.sh plan-save "$key" "${{ github.run_number }}" "$seed_bytes")"; then
@@ -336,7 +346,7 @@ jobs:
           fi
 
       - name: Save Swift build seed
-        if: (inputs.mode == 'publish' || github.event_name == 'push') && startsWith(steps.swift-publish-plan.outputs.disposition, 'saved ')
+        if: inputs.mode == 'publish' && startsWith(steps.swift-publish-plan.outputs.disposition, 'saved ')
         id: swift-cache-save
         continue-on-error: true
         uses: actions/cache/save@v4
@@ -345,7 +355,7 @@ jobs:
           key: ${{ steps.swift-publish-plan.outputs.key }}
 
       - name: Finalize Swift seed disposition
-        if: always() && (inputs.mode == 'publish' || github.event_name == 'push')
+        if: always() && inputs.mode == 'publish'
         id: swift-cache-final
         run: |
           planned="${{ steps.swift-publish-plan.outputs.disposition || 'failed' }}"
