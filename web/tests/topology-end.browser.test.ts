@@ -13,12 +13,31 @@ declare module "vitest/browser" {
     verifyTopologyEnd(
       pageUrl: string,
       widths: readonly number[],
+      viewportHeight?: number,
     ): Promise<TopologyEndObservation[]>;
     verifyFinaleBookend(pageUrl: string, proofWidth?: number): Promise<FinaleBookendObservation>;
   }
 }
 
 describe("where the rail ends on the home page", () => {
+  it.each([
+    [1600, 1000],
+    [1280, 800],
+    [2000, 1200],
+    [390, 844],
+  ])("keeps the finale join blue inside the end colour mask at %i×%i", async (width, height) => {
+    const [observation] = await commands.verifyTopologyEnd(
+      inject("siteHeaderBrowserTestUrl"),
+      [width],
+      height,
+    );
+    if (observation === undefined) throw new Error("Finale end observation missing");
+    expect
+      .soft(observation.endColourMaskEdge)
+      .toBeGreaterThanOrEqual(observation.endTerminalNodeBottom + 8);
+    expect.soft(observation.branchStroke).toBe(observation.attachJoinStroke);
+    expect.soft(observation.ringStroke).toBe(observation.attachJoinStroke);
+  });
   it.each([1600, 1280, 390])(
     "matches the finale and step-label pill paints at %ipx",
     async (width) => {
@@ -201,9 +220,9 @@ describe("where the rail ends on the home page", () => {
       expect(observation.ringRadius).toBe(6);
       expect(observation.coreRadius).toBe(2.5);
       expect(observation.haloRadius).toBe(7);
-      expect(observation.ringStroke).toBe("rgb(116, 199, 236)");
+      expect(observation.ringStroke).toBe(observation.attachJoinStroke);
       expect(observation.coreFill).toBe("rgb(137, 180, 250)");
-      expect(observation.branchStroke).toBe("rgb(116, 199, 236)");
+      expect(observation.branchStroke).toBe(observation.attachJoinStroke);
       const sideLaneCount = Math.max(0, observation.laneCount - 1);
       const expectedMerges = sideLaneCount === 0 ? 0 : 1 + Math.floor((sideLaneCount - 1) / 2);
       expect(observation.laneMergeYs).toHaveLength(expectedMerges);

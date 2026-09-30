@@ -163,9 +163,10 @@
   }
 
   :global([data-topology-terminal-route] > path:not(.topology-clearance)) {
-    stroke: var(--color-glyph);
+    stroke: var(--color-primary);
     stroke-width: 2px;
   }
+  :global([data-topology-terminal-node] .node-merge-ring) { color: var(--color-primary); }
 
   :global(.topology-port-stop-main),
   :global(.topology-port-stop-port) {

@@ -8,6 +8,9 @@ import {
 
 /** The final branch, lane closures and rendered path extent in page coordinates. */
 export interface TopologyEndObservation {
+  readonly endColourMaskEdge: number;
+  readonly endTerminalNodeBottom: number;
+  readonly attachJoinStroke: string;
   readonly width: number;
   readonly captionToFinaleGap: number;
   readonly pillLeft: number;
@@ -245,6 +248,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
       });
       await applicationPage.addInitScript(installEventCounter);
       await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
+      await applicationPage.evaluate(async () => await document.fonts.ready);
       await applicationPage.evaluate(() => window.dispatchEvent(new WheelEvent("wheel")));
       await applicationPage.waitForSelector('[data-hero-intro-state="settled"]');
       await applicationPage.waitForSelector("[data-finale-timeline-created]");
@@ -424,6 +428,28 @@ export const verifyFinaleBookend = defineBrowserCommand(
           observer.observe(label, { childList: true, characterData: true, subtree: true });
         });
       });
+      await applicationPage.evaluate(async () => {
+        const pill = document.querySelector<HTMLElement>("[data-finale-split-pill]");
+        const trace = document.querySelector<SVGPathElement>("[data-finale-border-trace]");
+        const svg = trace?.ownerSVGElement;
+        if (!pill || !trace || !svg) throw new Error("Finale trace resize signal missing");
+        const matchesPill = (): boolean =>
+          Math.abs(svg.viewBox.baseVal.width - pill.getBoundingClientRect().width) <= 0.5 &&
+          Math.abs(svg.viewBox.baseVal.height - pill.getBoundingClientRect().height) <= 0.5;
+        if (matchesPill()) return;
+        await new Promise<void>((resolve) => {
+          const observer = new MutationObserver(() => {
+            if (!matchesPill()) return;
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(svg, {
+            attributes: true,
+            attributeFilter: ["viewBox", "d"],
+            subtree: true,
+          });
+        });
+      });
       const pillSurface = await applicationPage.evaluate(observeFinalePillSurface);
       const finaleFrame = await applicationPage.screenshot();
       const finalePill = await applicationPage.locator("[data-finale-split-pill]").screenshot();
@@ -549,7 +575,12 @@ export const verifyFinaleBookend = defineBrowserCommand(
   },
 );
 
-function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"> {
+function observeEnd(
+  width: number,
+): Omit<
+  TopologyEndObservation,
+  "artworkStates" | "endColourMaskEdge" | "endTerminalNodeBottom" | "attachJoinStroke"
+> {
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
   const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
   const lastCaption = document.querySelector<HTMLElement>(
@@ -760,6 +791,7 @@ export const verifyTopologyEnd = defineBrowserCommand(
     { context },
     pageUrl: string,
     widths: readonly number[],
+    viewportHeight?: number,
   ): Promise<TopologyEndObservation[]> => {
     const applicationPage = await context.newPage();
     const observations: TopologyEndObservation[] = [];
@@ -780,7 +812,7 @@ export const verifyTopologyEnd = defineBrowserCommand(
       for (const width of widths) {
         await applicationPage.setViewportSize({
           width,
-          height: width === 390 ? 844 : width === 1280 ? 800 : 1080,
+          height: viewportHeight ?? (width === 390 ? 844 : width === 1280 ? 800 : 1080),
         });
         await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
         await applicationPage.waitForSelector(
@@ -844,7 +876,30 @@ export const verifyTopologyEnd = defineBrowserCommand(
           state: "settled" as const,
         });
         const end = await applicationPage.evaluate(observeEnd, width);
-        observations.push({ ...end, artworkStates: [initial, settled] });
+        await applicationPage.evaluate(() =>
+          window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" }),
+        );
+        await applicationPage.waitForSelector("[data-full-page-topology][data-topology-at-end]");
+        const colourAtEnd = await applicationPage.evaluate(() => {
+          const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
+          const gradient = artwork?.querySelector<SVGLinearGradientElement>(
+            "#topology-rail-vibrancy-gradient",
+          );
+          const node = artwork?.querySelector<SVGCircleElement>(
+            "[data-topology-terminal-node] .node-merge-ring",
+          );
+          const attach = artwork?.querySelector<SVGPathElement>(
+            '[data-route-kind="attach"].accent-main [data-topology-path-role="core"]',
+          );
+          if (!gradient || !node || !attach)
+            throw new Error("End colour mask or attach join missing");
+          return {
+            endColourMaskEdge: Number(gradient.getAttribute("y1")),
+            endTerminalNodeBottom: node.cy.baseVal.value + node.r.baseVal.value,
+            attachJoinStroke: getComputedStyle(attach).stroke,
+          };
+        });
+        observations.push({ ...end, ...colourAtEnd, artworkStates: [initial, settled] });
       }
       return observations;
     } finally {
