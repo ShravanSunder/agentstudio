@@ -162,10 +162,8 @@ package actor TerminalActivityProjector {
     /// `paneStates`/`PaneState` so surface replacement mid-phase does not
     /// clear it: only `endRestorePhase` (person input reaching the surface)
     /// and `retirePanePermanently` (permanent close) clear an entry; a plain
-    /// `.surfaceClosed` never does. R1 owns arm/end recording; the gating
-    /// this state drives inside `consumeAggregateState` (suppressing
-    /// unseen/activity windows and the agent candidate while armed) is
-    /// Panes' consumer.
+    /// `.surfaceClosed` never does. The map drives the Panes-owned consumer
+    /// gating inside `consumeAggregateState`.
     private var restorePhaseByPane: [UUID: RestoreGeneration] = [:]
     private var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
     private var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
@@ -237,6 +235,8 @@ package actor TerminalActivityProjector {
         surfaceID: UUID,
         paneID: UUID
     ) async -> [TerminalActivityProjectionOutcome] {
+        guard !isRestorePhaseActive(paneID: paneID) else { return [] }
+
         var closedWindow: ActivityWindow?
         if var state = paneStates[paneID], state.surfaceID == surfaceID,
             let window = state.unseenWindow, window.rowsAdded > 0
@@ -319,14 +319,20 @@ package actor TerminalActivityProjector {
         state.isPinnedToBottom = latestState.isPinnedToBottom
         state.scrollbarState = latestState
 
-        admitOutputWindows(
-            state: &state,
-            surfaceID: surfaceID,
-            paneID: paneID,
-            aggregate: aggregate,
-            latestState: latestState,
-            context: context
-        )
+        let isInRestorePhase = isRestorePhaseActive(paneID: paneID)
+        if isInRestorePhase {
+            state.unseenWindow = nil
+            state.activityWindow = nil
+        } else {
+            admitOutputWindows(
+                state: &state,
+                surfaceID: surfaceID,
+                paneID: paneID,
+                aggregate: aggregate,
+                latestState: latestState,
+                context: context
+            )
+        }
 
         var shouldRevokeAgentSettledActivity = false
         if state.agentSettledLatestRows != nil {
@@ -334,7 +340,9 @@ package actor TerminalActivityProjector {
             state.isAgentSettledSuppressed = true
             shouldRevokeAgentSettledActivity = true
         }
-        if context.isAgentClassified, !state.isAgentSettledSuppressed {
+        if isInRestorePhase {
+            state.agentCandidate = nil
+        } else if context.isAgentClassified, !state.isAgentSettledSuppressed {
             state.agentCandidate = mergeWindow(
                 state.agentCandidate,
                 surfaceID: surfaceID,
@@ -371,7 +379,7 @@ package actor TerminalActivityProjector {
                 )
             )
         }
-        if isFirstOutput {
+        if isFirstOutput, !isInRestorePhase {
             outcomes.append(.firstOutput(surfaceID: surfaceID, paneID: paneID))
         }
         for isPinnedToBottom in observationTransitions {
@@ -384,31 +392,6 @@ package actor TerminalActivityProjector {
             )
         }
         return outcomes
-    }
-
-    private func pinnedObservationTransitions(
-        previousIsPinnedToBottom: Bool?,
-        aggregate: TerminalScrollbarActivityAggregate,
-        latestIsPinnedToBottom: Bool
-    ) -> [Bool] {
-        var projectedIsPinnedToBottom = previousIsPinnedToBottom
-        var transitions: [Bool] = []
-        func appendChangedState(_ isPinnedToBottom: Bool) {
-            guard isPinnedToBottom != projectedIsPinnedToBottom else { return }
-            transitions.append(isPinnedToBottom)
-            projectedIsPinnedToBottom = isPinnedToBottom
-        }
-
-        appendChangedState(aggregate.firstIsPinnedToBottom)
-        if aggregate.firstIsPinnedToBottom {
-            if aggregate.didExitPinnedToBottom { appendChangedState(false) }
-            if aggregate.didEnterPinnedToBottom { appendChangedState(true) }
-        } else {
-            if aggregate.didEnterPinnedToBottom { appendChangedState(true) }
-            if aggregate.didExitPinnedToBottom { appendChangedState(false) }
-        }
-        appendChangedState(latestIsPinnedToBottom)
-        return transitions
     }
 
     func applyOrderedControl(
@@ -453,38 +436,63 @@ package actor TerminalActivityProjector {
         await emit(outcomes)
     }
 
-    /// SR6b, arm (Program Design item 13, choice 13, step 3): "a newer
-    /// generation overwrites." R1's own recording; Panes' consumer adds the
-    /// gating this state drives.
-    func armRestorePhase(paneID: UUID, generation: RestoreGeneration) {
+    // The restore-phase extension owns the consumer operations. These narrow
+    // module-local helpers keep the generation map and PaneState private to
+    // this source file.
+    func recordRestorePhaseGeneration(_ generation: RestoreGeneration, for paneID: UUID) {
         restorePhaseByPane[paneID] = generation
     }
 
-    /// SR6b, end (Program Design item 13, choice 13, step 3): only clears
-    /// when `generation` equals the stored value — a stale or duplicate end
-    /// is ignored (dedup). Returns whether it matched, for tests to observe
-    /// this recording boundary directly (the plan's stand-in consumer).
+    func restorePhaseGeneration(for paneID: UUID) -> RestoreGeneration? {
+        restorePhaseByPane[paneID]
+    }
+
     @discardableResult
-    func endRestorePhase(paneID: UUID, generation: RestoreGeneration) -> Bool {
+    func endRestorePhaseGenerationIfMatching(
+        paneID: UUID,
+        generation: RestoreGeneration
+    ) -> Bool {
         guard restorePhaseByPane[paneID] == generation else { return false }
         restorePhaseByPane.removeValue(forKey: paneID)
         return true
     }
 
-    /// Test-only observation of the recording boundary above; production
-    /// code never reads this (Panes' consumer holds its own gating state).
+    func clearRestorePhaseGeneration(for paneID: UUID) {
+        restorePhaseByPane.removeValue(forKey: paneID)
+    }
+
+    func discardOpenActivityWindowsForRestorePhaseArm(for paneID: UUID) {
+        cancelUnseenWindow(for: paneID)
+        cancelAgentCandidate(for: paneID)
+        if var state = paneStates[paneID] {
+            state.unseenWindow = nil
+            state.activityWindow = nil
+            state.agentCandidate = nil
+            paneStates[paneID] = state
+        }
+    }
+
+    func resetPaneActivityBaselineAfterRestorePhaseEnd(for paneID: UUID) {
+        cancelUnseenWindow(for: paneID)
+        cancelAgentCandidate(for: paneID)
+        if var state = paneStates[paneID] {
+            state.outputBurst = outputBurstBaselineAfterRestorePhaseEnd(from: state.outputBurst)
+            state.unseenWindow = nil
+            state.activityWindow = nil
+            state.agentCandidate = nil
+            state.previousLastOutputLine = nil
+            state.hasReadableActivityBaseline = false
+            paneStates[paneID] = state
+        }
+    }
+
+    /// Test-only snapshot of the restore map; production reads it through
+    /// `isRestorePhaseActive`.
     var restorePhaseGenerationsByPane: [UUID: RestoreGeneration] { restorePhaseByPane }
 
-    /// SR6b: the only path that clears `restorePhaseByPane` on a PERMANENT
-    /// close. A plain `.surfaceClosed` — replacement or ordinary teardown —
-    /// never reaches here and never touches this map (see the property's own
-    /// doc comment above). Also tears down any live pane state, mirroring
-    /// `closeSurfaceState`, since a permanently retired pane will never emit
-    /// an ordinary `.surfaceClosed` for this projector to observe.
-    func retirePanePermanently(paneID: UUID) {
+    func retirePaneStatePermanently(for paneID: UUID) {
         cancelTimers(for: paneID)
         paneStates.removeValue(forKey: paneID)
-        restorePhaseByPane.removeValue(forKey: paneID)
     }
 
     func markObserved(surfaceID: UUID, paneID: UUID) {
@@ -660,47 +668,6 @@ package actor TerminalActivityProjector {
         scheduleUnseenClose(for: paneID, state: state)
     }
 
-    private func nextOutputBurst(
-        current: TerminalOutputBurstState,
-        aggregate: TerminalScrollbarActivityAggregate,
-        threshold: Int
-    ) -> TerminalOutputBurstState {
-        let baseline: Int
-        let priorRowsAdded: Int
-        switch current {
-        case .unknown:
-            baseline = aggregate.firstTotalRows
-            priorRowsAdded = 0
-        case .quiet(let lastTotal):
-            baseline = lastTotal
-            priorRowsAdded = 0
-        case .accumulating(let burst):
-            baseline = burst.baselineTotal
-            priorRowsAdded = burst.addedRows
-        }
-        let rowsAdded =
-            priorRowsAdded
-            + max(0, aggregate.firstTotalRows - (currentLatestTotal(current) ?? aggregate.firstTotalRows))
-            + aggregate.cumulativePositiveRowGrowth
-        guard rowsAdded > 0 else { return .quiet(lastTotal: aggregate.latestTotalRows) }
-        return .accumulating(
-            TerminalOutputBurst(
-                baselineTotal: baseline,
-                latestTotal: aggregate.latestTotalRows,
-                addedRows: rowsAdded,
-                threshold: threshold
-            )
-        )
-    }
-
-    private func currentLatestTotal(_ state: TerminalOutputBurstState) -> Int? {
-        switch state {
-        case .unknown: return nil
-        case .quiet(let lastTotal): return lastTotal
-        case .accumulating(let burst): return burst.latestTotal
-        }
-    }
-
     private func scheduleUnseenClose(for paneID: UUID, state: PaneState) {
         cancelUnseenWindow(for: paneID)
         guard let window = state.unseenWindow ?? state.activityWindow else { return }
@@ -744,6 +711,7 @@ package actor TerminalActivityProjector {
     }
 
     private func closeUnseenWindow(target: ActivityWindowCloseTarget) async {
+        guard !isRestorePhaseActive(paneID: target.paneID) else { return }
         guard var state = paneStates[target.paneID],
             state.surfaceID == target.surfaceID
         else { return }
@@ -766,6 +734,7 @@ package actor TerminalActivityProjector {
             surfaceID: target.surfaceID,
             paneID: target.paneID
         )
+        guard !Task.isCancelled, !isRestorePhaseActive(paneID: target.paneID) else { return }
         closeReadDurationSink?(readStartedAt.duration(to: .now))
         if let unseenWindow, unseenWindow.rowsAdded > 0 {
             await emit([
@@ -783,6 +752,7 @@ package actor TerminalActivityProjector {
     }
 
     private func closeAgentCandidate(target: ActivityWindowCloseTarget) async {
+        guard !isRestorePhaseActive(paneID: target.paneID) else { return }
         guard var state = paneStates[target.paneID],
             state.surfaceID == target.surfaceID,
             let candidate = state.agentCandidate,
@@ -803,6 +773,7 @@ package actor TerminalActivityProjector {
             surfaceID: candidate.surfaceID,
             paneID: target.paneID
         )
+        guard !Task.isCancelled, !isRestorePhaseActive(paneID: target.paneID) else { return }
         await emit([
             .agentSettledActivityPromoted(
                 surfaceID: candidate.surfaceID,
@@ -823,8 +794,10 @@ package actor TerminalActivityProjector {
         surfaceID: UUID,
         paneID: UUID
     ) async -> String? {
+        guard !Task.isCancelled, !isRestorePhaseActive(paneID: paneID) else { return nil }
         guard let lastOutputLineReader else { return nil }
         let readResult = await lastOutputLineReader(surfaceID)
+        guard !Task.isCancelled, !isRestorePhaseActive(paneID: paneID) else { return nil }
         guard case .value(let rawText) = readResult else { return nil }
 
         var state: PaneState
