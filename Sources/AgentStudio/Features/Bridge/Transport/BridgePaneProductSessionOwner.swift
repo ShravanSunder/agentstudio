@@ -421,7 +421,7 @@ package actor BridgePaneProductSessionOwner {
         return .activated
     }
 
-    private func rejectPreparedCandidateAfterAdmissionClose(
+    func rejectPreparedCandidateAfterAdmissionClose(
         _ candidate: BridgeProductSessionInstallation
     ) async -> BridgePaneProductSessionActivationResult {
         let workerInstanceId = candidate.bootstrap.workerInstanceId

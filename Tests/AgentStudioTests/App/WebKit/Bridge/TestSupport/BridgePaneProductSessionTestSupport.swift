@@ -158,6 +158,16 @@ private func collectBridgeSchemeHandlerProductReply(
 }
 
 actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
+    private let workerRevocation: HeldStep<String>?
+
+    init(workerRevocation: HeldStep<String>? = nil) {
+        self.workerRevocation = workerRevocation
+    }
+
+    func revokeWorkerIdentity(_ workerInstanceId: String) async {
+        try? await workerRevocation?.arrive(workerInstanceId)
+    }
+
     private enum AcknowledgementMode {
         case fail
         case failOnceThenHold

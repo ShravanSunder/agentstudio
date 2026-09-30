@@ -308,6 +308,7 @@ extension BridgePaneController {
         predecessor: BridgeProductInstallationFenceSnapshot? = nil
     ) async {
         guard let productAdmission = productAdmissionGate.acquire() else { return }
+        latestProductSessionBootstrapRequestId = requestId
         let expected =
             predecessor ?? (hasPublishedProductSessionBootstrap ? productSessionOwner.closeActiveInstallation() : nil)
         let precedingTransition = productSessionBootstrapTransitionTail
@@ -332,6 +333,7 @@ extension BridgePaneController {
         productAdmission: BridgeProductAdmissionContext,
         predecessor: BridgeProductInstallationFenceSnapshot?
     ) async {
+        guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
         bridgeProductBootstrapLogger.debug(
             "Preparing product session bootstrap requestId=\(requestId, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
         )
@@ -348,7 +350,7 @@ extension BridgePaneController {
             installation = replacement
         } else {
             guard let activeInstallation = await productSessionOwner.activeInstallation else {
-                setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
+                setProductBootstrapConnectionErrorIfAdmitted(productAdmission, requestId: requestId)
                 await answerProductSessionBootstrapFailure(
                     requestId: requestId,
                     reason: .noActiveSession,
@@ -356,11 +358,12 @@ extension BridgePaneController {
                 )
                 return
             }
-            guard (productAdmission.withValidAdmission { true }) == true else { return }
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
             installation = activeInstallation
         }
 
-        guard
+        guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission),
+            let installationAdmission = installation.productAdapter.acquireAdmission(),
             (productAdmission.withValidAdmission {
                 hasPublishedProductSessionBootstrap = true
                 return true
@@ -373,7 +376,7 @@ extension BridgePaneController {
         {
             surfaceSelectionReplay = enqueueRetainedSurfaceSelectionReplay(
                 commandId: retainedCommandId,
-                productAdmission: productAdmission,
+                productAdmission: installationAdmission,
                 productSchemeProvider: productSchemeProvider,
                 bootstrap: installation.bootstrap
             )
@@ -381,7 +384,6 @@ extension BridgePaneController {
             surfaceSelectionReplay = nil
         }
         do {
-            guard let installationAdmission = installation.productAdapter.acquireAdmission() else { return }
             try await productSessionBootstrapSink(
                 page,
                 requestId,
@@ -389,21 +391,30 @@ extension BridgePaneController {
                 bridgeWorld,
                 installationAdmission
             )
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else {
+                await retireProductBootstrapCandidateIfCurrent(installation)
+                return
+            }
             _ = await surfaceSelectionReplay?.value
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else {
+                await retireProductBootstrapCandidateIfCurrent(installation)
+                return
+            }
             bridgeProductBootstrapLogger.debug(
                 "Delivered product session bootstrap requestId=\(requestId, privacy: .public)"
             )
         } catch {
+            let failedInstallation = productSessionOwner.installationFenceProjection.snapshot
+            await retireProductBootstrapCandidateIfCurrent(installation)
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
             bridgeProductBootstrapLogger.error("Bridge product session bootstrap delivery failed: \(error)")
-            guard (productAdmission.withValidAdmission { true }) == true else { return }
             // The undelivered capability must not stay live. A failed retirement stays
             // owned by the session owner and is retried by the page's next request.
-            installation.installationFence.close()
-            let failedInstallation = productSessionOwner.installationFenceProjection.snapshot
-            if failedInstallation.installation == installation.installationFence {
-                _ = await productSessionOwner.retire(reason: .pageReload, installation: failedInstallation)
+            if failedInstallation.installation == installation.installationFence,
+                productSessionOwner.installationFenceProjection.snapshot.installation == nil
+            {
+                setProductBootstrapConnectionErrorIfAdmitted(productAdmission, requestId: requestId)
             }
-            setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
             await answerProductSessionBootstrapFailure(
                 requestId: requestId,
                 reason: .deliveryFailed,
@@ -413,11 +424,30 @@ extension BridgePaneController {
     }
 
     func setProductBootstrapConnectionErrorIfAdmitted(
-        _ productAdmission: BridgeProductAdmissionContext
+        _ productAdmission: BridgeProductAdmissionContext,
+        requestId: String,
+        predecessor: BridgeProductInstallationFenceSnapshot? = nil
     ) {
+        guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
+        if let predecessor, productSessionOwner.installationFenceProjection.snapshot != predecessor { return }
         _ = productAdmission.withValidAdmission {
             paneState.connection.setHealth(.error)
         }
+    }
+
+    func isCurrentProductBootstrapRequest(
+        _ requestId: String,
+        productAdmission: BridgeProductAdmissionContext
+    ) -> Bool {
+        latestProductSessionBootstrapRequestId == requestId
+            && productAdmission.withValidAdmission { true } == true
+    }
+
+    func retireProductBootstrapCandidateIfCurrent(_ installation: BridgeProductSessionInstallation) async {
+        installation.installationFence.close()
+        let current = productSessionOwner.installationFenceProjection.snapshot
+        guard current.installation == installation.installationFence else { return }
+        _ = await productSessionOwner.retire(reason: .pageReload, installation: current)
     }
 
     static func dispatchProductSessionBootstrap(

@@ -28,26 +28,42 @@ package typealias BridgeProductSessionBootstrapFailureSink =
 @MainActor
 extension BridgePaneController {
     /// Replaces the active product session for a page that already received one. Returns
-    /// nil after answering the request with a typed failure, or when the pane is closing.
+    /// nil after a current request's typed failure, supersession, or pane closure.
     func activateReplacementProductSessionInstallation(
         requestId: String,
         reason: BridgeReadyMessageHandler.ProductSessionBootstrapReason,
         productAdmission: BridgeProductAdmissionContext,
         predecessor: BridgeProductInstallationFenceSnapshot?
     ) async -> BridgeProductSessionInstallation? {
-        surfaceSelectionAuthority.invalidateCurrentBinding()
+        guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return nil }
         do {
             let candidate = try await productSessionOwner.prepareCandidate(
                 productAdmission: productAdmission
             )
-            guard
-                await productSessionOwner.activatePreparedCandidate(
-                    candidate,
-                    productAdmission: productAdmission,
-                    replacing: predecessor
-                ) == .activated
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else {
+                candidate.installationFence.close()
+                _ = await productSessionOwner.rejectPreparedCandidateAfterAdmissionClose(candidate)
+                return nil
+            }
+            let activation = await productSessionOwner.activatePreparedCandidate(
+                candidate,
+                productAdmission: productAdmission,
+                replacing: predecessor
+            )
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else {
+                await retireProductBootstrapCandidateIfCurrent(candidate)
+                return nil
+            }
+            guard activation == .activated,
+                productSessionOwner.installationFenceProjection.snapshot.installation == candidate.installationFence,
+                let installationAdmission = candidate.productAdapter.acquireAdmission(),
+                installationAdmission.withValidAdmission({
+                    surfaceSelectionAuthority.invalidateCurrentBinding()
+                    return true
+                }) == true
             else {
-                setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
+                setProductBootstrapConnectionErrorIfAdmitted(
+                    productAdmission, requestId: requestId, predecessor: predecessor)
                 await answerProductSessionBootstrapFailure(
                     requestId: requestId,
                     reason: .activationFailed,
@@ -59,8 +75,10 @@ extension BridgePaneController {
         } catch BridgePaneProductSessionOwnerError.ownerDisposed {
             return nil
         } catch {
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return nil }
             bridgeProductBootstrapFailureLogger.error("Bridge product session replacement failed: \(error)")
-            setProductBootstrapConnectionErrorIfAdmitted(productAdmission)
+            setProductBootstrapConnectionErrorIfAdmitted(
+                productAdmission, requestId: requestId, predecessor: predecessor)
             await answerProductSessionBootstrapFailure(
                 requestId: requestId,
                 reason: .candidatePreparationFailed,
@@ -70,21 +88,21 @@ extension BridgePaneController {
         }
     }
 
-    /// Every admitted bootstrap request gets an answer, so the page never waits on a
-    /// request native abandoned. Delivery of the answer is best effort: when the page
-    /// itself is unreachable there is no one left to wait.
+    /// Current requests receive typed failures; a superseded request has no page waiter.
+    /// Answer delivery is best effort when the page itself is unreachable.
     func answerProductSessionBootstrapFailure(
         requestId: String,
         reason: BridgeProductSessionBootstrapFailureReason,
         productAdmission: BridgeProductAdmissionContext
     ) async {
-        guard (productAdmission.withValidAdmission { true }) == true else { return }
+        guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
         bridgeProductBootstrapFailureLogger.error(
             "Answering product session bootstrap requestId=\(requestId, privacy: .public) with failure reason=\(reason.rawValue, privacy: .public)"
         )
         do {
             try await productSessionBootstrapFailureSink(page, requestId, reason, bridgeWorld)
         } catch {
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
             bridgeProductBootstrapFailureLogger.error(
                 "Product session bootstrap failure reply could not be delivered requestId=\(requestId, privacy: .public)"
             )

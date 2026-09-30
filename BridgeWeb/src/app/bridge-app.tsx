@@ -449,15 +449,13 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
 				});
 		};
+		paneRuntimeHost.runtime.setNativeBootstrapRequester(requestReplacementNativeBootstrap);
 		handshakeSessionRef.current = installBridgePageHandshakeSession(target, {
 			onProductSessionBootstrap: (productSessionBootstrap): void => {
-				paneRuntimeHost.runtime.setNativeBootstrapRequester(requestReplacementNativeBootstrap);
 				paneRuntimeHost.runtime.installNativeBootstrap(productSessionBootstrap);
 			},
-			onProductSessionBootstrapFailure: (failure): void => {
-				if (failure.requestReason === 'workerReplacement') {
-					paneRuntimeHost.runtime.handleNativeBootstrapFailure();
-				}
+			onProductSessionBootstrapFailure: (): void => {
+				paneRuntimeHost.runtime.handleNativeBootstrapFailure();
 			},
 			onReady: (): void => {
 				recordBridgePageReadyState('ready');

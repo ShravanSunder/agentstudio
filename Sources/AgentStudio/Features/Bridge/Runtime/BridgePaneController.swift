@@ -110,6 +110,7 @@ package final class BridgePaneController {
     private var isTeardownStarted = false
     private var lifecycleRetirementTask: Task<Bool, Never>?
     var productSessionBootstrapTransitionTail: Task<Void, Never>?
+    var latestProductSessionBootstrapRequestId: String?
     var hasPublishedProductSessionBootstrap = false
     var telemetrySessionBootstrapTransitionTail: Task<Void, Never>?
     var hasPublishedTelemetrySessionBootstrap = false
@@ -397,8 +398,9 @@ package final class BridgePaneController {
     }
 
     func configureReadyMessageHandler(_ readyMessageHandler: BridgeReadyMessageHandler) {
-        readyMessageHandler.prepareProductBootstrapEnd = { [weak self] reason in
+        readyMessageHandler.prepareProductBootstrapEnd = { [weak self] requestId, reason in
             guard let self else { return nil }
+            latestProductSessionBootstrapRequestId = requestId
             let snapshot = productSessionOwner.installationFenceProjection.snapshot
             guard
                 hasPublishedProductSessionBootstrap || reason == .workerReplacement
@@ -407,7 +409,8 @@ package final class BridgePaneController {
             return productSessionOwner.closeActiveInstallation()
         }
         readyMessageHandler.onProductBootstrapRequest = { [weak self] requestId, reason, predecessor in
-            await self?.enqueueProductSessionBootstrapRequest(
+            guard let self, latestProductSessionBootstrapRequestId == requestId else { return }
+            await enqueueProductSessionBootstrapRequest(
                 requestId: requestId, reason: reason, predecessor: predecessor)
         }
         readyMessageHandler.onBootstrapRequest = { [weak self] bootstrapMessage in
@@ -525,6 +528,7 @@ package final class BridgePaneController {
     @discardableResult
     package func reloadWebView() -> Bool {
         guard canReloadWebView else { return false }
+        latestProductSessionBootstrapRequestId = nil
         _ = productSessionOwner.closeActiveInstallation()
         _ = page.reload()
         return true

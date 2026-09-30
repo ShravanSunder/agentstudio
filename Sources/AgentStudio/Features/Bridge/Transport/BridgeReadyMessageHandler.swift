@@ -31,7 +31,7 @@ final class BridgeReadyMessageHandler: NSObject, WKScriptMessageHandler {
 
     var onBootstrapRequest: (@MainActor @Sendable (BootstrapMessage) async -> Void)?
     var prepareProductBootstrapEnd:
-        (@MainActor @Sendable (ProductSessionBootstrapReason) -> BridgeProductInstallationFenceSnapshot?)?
+        (@MainActor @Sendable (String, ProductSessionBootstrapReason) -> BridgeProductInstallationFenceSnapshot?)?
     var onProductBootstrapRequest:
         (
             @MainActor @Sendable (String, ProductSessionBootstrapReason, BridgeProductInstallationFenceSnapshot?) async
@@ -118,7 +118,7 @@ final class BridgeReadyMessageHandler: NSObject, WKScriptMessageHandler {
             let productCallback = onProductBootstrapRequest
         {
             // E1 ends at message ingress, before even scheduling the MainActor task.
-            let predecessor = prepareProductBootstrapEnd?(reason)
+            let predecessor = prepareProductBootstrapEnd?(requestId, reason)
             return Task { @MainActor in await productCallback(requestId, reason, predecessor) }
         }
         guard let callback = onBootstrapRequest else {

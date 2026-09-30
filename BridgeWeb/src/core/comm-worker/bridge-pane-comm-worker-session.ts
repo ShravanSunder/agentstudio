@@ -130,10 +130,14 @@ export class BridgePaneCommWorkerSession {
 
 	/**
 	 * Native answered a bootstrap request with a typed failure. While a replacement is
-	 * outstanding, ask again within a bounded budget; otherwise there is nothing to retry.
+	 * outstanding, or before the first capability, reuse the same bounded request budget.
 	 */
 	handleNativeBootstrapFailure(): void {
-		if (this.#isDisposed || this.#state !== 'replacement_requested') return;
+		if (
+			this.#isDisposed ||
+			(this.#state !== 'replacement_requested' && this.#state !== 'awaiting_bootstrap')
+		)
+			return;
 		this.#isRestartRequested = false;
 		this.#requestWorkerReplacementBootstrap();
 	}

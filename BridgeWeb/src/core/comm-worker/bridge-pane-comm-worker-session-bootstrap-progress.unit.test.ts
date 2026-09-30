@@ -29,6 +29,117 @@ afterEach(() => {
 });
 
 describe('Page bootstrap finite progress through the real handshake and worker session', () => {
+	test.each(['exhausted', 'recovered'] as const)(
+		'a typed initial failure enters the existing replacement budget (%s)',
+		async (outcome) => {
+			const target = new EventTarget();
+			const requests: z.infer<typeof bootstrapRequestSchema>[] = [];
+			const snapshots: BridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
+			const client = new RecordingPaneCommWorkerClient();
+			const recoveredPort = createBridgeProductDeferred<MessagePort>();
+			const NativeMessageChannel = MessageChannel;
+			class RecordingChannel extends NativeMessageChannel {
+				constructor() {
+					super();
+					recoveredPort.resolve(this.port2);
+				}
+			}
+			vi.stubGlobal('MessageChannel', RecordingChannel);
+			const session = new BridgePaneCommWorkerSession({
+				workerFactory: (): Worker => new RecordingPaneCommWorker(),
+				recordDiagnosticSnapshot: (snapshot): void => {
+					snapshots.push(snapshot);
+				},
+			});
+			const dispatcher = session.createDispatcher({
+				bootstrapRequest: makeRuntimeBootstrapRequest('initial-failure-budget'),
+				publishWorkerMessages: client.publish,
+			});
+			target.addEventListener('__bridge_product_session_bootstrap_request', (event): void => {
+				if (!('detail' in event)) throw new Error('Missing bootstrap request detail.');
+				requests.push(bootstrapRequestSchema.parse(event.detail));
+			});
+			const handshake = installBridgePageHandshakeSession(target, {
+				onProductSessionBootstrap: (bootstrap): void => session.installNativeBootstrap(bootstrap),
+				onProductSessionBootstrapFailure: (): void => session.handleNativeBootstrapFailure(),
+			});
+			session.setNativeBootstrapRequester((): void => handshake.requestProductSessionReplacement());
+			try {
+				dispatcher.dispatch(
+					makeSelectCommand('queued-before-first-capability', 1, 'item-1', 'review'),
+				);
+				const refuseLatestRequest = (): void => {
+					const request = requests.at(-1);
+					if (request === undefined) throw new Error('Missing admitted request.');
+					target.dispatchEvent(
+						new CustomEvent('__bridge_product_session_bootstrap', {
+							detail: { requestId: request.requestId, failure: { reason: 'activation_failed' } },
+						}),
+					);
+				};
+				refuseLatestRequest();
+				expect(snapshots.at(-1)).toMatchObject({
+					state: 'replacement_requested',
+					replacementRequestCount: 1,
+				});
+				if (outcome === 'recovered') {
+					const request = requests.at(-1);
+					if (request === undefined)
+						throw new Error('Expected bounded native replacement request.');
+					deliverBootstrap(target, request.requestId, 'recovered-first-capability');
+					const mainPort = await recoveredPort.promise;
+					mainPort.dispatchEvent(
+						new MessageEvent('message', { data: makeReadyHealth('initial-failure-budget') }),
+					);
+					expect(snapshots.at(-1)).toMatchObject({
+						state: 'ready',
+						queuedCommandCount: 0,
+						replacementRequestCount: 1,
+						nativeBootstrapInstallCount: 1,
+					});
+					expect(requests).toHaveLength(2);
+					expect(
+						client.messages.filter(
+							(message) =>
+								message.kind === 'health' && message.requestId === 'queued-before-first-capability',
+						),
+					).toHaveLength(0);
+					return;
+				}
+				for (let attempt = 0; attempt < 4; attempt += 1) refuseLatestRequest();
+				expect(requests.filter((request) => request.reason === 'workerReplacement')).toHaveLength(
+					4,
+				);
+				expect(snapshots.at(-1)).toMatchObject({
+					state: 'failed',
+					failureReason: 'bootstrapBudgetExhausted',
+					queuedCommandCount: 0,
+				});
+				expect(
+					client.messages.filter(
+						(message) =>
+							message.kind === 'health' && message.requestId === 'queued-before-first-capability',
+					),
+				).toEqual([expect.objectContaining({ errorKind: 'workerUnavailable' })]);
+				refuseLatestRequest();
+				expect(requests.filter((request) => request.reason === 'workerReplacement')).toHaveLength(
+					4,
+				);
+				expect(snapshots.at(-1)?.state).toBe('failed');
+				expect(
+					client.messages.filter(
+						(message) =>
+							message.kind === 'health' && message.requestId === 'queued-before-first-capability',
+					),
+				).toHaveLength(1);
+			} finally {
+				dispatcher.dispose();
+				session.dispose();
+				handshake.uninstall();
+			}
+		},
+	);
+
 	test.each(['success', 'failure'] as const)(
 		'a stale native %s cannot complete the next attempt after a lost-reply deadline',
 		async (staleReply) => {
