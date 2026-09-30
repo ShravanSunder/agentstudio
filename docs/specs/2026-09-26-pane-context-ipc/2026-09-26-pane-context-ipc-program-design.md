@@ -1,6 +1,6 @@
 # Enable pane agents: how it is built
 
-Date: 2026-09-30. **Revision 9** (owner, 2026-09-30): the CLI store has one writer, the CLI. The app reads it read-only; outbox rows carry no delivery state; the app's progress lives in `local.sqlite`, and the CLI purges only rows at or below the mark the app returns at login. Unread rows are never deleted. Date: 2026-09-27. **Revision 8** (round 6: a stale refusal is final for its payload). **Revision 7**, answering round 5 (R5-F1 permission
+Date: 2026-09-30. **Revision 10** (closeout A6): the pull-request summary moves here from Bridge (navigation R19). `PaneContextDetail.pullRequests`, a pure off-main fold over the pane's linked worktrees and Forge's cached facts; the counting rule awaits owner confirmation. **Revision 9** (owner, 2026-09-30): the CLI store has one writer, the CLI. The app reads it read-only; outbox rows carry no delivery state; the app's progress lives in `local.sqlite`, and the CLI purges only rows at or below the mark the app returns at login. Unread rows are never deleted. Date: 2026-09-27. **Revision 8** (round 6: a stale refusal is final for its payload). **Revision 7**, answering round 5 (R5-F1 permission
 prompts resolve only at turn boundaries; R5-F2 epoch claims are a separate
 idempotent step). Revision 6 answered round 4 (R4-F1 to R4-F6). Revision 5 answered round 3 and the owner's simplified show;
 revision 4 answered round 2. This is the Program Design for PR B. It builds the
@@ -646,6 +646,7 @@ struct PaneContextDetail: Sendable, Equatable {
     let messages: [AgentMessageDetail] // open asks, unread notices, then settled (retention below)
     let drawerMessages: [DrawerMessageGroup]  // owner pane only, labeled by source pane
     let links: PaneLinksDetail         // .unknown until B2
+    let pullRequests: PullRequestSummaryDetail  // Spec R32 / S14; .notApplicable for fewer than two linked worktrees
     let truncation: DetailTruncation?  // set when a bound below was hit
 }
 struct AgentMessageDetail: Sendable, Equatable {
@@ -657,6 +658,25 @@ struct AgentMessageDetail: Sendable, Equatable {
     let actions: [MessageAction]
     let shape: AgentMessageShape
 }
+enum PullRequestSummaryDetail: Sendable, Equatable {
+    case notApplicable                 // fewer than two linked worktrees: the pane keeps its existing PR control
+    case summary(PullRequestSummary)
+}
+struct PullRequestSummary: Sendable, Equatable {
+    let state: PullRequestSummaryState
+    let members: [PullRequestMemberRow]   // every linked worktree, in link order
+}
+enum PullRequestSummaryState: Sendable, Equatable {
+    case needsAttention(count: Int)    // members with failing checks or changes requested
+    case running                       // none need attention; some member's checks are running
+    case allGood                       // none need attention or run; at least one member has a PR with passing checks
+    case noInfo                        // every member has no PR or unknown facts
+}
+enum PullRequestMemberRow: Sendable, Equatable {
+    case noPullRequest(worktreeId: UUID)
+    case unknown(worktreeId: UUID)              // Forge facts not fetched yet; neutral
+    case pullRequest(worktreeId: UUID, number: Int, checks: PullRequestCheckStatus, review: PullRequestReviewStatus)
+}   // PullRequestCheckStatus / PullRequestReviewStatus are Forge's existing enums (RepoBranchPullRequestFacts.swift:14,21)
 enum AgentMessageShape: Sendable, Equatable {
     case notice(NoticeState)           // .unread | .read | .dismissed | .withdrawn
     case ask(AskReason, AskForm, AskWaiting, AskState)
@@ -719,6 +739,24 @@ Rules the implementations keep:
 - **The outer channel is bounded.** `StorageFailureSummary` is a closed enum
   (`.databaseUnavailable | .commitFailed | .decodeFailed(field)`) with no
   payload text.
+
+### The pull-request summary (Spec R32, S14; closeout A6)
+
+- **What it is:** a pure fold, `PullRequestSummaryFold.summarize(members:) -> PullRequestSummaryDetail`, in `Core/PaneContext/`. It takes values and does no I/O.
+- **Members:** the pane's linked worktrees (B2 links, in link order). Each member's row comes from Forge's existing cached facts (`RepoBranchPullRequestFacts`, keyed by repository and branch).
+  - no pull request → `.noPullRequest`;
+  - facts not fetched yet → `.unknown`;
+  - otherwise `.pullRequest(number, checks, review)`.
+- **The rule, applied to the rows:**
+  - a member **needs attention** when `checks == .failed` or `review == .changesRequested`;
+  - `needsAttention(count)` when the count is above 0;
+  - otherwise `running` when any member's `checks == .running`;
+  - otherwise `allGood` when at least one member has a pull request with `checks == .passed`;
+  - otherwise `noInfo`.
+  - `.unknown` members, `.noPullRequest` members, and a pull request whose `checks == .unknown` are neutral: they never count as good or bad.
+- **Where it runs:** inside `PaneContextService`'s off-main detail derivation, like the rest of `PaneContextDetail`. A Forge fact change for any member re-derives the summary, and bumps the pane's revision only when the derived value changed (Spec R4: publish on change only).
+- **Who keeps the facts fresh:** Forge's existing demand owner (`PullRequestDemandProjection`). PR C's visible chip registers a demand source there; PR B adds no poller. Two or more members are required; a single-worktree pane gets `.notApplicable` and keeps today's PR control (`PanePullRequestToolbarActionFactory`).
+- **Pending:** the counting rule is the orchestrator's default, awaiting owner confirmation (Spec R32).
 
 ## Bounds and retention
 

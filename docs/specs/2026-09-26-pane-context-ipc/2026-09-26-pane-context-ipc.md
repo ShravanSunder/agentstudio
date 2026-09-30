@@ -1,6 +1,6 @@
 # Enable pane agents: what must be true
 
-Date: 2026-09-27. **Revision 7** (round 5: epoch claim added to the surface). **Revision 6** (round-4 review: legacy replay exception stated, ambiguous completions don't resolve prompts). **Revision 5** (round-3 review: a provider prompt resolves
+Date: 2026-09-30. **Revision 8** (closeout A6): S14 pull-request summary and R32 (Bridge navigation R19's rule, now derived here; counting pending owner confirmation). **Revision 7** (round 5: epoch claim added to the surface). **Revision 6** (round-4 review: legacy replay exception stated, ambiguous completions don't resolve prompts). **Revision 5** (round-3 review: a provider prompt resolves
 only on its own completion or a turn boundary; importance and ask reason are
 explicit; owner's simplified show). Revision 4 separated provider prompts from
 messages and answered from received. This is the
@@ -56,6 +56,7 @@ flowchart LR
 | S11 | Link (B2) | Bridge's receiver item and contributor | lives in Bridge's membership; PR B only stamps the contributor | Bridge's states |
 | S12 | CLI store | one per app data root | owned by `agentstudio`; holds write numbers, answer positions and the notice outbox | — |
 | S13 | Provider prompt | same session and same provider prompt occurrence | a hook saw the provider ask the person something in its own terminal (a permission request, an AskUserQuestion, an MCP elicitation); it is observed, never answered in the app, and the hook never waits for it | open → resolved (its own completion, or a turn boundary) \| ended (the session ended or was replaced) |
+| S14 | Pull-request summary | one per pane with two or more linked worktrees | derived by the app from Forge's facts about those worktrees' pull requests; never stored; it doesn't exist for a single-worktree pane (that pane keeps its existing PR control) | needsAttention(count) \| running \| allGood \| noInfo |
 
 ## One surface, organized by domain object
 
@@ -140,6 +141,7 @@ never agent IPC methods.
 | R29 | Records survive restart while the pane exists, follow close and Undo, and are deleted about a day after the pane is permanently gone. | N14 |
 | R30 | None of this runs on app startup, the first window, or terminal creation and reattach. The main thread only receives computed values to show. | N14 |
 | R31 | A CLI call does no command-catalog loading or catalog validation. The app validates every request and returns a typed result or refusal with correction data. Only discovery commands fetch the catalog. A warm-app call returns within the budget stated in the proof. The CLI prints the result or refusal reason for a person running it by hand. Every CLI call has one end-to-end time limit covering connecting, signing in, sending and the reply (for `ask --wait`, its own stated limit). On timeout it stops, and says whether the request was never sent or was sent with its outcome unknown; it never queues a request whose outcome is unknown. | N15, N3 |
+| R32 | When a pane has two or more linked worktrees, the app shows one pull-request summary (S14) for them, derived off the main thread from Forge's facts and part of `pane.context.get` and the pane's detail. The count is the number of members whose pull request needs attention (checks failing or changes requested). The state is needsAttention(count) when the count is above 0, otherwise running when any member's checks are running, otherwise allGood when at least one member has a pull request with passing checks, otherwise noInfo. A member with no pull request, or whose facts haven't been fetched, is listed as "no PR" or "unknown" and never counts as good or bad. A change in any member's facts bumps the pane's context revision. This is Bridge navigation R19 (formerly B3), whose derivation Bridge's design moved here; Forge owns the facts and keeps them current while a summary is visible, and PR C owns the one shared chip. *(Counting rule: the orchestrator's default, pending owner confirmation.)* | N11 |
 
 ## When things go wrong
 
@@ -184,3 +186,4 @@ never agent IPC methods.
 | R25–R28 | Integration: owner read with drawer messages; rights refusals; outbox drain after the app starts; size limits |
 | R29, R30 | Restart and retirement integration; startup-path proof (IPC v2 R-25) |
 | R31 | Measured warm-call latency against the budget; a trace showing no catalog fetch on a normal call |
+| R32 | Unit, as a table over the rule: every combination of members' states (failing, changes requested, running, passing, no PR, unknown) gives the stated summary and count. Integration: a Forge fact change for one member bumps the pane's context revision and changes the summary; a single-worktree pane has no summary |
