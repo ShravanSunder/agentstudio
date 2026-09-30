@@ -50,6 +50,7 @@ actor BridgePaneProductMetadataCoordinator {
     private var lifecycleTransitionTail: Task<Void, Never>?
     private var streamTransitionGeneration = 0
     var subscriptionKindById: [String: BridgeProductSubscriptionKind] = [:]
+    var commentViewHandleBySubscriptionId: [String: String] = [:]
     var deferredOpenSubscriptionIds: Set<String> = []
     var openedSourceSubscriptionIds: Set<String> = []
 
@@ -151,6 +152,9 @@ actor BridgePaneProductMetadataCoordinator {
         // stream exists and cannot have opened anything on it; everything the session
         // holds right now therefore belongs to the client this stream replaces.
         let opensFresh = request.resumeFromStreamSequence == nil
+        if opensFresh {
+            await retireAllCommentViews()
+        }
         let staleSubscriptionIdsToRetire =
             opensFresh ? await session.subscriptionSnapshots().map(\.subscriptionId) : []
         guard streamTransitionGeneration == transitionGeneration else { return }
@@ -221,6 +225,7 @@ actor BridgePaneProductMetadataCoordinator {
         let producerTasks = producerTaskLifecycle.takeAndCancelEveryProducerTask()
         await cancelEverySubscription()
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
+        await retireAllCommentViews()
         let sessionForClosedStream = activeStream?.session
         activeStream = nil
         await sessionForClosedStream?.setViewResnapshotNeededObserver(nil)
@@ -245,6 +250,7 @@ actor BridgePaneProductMetadataCoordinator {
                 subscriptionKind: subscription.subscriptionKind
             )
             await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
+            await retireCommentView(subscriptionId: subscription.subscriptionId)
             removeSubscriptionLifecycleState(subscriptionId: subscription.subscriptionId)
         case .resynced(let result):
             for outcome in result.reconciliation {
@@ -258,6 +264,7 @@ actor BridgePaneProductMetadataCoordinator {
                         subscriptionKind: outcome.subscriptionKind
                     )
                     await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
+                    await retireCommentView(subscriptionId: outcome.subscriptionId)
                     removeSubscriptionLifecycleState(subscriptionId: outcome.subscriptionId)
                 case .retained:
                     guard subscriptionKindById[outcome.subscriptionId] == nil,
@@ -282,6 +289,7 @@ actor BridgePaneProductMetadataCoordinator {
                     )
                 }
                 await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
+                await retireCommentView(subscriptionId: subscriptionId)
                 removeSubscriptionLifecycleState(subscriptionId: subscriptionId)
             }
         case .viewScopeAccepted, .viewResnapshotAccepted, .noEffect, .productCall:
@@ -778,6 +786,21 @@ extension BridgePaneProductMetadataCoordinator {
         deferredOpenSubscriptionIds.remove(subscriptionId)
         openedSourceSubscriptionIds.remove(subscriptionId)
     }
+
+    private func retireCommentView(subscriptionId: String) async {
+        guard let handle = commentViewHandleBySubscriptionId.removeValue(forKey: subscriptionId) else {
+            return
+        }
+        await annotationSource.retireBatchView(handle: handle)
+    }
+
+    private func retireAllCommentViews() async {
+        let handles = Array(commentViewHandleBySubscriptionId.values)
+        commentViewHandleBySubscriptionId.removeAll(keepingCapacity: false)
+        for handle in handles {
+            await annotationSource.retireBatchView(handle: handle)
+        }
+    }
     var reviewSubscriptionIds: [String] {
         subscriptionKindById.compactMap { subscriptionId, kind in
             kind == .reviewMetadata ? subscriptionId : nil
@@ -808,6 +831,7 @@ extension BridgePaneProductMetadataCoordinator {
             )
         }
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
+        await retireCommentView(subscriptionId: subscriptionId)
         removeSubscriptionLifecycleState(subscriptionId: subscriptionId)
     }
 }

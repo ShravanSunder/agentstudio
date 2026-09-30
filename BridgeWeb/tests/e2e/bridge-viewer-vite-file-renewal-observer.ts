@@ -9,19 +9,21 @@ export interface FileRenewalWireEvent {
 	readonly streamSequence: number;
 }
 
-export interface FileSubscriptionLifecycleEvent {
+export interface SubscriptionLifecycleWireEvent {
 	readonly atEpochMilliseconds: number;
 	readonly eventKind: string;
 	readonly reason: string | null;
 	readonly streamSequence: number;
 	readonly subscriptionId: string;
+	readonly subscriptionKind: string;
 }
 
 // Diagnostic only: decode observed copies of real frames, never modify forwarding.
 export class BridgeFileRenewalWireObserver {
 	readonly #decoder = new BridgeProductMetadataFrameDecoder();
 	readonly #events: FileRenewalWireEvent[] = [];
-	readonly #lifecycleEvents: FileSubscriptionLifecycleEvent[] = [];
+	readonly #firstLifecycleEvents: SubscriptionLifecycleWireEvent[] = [];
+	readonly #lifecycleEvents: SubscriptionLifecycleWireEvent[] = [];
 	readonly #pendingBatches = new Map<
 		string,
 		{
@@ -35,7 +37,31 @@ export class BridgeFileRenewalWireObserver {
 	observe(chunk: Uint8Array): void {
 		try {
 			for (const frame of this.#decoder.push(chunk)) {
-				if (!('subscriptionKind' in frame) || frame.subscriptionKind !== 'file.metadata') continue;
+				if (!('subscriptionKind' in frame)) continue;
+				switch (frame.kind) {
+					case 'subscription.accepted':
+					case 'subscription.cancelled':
+					case 'subscription.end':
+					case 'subscription.reset': {
+						const event = {
+							atEpochMilliseconds: Date.now(),
+							eventKind: frame.kind,
+							reason: 'reason' in frame ? frame.reason : null,
+							streamSequence: frame.streamSequence,
+							subscriptionId: frame.subscriptionId,
+							subscriptionKind: frame.subscriptionKind,
+						} satisfies SubscriptionLifecycleWireEvent;
+						if (this.#firstLifecycleEvents.length < 32) this.#firstLifecycleEvents.push(event);
+						this.#lifecycleEvents.push(event);
+						if (this.#lifecycleEvents.length > 128) this.#lifecycleEvents.shift();
+						break;
+					}
+					case 'subscription.batchBegin':
+					case 'subscription.batchPart':
+					case 'subscription.batchComplete':
+						break;
+				}
+				if (frame.subscriptionKind !== 'file.metadata') continue;
 				switch (frame.kind) {
 					case 'subscription.batchBegin':
 						this.#pendingBatches.set(frame.batchId, {
@@ -78,14 +104,6 @@ export class BridgeFileRenewalWireObserver {
 					case 'subscription.cancelled':
 					case 'subscription.end':
 					case 'subscription.reset':
-						this.#lifecycleEvents.push({
-							atEpochMilliseconds: Date.now(),
-							eventKind: frame.kind,
-							reason: 'reason' in frame ? String(frame.reason) : null,
-							streamSequence: frame.streamSequence,
-							subscriptionId: frame.subscriptionId,
-						});
-						if (this.#lifecycleEvents.length > 128) this.#lifecycleEvents.shift();
 						break;
 				}
 			}
@@ -96,11 +114,13 @@ export class BridgeFileRenewalWireObserver {
 
 	snapshot(): {
 		readonly events: readonly FileRenewalWireEvent[];
-		readonly lifecycleEvents: readonly FileSubscriptionLifecycleEvent[];
+		readonly firstLifecycleEvents: readonly SubscriptionLifecycleWireEvent[];
+		readonly lifecycleEvents: readonly SubscriptionLifecycleWireEvent[];
 		readonly decodeFailureCount: number;
 	} {
 		return {
 			events: [...this.#events],
+			firstLifecycleEvents: [...this.#firstLifecycleEvents],
 			lifecycleEvents: [...this.#lifecycleEvents],
 			decodeFailureCount: this.#decodeFailureCount,
 		};

@@ -71,7 +71,34 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 			const reviewComparisonRead = await readBrowserDiagnosticWithinDeadline(
 				page.evaluate(() => {
 					const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+					const refreshHeaderGroup = document.querySelector(
+						'[data-testid="bridge-review-refresh-header-group"]',
+					);
+					const refreshHeaderSizer = document.querySelector(
+						'[data-testid="bridge-review-refresh-header-slot"] > [aria-hidden="true"]',
+					);
 					return {
+						refreshHeader: {
+							groupPresent: refreshHeaderGroup !== null,
+							groupText: refreshHeaderGroup?.textContent?.trim() ?? null,
+							groupVisibility:
+								refreshHeaderGroup === null
+									? null
+									: getComputedStyle(refreshHeaderGroup).visibility,
+							groupBounds:
+								refreshHeaderGroup === null
+									? null
+									: {
+											width: refreshHeaderGroup.getBoundingClientRect().width,
+											height: refreshHeaderGroup.getBoundingClientRect().height,
+										},
+							sizerPresent: refreshHeaderSizer !== null,
+							sizerText: refreshHeaderSizer?.textContent?.trim() ?? null,
+							sizerVisibility:
+								refreshHeaderSizer === null
+									? null
+									: getComputedStyle(refreshHeaderSizer).visibility,
+						},
 						comparisonStatus:
 							document.querySelector('[data-testid="bridge-viewer-content-status"]')?.textContent ??
 							null,
