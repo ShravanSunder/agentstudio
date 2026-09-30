@@ -121,3 +121,28 @@ test('a source discovery failure before any subscription is Failed with a surfac
 	await expect.element(rendered.getByRole('button', { name: 'Retry' }).first()).toBeVisible();
 	expect(document.querySelector('[data-slot="skeleton"]')).toBeNull();
 });
+
+test('typed no-file-source-authority is quiet noSource Empty, not Loading or Failed', async () => {
+	await render(
+		<BridgeFileViewerBrowserHarnessApp
+			fileProductSession={{
+				currentSource: async () => ({ status: 'unavailable', reason: 'no-file-source-authority' }),
+			}}
+		/>,
+	);
+	await act(async (): Promise<void> => {
+		await waitForBridgeFileViewerWorkerMessageDrain();
+	});
+	expect(
+		document
+			.querySelector('[data-bridge-region="file-tree"]')
+			?.getAttribute('data-presentation-state'),
+	).toBe('empty');
+	expect(document.querySelector('[data-bridge-region="file-tree"]')?.textContent).toContain(
+		'This pane has no worktree files.',
+	);
+	expect(
+		document.querySelector('[data-slot="skeleton"], [role="alert"], button[aria-label="Retry"]'),
+	).toBeNull();
+	expect(document.body.textContent).not.toMatch(/loading|waiting|pending/i);
+});

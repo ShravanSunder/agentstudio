@@ -772,6 +772,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
 			},
 			onFileSourceUnavailable: (): void => {
+				const displayProjection = fileQueryProjection.applyDisplayPatches([
+					{ operation: 'upsert', payload: { state: 'noSource' }, slice: 'fileStatus' },
+				]);
+				for (const message of fileDisplayEventAuthority.publish({
+					epoch: productTransport.workerDerivationEpoch('file'),
+					patches: displayProjection.patches,
+				}))
+					port.postMessage(message);
 				requestReviewBackgroundWarmup('file-source-unavailable');
 			},
 			onFileMetadataFailure: (_error, workerDerivationEpoch): void => {
