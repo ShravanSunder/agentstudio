@@ -171,6 +171,11 @@ export class TestProductServer {
 				request: Extract<BridgeProductControlRequest, { kind: 'workerSession.resync' }>,
 		  ) => Promise<Response> | Response)
 		| null = null;
+	resnapshotHandler:
+		| ((
+				request: Extract<BridgeProductControlRequest, { kind: 'subscription.resnapshot' }>,
+		  ) => Promise<Response> | Response)
+		| null = null;
 	readonly requestRoutes: string[] = [];
 	#heldOpen: (() => void) | null = null;
 	#holdOpen = false;
@@ -502,6 +507,7 @@ export class TestProductServer {
 					subscriptionKind: request.subscriptionKind,
 				});
 			case 'subscription.resnapshot':
+				if (this.resnapshotHandler !== null) return await this.resnapshotHandler(request);
 				return jsonResponse({
 					...identity,
 					domain: request.domain,
