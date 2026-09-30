@@ -156,7 +156,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             .map { "\($0.role.rawValue):\($0.contentHash)" }
             .joined(separator: ",")
         let metadataItemCount = try await waitForLiveReviewMetadataGeneration(
-            controller, successorGeneration: successorGeneration)
+            controller, successorGeneration: successorGeneration, traceRecorder: traceRecorder)
         guard let reviewTrace = try await waitForLiveReviewTrace(traceRecorder),
             reviewTrace.hasReviewMetadataPublication
         else { throw LiveProofError.successorReviewPublicationMissing }
@@ -202,24 +202,50 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
     private func waitForLiveReviewMetadataGeneration(
         _ controller: BridgePaneController,
-        successorGeneration: Int
+        successorGeneration: Int,
+        traceRecorder: BridgeProductWebKitCarrierTraceRecorder
     ) async throws -> Int {
-        let metadataValue = try await WebPageEventWaits.waitForDocumentValue(
-            controller.page,
-            reader: """
-                const shell = document.querySelector('[data-testid="review-viewer-shell"]');
-                const itemCount = Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0');
-                const generation = Number(shell?.getAttribute('data-review-metadata-generation') ?? '0');
-                return itemCount >= minimumItems && generation === expectedGeneration ? itemCount : null;
-                """,
-            arguments: ["minimumItems": 128, "expectedGeneration": successorGeneration],
-            milestone: "page Review metadata generation",
-            hangBoundMilliseconds: liveProofHangBoundMilliseconds,
-            lastObservation: """
-                const shell = document.querySelector('[data-testid="review-viewer-shell"]');
-                return `items=${shell?.getAttribute('data-review-metadata-item-count') ?? 'missing'},generation=${shell?.getAttribute('data-review-metadata-generation') ?? 'missing'}`;
-                """
-        )
+        let metadataValue: Any?
+        do {
+            metadataValue = try await WebPageEventWaits.waitForDocumentValue(
+                controller.page,
+                reader: """
+                    const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+                    const itemCount = Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0');
+                    const generation = Number(shell?.getAttribute('data-review-metadata-generation') ?? '0');
+                    return itemCount >= minimumItems && generation === expectedGeneration ? itemCount : null;
+                    """,
+                arguments: ["minimumItems": 128, "expectedGeneration": successorGeneration],
+                milestone: "page Review metadata generation",
+                hangBoundMilliseconds: liveProofHangBoundMilliseconds,
+                lastObservation: """
+                    const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+                    const root = document.querySelector('[data-testid="bridge-app-root"]');
+                    const reviewHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+                    const diagnostic = window.__bridgeReviewSelectionDiagnostic;
+                    return JSON.stringify({
+                      items: shell?.getAttribute('data-review-metadata-item-count') ?? 'missing',
+                      generation: shell?.getAttribute('data-review-metadata-generation') ?? 'missing',
+                      rootMode: root?.getAttribute('data-bridge-viewer-mode') ?? 'missing',
+                      reviewHost: reviewHost === null ? 'missing' : 'mounted',
+                      reviewHostActive: reviewHost?.getAttribute('data-bridge-viewer-mode-active') ?? 'missing',
+                      loadingShell: document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
+                      failedShell: document.querySelector('[data-testid="bridge-review-metadata-failed-shell"]') !== null,
+                      pageReadyState: diagnostic?.pageReadyState ?? 'missing',
+                      sessionState: diagnostic?.sessionState ?? 'missing',
+                      replacementRequestCount: diagnostic?.replacementRequestCount ?? 0
+                    });
+                    """
+            )
+        } catch let hang as BridgeWebKitMilestoneHang {
+            let installation = await controller.productSessionOwner.activeInstallation
+            let nativeReview = await installation?.session.reviewMilestoneSnapshot() ?? "no native session"
+            let trace = await traceRecorder.scrubbedTrace()
+            throw BridgeWebKitMilestoneHang(
+                milestone: hang.milestone,
+                lastObservation: "page=\(hang.lastObservation),native=\(nativeReview),trace=\(trace)"
+            )
+        }
         guard let metadataItemCount = metadataValue as? Int else {
             throw LiveProofError.successorReviewPublicationMissing
         }
@@ -316,5 +342,33 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 ?? .unavailable,
             pathSelected: pathSelected
         )
+    }
+}
+
+extension BridgeProductSession {
+    func reviewMilestoneSnapshot() -> String {
+        let reviewSubscriptions = subscriptionSnapshots().filter {
+            $0.subscriptionKind == .reviewMetadata
+        }
+        let viewStates = reviewSubscriptions.flatMap { subscription in
+            viewScopeByDomain.keys.filter { $0.viewId == subscription.subscriptionId }.map { domain in
+                let accepted = viewScopeByDomain[domain]
+                let pending = pendingReviewSnapshotByViewDomain[domain]
+                return [
+                    "subscription=\(subscription.subscriptionId)",
+                    "scopeRevision=\(accepted?.revision.description ?? "none")",
+                    "emitting=\(viewSenderState.hasActiveEmission(for: domain))",
+                    "pendingTargetRevision=\(pending?.targetRevision.description ?? "none")",
+                    "nextDeliverySequence=\(nextViewDeliverySequenceByDomain[domain, default: 0])",
+                    "outstandingParts=\(viewSenderState.credits.outstandingPartCount(for: .view(domain)))",
+                    "ackReplay=\(viewAcknowledgementReplayByDomain[domain] != nil)",
+                ].joined(separator: ",")
+            }
+        }
+        return [
+            "openReviewSubscriptions=\(reviewSubscriptions.count)",
+            "views=[\(viewStates.joined(separator: ";"))]",
+            "nextMetadataStreamSequence=\(producerRegistry.snapshot().nextMetadataStreamSequence)",
+        ].joined(separator: ",")
     }
 }
