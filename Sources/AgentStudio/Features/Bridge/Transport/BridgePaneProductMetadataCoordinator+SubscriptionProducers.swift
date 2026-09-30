@@ -216,10 +216,10 @@ extension BridgePaneProductMetadataCoordinator {
                 }
             }
         } catch {
-            await annotationSource.retireBatchScope(handle: view.handle)
+            await annotationSource.releaseProducerBatchScope(handle: view.handle)
             throw error
         }
-        await annotationSource.retireBatchScope(handle: view.handle)
+        await annotationSource.releaseProducerBatchScope(handle: view.handle)
     }
 
     private func openFileMetadataSubscription(

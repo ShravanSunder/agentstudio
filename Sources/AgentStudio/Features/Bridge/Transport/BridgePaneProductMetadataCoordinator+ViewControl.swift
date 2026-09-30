@@ -101,6 +101,9 @@ extension BridgePaneProductMetadataCoordinator {
             productAdmission: productAdmission
         )
         guard refusal == nil else { return refusal }
+        if request.subscriptionKind == .fileAnnotations || request.subscriptionKind == .reviewAnnotations {
+            commentViewHandleBySubscriptionId[request.subscriptionId] = request.handle
+        }
         if request.subscriptionKind == .fileMetadata {
             // E4 settles at admission. N10 recaptures behind the separate view barrier.
             Task { [weak self] in
@@ -124,7 +127,7 @@ extension BridgePaneProductMetadataCoordinator {
         } else {
             Task { [weak self] in
                 if let priorHandle, priorHandle != request.handle {
-                    await self?.annotationSource.retireBatchScope(handle: priorHandle)
+                    await self?.annotationSource.retireBatchView(handle: priorHandle)
                 }
                 await self?.applyAcceptedCommentViewScope(request, productAdmission: productAdmission)
             }

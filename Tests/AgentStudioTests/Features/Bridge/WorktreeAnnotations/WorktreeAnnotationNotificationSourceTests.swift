@@ -49,7 +49,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             }
         }
         await harness.source.waitUntilFirstBatchScopeIsNeeded(handle: handle)
-        await harness.source.retireBatchScope(handle: handle)
+        await harness.source.retireBatchView(handle: handle)
         await #expect(throws: CancellationError.self) {
             try await openTask.value
         }
@@ -71,6 +71,67 @@ struct WorktreeAnnotationNotificationSourceTests {
             try await openTask.value
         }
         #expect(await harness.service.catalogInvalidationObserverCount() == 0)
+    }
+
+    @Test("a retained Comment view accepts its scope after producer restart")
+    func retainedViewAcceptsScopeAfterProducerRestart() async throws {
+        let harness = try makeNotificationSourceHarness()
+        let handle = "retained-comment-view"
+        try await harness.source.acceptBatchScope(
+            handle: handle,
+            worktreeID: "worktree-1",
+            scopeRevision: 1
+        )
+        let (batches, continuation) = AsyncStream.makeStream(
+            of: RecordedCommentBatchDelivery.self,
+            bufferingPolicy: .bufferingOldest(2)
+        )
+        let firstProducer = Task {
+            try await harness.source.openBatch(handle: handle) { batch, mode in
+                continuation.yield(.init(batch: batch, mode: mode))
+            }
+        }
+        var iterator = batches.makeAsyncIterator()
+        #expect(try #require(await iterator.next()).mode == .snapshot)
+
+        firstProducer.cancel()
+        _ = try? await firstProducer.value
+        await harness.source.releaseProducerBatchScope(handle: handle)
+
+        try await harness.source.acceptBatchScope(
+            handle: handle,
+            worktreeID: "worktree-1",
+            scopeRevision: 1
+        )
+        let successor = Task {
+            try await harness.source.openBatch(handle: handle) { batch, mode in
+                continuation.yield(.init(batch: batch, mode: mode))
+            }
+        }
+        #expect(try #require(await iterator.next()).mode == .snapshot)
+        successor.cancel()
+        _ = try? await successor.value
+        continuation.finish()
+        #expect(await harness.service.catalogInvalidationObserverCount() == 0)
+    }
+
+    @Test("an ended Comment view rejects late scope admission")
+    func endedViewRejectsLateScopeAdmission() async throws {
+        let harness = try makeNotificationSourceHarness()
+        let handle = "ended-comment-view"
+        try await harness.source.acceptBatchScope(
+            handle: handle,
+            worktreeID: "worktree-1",
+            scopeRevision: 1
+        )
+        await harness.source.retireBatchView(handle: handle)
+        await #expect(throws: WorktreeAnnotationServiceError.unavailable) {
+            try await harness.source.acceptBatchScope(
+                handle: handle,
+                worktreeID: "worktree-1",
+                scopeRevision: 2
+            )
+        }
     }
 
     @Test("batch source observes committed ranges after its initial current-row snapshot")

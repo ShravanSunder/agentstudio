@@ -70,8 +70,7 @@ actor BridgePaneAnnotationNotificationSource {
         }
     }
 
-    func retireBatchScope(handle: String) async {
-        retiredBatchHandles.insert(handle)
+    func releaseProducerBatchScope(handle: String) async {
         admittedBatchScopeByHandle.removeValue(forKey: handle)
         firstScopeWaiterByHandle.removeValue(forKey: handle)?.finish()
         for observer in firstScopeWaiterObserversByHandle.removeValue(forKey: handle) ?? [] {
@@ -82,6 +81,11 @@ actor BridgePaneAnnotationNotificationSource {
         if let publisher = batchPublisherByHandle.removeValue(forKey: handle) {
             await publisher.retire()
         }
+    }
+
+    func retireBatchView(handle: String) async {
+        retiredBatchHandles.insert(handle)
+        await releaseProducerBatchScope(handle: handle)
     }
 
     /// Observation seam for callers that need to know E3 is waiting on E4.
