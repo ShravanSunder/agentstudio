@@ -50,7 +50,12 @@ func makeProjectionSourceHarness(messageCount: Int, additionalSession: Bool = fa
             service: service,
             sourceResolver: sourceResolver,
             worktreeID: detail.session.worktreeID,
-            currentSourceGeneration: { _, _, _ in sourceGeneration }
+            currentSourceGeneration: { _, _, admission in
+                guard admission.withValidAdmission({ true }) == true else {
+                    throw BridgeAnnotationProjectionSourceError.unavailable
+                }
+                return sourceGeneration
+            }
         ),
         sourceGeneration: sourceGeneration
     )

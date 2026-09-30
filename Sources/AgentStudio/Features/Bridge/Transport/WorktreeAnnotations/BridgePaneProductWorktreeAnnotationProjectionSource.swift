@@ -62,6 +62,11 @@ actor BridgeAnnotationProjectionSource {
         var nextPageOrdinal: Int
     }
 
+    private struct InitialQueryAdmission: Sendable {
+        let productAdmission: BridgeProductAdmissionContext
+        let requestSequence: Int
+    }
+
     private struct PageReservation: Sendable {
         let authority: RequestAuthority
         let cursor: BridgeProductAnnotationProjectionPageRecordCursor
@@ -85,6 +90,7 @@ actor BridgeAnnotationProjectionSource {
     private var logicalReservation: LogicalReservation?
     private var pageReservationByDescriptorID: [String: PageReservation] = [:]
     private var queryLifetimeRevision: UInt64 = 0
+    private var initialQueryAdmission: InitialQueryAdmission?
 
     init(
         service: WorktreeAnnotationServiceActor?,
@@ -110,11 +116,8 @@ actor BridgeAnnotationProjectionSource {
         else {
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
-        // Initial-query admission chooses the operation lifetime; capture completion cannot reclaim it.
-        if query.cursor == nil {
-            queryLifetimeRevision += 1
-        }
-        let admittedQueryLifetimeRevision = queryLifetimeRevision
+        let admittedQueryLifetimeRevision = try admitQueryLifetime(
+            query, issuing: request, productAdmission: productAdmission)
         let currentGeneration: Int
         do {
             currentGeneration = try await resolveSourceGeneration(query, productAdmission)
@@ -195,12 +198,40 @@ actor BridgeAnnotationProjectionSource {
             sourceGeneration: currentGeneration
         )
         let analysis = try BridgeProductAnnotationProjectionRecordAnalysis(capture: capture)
-        return try issueInitialDescriptor(
-            analysis: analysis,
-            authority: authority,
-            query: query,
-            sourceGeneration: currentGeneration
-        )
+        guard
+            let descriptor = try productAdmission.withValidAdmission({
+                try validateQueryLifetime(admittedQueryLifetimeRevision)
+                return try issueInitialDescriptor(
+                    analysis: analysis, authority: authority, query: query, sourceGeneration: currentGeneration)
+            })
+        else { throw BridgeAnnotationProjectionSourceError.superseded }
+        return descriptor
+    }
+
+    private func admitQueryLifetime(
+        _ query: BridgeProductAnnotationProjectionQueryRequest,
+        issuing request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) throws -> UInt64 {
+        guard
+            let admittedRevision = try productAdmission.withValidAdmission({
+                if query.cursor == nil {
+                    // Native sequenced admission precedes detached N2 execution and every provider await.
+                    // Numbers are comparable only within the original E1; replacement sequences may restart.
+                    if let initialQueryAdmission,
+                        initialQueryAdmission.productAdmission.matches(productAdmission),
+                        request.correlation.requestSequence < initialQueryAdmission.requestSequence
+                    {
+                        throw BridgeAnnotationProjectionSourceError.superseded
+                    }
+                    initialQueryAdmission = InitialQueryAdmission(
+                        productAdmission: productAdmission, requestSequence: request.correlation.requestSequence)
+                    queryLifetimeRevision += 1
+                }
+                return queryLifetimeRevision
+            })
+        else { throw BridgeAnnotationProjectionSourceError.superseded }
+        return admittedRevision
     }
 
     private func issueInitialDescriptor(
@@ -290,6 +321,7 @@ actor BridgeAnnotationProjectionSource {
 
     func close() {
         queryLifetimeRevision += 1
+        initialQueryAdmission = nil
         logicalReservation = nil
         pageReservationByDescriptorID.removeAll(keepingCapacity: false)
     }
