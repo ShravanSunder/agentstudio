@@ -544,7 +544,7 @@ extension AppCommand {
             .openPullRequest, .reloadBridgeWebView, .showViewer,
             .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo,
             .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab,
-            .newWorktree, .newWorktreeFromDefault, .forkWorktree,
+            .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree,
             .toggleManagementLayer, .managementLayerExit,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,
