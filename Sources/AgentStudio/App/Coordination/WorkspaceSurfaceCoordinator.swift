@@ -34,17 +34,14 @@ protocol WorkspaceSurfaceManaging: AnyObject {
         _ visibilityForPaneID: (UUID) -> Bool
     ) -> SurfaceVisibilityReconciliationResult
 
-    /// SR5; Program Design item 3: records that a cold restore's attach
-    /// process ended before handoff was confirmed, so the pane's overlay
-    /// shows the specific restore-start reason instead of the generic
-    /// "Process Exited" copy. A no-op for a pane with no attached surface
-    /// (the pane may have retired before this observation settled).
+    /// SR5; Program Design item 3: shows the specific restore-start failure
+    /// reason on the pane's overlay instead of generic "Process Exited". A
+    /// no-op if the pane has no attached surface.
     func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure)
 }
 
-/// Default no-op: only `SurfaceManager` needs the real implementation. This
-/// keeps the ~25 test fakes conforming to `WorkspaceSurfaceManaging`
-/// unchanged rather than forcing a stub into every one of them.
+/// Default no-op: only `SurfaceManager` implements this for real, so the
+/// ~25 test fakes conforming to `WorkspaceSurfaceManaging` need no stub.
 extension WorkspaceSurfaceManaging {
     func reportColdRestoreFailure(paneID: UUID, failure: ColdStartFailure) {}
 }
@@ -137,19 +134,27 @@ final class WorkspaceSurfaceCoordinator {
     private var criticalRuntimeEventsTask: Task<Void, Never>?
     private var batchedRuntimeEventsTask: Task<Void, Never>?
     var bridgePaneRetirementTasksByPaneId: [UUID: Task<Void, Never>] = [:]
-    /// SR4; Program Design item 4 ("Staggered starts"): the coordinator owns
-    /// each cold pane's startup-window observation task so it can be
-    /// cancelled on retirement or coordinator teardown, and so a test can
-    /// await its outcome instead of idling. Self-removing: each task deletes
-    /// its own entry once `handleColdStartOutcome` runs. See
+    /// SR4; Program Design item 4 ("Staggered starts"): owns each cold
+    /// pane's startup-window observation task -- cancellable on retirement
+    /// or teardown, self-removing, test-awaitable. See
     /// `WorkspaceSurfaceCoordinator+TerminalContentMounting.swift`.
     var coldStartObservationTasksByPaneID: [UUID: Task<Void, Never>] = [:]
-    /// The typed-fact test harness's injected sink (`docs/specs/2026-09-28-typed-fact-test-harness`):
-    /// `nil` in production, a `LocalFactSource.sink` in tests. Called
-    /// synchronously at `handleColdStartOutcome`'s serialization point, after
-    /// the task above has already removed itself from the dictionary — no
-    /// suspension between the outcome settling and the fact reaching a test.
+    /// Typed-fact sink (`docs/specs/2026-09-28-typed-fact-test-harness`):
+    /// `nil` in production, a `LocalFactSource.sink` in tests.
     var coldStartObservationFactSink: (@Sendable (UUID, ColdStartOutcome) -> Void)?
+    /// SR2a; Program Design item 5: one more `observeSessionIdentity` call
+    /// after a warm/unverified pane's attach settles, compared against the
+    /// warm baseline. Reuses `ZmxBackend`'s default timeout, not the
+    /// shorter `inventoryProbeDeadline` the launch-restore cohort's own
+    /// probe uses -- this runs one pane at a time, off the startup path.
+    lazy var postAttachRecreationProbe: (any ZmxSessionRestoreProbing)? = ZmxBackend(configuration: sessionConfig)
+    /// Ownership shape matches `coldStartObservationTasksByPaneID`:
+    /// cancellable on retirement/teardown, self-removing, test-awaitable.
+    var postAttachRecreationCheckTasksByPaneID: [UUID: Task<Void, Never>] = [:]
+    /// Detection only (Program Design item 5's own stop: no UI mechanism
+    /// exists yet; `InboxNotificationRouter` stays retired). `nil` in
+    /// production, a `LocalFactSource.sink` in tests.
+    var postAttachRecreationCheckFactSink: (@Sendable (UUID, PaneRecreationCheckResult) -> Void)?
     var bridgePaneRetirementsRequiringRuntimeUnregister: Set<UUID> = []
     var bridgePaneRetirementsRequiringRestore: Set<UUID> = []
     var filesystemSyncTask: Task<Void, Never>?
@@ -353,6 +358,10 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         coldStartObservationTasksByPaneID.removeAll()
+        for task in postAttachRecreationCheckTasksByPaneID.values {
+            task.cancel()
+        }
+        postAttachRecreationCheckTasksByPaneID.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
@@ -398,6 +407,7 @@ final class WorkspaceSurfaceCoordinator {
         let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
         let activeColdStartObservationPaneIDs = Array(coldStartObservationTasksByPaneID.keys)
         let activeColdStartObservationTasks = Array(coldStartObservationTasksByPaneID.values)
+        let activePostAttachRecreationCheckTasks = Array(postAttachRecreationCheckTasksByPaneID.values)
 
         paneEventIngressTask?.cancel()
         paneEventIngressTask = nil
@@ -425,6 +435,10 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         coldStartObservationTasksByPaneID.removeAll()
+        for task in activePostAttachRecreationCheckTasks {
+            task.cancel()
+        }
+        postAttachRecreationCheckTasksByPaneID.removeAll()
 
         await repositoryFactDemandCoordinator.shutdown()
         await filesystemProjectionIndex.shutdown()
@@ -448,6 +462,9 @@ final class WorkspaceSurfaceCoordinator {
             await task.value
         }
         for task in activeColdStartObservationTasks {
+            await task.value
+        }
+        for task in activePostAttachRecreationCheckTasks {
             await task.value
         }
 
@@ -509,15 +526,13 @@ final class WorkspaceSurfaceCoordinator {
             Task { @MainActor in
                 await Ghostty.ActionRouter.retirePanePermanently(paneID: paneID)
             }
-            // Program Design item 4: "the pane's surface is retired ... ends
-            // the window [and] removes its kqueue registrations." A no-op for
-            // a pane with no pending cold-start observer. Cancelling the
-            // observer resolves its continuation, which lets the owned
-            // observation task below finish and self-remove; cancelling the
-            // task too means a coordinator-level wait never depends on the
-            // observer settling first.
+            // Program Design item 4: ends the pending cold-start window and
+            // removes its kqueue registrations; a no-op with no observer.
             Ghostty.ActionRouter.cancelPendingColdStart(paneID: paneID)
             coldStartObservationTasksByPaneID[paneID]?.cancel()
+            // SR2a: a still-running post-attach recreation check is no
+            // longer meaningful once the pane retires.
+            postAttachRecreationCheckTasksByPaneID[paneID]?.cancel()
         }
     }
 
@@ -930,63 +945,5 @@ final class WorkspaceSurfaceCoordinator {
         case .right, .down:
             return .focusPaneRight
         }
-    }
-}
-
-extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
-    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
-        applyTopologyRemovals(from: [delta])
-        applyTopologyAdoptions(from: [delta])
-        syncFilesystemRootsAndActivity()
-    }
-
-    func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
-        applyTopologyRemovals(from: deltas)
-        applyTopologyAdoptions(from: deltas)
-        syncFilesystemRootsAndActivity()
-    }
-
-    private func applyTopologyRemovals(from deltas: [WorktreeTopologyDelta]) {
-        var removedWorktreeIDs = Set<UUID>()
-        for delta in deltas {
-            for entry in delta.removedWorktrees {
-                removedWorktreeIDs.insert(entry.id)
-                for _ in store.mutationCoordinator.clearPaneAssociations(forRemovedWorktreeID: entry.id) {
-                    performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
-                }
-            }
-        }
-        guard !removedWorktreeIDs.isEmpty else { return }
-        // Scoped topology may already have cleared the source pane's optional facets.
-        // The retained companion still carries the checkout whose authority must retire.
-        for (sourcePaneID, companion) in store.panePresentationAtom.zoomCompanionsBySourcePaneId
-        where removedWorktreeIDs.contains(companion.resolvedWorktreeId) {
-            _ = reconcileZoomCompanion(sourcePaneId: sourcePaneID, owningTabId: companion.owningTabId)
-        }
-    }
-
-    private func applyTopologyAdoptions(from deltas: [WorktreeTopologyDelta]) {
-        let affectedWorktreeIDs = Set(
-            deltas.flatMap { $0.addedWorktreeIds + $0.preservedWorktreeIds }
-        )
-        let adoptedPaneIDs = store.mutationCoordinator.reconcilePaneAssociationsForCurrentTopology(
-            affectedWorktreeIDs: affectedWorktreeIDs
-        )
-        for _ in adoptedPaneIDs {
-            performanceTraceRecorder?.recordPaneAssociationOutcome(.resolvedChanged)
-        }
-    }
-
-    // MARK: - Tab Name Derivation
-
-    /// Seed a stable tab name once at creation time from the pane's context.
-    /// Worktree-backed panes get "folder · branch", others get the pane title.
-    /// We intentionally do not auto-rename tabs later when enrichment changes.
-    func tabNameForPane(_ pane: Pane) -> String {
-        atom(\.tabDisplay).title(
-            for: pane,
-            workspaceRepositoryTopology: store.repositoryTopologyAtom,
-            repoCache: atom(\.repoCache)
-        )
     }
 }

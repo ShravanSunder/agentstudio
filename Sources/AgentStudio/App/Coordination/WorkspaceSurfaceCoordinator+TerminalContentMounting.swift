@@ -156,6 +156,8 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         case .mounted(let mountedContent):
             if let coldStartObserver, let coldStartPlan {
                 beginObservingColdStart(paneID: pane.id, plan: coldStartPlan, observer: coldStartObserver)
+            } else {
+                beginPostAttachRecreationCheckIfNeeded(pane: pane, restoreKind: admission.restoreKind)
             }
             return .ready(surfaceID: mountedContent.surfaceID)
         case .failed(.surfaceAttachmentFailed):
@@ -239,5 +241,56 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             RestoreTrace.log("coldStart unobservable pane=\(paneID) reason=\(reason)")
         }
         coldStartObservationFactSink?(paneID, outcome)
+    }
+
+    /// SR2a; Program Design item 5: "For warm and unverified panes, one
+    /// off-main observe after the attach settles is compared by identity
+    /// with the warm baseline... A different identity means zmx recreated
+    /// the session ... a missing baseline or a failed observation means
+    /// 'couldn't check.'" Cold panes are excluded: they run their own
+    /// startup-window observer instead (`beginObservingColdStart`), and a
+    /// steady-state mount (`restoreKind == nil`) is outside restore
+    /// entirely. Detection only — no UI; Program Design item 5's own stop
+    /// ("presenting a notice over a live warm surface needs a new UI
+    /// mechanism") and `InboxNotificationRouter`'s retirement both still
+    /// apply. Owned by `postAttachRecreationCheckTasksByPaneID` so
+    /// retirement and coordinator teardown can cancel it, mirroring
+    /// `beginObservingColdStart`'s task-ownership shape.
+    ///
+    /// Not `private`: a dedicated test suite calls this directly with a
+    /// scripted `ZmxSessionRestoreProbing` to prove the comparison and
+    /// task-ownership wiring without a real zmx daemon (see
+    /// `PostAttachRecreationCheckWiringTests`).
+    func beginPostAttachRecreationCheckIfNeeded(
+        pane: Pane,
+        restoreKind: TerminalRestoreKind?
+    ) {
+        let baselineIdentity: Data?
+        switch restoreKind {
+        case .warm(let identity):
+            baselineIdentity = identity
+        case .unverified:
+            baselineIdentity = nil
+        case .cold, nil:
+            return
+        }
+        guard let sessionID = pane.terminalState?.zmxSessionID else { return }
+        let paneID = pane.id
+        let checkTask = Task { @MainActor [weak self] in
+            guard let self, let probe = self.postAttachRecreationProbe else { return }
+            let observedIdentity = try? await probe.observeSessionIdentity(sessionID)
+            let result = PaneRecreationChecker.checkForRecreation(
+                baselineIdentity: baselineIdentity,
+                observedIdentity: observedIdentity
+            )
+            // SR2a: telemetry only, scrubbing raw ids -- this local trace
+            // line is this restore code path's own established
+            // diagnostic channel (matching `handleColdStartOutcome`
+            // above), gated behind `AGENTSTUDIO_RESTORE_TRACE`, not OTLP.
+            RestoreTrace.log("postAttachRecreationCheck result=\(result)")
+            self.postAttachRecreationCheckTasksByPaneID.removeValue(forKey: paneID)
+            self.postAttachRecreationCheckFactSink?(paneID, result)
+        }
+        postAttachRecreationCheckTasksByPaneID[paneID] = checkTask
     }
 }
