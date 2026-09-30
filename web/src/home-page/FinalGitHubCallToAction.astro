@@ -94,7 +94,7 @@ const terminalRailAttributes = {
   .final-cta[data-finale-state="settled"] .finale-border-trace { opacity: 0.6; }
   .finale-split-pill { width: max-content; min-height: 50px; justify-self: start; margin-top: 19px; margin-left: var(--finale-left-inset); white-space: nowrap; }
   .final-cta .finale-split-pill { border: 0; border-color: transparent; background: rgb(30 30 46 / 88%); box-shadow: 0 20px 46px rgb(8 9 14 / 28%), 0 6px 16px rgb(10 11 17 / 18%); }
-  .final-cta[data-finale-state="ready"] .finale-split-pill { box-shadow: inset 0 0 0 1px rgb(137 180 250 / 38%), 0 20px 46px rgb(8 9 14 / 28%), 0 6px 16px rgb(10 11 17 / 18%); }
+  .final-cta:is([data-finale-state="ready"], [data-finale-state="playing"]) .finale-split-pill { box-shadow: inset 0 0 0 1px rgb(137 180 250 / 38%), 0 20px 46px rgb(8 9 14 / 28%), 0 6px 16px rgb(10 11 17 / 18%); }
   .final-cta > p { margin-top: 22px; margin-left: var(--finale-left-inset); }
   .final-star-button, .finale-copy-button { min-height: 48px; gap: 9px; padding: 0 22px; font-size: 14px; font-weight: 650; white-space: nowrap; }
   .final-star-button { min-width: 260px; border-radius: 0; background: var(--color-primary); color: var(--color-canvas); }

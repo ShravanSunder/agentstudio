@@ -21,6 +21,13 @@ declare module "vitest/browser" {
 describe("where the rail ends on the home page", () => {
   it("plays the finale once at the rail end and copies both install commands", async () => {
     const observation = await commands.verifyFinaleBookend(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.readyOutlineAt03).toBe(true);
+    expect(observation.traceOpacityAt03).toBe(0);
+    expect(observation.readyOutlineAt08).toBe(false);
+    expect(observation.traceOpacityAt08).toBeGreaterThan(0.9);
+    expect(observation.traceDashFractionAt08).toBeLessThan(1);
+    expect(observation.readyOutlineAfterReverseSeek).toBe(true);
+    expect(observation.traceOpacityAfterReverseSeek).toBe(0);
     expect(observation.eventCount).toBe(1);
     const firstArc = /A ([\d.]+) ([\d.]+)/u.exec(observation.tracePathData);
     expect(firstArc).not.toBeNull();
@@ -64,6 +71,12 @@ describe("where the rail ends on the home page", () => {
     expect(observation.resizeSettleState).toBe("settled");
     expect(observation.narrowTitleFontSize).toBeLessThan(36);
     expect(observation.narrowHeadingOverflow).toBeLessThanOrEqual(0);
+  });
+  it("retraces the settled split-pill outline after its width changes", async () => {
+    const observation = await commands.verifyFinaleBookend(inject("siteHeaderBrowserTestUrl"));
+    expect(observation.resizedTraceWidthDelta).toBeLessThanOrEqual(1);
+    expect(observation.resizedViewBoxWidthDelta).toBeLessThanOrEqual(1);
+    expect(observation.settledDashCleared).toBe(true);
   });
   it("ends at the Star button after the lanes close below the final glass", async () => {
     const observations = await commands.verifyTopologyEnd(

@@ -3,6 +3,7 @@ import { createChapterActivityCoordinator } from "./chapter-activity-coordinator
 import { createSurfaceScenePlayback } from "./scene-playback";
 import { createScrollAutoplayVideoController } from "./scroll-autoplay-video-controller";
 import { combineSurfacePlaybacks } from "./surface-playback";
+import type { SurfacePlayback } from "./surface-playback";
 
 const viewportEdgeInsetRatio = 0.2;
 // The site's phone boundary, spelled like Tailwind's max-phone: variant.
@@ -112,17 +113,30 @@ export function initializeScrollMaterialSurfaces(): void {
     return;
   }
 
-  const surfaceControllers = surfaces.map((surface) => ({
-    chapterId: surface.closest<HTMLElement>("[data-chapter-steps-root]")?.dataset[
+  const playbackBySurface = new Map<HTMLElement, SurfacePlayback>();
+  let manualOwnerSurface: HTMLElement | undefined;
+  const surfaceControllers = surfaces.map((surface) => {
+    const chapterId = surface.closest<HTMLElement>("[data-chapter-steps-root]")?.dataset[
       "chapterStepsRoot"
-    ],
-    materialSurface: surface,
-    playbackStage: surface.querySelector<HTMLElement>(`[${playbackStageAttribute}]`),
-    surfacePlayback: combineSurfacePlaybacks([
+    ];
+    const claimManualPlay = (): void => {
+      manualOwnerSurface = surface;
+      for (const [otherSurface, playback] of playbackBySurface) {
+        if (otherSurface !== surface) playback.deactivate?.();
+      }
+    };
+    const surfacePlayback = combineSurfacePlaybacks([
       createScrollAutoplayVideoController(surface),
-      createSurfaceScenePlayback(surface),
-    ]),
-  }));
+      createSurfaceScenePlayback(surface, chapterId === undefined ? undefined : claimManualPlay),
+    ]);
+    playbackBySurface.set(surface, surfacePlayback);
+    return {
+      chapterId,
+      materialSurface: surface,
+      playbackStage: surface.querySelector<HTMLElement>(`[${playbackStageAttribute}]`),
+      surfacePlayback,
+    };
+  });
   const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   const chapterActivity = createChapterActivityCoordinator([
     ...document.querySelectorAll<HTMLElement>("[data-chapter-steps-root]"),
@@ -132,6 +146,14 @@ export function initializeScrollMaterialSurfaces(): void {
 
   const synchronizeSurfaces = (): void => {
     const activity = chapterActivity.read();
+    if (
+      activity.changed ||
+      manualOwnerSurface?.querySelector<HTMLElement>("[data-scene-root]")?.dataset[
+        "scenePlaybackState"
+      ] !== "playing"
+    ) {
+      manualOwnerSurface = undefined;
+    }
     if (activity.changed) {
       for (const { chapterId, surfacePlayback } of surfaceControllers) {
         if (chapterId !== undefined && chapterId !== activity.activeChapterId)
@@ -163,7 +185,9 @@ export function initializeScrollMaterialSurfaces(): void {
       applySurfaceProgress(materialSurface, materialProgress, true);
       if (chapterId === undefined) {
         surfacePlayback.synchronize(playbackProgress, true);
-      } else if (chapterId === activity.activeChapterId) {
+      } else if (manualOwnerSurface !== undefined && materialSurface !== manualOwnerSurface) {
+        surfacePlayback.synchronize(0, false);
+      } else if (materialSurface === manualOwnerSurface || chapterId === activity.activeChapterId) {
         if (chapterId === activity.newlyActiveChapterId) surfacePlayback.restart?.();
         surfacePlayback.synchronize(1, true);
       } else {

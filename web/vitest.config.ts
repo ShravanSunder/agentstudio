@@ -6,6 +6,7 @@ import { verifyChapterAnchorLanding } from "./tests/chapter-anchor-browser-comma
 import {
   verifyChapterAutoplayAtNaturalFraming,
   verifyChapterSceneClicks,
+  verifyManualChapterClaim,
 } from "./tests/chapter-autoplay-browser-command.ts";
 import { verifyChapterScrollGeometry } from "./tests/chapter-scroll-geometry-browser-command.ts";
 import {
@@ -80,6 +81,7 @@ export default defineConfig({
               verifyChapterAnchorLanding,
               verifyChapterAutoplayAtNaturalFraming,
               verifyChapterSceneClicks,
+              verifyManualChapterClaim,
               verifyChapterScrollGeometry,
               verifyChapterStepHop,
               verifyReducedMotionStepLine,

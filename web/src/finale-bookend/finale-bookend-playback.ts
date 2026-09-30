@@ -83,6 +83,7 @@ export function initializeFinaleBookend(root: HTMLElement): () => void {
   let manualSeek = false;
   let railReached =
     document.querySelector("[data-full-page-topology][data-topology-end-reached]") !== null;
+  const settledPillShadow = getComputedStyle(pill).boxShadow;
 
   const settle = (): void => {
     if (settled) return;
@@ -93,6 +94,7 @@ export function initializeFinaleBookend(root: HTMLElement): () => void {
         clearProps: "all",
       })
       .kill();
+    gsap.set(pill, { clearProps: "boxShadow" }).kill();
     clearTerminalRail(root);
     root.dataset["finaleState"] = "settled";
     root.dataset["finalePlayed"] = "true";
@@ -121,10 +123,11 @@ export function initializeFinaleBookend(root: HTMLElement): () => void {
 
   const measureLabels = (): void => {
     fitSplitPillLabels(root, pill);
-    if (!started && !settled) tracePillBorder(pill, borderTrace);
+    tracePillBorder(pill, borderTrace);
   };
   const resizeObserver = new ResizeObserver(measureLabels);
   resizeObserver.observe(root);
+  resizeObserver.observe(pill);
   window.addEventListener("resize", settle, { signal: lifecycle.signal });
   root.addEventListener("pointerdown", settle, { signal: lifecycle.signal });
   window.addEventListener(
@@ -145,6 +148,7 @@ export function initializeFinaleBookend(root: HTMLElement): () => void {
   }
 
   root.dataset["finaleState"] = "ready";
+  const readyPillShadow = getComputedStyle(pill).boxShadow;
   const borderLength = tracePillBorder(pill, borderTrace);
   const starLength = starOutline.getTotalLength();
   timeline = gsap.timeline({
@@ -170,6 +174,12 @@ export function initializeFinaleBookend(root: HTMLElement): () => void {
   timeline.set(logo, { opacity: 0 }, 0);
   timeline.set([rearOne, rearTwo, front, terminal], { opacity: 1 }, 0);
   timeline.set(borderTrace, { opacity: 1 }, 0.55);
+  timeline.fromTo(
+    pill,
+    { boxShadow: readyPillShadow },
+    { boxShadow: settledPillShadow, duration: 0.001, ease: "none" },
+    0.55,
+  );
   timeline.to(borderTrace, { strokeDashoffset: 0, duration: 0.6, ease: "power1.inOut" }, 0.55);
   timeline.to(borderTrace, { opacity: 0.6, duration: 0.01 }, 1.15);
   timeline.to(starOutline, { strokeDashoffset: 0, duration: 0.3, ease: "power1.inOut" }, 0.95);

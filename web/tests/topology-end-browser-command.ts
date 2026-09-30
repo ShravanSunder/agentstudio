@@ -53,6 +53,16 @@ export interface TopologyEndObservation {
 }
 
 export interface FinaleBookendObservation {
+  readonly readyOutlineAt03: boolean;
+  readonly traceOpacityAt03: number;
+  readonly readyOutlineAt08: boolean;
+  readonly traceOpacityAt08: number;
+  readonly traceDashFractionAt08: number;
+  readonly readyOutlineAfterReverseSeek: boolean;
+  readonly traceOpacityAfterReverseSeek: number;
+  readonly resizedTraceWidthDelta: number;
+  readonly resizedViewBoxWidthDelta: number;
+  readonly settledDashCleared: boolean;
   readonly pillWidth: number;
   readonly pillHeight: number;
   readonly tracePathData: string;
@@ -296,10 +306,23 @@ export const verifyFinaleBookend = defineBrowserCommand(
           );
         const starText = button.textContent?.trim() ?? "";
         const copyText = copy.textContent?.trim() ?? "";
+        const pill = copy.closest<HTMLElement>("[data-finale-split-pill]");
+        if (pill === null) throw new Error("Finale split pill is missing");
+        proofWindow.finaleControl.seek(0.3);
+        const readyOutlineAt03 = getComputedStyle(pill).boxShadow.includes("inset");
+        const traceOpacityAt03 = Number(getComputedStyle(trace).opacity);
         proofWindow.finaleControl.seek(0.35);
         const railArrivalFraction =
           Number.parseFloat(railPath.style.strokeDashoffset) / railPath.getTotalLength();
         const nodeArrivalOpacity = getComputedStyle(endNode).opacity;
+        proofWindow.finaleControl.seek(0.8);
+        const readyOutlineAt08 = getComputedStyle(pill).boxShadow.includes("inset");
+        const traceOpacityAt08 = Number(getComputedStyle(trace).opacity);
+        const traceDashFractionAt08 =
+          Number.parseFloat(trace.style.strokeDashoffset) / trace.getTotalLength();
+        proofWindow.finaleControl.seek(0.3);
+        const readyOutlineAfterReverseSeek = getComputedStyle(pill).boxShadow.includes("inset");
+        const traceOpacityAfterReverseSeek = Number(getComputedStyle(trace).opacity);
         proofWindow.finaleControl.seek(0.8);
         const midTraceShift = sampleShift();
         proofWindow.finaleControl.seek(1.8);
@@ -309,6 +332,13 @@ export const verifyFinaleBookend = defineBrowserCommand(
         copy.click();
         await Promise.resolve();
         return {
+          readyOutlineAt03,
+          traceOpacityAt03,
+          readyOutlineAt08,
+          traceOpacityAt08,
+          traceDashFractionAt08,
+          readyOutlineAfterReverseSeek,
+          traceOpacityAfterReverseSeek,
           eventCount: proofWindow.topologyEndEventCount ?? 0,
           pillWidth:
             copy.closest<HTMLElement>("[data-finale-split-pill]")?.getBoundingClientRect().width ??
@@ -358,6 +388,39 @@ export const verifyFinaleBookend = defineBrowserCommand(
             [...copy.querySelectorAll<HTMLElement>("[data-install-copy-feedback]")].find(
               (label) => getComputedStyle(label).display !== "none",
             )?.textContent ?? "",
+        };
+      });
+      const resizedTrace = await applicationPage.evaluate(async () => {
+        const pill = document.querySelector<HTMLElement>("[data-finale-split-pill]");
+        const trace = pill?.querySelector<SVGPathElement>("[data-finale-border-trace]");
+        const svg = trace?.closest("svg");
+        if (
+          pill === null ||
+          trace === null ||
+          trace === undefined ||
+          svg === null ||
+          svg === undefined
+        )
+          throw new Error("Settled finale outline is missing");
+        const originalWidth = pill.getBoundingClientRect().width;
+        const resized = new Promise<void>((resolve) => {
+          const observer = new ResizeObserver(() => {
+            if (Math.abs(pill.getBoundingClientRect().width - originalWidth) < 2) return;
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(pill);
+        });
+        pill.style.width = `${String(originalWidth - 80)}px`;
+        await resized;
+        await Promise.resolve();
+        const width = pill.getBoundingClientRect().width;
+        const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/u)[2]);
+        return {
+          resizedTraceWidthDelta: Math.abs(trace.getBBox().width - (width - 1)),
+          resizedViewBoxWidthDelta: Math.abs(viewBoxWidth - width),
+          settledDashCleared:
+            trace.style.strokeDasharray === "" && trace.style.strokeDashoffset === "",
         };
       });
 
@@ -425,7 +488,14 @@ export const verifyFinaleBookend = defineBrowserCommand(
           narrowHeadingOverflow: heading.getBoundingClientRect().right - window.innerWidth,
         };
       });
-      return { ...normal, ...reduced, ...narrow, pointerSkipState, resizeSettleState };
+      return {
+        ...normal,
+        ...resizedTrace,
+        ...reduced,
+        ...narrow,
+        pointerSkipState,
+        resizeSettleState,
+      };
     } finally {
       await Promise.all([applicationPage.close(), reducedMotionPage.close(), skipPage.close()]);
     }
