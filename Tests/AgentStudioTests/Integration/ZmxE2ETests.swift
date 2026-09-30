@@ -580,6 +580,94 @@ extension E2ESerializedTests {
             }
         }
 
+        /// S3 zmx-e2e list: a socket that's never created because the
+        /// attach client itself never reaches zmx (`zmxExecutable` points
+        /// nowhere real, so `/bin/sh` fails with "command not found" before
+        /// ever invoking zmx) settles `.failed` on the client's own real
+        /// exit -- discovery never even gets a socket to watch for.
+        @Test("a socket never created and the attach client exiting settles failed")
+        func aSocketNeverCreatedAndTheAttachClientExitingSettlesFailed() async throws {
+            try await withRealBackend { harness, _ in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let attemptID = ColdRestoreAttemptID.generate()
+                let plan = TerminalColdRestorePlan(
+                    zmxExecutable: URL(fileURLWithPath: "/does/not/exist/zmx"),
+                    zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
+                    sessionID: sessionID,
+                    loginShell: URL(fileURLWithPath: "/bin/bash"),
+                    folderCandidates: [URL(fileURLWithPath: "/tmp")],
+                    notice: ColdRestoreNotice(linesByCandidateIndex: ["Restored after restart"]),
+                    replayFile: nil,
+                    resume: nil,
+                    attemptID: attemptID
+                )
+                let bootID = try await WorkspaceUndoJournalClock.current().bootID
+                let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
+                let observer = ColdStartObserver()
+
+                let process = try harness.spawnColdRestoreSession(plan: plan)
+                process.waitUntilExit()
+                #expect(process.terminationStatus != 0, "the missing zmxExecutable must genuinely fail to run")
+                await observer.reportAttachClientExited()
+
+                let outcome = await observer.observeColdStart(
+                    zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
+                    socketPath: socketPath,
+                    bootID: bootID,
+                    attemptID: attemptID
+                )
+
+                #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+            }
+        }
+
+        /// S3 zmx-e2e list: the script's only in-process exec targets a
+        /// non-executable `loginShell` -- coldRestoreScript's `exec
+        /// '<loginShell>' -i -l` fails, and a POSIX shell whose last
+        /// statement is a failed `exec` terminates rather than continuing,
+        /// so the real leader genuinely exits. Proves NOTE_EXIT explains an
+        /// otherwise-unreadable argv correctly (`handoffChecked`'s
+        /// `.unreadable` branch), not `.unobservable`.
+        @Test("a non-executable final shell settles failed, not unobservable")
+        func aNonExecutableFinalShellSettlesFailed() async throws {
+            try await withRealBackend { harness, _ in
+                let zmxPath = try #require(harness.zmxPath)
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let attemptID = ColdRestoreAttemptID.generate()
+                // A real, non-executable file: exec must fail with ENOEXEC/EACCES,
+                // not "no such file" -- proving the script actually attempted
+                // the final exec rather than failing earlier at resolution.
+                let nonExecutablePath = FileManager.default.temporaryDirectory
+                    .appending(path: "non-executable-login-shell-\(UUIDv7.generate().uuidString)")
+                try "not a script".write(to: nonExecutablePath, atomically: true, encoding: .utf8)
+                defer { try? FileManager.default.removeItem(at: nonExecutablePath) }
+                let plan = TerminalColdRestorePlan(
+                    zmxExecutable: URL(fileURLWithPath: zmxPath),
+                    zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
+                    sessionID: sessionID,
+                    loginShell: nonExecutablePath,
+                    folderCandidates: [URL(fileURLWithPath: "/tmp")],
+                    notice: ColdRestoreNotice(linesByCandidateIndex: ["Restored after restart"]),
+                    replayFile: nil,
+                    resume: nil,
+                    attemptID: attemptID
+                )
+                let bootID = try await WorkspaceUndoJournalClock.current().bootID
+                let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
+                let observer = ColdStartObserver()
+
+                _ = try harness.spawnColdRestoreSession(plan: plan)
+                let outcome = await observer.observeColdStart(
+                    zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
+                    socketPath: socketPath,
+                    bootID: bootID,
+                    attemptID: attemptID
+                )
+
+                #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+            }
+        }
+
         /// S4 (Program Design item 5): the post-attach recreation check's
         /// three outcomes against a real daemon -- `PaneRecreationChecker`
         /// itself is pure and already unit-tested; this proves the real
