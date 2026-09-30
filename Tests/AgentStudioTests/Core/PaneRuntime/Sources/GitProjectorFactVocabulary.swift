@@ -97,7 +97,13 @@ extension FactRecorder where Scope == GitProjectorScope, Fact == GitProjectorFac
                 in: .lifetime(lifetime), where: { _ in true }, "envelope handled through sequence \(expectedSequence)",
                 fileID: fileID, line: line, function: function
             )
-            guard case .envelopeHandled(let sequence, let disposition) = fact else { continue }
+            guard case .envelopeHandled(let sequence, let disposition) = fact else {
+                throw UnexpectedFact.forExpectation(
+                    expected: "envelope handled through sequence \(expectedSequence)",
+                    actual: String(describing: fact),
+                    scope: String(describing: GitProjectorScope.lifetime(lifetime)),
+                    callSite: "\(fileID):\(line) \(function)")
+            }
             if sequence == expectedSequence { return disposition }
             if sequence > expectedSequence {
                 throw UnexpectedProjectorEnvelopeSequence(expected: expectedSequence, actual: sequence)
