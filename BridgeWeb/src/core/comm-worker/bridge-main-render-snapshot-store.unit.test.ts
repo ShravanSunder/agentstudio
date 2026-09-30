@@ -5,11 +5,10 @@ import {
 	type BridgeMainCodeViewItem,
 } from './bridge-main-render-snapshot-store.js';
 import {
-	BRIDGE_WORKER_WIRE_VERSION,
-	type BridgeWorkerReviewDisplayItem,
-	type BridgeWorkerReviewDisplayPatchEvent,
-} from './bridge-worker-contracts.js';
-import { bridgeWorkerReviewSourceContext } from './bridge-worker-review-display.test-support.js';
+	makeBridgeMainCodeViewItem,
+	makeReviewDisplayPatchEvent,
+} from './bridge-main-render-snapshot-store.test-support.js';
+import type { BridgeWorkerReviewDisplayItem } from './bridge-worker-contracts.js';
 
 describe('Bridge main render snapshot store', () => {
 	test('uses useSyncExternalStore and accepts only local intent plus worker patch writes', () => {
@@ -428,7 +427,11 @@ describe('Bridge main render snapshot store', () => {
 		if (initialItemPatch?.slice !== 'reviewItem' || initialItemPatch.operation !== 'batch') {
 			throw new Error('expected Review fixture item batch');
 		}
-		if (initialSourcePatch?.slice !== 'reviewSource' || initialTreePatch?.slice !== 'reviewTree') {
+		if (
+			initialSourcePatch?.slice !== 'reviewSource' ||
+			initialSourcePatch.operation !== 'upsert' ||
+			initialTreePatch?.slice !== 'reviewTree'
+		) {
 			throw new Error('expected Review fixture source and tree patches');
 		}
 		const initialCatalogItem = initialItemPatch.payload.items[0];
@@ -439,6 +442,13 @@ describe('Bridge main render snapshot store', () => {
 		if (initialPublicationIdentity === null) {
 			throw new Error('expected Review fixture publication identity');
 		}
+		const activeIdentity = {
+			generation: initialPublicationIdentity.reviewGeneration,
+			packageId: initialPublicationIdentity.packageId,
+			publicationId: initialPublicationIdentity.publicationId,
+			revision: initialPublicationIdentity.revision,
+			sourceIdentity: initialPublicationIdentity.sourceIdentity,
+		};
 		const hydratedCatalogItem: BridgeWorkerReviewDisplayItem = {
 			...initialCatalogItem,
 			contentFacts: [
@@ -462,17 +472,29 @@ describe('Bridge main render snapshot store', () => {
 			...initialItemPatch,
 			payload: { ...initialItemPatch.payload, items: [hydratedCatalogItem] },
 		} as const;
-		store.applyReviewDisplayPatchEvent({
-			...initialEvent,
-			patches: [initialSourcePatch, populatedItemPatch, initialTreePatch],
-			reviewPublicationIdentity: {
-				packageId: 'package-1',
-				publicationId: '00000000-0000-7000-8000-000000000001',
-				reviewGeneration: 1,
-				revision: 11,
-				sourceIdentity: 'review-source-package-1',
-			},
-		});
+		expect(
+			store.startReviewCandidate({
+				disposition: { kind: 'replacement' },
+				identity: activeIdentity,
+			}),
+		).toBe(true);
+		expect(
+			store.stageReviewCandidateDisplayEvent({
+				event: {
+					...initialEvent,
+					patches: [
+						{ ...initialSourcePatch, payload: { ...initialSourcePatch.payload, status: 'ready' } },
+						populatedItemPatch,
+						initialTreePatch,
+					],
+				},
+				identity: activeIdentity,
+			}),
+		).toBe(true);
+		expect(store.markReviewCandidateReady({ identity: activeIdentity, role: 'provisional' })).toBe(
+			true,
+		);
+		expect(store.promoteReviewCandidate(activeIdentity)).toBe(true);
 		const codeViewItem = makeBridgeMainCodeViewItem('item-1');
 		const rowPaint = { contentCacheKey: 'pierre-content:item-1', status: 'ready' } as const;
 		store.applySnapshotUpdate({
@@ -534,7 +556,7 @@ describe('Bridge main render snapshot store', () => {
 		expect(restoredSnapshot.contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
 		expect(restoredSnapshot.rowPaintById['item-1']).toEqual(rowPaint);
 
-		// Act: hide the item again, then accept a same-epoch source publication while it is absent.
+		// A sealed filter projection names the same immutable publication instead of null.
 		store.applyReviewDisplayPatchEvent({
 			...initialEvent,
 			patches: [
@@ -546,8 +568,36 @@ describe('Bridge main render snapshot store', () => {
 				initialTreePatch,
 			],
 			projectionRevision: initialEvent.projectionRevision + 3,
-			reviewPublicationIdentity: null,
+			reviewPublicationIdentity: initialPublicationIdentity,
 			sequence: initialEvent.sequence + 3,
+		});
+		expect(store.getSnapshot().reviewItemById['item-1']).toBeUndefined();
+		expect(store.getSnapshot().codeViewItemsById['item-1']).toBe(codeViewItem);
+		expect(store.getSnapshot().contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [initialSourcePatch, populatedItemPatch, initialTreePatch],
+			projectionRevision: initialEvent.projectionRevision + 4,
+			reviewPublicationIdentity: initialPublicationIdentity,
+			sequence: initialEvent.sequence + 4,
+		});
+		expect(store.getSnapshot().codeViewItemsById['item-1']).toBe(codeViewItem);
+		expect(store.getSnapshot().contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+
+		// Act: hide the item again, then accept a same-epoch source publication while it is absent.
+		store.applyReviewDisplayPatchEvent({
+			...initialEvent,
+			patches: [
+				initialSourcePatch,
+				{
+					...populatedItemPatch,
+					payload: { ...populatedItemPatch.payload, items: [] },
+				},
+				initialTreePatch,
+			],
+			projectionRevision: initialEvent.projectionRevision + 5,
+			reviewPublicationIdentity: null,
+			sequence: initialEvent.sequence + 5,
 		});
 		store.applyReviewDisplayPatchEvent({
 			...initialEvent,
@@ -559,12 +609,12 @@ describe('Bridge main render snapshot store', () => {
 				},
 				initialTreePatch,
 			],
-			projectionRevision: initialEvent.projectionRevision + 4,
+			projectionRevision: initialEvent.projectionRevision + 6,
 			reviewPublicationIdentity: {
 				...initialPublicationIdentity,
 				publicationId: '00000000-0000-7000-8000-000000000002',
 			},
-			sequence: initialEvent.sequence + 4,
+			sequence: initialEvent.sequence + 6,
 		});
 
 		// Assert
@@ -609,7 +659,7 @@ describe('Bridge main render snapshot store', () => {
 				...initialPublicationIdentity,
 				publicationId: '00000000-0000-7000-8000-000000000003',
 			},
-			sequence: initialEvent.sequence + 5,
+			sequence: initialEvent.sequence + 7,
 		});
 
 		// Assert
@@ -879,119 +929,3 @@ describe('Bridge main render snapshot store', () => {
 		expect(store.getSnapshot().rowPaintById['item-1']).toBeUndefined();
 	});
 });
-
-function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
-	return {
-		direction: 'serverWorkerToMain',
-		epoch: 2,
-		kind: 'reviewDisplayPatch',
-		reviewPublicationIdentity: {
-			packageId: 'package-1',
-			publicationId: '00000000-0000-7000-8000-000000000001',
-			reviewGeneration: 1,
-			revision: 11,
-			sourceIdentity: 'review-source-package-1',
-		},
-		patches: [
-			{
-				operation: 'upsert',
-				payload: {
-					...bridgeWorkerReviewSourceContext('package-1'),
-					metadataSourceId: 'review-source-package-1',
-					metadataWindowIdentity: 'metadata-window-package-1-r11',
-					packageId: 'package-1',
-					reviewGeneration: 1,
-					revision: 11,
-					status: 'loading',
-					summary: null,
-					totalItemCount: 1,
-					totalTreeRowCount: 1,
-				},
-				slice: 'reviewSource',
-			},
-			{
-				operation: 'batch',
-				payload: {
-					items: [
-						{
-							contentFacts: [],
-							extentFacts: [],
-							metadata: {
-								additions: 1,
-								deletions: 1,
-								basePath: 'Sources/App.swift',
-								changeKind: 'modified',
-								contentDescriptorIdsByRole: {},
-								contentHashesByRole: {},
-								contentRoles: [],
-								extension: 'swift',
-								fileClass: 'source',
-								headPath: 'Sources/App.swift',
-								isHiddenByDefault: false,
-								itemId: 'item-1',
-								language: 'swift',
-								mimeTypes: ['text/plain'],
-								provenance: { agentSessionIds: [], operationIds: [], promptIds: [] },
-								reviewPriority: 'normal',
-								reviewState: 'unreviewed',
-							},
-							metadataWindowIdentity: 'metadata-window-item-1-r11',
-						},
-					],
-					operations: [],
-					reset: true,
-					startIndex: 0,
-				},
-				slice: 'reviewItem',
-			},
-			{
-				operation: 'batch',
-				payload: {
-					reset: true,
-					windows: [
-						{
-							rows: [
-								{
-									depth: 1,
-									isDirectory: false,
-									itemId: 'item-1',
-									path: 'Sources/App.swift',
-									rowId: 'row-item-1',
-								},
-							],
-							startIndex: 0,
-						},
-					],
-				},
-				slice: 'reviewTree',
-			},
-		],
-		projectionRevision: 3,
-		sequence: 5,
-		surface: 'review',
-		transferDescriptors: [],
-		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-	};
-}
-
-function makeBridgeMainCodeViewItem(itemId: string): BridgeMainCodeViewItem {
-	return {
-		id: itemId,
-		type: 'file',
-		file: {
-			name: 'src/stale.ts',
-			contents: 'export const stale = true;\n',
-			lang: 'typescript',
-			cacheKey: `pierre-content:${itemId}`,
-		},
-		version: 1,
-		bridgeMetadata: {
-			itemId,
-			displayPath: 'src/stale.ts',
-			contentState: 'hydrated',
-			contentRoles: ['file'],
-			cacheKey: `pierre-content:${itemId}`,
-			lineCount: 1,
-		},
-	};
-}

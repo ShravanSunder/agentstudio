@@ -744,7 +744,8 @@ export function createBridgeMainRenderSnapshotStore(
 				itemIds: bridgeMainReviewRenderCopyInvalidationItemIds({
 					currentItemsById: snapshot.reviewItemById,
 					previousItemsById: effect.previousItemsById,
-					preserveProjectionHiddenCopies: incomingIdentity === null,
+					preserveProjectionHiddenCopies:
+						incomingIdentity === null || replaysExactActivePublication,
 					retainedRenderCopyItemIds: bridgeMainReviewRetainedRenderCopyItemIds(snapshot),
 					replacesWorkerDerivationEpoch,
 				}),
