@@ -244,6 +244,20 @@ describe('Bridge worker render fulfillment registry', () => {
 			retryableItemIds: [],
 		});
 		expect(registry.nextLifecycleWakeAtMilliseconds()).toBeNull();
+		const retained = registry.beginPublication({
+			job: makeRenderJob('unrelated-review-item'),
+			publicationSequence: 10,
+			workerDerivationEpoch: 3,
+		});
+		expect(registry.retryExhaustedPublications()).toEqual(['visible-review-item']);
+		expect(registry.getItemState('unrelated-review-item')).toBe(retained.state);
+		expect(registry.getItemState('visible-review-item')).toBeNull();
+		expect(registry.retryExhaustedPublications()).toEqual([]);
+		expect(
+			registry.applyDisposition(disposition(retry.receiptIdentity, 'queued', 206)),
+		).toMatchObject({
+			status: 'rejected',
+		});
 	});
 
 	test('keeps an out-of-window queued Review publication dormant and clears a lease on exit', () => {
