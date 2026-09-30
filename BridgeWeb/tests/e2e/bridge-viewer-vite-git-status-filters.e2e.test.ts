@@ -11,10 +11,7 @@ import {
 	startBridgeViewerOwnedViteProductServer,
 	type BridgeViewerOwnedViteProductServer,
 } from './bridge-viewer-vite-product-fixture.ts';
-import {
-	bridgeViewerViteProductReviewUrl,
-	requireBridgeViewerVitePrimaryReviewPath,
-} from './bridge-viewer-vite-product-url.ts';
+import { bridgeViewerViteProductReviewUrl } from './bridge-viewer-vite-product-url.ts';
 import { observeBrowserRuntimeDiagnostics } from './bridge-viewer-vite-review-comparison-observation.ts';
 
 const treeSettlementTimeoutMilliseconds = 30_000;
@@ -31,15 +28,9 @@ test('filters the native Git working-tree review by every status and clears comb
 		const page = await browser.newPage({ viewport: { height: 980, width: 1728 } });
 		diagnostics = observeBrowserRuntimeDiagnostics(page);
 
-		await page.goto(
-			bridgeViewerViteProductReviewUrl(
-				server.origin,
-				requireBridgeViewerVitePrimaryReviewPath(fixture.oracle),
-			),
-			{
-				waitUntil: 'domcontentloaded',
-			},
-		);
+		await page.goto(bridgeViewerViteProductReviewUrl(server.origin, fixture.addedSourcePath), {
+			waitUntil: 'domcontentloaded',
+		});
 		await page.getByTestId('review-viewer-shell').waitFor({ state: 'visible' });
 		await expectReviewTreePaths(page, fixture.expectedAllTreePaths, 'initial All statuses');
 		await expectSelectedReviewCodeContent(
