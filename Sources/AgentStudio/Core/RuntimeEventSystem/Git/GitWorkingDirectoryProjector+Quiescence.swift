@@ -28,13 +28,12 @@ extension GitWorkingDirectoryProjector {
     }
 
     func emitUnreportedDroppedEnvelopeFacts(lifetime: UInt64) {
-        if let subscriptionHandle {
-            let droppedCount = subscriptionHandle.deliveryCheckpoint().droppedCount
-            if droppedCount > lastEmittedDroppedEnvelopeCount {
-                let delta = droppedCount - lastEmittedDroppedEnvelopeCount
-                lastEmittedDroppedEnvelopeCount = droppedCount
-                factSink?(.lifetime(lifetime), .envelopesDropped(count: delta))
-            }
+        guard factSink != nil, let subscriptionHandle else { return }
+        let droppedCount = subscriptionHandle.deliveryCheckpoint().droppedCount
+        if droppedCount > lastEmittedDroppedEnvelopeCount {
+            let delta = droppedCount - lastEmittedDroppedEnvelopeCount
+            lastEmittedDroppedEnvelopeCount = droppedCount
+            factSink?(.lifetime(lifetime), .envelopesDropped(count: delta))
         }
     }
 

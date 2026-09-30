@@ -125,7 +125,7 @@ extension GitWorkingDirectoryProjector {
     }
 
     func visibilityAdmissionDelayDidFail(generation: UInt64) {
-        guard activeVisibilityAdmissionFactGeneration == generation else { return }
+        guard factSink != nil, activeVisibilityAdmissionFactGeneration == generation else { return }
         visibilityAdmissionTask = nil
         closeVisibilityAdmissionFacts(as: .cancelled)
     }
@@ -141,14 +141,15 @@ extension GitWorkingDirectoryProjector {
     }
 
     func closeRefreshFact(worktreeId: UUID, outcome: GitProjectorRefreshOutcome) {
+        guard let factSink else { return }
         guard let scope = openRefreshFactScopeByWorktreeId.removeValue(forKey: worktreeId) else { return }
-        factSink?(scope, .refreshClosed(outcome))
+        factSink(scope, .refreshClosed(outcome))
     }
 
     func closeRefreshFact(
         worktreeId: UUID, ifCurrent scope: GitProjectorScope?, outcome: GitProjectorRefreshOutcome
     ) {
-        guard let scope, openRefreshFactScopeByWorktreeId[worktreeId] == scope else { return }
+        guard factSink != nil, let scope, openRefreshFactScopeByWorktreeId[worktreeId] == scope else { return }
         closeRefreshFact(worktreeId: worktreeId, outcome: outcome)
     }
 
@@ -252,6 +253,7 @@ extension GitWorkingDirectoryProjector {
     }
 
     func takeDeadlineFact(worktreeId: UUID, sourceKind: GitRefreshDeadlineKind) -> GitProjectorScope? {
+        guard factSink != nil else { return nil }
         let slot = GitProjectorDeadlineFactSlot(worktreeId: worktreeId, sourceKind: sourceKind.rawValue)
         return deadlineFactScopeBySlot.removeValue(forKey: slot)
     }
@@ -287,8 +289,9 @@ extension GitWorkingDirectoryProjector {
     }
 
     func closeCapacityFact(worktreeId: UUID, outcome: GitProjectorCapacityRetryOutcome) {
+        guard let factSink else { return }
         guard let episode = capacityFactOpenEpisodeByWorktreeId.removeValue(forKey: worktreeId) else { return }
-        factSink?(.capacity(worktreeId: worktreeId, episode: episode), .capacityRetryClosed(outcome))
+        factSink(.capacity(worktreeId: worktreeId, episode: episode), .capacityRetryClosed(outcome))
     }
 
     func recordBackoffFact(worktreeId: UUID, level: Int) {
@@ -304,12 +307,14 @@ extension GitWorkingDirectoryProjector {
     }
 
     func recordBackoffHalfOpenFact(worktreeId: UUID) {
+        guard let factSink else { return }
         guard let episode = backoffFactOpenEpisodeByWorktreeId[worktreeId] else { return }
-        factSink?(.backoff(worktreeId: worktreeId, episode: episode), .backoffHalfOpen)
+        factSink(.backoff(worktreeId: worktreeId, episode: episode), .backoffHalfOpen)
     }
 
     func closeBackoffFact(worktreeId: UUID) {
+        guard let factSink else { return }
         guard let episode = backoffFactOpenEpisodeByWorktreeId.removeValue(forKey: worktreeId) else { return }
-        factSink?(.backoff(worktreeId: worktreeId, episode: episode), .backoffClosed)
+        factSink(.backoff(worktreeId: worktreeId, episode: episode), .backoffClosed)
     }
 }

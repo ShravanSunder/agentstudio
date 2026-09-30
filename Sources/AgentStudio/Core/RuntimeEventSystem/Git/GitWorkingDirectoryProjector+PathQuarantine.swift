@@ -93,8 +93,8 @@ extension GitWorkingDirectoryProjector {
     private func clearQuarantineEmittingClose(worktreeId: UUID) {
         guard quarantinedWorktreeIds.remove(worktreeId) != nil else { return }
         emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: false)
-        if let episode = quarantineFactEpisodeByWorktreeId[worktreeId] {
-            factSink?(.quarantine(worktreeId: worktreeId, episode: episode), .quarantineClosed)
+        if let factSink, let episode = quarantineFactEpisodeByWorktreeId[worktreeId] {
+            factSink(.quarantine(worktreeId: worktreeId, episode: episode), .quarantineClosed)
         }
     }
 
@@ -103,8 +103,8 @@ extension GitWorkingDirectoryProjector {
     /// no close fact is warranted. Mirrors the non-emitting `clearStatusBackoffState`.
     func clearQuarantineState(worktreeId: UUID) {
         guard quarantinedWorktreeIds.remove(worktreeId) != nil else { return }
-        if let episode = quarantineFactEpisodeByWorktreeId[worktreeId] {
-            factSink?(.quarantine(worktreeId: worktreeId, episode: episode), .quarantineClosed)
+        if let factSink, let episode = quarantineFactEpisodeByWorktreeId[worktreeId] {
+            factSink(.quarantine(worktreeId: worktreeId, episode: episode), .quarantineClosed)
         }
     }
 

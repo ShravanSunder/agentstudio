@@ -77,8 +77,8 @@ extension GitWorkingDirectoryProjector {
     func computeAndEmit(changeset: FileChangeset) async {
         guard !Task.isCancelled else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
-        if let scope = openRefreshFactScopeByWorktreeId[changeset.worktreeId] {
-            factSink?(scope, .refreshStarted)
+        if let factSink, let scope = openRefreshFactScopeByWorktreeId[changeset.worktreeId] {
+            factSink(scope, .refreshStarted)
         }
 
         // Provider contract: expensive git compute must run off actor isolation.

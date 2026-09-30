@@ -209,8 +209,13 @@ extension GitWorkingDirectoryProjector {
 
         let delay = self.delay
         let coalescingWindow = AppPolicies.GitRefresh.visibilityChangeCoalescingWindow
-        nextVisibilityAdmissionFactGeneration &+= 1
-        let generation = nextVisibilityAdmissionFactGeneration
+        let generation: UInt64
+        if factSink != nil {
+            nextVisibilityAdmissionFactGeneration &+= 1
+            generation = nextVisibilityAdmissionFactGeneration
+        } else {
+            generation = 0
+        }
         visibilityAdmissionTask = Task { [weak self, delay, coalescingWindow] in
             do {
                 try await delay.wait(coalescingWindow)

@@ -210,7 +210,7 @@ package actor GitWorkingDirectoryProjector {
         subscriptionLifetime &+= 1
         let lifetime = subscriptionLifetime
         subscriptionHandle = stream
-        lastEmittedDroppedEnvelopeCount = 0
+        if factSink != nil { lastEmittedDroppedEnvelopeCount = 0 }
         subscriptionTask = Task { [weak self] in
             for await runtimeEnvelope in stream {
                 guard !Task.isCancelled else { break }
