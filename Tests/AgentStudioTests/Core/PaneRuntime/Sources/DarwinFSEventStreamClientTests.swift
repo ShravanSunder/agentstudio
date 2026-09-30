@@ -848,6 +848,8 @@ extension DarwinFSEventStreamClientTests {
         )
 
         _ = client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
+        // Fence this registration's callbacks before opening its replacement barrier.
+        try await requireNativeStreamReadiness(client: client, worktreeId: worktreeId, rootPath: fixtureRoot)
         let replacementPrepareOutcome = await client.prepare(
             worktreeId: worktreeId,
             rootPath: fixtureRoot,
@@ -865,7 +867,9 @@ extension DarwinFSEventStreamClientTests {
         worktreeId: UUID,
         rootPath: URL
     ) async throws {
-        let readinessSentinelPath = rootPath.appending(path: "native-stream-ready.sentinel")
+        let readinessSentinelPath = rootPath.appending(
+            path: "native-stream-ready-\(UUIDv7.generate().uuidString).sentinel"
+        )
         let canonicalReadinessSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(
             readinessSentinelPath
         ).path
