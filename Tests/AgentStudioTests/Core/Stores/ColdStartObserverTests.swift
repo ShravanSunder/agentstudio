@@ -1,8 +1,11 @@
+import Darwin
+import Dispatch
 import Foundation
 import Testing
 
 @testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 /// SR4, SR5; Program Design item 3: `ColdStartObserver`'s total outcome and
 /// its two settlement paths that don't need a real process or a real zmx
@@ -16,6 +19,12 @@ struct ColdStartObserverTests {
     private final class ScriptedSyscalls: ColdStartObserverSyscalls, @unchecked Sendable {
         var directoryOpenResult: Result<Int32, POSIXErrorNumber> = .failure(POSIXErrorNumber(EACCES))
         var processArgumentsResult: Result<[UInt8], POSIXErrorNumber> = .failure(POSIXErrorNumber(ESRCH))
+        /// Consulted only when `processArgumentsResult` is `.failure` and no
+        /// `NOTE_EXIT` fired on that same check. Defaults to the same
+        /// outcome the pre-2026-09-30 code always assumed (still alive,
+        /// unreadable for some other reason) so a test that never touches
+        /// this keeps its prior behavior.
+        var leaderStateResult: ColdStartLeaderState = .sameIncarnationAlive
         /// Consumed one per `observeSession` call, in order; once exhausted,
         /// every further call repeats `observeSessionFallback`.
         var observeSessionResults: [ZmxDiscoveryObservation] = []
@@ -38,6 +47,10 @@ struct ColdStartObserverTests {
 
         func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber> {
             processArgumentsResult
+        }
+
+        func leaderState(of incarnation: ZmxProcessIncarnation) -> ColdStartLeaderState {
+            leaderStateResult
         }
 
         func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation {
@@ -89,6 +102,50 @@ struct ColdStartObserverTests {
         buffer.append(contentsOf: Array(execPath.utf8))
         buffer.append(0)
         return buffer
+    }
+
+    /// Same `KERN_PROCARGS2` shape, carrying `argv` -- used where a test
+    /// needs the token genuinely present (`tokenStillPresent`), not just an
+    /// empty argv that can only ever read as absent.
+    private func makeArgumentVectorBuffer(execPath: String = "/bin/example", argv: [String]) -> [UInt8] {
+        var buffer = withUnsafeBytes(of: Int32(argv.count)) { Array($0) }
+        buffer.append(contentsOf: Array(execPath.utf8))
+        buffer.append(0)
+        for argument in argv {
+            buffer.append(contentsOf: Array(argument.utf8))
+            buffer.append(0)
+        }
+        return buffer
+    }
+
+    private func makeFIFOPath() throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cold-start-observer-fifo-\(UUIDv7.generate().uuidString)").path
+        guard mkfifo(path, 0o600) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return path
+    }
+
+    /// Blocks until the matching read end (`cat <fifo>`) has genuinely
+    /// opened -- real POSIX rendezvous, not a timing guess. Offloaded off
+    /// the cooperative pool since it's a real blocking syscall.
+    private func openFIFOForWriting(atPath path: String) async throws -> Int32 {
+        try await withoutBlockingCooperativePool {
+            let descriptor = open(path, O_WRONLY)
+            guard descriptor >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return descriptor
+        }
+    }
+
+    private func closeFIFOWriteDescriptor(_ descriptor: Int32) async throws {
+        try await withoutBlockingCooperativePool {
+            guard close(descriptor) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
     }
 
     @Test("a directory-watch registration failure settles unobservable, carrying the injected errno")
@@ -401,5 +458,196 @@ struct ColdStartObserverTests {
         )
 
         #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+    }
+
+    /// Event-driven wait for a real process's own `NOTE_EXIT`, so a test can
+    /// know for certain a leader has already exited before the observer
+    /// ever looks at it -- never `Process.waitUntilExit()` (a blocking call
+    /// off the cooperative pool) or a sleep. Returns the pid that exited,
+    /// the observation that satisfied the wait.
+    @discardableResult
+    private func waitForRealProcessExit(pid: Int32) async -> Int32 {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid, eventMask: .exit, queue: .global(qos: .userInitiated))
+            source.setEventHandler {
+                source.cancel()
+                continuation.resume(returning: pid)
+            }
+            source.setCancelHandler {}
+            source.resume()
+        }
+    }
+
+    /// 2026-09-30 finding: `beginHandoffWatch`'s register-then-check
+    /// immediate call hardcodes `exitFired: false` --
+    /// `checkForHandoffAndAdvance(identity: identity, attemptID: attemptID,
+    /// exitFired: false)`, right after `source.resume()`. Its own comment
+    /// only accounts for "handoff may have already completed" (the
+    /// token-absent case); it doesn't account for the leader having already
+    /// exited before this watch even registers. When that happens, the argv
+    /// read genuinely fails (observed for real against a zmx cold-restore
+    /// leader that already exited: `EINVAL`, not the `ESRCH` a dead-process
+    /// read might suggest), and `handoffChecked`'s `.unreadable` branch sees
+    /// the hardcoded `false` and settles `.unobservable` instead of
+    /// `.failed` -- even though the leader is provably, already dead.
+    /// Reproduced deterministically here: the real process is confirmed
+    /// exited (via a real `NOTE_EXIT` wait) before `observeColdStart` is
+    /// even called, so the scripted `.unreadable` result can only be seen
+    /// through the immediate check's hardcoded `exitFired: false` -- no
+    /// later real event is what settles this.
+    @Test(
+        "a leader already exited before Stage 2 registers still settles failed, not unobservable, on an unreadable argv"
+    )
+    func leaderAlreadyExitedBeforeHandoffRegistrationSettlesFailedNotUnobservable() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-handoff-already-exited-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let controlledProcess = Process()
+        controlledProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
+        controlledProcess.arguments = ["-c", "exit 0"]
+        controlledProcess.standardOutput = FileHandle.nullDevice
+        controlledProcess.standardError = FileHandle.nullDevice
+        try controlledProcess.run()
+        let terminalPID = controlledProcess.processIdentifier
+        // Captured while the process is still resolvable -- observeColdStart
+        // itself never queries process state for this identity; only
+        // checkHandoff's scripted argv read does, below.
+        let incarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: terminalPID))
+        await waitForRealProcessExit(pid: terminalPID)
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        let identity = ZmxSessionIdentity(
+            version: 1,
+            bootID: "test-boot-id",
+            daemon: incarnation,
+            terminalLeader: incarnation,
+            processGroupID: incarnation.pid,
+            sessionCreatedAt: 0
+        )
+        syscalls.observeSessionResults = [.identity(identity)]
+        syscalls.processArgumentsResult = .failure(POSIXErrorNumber(EINVAL))
+        syscalls.leaderStateResult = .exited
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        let outcome = await observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
+
+        #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+    }
+
+    /// The other half of the same amendment: an unreadable argv from a
+    /// leader that's still genuinely alive (the same incarnation) must stay
+    /// `.unobservable`, not become `.failed` just because it couldn't be
+    /// read -- `leaderState` is what tells these two apart now.
+    @Test("an unreadable argv from a leader that's still the same, alive incarnation settles unobservable")
+    func unreadableArgvFromAStillAliveLeaderSettlesUnobservable() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-handoff-still-alive-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let selfIncarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: selfPID))
+        let identity = ZmxSessionIdentity(
+            version: 1,
+            bootID: "test-boot-id",
+            daemon: selfIncarnation,
+            terminalLeader: selfIncarnation,
+            processGroupID: selfIncarnation.pid,
+            sessionCreatedAt: 0
+        )
+        syscalls.observeSessionResults = [.identity(identity)]
+        syscalls.processArgumentsResult = .failure(POSIXErrorNumber(EACCES))
+        syscalls.leaderStateResult = .sameIncarnationAlive
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        let outcome = await observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
+
+        #expect(outcome == .unobservable(.processArgsUnreadable(errno: EACCES)))
+    }
+
+    /// The same defect could hit the *event* path too, not just the
+    /// immediate post-registration check: a `NOTE_EXEC` event whose own
+    /// argv read races a later exit. Held at a real FIFO so the leader-state
+    /// swap below happens-before the real leader's own exec, and that
+    /// exec's real `NOTE_EXEC` happens-before the check that must see the
+    /// swapped values -- not a timing guess.
+    @Test("an exec event whose own argv read races a later exit also settles failed, not just the immediate check")
+    func execEventArgvReadRacingALaterExitSettlesFailed() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-handoff-event-race-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+        let holdFIFOPath = try makeFIFOPath()
+        defer { try? FileManager.default.removeItem(atPath: holdFIFOPath) }
+
+        let attemptID = ColdRestoreAttemptID.generate()
+        let controlledProcess = Process()
+        controlledProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
+        controlledProcess.arguments = ["-c", "cat \(holdFIFOPath); exec /bin/sleep 300"]
+        controlledProcess.standardOutput = FileHandle.nullDevice
+        controlledProcess.standardError = FileHandle.nullDevice
+        try controlledProcess.run()
+        defer { controlledProcess.terminate() }
+        let terminalPID = controlledProcess.processIdentifier
+        let terminalIncarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: terminalPID))
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        let identity = ZmxSessionIdentity(
+            version: 1,
+            bootID: "test-boot-id",
+            daemon: terminalIncarnation,
+            terminalLeader: terminalIncarnation,
+            processGroupID: terminalIncarnation.pid,
+            sessionCreatedAt: 0
+        )
+        syscalls.observeSessionResults = [.identity(identity)]
+        // The immediate post-registration check: the real leader is
+        // genuinely still blocked on the FIFO, token present -- Stage 2
+        // must wait here, not settle.
+        syscalls.processArgumentsResult = .success(
+            makeArgumentVectorBuffer(execPath: "/bin/sh", argv: [attemptID.startupToken]))
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        async let outcome = observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: attemptID
+        )
+
+        // Swap before releasing: happens-before the real leader's own exec,
+        // which happens-before the real NOTE_EXEC event this swap must be
+        // visible to.
+        syscalls.processArgumentsResult = .failure(POSIXErrorNumber(EINVAL))
+        syscalls.leaderStateResult = .exited
+        let writeDescriptor = try await openFIFOForWriting(atPath: holdFIFOPath)
+        try await closeFIFOWriteDescriptor(writeDescriptor)
+
+        let settledOutcome = await outcome
+
+        #expect(settledOutcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
     }
 }

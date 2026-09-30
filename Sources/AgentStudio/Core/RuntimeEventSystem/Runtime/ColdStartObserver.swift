@@ -21,7 +21,15 @@ import Foundation
 ///    terminal-leader pid, then reads its argument vector via
 ///    `KERN_PROCARGS2` (never the environment: macOS returns none to a
 ///    third-party reader for any process) and looks for the startup token
-///    (`ColdRestoreAttemptID.startupToken`) among its elements.
+///    (`ColdRestoreAttemptID.startupToken`) among its elements. An
+///    unreadable argv with no `NOTE_EXIT` on that same event (amended
+///    2026-09-30) no longer assumes the leader is still alive: it classifies
+///    the leader's own OS-reported state (`ColdStartObserverSyscalls
+///    .leaderState`, `proc_pidinfo`-based, never `kill(pid, 0)` — measured
+///    wrong against a real zombie) and settles `.failed` when that state is
+///    `.exited` — covering both a leader that already exited before this
+///    watch ever registered, and a `NOTE_EXEC` event whose own argv read
+///    races a later exit — see `checkHandoff`/`handoffChecked`.
 ///
 /// `reportAttachClientExited()` is a third, independent settlement path:
 /// Ghostty's `showChildExited` action is the one event-driven fact present
@@ -36,13 +44,18 @@ package actor ColdStartObserver {
     /// One handoff check's result: read the leader's current argv, then
     /// decide what it means. `unreadable` means the read itself failed
     /// (`sysctl` error or no argument vector returned) — whether that
-    /// becomes `.failed` or `.unobservable` still depends on whether
-    /// `NOTE_EXIT` was also observed (a dead process explains an
-    /// unreadable argv; an unreadable argv from a live process does not).
+    /// becomes `.failed` or `.unobservable` depends on whether `NOTE_EXIT`
+    /// was also observed on this same event, or (amended 2026-09-30) on the
+    /// leader's own OS-reported state read at the same time as the argv
+    /// attempt: a leader that had already exited before this check even ran
+    /// — no `NOTE_EXIT` on this particular call, since the exit happened
+    /// before the watch registered, or is racing a `NOTE_EXEC` event's own
+    /// argv read — still explains an unreadable argv exactly as a live
+    /// `NOTE_EXIT` would.
     private enum HandoffCheckResult {
         case tokenAbsent
         case tokenStillPresent
-        case unreadable(errno: Int32)
+        case unreadable(errno: Int32, leaderState: ColdStartLeaderState)
     }
 
     private let syscalls: any ColdStartObserverSyscalls
@@ -352,19 +365,28 @@ package actor ColdStartObserver {
         attemptID: ColdRestoreAttemptID,
         exitFired: Bool
     ) {
-        let result = checkHandoff(pid: identity.terminalLeader.pid, attemptID: attemptID)
+        let result = checkHandoff(terminalLeader: identity.terminalLeader, attemptID: attemptID)
         Task {
             await self.handoffChecked(identity: identity, checkResult: result, exitFired: exitFired)
         }
     }
 
-    nonisolated private func checkHandoff(pid: Int32, attemptID: ColdRestoreAttemptID) -> HandoffCheckResult {
-        switch syscalls.readProcessArgumentsBuffer(pid: pid) {
+    /// The leader-state read (amended 2026-09-30) runs here too, next to
+    /// the argv read and on the same nonisolated executor — never inside
+    /// the actor — so `HandoffCheckResult` always carries a complete
+    /// answer. That completeness is what makes the order the two
+    /// unstructured `Task`s (this check's own, and `settle`'s continuation
+    /// resume) finish in stop mattering: nothing downstream needs a second
+    /// syscall to decide.
+    nonisolated private func checkHandoff(
+        terminalLeader: ZmxProcessIncarnation, attemptID: ColdRestoreAttemptID
+    ) -> HandoffCheckResult {
+        switch syscalls.readProcessArgumentsBuffer(pid: terminalLeader.pid) {
         case .failure(let errorNumber):
-            return .unreadable(errno: errorNumber.rawValue)
+            return .unreadable(errno: errorNumber.rawValue, leaderState: syscalls.leaderState(of: terminalLeader))
         case .success(let buffer):
             guard let arguments = ProcessArgumentsBufferParser.argumentVector(in: buffer) else {
-                return .unreadable(errno: EINVAL)
+                return .unreadable(errno: EINVAL, leaderState: syscalls.leaderState(of: terminalLeader))
             }
             return arguments.contains(attemptID.startupToken) ? .tokenStillPresent : .tokenAbsent
         }
@@ -398,13 +420,23 @@ package actor ColdStartObserver {
             if exitFired {
                 settle(.failed(.exitedBeforeHandoff(exitStatus: nil)))
             }
-        case .unreadable(let errorNumber):
-            // NOTE_EXIT explains an unreadable argv (the process is gone);
-            // otherwise this is a genuine "couldn't establish the witness."
+        case .unreadable(let errorNumber, let leaderState):
+            // NOTE_EXIT explains an unreadable argv (the process is gone).
+            // Amended 2026-09-30: when no NOTE_EXIT fired on this event —
+            // including the immediate post-registration check, which never
+            // carries a real one — the leader's own OS-reported state
+            // decides instead of assuming still-alive. `.exited` covers a
+            // leader that exited before this watch even registered, and a
+            // NOTE_EXEC event whose own argv read raced a later exit.
             if exitFired {
                 settle(.failed(.exitedBeforeHandoff(exitStatus: nil)))
             } else {
-                settle(.unobservable(.processArgsUnreadable(errno: errorNumber)))
+                switch leaderState {
+                case .exited:
+                    settle(.failed(.exitedBeforeHandoff(exitStatus: nil)))
+                case .sameIncarnationAlive, .unverifiable:
+                    settle(.unobservable(.processArgsUnreadable(errno: errorNumber)))
+                }
             }
         }
     }

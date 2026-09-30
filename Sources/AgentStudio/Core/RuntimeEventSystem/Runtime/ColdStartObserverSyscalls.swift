@@ -27,6 +27,28 @@ package struct POSIXErrorNumber: Error, Equatable, Sendable {
 /// retry (added 2026-09-30) the same way. The real zmx/process paths stay
 /// proven against real zmx and real processes elsewhere; this seam exists
 /// only for cases otherwise unreachable in a test.
+/// Stage 2's answer to "is the leader this exact incarnation, still alive?"
+/// -- added 2026-09-30 after `ColdStartObserver.checkForHandoffAndAdvance`'s
+/// register-then-check immediate call was found hardcoding `exitFired:
+/// false`, so a leader that had already exited before Stage 2 even
+/// registered its watch read as `.unobservable` instead of `.failed`.
+/// `kill(pid, 0)` is NOT a valid probe here: measured directly against a
+/// real zombie (a child that exited but had not yet been reaped),
+/// `kill(pid, 0)` returned 0 ("alive"), while `proc_pidinfo
+/// (PROC_PIDTBSDINFO)` correctly failed with `ESRCH`.
+package enum ColdStartLeaderState: Equatable, Sendable {
+    /// `proc_pidinfo` succeeded and its reported start time matches the
+    /// discovered incarnation exactly -- the same process, still alive.
+    case sameIncarnationAlive
+    /// `proc_pidinfo` failed with `ESRCH` (covers both a zombie and an
+    /// already-reaped process), or it succeeded but its start time no
+    /// longer matches the discovered incarnation (the pid was recycled onto
+    /// a different process). Either way, the original leader is gone.
+    case exited
+    /// `proc_pidinfo` failed some other way -- genuinely couldn't tell.
+    case unverifiable(POSIXErrorNumber)
+}
+
 package protocol ColdStartObserverSyscalls: Sendable {
     /// Opens `path` (the zmx directory) for `EVFILT_VNODE` watching.
     /// `.failure(errno)` on failure, for `ColdStartUnobservableReason
@@ -53,6 +75,11 @@ package protocol ColdStartObserverSyscalls: Sendable {
     /// terminal pid to watch). Every other failure reaches
     /// `ColdStartObserver`'s existing discovery-settlement logic unchanged.
     func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation
+
+    /// Classifies `incarnation`'s leader against its own current OS state --
+    /// see `ColdStartLeaderState`'s own doc for why this never falls back to
+    /// `kill(pid, 0)`.
+    func leaderState(of incarnation: ZmxProcessIncarnation) -> ColdStartLeaderState
 }
 
 /// The real Darwin implementation. Kept separate from the protocol so a
@@ -130,5 +157,25 @@ package struct DarwinColdStartObserverSyscalls: ColdStartObserverSyscalls {
 
     package func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation {
         ZmxSessionControl.observeForDiscovery(path: path, bootID: bootID)
+    }
+
+    /// `proc_pidinfo(PROC_PIDTBSDINFO)` only, never `kill(pid, 0)` -- see
+    /// `ColdStartLeaderState`'s doc for the measured reason.
+    package func leaderState(of incarnation: ZmxProcessIncarnation) -> ColdStartLeaderState {
+        var information = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        let count = proc_pidinfo(incarnation.pid, PROC_PIDTBSDINFO, 0, &information, size)
+        guard count == size else {
+            let failureErrno = errno
+            return failureErrno == ESRCH ? .exited : .unverifiable(POSIXErrorNumber(failureErrno))
+        }
+        guard information.pbi_start_tvsec == incarnation.startSeconds,
+            information.pbi_start_tvusec == incarnation.startMicroseconds
+        else {
+            // The pid answered, but it's not the same process anymore --
+            // recycled onto a new one after the original leader exited.
+            return .exited
+        }
+        return .sameIncarnationAlive
     }
 }

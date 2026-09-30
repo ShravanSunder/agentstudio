@@ -37,7 +37,7 @@ package struct ZmxSessionIdentity: Codable, Equatable, Sendable {
     }
 }
 
-struct ZmxProcessIncarnation: Codable, Equatable, Sendable {
+package struct ZmxProcessIncarnation: Codable, Equatable, Sendable {
     let pid: Int32
     let startSeconds: UInt64
     let startMicroseconds: UInt64

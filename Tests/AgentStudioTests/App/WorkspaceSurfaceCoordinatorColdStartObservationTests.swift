@@ -60,6 +60,11 @@ struct ColdStartObservationWiringTests {
         func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation {
             .failure(.unavailable)
         }
+
+        // Never reached, for the same reason.
+        func leaderState(of incarnation: ZmxProcessIncarnation) -> ColdStartLeaderState {
+            .unverifiable(POSIXErrorNumber(ESRCH))
+        }
     }
 
     private func vocabulary() -> FactVocabulary<UUID, ColdStartOutcome> {
