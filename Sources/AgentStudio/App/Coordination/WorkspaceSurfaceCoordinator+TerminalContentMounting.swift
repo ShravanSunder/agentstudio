@@ -177,23 +177,29 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         }
     }
 
-    /// Program Design item 4: the start slot is held "from the moment its
-    /// surface mounts," not before — native mounting above proceeds
-    /// regardless of slot availability (activation settlement releases once
-    /// the surface is mounted, never once zmx or the shell is ready); only
-    /// this observation is gated behind slot availability, acquired in the
-    /// same order panes already mount (visible first), which is what makes
-    /// "further cold panes wait in the existing activation order" true.
+    /// Program Design item 4 ("Staggered starts"): the existing single-worker
+    /// activation drain (`TerminalActivationScheduler`,
+    /// `restoreMaximumConcurrentAdmissions == 1`) already starts cold panes
+    /// one at a time, visible first — a separate start slot would only
+    /// stall every other queued pane behind a blocked cold one, since that
+    /// worker cannot skip a candidate and come back to it. A dedicated start
+    /// limit is added only if a future measurement shows it's needed.
     /// Runs detached from `mountPreparedTerminalContent`'s own return so a
-    /// slow or pending window never delays activation settlement.
-    private func beginObservingColdStart(
+    /// slow or pending window never delays activation settlement. Owned by
+    /// `coldStartObservationTasksByPaneID` so retirement and coordinator
+    /// teardown can cancel it, and a test can await its outcome fact instead
+    /// of idling.
+    /// Not `private`: a dedicated test suite calls this directly with a
+    /// scripted `ColdStartObserverSyscalls` to prove the task-ownership and
+    /// fact-sink wiring without needing surface creation to succeed (see
+    /// `WorkspaceSurfaceCoordinatorColdStartObservationTests`).
+    func beginObservingColdStart(
         paneID: UUID,
         plan: TerminalColdRestorePlan,
         observer: ColdStartObserver
     ) {
-        Task { @MainActor [weak self] in
+        let observationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.coldStartSlotGate.acquire()
             let outcome: ColdStartOutcome
             if let bootID = try? await WorkspaceUndoJournalClock.current().bootID {
                 let socketPath = plan.zmxDirectory.appending(path: plan.sessionID.rawValue).path
@@ -206,10 +212,11 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             } else {
                 outcome = .unobservable(.identityUnverifiable)
             }
-            await self.coldStartSlotGate.release()
             Ghostty.ActionRouter.unregisterColdStartAttachExitObserver(paneID: paneID)
+            self.coldStartObservationTasksByPaneID.removeValue(forKey: paneID)
             self.handleColdStartOutcome(outcome, paneID: paneID)
         }
+        coldStartObservationTasksByPaneID[paneID] = observationTask
     }
 
     /// SR5: the specific failure reason still needs the existing
@@ -217,7 +224,10 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     /// and overlay owner"); `.unobservable` never reaches the person at all
     /// ("the reason goes to telemetry only" — `RestoreTrace.log` here is
     /// this restore code path's own established local-diagnostic channel,
-    /// gated behind `AGENTSTUDIO_RESTORE_TRACE`, not OTLP).
+    /// gated behind `AGENTSTUDIO_RESTORE_TRACE`, not OTLP). The fact sink
+    /// runs after the task above already removed itself from the dictionary
+    /// (`docs/specs/2026-09-28-typed-fact-test-harness`) — no suspension
+    /// between the outcome settling and a test observing it.
     private func handleColdStartOutcome(_ outcome: ColdStartOutcome, paneID: UUID) {
         switch outcome {
         case .handedOff:
@@ -227,5 +237,6 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         case .unobservable(let reason):
             RestoreTrace.log("coldStart unobservable pane=\(paneID) reason=\(reason)")
         }
+        coldStartObservationFactSink?(paneID, outcome)
     }
 }

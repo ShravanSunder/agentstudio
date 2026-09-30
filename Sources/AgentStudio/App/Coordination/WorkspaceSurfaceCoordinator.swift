@@ -118,17 +118,24 @@ final class WorkspaceSurfaceCoordinator {
     var preparedTerminalGeometryReevaluationHandler: @MainActor ([PaneId: NSRect]) async -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
-    /// SR4; Program Design item 4: one gate for the whole app session,
-    /// bounding actual in-flight cold starts. Constructed lazily like
-    /// `terminalRestoreRuntime` -- this coordinator has exactly one
-    /// instance per app run in production, so this is effectively the
-    /// app-wide singleton the design calls for.
-    lazy var coldStartSlotGate = ColdStartSlotGate(capacity: AppPolicies.Restore.maximumConcurrentColdStarts)
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
     private var batchedRuntimeEventsTask: Task<Void, Never>?
     var bridgePaneRetirementTasksByPaneId: [UUID: Task<Void, Never>] = [:]
+    /// SR4; Program Design item 4 ("Staggered starts"): the coordinator owns
+    /// each cold pane's startup-window observation task so it can be
+    /// cancelled on retirement or coordinator teardown, and so a test can
+    /// await its outcome instead of idling. Self-removing: each task deletes
+    /// its own entry once `handleColdStartOutcome` runs. See
+    /// `WorkspaceSurfaceCoordinator+TerminalContentMounting.swift`.
+    var coldStartObservationTasksByPaneID: [UUID: Task<Void, Never>] = [:]
+    /// The typed-fact test harness's injected sink (`docs/specs/2026-09-28-typed-fact-test-harness`):
+    /// `nil` in production, a `LocalFactSource.sink` in tests. Called
+    /// synchronously at `handleColdStartOutcome`'s serialization point, after
+    /// the task above has already removed itself from the dictionary — no
+    /// suspension between the outcome settling and the fact reaching a test.
+    var coldStartObservationFactSink: (@Sendable (UUID, ColdStartOutcome) -> Void)?
     var bridgePaneRetirementsRequiringRuntimeUnregister: Set<UUID> = []
     var bridgePaneRetirementsRequiringRestore: Set<UUID> = []
     var filesystemSyncTask: Task<Void, Never>?
@@ -325,6 +332,13 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         runtimeEventBridgeTasks.removeAll()
+        for paneID in coldStartObservationTasksByPaneID.keys {
+            Ghostty.ActionRouter.cancelPendingColdStart(paneID: paneID)
+        }
+        for task in coldStartObservationTasksByPaneID.values {
+            task.cancel()
+        }
+        coldStartObservationTasksByPaneID.removeAll()
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
@@ -368,6 +382,8 @@ final class WorkspaceSurfaceCoordinator {
         let activeFilesystemSyncTask = filesystemSyncTask
         let activePullRequestDemandDeliveryTask = pullRequestDemandDeliveryTask
         let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
+        let activeColdStartObservationPaneIDs = Array(coldStartObservationTasksByPaneID.keys)
+        let activeColdStartObservationTasks = Array(coldStartObservationTasksByPaneID.values)
 
         paneEventIngressTask?.cancel()
         paneEventIngressTask = nil
@@ -388,6 +404,13 @@ final class WorkspaceSurfaceCoordinator {
             task.cancel()
         }
         runtimeEventBridgeTasks.removeAll()
+        for paneID in activeColdStartObservationPaneIDs {
+            Ghostty.ActionRouter.cancelPendingColdStart(paneID: paneID)
+        }
+        for task in activeColdStartObservationTasks {
+            task.cancel()
+        }
+        coldStartObservationTasksByPaneID.removeAll()
 
         await repositoryFactDemandCoordinator.shutdown()
         await filesystemProjectionIndex.shutdown()
@@ -408,6 +431,9 @@ final class WorkspaceSurfaceCoordinator {
             await activePullRequestDemandDeliveryTask.value
         }
         for task in activeRuntimeBridgeTasks {
+            await task.value
+        }
+        for task in activeColdStartObservationTasks {
             await task.value
         }
 
@@ -470,9 +496,14 @@ final class WorkspaceSurfaceCoordinator {
                 await Ghostty.ActionRouter.retirePanePermanently(paneID: paneID)
             }
             // Program Design item 4: "the pane's surface is retired ... ends
-            // the window, removes its kqueue registrations and settles the
-            // slot." A no-op for a pane with no pending cold-start observer.
+            // the window [and] removes its kqueue registrations." A no-op for
+            // a pane with no pending cold-start observer. Cancelling the
+            // observer resolves its continuation, which lets the owned
+            // observation task below finish and self-remove; cancelling the
+            // task too means a coordinator-level wait never depends on the
+            // observer settling first.
             Ghostty.ActionRouter.cancelPendingColdStart(paneID: paneID)
+            coldStartObservationTasksByPaneID[paneID]?.cancel()
         }
     }
 
