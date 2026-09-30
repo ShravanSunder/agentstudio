@@ -1,5 +1,11 @@
 import { defineBrowserCommand } from "@vitest/browser-playwright";
 
+import { saveFinalePillProofImages } from "./finale-pill-proof-images";
+import {
+  observeFinalePillSurface,
+  type FinalePillSurfaceObservation,
+} from "./finale-pill-surface-observation";
+
 /** The final branch, lane closures and rendered path extent in page coordinates. */
 export interface TopologyEndObservation {
   readonly width: number;
@@ -52,7 +58,7 @@ export interface TopologyEndObservation {
   readonly pathData: readonly { readonly kind: "rail" | "step"; readonly d: string }[];
 }
 
-export interface FinaleBookendObservation {
+export interface FinaleBookendObservation extends FinalePillSurfaceObservation {
   readonly readyOutlineAt03: boolean;
   readonly traceOpacityAt03: number;
   readonly readyOutlineAt08: boolean;
@@ -79,7 +85,7 @@ export interface FinaleBookendObservation {
   readonly finalState: string | undefined;
   readonly logoOpacity: string;
   readonly traceOpacity: string;
-  readonly starFillOpacity: string;
+  readonly copiedIconVisible: boolean;
   readonly railStartFraction: number;
   readonly railArrivalFraction: number;
   readonly nodeStartOpacity: string;
@@ -195,7 +201,11 @@ function observeFinaleArtwork(props: {
 }
 
 export const verifyFinaleBookend = defineBrowserCommand(
-  async ({ context }, pageUrl: string): Promise<FinaleBookendObservation> => {
+  async (
+    { context },
+    pageUrl: string,
+    proofWidth: number = 1600,
+  ): Promise<FinaleBookendObservation> => {
     const applicationPage = await context.newPage();
     const reducedMotionPage = await context.newPage();
     const skipPage = await context.newPage();
@@ -229,7 +239,10 @@ export const verifyFinaleBookend = defineBrowserCommand(
       });
     };
     try {
-      await applicationPage.setViewportSize({ width: 1600, height: 1000 });
+      await applicationPage.setViewportSize({
+        width: proofWidth,
+        height: proofWidth < 620 ? 844 : 1000,
+      });
       await applicationPage.addInitScript(installEventCounter);
       await applicationPage.goto(pageUrl, { waitUntil: "domcontentloaded" });
       await applicationPage.evaluate(() => window.dispatchEvent(new WheelEvent("wheel")));
@@ -254,7 +267,6 @@ export const verifyFinaleBookend = defineBrowserCommand(
         const footer = document.querySelector<HTMLElement>("footer");
         const logo = root?.querySelector<HTMLElement>("[data-finale-logo]");
         const trace = root?.querySelector<SVGPathElement>("[data-finale-border-trace]");
-        const fill = root?.querySelector<SVGPathElement>("[data-finale-star-fill]");
         const terminalRoute = document.querySelector<SVGGElement>("[data-topology-terminal-route]");
         const railPath = terminalRoute?.querySelector<SVGPathElement>(
           '[data-topology-path-role="core"]',
@@ -269,8 +281,6 @@ export const verifyFinaleBookend = defineBrowserCommand(
           logo === undefined ||
           trace === null ||
           trace === undefined ||
-          fill === null ||
-          fill === undefined ||
           railPath === null ||
           railPath === undefined ||
           endNode === null ||
@@ -308,20 +318,23 @@ export const verifyFinaleBookend = defineBrowserCommand(
         const copyText = copy.textContent?.trim() ?? "";
         const pill = copy.closest<HTMLElement>("[data-finale-split-pill]");
         if (pill === null) throw new Error("Finale split pill is missing");
+        const stepPill = document.querySelector<HTMLElement>(".chapter-step-active-label");
+        if (stepPill === null) throw new Error("Chapter step-label pill missing");
+        const restingShadow = getComputedStyle(stepPill).boxShadow;
         proofWindow.finaleControl.seek(0.3);
-        const readyOutlineAt03 = getComputedStyle(pill).boxShadow.includes("inset");
+        const readyOutlineAt03 = getComputedStyle(pill).boxShadow !== restingShadow;
         const traceOpacityAt03 = Number(getComputedStyle(trace).opacity);
         proofWindow.finaleControl.seek(0.35);
         const railArrivalFraction =
           Number.parseFloat(railPath.style.strokeDashoffset) / railPath.getTotalLength();
         const nodeArrivalOpacity = getComputedStyle(endNode).opacity;
         proofWindow.finaleControl.seek(0.8);
-        const readyOutlineAt08 = getComputedStyle(pill).boxShadow.includes("inset");
+        const readyOutlineAt08 = getComputedStyle(pill).boxShadow !== restingShadow;
         const traceOpacityAt08 = Number(getComputedStyle(trace).opacity);
         const traceDashFractionAt08 =
           Number.parseFloat(trace.style.strokeDashoffset) / trace.getTotalLength();
         proofWindow.finaleControl.seek(0.3);
-        const readyOutlineAfterReverseSeek = getComputedStyle(pill).boxShadow.includes("inset");
+        const readyOutlineAfterReverseSeek = getComputedStyle(pill).boxShadow !== restingShadow;
         const traceOpacityAfterReverseSeek = Number(getComputedStyle(trace).opacity);
         proofWindow.finaleControl.seek(0.8);
         const midTraceShift = sampleShift();
@@ -370,7 +383,9 @@ export const verifyFinaleBookend = defineBrowserCommand(
           finalState: root.dataset["finaleState"],
           logoOpacity: getComputedStyle(logo).opacity,
           traceOpacity: getComputedStyle(trace.closest("svg") ?? trace).opacity,
-          starFillOpacity: getComputedStyle(fill).opacity,
+          copiedIconVisible:
+            copy.querySelector("[data-install-copied-icon]")?.hasAttribute("hidden") === false &&
+            copy.querySelector("[data-install-copy-icon]")?.hasAttribute("hidden") === true,
           railStartFraction,
           railArrivalFraction,
           nodeStartOpacity,
@@ -390,9 +405,36 @@ export const verifyFinaleBookend = defineBrowserCommand(
             )?.textContent ?? "",
         };
       });
+      await applicationPage.evaluate(async () => {
+        const label = document.querySelector<HTMLElement>(
+          "[data-finale-split-pill] [data-install-copy-feedback]",
+        );
+        if (label === null) throw new Error("Finale copy label missing");
+        if (label.textContent?.startsWith("Copy") === true) return;
+        await new Promise<void>((resolve) => {
+          const observer = new MutationObserver(() => {
+            if (label.textContent?.startsWith("Copy") !== true) return;
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(label, { childList: true, characterData: true, subtree: true });
+        });
+      });
+      const pillSurface = await applicationPage.evaluate(observeFinalePillSurface);
+      const finaleFrame = await applicationPage.screenshot();
+      const finalePill = await applicationPage.locator("[data-finale-split-pill]").screenshot();
+      const stepPill = await applicationPage
+        .locator("#come-back [data-chapter-step-active-label]")
+        .screenshot();
+      await saveFinalePillProofImages({
+        width: proofWidth,
+        frame: finaleFrame,
+        finalePill,
+        stepPill,
+      });
       const resizedTrace = await applicationPage.evaluate(async () => {
         const pill = document.querySelector<HTMLElement>("[data-finale-split-pill]");
-        const trace = pill?.querySelector<SVGPathElement>("[data-finale-border-trace]");
+        const trace = document.querySelector<SVGPathElement>("[data-finale-border-trace]");
         const svg = trace?.closest("svg");
         if (
           pill === null ||
@@ -490,6 +532,7 @@ export const verifyFinaleBookend = defineBrowserCommand(
       });
       return {
         ...normal,
+        ...pillSurface,
         ...resizedTrace,
         ...reduced,
         ...narrow,

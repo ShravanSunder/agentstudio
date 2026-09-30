@@ -14,13 +14,33 @@ declare module "vitest/browser" {
       pageUrl: string,
       widths: readonly number[],
     ): Promise<TopologyEndObservation[]>;
-    verifyFinaleBookend(pageUrl: string): Promise<FinaleBookendObservation>;
+    verifyFinaleBookend(pageUrl: string, proofWidth?: number): Promise<FinaleBookendObservation>;
   }
 }
 
 describe("where the rail ends on the home page", () => {
+  it.each([1600, 1280, 390])(
+    "matches the finale and step-label pill paints at %ipx",
+    async (width) => {
+      const observation = await commands.verifyFinaleBookend(
+        inject("siteHeaderBrowserTestUrl"),
+        width,
+      );
+      expect(observation.pillStyle).toEqual(observation.stepPillStyle);
+      expect(observation.segmentColorsMatch).toBe(true);
+      expect(observation.iconsAreThinOutlines).toBe(true);
+      expect(observation.ancestorPaintExtent).toBeLessThanOrEqual(1);
+      expect(observation.nodeTangentDelta).toBeLessThanOrEqual(1);
+      expect(observation.nodeCenterYDelta).toBeLessThanOrEqual(1);
+      expect(observation.traceEdgeDelta).toBeLessThanOrEqual(1);
+      expect(observation.dividerHeightFraction).toBeCloseTo(0.5, 1);
+    },
+  );
   it("plays the finale once at the rail end and copies both install commands", async () => {
     const observation = await commands.verifyFinaleBookend(inject("siteHeaderBrowserTestUrl"));
+    expect.soft(observation.pillStyle).toEqual(observation.stepPillStyle);
+    expect.soft(observation.segmentColorsMatch).toBe(true);
+    expect.soft(observation.iconsAreThinOutlines).toBe(true);
     expect(observation.readyOutlineAt03).toBe(true);
     expect(observation.traceOpacityAt03).toBe(0);
     expect(observation.readyOutlineAt08).toBe(false);
@@ -33,8 +53,8 @@ describe("where the rail ends on the home page", () => {
     expect(firstArc).not.toBeNull();
     expect(Math.abs(Number(firstArc?.[1]) - observation.pillHeight / 2)).toBeLessThanOrEqual(0.5);
     expect(firstArc?.[1]).toBe(firstArc?.[2]);
-    expect(observation.pillBorderColor).toBe("rgba(0, 0, 0, 0)");
-    expect(observation.pillBorderWidth).toBe("0px");
+    expect(observation.pillBorderColor).toBe(observation.stepPillStyle["borderTopColor"]);
+    expect(observation.pillBorderWidth).toBe(observation.stepPillStyle["borderTopWidth"]);
     expect(observation.pillOverflowX).toBe("hidden");
     expect(observation.starLeftOffset).toBeLessThanOrEqual(1);
     expect(observation.copyRightRadius).not.toBe("0px");
@@ -45,8 +65,8 @@ describe("where the rail ends on the home page", () => {
     expect(observation.href).toBe(marketingCopy.githubUrl);
     expect(observation.finalState).toBe("settled");
     expect(observation.logoOpacity).toBe("1");
-    expect(observation.traceOpacity).toBe("0.6");
-    expect(observation.starFillOpacity).toBe("1");
+    expect(observation.traceOpacity).toBe("0");
+    expect(observation.copiedIconVisible).toBe(true);
     expect(observation.railStartFraction).toBeCloseTo(1, 1);
     expect(observation.railArrivalFraction).toBeCloseTo(0, 1);
     expect(observation.nodeStartOpacity).toBe("0");
@@ -60,7 +80,7 @@ describe("where the rail ends on the home page", () => {
     expect(observation.copyText).toContain(marketingCopy.finalCallToAction.copyInstall);
     expect(observation.copiedText).toBe(installCommandText);
     expect(observation.copyCount).toBe(1);
-    expect(observation.copiedLabel).toBe(marketingCopy.finalCallToAction.copiedInstall);
+    expect(observation.copiedLabel).toBe(marketingCopy.installation.copiedStatus);
     expect(observation.phoneOneRow).toBe(true);
     expect(observation.phoneShortLabels).toBe(true);
     expect(observation.phoneOverflow).toBeLessThanOrEqual(0);
