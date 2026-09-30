@@ -156,6 +156,7 @@ export function createBridgeCommWorkerCommandHandler(
 		review: 0,
 		reviewAnnotation: 0,
 	};
+	const pendingRenderRetryItemIds = new Set<string>();
 	const reportReviewMetadataPostCommitFailure = (error: unknown): void => {
 		try {
 			props.onReviewMetadataPostCommitFailure?.(error);
@@ -235,6 +236,26 @@ export function createBridgeCommWorkerCommandHandler(
 					reviewRuntimeSource = source;
 					props.updateReviewRuntimeSource?.(source);
 				},
+			});
+			postCommitEffects.push((): void => {
+				if (pendingRenderRetryItemIds.size === 0) return;
+				const reviewState = reviewStore.getState();
+				const demandedItemIds = new Set([
+					...reviewState.visibleIds,
+					...(reviewState.selectedId === null ? [] : [reviewState.selectedId]),
+				]);
+				const itemIds = application.source.contentItems
+					.map((item) => item.itemId)
+					.filter((itemId) => pendingRenderRetryItemIds.has(itemId) && demandedItemIds.has(itemId));
+				pendingRenderRetryItemIds.clear();
+				if (itemIds.length === 0) return;
+				props.scheduleDemandExecution?.({
+					affectedItemIds: itemIds,
+					cause: 'renderFulfillment',
+					epoch: currentIntentEpochByDomain.review,
+					forceExecutionItemIds: itemIds,
+					store: reviewStore,
+				});
 			});
 			return {
 				commit: (): void => {
@@ -433,7 +454,18 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.retryAnnotationProjection === undefined
 					? {}
 					: { retryAnnotationProjection: props.retryAnnotationProjection }),
-				...(props.retryView === undefined ? {} : { retryView: props.retryView }),
+				...(props.retryView === undefined
+					? {}
+					: {
+							retryView: (view): void => {
+								if (view.kind === 'review.metadata') {
+									for (const itemId of reviewStore.renderFulfillmentRegistry.retryExhaustedPublications()) {
+										pendingRenderRetryItemIds.add(itemId);
+									}
+								}
+								props.retryView?.(view);
+							},
+						}),
 				...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 			});
 		},

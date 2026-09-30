@@ -435,6 +435,19 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		return this.#fulfillmentByItemId.get(itemId) ?? null;
 	}
 
+	retryExhaustedPublications(): readonly string[] {
+		const itemIds = [...this.#visibleQueuedExhaustedItemIds];
+		for (const itemId of itemIds) {
+			this.#fulfillmentByItemId.delete(itemId);
+			this.#sourceChurnDispositionByItemId.delete(itemId);
+			this.#sourceRevalidationItemIds.delete(itemId);
+			this.#visibleQueuedLeaseByItemId.delete(itemId);
+			this.#visibleQueuedRetryCountByItemId.delete(itemId);
+		}
+		this.#visibleQueuedExhaustedItemIds.clear();
+		return itemIds;
+	}
+
 	resetPublications(): void {
 		this.#fulfillmentByItemId.clear();
 		this.#sourceChurnDispositionByItemId.clear();
