@@ -41,6 +41,7 @@ export async function readBridgeProductContentResponse<
 	let unacknowledgedDataBytes = 0;
 	let acknowledgementDrain: Promise<void> | null = null;
 	let acknowledgementFailure: unknown = null;
+	let acknowledgementScopeEnded = false;
 	let terminalVerified = false;
 	// Native reserves a maximum encoded frame before each source read. A data
 	// receipt returns credit only when that next reservation would be blocked.
@@ -48,7 +49,7 @@ export async function readBridgeProductContentResponse<
 	const dataFrameWireOverheadBytes = 4 + 1 + 4 + 4 + 33;
 	const readAbortController = new AbortController();
 	const beginAcknowledgementDrain = (): void => {
-		if (acknowledgementDrain !== null) return;
+		if (acknowledgementDrain !== null || acknowledgementScopeEnded) return;
 		const drain = async (): Promise<void> => {
 			while (pendingAcknowledgementSequence !== null && !opening.abortSignal.aborted) {
 				if (terminalVerified) return;
@@ -75,6 +76,20 @@ export async function readBridgeProductContentResponse<
 						break;
 					} catch (error) {
 						if (terminalVerified || opening.abortSignal.aborted) return;
+						if (
+							receivedThroughContentSequence > 0 &&
+							error instanceof BridgeProductFrameAcknowledgementFailure &&
+							error.failureCode === 'unknown_read'
+						) {
+							// Native retires credit when its producer ends, before the page
+							// necessarily verifies terminal. Body validation and its progress
+							// deadline still own completion; ACK0 remains the authority barrier.
+							acknowledgementScopeEnded = true;
+							pendingAcknowledgementSequence = null;
+							unacknowledgedDataFrames.length = 0;
+							unacknowledgedDataBytes = 0;
+							return;
+						}
 						if (
 							!(error instanceof BridgeProductFrameAcknowledgementFailure) ||
 							(error.failureCode !== 'ambiguous_refusal' &&
@@ -105,6 +120,7 @@ export async function readBridgeProductContentResponse<
 				if (
 					pendingAcknowledgementSequence !== null &&
 					acknowledgementFailure === null &&
+					!acknowledgementScopeEnded &&
 					!terminalVerified &&
 					!opening.abortSignal.aborted
 				) {
@@ -113,6 +129,7 @@ export async function readBridgeProductContentResponse<
 			});
 	};
 	const acknowledgeReceivedFrame = (frame: BridgeProductContentFrameFor<TContentKind>): void => {
+		if (acknowledgementScopeEnded) return;
 		if (frame.header.kind === 'content.data') {
 			const byteCount = dataFrameWireOverheadBytes + frame.payload.byteLength;
 			unacknowledgedDataFrames.push({ sequence: frame.header.contentSequence, byteCount });
