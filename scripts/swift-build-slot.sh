@@ -47,7 +47,7 @@ if (!flock($lock, LOCK_EX | LOCK_NB)) {
     local $/;
     my $contents = <$note>;
     close($note);
-    if (defined $contents) { chomp($contents); $holder = $contents if length $contents; }
+    if (defined $contents) { $contents =~ s/\s+\z//; $holder = $contents if length $contents; }
   }
   print STDOUT "[swift-build-slot] waiting slot=$slot $holder\n";
   flock($lock, LOCK_EX) or die "swift-build-slot: cannot lock $lock_path: $!\n";
@@ -70,7 +70,7 @@ exit 0;
 swift_build_slot_acquire() {
   local requested_slot="${1:-}"
   local task_label="${2:-}"
-  local build_directory ready_fifo ready_status holder_process_id
+  local build_directory ready_fifo hold_fifo ready_status holder_process_id ready_holder_process_id
 
   if [ -n "${SWIFT_BUILD_DIR:-}" ]; then
     if { [ "${CI:-}" = "true" ] || [ "${GITHUB_ACTIONS:-}" = "true" ]; } &&
@@ -99,24 +99,36 @@ swift_build_slot_acquire() {
   fi
 
   ready_fifo="$build_directory/.slot.ready.$$"
-  /bin/rm -f "$ready_fifo"
-  if ! mkfifo "$ready_fifo"; then
-    echo "swift-build-slot: cannot create ready channel $ready_fifo" >&2
+  hold_fifo="$build_directory/.slot.hold.$$"
+  /bin/rm -f "$ready_fifo" "$hold_fifo"
+  if ! mkfifo "$ready_fifo" "$hold_fifo"; then
+    /bin/rm -f "$ready_fifo" "$hold_fifo"
+    echo "swift-build-slot: cannot create slot channels in $build_directory" >&2
     return 2
   fi
 
-  # The holder's stdin is this shell's fd 97, so the holder also ends when this
-  # shell goes away without its EXIT trap.
-  exec 97> >(exec perl -e "$SWIFT_BUILD_SLOT_HOLDER_PERL" \
+  # The holder reads the hold FIFO; this shell keeps its write end open on fd 97,
+  # so the holder also ends when this shell goes away without its EXIT trap.
+  # Named FIFOs, not process substitution: agent sandboxes deny /dev/fd pipes.
+  perl -e "$SWIFT_BUILD_SLOT_HOLDER_PERL" \
     "$build_directory/.slot.lock" "$build_directory/.slot.holder" \
-    "$task_label" "$$" "$ready_fifo" "$requested_slot")
+    "$task_label" "$$" "$ready_fifo" "$requested_slot" < "$hold_fifo" &
+  holder_process_id="$!"
+  if ! { exec 97> "$hold_fifo"; } 2>/dev/null; then
+    kill -TERM "$holder_process_id" 2>/dev/null || true
+    /bin/rm -f "$ready_fifo" "$hold_fifo"
+    echo "swift-build-slot: cannot open the slot holder channel for slot $requested_slot" >&2
+    return 2
+  fi
+  /bin/rm -f "$hold_fifo"
 
   ready_status=""
-  holder_process_id=""
-  IFS=' ' read -r ready_status holder_process_id < "$ready_fifo" || true
+  ready_holder_process_id=""
+  IFS=' ' read -r ready_status ready_holder_process_id < "$ready_fifo" || true
   /bin/rm -f "$ready_fifo"
-  if [ "$ready_status" != "ACQUIRED" ] || ! [[ "$holder_process_id" =~ ^[0-9]+$ ]]; then
+  if [ "$ready_status" != "ACQUIRED" ] || [ "$ready_holder_process_id" != "$holder_process_id" ]; then
     exec 97>&-
+    kill -TERM "$holder_process_id" 2>/dev/null || true
     echo "swift-build-slot: could not acquire slot $requested_slot" >&2
     return 2
   fi
