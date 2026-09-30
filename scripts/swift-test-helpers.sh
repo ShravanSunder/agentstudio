@@ -1496,17 +1496,17 @@ swift_test_failed_isolated_suite_count() {
   /usr/bin/awk 'END { print NR + 0 }' "$tally_file"
 }
 
-# The parent owns the one completion channel and reaps by PID. A wrapper waits
-# for its worker and writes one short line even when that worker is killed;
-# FIFO lines stay
-# atomic because they are shorter than PIPE_BUF. Bash 3.2 has no wait -n.
+# The dispatcher reaps reporting subshells by PID. Each reporter waits for its
+# wrapper, so a wrapper killed before publishing its worker status still has a
+# terminal outcome. FIFO records are atomic (shorter than PIPE_BUF). Bash 3.2
+# needs neither wait -n nor a signal trap interrupting a blocked FIFO read.
 dispatch_isolated_suites() {
   local lane_kind="$1"
   shift
   [ "$#" -gt 0 ] || return 0
   local -a suite_filters=("$@") active_pids=() active_filters=()
   local concurrency next_filter=0 active_count=0 dispatch_ordinal=0
-  local slot suite_filter wrapper_pid completed_slot completed_pid completed_status waited_status
+  local slot suite_filter reporter_pid completed_slot completed_pid completed_status completed_reason waited_status
   local lane_status=0 timing_eligible_ms dispatch_dir fifo_path
   if [ "$lane_kind" = webkit ]; then
     concurrency="$(swift_test_webkit_process_concurrency)"
@@ -1530,51 +1530,65 @@ dispatch_isolated_suites() {
       next_filter=$((next_filter + 1))
       dispatch_ordinal=$((dispatch_ordinal + 1))
       (
-        # Bash 3.2 lacks BASHPID and $$ is the parent shell. An immediate
-        # child reports its PPID through a slot-local file, avoiding a second
-        # FIFO handshake that can strand a rapidly completing worker.
-        /bin/sh -c 'printf "%s\n" "$PPID"' >"$dispatch_dir/pid-$slot"
-        read -r child_pid <"$dispatch_dir/pid-$slot"
-        rm -f "$dispatch_dir/pid-$slot"
-        export LANE_TIMING_PHASE="$lane_kind" LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
-        export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
-        export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
-        local child_status=0
-        (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
-        local worker_pid=$!
-        wait "$worker_pid" || child_status=$?
-        printf '%s %s %s\n' "$slot" "$child_pid" "$child_status" >&7
+        local child_status=0 completion_reason=completed
+        (
+          # Keep the wrapper's Bash 3.2 PID handshake before worker launch.
+          # The reporter, rather than this fallible wrapper, owns FIFO output.
+          /bin/sh -c 'printf "%s\n" "$PPID"' >"$dispatch_dir/pid-$slot"
+          read -r child_pid <"$dispatch_dir/pid-$slot"
+          rm -f "$dispatch_dir/pid-$slot"
+          export LANE_TIMING_PHASE="$lane_kind" LANE_TIMING_FILTER="$suite_filter" LANE_TIMING_BATCH="$dispatch_ordinal"
+          export LANE_TIMING_SLOT="$slot" LANE_TIMING_CONCURRENCY="$concurrency"
+          export LANE_TIMING_ELIGIBLE_MS="$timing_eligible_ms"
+          local worker_status=0
+          (run_selected_isolated_suite "$lane_kind" "$suite_filter") &
+          local worker_pid=$!
+          wait "$worker_pid" || worker_status=$?
+          printf '%s\n' "$worker_status" >"$dispatch_dir/status-$slot"
+          exit "$worker_status"
+        ) &
+        local reporting_child_pid=$!
+        wait "$reporting_child_pid" || child_status=$?
+        if [ ! -f "$dispatch_dir/status-$slot" ]; then
+          completion_reason=wrapper_exited_without_completion
+        fi
+        rm -f "$dispatch_dir/pid-$slot" "$dispatch_dir/status-$slot" || true
+        # The writer's PPID is the reporter, including on Bash 3.2 where $$
+        # still names the lane shell. No fallible reporter PID handshake.
+        /bin/sh -c 'printf "%s %s %s %s\n" "$1" "$PPID" "$2" "$3"' \
+          sh "$slot" "$child_status" "$completion_reason" >&7
         exit "$child_status"
       ) &
-      wrapper_pid=$!
-      active_pids[$slot]="$wrapper_pid"
+      reporter_pid=$!
+      active_pids[$slot]="$reporter_pid"
       active_filters[$slot]="$suite_filter"
-      SWIFT_TEST_ACTIVE_ISOLATED_PIDS="$SWIFT_TEST_ACTIVE_ISOLATED_PIDS $wrapper_pid"
+      SWIFT_TEST_ACTIVE_ISOLATED_PIDS="$SWIFT_TEST_ACTIVE_ISOLATED_PIDS $reporter_pid"
       active_count=$((active_count + 1))
     done
 
-    if ! read -r -u 7 completed_slot completed_pid completed_status; then
+    if ! read -r -u 7 completed_slot completed_pid completed_status completed_reason; then
       lane_status=1
       break
     fi
-    wrapper_pid="${active_pids[$completed_slot]:-}"
-    if [ -z "$wrapper_pid" ] || [ "$wrapper_pid" != "$completed_pid" ]; then
+    reporter_pid="${active_pids[$completed_slot]:-}"
+    if [ -z "$reporter_pid" ] || [ "$reporter_pid" != "$completed_pid" ]; then
       echo "[$LOG_PREFIX] invalid isolated completion: slot=$completed_slot pid=$completed_pid" >&2
       lane_status=1
       break
     fi
     waited_status=0
-    wait "$wrapper_pid" || waited_status=$?
+    wait "$reporter_pid" || waited_status=$?
     suite_filter="${active_filters[$completed_slot]}"
     active_pids[$completed_slot]=""
     active_filters[$completed_slot]=""
     active_count=$((active_count - 1))
     SWIFT_TEST_ACTIVE_ISOLATED_PIDS=" ${active_pids[*]}"
-    if [ "$completed_status" -ne 0 ] || [ "$waited_status" -ne "$completed_status" ]; then
+    if [ "$completed_status" -ne 0 ] || [ "$waited_status" -ne "$completed_status" ] ||
+      [ "$completed_reason" != completed ]; then
       lane_status=1
-      if [ "$lane_kind" != webkit ]; then
+      if [ "$lane_kind" != webkit ] || [ "$completed_reason" != completed ]; then
         echo "[$LOG_PREFIX] isolated suite failed: $suite_filter" \
-          "status=$completed_status signal=$(swift_test_signal_name "$completed_status")" >&2
+          "status=$completed_status signal=$(swift_test_signal_name "$completed_status") reason=$completed_reason" >&2
         swift_test_record_failed_isolated_suite "$suite_filter" "$completed_status"
       fi
     fi
