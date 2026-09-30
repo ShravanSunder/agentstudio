@@ -146,7 +146,10 @@ export class BridgeProductViewBatchReceiver {
 		this.#scopeRevision = scopeRevision;
 	}
 
-	accept(frame: BridgeProductBatchFrame): BridgeProductBatchAcceptance {
+	accept(
+		frame: BridgeProductBatchFrame,
+		verifyInstallation?: (installation: BridgeProductViewInstallation) => void,
+	): BridgeProductBatchAcceptance {
 		const domainState = this.#domains.get(frame.domain);
 		if (
 			domainState === undefined ||
@@ -164,7 +167,7 @@ export class BridgeProductViewBatchReceiver {
 			case 'subscription.batchPart':
 				return this.#part(domainState, frame);
 			case 'subscription.batchComplete':
-				return this.#complete(domainState, frame);
+				return this.#complete(domainState, frame, verifyInstallation);
 		}
 	}
 
@@ -311,7 +314,11 @@ export class BridgeProductViewBatchReceiver {
 		};
 	}
 
-	#complete(domainState: DomainState, frame: BatchComplete): BridgeProductBatchAcceptance {
+	#complete(
+		domainState: DomainState,
+		frame: BatchComplete,
+		verifyInstallation?: (installation: BridgeProductViewInstallation) => void,
+	): BridgeProductBatchAcceptance {
 		const stage = domainState.stage;
 		if (
 			stage !== null &&
@@ -341,12 +348,14 @@ export class BridgeProductViewBatchReceiver {
 			this.cursor('collection') < stage.begin.requiresCollection
 		)
 			return { kind: 'staged' };
-		const installed = this.#install(frame.domain, domainState, stage);
-		if (frame.domain === 'collection') this.#installReadyMembers();
+		const installed = this.#install(frame.domain, domainState, stage, verifyInstallation);
+		if (frame.domain === 'collection') this.#installReadyMembers(verifyInstallation);
 		return installed;
 	}
 
-	#installReadyMembers(): void {
+	#installReadyMembers(
+		verifyInstallation?: (installation: BridgeProductViewInstallation) => void,
+	): void {
 		for (const [domain, state] of this.#domains) {
 			const stage = state.stage;
 			if (
@@ -356,11 +365,16 @@ export class BridgeProductViewBatchReceiver {
 				(stage.begin.requiresCollection ?? 0) > this.cursor('collection')
 			)
 				continue;
-			this.#install(domain, state, stage);
+			this.#install(domain, state, stage, verifyInstallation);
 		}
 	}
 
-	#install(domain: string, state: DomainState, stage: StagedBatch): BridgeProductBatchAcceptance {
+	#install(
+		domain: string,
+		state: DomainState,
+		stage: StagedBatch,
+		verifyInstallation?: (installation: BridgeProductViewInstallation) => void,
+	): BridgeProductBatchAcceptance {
 		const nextRecords = new Map(state.recordsByKey);
 		const nextTombstones = new Map(state.tombstoneRevisionByKey);
 		const includedKeys = new Set<string>();
@@ -404,6 +418,19 @@ export class BridgeProductViewBatchReceiver {
 				)
 					nextRecords.delete(key);
 			}
+		}
+		const installation = {
+			begin: stage.begin,
+			domain,
+			records: [...nextRecords.values()],
+		};
+		try {
+			verifyInstallation?.(installation);
+		} catch {
+			state.stage = null;
+			return { kind: 'resnapshot', domain };
+		}
+		if (stage.begin.mode === 'snapshot') {
 			const coveredScope = stage.complete?.coveredScope ?? stage.begin.scope;
 			state.certifiedAbsenceFloorsByScope.set(viewFilterKey(coveredScope), {
 				coveredScope,
@@ -427,11 +454,7 @@ export class BridgeProductViewBatchReceiver {
 		state.lastInstalledBatchId = stage.begin.batchId;
 		state.lastInstalledCompleteStreamSequence = stage.complete?.streamSequence ?? 0;
 		state.stage = null;
-		this.#completedInstallations.push({
-			begin: stage.begin,
-			domain,
-			records: [...nextRecords.values()],
-		});
+		this.#completedInstallations.push(installation);
 		return { kind: 'installed', domain, targetRevision: state.cursor };
 	}
 }

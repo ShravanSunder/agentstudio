@@ -7,6 +7,7 @@ import {
 import type { BridgeProductViewAcknowledgementRequest } from './bridge-product-view-control-wire-contracts.js';
 
 export interface BridgeProductBatchFrameSinks {
+	readonly verify?: (installation: BridgeProductViewInstallation) => void;
 	readonly install: (installation: BridgeProductViewInstallation) => Promise<void> | void;
 	readonly certifiedInstallCompleted?: (
 		frame: Extract<BridgeProductBatchFrame, { readonly kind: 'subscription.batchBegin' }>,
@@ -148,7 +149,7 @@ export class BridgeProductBatchFrameRouter {
 		}
 		const alreadyStaged =
 			frame.kind === 'subscription.batchPart' && state.receiver.hasStagedPart(frame);
-		const acceptance = state.receiver.accept(frame);
+		const acceptance = state.receiver.accept(frame, sinks.verify);
 		if (frame.kind === 'subscription.batchBegin' && acceptance.kind === 'staged') {
 			state.lastBeginByDomain.set(frame.domain, frame);
 		}

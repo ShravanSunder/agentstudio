@@ -9,6 +9,7 @@ import {
 	bridgeProductReviewBatchRecordSchema,
 	type BridgeProductReviewBatchRecord,
 } from './bridge-product-review-batch-record-contracts.js';
+import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
 
 type ReviewBatchBegin = Extract<
 	BridgeProductBatchFrame,
@@ -77,40 +78,7 @@ export class BridgeCommWorkerReviewBatchInstaller {
 		const { begin } = props;
 		if (!this.acceptsBegin(begin)) return 'ignored';
 		const installEpoch = ++this.#installEpoch;
-		let publication: ReviewBatchPublication | null = null;
-		let publicationWireRevision = 0;
-		const items: ReviewBatchItem[] = [];
-		const itemIds = new Set<string>();
-		for (const installed of props.records) {
-			const record = bridgeProductReviewBatchRecordSchema.parse(installed.value);
-			if (record.recordKind === 'publication') {
-				if (installed.key !== 'publication' || publication !== null) {
-					throw new Error('Review batch has an invalid publication key.');
-				}
-				publication = record;
-				publicationWireRevision = installed.revision;
-				continue;
-			}
-			if (installed.key === 'publication' || installed.key !== record.itemId) {
-				throw new Error('Review batch item key differs from its identity.');
-			}
-			if (itemIds.has(record.itemId)) throw new Error('Review batch repeats an item key.');
-			itemIds.add(record.itemId);
-			items.push(record);
-		}
-		if (publication === null || publication.publicationId !== begin.publicationId) {
-			throw new Error('Review publication does not match its batch.');
-		}
-		if (
-			publicationWireRevision !== publication.revision ||
-			publication.revision > begin.targetRevision
-		) {
-			throw new Error('Review publication revision does not match its installed record.');
-		}
-		if (publication.displayed === null && items.length > 0) {
-			throw new Error('A Review publication without displayed content cannot own items.');
-		}
-		for (const item of items) validateContentIdentity(item, publication);
+		const { items, publication } = verifyBridgeCommWorkerReviewBatch(props);
 		const order = await this.#deriveOrder(items);
 		if (installEpoch !== this.#installEpoch || begin.handle !== this.#handle) return 'ignored';
 		const candidate = {
@@ -127,6 +95,51 @@ export class BridgeCommWorkerReviewBatchInstaller {
 		this.#presentation = presentation;
 		return 'installed';
 	}
+}
+
+/** The Review payload verdict W4 needs before it commits its raw bank. */
+export function verifyBridgeCommWorkerReviewBatch(
+	installation: Pick<BridgeProductViewInstallation, 'begin' | 'records'>,
+): {
+	readonly items: readonly ReviewBatchItem[];
+	readonly publication: ReviewBatchPublication;
+} {
+	const { begin } = installation;
+	let publication: ReviewBatchPublication | null = null;
+	let publicationWireRevision = 0;
+	const items: ReviewBatchItem[] = [];
+	const itemIds = new Set<string>();
+	for (const installed of installation.records) {
+		const record = bridgeProductReviewBatchRecordSchema.parse(installed.value);
+		if (record.recordKind === 'publication') {
+			if (installed.key !== 'publication' || publication !== null) {
+				throw new Error('Review batch has an invalid publication key.');
+			}
+			publication = record;
+			publicationWireRevision = installed.revision;
+			continue;
+		}
+		if (installed.key === 'publication' || installed.key !== record.itemId) {
+			throw new Error('Review batch item key differs from its identity.');
+		}
+		if (itemIds.has(record.itemId)) throw new Error('Review batch repeats an item key.');
+		itemIds.add(record.itemId);
+		items.push(record);
+	}
+	if (publication === null || publication.publicationId !== begin.publicationId) {
+		throw new Error('Review publication does not match its batch.');
+	}
+	if (
+		publicationWireRevision !== publication.revision ||
+		publication.revision > begin.targetRevision
+	) {
+		throw new Error('Review publication revision does not match its installed record.');
+	}
+	if (publication.displayed === null && items.length > 0) {
+		throw new Error('A Review publication without displayed content cannot own items.');
+	}
+	for (const item of items) validateContentIdentity(item, publication);
+	return { items, publication };
 }
 
 function validateContentIdentity(item: ReviewBatchItem, publication: ReviewBatchPublication): void {

@@ -8,6 +8,7 @@ import { bridgeCommWorkerReviewDisplayPatchesFromBatch } from './bridge-comm-wor
 import {
 	BridgeCommWorkerReviewBatchInstaller,
 	type BridgeCommWorkerReviewBatchPresentation,
+	verifyBridgeCommWorkerReviewBatch,
 } from './bridge-comm-worker-review-batch-installer.js';
 import type {
 	BridgeCommWorkerReviewSuccessorReExposureFence,
@@ -160,12 +161,38 @@ export class BridgeCommWorkerProductBatchApplication {
 
 	sinks(): BridgeProductBatchFrameSinks {
 		return {
+			verify: (installation): void => this.#verify(installation),
 			install: (installation): Promise<void> | void => this.#install(installation),
 			receipt: (): void => {},
 			resnapshot: (frame): void => this.#props.requestResnapshot(frame),
 			resnapshotLatest: (subscriptionId, domain): void =>
 				this.#props.requestResnapshotLatest(subscriptionId, domain),
 		};
+	}
+
+	#verify(installation: BridgeProductViewInstallation): void {
+		const begin = installation.begin;
+		switch (begin.subscriptionKind) {
+			case 'file.metadata':
+				installBridgeProductFileBatch(
+					installation,
+					this.#fileViewBySubscriptionId.get(begin.subscriptionId) ?? null,
+				);
+				return;
+			case 'review.metadata':
+				verifyBridgeCommWorkerReviewBatch(installation);
+				return;
+			case 'file.annotations':
+			case 'review.annotations': {
+				const surface = begin.subscriptionKind === 'file.annotations' ? 'file' : 'review';
+				installBridgeProductCommentBatch(installation, {
+					subscriptionId: begin.subscriptionId,
+					workerDerivationEpoch: this.#props.workerDerivationEpoch(surface),
+					worktreeId: commentWorktreeId(begin.scope),
+				});
+				return;
+			}
+		}
 	}
 
 	#install(installation: BridgeProductViewInstallation): Promise<void> | void {

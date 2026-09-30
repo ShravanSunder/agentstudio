@@ -186,6 +186,32 @@ describe('Bridge comm worker product batch application owner', () => {
 			requestResnapshotLatest: (): void => {},
 			workerDerivationEpoch: (): number => 2,
 		});
+		const corruptedItem = {
+			...itemRecord,
+			contentByRole: {
+				...itemRecord.contentByRole,
+				head: {
+					...itemRecord.contentByRole.head,
+					...(itemRecord.contentByRole.head.state === 'available'
+						? {
+								source: { ...itemRecord.contentByRole.head.source, sourceIdentity: 'wrong-source' },
+							}
+						: {}),
+				},
+			},
+		};
+		const installedPublication = installation.records[1];
+		if (installedPublication === undefined) throw new Error('Review publication fixture missing.');
+		expect(() =>
+			application.sinks().verify?.({
+				...installation,
+				records: [
+					{ key: itemRecord.itemId, revision: 1, value: corruptedItem },
+					installedPublication,
+				],
+			}),
+		).toThrow('Review content source belongs to another publication.');
+		application.sinks().verify?.(installation);
 
 		await application.sinks().install(installation);
 

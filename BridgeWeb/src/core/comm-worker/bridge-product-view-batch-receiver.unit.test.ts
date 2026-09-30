@@ -123,6 +123,7 @@ function begin(props: {
 
 function part(props: {
 	readonly batchId?: string;
+	readonly deliverySequence?: number;
 	readonly domain?: string;
 	readonly handle?: string;
 	readonly incarnation?: string;
@@ -136,7 +137,7 @@ function part(props: {
 		...identity,
 		streamSequence: fixtureStreamSequence(),
 		batchId: props.batchId ?? identity.batchId,
-		deliverySequence: props.revision,
+		deliverySequence: props.deliverySequence ?? props.revision,
 		domain: props.domain ?? identity.domain,
 		handle: props.handle ?? identity.handle,
 		incarnation: props.incarnation ?? identity.incarnation,
@@ -421,6 +422,42 @@ describe('Bridge product W4 per-domain batch receiver', () => {
 		expect(events).toEqual(['received:1']);
 		router.accept(complete({}));
 		expect(events).toEqual(['received:1', 'installed:default:1']);
+	});
+
+	it('keeps the bank unchanged when typed verification rejects, then accepts a same-revision recovery snapshot', () => {
+		const state = receiver();
+		state.admitDomain('default', 'incarnation-1');
+		state.accept(begin({ batchId: 'corrupt', partCount: 1, target: 2 }));
+		state.accept(part({ batchId: 'corrupt', key: 'item/a', revision: 2, value: 'corrupt' }));
+		expect(
+			state.accept(complete({ batchId: 'corrupt' }), (installation): void => {
+				if (installation.records[0]?.value === 'corrupt') throw new Error('typed rejection');
+			}).kind,
+		).toBe('resnapshot');
+		expect(state.cursor('default')).toBe(0);
+		expect(state.records('default')).toEqual([]);
+		expect(state.takeInstallations()).toEqual([]);
+
+		state.accept(begin({ batchId: 'recovery', partCount: 1, target: 2 }));
+		state.accept(
+			part({
+				batchId: 'recovery',
+				deliverySequence: 3,
+				key: 'item/a',
+				revision: 2,
+				value: 'valid',
+			}),
+		);
+		expect(state.accept(complete({ batchId: 'recovery' }), (): void => {}).kind).toBe('installed');
+		expect(state.records('default')).toEqual([{ key: 'item/a', revision: 2, value: 'valid' }]);
+		expect(state.takeInstallations()).toHaveLength(1);
+
+		state.accept(begin({ batchId: 'stale', partCount: 1, target: 2 }));
+		state.accept(
+			part({ batchId: 'stale', deliverySequence: 4, key: 'item/a', revision: 2, value: 'stale' }),
+		);
+		state.accept(complete({ batchId: 'stale' }), (): void => {});
+		expect(state.records('default')).toEqual([{ key: 'item/a', revision: 2, value: 'valid' }]);
 	});
 
 	it('an application rejection resnapshots only its subscription while a sibling installs', () => {
