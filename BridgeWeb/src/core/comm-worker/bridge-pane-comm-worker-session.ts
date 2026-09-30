@@ -115,6 +115,7 @@ export class BridgePaneCommWorkerSession {
 		if (this.#isDisposed || this.#nativeBootstrap !== null) {
 			throw new Error('Bridge pane comm worker native bootstrap was already consumed.');
 		}
+		this.#clearBootstrapTimeout();
 		if (this.#worker !== null || this.#workerPromise !== null) {
 			this.#retireCurrentWorker();
 		}
@@ -332,9 +333,6 @@ export class BridgePaneCommWorkerSession {
 				);
 				this.#worker = worker;
 				this.#workerPromise = null;
-				this.#bootstrapTimeout = globalThis.setTimeout((): void => {
-					this.#handleWorkerFailure(worker, { kind: 'bootstrapTimeout' });
-				}, this.#bootstrapTimeoutMilliseconds);
 				return worker;
 			})
 			.catch((error: unknown): never => {
@@ -348,6 +346,17 @@ export class BridgePaneCommWorkerSession {
 				throw error;
 			});
 		this.#workerPromise = workerPromise;
+		// Construction includes the packaged asset fetch and body read. The page
+		// owns this same bootstrap ender before any Worker or port exists.
+		this.#bootstrapTimeout = globalThis.setTimeout((): void => {
+			if (
+				this.#workerPromise !== workerPromise &&
+				(candidateWorker === null || this.#worker !== candidateWorker)
+			)
+				return;
+			if (candidateWorker === null) eraseBridgeProductCapability(nativeBootstrap.productCapability);
+			this.requestWorkerReplacement({ kind: 'bootstrapTimeout' });
+		}, this.#bootstrapTimeoutMilliseconds);
 		return await workerPromise;
 	}
 
@@ -419,6 +428,7 @@ export class BridgePaneCommWorkerSession {
 		if (this.#isDisposed || this.#isRestartRequested) {
 			return;
 		}
+		this.#clearBootstrapTimeout();
 		if (this.#replacementAttemptsSinceReady >= maximumReplacementBootstrapRequestCount) {
 			this.#failReplacementBudget();
 			return;
@@ -429,6 +439,12 @@ export class BridgePaneCommWorkerSession {
 		this.#replacementRequestCount += 1;
 		this.#state = 'replacement_requested';
 		this.#publishDiagnosticSnapshot();
+		// Arm before dispatch: a native reply can be synchronous, or never arrive.
+		this.#bootstrapTimeout = globalThis.setTimeout((): void => {
+			if (this.#state !== 'replacement_requested' || !this.#isRestartRequested) return;
+			this.#lastReplacementReason = { kind: 'bootstrapTimeout' };
+			this.handleNativeBootstrapFailure();
+		}, this.#bootstrapTimeoutMilliseconds);
 		this.#requestNativeBootstrap('workerReplacement');
 	}
 
