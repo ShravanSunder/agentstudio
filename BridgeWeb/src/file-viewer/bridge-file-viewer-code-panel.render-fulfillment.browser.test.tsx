@@ -569,10 +569,10 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				document
 					.querySelector('[data-bridge-region="file-content"]')
 					?.getAttribute('data-presentation-state'),
-			).toBe('loading');
+			).toBe('updating');
 			expect(
 				document.querySelector('[data-bridge-region="file-content"] [data-slot="skeleton"]'),
-			).not.toBeNull();
+			).toBeNull();
 			const retainedView = rendered.getByTestId('bridge-file-viewer-code-view').element();
 			expect(getComputedStyle(retainedView).visibility).toBe('visible');
 			expect(mountedCodeView.current).toBe(capturedCodeView);

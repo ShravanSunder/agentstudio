@@ -104,6 +104,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				ariaLabel: 'Files',
 				body: (
 					<BridgeRegionPresentation
+						keepContentMounted
 						region="file-tree"
 						shape="tree"
 						state={props.presentationState ?? { kind: 'content' }}

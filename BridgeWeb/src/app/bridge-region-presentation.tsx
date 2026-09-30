@@ -69,7 +69,11 @@ export function BridgeRegionPresentation(props: BridgeRegionPresentationProps): 
 			) : null}
 			{state.kind === 'loading' ? (
 				<div
-					className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3"
+					className={
+						props.keepContentMounted
+							? 'absolute inset-0 flex min-h-0 flex-col gap-2 overflow-hidden p-3'
+							: 'flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3'
+					}
 					aria-label="Loading"
 					role="status"
 					data-skeleton-shape={props.shape}
@@ -88,7 +92,13 @@ export function BridgeRegionPresentation(props: BridgeRegionPresentationProps): 
 					))}
 				</div>
 			) : state.kind === 'empty' ? (
-				<p className="px-3 py-2 text-sm text-muted-foreground">
+				<p
+					className={
+						props.keepContentMounted
+							? 'absolute top-0 left-0 px-3 py-2 text-sm text-muted-foreground'
+							: 'px-3 py-2 text-sm text-muted-foreground'
+					}
+				>
 					{state.reason === 'noSource'
 						? (props.emptyCopy?.noSource ?? 'This pane has no worktree files.')
 						: state.reason === 'noSelection'
@@ -100,8 +110,8 @@ export function BridgeRegionPresentation(props: BridgeRegionPresentationProps): 
 				<div
 					className={
 						showsContent
-							? 'min-h-0 min-w-0 flex-1'
-							: 'pointer-events-none invisible absolute inset-0'
+							? 'h-full min-h-0 min-w-0 flex-1'
+							: 'pointer-events-none invisible h-full min-h-0 min-w-0 flex-1'
 					}
 					aria-hidden={!showsContent}
 					inert={!showsContent}
