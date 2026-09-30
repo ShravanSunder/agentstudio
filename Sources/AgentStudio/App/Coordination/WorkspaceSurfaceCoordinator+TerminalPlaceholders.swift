@@ -50,7 +50,7 @@ extension WorkspaceSurfaceCoordinator {
             self?.submitWorkspaceAction(.repair(.createMissingView(paneId: paneId)))
         }
         let dismissHandler: (UUID) -> Void = { [weak self] paneId in
-            self?.closePlaceholderPane(paneId)
+            self?.closePaneFromErrorOverlay(paneId)
         }
 
         if let terminalView = viewRegistry.terminalView(for: pane.id) {
@@ -83,16 +83,19 @@ extension WorkspaceSurfaceCoordinator {
         return terminalView.currentPlaceholderView
     }
 
-    private func closePlaceholderPane(_ paneId: UUID) {
+    func installClosePaneRequest(on terminalView: TerminalPaneMountView) {
+        let paneId = terminalView.paneId
+        terminalView.onClosePaneRequested = { [weak self] in
+            self?.closePaneFromErrorOverlay(paneId)
+        }
+    }
+
+    func closePaneFromErrorOverlay(_ paneId: UUID) {
         guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.allPaneIds.contains(paneId) }) else {
-            Self.logger.warning("closePlaceholderPane: pane \(paneId) has no owning tab")
+            Self.logger.warning("closePaneFromErrorOverlay: pane \(paneId) has no owning tab")
             return
         }
-        if tab.allPaneIds.count > 1 {
-            submitWorkspaceAction(.closePane(tabId: tab.id, paneId: paneId))
-        } else {
-            submitWorkspaceAction(.closeTab(tabId: tab.id))
-        }
+        submitWorkspaceAction(.closePane(tabId: tab.id, paneId: paneId))
     }
 
     func activeTabHasMissingVisibleView(_ activeTab: Tab) -> Bool {

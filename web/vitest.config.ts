@@ -20,6 +20,7 @@ import {
   verifyChapterTitleAnchors,
   verifyCaptionTextLayout,
 } from "./tests/chapter-surface-browser-command.ts";
+import { verifyHeroEyebrowSettle } from "./tests/hero-eyebrow-settle-browser-command.ts";
 import {
   verifyHeroIntroLayout,
   verifyHeroNoScriptWidth,
@@ -93,6 +94,7 @@ export default defineConfig({
               verifyHeroScrollCue,
               verifyHeroPhoneMidIntro,
               verifyHeroIntroFinale,
+              verifyHeroEyebrowSettle,
               verifyHeroWorkspace,
               verifyInstallCommandLayout,
               verifyChapterStepRow,

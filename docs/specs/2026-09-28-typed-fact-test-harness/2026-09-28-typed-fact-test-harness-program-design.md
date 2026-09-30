@@ -72,6 +72,8 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
         where Fact: Equatable
     package func expectNext(in scope: Scope, where matches: @Sendable (Fact) -> Bool, _ description: String,
                             fileID: String = #fileID, line: Int = #line, function: String = #function) async throws -> Fact
+    package func expectNextOperation(matching scopeMatches: @Sendable (Scope) -> Bool, opening: @Sendable (Fact) -> Bool, _ description: String,
+                                     fileID: String = #fileID, line: Int = #line, function: String = #function) async throws -> Scope  // H12: discovers, never consumes
     package func mark(_ scope: Scope) async -> OpeningPosition<Scope>  // awaits settleEnqueued, then records; bound to recorder + scope
     package func expectNone(of forbidden: @Sendable (Fact) -> Bool, _ description: String,
                             from opening: OpeningPosition<Scope>, closedBy expectedClose: @Sendable (Fact) -> Bool,
@@ -87,6 +89,8 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
 - **Failures** are thrown errors: `UnexpectedFact`, `SourceEnded`, `FactsLost`, `Cancelled`, `ConcurrentExpectation`, `DuplicateClose`, `FactAfterClose`. Each names the expected fact, the actual fact, the scope and the call site.
 - **Cancellation.** The waiter is registered and cancelled under one lock, with exactly-once settlement; it's removed before being resumed.
 - **Sink shape.** The sink is nonisolated, synchronous and nonthrowing. A MainActor owner adapts at its own boundary: it passes values, never isolated state, and never re-enters the owner.
+
+**Discovery (H12), added 2026-09-29 after the R1 review.** The recorder keeps a set of scopes already returned by discovery. `expectNextOperation` looks at each scope's **first** recorded fact, in history order, and takes the earliest scope that satisfies `scopeMatches` and is not yet in that set. If the fact does not satisfy `opening`, it throws `UnexpectedFact`. Otherwise it adds the scope to the set and returns it. Scope cursors are not moved. The wait loop, sticky failures, source terminals and `ExpectationLog` entries are the same as in `expectNext`. The call-site description is logged with the scope `"discover: <description>"`. A recorder allows one active discovery at a time; a second concurrent call fails as `ConcurrentExpectation`, matching H1's one-consumer rule. Why this lives in the harness: the R1 projector (request `n`, deadline generation) needed it first, every owner that mints identities will need it, and building it per owner produced a second continuation registry with no failure path.
 
 ## EventBus adapter (`AgentStudioTestSupport`)
 
@@ -171,3 +175,28 @@ Controlled interleavings, not repetition. All of these cases must pass:
 - a mixed HeldStep and expectation timeout report produced by the real runner path.
 
 Owner PRs add causal scenarios: hold the effect and observe the earlier step; release or fail it and require the terminal fact and the real state. Three focused runs are supplemental only.
+
+## R1 projector fact vocabulary (owner-approved 2026-09-29)
+
+These are owner-local facts: `GitWorkingDirectoryProjector` gets an injected sink, `nil` in production. There are no new `EventBus` event types; the existing bus facts (`statusOutcome`, `snapshotChanged`, `branchChanged`, `originChanged`, `originUnavailable`) are unchanged. ■ marks the closing fact of each scope.
+
+| Scope | Facts |
+|---|---|
+| `intake(worktree, registration, batchSeq)` (one operation per filesystem batch within one registration) | ■ `changesetAccepted` (taken into a refresh admission) or `changesetCoalesced(into: newerBatchSeq)` or `changesetDropped(stale \| superseded \| equal)` |
+| `refresh(worktree, request n)` | `refreshAdmitted` · `refreshStarted` · ■ `refreshClosed(completed(snapshotChanged, branchChanged) \| equal \| timeout \| unavailable \| capacityExceeded \| superseded \| cancelled \| shutdown)` |
+| `deadline(worktree, kind, generation)`; kind = `automatic \| failure \| capacityFallback \| governorPacing \| visibilityCoalescing \| coalescingWindow` | `deadlineRegistered(kind)` · ■ `deadlineDisposition(admitted \| deferred \| obsolete \| cancelled)` |
+| `capacity(worktree, episode)` | `capacityRetryScheduled` · ■ `capacityRetryClosed(rearmed \| expired \| cancelled)` |
+| `backoff(worktree, episode)` | `backoffOpened(level)` · `backoffAdvanced(level)` · `backoffHalfOpen` · ■ `backoffClosed` |
+| `quarantine(worktree, episode)` | `quarantineOpened` · ■ `quarantineClosed` |
+| `lifetime(subscriptionLifetime)` | `envelopesDropped(count)` · `envelopeHandled(seq, ignored \| routed)` · ■ `shutdownCompleted` |
+
+Correction 2026-09-29, from the R1 implementer's stop: every scope names one operation. `intake` and `quarantine` lacked an operation identity, because a worktree gets many batches and can be quarantined repeatedly. They now carry `batchSeq` and `episode`. The former non-closing `changesetMerged` is the closing variant `changesetCoalesced(into:)`.
+
+Correction 2026-09-29 (PR #396 review), decided by main: `batchSeq` is not unique for a worktree within one recorder. The registration changeset always uses `batchSeq` 0, the projector's periodic sequence restarts when a worktree is unregistered, and `FilesystemActor` restarts its per-root sequence when a root is registered again. The intake scope therefore also carries `registration`, a per-worktree generation that the projector mints in `applyRegistration`. The projector keeps this generation only while a fact sink is attached, so production state is unchanged. When a worktree is unregistered, its observed and closed intake scopes for that registration are retired. That keeps the tracking bounded while still rejecting a duplicate close within one registration.
+
+Correction 2026-09-29 (second R1 stop), decided by main:
+
+- **`admissionDeferred` is removed.** A refresh request number exists only once a slot is granted (`startAdmittedWorktree`), so a deferral has no `refresh(n)` operation to belong to. None is needed. Each deferral that schedules a future wake already announces it in the scope that owns that wake: pacing as `deadlineRegistered(governorPacing)`, visibility as `deadlineRegistered(visibilityCoalescing)`, capacity as `capacityRetryScheduled`, backoff and quarantine as their own episodes. A deferral for lack of a free slot is resolved by another refresh's `refreshClosed`. `refresh(n)` therefore opens at `refreshAdmitted`, and no fact-only request numbering is invented.
+- **`lifetime` carries input handling.** The subscription-lifecycle proofs (an ignored envelope is handled once per lifetime; a lossy buffer reports its drops after intake catches up) previously used the projector's idle counter and checkpoint. They now read two lifetime facts, emitted in `didHandleRuntimeEnvelope` on the actor with no suspension in between. When the delivery checkpoint's dropped count has grown since the last emission, `envelopesDropped(count)` comes first, with the difference. Then `envelopeHandled(seq, disposition)` follows. The lifetime is the existing `subscriptionLifetime`, so a restart opens a new lifetime scope. `shutdownCompleted` still closes it.
+
+Evidence: 130 projector test waits (41 `waitUntilIdle`, 46 sleep-count waits whose timer kind is ambiguous, 25 whitebox actor-state polls, 13 "temporary proof debt" held-state waits) map onto these closing facts. Emission points are the transitions listed in the R1 inventory (`GitWorkingDirectoryProjector*.swift`).

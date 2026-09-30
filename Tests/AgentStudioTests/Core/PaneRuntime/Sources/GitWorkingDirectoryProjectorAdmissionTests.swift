@@ -40,20 +40,20 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 
     @Test("capacity completion resumes the paid attempt and paces the next invalidation")
-    func capacityCompletionResumesPaidAttemptAndPacesNextInvalidation() async {
+    func capacityCompletionResumesPaidAttemptAndPacesNextInvalidation() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let clock = TestPushClock()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
         let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
         let statusSnapshot = admissionCompleteStatusSnapshot()
-        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
-            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
-            physicalGate: physicalGate
-        ) { _, _ in
-            await blockingReadStarted.signal()
-            try? await blockingReadGate.arrive(())
-            return statusSnapshot
-        }
+        let blockingProvider = admissionBlockingProvider(
+            physicalGate: physicalGate,
+            started: blockingReadStarted,
+            heldRead: blockingReadGate,
+            statusSnapshot: statusSnapshot
+        )
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate
@@ -69,7 +69,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             gitWorkingTreeProvider: projectorProvider,
             coalescingWindow: .zero,
             sleepClock: clock,
-            refreshPolicy: policy
+            refreshPolicy: policy,
+            factSink: source.sink
         )
         await actor.start()
 
@@ -86,13 +87,10 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             admissionFilesystemChangeset(worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1),
             triggerSource: .filesystemChange
         )
-        #expect(
-            await admissionWaitUntil {
-                await actor.capacityRetryWorktreeIds == Set([worktreeId])
-            }
+        try await expectCapacityRetryScheduled(facts: facts, actor: actor, worktreeId: worktreeId)
+        let originalRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
         )
-        let originalRequestSequence = await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
-        #expect(originalRequestSequence != nil)
         #expect(await actor.refreshAttribution.triggerSourceByWorktreeId[worktreeId] == .filesystemChange)
         #expect(await actor.refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] == .filesystemChange)
         #expect(await actor.refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] == "background")
@@ -101,41 +99,45 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         blockingReadGate.release()
         _ = await blockingRead.value
-        let completedWithoutGovernorAdvance = await admissionWaitUntil {
-            await actor.lastAcceptedStatusAtByWorktreeId[worktreeId] != nil
-        }
-        #expect(completedWithoutGovernorAdvance)
-        guard completedWithoutGovernorAdvance, let originalRequestSequence else {
-            await actor.shutdown()
-            return
-        }
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: worktreeId, requestSequence: originalRequestSequence
+        )
+        #expect(await actor.lastAcceptedStatusAtByWorktreeId[worktreeId] != nil)
         #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
         #expect(await actor.capacityRearmedWorktreeIds.isEmpty)
-        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        #expect(await actor.worktreeTasks.isEmpty)
 
-        let sleepGeneration = clock.scheduledSleepGeneration
         await actor.enqueueImmediateRefresh(
             admissionFilesystemChangeset(worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2),
             triggerSource: .filesystemChange
         )
         #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
-        await clock.waitForPendingSleepCount(atLeast: 1, fromGeneration: sleepGeneration)
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeId, kind: .governorPacing
+        )
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: policy.minimumAutomaticStartInterval - .milliseconds(1))
         #expect(await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId] == originalRequestSequence)
         clock.advance(by: .milliseconds(1))
-        #expect(
-            await admissionWaitUntil {
-                await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
-                    == originalRequestSequence + 1
-            }
+        try await facts.expectRefreshStarted(
+            worktreeId: worktreeId, requestSequence: originalRequestSequence + 1
         )
-        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: worktreeId, requestSequence: originalRequestSequence + 1
+        )
+        #expect(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
+                == originalRequestSequence + 1
+        )
+        #expect(await actor.worktreeTasks.isEmpty)
 
         await actor.shutdown()
     }
 
     @Test("same-root contention does not pause admission for a distinct active root")
-    func sameRootContentionDoesNotPauseDistinctActiveRoot() async {
+    func sameRootContentionDoesNotPauseDistinctActiveRoot() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 4)
         let blockingReadStarted = AdmissionAsyncReceipt()
         let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
@@ -145,14 +147,12 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         let activeWorktreeId = UUIDv7.generate()
         let contendedRootPath = URL(fileURLWithPath: "/tmp/admission-same-root-\(contendedWorktreeId)")
         let activeRootPath = URL(fileURLWithPath: "/tmp/admission-distinct-active-\(activeWorktreeId)")
-        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
-            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
-            physicalGate: physicalGate
-        ) { _, _ in
-            await blockingReadStarted.signal()
-            try? await blockingReadGate.arrive(())
-            return statusSnapshot
-        }
+        let blockingProvider = admissionBlockingProvider(
+            physicalGate: physicalGate,
+            started: blockingReadStarted,
+            heldRead: blockingReadGate,
+            statusSnapshot: statusSnapshot
+        )
         let projectorStatusCalls = StatusCallRecorder()
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
@@ -174,6 +174,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 activePaneMaxConcurrent: 1,
                 openPaneMaxConcurrent: 1
             ),
+            factSink: source.sink,
             pathExistenceProbe: { rootPath in
                 pathProbe.recordExistence(rootPath)
             }
@@ -191,11 +192,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 rootPathsByWorktreeId: [contendedWorktreeId: contendedRootPath]
             )
         )
-        #expect(
-            await admissionWaitUntil {
-                await actor.capacityRetryWorktreeIds == Set([contendedWorktreeId])
-            }
-        )
+        try await expectCapacityRetryScheduled(facts: facts, actor: actor, worktreeId: contendedWorktreeId)
         #expect(
             await actor.capacityRetryReasonByWorktreeId[contendedWorktreeId]
                 == .readAlreadyInFlight
@@ -212,20 +209,31 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        let activeStatusRootPaths = await projectorStatusCalls.waitForCallCount(1)
+        let activeStatusRootPaths = try await projectorStatusCalls.waitForFirstArrival()
         #expect(activeStatusRootPaths == [activeRootPath])
+        let contendedRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[contendedWorktreeId]
+        )
+        let activeRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[activeWorktreeId]
+        )
+        try await facts.expectRefreshStarted(
+            worktreeId: activeWorktreeId, requestSequence: activeRequestSequence
+        )
         #expect(await actor.capacityRetryWorktreeIds == Set([contendedWorktreeId]))
         #expect(pathProbe.recordedRootPaths.filter { $0 == contendedRootPath }.count == 1)
 
         activeReadGate.release()
         blockingReadGate.release()
         _ = await blockingRead.value
-        #expect(
-            await admissionWaitUntil {
-                await actor.lastAcceptedStatusAtByWorktreeId.count == 2
-            }
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: contendedWorktreeId, requestSequence: contendedRequestSequence
         )
-        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: activeWorktreeId, requestSequence: activeRequestSequence
+        )
+        #expect(await actor.lastAcceptedStatusAtByWorktreeId.count == 2)
+        #expect(await actor.worktreeTasks.isEmpty)
         let recordedStatusRootPaths = await projectorStatusCalls.rootPaths
         #expect(Set(recordedStatusRootPaths) == Set([contendedRootPath, activeRootPath]))
         #expect(pathProbe.recordedRootPaths.count == 2)
@@ -235,7 +243,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 
     @Test("removing the final capacity pause owner re-admits unrelated pending work")
-    func removingFinalCapacityPauseOwnerReadmitsPendingWork() async {
+    func removingFinalCapacityPauseOwnerReadmitsPendingWork() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
         let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
@@ -245,14 +255,12 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         let blockerRootPath = URL(fileURLWithPath: "/tmp/admission-capacity-owner-blocker-\(UUIDv7.generate())")
         let capacityRootPath = URL(fileURLWithPath: "/tmp/admission-capacity-owner-\(capacityWorktreeId)")
         let pendingRootPath = URL(fileURLWithPath: "/tmp/admission-capacity-pending-\(pendingWorktreeId)")
-        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
-            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
-            physicalGate: physicalGate
-        ) { _, _ in
-            await blockingReadStarted.signal()
-            try? await blockingReadGate.arrive(())
-            return statusSnapshot
-        }
+        let blockingProvider = admissionBlockingProvider(
+            physicalGate: physicalGate,
+            started: blockingReadStarted,
+            heldRead: blockingReadGate,
+            statusSnapshot: statusSnapshot
+        )
         let projectorStatusCalls = StatusCallRecorder()
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
@@ -271,6 +279,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 activePaneMaxConcurrent: 1,
                 openPaneMaxConcurrent: 1
             ),
+            factSink: source.sink,
             pathExistenceProbe: { rootPath in
                 pathProbe.recordExistence(rootPath)
             }
@@ -288,11 +297,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 rootPathsByWorktreeId: [capacityWorktreeId: capacityRootPath]
             )
         )
-        #expect(
-            await admissionWaitUntil {
-                await actor.capacityRetryWorktreeIds == Set([capacityWorktreeId])
-            }
-        )
+        try await expectCapacityRetryScheduled(facts: facts, actor: actor, worktreeId: capacityWorktreeId)
         let capacityRetryReason = await actor.capacityRetryReasonByWorktreeId[capacityWorktreeId]
         #expect(capacityRetryReason == .readCapacityExceeded)
 
@@ -319,11 +324,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        #expect(
-            await admissionWaitUntil {
-                await actor.capacityRetryWorktreeIds == Set([pendingWorktreeId])
-            }
-        )
+        try await expectCapacityRetryScheduled(facts: facts, actor: actor, worktreeId: pendingWorktreeId)
         let pendingRetryReason = await actor.capacityRetryReasonByWorktreeId[pendingWorktreeId]
         #expect(pendingRetryReason == .readCapacityExceeded)
         #expect(await projectorStatusCalls.rootPaths.isEmpty)
@@ -332,9 +333,15 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         blockingReadGate.release()
         _ = await blockingRead.value
-        let pendingStatusRootPaths = await projectorStatusCalls.waitForCallCount(1)
+        let pendingStatusRootPaths = try await projectorStatusCalls.waitForFirstArrival()
         #expect(pendingStatusRootPaths == [pendingRootPath])
-        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        let pendingRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[pendingWorktreeId]
+        )
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: pendingWorktreeId, requestSequence: pendingRequestSequence
+        )
+        #expect(await actor.worktreeTasks.isEmpty)
         #expect(await actor.capacityRetryWorktreeIds.isEmpty)
         #expect(await actor.capacityRetryReasonByWorktreeId.isEmpty)
         #expect(pathProbe.recordedRootPaths.filter { $0 == pendingRootPath }.count == 1)
@@ -343,20 +350,21 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 
     @Test("shared physical capacity rejection retains validation and pauses later admission")
-    func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async {
+    func sharedPhysicalCapacityRejectionRetainsValidationAndPausesLaterAdmission() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let noDropsFrom = await facts.mark(.lifetime(1))
         let clock = TestPushClock()
         let physicalGate = AgentStudioGitStatusPhysicalGate(maxActiveReadCount: 1)
         let blockingReadStarted = AdmissionAsyncReceipt()
         let blockingReadGate = HeldStep<Void>("blockingReadGate", cancellation: .holdThroughCancellation)
         let statusSnapshot = admissionCompleteStatusSnapshot()
-        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
-            slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
-            physicalGate: physicalGate
-        ) { _, _ in
-            await blockingReadStarted.signal()
-            try? await blockingReadGate.arrive(())
-            return statusSnapshot
-        }
+        let blockingProvider = admissionBlockingProvider(
+            physicalGate: physicalGate,
+            started: blockingReadStarted,
+            heldRead: blockingReadGate,
+            statusSnapshot: statusSnapshot
+        )
         let projectorProvider = AgentStudioGitWorkingTreeStatusProvider(
             slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
             physicalGate: physicalGate
@@ -373,6 +381,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 maxConcurrentStatusComputes: 1,
                 openPaneMaxConcurrent: 1
             ),
+            factSink: source.sink,
             pathExistenceProbe: { rootPath in
                 pathProbe.recordExistence(rootPath)
             }
@@ -407,7 +416,8 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        await clock.waitForPendingSleepCount()
+        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .capacityFallback)
+        await clock.waitForPendingSleepCount(exactly: 1)
         let firstProbedRootPath = pathProbe.recordedRootPaths.first
         #expect(pathProbe.recordedRootPaths == firstProbedRootPath.map { [$0] } ?? [])
         #expect(await actor.capacityRetryWorktreeIds.count == 1)
@@ -415,7 +425,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
 
         blockingReadGate.release()
         _ = await blockingRead.value
-        #expect(await actor.waitUntilIdle() == .idle(droppedEnvelopes: 0))
+        for worktreeId in worktreeIds {
+            _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
+        }
         #expect(await actor.lastAcceptedStatusAtByWorktreeId.count == worktreeIds.count)
         #expect(await actor.worktreeTasks.isEmpty)
         #expect(pathProbe.recordedRootPaths.count == rootPaths.count)
@@ -426,10 +438,13 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         }
 
         await actor.shutdown()
+        try await facts.expectNoDroppedEnvelopes(from: noDropsFrom)
     }
 
     @Test("root existence is probed only when pending work can consume an admission slot")
-    func rootExistenceIsProbedOnlyForAdmissiblePendingWork() async {
+    func rootExistenceIsProbedOnlyForAdmissiblePendingWork() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
         let statusGate = FirstStatusCallGate()
         let pathProbe = RootPathProbeRecorder()
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
@@ -448,6 +463,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 maxConcurrentStatusComputes: 1,
                 openPaneMaxConcurrent: 1
             ),
+            factSink: source.sink,
             pathExistenceProbe: { rootPath in
                 pathProbe.recordExistence(rootPath)
             }
@@ -474,17 +490,30 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        #expect(await admissionWaitUntil { await statusGate.callCount == 1 })
-        let firstAdmittedRootPath = await statusGate.firstRootPath
-        #expect(pathProbe.recordedRootPaths == firstAdmittedRootPath.map { [$0] } ?? [])
+        #expect(try await statusGate.waitForFirstArrival() == 1)
+        let firstAdmittedRootPath = try #require(await statusGate.firstRootPath)
+        let firstWorktreeIndex = try #require(rootPaths.firstIndex(of: firstAdmittedRootPath))
+        let firstRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeIds[firstWorktreeIndex]]
+        )
+        try await facts.expectRefreshStarted(
+            worktreeId: worktreeIds[firstWorktreeIndex], requestSequence: firstRequestSequence
+        )
+        #expect(pathProbe.recordedRootPaths == [firstAdmittedRootPath])
 
         await statusGate.releaseFirst()
-        #expect(await admissionWaitUntil { await statusGate.callCount == 2 })
-        #expect(
-            await admissionWaitUntil {
-                await actor.worktreeTasks.isEmpty
-            }
+        let secondWorktreeIndex = 1 - firstWorktreeIndex
+        let secondRequestSequence = try await facts.expectNextRefreshStarted(
+            worktreeId: worktreeIds[secondWorktreeIndex]
         )
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: worktreeIds[firstWorktreeIndex], requestSequence: firstRequestSequence
+        )
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: worktreeIds[secondWorktreeIndex], requestSequence: secondRequestSequence
+        )
+        #expect(await statusGate.recordedRootPaths == [firstAdmittedRootPath, rootPaths[secondWorktreeIndex]])
+        #expect(await actor.worktreeTasks.isEmpty)
         #expect(pathProbe.recordedRootPaths.count == 2)
         #expect(Set(pathProbe.recordedRootPaths) == Set(rootPaths))
 
@@ -492,7 +521,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 
     @Test("inactive contraction preserves required full refresh after visibility attribution")
-    func inactiveContractionPreservesFilesystemScopeAfterVisibilityAttribution() async {
+    func inactiveContractionPreservesFilesystemScopeAfterVisibilityAttribution() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
         let statusGate = FirstStatusCallGate()
         let blockingWorktreeId = UUIDv7.generate()
         let targetWorktreeId = UUIDv7.generate()
@@ -514,6 +545,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 backgroundMaxConcurrent: 1,
                 minimumAutomaticStartInterval: .zero
             ),
+            factSink: source.sink,
             pathExistenceProbe: { _ in true }
         )
 
@@ -526,13 +558,10 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 ]
             )
         )
-        await actor.setRepositoryFactAttention(
-            activePaneWorktreeId: nil,
-            sidebarAttendedWorktreeIds: [],
-            visibleActiveTabWorktreeIds: [],
-            openWorktreeIds: [],
-            warmAutomaticWorktreeIds: [blockingWorktreeId, targetWorktreeId],
-            backgroundOnlyAutomaticWorktreeIds: [targetWorktreeId]
+        await setAdmissionAutomaticAttention(
+            actor: actor,
+            warmWorktreeIds: [blockingWorktreeId, targetWorktreeId],
+            backgroundOnlyWorktreeIds: [targetWorktreeId]
         )
         #expect(await actor.logicalDebtSnapshot().backgroundOnlyAutomaticCount == 1)
         await actor.enqueueImmediateRefresh(
@@ -543,7 +572,13 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             ),
             triggerSource: .filesystemChange
         )
-        #expect(await admissionWaitUntil { await statusGate.callCount == 1 })
+        #expect(try await statusGate.waitForFirstArrival() == 1)
+        let blockingRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[blockingWorktreeId]
+        )
+        try await facts.expectRefreshStarted(
+            worktreeId: blockingWorktreeId, requestSequence: blockingRequestSequence
+        )
 
         await actor.enqueueImmediateRefresh(
             admissionFilesystemChangeset(
@@ -558,31 +593,31 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             triggerSource: .visibilityChange
         )
 
-        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths.isEmpty == true)
-        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.containsGitInternalChanges == true)
+        await expectRetainedRequiredFullRefresh(actor: actor, worktreeId: targetWorktreeId)
         #expect(
             await actor.refreshAttribution.triggerSourceByWorktreeId[targetWorktreeId]
                 == .visibilityChange
         )
-        #expect(await actor.hasRequiredIntent(worktreeId: targetWorktreeId))
 
-        await actor.setRepositoryFactAttention(
-            activePaneWorktreeId: nil,
-            sidebarAttendedWorktreeIds: [],
-            visibleActiveTabWorktreeIds: [],
-            openWorktreeIds: [],
-            warmAutomaticWorktreeIds: [blockingWorktreeId],
-            backgroundOnlyAutomaticWorktreeIds: []
+        await setAdmissionAutomaticAttention(
+            actor: actor,
+            warmWorktreeIds: [blockingWorktreeId],
+            backgroundOnlyWorktreeIds: []
         )
 
-        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.paths.isEmpty == true)
-        #expect(await actor.pendingByWorktreeId[targetWorktreeId]?.containsGitInternalChanges == true)
-        #expect(await actor.hasRequiredIntent(worktreeId: targetWorktreeId))
+        await expectRetainedRequiredFullRefresh(actor: actor, worktreeId: targetWorktreeId)
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[targetWorktreeId] == nil)
 
         await statusGate.releaseFirst()
-        #expect(await admissionWaitUntil { await statusGate.callCount == 2 })
-        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        let targetRequestSequence = try await facts.expectNextRefreshStarted(worktreeId: targetWorktreeId)
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: blockingWorktreeId, requestSequence: blockingRequestSequence
+        )
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: targetWorktreeId, requestSequence: targetRequestSequence
+        )
+        #expect(await statusGate.callCount == 2)
+        #expect(await actor.worktreeTasks.isEmpty)
         #expect(await actor.pendingByWorktreeId[targetWorktreeId] == nil)
         #expect(await !actor.hasRequiredIntent(worktreeId: targetWorktreeId))
         #expect(await actor.automaticRefreshDeadlineByWorktreeId[targetWorktreeId] == nil)
@@ -591,7 +626,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 
     @Test("inactive contraction drops an automatic follower after required work settles")
-    func inactiveContractionDropsAutomaticFollowerAfterRequiredWorkSettles() async {
+    func inactiveContractionDropsAutomaticFollowerAfterRequiredWorkSettles() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
         let statusGate = FirstStatusCallGate()
         let worktreeId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/admission-required-active-\(worktreeId)")
@@ -606,6 +643,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
                 )
             },
             coalescingWindow: .zero,
+            factSink: source.sink,
             pathExistenceProbe: { _ in true }
         )
 
@@ -624,7 +662,13 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             ),
             triggerSource: .filesystemChange
         )
-        #expect(await admissionWaitUntil { await statusGate.callCount == 1 })
+        #expect(try await statusGate.waitForFirstArrival() == 1)
+        let requiredRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[worktreeId]
+        )
+        try await facts.expectRefreshStarted(
+            worktreeId: worktreeId, requestSequence: requiredRequestSequence
+        )
         #expect(
             await actor.refreshAttribution.admittedRequiredIntentGenerationByWorktreeId[worktreeId]
                 != nil
@@ -644,7 +688,10 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
         #expect(await actor.pendingByWorktreeId[worktreeId] != nil)
 
         await statusGate.releaseFirst()
-        #expect(await admissionWaitUntil { await actor.worktreeTasks.isEmpty })
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: worktreeId, requestSequence: requiredRequestSequence
+        )
+        #expect(await actor.worktreeTasks.isEmpty)
         let debt = await actor.logicalDebtSnapshot()
         #expect(await statusGate.callCount == 1)
         #expect(await actor.pendingByWorktreeId[worktreeId] == nil)
@@ -659,7 +706,9 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 
     @Test("missing selected root is quarantined without consuming the admission slot")
-    func missingSelectedRootDoesNotConsumeAdmissionSlot() async {
+    func missingSelectedRootDoesNotConsumeAdmissionSlot() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let missingWorktreeId = UUIDv7.generate()
@@ -691,6 +740,7 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             coalescingWindow: .zero,
             sleepClock: clock,
             refreshPolicy: policy,
+            factSink: source.sink,
             pathExistenceProbe: { rootPath in
                 pathProbe.recordExistence(rootPath)
             }
@@ -715,15 +765,22 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
             )
         )
 
-        #expect(
-            await admissionWaitUntil {
-                await actor.pendingByWorktreeId.count == 2
-            }
-        )
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        #expect(try await facts.expectHandledEnvelope(seq: 2) == .routed)
+        #expect(await actor.pendingByWorktreeId.count == 2)
+        _ = try await source.expectDeadlineRegistered(facts: facts, kind: .automatic)
+        await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: policy.backgroundCadence)
 
-        #expect(await admissionWaitUntil { await statusCalls.rootPaths == [healthyRootPath] })
+        try await facts.expectNext(
+            in: .quarantine(worktreeId: missingWorktreeId, episode: 1), .quarantineOpened
+        )
+        #expect(try await statusCalls.waitForFirstArrival() == [healthyRootPath])
+        let healthyRequestSequence = try #require(
+            await actor.refreshAttribution.requestSequenceByWorktreeId[healthyWorktreeId]
+        )
+        _ = try await facts.expectRefreshClosed(
+            worktreeId: healthyWorktreeId, requestSequence: healthyRequestSequence
+        )
         #expect(await actor.quarantinedWorktreeIds == Set([missingWorktreeId]))
         #expect(
             await actor.automaticRefreshDeadlineByWorktreeId[missingWorktreeId]
@@ -735,79 +792,44 @@ struct GitWorkingDirectoryProjectorAdmissionTests {
     }
 }
 
-private final class RootPathProbeRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let missingRootPaths: Set<URL>
-    private var rootPaths: [URL] = []
-
-    init(missingRootPaths: Set<URL> = []) {
-        self.missingRootPaths = missingRootPaths
-    }
-
-    var recordedRootPaths: [URL] {
-        lock.lock()
-        defer { lock.unlock() }
-        return rootPaths
-    }
-
-    func recordExistence(_ rootPath: URL) -> Bool {
-        lock.lock()
-        rootPaths.append(rootPath)
-        lock.unlock()
-        return !missingRootPaths.contains(rootPath)
-    }
-}
-
-private actor StatusCallRecorder {
-    private(set) var rootPaths: [URL] = []
-    private var callCountWaiter:
-        (
-            minimumCallCount: Int,
-            continuation: CheckedContinuation<[URL], Never>
-        )?
-
-    func record(_ rootPath: URL) {
-        rootPaths.append(rootPath)
-        guard let callCountWaiter, rootPaths.count >= callCountWaiter.minimumCallCount else {
-            return
-        }
-        self.callCountWaiter = nil
-        callCountWaiter.continuation.resume(returning: rootPaths)
-    }
-
-    func waitForCallCount(_ minimumCallCount: Int) async -> [URL] {
-        guard rootPaths.count < minimumCallCount else { return rootPaths }
-        return await withCheckedContinuation { continuation in
-            precondition(callCountWaiter == nil)
-            callCountWaiter = (minimumCallCount, continuation)
-        }
+private func admissionBlockingProvider(
+    physicalGate: AgentStudioGitStatusPhysicalGate,
+    started: AdmissionAsyncReceipt,
+    heldRead: HeldStep<Void>,
+    statusSnapshot: AgentStudioGit.GitCompleteStatusSnapshot
+) -> AgentStudioGitWorkingTreeStatusProvider {
+    AgentStudioGitWorkingTreeStatusProvider(
+        slowObservationScheduler: PassiveAdmissionGitStatusSlowObservationScheduler(),
+        physicalGate: physicalGate
+    ) { _, _ in
+        await started.signal()
+        try? await heldRead.arrive(())
+        return statusSnapshot
     }
 }
 
 private actor FirstStatusCallGate {
     private var rootPaths: [URL] = []
-    private var firstCallWaiter: CheckedContinuation<Void, Never>?
-    private var isFirstCallReleased = false
+    private let firstCallArrival = HeldStep<Int>("admission first status provider call")
 
     var callCount: Int { rootPaths.count }
     var firstRootPath: URL? { rootPaths.first }
+    var recordedRootPaths: [URL] { rootPaths }
 
     func recordAndWaitIfFirst(_ rootPath: URL) async {
         rootPaths.append(rootPath)
-        guard rootPaths.count == 1 else { return }
-        await withCheckedContinuation { continuation in
-            if isFirstCallReleased {
-                continuation.resume()
-            } else {
-                firstCallWaiter = continuation
-            }
+        let callNumber = rootPaths.count
+        if callNumber == 1 {
+            try? await firstCallArrival.arrive(callNumber)
         }
     }
 
+    func waitForFirstArrival() async throws -> Int {
+        try await firstCallArrival.firstArrival()
+    }
+
     func releaseFirst() {
-        isFirstCallReleased = true
-        firstCallWaiter?.resume()
-        firstCallWaiter = nil
+        firstCallArrival.release()
     }
 }
 
@@ -836,99 +858,4 @@ private struct PassiveAdmissionGitStatusSlowObservationScheduler: AgentStudioGit
     ) -> AgentStudioGitScheduledSlowObservation {
         AgentStudioGitScheduledSlowObservation {}
     }
-}
-
-private func admissionWaitUntil(
-    maxTurns: Int = 20_000,
-    _ condition: @escaping () async -> Bool
-) async -> Bool {
-    for _ in 0..<maxTurns {
-        if await condition() { return true }
-        await Task.yield()
-    }
-    return await condition()
-}
-
-private func admissionRegistrationEnvelope(
-    seq: UInt64,
-    timestamp: ContinuousClock.Instant,
-    worktreeId: UUID,
-    rootPath: URL
-) -> RuntimeEnvelope {
-    .system(
-        SystemEnvelope(
-            source: .builtin(.filesystemWatcher),
-            seq: seq,
-            timestamp: timestamp,
-            event: .topology(
-                .worktreeRegistered(
-                    worktreeId: worktreeId,
-                    repoId: worktreeId,
-                    rootPath: rootPath
-                )
-            )
-        )
-    )
-}
-
-private func admissionTopologyAssertion(
-    generation: UInt64,
-    rootPathsByWorktreeId: [UUID: URL]
-) -> FilesystemTopologyAssertion {
-    FilesystemTopologyAssertion(
-        generation: generation,
-        contextsByWorktreeId: Dictionary(
-            uniqueKeysWithValues: rootPathsByWorktreeId.map { worktreeId, rootPath in
-                (
-                    worktreeId,
-                    WorktreeFilesystemContext(repoId: worktreeId, rootPath: rootPath)
-                )
-            }
-        )
-    )
-}
-
-private func admissionFilesystemChangeset(
-    worktreeId: UUID,
-    rootPath: URL,
-    batchSeq: UInt64
-) -> FileChangeset {
-    FileChangeset(
-        worktreeId: worktreeId,
-        rootPath: rootPath,
-        paths: ["tracked-\(batchSeq).txt"],
-        timestamp: ContinuousClock().now,
-        batchSeq: batchSeq
-    )
-}
-
-private func admissionCompleteStatusSnapshot() -> AgentStudioGit.GitCompleteStatusSnapshot {
-    let rootPath = URL(fileURLWithPath: "/tmp/admission-status-snapshot")
-    return AgentStudioGit.GitCompleteStatusSnapshot(
-        facts: AgentStudioGit.GitStatusFactsSnapshot(
-            repositoryRoot: rootPath,
-            worktreePath: rootPath,
-            generatedAtUnixMilliseconds: 1,
-            head: AgentStudioGit.GitHeadSnapshot(kind: .branch, oid: "abc123", shortName: "main"),
-            originResolution: .confirmedAbsent,
-            summary: AgentStudioGit.GitStatusFactSummary(
-                changedFileCount: 0,
-                stagedFileCount: 0,
-                unstagedFileCount: 0,
-                untrackedFileCount: 0,
-                ignoredFileCount: 0,
-                aheadCount: 0,
-                behindCount: 0,
-                hasUpstream: false
-            ),
-            entries: []
-        ),
-        lineCountDetail: AgentStudioGit.GitStatusLineCountDetail(
-            repositoryRoot: rootPath,
-            worktreePath: rootPath,
-            generatedAtUnixMilliseconds: 1,
-            linesAdded: 0,
-            linesDeleted: 0
-        )
-    )
 }

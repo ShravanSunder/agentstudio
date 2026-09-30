@@ -96,7 +96,7 @@ struct RepoScannerSessionTests {
         )
 
         // Act
-        let validationOutcome = await nextValidationRequest(session)
+        let (validationOutcome, observedSuspensions) = await nextValidationRequestCountingSuspensions(session)
         guard case .validationRequired(let request) = validationOutcome else {
             Issue.record("expected validation request, got \(validationOutcome)")
             return
@@ -111,7 +111,10 @@ struct RepoScannerSessionTests {
             return
         }
         #expect(cancelledScan.counts.validationCancellationCount == 1)
-        #expect(cancelledScan.counts.scannerServiceInvocationCount == 1)
+        // One traversal quantum per observed suspension plus the quantum that
+        // reached validation; how many quanta the production budget needed is
+        // observed, never assumed from machine speed.
+        #expect(cancelledScan.counts.scannerServiceInvocationCount == 1 + observedSuspensions)
     }
 
     @Test("active service duration suspends before validation at the configured limit")
@@ -655,10 +658,21 @@ struct RepoScannerSessionTests {
     private func nextValidationRequest(
         _ session: RepoScannerSessionPort
     ) async -> RepoScannerQuantumOutcome {
+        await nextValidationRequestCountingSuspensions(session).outcome
+    }
+
+    /// Advances past suspended quanta and reports how many it consumed.
+    private func nextValidationRequestCountingSuspensions(
+        _ session: RepoScannerSessionPort
+    ) async -> (outcome: RepoScannerQuantumOutcome, suspensions: Int) {
+        var suspensions = 0
         while true {
             let outcome = await session.advanceOneQuantum()
-            if case .suspended = outcome { continue }
-            return outcome
+            if case .suspended = outcome {
+                suspensions += 1
+                continue
+            }
+            return (outcome, suspensions)
         }
     }
 

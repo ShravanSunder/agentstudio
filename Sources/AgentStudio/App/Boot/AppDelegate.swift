@@ -87,6 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var runtime: SessionRuntime!
     var appIPCServer: AgentStudioAppIPCServer?
     var appIPCInitializationTask: Task<Void, Never>?
+    var didRecordAppIPCStartOutcome = false
     var appIPCRuntimeID: UUID!
     var appIPCPaths: AgentStudioIPCPaths!
     var appIPCContinuityRepository: IPCContinuityRepository!
@@ -96,6 +97,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// credential, resolved once when IPC identity is composed. Stable and beta
     /// leave it nil and never hand a credential out.
     var appIPCDebugCredentialEscrowURL: URL?
+    /// The channel the IPC server composes for: the build's own channel unless
+    /// composition input names another, so a debug build can serve the stable
+    /// registry and exposure rules.
+    var appIPCServerChannel: AgentStudioIPCChannel = AppDelegate.compiledAppIPCChannel()
     var paneIPCIdentityOwner: PaneIPCIdentityOwner!
     var appIPCSessionsIngestion: SessionsIngestion?
     var paneReportSpoolDrainTask: Task<Void, Never>?
@@ -141,6 +146,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var isTraceIdentityCaptureInProgress = false
     var traceIdentityFleetCaptureCount: UInt64 = 0
     private var terminationDrainTask: Task<Void, Never>?
+    /// Ends the process once a cancelled termination has been finished.
+    /// Replaced in tests so the cancelled-quit path can be observed.
+    var exitProcess: @MainActor (Int32) -> Void = { status in exit(status) }
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
     let launchRestoreObservationState = AppDelegateLaunchRestoreObservationState()
@@ -307,17 +315,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     }
                     await self?.waitForRepositoryFactUpdatesToSettle()
                 },
-                reply: { outcome in
+                reply: { [weak self] outcome in
                     if outcome == .timedOut {
                         appLogger.warning(
                             "Termination drain exceeded its deadline; replying to AppKit without it"
                         )
                     }
-                    sender.reply(toApplicationShouldTerminate: true)
+                    replyToTerminationFinishingIfCancelled(
+                        reply: { sender.reply(toApplicationShouldTerminate: true) },
+                        finishCancelledTermination: { self?.finishTerminationCancelledAfterDrain() }
+                    )
                 }
             )
         }
         return .terminateLater
+    }
+
+    /// The drain has already stopped the executor, window controller, and
+    /// surface coordinator, so a quit AppKit cancelled afterwards cannot
+    /// resume the app. Finish it: run the synchronous will-terminate work,
+    /// forget the drain so nothing waits on it, and exit. State is flushed.
+    func finishTerminationCancelledAfterDrain() {
+        appLogger.error("AppKit cancelled termination after the drain; finishing the quit")
+        terminationDrainTask = nil
+        applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        exitProcess(EXIT_SUCCESS)
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

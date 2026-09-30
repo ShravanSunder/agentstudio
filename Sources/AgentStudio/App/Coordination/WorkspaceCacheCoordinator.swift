@@ -146,7 +146,10 @@ final class WorkspaceCacheCoordinator {
         // swiftlint:disable:next no_task_detached
         consumeTask = Task.detached {
             for await envelope in subscription {
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    // Skip cancelled envelopes but keep iterating so termination can await subscriber removal.
+                    continue
+                }
                 if case .system(let system) = envelope, case .topology(let topology) = system.event {
                     switch topology {
                     case .worktreeRegistered, .worktreeUnregistered: continue

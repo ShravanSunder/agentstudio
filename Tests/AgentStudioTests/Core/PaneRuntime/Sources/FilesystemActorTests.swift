@@ -467,16 +467,18 @@ struct FilesystemActorTests {
             maxFlushLatency: .seconds(1)
         )
 
-        let sidebarOnlyWorktreeId = UUID()
-        let activeWorktreeId = UUID()
+        let basePath = "/tmp/activity-priority-\(UUIDv7.generate().uuidString)"
+        let sidebarOnlyWorktreeId = UUIDv7.generate()
+        let activeWorktreeId = UUIDv7.generate()
         await actor.register(
             worktreeId: sidebarOnlyWorktreeId, repoId: sidebarOnlyWorktreeId,
-            rootPath: URL(fileURLWithPath: "/tmp/sidebar"))
+            rootPath: URL(fileURLWithPath: basePath))
         await actor.register(
-            worktreeId: activeWorktreeId, repoId: activeWorktreeId, rootPath: URL(fileURLWithPath: "/tmp/active"))
+            worktreeId: activeWorktreeId,
+            repoId: activeWorktreeId,
+            rootPath: URL(fileURLWithPath: "\(basePath)/active"))
         await actor.setActivity(worktreeId: activeWorktreeId, isActiveInApp: true)
         await actor.setActivity(worktreeId: sidebarOnlyWorktreeId, isActiveInApp: false)
-        await actor.setActivePaneWorktree(worktreeId: activeWorktreeId)
 
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()

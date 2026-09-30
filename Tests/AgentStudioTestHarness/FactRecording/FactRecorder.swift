@@ -1,5 +1,11 @@
 import Synchronization
 
+extension UnexpectedFact {
+    package static func forExpectation(expected: String, actual: String, scope: String, callSite: String) -> Self {
+        Self(expected: expected, actual: actual, scope: scope, callSite: callSite)
+    }
+}
+
 /// One source's append-only fact history and per-scope consuming cursors.
 package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Sendable {
     private let vocabulary: FactVocabulary<Scope, Fact>
@@ -21,9 +27,20 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
     /// The owner calls this synchronously; it never creates a task.
     package func append(scope: Scope, fact: Fact) {
         let waiters = state.withLock { state -> [CheckedContinuation<Void, any Error>] in
-            guard !state.stopping, state.sourceTerminal == nil else { return [] }
-            state.nextSequence += 1
-            record(scope: scope, fact: fact, sequence: state.nextSequence, in: &state)
+            guard !state.stopping else { return [] }
+            if let terminal = state.sourceTerminal {
+                state.violations.append(
+                    (
+                        scope,
+                        FactAfterSourceTerminated(
+                            actual: vocabulary.describeFact(fact), terminal: terminal.description,
+                            scope: vocabulary.describeScope(scope), callSite: "source emission"
+                        )
+                    ))
+            } else {
+                state.nextSequence += 1
+                record(scope: scope, fact: fact, sequence: state.nextSequence, in: &state)
+            }
             state.revision += 1
             return state.takeWaiters()
         }
@@ -129,6 +146,89 @@ package final class FactRecorder<Scope: Hashable & Sendable, Fact: Sendable>: Se
                     }
                     expectationLog.settled(logID, outcome: .matched)
                     return fact
+                case .failure(let failure): throw failure
+                case .waiting(let revision): try await waitForChange(after: revision)
+                }
+            }
+        } catch {
+            expectationLog.settled(logID, outcome: Self.settlement(for: error))
+            throw error
+        }
+    }
+
+    /// Find the next owner-minted operation without advancing its fact cursor.
+    package func expectNextOperation(
+        matching scopeMatches: @Sendable (Scope) -> Bool,
+        opening matchesOpening: @Sendable (Fact) -> Bool, _ description: String,
+        fileID: String = #fileID, line: Int = #line, function: String = #function
+    ) async throws -> Scope {
+        let callSite = "\(fileID):\(line) \(function)"
+        let discoveryScope = "discover: \(description)"
+        let logID = expectationLog.expecting(
+            expectedCase: description, scope: discoveryScope,
+            test: "\(fileID) \(function)", callSite: callSite
+        )
+        do {
+            let expectationID = try state.withLock { state -> UInt64 in
+                guard state.activeDiscovery == nil else {
+                    throw ConcurrentExpectation(expected: description, scope: discoveryScope, callSite: callSite)
+                }
+                state.nextExpectationID += 1
+                state.activeDiscovery = state.nextExpectationID
+                return state.nextExpectationID
+            }
+            defer {
+                state.withLock { state in
+                    if state.activeDiscovery == expectationID { state.activeDiscovery = nil }
+                }
+            }
+            while true {
+                try Task.checkCancellation()
+                let observation = state.withLock { state -> OperationObservation<Scope> in
+                    if let loss = state.lossDescription {
+                        return .failure(
+                            FactsLost(
+                                description: loss, expected: description, scope: discoveryScope, callSite: callSite))
+                    }
+                    var seenScopes: Set<Scope> = []
+                    for entry in state.history where scopeMatches(entry.scope) {
+                        guard seenScopes.insert(entry.scope).inserted else { continue }
+                        guard !state.discoveredScopes.contains(entry.scope) else { continue }
+                        if let failure = stickyFailure(state, entry.scope, description, callSite) {
+                            return .failure(failure)
+                        }
+                        guard matchesOpening(entry.fact) else {
+                            return .failure(
+                                UnexpectedFact(
+                                    expected: description, actual: vocabulary.describeFact(entry.fact),
+                                    scope: vocabulary.describeScope(entry.scope), callSite: callSite))
+                        }
+                        state.discoveredScopes.insert(entry.scope)
+                        return .scope(entry.scope)
+                    }
+                    if let terminal = state.sourceTerminal {
+                        switch terminal {
+                        case .ended:
+                            return .failure(
+                                SourceEnded(
+                                    expected: description, scope: discoveryScope, callSite: callSite))
+                        case .cancelled:
+                            return .failure(
+                                Cancelled(
+                                    expected: description, scope: discoveryScope, callSite: callSite))
+                        }
+                    }
+                    if state.stopping {
+                        return .failure(
+                            SourceEnded(
+                                expected: description, scope: discoveryScope, callSite: callSite))
+                    }
+                    return .waiting(state.revision)
+                }
+                switch observation {
+                case .scope(let scope):
+                    expectationLog.settled(logID, outcome: .matched)
+                    return scope
                 case .failure(let failure): throw failure
                 case .waiting(let revision): try await waitForChange(after: revision)
                 }
@@ -333,6 +433,12 @@ private enum Observation<Fact: Sendable>: Sendable {
     case failure(any Error)
 }
 
+private enum OperationObservation<Scope: Sendable>: Sendable {
+    case scope(Scope)
+    case waiting(UInt64)
+    case failure(any Error)
+}
+
 private typealias StopOutcome = (Task<Void, Never>, [CheckedContinuation<Void, any Error>])
 
 private struct RecordedFact<Scope: Hashable & Sendable, Fact: Sendable>: Sendable {
@@ -361,6 +467,8 @@ private struct RecorderState<Scope: Hashable & Sendable, Fact: Sendable>: Sendab
     var lossDescription: String?
     var sourceTerminal: SourceTerminal?
     var activeExpectations: [Scope: UInt64] = [:]
+    var activeDiscovery: UInt64?
+    var discoveredScopes: Set<Scope> = []
     var nextExpectationID: UInt64 = 0
     var nextWaiterID: UInt64 = 0
     var nextSequence: UInt64 = 0

@@ -54,6 +54,97 @@ private struct HeldSettlementHandle: FactSourceHandle {
 
 @Suite("FactRecorder")
 struct FactRecorderTests {
+    @Test("operation discovery follows first-fact order and does not consume opening facts")
+    func discoversOperationsInOrder() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.sink("other", .actorEmitted)
+        source.sink("operation-2", .actorEmitted)
+        source.sink("operation-1", .actorEmitted)
+
+        let first = try await recorder.expectNextOperation(
+            matching: { $0.hasPrefix("operation-") }, opening: { $0 == .actorEmitted }, "operation opening"
+        )
+        let second = try await recorder.expectNextOperation(
+            matching: { $0.hasPrefix("operation-") }, opening: { $0 == .actorEmitted }, "operation opening"
+        )
+        #expect(first == "operation-2")
+        #expect(second == "operation-1")
+        try await recorder.expectNext(in: first, .actorEmitted)
+        try await recorder.expectNext(in: second, .actorEmitted)
+        try await recorder.finish()
+    }
+
+    @Test("discovery never returns the same operation twice")
+    func discoveryDoesNotRediscover() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.sink("operation-1", .actorEmitted)
+        let first = try await recorder.expectNextOperation(
+            matching: { $0.hasPrefix("operation-") }, opening: { $0 == .actorEmitted }, "operation opening"
+        )
+        source.sink("operation-1", .mainActorEmitted)
+        source.sink("operation-2", .actorEmitted)
+        let second = try await recorder.expectNextOperation(
+            matching: { $0.hasPrefix("operation-") }, opening: { $0 == .actorEmitted }, "operation opening"
+        )
+        #expect(first == "operation-1")
+        #expect(second == "operation-2")
+        try await recorder.finish()
+    }
+
+    @Test("discovery rejects a wrong first fact")
+    func discoveryRejectsWrongOpening() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        source.sink("operation-1", .mainActorEmitted)
+        await #expect(throws: UnexpectedFact.self) {
+            try await recorder.expectNextOperation(
+                matching: { $0.hasPrefix("operation-") }, opening: { $0 == .actorEmitted }, "operation opening"
+            )
+        }
+        try await recorder.finish()
+    }
+
+    @Test("source end settles an outstanding operation discovery")
+    func sourceEndSettlesDiscovery() async throws {
+        let source = makeSource()
+        let recorder = try source.attach()
+        await withTaskGroup(of: Result<String, any Error>.self) { group in
+            for _ in 0..<2 {
+                group.addTask {
+                    do {
+                        return .success(
+                            try await recorder.expectNextOperation(
+                                matching: { $0.hasPrefix("operation-") }, opening: { $0 == .actorEmitted },
+                                "operation opening"
+                            ))
+                    } catch { return .failure(error) }
+                }
+            }
+            guard let misuse = await group.next() else {
+                Issue.record("no discovery registered")
+                return
+            }
+            if case .failure(let error) = misuse {
+                #expect(error is ConcurrentExpectation)
+            } else {
+                Issue.record("discovery completed without an opening fact")
+            }
+            source.end()
+            guard let ended = await group.next() else {
+                Issue.record("outstanding discovery did not settle")
+                return
+            }
+            if case .failure(let error) = ended {
+                #expect(error is SourceEnded)
+            } else {
+                Issue.record("ended discovery completed successfully")
+            }
+        }
+        try await recorder.finish()
+    }
+
     @Test("a second attachment fails with a typed misuse error")
     func secondAttachFails() throws {
         let source = makeSource()
