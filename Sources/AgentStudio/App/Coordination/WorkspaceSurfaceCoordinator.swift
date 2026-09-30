@@ -685,8 +685,7 @@ final class WorkspaceSurfaceCoordinator {
             break
         }
 
-        let tabs = store.tabLayoutAtom.tabs
-        guard tabs.contains(where: { $0.activePaneIds.contains(sourcePaneUUID) }) else {
+        guard store.tabLayoutAtom.tabContaining(paneId: sourcePaneUUID) != nil else {
             Self.logger.warning(
                 "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
             )
