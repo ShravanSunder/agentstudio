@@ -458,6 +458,16 @@ describe("scene bundles for HyperFrames", () => {
       expect(thread?.textContent).toContain("The current.md pin can stay brief.");
       expect(thread?.textContent).toContain("Reply");
       expect(thread?.textContent).toContain("Resolve");
+      const bodyFontSize = Number.parseFloat(
+        getComputedStyle(thread?.querySelector("p") as HTMLElement).fontSize,
+      );
+      const diffFontSize = Number.parseFloat(getComputedStyle(changedLine as HTMLElement).fontSize);
+      const metadataFontSize = Number.parseFloat(
+        getComputedStyle(thread?.querySelector(".scene-review__metadata") as HTMLElement).fontSize,
+      );
+      expect(bodyFontSize / diffFontSize).toBeGreaterThanOrEqual(0.9);
+      expect(bodyFontSize / diffFontSize).toBeLessThanOrEqual(1.05);
+      expect(metadataFontSize).toBeLessThan(bodyFontSize);
       timeline.time(1.0);
       expect((threadSlot as HTMLElement).getBoundingClientRect().height).toBeLessThan(1);
       timeline.revert();
