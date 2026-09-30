@@ -127,4 +127,17 @@ struct TerminalActivityProjectorRestorePhaseTests {
 
         #expect(await projector.restorePhaseGenerationsByPane[paneID] == nil)
     }
+
+    @Test("a router stop (reset) clears every armed restore phase, so none outlives the router's lifetime")
+    func routerStopClearsEveryArmedRestorePhase() async {
+        let projector = TerminalActivityProjector()
+        let firstPaneID = UUID()
+        let secondPaneID = UUID()
+        await projector.armRestorePhase(paneID: firstPaneID, generation: RestoreGeneration(rawValue: 1))
+        await projector.armRestorePhase(paneID: secondPaneID, generation: RestoreGeneration(rawValue: 2))
+
+        await projector.reset()
+
+        #expect(await projector.restorePhaseGenerationsByPane.isEmpty)
+    }
 }

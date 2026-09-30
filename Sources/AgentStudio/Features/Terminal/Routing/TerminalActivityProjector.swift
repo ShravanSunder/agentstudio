@@ -548,6 +548,12 @@ package actor TerminalActivityProjector {
         unseenRetirementTasks.removeAll()
         agentRetirementTasks.removeAll()
         paneStates.removeAll()
+        // SR6b: without this, a pane armed when the router stops (e.g. app
+        // shutdown mid-restore) would leave its entry in restorePhaseByPane
+        // forever — this actor is reused across a later start() rather than
+        // recreated, so nothing else ever clears it. No `.restorePhaseEnded`
+        // is coming for a router that isn't running.
+        restorePhaseByPane.removeAll()
         outcomeSink = nil
         lastOutputLineReader = nil
         for task in closeTasks { await task.value }
