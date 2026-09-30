@@ -1,319 +1,37 @@
-name: CI / Test
+name: Swift seed freshness experiment
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-  # Every base, not only main: a stacked PR targets the branch below it and
-  # still has to pass the same gates before the stack merges.
-  pull_request:
+    inputs:
+      mode:
+        type: choice
+        options: [publish, consume]
+        default: publish
+        required: true
+      seed_key:
+        type: string
+        default: ""
+      expected_swift_changes:
+        type: choice
+        options: ["0", "1"]
+        default: "0"
+        required: true
 
 concurrency:
-  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: swift-seed-freshness-experiment
+  cancel-in-progress: false
 
 permissions:
   contents: read
-  # The first-attempt gate reads a pull request's live labels.
   issues: read
-  pull-requests: write
+
+env:
+  CI_SWIFT_TRUSTED_PRODUCER_REF: refs/heads/ci-warm-cache-determinism
+  CI_SWIFT_CACHE_NAMESPACE: swift-build-exp-freshness-
 
 jobs:
-  code-quality:
-    name: Code quality
-    runs-on: ubuntu-24.04
-    container: swift@sha256:8de8ea332a61e961ead4ef41029c2552b18e1a70dd5942d25ecf7d8de2eec5b5
-    defaults:
-      run:
-        shell: bash
-    env:
-      SWIFT_BUILD_DIR: .build-ci
-      CI_CONTAINER_TOOLS: "1"
-      # Lint never uses zig; keep mise from auto-installing it on `mise run` (its mirror rate-limits).
-      MISE_DISABLE_TOOLS: zig
-
-    steps:
-      # First step of every job, before checkout: a re-run attempt fails here unless
-      # its pull request carries the ci-rerun-approved label right now. A red run is
-      # diagnosed, not re-run. Labels are read live because a re-run replays the
-      # original event payload. Defined once here; every other job starts with its alias.
-      - &first-attempt-gate
-        name: First-attempt gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          EVENT_NAME: ${{ github.event_name }}
-          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          override_label=ci-rerun-approved
-          if [ "$RUN_ATTEMPT" -le 1 ]; then
-            echo "first-attempt gate: attempt $RUN_ATTEMPT, nothing to check"
-            exit 0
-          fi
-          if [ "$EVENT_NAME" != "pull_request" ] || [ -z "${PULL_REQUEST_NUMBER:-}" ]; then
-            echo "::error::Re-run attempt $RUN_ATTEMPT of a $EVENT_NAME run is refused: only a pull request carrying the '$override_label' label may be re-run. Diagnose the red run and start a new one instead."
-            exit 1
-          fi
-          if [ "${CI_CONTAINER_TOOLS:-}" = "1" ] && ! command -v gh >/dev/null 2>&1; then
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gh
-          fi
-          if ! labels="$(gh api --paginate "repos/$REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --jq '.[].name' 2>&1)"; then
-            echo "::error::Re-run attempt $RUN_ATTEMPT refused: the labels of PR #$PULL_REQUEST_NUMBER could not be read, and the gate fails closed. $labels"
-            exit 1
-          fi
-          if grep -Fxq -- "$override_label" <<<"$labels"; then
-            echo "first-attempt gate: re-run attempt $RUN_ATTEMPT allowed by the '$override_label' label on PR #$PULL_REQUEST_NUMBER"
-            exit 0
-          fi
-          echo "::error::Re-run attempt $RUN_ATTEMPT refused: a red run is diagnosed, not re-run. Add the '$override_label' label to PR #$PULL_REQUEST_NUMBER to allow this re-run."
-          exit 1
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          # Full history, so the debt ledger ratchet can compute the merge base.
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Install Linux CI prerequisites
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get install -y --no-install-recommends gh jq perl curl lsof
-          perl -MJSON::PP -MTime::HiRes -e 1
-
-      - name: Trust checkout for Git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: Setup mise
-        uses: jdx/mise-action@v3
-        with:
-          # Lint needs only SwiftLint, which the next step installs by exact version.
-          # Installing every .mise.toml tool here pulled zig, whose mirror rate-limits (HTTP 429).
-          install: false
-          # Nothing is installed through mise in this job, so there is nothing to cache.
-          cache: false
-
-      - name: Install lint tools
-        run: bash scripts/install-ci-lint-tools.sh
-
-      - name: Verify lint tools on PATH
-        run: |
-          swift-format --version
-          swiftlint version
-
-      - name: Restore architecture lint build cache
-        id: architecture-cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: .build-ci/architecture-lint
-          key: architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-image-8de8ea332a61-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
-          restore-keys: |
-            architecture-lint-linux-${{ runner.arch }}-swift-6.3.3-image-8de8ea332a61-
-
-      - name: AgentStudio architecture lint tool tests
-        run: mise run test:architecture
-
-      - name: Save architecture lint build cache
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.architecture-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .build-ci/architecture-lint
-          key: ${{ steps.architecture-cache-restore.outputs.cache-primary-key }}
-
-      - name: Lint
-        run: mise run lint:portable
-
-      - name: Debt ledger ratchet
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
-        run: /bin/bash Tools/AgentStudioArchitectureLint/check-ledger-ratchet.sh "origin/${BASE_REF}"
-
-  marketing-site-validation:
-    name: Marketing site validation
-    runs-on: ubuntu-24.04
-
-    steps:
-      - *first-attempt-gate
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.14.0
-
-      - name: Setup Node for marketing site
-        uses: actions/setup-node@v4
-        with:
-          node-version: "26.5.0"
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Install Google Chrome
-        run: |
-          npx --yes playwright@1.61.0 install --with-deps chrome
-          chrome_binary="$(command -v google-chrome || command -v google-chrome-stable)"
-          test -x "$chrome_binary"
-          echo "CHROME_BIN=$chrome_binary" >> "$GITHUB_ENV"
-
-      - name: Install marketing site dependencies
-        run: pnpm --dir web install --frozen-lockfile
-
-      - name: Run marketing site checks
-        run: pnpm --dir web run check
-
-      - name: Build marketing site and Cloudflare package
-        run: |
-          pnpm --dir web run build
-          pnpm --dir web exec cf build
-          pnpm --dir web run verify:cloudflare-discovery
-
-  bridge-web:
-    name: BridgeWeb
-    runs-on: macos-26
-    env:
-      SWIFT_BUILD_DIR: .build-ci
-
-    steps:
-      - *first-attempt-gate
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          submodules: recursive
-
-      - name: Select Xcode
-        id: select-xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "26.6"
-
-      - name: Setup mise
-        uses: jdx/mise-action@v3
-        with:
-          cache_save: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.14.0
-
-      - name: Setup Node for BridgeWeb
-        uses: actions/setup-node@v4
-        with:
-          node-version: "26.5.0"
-          cache: pnpm
-          cache-dependency-path: BridgeWeb/pnpm-lock.yaml
-
-      - name: Get submodule SHAs
-        id: submodules
-        run: |
-          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
-          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
-          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
-          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
-
-      - parallel:
-          - name: Install BridgeWeb dependencies
-            run: pnpm --dir BridgeWeb install --frozen-lockfile
-
-          - name: Cache Zig compilation
-            id: cache-zig-compilation
-            uses: actions/cache/restore@v4
-            with:
-              path: |
-                ~/.cache/zig
-                vendor/ghostty/.zig-cache
-                vendor/zmx/.zig-cache
-              key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
-              restore-keys: |
-                zig-compile-${{ runner.os }}-
-
-          - name: Cache Ghostty artifacts
-            id: cache-ghostty
-            uses: actions/cache/restore@v4
-            with:
-              path: |
-                vendor/ghostty/macos/GhosttyKit.xcframework
-                vendor/ghostty/zig-out/share
-              key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
-
-          - name: Cache zmx artifacts
-            id: cache-zmx
-            uses: actions/cache/restore@v4
-            with:
-              path: vendor/zmx/zig-out
-              key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
-
-      - name: Verify BridgeWeb fixtures
-        run: bash scripts/bridge-web-sync-fixtures.sh
-
-      - name: Run BridgeWeb lanes
-        run: |
-          # Keep CPU-heavy test lanes sequential on this runner.
-          pnpm --dir BridgeWeb run check
-          pnpm --dir BridgeWeb run test:unit
-          pnpm --dir BridgeWeb run test:browser:integration
-
-      - parallel:
-          - name: BridgeWeb packaged build
-            run: pnpm --dir BridgeWeb run build
-
-          - name: Build Ghostty XCFramework
-            if: steps.cache-ghostty.outputs.cache-hit != 'true'
-            run: |
-              cd vendor/ghostty
-              zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
-
-          - name: Build zmx
-            if: steps.cache-zmx.outputs.cache-hit != 'true'
-            run: mise run --skip-deps build-zmx
-
-      - name: Verify packaged BridgeWeb build
-        run: test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
-
-      - parallel:
-          - name: Copy XCFramework
-            run: mise run --skip-deps copy-xcframework
-
-          - name: Setup dev resources
-            run: |
-              SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
-              SHELL_DST="Sources/AgentStudio/Resources/ghostty/shell-integration"
-              if [ ! -d "$SHELL_DST" ]; then
-                mkdir -p "$(dirname "$SHELL_DST")"
-                cp -R "$SHELL_SRC" "$SHELL_DST"
-              fi
-              TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
-              TERMINFO_DST="Sources/AgentStudio/Resources/terminfo"
-              if [ ! -d "$TERMINFO_DST/78" ]; then
-                mkdir -p "$TERMINFO_DST/78" "$TERMINFO_DST/67"
-                [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
-                [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
-              fi
-
-      - name: Build BridgeWeb Swift development backend
-        run: pnpm --dir BridgeWeb run build:swift-dev-server
-
-      - name: Test BridgeWeb Swift integration
-        run: pnpm --dir BridgeWeb run test:integration:node:prepared
-
-      # The 1,699-item backpressure journey asserts responsiveness (long-task count,
-      # annotation ages under a lease) and runs in the post-merge benchmarks workflow, not here.
-      - name: Test BridgeWeb Swift E2E
-        run: pnpm --dir BridgeWeb run test:e2e:prepared:ordinary
-
   swift-test-suite:
-    name: Swift test suite
+    name: Swift seed freshness proof
     runs-on: macos-26
     permissions:
       contents: read
@@ -330,7 +48,8 @@ jobs:
       SWIFT_BUILD_STATS_DIR: ${{ github.workspace }}/tmp/plan-workflows/ci-runs/compiler-stats
 
     steps:
-      - *first-attempt-gate
+      - name: First-attempt gate
+        run: test "${{ github.run_attempt }}" -eq 1
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -420,8 +139,8 @@ jobs:
 
           - name: Build Ghostty XCFramework
             if: steps.cache-ghostty.outputs.cache-hit != 'true'
+            working-directory: vendor/ghostty
             run: |
-              cd vendor/ghostty
               zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
 
           - name: Build zmx
@@ -460,23 +179,21 @@ jobs:
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
 
       - name: Start Swift cache restore timer
-        if: github.event_name == 'pull_request'
+        if: inputs.mode == 'consume'
         id: swift-cache-restore-start
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Swift build seed
-        if: github.event_name == 'pull_request'
+        if: inputs.mode == 'consume'
         id: swift-cache-restore
         continue-on-error: true
         uses: actions/cache/restore@v4
         with:
           path: .build-ci
-          key: ${{ steps.swift-cache-prefix.outputs.prefix }}r0-none
-          restore-keys: |
-            ${{ steps.swift-cache-prefix.outputs.prefix }}
+          key: ${{ inputs.seed_key }}
 
       - name: Record Swift cache restore time
-        if: github.event_name == 'pull_request'
+        if: inputs.mode == 'consume'
         id: swift-cache-restore-time
         run: |
           restore_seconds=$(( $(date +%s) - ${{ steps.swift-cache-restore-start.outputs.epoch }} ))
@@ -503,7 +220,7 @@ jobs:
           echo "inventory_seconds=$(( $(date +%s) - inventory_started ))" >> "$GITHUB_OUTPUT"
 
       - name: Verify and restamp PR Swift seed
-        if: github.event_name == 'pull_request'
+        if: inputs.mode == 'consume'
         id: swift-cache-verify
         env:
           CI_SWIFT_BUILD_PATH: .build-ci
@@ -529,10 +246,26 @@ jobs:
           echo "swift-cache $disposition restore=${restore_seconds}s"
 
       - name: Inventory main Swift inputs before cold build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: inputs.mode == 'publish'
         run: |
           test "${{ steps.swift-cache-inventory-before.outputs.valid }}" = true
           test ! -e .build-ci
+
+      - name: Require requested consumer seed
+        if: inputs.mode == 'consume'
+        run: test "${{ startsWith(steps.swift-cache-verify.outputs.disposition, 'warm ') }}" = true
+
+      - name: Record prebuild object inputs
+        run: |
+          mkdir -p tmp/tq/experiment
+          python3 - <<'PYOBJECTS'
+          import json
+          from pathlib import Path
+          build = Path('.build-ci')
+          paths = list(build.rglob('*.o')) + list(build.rglob('AgentStudioPackageTests.xctest/Contents/MacOS/AgentStudioPackageTests'))
+          records = {str(p): [p.stat().st_mtime_ns, p.stat().st_size] for p in paths}
+          Path('tmp/tq/experiment/objects-before.json').write_text(json.dumps(records, sort_keys=True))
+          PYOBJECTS
 
       - name: Start Swift prebuild timer
         id: swift-prebuild-start
@@ -543,7 +276,8 @@ jobs:
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "1200"
-        run: mise run --skip-deps test:swift:prebuild
+          _XCB_BYPASS: "1"
+        run: mise run --skip-deps test:swift:prebuild > tmp/tq/experiment/prebuild.log 2>&1
 
       - name: Record Swift prebuild time
         id: swift-prebuild-time
@@ -555,7 +289,7 @@ jobs:
       # Publish the completed prebuild before tests can write to its build path.
       # The verified input manifest establishes reuse; test outcomes do not.
       - name: Inventory main Swift inputs after prebuild
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.swift-prebuild.outcome == 'success'
+        if: inputs.mode == 'publish' && steps.swift-prebuild.outcome == 'success'
         id: swift-cache-inventory-after
         env:
           CI_SWIFT_BUILD_PATH: .build-ci
@@ -577,7 +311,7 @@ jobs:
           fi
 
       - name: Plan main Swift seed publication
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.swift-cache-inventory-after.outputs.unchanged == 'true'
+        if: inputs.mode == 'publish' && steps.swift-cache-inventory-after.outputs.unchanged == 'true'
         id: swift-publish-plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -597,7 +331,7 @@ jobs:
           fi
 
       - name: Save Swift build seed
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(steps.swift-publish-plan.outputs.disposition, 'saved ')
+        if: inputs.mode == 'publish' && startsWith(steps.swift-publish-plan.outputs.disposition, 'saved ')
         id: swift-cache-save
         continue-on-error: true
         uses: actions/cache/save@v4
@@ -606,7 +340,7 @@ jobs:
           key: ${{ steps.swift-publish-plan.outputs.key }}
 
       - name: Finalize Swift seed disposition
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: always() && inputs.mode == 'publish'
         id: swift-cache-final
         run: |
           planned="${{ steps.swift-publish-plan.outputs.disposition || 'failed' }}"
@@ -616,6 +350,43 @@ jobs:
           echo "disposition=${planned%% *}" >> "$GITHUB_OUTPUT"
           echo "key=${{ steps.swift-publish-plan.outputs.key }}" >> "$GITHUB_OUTPUT"
           echo "Swift cache publication: $planned"
+
+      - name: Record compiled dependents
+        if: always()
+        run: |
+          python3 - <<'PYOBJECTS'
+          import json
+          from pathlib import Path
+          build = Path('.build-ci')
+          before = json.loads(Path('tmp/tq/experiment/objects-before.json').read_text())
+          paths = list(build.rglob('*.o')) + list(build.rglob('AgentStudioPackageTests.xctest/Contents/MacOS/AgentStudioPackageTests'))
+          changed = [str(p) for p in paths if [p.stat().st_mtime_ns, p.stat().st_size] != before.get(str(p))]
+          Path('tmp/tq/experiment/compiled-dependents.json').write_text(json.dumps(changed, indent=2))
+          print('lane-report experiment_changed_outputs=' + str(len(changed)))
+          seed = json.loads(Path('.build-ci/ci-swift-build-seed.json').read_text())
+          current = json.loads(Path('tmp/plan-workflows/ci-runs/swift-inputs-before.json').read_text())
+          old = {r['path']: r['digest'] for r in seed['records']}
+          changed_inputs = [r['path'] for r in current['records'] if r['kind'] == 'file' and r['path'].endswith('.swift') and old.get(r['path']) != r['digest']]
+          receipt = {'seed_commit': seed['producer_commit'], 'tested_tree': current['producer_commit'], 'changed_swift_inputs': changed_inputs, 'compiled_dependents': changed, 'build_seconds': '${{ steps.swift-prebuild-time.outputs.build_seconds }}'}
+          Path('tmp/tq/experiment/receipt.json').write_text(json.dumps(receipt, indent=2))
+          if '${{ inputs.mode }}' == 'consume':
+              assert len(changed_inputs) == int('${{ inputs.expected_swift_changes }}'), receipt
+          if '${{ inputs.mode }}' == 'consume' and '${{ inputs.expected_swift_changes }}' == '1':
+              assert any('CISwiftBuildInputsScriptTests.swift.o' in p for p in changed), changed
+              assert any(p.endswith('/AgentStudioPackageTests') for p in changed), changed
+          PYOBJECTS
+
+      - name: Upload prebuild experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-seed-freshness-prebuild-${{ github.run_id }}
+          path: |
+            tmp/tq/experiment/
+            tmp/plan-workflows/ci-runs/swift-inputs-*.json
+            .build-ci/ci-swift-build-seed.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Test fast lane
         env:
@@ -672,7 +443,7 @@ jobs:
         run: /bin/bash scripts/summarize-ci-timing.sh
 
       - name: Report Swift cache phases
-        if: always() && github.event_name == 'pull_request'
+        if: always() && inputs.mode == 'consume'
         run: |
           phase_report="tmp/plan-workflows/ci-runs/timing-summary.md"
           {
@@ -715,28 +486,3 @@ jobs:
             tmp/plan-workflows/ci-runs/lane-*.task-dump.txt
             tmp/plan-workflows/ci-runs/lane-*.held-steps.log
           if-no-files-found: ignore
-
-  prune-swift-build-cache:
-    name: Prune Swift build cache
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.swift-test-suite.outputs.swift_cache_disposition == 'saved' || needs.swift-test-suite.outputs.swift_cache_disposition == 'skipped-budget')
-    needs: swift-test-suite
-    runs-on: ubuntu-24.04
-    permissions:
-      actions: write
-      contents: read
-      issues: read
-    steps:
-      - *first-attempt-gate
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Prune confirmed older main Swift seeds
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_CACHE_API: gh api
-        run: |
-          /bin/bash scripts/ci-swift-build-cache-publish.sh prune \
-            "${{ needs.swift-test-suite.outputs.swift_cache_disposition }}" \
-            "${{ needs.swift-test-suite.outputs.swift_cache_key }}" \
-            "${{ needs.swift-test-suite.outputs.swift_cache_run }}"
