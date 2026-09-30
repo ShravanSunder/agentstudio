@@ -1,6 +1,11 @@
 name: Swift seed freshness experiment
 
 on:
+  # The first branch push registers this temporary workflow with Actions.
+  # Subsequent source-only experiments are explicit workflow_dispatch runs.
+  push:
+    branches: [ci-warm-cache-determinism]
+    paths: [.github/workflows/ci-swift-seed-freshness-experiment.yml]
   workflow_dispatch:
     inputs:
       mode:
@@ -246,7 +251,7 @@ jobs:
           echo "swift-cache $disposition restore=${restore_seconds}s"
 
       - name: Inventory main Swift inputs before cold build
-        if: inputs.mode == 'publish'
+        if: (inputs.mode == 'publish' || github.event_name == 'push')
         run: |
           test "${{ steps.swift-cache-inventory-before.outputs.valid }}" = true
           test ! -e .build-ci
@@ -289,7 +294,7 @@ jobs:
       # Publish the completed prebuild before tests can write to its build path.
       # The verified input manifest establishes reuse; test outcomes do not.
       - name: Inventory main Swift inputs after prebuild
-        if: inputs.mode == 'publish' && steps.swift-prebuild.outcome == 'success'
+        if: (inputs.mode == 'publish' || github.event_name == 'push') && steps.swift-prebuild.outcome == 'success'
         id: swift-cache-inventory-after
         env:
           CI_SWIFT_BUILD_PATH: .build-ci
@@ -311,7 +316,7 @@ jobs:
           fi
 
       - name: Plan main Swift seed publication
-        if: inputs.mode == 'publish' && steps.swift-cache-inventory-after.outputs.unchanged == 'true'
+        if: (inputs.mode == 'publish' || github.event_name == 'push') && steps.swift-cache-inventory-after.outputs.unchanged == 'true'
         id: swift-publish-plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -331,7 +336,7 @@ jobs:
           fi
 
       - name: Save Swift build seed
-        if: inputs.mode == 'publish' && startsWith(steps.swift-publish-plan.outputs.disposition, 'saved ')
+        if: (inputs.mode == 'publish' || github.event_name == 'push') && startsWith(steps.swift-publish-plan.outputs.disposition, 'saved ')
         id: swift-cache-save
         continue-on-error: true
         uses: actions/cache/save@v4
@@ -340,7 +345,7 @@ jobs:
           key: ${{ steps.swift-publish-plan.outputs.key }}
 
       - name: Finalize Swift seed disposition
-        if: always() && inputs.mode == 'publish'
+        if: always() && (inputs.mode == 'publish' || github.event_name == 'push')
         id: swift-cache-final
         run: |
           planned="${{ steps.swift-publish-plan.outputs.disposition || 'failed' }}"
