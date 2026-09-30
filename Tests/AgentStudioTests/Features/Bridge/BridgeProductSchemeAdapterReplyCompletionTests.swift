@@ -178,6 +178,8 @@ struct BridgeProductSchemeAdapterReplyCompletionTests {
         responseGate.release()
         _ = try await dataGate.firstArrival()
 
+        await routedReply.routingTask.value
+
         let acknowledgement = try await collectBridgeProductSchemeReply(
             adapter: harness.adapter,
             request: bridgeProductSchemeRequest(
@@ -189,11 +191,15 @@ struct BridgeProductSchemeAdapterReplyCompletionTests {
                 )
             )
         )
-        await routedReply.routingTask.value
         dataGate.release()
         await consumer.joinConsumerTask()
 
-        #expect(acknowledgement.response?.statusCode == 204)
+        #expect(acknowledgement.response?.statusCode == 404)
+        let acknowledgementRefusal = try BridgeProductStrictJSON.decode(
+            BridgeProductContentAcknowledgementRefusedResponse.self,
+            from: acknowledgement.body
+        )
+        #expect(acknowledgementRefusal.reason == .unknownRead)
         #expect(await consumer.firstOutcomeKind == "response")
         #expect(await consumer.contractViolations.isEmpty)
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)

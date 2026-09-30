@@ -609,6 +609,8 @@ struct BridgeProductSchemeAdapterTests {
         }
 
         // Act
+        let endedCleanlyAfterResponse = try await iterator.next() == nil
+        await routedReply.routingTask.value
         let openingObservation = try await collectBridgeProductSchemeReply(
             adapter: harness.adapter,
             request: bridgeProductSchemeRequest(
@@ -620,12 +622,13 @@ struct BridgeProductSchemeAdapterTests {
                 )
             )
         )
-        let endedCleanlyAfterResponse = try await iterator.next() == nil
-        await routedReply.routingTask.value
-
         // Assert
-        #expect(openingObservation.response?.statusCode == 204)
-        #expect(openingObservation.body.isEmpty)
+        #expect(openingObservation.response?.statusCode == 404)
+        let openingRefusal = try BridgeProductStrictJSON.decode(
+            BridgeProductContentAcknowledgementRefusedResponse.self,
+            from: openingObservation.body
+        )
+        #expect(openingRefusal.reason == .unknownRead)
         #expect(endedCleanlyAfterResponse)
         #expect((await harness.session.producerSnapshot()).hasZeroResidue)
         let providerSnapshot = await harness.provider.snapshot
