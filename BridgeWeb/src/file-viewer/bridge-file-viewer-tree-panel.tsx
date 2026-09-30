@@ -1,6 +1,8 @@
 import { FileTree } from '@pierre/trees/react';
 import type { ReactElement, ReactNode, Ref } from 'react';
 
+import type { BridgeRegionPresentationState } from '../app/bridge-region-presentation-state.js';
+import { BridgeRegionPresentation } from '../app/bridge-region-presentation.js';
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../app/bridge-viewer-search-control.js';
@@ -27,6 +29,8 @@ import { BridgeFileViewerFacetMenu } from './bridge-file-viewer-facet-menu.js';
 import { useBridgeFileViewerPierreTreeRuntime } from './bridge-file-viewer-pierre-tree-runtime.js';
 
 export interface BridgeFileViewerTreePanelProps {
+	readonly presentationState?: BridgeRegionPresentationState;
+	readonly retryControl?: ReactNode;
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly filterMode: BridgeFileViewerFilterMode;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
@@ -92,18 +96,26 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		props.searchError === null
 			? `${props.projectedTreeRowCount}/${props.totalTreeRowCount}`
 			: 'Invalid regex';
-	const sourceLabel = props.source?.sourceId ?? 'Source pending';
+	const sourceLabel = props.source?.sourceId ?? '';
 
 	return (
 		<>
 			{BridgeViewerRightRailShell({
 				ariaLabel: 'Files',
 				body: (
-					<FileTree
-						className="h-full min-h-full"
-						model={treeRuntime.model}
-						style={bridgeViewerTreeStyle}
-					/>
+					<BridgeRegionPresentation
+						region="file-tree"
+						shape="tree"
+						state={props.presentationState ?? { kind: 'content' }}
+						retry={props.retryControl}
+						emptyCopy={{ noSelection: 'Select a worktree', certified: 'No files' }}
+					>
+						<FileTree
+							className="h-full min-h-full"
+							model={treeRuntime.model}
+							style={bridgeViewerTreeStyle}
+						/>
+					</BridgeRegionPresentation>
 				),
 				bodyClassName: 'h-full min-h-0 overflow-hidden',
 				bodyDataAttributes: {

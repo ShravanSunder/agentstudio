@@ -295,7 +295,7 @@ function displayPatchesForFileBatch(
 					},
 					slice: 'fileStatus',
 				}
-			: { operation: 'upsert', payload: { state: 'stale' }, slice: 'fileStatus' },
+			: { operation: 'upsert', payload: { state: memberStatus.status }, slice: 'fileStatus' },
 		{ operation: 'replacementCommit', payload: sourceIdentity, slice: 'fileTree' },
 	);
 	return patches;

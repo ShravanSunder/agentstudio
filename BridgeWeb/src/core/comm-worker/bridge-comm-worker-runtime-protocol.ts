@@ -784,7 +784,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				latestSelectedFilePreparationRequest = null;
 				// A failed delivery retires preparation authority, not the last complete display.
 				const displayProjection = fileQueryProjection.applyDisplayPatches([
-					{ operation: 'upsert', payload: { state: 'stale' }, slice: 'fileStatus' },
+					{ operation: 'upsert', payload: { state: 'failed' }, slice: 'fileStatus' },
 				]);
 				for (const message of fileDisplayEventAuthority.publish({
 					epoch: workerDerivationEpoch,

@@ -5,6 +5,7 @@ import {
 	BridgeViewerContextPanelProvider,
 	BridgeViewerContextPanelViewport,
 } from '../app/bridge-viewer-context-panel-host.js';
+import { BridgeViewerRecoveryRetryButton } from '../app/bridge-viewer-recovery-retry-button.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeMarkdownCanvas } from '../app/markdown/bridge-markdown-canvas.js';
 import type { BridgeMermaidRenderer } from '../app/markdown/bridge-mermaid-renderer.js';
@@ -18,6 +19,11 @@ import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import {
+	bridgeFileSurfacePresentationStatus,
+	bridgeFileTreePresentation,
+	bridgeFileContentPresentation,
+} from './bridge-file-region-presentation.js';
 import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerSelectedCodeViewItem,
@@ -36,6 +42,8 @@ import type {
 import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
 
 export interface BridgeFileViewerShellProps {
+	readonly recoveryFailed?: boolean;
+	readonly onRetryFile?: () => void;
 	readonly codeViewOptions?: BridgeFilesCodeViewOptions;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
@@ -99,7 +107,26 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 	const selectedDisplayItem =
 		props.openFileState.status === 'idle' ? null : props.openFileState.displayItem;
 	const status = props.displayModel.status;
-	const statusText = bridgeFileViewerHeaderStatusText(props.isActive, props.panelChromeSlice);
+	const surfaceStatus = bridgeFileSurfacePresentationStatus({
+		displayModel: props.displayModel,
+		panelChrome: props.panelChromeSlice,
+		recoveryFailed: props.recoveryFailed ?? false,
+		isActive: props.isActive,
+	});
+	const treePresentation = bridgeFileTreePresentation({
+		displayModel: props.displayModel,
+		surface: surfaceStatus,
+	});
+	const contentPresentation = bridgeFileContentPresentation({
+		noSource: props.displayModel.status?.state === 'noSource',
+		openFileState: props.openFileState,
+		displayedFileId: props.selectedCodeViewItem?.bridgeMetadata.itemId ?? null,
+		surface: surfaceStatus,
+	});
+	const retryControl =
+		props.onRetryFile === undefined ? undefined : (
+			<BridgeViewerRecoveryRetryButton surface="file" onClick={props.onRetryFile} />
+		);
 	return (
 		<main
 			ref={surfaceRootRef}
@@ -146,12 +173,14 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 							<BridgeViewerContentHeader
 								controls={props.viewerHeaderControls}
 								mode="file"
-								statusText={statusText}
+								statusText={null}
 								title={props.contentHeaderTitle}
 							/>
 							<BridgeViewerContextPanelViewport testId="bridge-file-viewer-context-panel-viewport">
 								{props.markdownPresentation === null || props.markdownPresentation === undefined ? (
 									<BridgeFileViewerCodePanel
+										presentationState={contentPresentation}
+										retryControl={retryControl}
 										openFileState={props.openFileState}
 										renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
 										selectedCodeViewItem={props.selectedCodeViewItem}
@@ -195,6 +224,8 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 				handleTestId="bridge-file-viewer-rail-resize-handle"
 				rail={
 					<BridgeFileViewerTreePanel
+						presentationState={treePresentation}
+						retryControl={retryControl}
 						completeFileQueryTransaction={props.completeFileQueryTransaction}
 						filterMode={props.filterMode}
 						isFilterMenuOpen={props.isFilterMenuOpen}

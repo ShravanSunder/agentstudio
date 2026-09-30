@@ -573,8 +573,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 		expect(openedDescriptorIds).toContain('slow-content');
 		expect(
-			document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
-		).toContain('Loading file');
+			document
+				.querySelector('[data-bridge-region="file-content"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('loading');
+		expect(
+			document.querySelector('[data-bridge-region="file-content"] [data-slot="skeleton"]'),
+		).not.toBeNull();
 		expect(document.querySelectorAll('diffs-container')).toHaveLength(0);
 
 		await actUpdate((): void => {
@@ -616,8 +621,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(scrollOwner.scrollHeight).toBeLessThanOrEqual(scrollOwner.clientHeight + 32);
 		expect(document.querySelectorAll('diffs-container')).toHaveLength(0);
 		expect(
-			document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
-		).toContain('Loading file');
+			document
+				.querySelector('[data-bridge-region="file-content"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('loading');
+		expect(
+			document.querySelector('[data-bridge-region="file-content"] [data-slot="skeleton"]'),
+		).not.toBeNull();
 
 		await actUpdate((): void => {
 			deferredContent.resolve(loadingContent);
@@ -756,8 +766,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(scrollOwner.scrollHeight).toBeLessThanOrEqual(scrollOwner.clientHeight + 32);
 		expect(document.querySelectorAll('diffs-container')).toHaveLength(0);
 		expect(
-			document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
-		).toContain('Loading file');
+			document
+				.querySelector('[data-bridge-region="file-content"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('loading');
+		expect(
+			document.querySelector('[data-bridge-region="file-content"] [data-slot="skeleton"]'),
+		).not.toBeNull();
 
 		await actUpdate((): void => {
 			deferredSecondContent.resolve(secondContent);

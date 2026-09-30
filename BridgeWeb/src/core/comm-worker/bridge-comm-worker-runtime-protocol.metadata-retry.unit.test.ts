@@ -247,7 +247,7 @@ describe('Bridge runtime surface metadata Retry', () => {
 								(patch) =>
 									patch.slice === 'fileStatus' &&
 									patch.operation === 'upsert' &&
-									patch.payload.state === 'stale',
+									patch.payload.state === 'failed',
 							),
 					);
 				}
