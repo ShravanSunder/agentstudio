@@ -317,10 +317,15 @@ export class BridgeCommWorkerAnnotationProjectionQueryController {
 			this.#subscription?.subscriptionId === installedCatalog.authority.subscriptionId &&
 			sessionsNeedingContent.length > 0
 		) {
+			// Admission cancels unfinished content work. Carry its surviving demand into the replacement.
+			const replacementSessionIds = this.#sessionIds.filter(
+				(sessionId) =>
+					inFlightContentSessionIds.has(sessionId) || sessionsNeedingContent.includes(sessionId),
+			);
 			this.#admitProjectionInvalidation({
 				operationCorrelationId: nextCommentProjectionCorrelation(installedCatalog.transferId),
 				queryKind: 'content',
-				sessionIds: sessionsNeedingContent,
+				sessionIds: replacementSessionIds,
 				sourceGeneration: this.#sourceGeneration,
 				worktreeId: installedCatalog.authority.worktreeId,
 			});
