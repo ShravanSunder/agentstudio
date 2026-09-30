@@ -43,7 +43,7 @@ extension BridgePaneProductSchemeProvider {
         } catch let sourceError as BridgeAnnotationProjectionSourceError {
             await recordAnnotationLifecycle(
                 operationCorrelationID: queryRequest.operationCorrelationID,
-                result: .failure,
+                result: sourceError == .superseded ? .cancelled : .failure,
                 sourceGeneration: queryRequest.sourceGeneration,
                 stage: .projectionQueryTerminal,
                 surface: queryRequest.surface
@@ -301,6 +301,15 @@ extension BridgePaneProductSchemeProvider {
         switch error {
         case .staleSourceGeneration:
             throw error
+        case .superseded:
+            return try .requestError(
+                correlating: request,
+                code: .superseded,
+                nextExpectedRequestSequence: request.requestSequence + 1,
+                retryAfterMilliseconds: nil,
+                retryable: true,
+                safeMessage: "Annotation projection query was superseded"
+            )
         case .initialSourceGenerationUnavailable,
             .projectionCaptureUnavailable,
             .revalidatedSourceGenerationUnavailable,

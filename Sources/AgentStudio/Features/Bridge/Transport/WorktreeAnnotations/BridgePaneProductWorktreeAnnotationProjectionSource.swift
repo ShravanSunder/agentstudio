@@ -9,6 +9,7 @@ enum BridgeAnnotationProjectionSourceError: Error, Equatable, Sendable {
     case revalidatedSourceGenerationUnavailable
     case sourceRefreshUnavailable
     case staleSourceGeneration(currentSourceGeneration: Int)
+    case superseded
     case unavailable
 }
 
@@ -83,6 +84,7 @@ actor BridgeAnnotationProjectionSource {
     private let worktreeID: String
     private var logicalReservation: LogicalReservation?
     private var pageReservationByDescriptorID: [String: PageReservation] = [:]
+    private var queryLifetimeRevision: UInt64 = 0
 
     init(
         service: WorktreeAnnotationServiceActor?,
@@ -108,12 +110,19 @@ actor BridgeAnnotationProjectionSource {
         else {
             throw BridgeAnnotationProjectionSourceError.unavailable
         }
+        // Initial-query admission chooses the operation lifetime; capture completion cannot reclaim it.
+        if query.cursor == nil {
+            queryLifetimeRevision += 1
+        }
+        let admittedQueryLifetimeRevision = queryLifetimeRevision
         let currentGeneration: Int
         do {
             currentGeneration = try await resolveSourceGeneration(query, productAdmission)
         } catch {
+            try validateQueryLifetime(admittedQueryLifetimeRevision)
             throw BridgeAnnotationProjectionSourceError.initialSourceGenerationUnavailable
         }
+        try validateQueryLifetime(admittedQueryLifetimeRevision)
         guard currentGeneration == query.sourceGeneration else {
             throw BridgeAnnotationProjectionSourceError.staleSourceGeneration(
                 currentSourceGeneration: currentGeneration
@@ -137,8 +146,10 @@ actor BridgeAnnotationProjectionSource {
                 demandedSessionIDs: demandedSessionIDs
             )
         } catch {
+            try validateQueryLifetime(admittedQueryLifetimeRevision)
             throw BridgeAnnotationProjectionSourceError.projectionCaptureUnavailable
         }
+        try validateQueryLifetime(admittedQueryLifetimeRevision)
         let requirements = serviceCapture.repositorySnapshot.details.flatMap { detail in
             WorktreeAnnotationServiceActor.sourceRefreshSnapshot(from: detail).requirements
         }
@@ -151,14 +162,18 @@ actor BridgeAnnotationProjectionSource {
                 requirements
             )
         } catch {
+            try validateQueryLifetime(admittedQueryLifetimeRevision)
             throw BridgeAnnotationProjectionSourceError.sourceRefreshUnavailable
         }
+        try validateQueryLifetime(admittedQueryLifetimeRevision)
         let revalidatedGeneration: Int
         do {
             revalidatedGeneration = try await resolveSourceGeneration(query, productAdmission)
         } catch {
+            try validateQueryLifetime(admittedQueryLifetimeRevision)
             throw BridgeAnnotationProjectionSourceError.revalidatedSourceGenerationUnavailable
         }
+        try validateQueryLifetime(admittedQueryLifetimeRevision)
         guard revalidatedGeneration == currentGeneration else {
             throw BridgeAnnotationProjectionSourceError.staleSourceGeneration(
                 currentSourceGeneration: revalidatedGeneration
@@ -180,6 +195,20 @@ actor BridgeAnnotationProjectionSource {
             sourceGeneration: currentGeneration
         )
         let analysis = try BridgeProductAnnotationProjectionRecordAnalysis(capture: capture)
+        return try issueInitialDescriptor(
+            analysis: analysis,
+            authority: authority,
+            query: query,
+            sourceGeneration: currentGeneration
+        )
+    }
+
+    private func issueInitialDescriptor(
+        analysis: BridgeProductAnnotationProjectionRecordAnalysis,
+        authority: RequestAuthority,
+        query: BridgeProductAnnotationProjectionQueryRequest,
+        sourceGeneration: Int
+    ) throws -> BridgeProductAnnotationProjectionContentDescriptor {
         let snapshotID = UUIDv7.generate()
         logicalReservation = LogicalReservation(
             analysis: analysis,
@@ -188,7 +217,7 @@ actor BridgeAnnotationProjectionSource {
             operationCorrelationID: query.operationCorrelationID,
             reviewPublicationIdentity: query.reviewPublicationIdentity,
             snapshotID: snapshotID,
-            sourceGeneration: currentGeneration,
+            sourceGeneration: sourceGeneration,
             surface: query.surface,
             continuationReady: false,
             nextCursor: nil,
@@ -260,8 +289,15 @@ actor BridgeAnnotationProjectionSource {
     }
 
     func close() {
+        queryLifetimeRevision += 1
         logicalReservation = nil
         pageReservationByDescriptorID.removeAll(keepingCapacity: false)
+    }
+
+    private func validateQueryLifetime(_ admittedRevision: UInt64) throws {
+        guard admittedRevision == queryLifetimeRevision else {
+            throw BridgeAnnotationProjectionSourceError.superseded
+        }
     }
 
     private func issueContinuationDescriptor(
