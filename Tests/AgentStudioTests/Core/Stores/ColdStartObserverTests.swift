@@ -164,6 +164,43 @@ struct ColdStartObserverTests {
         #expect(outcome == .unobservable(.watchRegistrationFailed(errno: EACCES)))
     }
 
+    /// R1 Stage 1 fix (2026-09-30), bullet 2 of its own test list: a
+    /// positively-confirmed-dead terminal leader (`ZmxSessionControl
+    /// .observeForDiscovery`'s `.terminalLeaderGone`, now that
+    /// `processSnapshot` tells it apart from a genuinely unverifiable
+    /// daemon) settles discovery `.failed` directly -- proof of death
+    /// (SR2), never `.unobservable`, matching an absent endpoint's own
+    /// standing in `discoverySettled`.
+    @Test("a terminal leader positively confirmed dead settles failed, not unobservable")
+    func terminalLeaderGoneSettlesFailed() async throws {
+        // Arrange
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-terminal-leader-gone-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        // Pre-created: "register first, then check" means discovery must
+        // already find this socket path present the moment it starts.
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        syscalls.observeSessionResults = [.terminalLeaderGone]
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        // Act
+        let outcome = await observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
+
+        // Assert
+        #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+        #expect(syscalls.observeSessionCallCount == 1)
+    }
+
     @Test("reportAttachClientExited settles a still-pending discovery as failed, never touching exit status")
     func attachClientExitSettlesPendingDiscoveryAsFailed() async throws {
         // A real, harmless directory whose socket never appears: proves the

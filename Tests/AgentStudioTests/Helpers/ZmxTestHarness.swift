@@ -29,6 +29,12 @@ final class ZmxTestHarness: @unchecked Sendable {
     enum SessionSettlementError: Error, LocalizedError {
         case socketNeverAppeared(sessionId: String)
         case terminalLeaderExitedBeforeSetsid(terminalPID: Int32)
+        /// R1 Stage 1 fix (2026-09-30): `ZmxSessionControl.observeForDiscovery`'s
+        /// `.terminalLeaderGone` -- the terminal leader is positively
+        /// confirmed dead (`proc_pidinfo` reports `ESRCH`), not merely
+        /// unverifiable, so there is nothing to retry: a dead leader stays
+        /// dead.
+        case terminalLeaderConfirmedGone
 
         var errorDescription: String? {
             switch self {
@@ -36,6 +42,8 @@ final class ZmxTestHarness: @unchecked Sendable {
                 return "zmx session socket for \(sessionId) never appeared while waiting for settlement"
             case .terminalLeaderExitedBeforeSetsid(let terminalPID):
                 return "terminal leader pid \(terminalPID) exited before completing setsid"
+            case .terminalLeaderConfirmedGone:
+                return "terminal leader was positively confirmed dead while waiting for settlement"
             }
         }
     }
@@ -437,6 +445,8 @@ final class ZmxTestHarness: @unchecked Sendable {
             return identity
         case .pendingSetsid(let terminalPID):
             return try await resolveViaSetsidWatch(terminalPID: terminalPID, socketPath: socketPath, bootID: bootID)
+        case .terminalLeaderGone:
+            throw SessionSettlementError.terminalLeaderConfirmedGone
         case .failure(let failure) where Self.isTransientDuringSettlement(failure):
             // Amended 2026-09-30 against evidence, not guessed: a fresh
             // two-daemon spawn ("orphan discovery finds untracked session")
@@ -526,6 +536,10 @@ final class ZmxTestHarness: @unchecked Sendable {
                     continuation.resume(returning: identity)
                 case .pendingSetsid:
                     break  // not settled yet; the watch stays armed for the next event
+                case .terminalLeaderGone:
+                    guard gate.tryComplete() else { return }
+                    source.cancel()
+                    continuation.resume(throwing: SessionSettlementError.terminalLeaderConfirmedGone)
                 case .failure(let failure):
                     guard gate.tryComplete() else { return }
                     source.cancel()

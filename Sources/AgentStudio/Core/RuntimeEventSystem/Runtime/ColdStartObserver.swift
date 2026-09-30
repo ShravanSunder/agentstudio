@@ -16,7 +16,12 @@ import Foundation
 ///    than settling — see `attemptDiscoveryConnect`. A `.pendingSetsid`
 ///    connect (the pty child hasn't called `setsid` yet; amended again
 ///    2026-09-30) registers `EVFILT_PROC` on the terminal pid and
-///    re-observes at its next exec/exit — see `beginSetsidWatch`.
+///    re-observes at its next exec/exit — see `beginSetsidWatch`. A
+///    `.terminalLeaderGone` connect (amended a third time 2026-09-30:
+///    `ZmxSessionControl.processSnapshot`'s own zombie-misclassification fix,
+///    stage 1's counterpart to stage 2's `ColdStartLeaderState`) settles
+///    `.failed` directly — the terminal leader is positively confirmed dead,
+///    not merely unverifiable.
 /// 2. **Handoff** — `EVFILT_PROC` `NOTE_EXEC | NOTE_EXIT` on the identity's
 ///    terminal-leader pid, then reads its argument vector via
 ///    `KERN_PROCARGS2` (never the environment: macOS returns none to a
@@ -231,6 +236,14 @@ package actor ColdStartObserver {
             try? await Task.sleep(nanoseconds: delayNanoseconds)
             await attemptDiscoveryConnect(
                 socketPath: socketPath, bootID: bootID, attemptID: attemptID, retryIndex: retryIndex + 1)
+        case .terminalLeaderGone:
+            // Proof of death (SR2; Stage 1's version of the zombie fix
+            // ColdStartLeaderState already made for stage 2): the terminal
+            // leader is positively confirmed dead, not merely unverifiable,
+            // so this settles failed directly rather than going through
+            // discoverySettled's endpoint-absence check -- the daemon
+            // answered fine, the socket is still there.
+            await self.settle(.failed(.exitedBeforeHandoff(exitStatus: nil)))
         case .failure:
             await discoverySettled(identity: nil, socketPath: socketPath, attemptID: attemptID)
         }
@@ -298,6 +311,12 @@ package actor ColdStartObserver {
             // exec/exit event, exactly like discovery's socket watch and
             // stage 2's handoff watch.
             break
+        case .terminalLeaderGone:
+            // The exec event that woke this watch carried no NOTE_EXIT, but
+            // the re-observe found the leader already a confirmed-dead
+            // zombie -- proof of death, same as attemptDiscoveryConnect's
+            // own handling, not "not yet."
+            Task { await self.settle(.failed(.exitedBeforeHandoff(exitStatus: nil))) }
         case .failure:
             // A genuinely different failure than the one that started this
             // watch (e.g. the endpoint disappeared underneath it): resolve

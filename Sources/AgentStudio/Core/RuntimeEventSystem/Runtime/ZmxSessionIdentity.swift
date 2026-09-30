@@ -57,6 +57,14 @@ package enum ZmxSessionCleanupStatus: Equatable, Sendable {
 package enum ZmxDiscoveryObservation: Sendable {
     case identity(ZmxSessionIdentity)
     case pendingSetsid(terminalPID: Int32)
+    /// The terminal leader is positively confirmed dead (`proc_pidinfo`
+    /// reports `ESRCH` -- covers a zombie and an already-reaped pid) while
+    /// the daemon peer itself answered fine. Proof of death (SR2), the same
+    /// standing as an absent endpoint -- never `.failure`'s "couldn't
+    /// verify," which would wrongly settle `.unobservable` instead of
+    /// `.failed` (Stage 1's own version of the zombie-misclassification bug
+    /// `ColdStartObserverSyscalls.leaderState` fixed for stage 2).
+    case terminalLeaderGone
     case failure(ZmxSessionControlFailure)
 }
 
