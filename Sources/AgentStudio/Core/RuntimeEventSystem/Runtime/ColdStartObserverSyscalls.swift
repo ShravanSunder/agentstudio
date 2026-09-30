@@ -42,13 +42,17 @@ package protocol ColdStartObserverSyscalls: Sendable {
     func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber>
 
     /// Connects to the new session's socket at `path` and returns its
-    /// identity (Program Design item 3, stage 1, amended 2026-09-30).
-    /// `.failure(.connectionRefused)` is the one retried case -- zmx binds
-    /// the socket's filesystem path before it calls `listen`, so a connect
-    /// landing in that gap is refused, not queued. Every other failure
-    /// reaches `ColdStartObserver`'s existing discovery-settlement logic
-    /// unchanged.
-    func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure>
+    /// identity (Program Design item 3, stage 1, amended twice on
+    /// 2026-09-30). `.failure(.connectionRefused)` and `.pendingSetsid` are
+    /// both "still discovering," never unobservable -- zmx binds the
+    /// socket's filesystem path before it calls `listen` (a connect landing
+    /// in that gap is refused, not queued), and forkpty's child calls
+    /// `setsid` only after that, before its first exec (a connect landing
+    /// before that has run sees `.unexpectedProcessParent`/
+    /// `.unexpectedProcessGroup`, surfaced here as `.pendingSetsid` with the
+    /// terminal pid to watch). Every other failure reaches
+    /// `ColdStartObserver`'s existing discovery-settlement logic unchanged.
+    func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation
 }
 
 /// The real Darwin implementation. Kept separate from the protocol so a
@@ -124,13 +128,7 @@ package struct DarwinColdStartObserverSyscalls: ColdStartObserverSyscalls {
         return result == 0 && argumentsMax > 0 ? Int(argumentsMax) : 256 * 1024
     }()
 
-    package func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure> {
-        do {
-            return .success(try ZmxSessionControl.observe(path: path, bootID: bootID))
-        } catch let failure as ZmxSessionControlFailure {
-            return .failure(failure)
-        } catch {
-            return .failure(.unavailable)
-        }
+    package func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation {
+        ZmxSessionControl.observeForDiscovery(path: path, bootID: bootID)
     }
 }

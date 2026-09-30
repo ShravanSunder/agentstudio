@@ -13,7 +13,10 @@ import Foundation
 ///    `ZmxSessionControl.observe` for the new session's identity. A
 ///    `.connectionRefused` connect (zmx binds the socket's path before it
 ///    calls `listen`; amended 2026-09-30) retries on a short backoff rather
-///    than settling — see `attemptDiscoveryConnect`.
+///    than settling — see `attemptDiscoveryConnect`. A `.pendingSetsid`
+///    connect (the pty child hasn't called `setsid` yet; amended again
+///    2026-09-30) registers `EVFILT_PROC` on the terminal pid and
+///    re-observes at its next exec/exit — see `beginSetsidWatch`.
 /// 2. **Handoff** — `EVFILT_PROC` `NOTE_EXEC | NOTE_EXIT` on the identity's
 ///    terminal-leader pid, then reads its argument vector via
 ///    `KERN_PROCARGS2` (never the environment: macOS returns none to a
@@ -198,8 +201,16 @@ package actor ColdStartObserver {
         retryIndex: Int
     ) async {
         switch syscalls.observeSession(path: socketPath, bootID: bootID) {
-        case .success(let identity):
+        case .identity(let identity):
             await discoverySettled(identity: identity, socketPath: socketPath, attemptID: attemptID)
+        case .pendingSetsid(let terminalPID):
+            // Program Design item 3, stage 1, amended again 2026-09-30:
+            // forkpty's child hasn't called setsid yet. This is still
+            // discovering, not unobservable -- watch its own exec/exit
+            // rather than the zmx directory (listen leaves no further
+            // directory event to catch).
+            await beginSetsidWatch(
+                terminalPID: terminalPID, socketPath: socketPath, bootID: bootID, attemptID: attemptID)
         case .failure(.connectionRefused):
             let delaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
             guard retryIndex < delaysMilliseconds.count else { return }
@@ -209,6 +220,76 @@ package actor ColdStartObserver {
                 socketPath: socketPath, bootID: bootID, attemptID: attemptID, retryIndex: retryIndex + 1)
         case .failure:
             await discoverySettled(identity: nil, socketPath: socketPath, attemptID: attemptID)
+        }
+    }
+
+    /// Program Design item 3, stage 1, amended again 2026-09-30: forkpty's
+    /// child always calls `setsid` before its first exec, so this registers
+    /// `EVFILT_PROC` `NOTE_EXEC | NOTE_EXIT` on the terminal pid `observe`
+    /// couldn't yet validate, then re-observes -- register-then-check,
+    /// exactly like discovery's own socket watch and stage 2's handoff
+    /// watch. `NOTE_EXIT` firing before any successful observe means the
+    /// leader died before ever becoming a session/group leader: failed, not
+    /// unobservable.
+    private func beginSetsidWatch(
+        terminalPID: Int32,
+        socketPath: String,
+        bootID: String,
+        attemptID: ColdRestoreAttemptID
+    ) {
+        let source = DispatchSource.makeProcessSource(
+            identifier: terminalPID,
+            eventMask: [.exit, .exec],
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        source.setEventHandler { [weak self] in
+            let exitFired = source.data.contains(.exit)
+            self?.checkForSetsidAndAdvance(
+                terminalPID: terminalPID, socketPath: socketPath, bootID: bootID, attemptID: attemptID,
+                exitFired: exitFired)
+        }
+        source.setCancelHandler {}
+        processWatchSource = source
+        source.resume()
+
+        // Register first, then check: setsid (and the exec after it) may
+        // already have completed by the time this registers.
+        checkForSetsidAndAdvance(
+            terminalPID: terminalPID, socketPath: socketPath, bootID: bootID, attemptID: attemptID, exitFired: false)
+    }
+
+    /// Runs wherever it's called from — the DispatchSource's own GCD queue
+    /// or synchronously right after registration — never on this actor's
+    /// executor, matching `checkForSocketAndAdvance`'s reasoning.
+    nonisolated private func checkForSetsidAndAdvance(
+        terminalPID: Int32,
+        socketPath: String,
+        bootID: String,
+        attemptID: ColdRestoreAttemptID,
+        exitFired: Bool
+    ) {
+        if exitFired {
+            // Direct settle, not discoverySettled's endpoint-absence check:
+            // the socket already exists (that's how this reached
+            // .pendingSetsid at all) -- it's the leader itself that died,
+            // the exact fact reportAttachClientExited() and stage 2's own
+            // exitFired branch already settle unconditionally.
+            Task { await self.settle(.failed(.exitedBeforeHandoff(exitStatus: nil))) }
+            return
+        }
+        switch syscalls.observeSession(path: socketPath, bootID: bootID) {
+        case .identity(let identity):
+            Task { await self.discoverySettled(identity: identity, socketPath: socketPath, attemptID: attemptID) }
+        case .pendingSetsid:
+            // Not yet -- the watch stays armed and re-checks on the next
+            // exec/exit event, exactly like discovery's socket watch and
+            // stage 2's handoff watch.
+            break
+        case .failure:
+            // A genuinely different failure than the one that started this
+            // watch (e.g. the endpoint disappeared underneath it): resolve
+            // through the existing settlement logic rather than looping.
+            Task { await self.discoverySettled(identity: nil, socketPath: socketPath, attemptID: attemptID) }
         }
     }
 

@@ -35,6 +35,41 @@ enum ZmxSessionControl {
     }
 
     static func observe(path: String, bootID: String) throws -> ZmxSessionIdentity {
+        do {
+            return try observeConnected(path: path, bootID: bootID)
+        } catch let pending as PendingSetsidSignal {
+            // Preserve the exact prior throwing shape for every existing
+            // caller -- this internal-only signal never leaks past here.
+            throw pending.originalFailure
+        }
+    }
+
+    /// Discovery-specific observation (Program Design item 3, stage 1,
+    /// amended again 2026-09-30): separates "the pty child hasn't called
+    /// setsid yet" (`.unexpectedProcessParent`/`.unexpectedProcessGroup`,
+    /// forkpty's child always calls setsid before its first exec) from
+    /// every other outcome, carrying the terminal pid a caller needs to
+    /// register `EVFILT_PROC` on and re-observe at that `NOTE_EXEC`. Every
+    /// other caller keeps using `observe(path:bootID:)`'s throwing shape
+    /// unchanged.
+    static func observeForDiscovery(path: String, bootID: String) -> ZmxDiscoveryObservation {
+        do {
+            return .identity(try observeConnected(path: path, bootID: bootID))
+        } catch let pending as PendingSetsidSignal {
+            return .pendingSetsid(terminalPID: pending.terminalPID)
+        } catch let failure as ZmxSessionControlFailure {
+            return .failure(failure)
+        } catch {
+            return .failure(.unavailable)
+        }
+    }
+
+    private struct PendingSetsidSignal: Error {
+        let terminalPID: Int32
+        let originalFailure: ZmxSessionControlFailure
+    }
+
+    private static func observeConnected(path: String, bootID: String) throws -> ZmxSessionIdentity {
         try withConnection(path: path) { connection in
             let info = try connection.info()
             // zmx creates its listening socket before forking. Observe the peer after
@@ -43,9 +78,11 @@ enum ZmxSessionControl {
             guard let daemon = try processSnapshot(peerPID),
                 let terminal = try processSnapshot(info.terminalPID)
             else { throw ZmxSessionControlFailure.processUnverifiable }
-            guard terminal.parentPID == peerPID else { throw ZmxSessionControlFailure.unexpectedProcessParent }
+            guard terminal.parentPID == peerPID else {
+                throw PendingSetsidSignal(terminalPID: info.terminalPID, originalFailure: .unexpectedProcessParent)
+            }
             guard terminal.processGroupID == info.terminalPID else {
-                throw ZmxSessionControlFailure.unexpectedProcessGroup
+                throw PendingSetsidSignal(terminalPID: info.terminalPID, originalFailure: .unexpectedProcessGroup)
             }
             return .init(
                 version: 1, bootID: bootID, daemon: daemon.incarnation,

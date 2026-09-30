@@ -57,7 +57,7 @@ struct ColdStartObservationWiringTests {
 
         // Never reached: openDirectoryForWatching's EACCES settles this
         // window before discovery gets as far as a connect attempt.
-        func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure> {
+        func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation {
             .failure(.unavailable)
         }
     }

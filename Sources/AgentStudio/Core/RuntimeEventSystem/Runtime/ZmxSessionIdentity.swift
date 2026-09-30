@@ -48,6 +48,18 @@ package enum ZmxSessionCleanupStatus: Equatable, Sendable {
     case completed
 }
 
+/// `ZmxSessionControl.observeForDiscovery`'s result (Program Design item 3,
+/// stage 1, amended again 2026-09-30): separates "the pty child hasn't
+/// called `setsid` yet" from every other outcome, since it means still
+/// discovering, not a failure -- forkpty's child always calls `setsid`
+/// before its first exec, so a caller registers `EVFILT_PROC` on
+/// `terminalPID` and re-observes once `NOTE_EXEC` fires.
+package enum ZmxDiscoveryObservation: Sendable {
+    case identity(ZmxSessionIdentity)
+    case pendingSetsid(terminalPID: Int32)
+    case failure(ZmxSessionControlFailure)
+}
+
 package enum ZmxSessionControlFailure: String, Error, Sendable {
     case invalidIdentity
     case unavailable

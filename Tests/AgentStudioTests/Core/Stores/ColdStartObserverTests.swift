@@ -17,9 +17,16 @@ struct ColdStartObserverTests {
         var directoryOpenResult: Result<Int32, POSIXErrorNumber> = .failure(POSIXErrorNumber(EACCES))
         var processArgumentsResult: Result<[UInt8], POSIXErrorNumber> = .failure(POSIXErrorNumber(ESRCH))
         /// Consumed one per `observeSession` call, in order; once exhausted,
-        /// every further call repeats the last scripted result (or
-        /// `.failure(.unavailable)` if none was ever scripted).
-        var observeSessionResults: [Result<ZmxSessionIdentity, ZmxSessionControlFailure>] = []
+        /// every further call repeats `observeSessionFallback`.
+        var observeSessionResults: [ZmxDiscoveryObservation] = []
+        /// `beginDiscovery`'s directory watch can (harmlessly, by design)
+        /// fire more than once for the same socket appearance, calling
+        /// `observeSession` more times than a test scripts -- default
+        /// `.failure(.unavailable)` matches every test that doesn't expect
+        /// extra calls; a test built around a redundant watch firing (e.g.
+        /// `.pendingSetsid` re-checks) sets this to something that stays
+        /// consistent with its own scripted sequence instead.
+        var observeSessionFallback: ZmxDiscoveryObservation = .failure(.unavailable)
 
         private let lock = NSLock()
         private var callCount = 0
@@ -33,9 +40,9 @@ struct ColdStartObserverTests {
             processArgumentsResult
         }
 
-        func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure> {
+        func observeSession(path: String, bootID: String) -> ZmxDiscoveryObservation {
             lock.lock()
-            let result = observeSessionResults.isEmpty ? .failure(.unavailable) : observeSessionResults.removeFirst()
+            let result = observeSessionResults.isEmpty ? observeSessionFallback : observeSessionResults.removeFirst()
             callCount += 1
             let count = callCount
             let readyWaiters = callCountWaiters.filter { $0.threshold <= count }
@@ -231,7 +238,7 @@ struct ColdStartObserverTests {
         syscalls.observeSessionResults = [
             .failure(.connectionRefused),
             .failure(.connectionRefused),
-            .success(identity),
+            .identity(identity),
         ]
         syscalls.processArgumentsResult = .success(makeEmptyArgumentVectorBuffer())
         let observer = ColdStartObserver(syscalls: syscalls)
@@ -285,6 +292,113 @@ struct ColdStartObserverTests {
         await observer.reportAttachClientExited()
 
         let outcome = await observationTask.value
+
+        #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+    }
+
+    /// Program Design item 3, stage 1, amended again 2026-09-30:
+    /// `unexpectedProcessGroup`/`unexpectedProcessParent` means the pty
+    /// child hasn't called `setsid` yet -- still discovering, not
+    /// unobservable. Watches a real, short-lived process's own real exec
+    /// (spawned here, not zmx) so the re-observe genuinely happens at a
+    /// real `NOTE_EXEC`, not just the immediate post-registration check --
+    /// the scripted sequence's middle entry proves that immediate check
+    /// still sees `.pendingSetsid` (the real process hasn't exec'd yet).
+    @Test("unexpectedProcessGroup re-observes at the real exec and discovers correctly")
+    func pendingSetsidReobservesAtRealExecAndDiscovers() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-pending-setsid-exec-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let controlledProcess = Process()
+        controlledProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
+        controlledProcess.arguments = ["-c", "sleep 0.05; exec /bin/sleep 300"]
+        controlledProcess.standardOutput = FileHandle.nullDevice
+        controlledProcess.standardError = FileHandle.nullDevice
+        try controlledProcess.run()
+        defer { controlledProcess.terminate() }
+        let terminalPID = controlledProcess.processIdentifier
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let selfIncarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: selfPID))
+        let identity = ZmxSessionIdentity(
+            version: 1,
+            bootID: "test-boot-id",
+            daemon: selfIncarnation,
+            terminalLeader: selfIncarnation,
+            processGroupID: selfIncarnation.pid,
+            sessionCreatedAt: 0
+        )
+        syscalls.observeSessionResults = [
+            .pendingSetsid(terminalPID: terminalPID),
+            // The immediate post-registration check (register-then-check):
+            // the real process's 50ms sleep hasn't elapsed yet.
+            .pendingSetsid(terminalPID: terminalPID),
+            // The check the real NOTE_EXEC event triggers.
+            .identity(identity),
+        ]
+        // beginDiscovery's directory watch can harmlessly re-fire beyond
+        // what's scripted above (e.g. the temp directory's own creation
+        // write); keep any such extra call consistent with "still
+        // discovering" instead of falling to the default .unavailable,
+        // which would spuriously settle unobservable.
+        syscalls.observeSessionFallback = .pendingSetsid(terminalPID: terminalPID)
+        syscalls.processArgumentsResult = .success(makeEmptyArgumentVectorBuffer())
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        let outcome = await observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
+
+        #expect(outcome == .handedOff)
+        #expect(syscalls.observeSessionCallCount == 3)
+    }
+
+    /// The other half: a leader that exits before ever calling `setsid`
+    /// (or at least before `observe` ever succeeds) settles failed, never
+    /// unobservable -- `NOTE_EXIT` fires with no intervening `NOTE_EXEC`.
+    @Test("a leader that exits before setsid ever succeeds settles failed")
+    func pendingSetsidExitBeforeAnySuccessSettlesFailed() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-pending-setsid-exit-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let controlledProcess = Process()
+        controlledProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
+        controlledProcess.arguments = ["-c", "sleep 0.05; exit 1"]
+        controlledProcess.standardOutput = FileHandle.nullDevice
+        controlledProcess.standardError = FileHandle.nullDevice
+        try controlledProcess.run()
+        let terminalPID = controlledProcess.processIdentifier
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        syscalls.observeSessionResults = [
+            .pendingSetsid(terminalPID: terminalPID),
+            .pendingSetsid(terminalPID: terminalPID),
+        ]
+        // See the sibling test's comment: absorb any extra redundant
+        // directory-watch-triggered call without spuriously settling.
+        syscalls.observeSessionFallback = .pendingSetsid(terminalPID: terminalPID)
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        let outcome = await observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
 
         #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
     }
