@@ -59,10 +59,10 @@ struct ShortcutCatalogTests {
         }
     }
 
-    @Test("close commands keep their canonical bindings and Undo Close keeps its identity")
-    func closeCommandsKeepCanonicalBindingsAndUndoCloseKeepsIdentity() {
-        #expect(AppCommand.closeTab.definition.shortcut == .closeTab)
-        #expect(AppCommand.closeWindow.definition.shortcut == .closeWindow)
+    @Test("close commands have no shortcut and Undo Close keeps its canonical binding")
+    func closeCommandsAreClickOnlyAndUndoCloseKeepsIdentity() {
+        #expect(AppCommand.closeTab.definition.shortcut == nil)
+        #expect(AppCommand.closeWindow.definition.shortcut == nil)
         #expect(AppCommand.closePane.definition.shortcut == nil)
         #expect(AppCommand.closeDrawerPane.definition.shortcut == nil)
         #expect(AppCommand.closeWindow.definition.surfacePolicy.exposes(.mainMenu))

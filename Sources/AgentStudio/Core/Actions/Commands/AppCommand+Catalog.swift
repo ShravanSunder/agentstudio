@@ -8,7 +8,7 @@ extension AppCommand {
         case .closeTab:
             return AppCommandSpec(
                 command: self,
-                shortcut: .closeTab,
+                shortcut: nil,
                 label: "Close Tab",
                 icon: .system(.xmark),
                 helpText: "Close the active tab",
@@ -842,7 +842,7 @@ extension AppCommand {
             )
         case .closeWindow:
             return windowDefinition(
-                shortcut: .closeWindow,
+                shortcut: nil,
                 label: "Close Window",
                 icon: .system(.xmarkRectangle),
                 helpText: "Close the current application window",
