@@ -52,7 +52,7 @@ const { chapterId, steps } = Astro.props;
     position: absolute;
     top: 11.25px;
     left: 0;
-    height: 1.5px;
+    height: var(--rail-line-width);
     pointer-events: none;
   }
   .chapter-step-ring { position: absolute; z-index: 2; top: -1px; left: 28px; width: 26px; height: 26px; overflow: visible; translate: -50% 0; pointer-events: none; }
@@ -94,7 +94,7 @@ const { chapterId, steps } = Astro.props;
   .chapter-step-active-branch {
     fill: none;
     stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
-    stroke-width: 1.5;
+    stroke-width: var(--rail-line-width);
     stroke-linecap: round;
   }
   .chapter-step-active-label { max-width: calc(100% - var(--chapter-step-label-left, 52px)); overflow: hidden; text-overflow: ellipsis; }

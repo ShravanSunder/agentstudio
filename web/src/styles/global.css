@@ -61,6 +61,11 @@
   --breakpoint-phone: 38.75rem;
 }
 
+:root {
+  --rail-line-width: 1.5px;
+  --rail-trunk-width: calc(var(--rail-line-width) * 1.2);
+}
+
 @media (width >= 38.75rem) {
   :root {
     --spacing-hero-copy: 112px;

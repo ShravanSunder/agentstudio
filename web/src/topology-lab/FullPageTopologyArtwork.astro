@@ -99,11 +99,11 @@
 
   .topology-mainline {
     stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
-    stroke-width: 2px;
+    stroke-width: var(--rail-trunk-width);
   }
 
   :global(.topology-route > path) {
-    stroke-width: 1.5px;
+    stroke-width: var(--rail-line-width);
   }
 
   :global(.topology-route > .topology-clearance) {
@@ -164,7 +164,6 @@
 
   :global([data-topology-terminal-route] > path:not(.topology-clearance)) {
     stroke: var(--color-primary);
-    stroke-width: 2px;
   }
   :global([data-topology-terminal-node] .node-merge-ring) { color: var(--color-primary); }
 

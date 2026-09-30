@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+
 import { defineBrowserCommand } from "@vitest/browser-playwright";
 import sharp from "sharp";
 
@@ -12,6 +14,9 @@ export interface RailBandPixel {
 export interface RailBandObservation {
   readonly width: number;
   readonly pixels: readonly RailBandPixel[];
+  readonly trunkWidth: number;
+  readonly otherLineWidths: readonly number[];
+  readonly stepTrackHeights: readonly number[];
 }
 
 export const verifyRailViewportBands = defineBrowserCommand(
@@ -53,7 +58,30 @@ export const verifyRailViewportBands = defineBrowserCommand(
           throw new Error("Rail mainline is missing");
         return path.getPointAtLength(0).matrixTransform(matrix).x;
       });
+      const lineWidths = await applicationPage.evaluate(() => {
+        const mainline = document.querySelector<SVGPathElement>(
+          "[data-full-page-topology] [data-mainline]",
+        );
+        if (!mainline) throw new Error("Main trunk missing");
+        return {
+          trunkWidth: Number.parseFloat(getComputedStyle(mainline).strokeWidth),
+          otherLineWidths: [
+            ...document.querySelectorAll<SVGPathElement>(
+              ".topology-route > path:not(.topology-clearance), .chapter-step-active-branch",
+            ),
+          ].map((path) => Number.parseFloat(getComputedStyle(path).strokeWidth)),
+          stepTrackHeights: [
+            ...document.querySelectorAll<HTMLElement>(
+              ".chapter-step-progress-track, .chapter-step-progress-fill",
+            ),
+          ].map((track) => Number.parseFloat(getComputedStyle(track).height)),
+        };
+      });
       const screenshot = await applicationPage.screenshot();
+      await writeFile(
+        new URL(`../../tmp/proof/line-widths-chapter-${width}.png`, import.meta.url),
+        screenshot,
+      );
       const { data, info } = await sharp(screenshot)
         .removeAlpha()
         .raw()
@@ -91,7 +119,7 @@ export const verifyRailViewportBands = defineBrowserCommand(
           contributionBrightness: maximum,
         };
       });
-      return { width, pixels };
+      return { width, pixels, ...lineWidths };
     } finally {
       await applicationPage.close();
     }
