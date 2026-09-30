@@ -81,6 +81,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     let treeRowRefresher: BridgePaneProductFileTreeRowRefresher
     var contextBySubscriptionId: [String: SubscriptionContext] = [:]
     var nextSourceGeneration = 0
+    var lastIssuedFileViewRevision = 0
 
     init(
         authority: BridgePaneProductFileSourceAuthority,
@@ -535,7 +536,8 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                 generation: sourceGeneration,
                 rootURL: authority.worktree.path,
                 productAdmission: productAdmission,
-                source: productSource
+                source: productSource,
+                initialRevision: lastIssuedFileViewRevision + 1
             ),
             openedSource: openedSource,
             constructionLease: nil,

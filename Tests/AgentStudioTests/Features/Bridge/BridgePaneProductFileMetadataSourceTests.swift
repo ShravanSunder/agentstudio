@@ -8,6 +8,65 @@ import Testing
 
 @Suite("Bridge pane product File metadata source")
 struct BridgePaneProductFileMetadataSourceTests {
+    @Test("a rebuilt File context continues the retained view's revision namespace")
+    func rebuiltContextContinuesRetainedViewRevisions() async throws {
+        let fixture = try ProductFileSourceFixture(fileCount: 1)
+        defer { fixture.remove() }
+        let source = fixture.makeSource()
+        let subscription = try fixture.openSnapshot()
+        let demand = try fixture.viewDemand()
+        let firstCollector = ProductFileMetadataEventCollector()
+
+        try await source.open(
+            subscription: subscription,
+            productAdmission: fixture.productAdmission.context
+        ) { event in await firstCollector.append(event) }
+        try await source.applyViewDemand(
+            subscriptionId: subscription.subscriptionId,
+            demand: demand,
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
+        ) { event in await firstCollector.append(event) }
+        let first = try #require(
+            await source.captureKeyedSnapshot(
+                subscriptionId: subscription.subscriptionId,
+                demand: demand,
+                productAdmission: fixture.productAdmission.context
+            )
+        )
+        let firstDescriptor = try #require(
+            (await firstCollector.events).compactMap(\.availableDescriptorForTest).first
+        )
+        try Data("rebuilt content\n".utf8).write(to: fixture.demandedFileURL)
+
+        let secondCollector = ProductFileMetadataEventCollector()
+        try await source.open(
+            subscription: subscription,
+            productAdmission: fixture.productAdmission.context
+        ) { event in await secondCollector.append(event) }
+        try await source.applyViewDemand(
+            subscriptionId: subscription.subscriptionId,
+            demand: demand,
+            productAdmission: fixture.productAdmission.context,
+            forceRecapture: false
+        ) { event in await secondCollector.append(event) }
+        let second = try #require(
+            await source.captureKeyedSnapshot(
+                subscriptionId: subscription.subscriptionId,
+                demand: demand,
+                productAdmission: fixture.productAdmission.context
+            )
+        )
+        let secondDescriptor = try #require(
+            (await secondCollector.events).compactMap(\.availableDescriptorForTest).first
+        )
+
+        #expect(second.memberStatus.revision > first.targetRevision)
+        #expect(second.records.allSatisfy { $0.revision > first.targetRevision })
+        #expect(secondDescriptor.source.subscriptionGeneration == 2)
+        #expect(secondDescriptor.expectedSha256 != firstDescriptor.expectedSha256)
+    }
+
     @Test("same-subscription source replacement excludes stale lineage and content")
     func sameSubscriptionSourceReplacementExcludesStaleLineageAndContent() async throws {
         // Arrange
