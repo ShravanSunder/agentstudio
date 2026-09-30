@@ -73,6 +73,7 @@ lane_children_cpu_seconds() {
 # owns its own tally files, so two lanes in one invocation never share counts.
 begin_lane_accounting() {
   LANE_START_SECONDS="$SECONDS"
+  swift_test_begin_active_command_groups
   LANE_TIMES_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-times.XXXXXX")"
   SWIFT_TEST_PEAK_ANNOUNCED_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-announced.XXXXXX")"
   SWIFT_TEST_PEAK_RUNNING_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-running.XXXXXX")"
@@ -145,6 +146,7 @@ print_closing_lane_report() {
 
   rm -f "$LANE_TIMES_FILE" "${SWIFT_TEST_PEAK_ANNOUNCED_FILE:-}" "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" \
     "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}"
+  swift_test_cleanup_active_command_groups_directory
 }
 
 # A lane ended by a signal exits with 128+signal, so its receipt says so. Without
@@ -152,16 +154,19 @@ print_closing_lane_report() {
 # last completed command's status, and a SIGTERMed lane printed
 # `exit_status=0 verdict=pass`.
 trap_lane_termination_signals() {
-  trap 'swift_test_terminate_active_isolated_suites; exit 129' HUP
-  trap 'swift_test_terminate_active_isolated_suites; exit 130' INT
-  trap 'swift_test_terminate_active_isolated_suites; exit 143' TERM
+  trap 'swift_test_signal_active_command_groups HUP; swift_test_terminate_active_isolated_suites; exit 129' HUP
+  trap 'swift_test_signal_active_command_groups INT; swift_test_terminate_active_isolated_suites; exit 130' INT
+  trap 'swift_test_signal_active_command_groups TERM; swift_test_terminate_active_isolated_suites; exit 143' TERM
 }
 
 # The invocation's single EXIT handler owns the lane receipt and slot release.
 finish_lane_invocation() {
   local exit_status=$?
+  swift_test_signal_active_command_groups TERM
   swift_test_terminate_active_isolated_suites
+  swift_test_signal_active_command_groups KILL
   print_closing_lane_report "$exit_status" || true
+  swift_test_cleanup_active_command_groups_directory
   swift_build_slot_release || true
   return "$exit_status"
 }
