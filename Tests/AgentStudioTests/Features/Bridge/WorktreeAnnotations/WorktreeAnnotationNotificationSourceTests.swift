@@ -404,12 +404,12 @@ struct WorktreeAnnotationNotificationSourceTests {
     }
 }
 
-private struct NotificationSourceHarness {
+struct NotificationSourceHarness {
     let service: WorktreeAnnotationServiceActor
     let source: BridgePaneAnnotationNotificationSource
 }
 
-private func makeNotificationSourceHarness() throws -> NotificationSourceHarness {
+func makeNotificationSourceHarness() throws -> NotificationSourceHarness {
     let repository = try makeAnnotationRepository()
     let service = WorktreeAnnotationServiceActor(
         repositoryAccess: RepositoryBackedWorktreeAnnotationAccess(repository: repository)
@@ -423,7 +423,7 @@ private func makeNotificationSourceHarness() throws -> NotificationSourceHarness
     )
 }
 
-private struct RecordedCommentBatchDelivery: Sendable {
+struct RecordedCommentBatchDelivery: Sendable {
     let batch: BridgeProductCommentCatalogBatch
     let mode: BridgeProductBatchMode
 }

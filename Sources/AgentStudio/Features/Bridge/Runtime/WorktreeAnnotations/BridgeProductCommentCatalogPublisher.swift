@@ -20,6 +20,22 @@ enum WorktreeAnnotationCatalogRange: Hashable, Sendable {
     case session(WorktreeAnnotationSessionID)
 }
 
+struct BridgeProductCommentCatalogPublisherContinuity: Sendable {
+    let lastIssuedRevision: Int
+    let publishedKeys: Set<WorktreeAnnotationCatalogKey>
+    let sessionIDByPublishedKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID]
+
+    init(
+        lastIssuedRevision: Int = 0,
+        publishedKeys: Set<WorktreeAnnotationCatalogKey> = [],
+        sessionIDByPublishedKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] = [:]
+    ) {
+        self.lastIssuedRevision = lastIssuedRevision
+        self.publishedKeys = publishedKeys
+        self.sessionIDByPublishedKey = sessionIDByPublishedKey
+    }
+}
+
 /// N10 owns canonical installed membership. A range read certifies every row
 /// inside that range, including absence after a SQLite cascade deletion.
 actor BridgeProductCommentCatalogPublisher {
@@ -31,7 +47,7 @@ actor BridgeProductCommentCatalogPublisher {
     private let readCurrent: ReadCurrent
     private var scopeRevision: Int
     private var dirtyRanges: Set<WorktreeAnnotationCatalogRange> = []
-    private var installedEntries: [WorktreeAnnotationCatalogKey: WorktreeAnnotationCatalogEntry] = [:]
+    private var installedKeys: Set<WorktreeAnnotationCatalogKey>
     private var installedSessionByKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] = [:]
     private var nextWireRevision = 0
     private var activeCaptureID: UUID?
@@ -40,12 +56,18 @@ actor BridgeProductCommentCatalogPublisher {
     init(
         handle: String,
         scopeRevision: Int,
+        continuity: BridgeProductCommentCatalogPublisherContinuity = .init(),
         readCurrent: @escaping ReadCurrent
     ) {
         precondition(!handle.isEmpty)
+        precondition(continuity.lastIssuedRevision >= 0)
+        precondition(continuity.lastIssuedRevision < BridgeProductWireContract.maximumSafeInteger)
         self.handle = handle
         self.scopeRevision = scopeRevision
         self.readCurrent = readCurrent
+        self.installedKeys = continuity.publishedKeys
+        self.installedSessionByKey = continuity.sessionIDByPublishedKey
+        self.nextWireRevision = continuity.lastIssuedRevision
     }
 
     func acceptScope(revision: Int) -> Bool {
@@ -54,7 +76,14 @@ actor BridgeProductCommentCatalogPublisher {
         return true
     }
 
-    func retire() { isRetired = true }
+    func retireAndCaptureContinuity() -> BridgeProductCommentCatalogPublisherContinuity {
+        isRetired = true
+        return .init(
+            lastIssuedRevision: nextWireRevision,
+            publishedKeys: installedKeys,
+            sessionIDByPublishedKey: installedSessionByKey
+        )
+    }
 
     func replaceHandle(_ newHandle: String) {
         precondition(!newHandle.isEmpty)
@@ -62,7 +91,7 @@ actor BridgeProductCommentCatalogPublisher {
         handle = newHandle
         nextWireRevision = 0
         dirtyRanges.removeAll()
-        installedEntries.removeAll()
+        installedKeys.removeAll()
         installedSessionByKey.removeAll()
         activeCaptureID = nil
     }
@@ -151,7 +180,7 @@ actor BridgeProductCommentCatalogPublisher {
         }
         let previousKeys: Set<WorktreeAnnotationCatalogKey> =
             switch range {
-            case .worktree: Set(installedEntries.keys)
+            case .worktree: installedKeys
             case .session(let sessionID):
                 Set(
                     installedSessionByKey.compactMap { key, owner in
@@ -168,11 +197,11 @@ actor BridgeProductCommentCatalogPublisher {
             .map { BridgeProductCommentCatalogBatch.Delete(key: $0, revision: revision) }
 
         for key in previousKeys.subtracting(currentKeys) {
-            installedEntries.removeValue(forKey: key)
+            installedKeys.remove(key)
             installedSessionByKey.removeValue(forKey: key)
         }
-        for (key, entry) in rows {
-            installedEntries[key] = entry
+        for key in rows.keys {
+            installedKeys.insert(key)
             installedSessionByKey[key] = membership[key]
         }
         nextWireRevision = revision

@@ -25,6 +25,7 @@ actor BridgePaneAnnotationNotificationSource {
     private let worktreeID: String
     private var batchNotificationByHandle: [String: AsyncStream<BridgePaneCommentBatchNotification>.Continuation] = [:]
     private var batchPublisherByHandle: [String: BridgeProductCommentCatalogPublisher] = [:]
+    private var catalogContinuityByHandle: [String: BridgeProductCommentCatalogPublisherContinuity] = [:]
     private var admittedBatchScopeByHandle: [String: AdmittedBatchScope] = [:]
     private var firstScopeWaiterByHandle: [String: AsyncStream<Void>.Continuation] = [:]
     private var firstScopeWaiterObserversByHandle: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -78,13 +79,14 @@ actor BridgePaneAnnotationNotificationSource {
         }
         pendingResnapshotHandles.remove(handle)
         batchNotificationByHandle.removeValue(forKey: handle)?.finish()
-        if let publisher = batchPublisherByHandle.removeValue(forKey: handle) {
-            await publisher.retire()
+        if let publisher = batchPublisherByHandle[handle] {
+            await retireBatchPublisher(publisher, handle: handle)
         }
     }
 
     func retireBatchView(handle: String) async {
         retiredBatchHandles.insert(handle)
+        catalogContinuityByHandle.removeValue(forKey: handle)
         await releaseProducerBatchScope(handle: handle)
     }
 
@@ -145,6 +147,7 @@ actor BridgePaneAnnotationNotificationSource {
         let publisher = BridgeProductCommentCatalogPublisher(
             handle: handle,
             scopeRevision: admittedScope.revision,
+            continuity: catalogContinuityByHandle[handle] ?? .init(),
             readCurrent: { range in
                 try await service.captureCurrentCatalogRange(
                     worktreeID: capturedWorktreeID,
@@ -176,20 +179,31 @@ actor BridgePaneAnnotationNotificationSource {
                 }
             }
             batchNotificationByHandle.removeValue(forKey: handle)
-            batchPublisherByHandle.removeValue(forKey: handle)
             notificationContinuation.finish()
             await service.removeCatalogInvalidationObserver(token: observer.token)
             forwarder.cancel()
             await forwarder.value
+            await retireBatchPublisher(publisher, handle: handle)
         } catch {
             batchNotificationByHandle.removeValue(forKey: handle)
-            batchPublisherByHandle.removeValue(forKey: handle)
             notificationContinuation.finish()
             await service.removeCatalogInvalidationObserver(token: observer.token)
             forwarder.cancel()
             await forwarder.value
+            await retireBatchPublisher(publisher, handle: handle)
             throw error
         }
+    }
+
+    private func retireBatchPublisher(
+        _ publisher: BridgeProductCommentCatalogPublisher,
+        handle: String
+    ) async {
+        let continuity = await publisher.retireAndCaptureContinuity()
+        guard batchPublisherByHandle[handle] === publisher else { return }
+        batchPublisherByHandle.removeValue(forKey: handle)
+        guard !retiredBatchHandles.contains(handle) else { return }
+        catalogContinuityByHandle[handle] = continuity
     }
 
     private func waitForFirstAdmittedBatchScope(handle: String) async throws -> AdmittedBatchScope {
