@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Darwin
 import Foundation
 
@@ -50,18 +51,66 @@ package struct DarwinColdStartObserverSyscalls: ColdStartObserverSyscalls {
         return descriptor >= 0 ? .success(descriptor) : .failure(POSIXErrorNumber(errno))
     }
 
+    /// Program Design item 3, stage 2 (amended 2026-09-30): reads once into
+    /// a buffer sized from a cached `KERN_ARGMAX`, like `ps` does, instead
+    /// of a separate size-query `sysctl` followed by a second data-read
+    /// `sysctl`. That two-call shape was a TOCTOU: a real exec landing
+    /// between the two calls leaves the second call's size stale against
+    /// the now-different process image, and the kernel returns `EIO` --
+    /// confirmed empirically against real zmx (30/30 EIO occurrences,
+    /// always at a live pid mid-exec, `comm` still `zmx` or `sh`, never the
+    /// final shell). An `EIO` from the single read here retries immediately,
+    /// up to `AppPolicies.Restore.processArgumentsReadAttempts`, with no
+    /// sleep or backoff -- the race is on the order of microseconds, not
+    /// milliseconds.
     package func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber> {
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else {
-            return .failure(POSIXErrorNumber(errno))
+        Self.readProcessArgumentsBuffer(
+            pid: pid,
+            attempts: AppPolicies.Restore.processArgumentsReadAttempts,
+            singleRead: Self.singleProcessArgumentsRead
+        )
+    }
+
+    /// The retry policy alone, with an injectable single read -- a unit
+    /// test scripts `singleRead` (EIO then success; EIO for every attempt)
+    /// without touching a real process or `sysctl`.
+    package static func readProcessArgumentsBuffer(
+        pid: Int32,
+        attempts: Int,
+        singleRead: (Int32) -> Result<[UInt8], POSIXErrorNumber>
+    ) -> Result<[UInt8], POSIXErrorNumber> {
+        precondition(attempts > 0, "readProcessArgumentsBuffer requires at least one attempt")
+        var lastFailure = POSIXErrorNumber(EIO)
+        for _ in 0..<attempts {
+            switch singleRead(pid) {
+            case .success(let buffer): return .success(buffer)
+            case .failure(let errorNumber): lastFailure = errorNumber
+            }
         }
-        var buffer = [UInt8](repeating: 0, count: size)
+        return .failure(lastFailure)
+    }
+
+    private static func singleProcessArgumentsRead(pid: Int32) -> Result<[UInt8], POSIXErrorNumber> {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var buffer = [UInt8](repeating: 0, count: cachedArgumentsMax)
+        var size = buffer.count
         let result = buffer.withUnsafeMutableBytes { pointer -> Int32 in
-            var mutableSize = size
-            return sysctl(&mib, 3, pointer.baseAddress, &mutableSize, nil, 0)
+            sysctl(&mib, 3, pointer.baseAddress, &size, nil, 0)
         }
         guard result == 0 else { return .failure(POSIXErrorNumber(errno)) }
-        return .success(buffer)
+        return .success(Array(buffer.prefix(size)))
     }
+
+    /// `KERN_ARGMAX` queried once and cached: the kernel-reported maximum
+    /// size of a process's combined argument and environment space, the
+    /// same bound `ps`/`sysctl(1)` size their own single read against.
+    /// Falls back to 256 KiB (macOS's long-standing `ARG_MAX`) if the query
+    /// itself fails, which it never has in practice.
+    private static let cachedArgumentsMax: Int = {
+        var mib: [Int32] = [CTL_KERN, KERN_ARGMAX]
+        var argumentsMax: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        let result = sysctl(&mib, 2, &argumentsMax, &size, nil, 0)
+        return result == 0 && argumentsMax > 0 ? Int(argumentsMax) : 256 * 1024
+    }()
 }
