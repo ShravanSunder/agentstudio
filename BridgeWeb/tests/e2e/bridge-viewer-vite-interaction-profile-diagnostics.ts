@@ -38,6 +38,7 @@ interface ResyncObservation {
 		readonly disposition: string;
 		readonly reason: string | null;
 		readonly subscriptionId: string;
+		readonly subscriptionKind: string;
 	}[];
 	readonly requestSequence: number;
 	readonly responseKind: string;
@@ -49,6 +50,7 @@ interface ResnapshotObservation {
 	readonly requestSequence: number;
 	readonly responseKind: string;
 	readonly subscriptionId: string;
+	readonly subscriptionKind: string;
 }
 
 interface AnnotationQueryObservation {
@@ -117,6 +119,7 @@ export async function observeInteractionProfileFailures(page: Page): Promise<{
 									disposition: outcome.disposition,
 									reason: 'reason' in outcome ? outcome.reason : null,
 									subscriptionId: outcome.subscriptionId,
+									subscriptionKind: outcome.subscriptionKind,
 								}))
 							: [],
 					requestSequence: pendingResync.requestSequence,
@@ -147,6 +150,7 @@ export async function observeInteractionProfileFailures(page: Page): Promise<{
 					requestSequence: request.requestSequence,
 					responseKind: parsed.data.kind,
 					subscriptionId: request.subscriptionId,
+					subscriptionKind: request.subscriptionKind,
 				});
 				if (resnapshots.length > 32) resnapshots.shift();
 			}
