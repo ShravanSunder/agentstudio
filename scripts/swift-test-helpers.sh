@@ -13,6 +13,8 @@
 
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
+# shellcheck source=scripts/swift-package-sandbox.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swift-package-sandbox.sh"
 
 # Maximum test cases Swift Testing may run concurrently inside one test process.
 # OPT-IN, WITH NO DEFAULT, ON PURPOSE.

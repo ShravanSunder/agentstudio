@@ -3,10 +3,6 @@ import AgentStudioTestSupport
 import Foundation
 import Testing
 
-/// A SwiftPM call on one line: `swift build` / `swift test` followed by a flag,
-/// a variable, or a line continuation. Log strings ("requested swift test
-/// args") and case patterns (`*"swift test"*`) are not calls.
-private let swiftPackageCallPattern = #/(?<![\w-])swift (build|test)(?=\s+(?:--|-c\s|\\\s*$|\$\{|\$\()|\s*\\?\s*$)/#
 private let sandboxArgumentsCall = "$(swift_package_sandbox_arguments)"
 private let sandboxScriptPath = "scripts/swift-package-sandbox.sh"
 /// Runs only on Linux (it exits elsewhere), where SwiftPM has no sandbox.
@@ -26,6 +22,8 @@ struct SwiftPackageSandboxScriptTests {
                 + "echo \"APPLIABLE=[$(swift_package_sandbox_arguments)]\"; "
                 + "printf '#!/bin/sh\\necho denied >&2\\nexit 71\\n' > '\(fakeToolDirectory)/sandbox-exec'; "
                 + "echo \"NESTED=[$(swift_package_sandbox_arguments)]\"; "
+                + "unset CLANG_MODULE_CACHE_PATH; TMPDIR=/private/tmp/agent-tmp/ source \(sandboxScriptPath); "
+                + "echo \"MODULE_CACHE=[$CLANG_MODULE_CACHE_PATH]\"; "
                 + "printf '#!/bin/sh\\necho Linux\\n' > '\(fakeToolDirectory)/uname'; "
                 + "chmod +x '\(fakeToolDirectory)/uname'; "
                 + "echo \"LINUX=[$(swift_package_sandbox_arguments)]\""
@@ -35,6 +33,10 @@ struct SwiftPackageSandboxScriptTests {
         #expect(output.output.contains("APPLIABLE=[]"), Comment(rawValue: output.output))
         #expect(output.output.contains("NESTED=[--disable-sandbox]"), Comment(rawValue: output.output))
         #expect(output.output.contains("LINUX=[]"), Comment(rawValue: output.output))
+        #expect(
+            output.output.contains("MODULE_CACHE=[/private/tmp/agent-tmp/agentstudio-clang-module-cache]"),
+            Comment(rawValue: output.output)
+        )
     }
 
     @Test("inside a real confining sandbox, SwiftPM's own sandbox is disabled")
@@ -58,6 +60,10 @@ struct SwiftPackageSandboxScriptTests {
 
     @Test("every SwiftPM call passes the sandbox arguments from a sourced helper")
     func everySwiftPackageCallPassesSandboxArguments() throws {
+        // A SwiftPM call on one line: `swift build` / `swift test` followed by a
+        // flag, a variable, or a line continuation. Log strings ("requested swift
+        // test args") and case patterns (`*"swift test"*`) are not calls.
+        let swiftPackageCallPattern = #/(?:^|[^\w-])swift (build|test)(?=\s+(?:--|-c\s|\\\s*$|\$\{|\$\()|\s*\\?\s*$)/#
         var unguardedCalls: [String] = []
         var unsourcedOwners: [String] = []
         let scriptsDirectory = URL(fileURLWithPath: "scripts")
@@ -76,15 +82,14 @@ struct SwiftPackageSandboxScriptTests {
         }
 
         for owner in ownersToCheck {
-            let callLines = owner.text.split(separator: "\n", omittingEmptySubsequences: false).filter { line in
+            let callLines = owner.text.components(separatedBy: "\n").filter { line in
                 !line.trimmingCharacters(in: .whitespaces).hasPrefix("#") && line.contains(swiftPackageCallPattern)
             }
             guard !callLines.isEmpty else { continue }
             for line in callLines where !line.contains(sandboxArgumentsCall) {
                 unguardedCalls.append("\(owner.name): \(line.trimmingCharacters(in: .whitespaces))")
             }
-            // The runner library is sourced by owners that source the helper first.
-            if owner.name != "scripts/swift-test-helpers.sh" && !owner.text.contains(sandboxScriptPath) {
+            if !owner.text.contains(sandboxScriptPath) && !owner.text.contains("/swift-package-sandbox.sh") {
                 unsourcedOwners.append(owner.name)
             }
         }

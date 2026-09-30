@@ -141,6 +141,9 @@ struct SwiftLaneRunnerReportTests {
             "LOG_PREFIX=timing; PREBUILD_TIMEOUT_SECONDS=60; BUILD_PATH=.build-probe; "
                 + "source scripts/swift-test-helpers.sh; "
                 + "run_swift_with_timeout() { printf 'ARG:%s\\n' \"\u{0024}@\"; }; "
+                // The nested-sandbox flag has its own suite; pin it empty here so
+                // this claim holds inside an agent sandbox too.
+                + "swift_package_sandbox_arguments() { :; }; "
                 + "unset SWIFT_BUILD_STATS_DIR; prebuild_swift_tests; echo ENABLED; "
                 + "export SWIFT_BUILD_STATS_DIR='\(statisticsDirectory)'; prebuild_swift_tests"
         )

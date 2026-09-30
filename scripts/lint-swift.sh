@@ -82,7 +82,8 @@ if [[ $# -eq 0 ]]; then
 
   echo "--- SwiftLint ---"
   stage_started_ms="$(now_ms)"
-  swiftlint lint --strict 2>&1 \
+  # The cache lives in the held slot: agent sandboxes deny writes to ~/Library/Caches.
+  swiftlint lint --strict --cache-path "${repository_root}/${SWIFT_BUILD_DIR}/swiftlint-cache" 2>&1 \
     && echo "swiftlint: OK" \
     || { echo "swiftlint: FAIL"; exit 1; }
   report_stage_time "swiftlint" "$stage_started_ms"

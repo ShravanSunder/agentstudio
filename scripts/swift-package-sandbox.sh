@@ -15,10 +15,25 @@
 # outer sandbox). Developer shells and CI runners can apply one, so their builds
 # keep SwiftPM's own sandbox unchanged. Linux SwiftPM has no sandbox.
 
+swift_package_sandbox_is_nested() {
+  [ "$(uname -s)" = "Darwin" ] || return 1
+  ! sandbox-exec -p '(version 1)(allow default)' /usr/bin/true >/dev/null 2>&1
+}
+
 swift_package_sandbox_arguments() {
-  [ "$(uname -s)" = "Darwin" ] || return 0
-  if ! sandbox-exec -p '(version 1)(allow default)' /usr/bin/true >/dev/null 2>&1; then
+  if swift_package_sandbox_is_nested; then
     printf '%s\n' '--disable-sandbox'
   fi
   return 0
 }
+
+# Inside an agent sandbox the Swift frontend's default module cache
+# (~/.cache/clang/ModuleCache) is not writable, so compiling a manifest fails
+# with "unable to load standard library". TMPDIR is writable there. This runs at
+# source time because $(swift_package_sandbox_arguments) is a subshell and
+# cannot export.
+if [ -z "${CLANG_MODULE_CACHE_PATH:-}" ] && swift_package_sandbox_is_nested; then
+  CLANG_MODULE_CACHE_PATH="${TMPDIR:-/tmp}"
+  CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH%/}/agentstudio-clang-module-cache"
+  export CLANG_MODULE_CACHE_PATH
+fi
