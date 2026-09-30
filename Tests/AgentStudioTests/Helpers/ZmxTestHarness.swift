@@ -283,6 +283,41 @@ final class ZmxTestHarness: @unchecked Sendable {
         return process
     }
 
+    /// Spawn a real cold-restore session exactly as production builds it
+    /// (`ZmxBackend.buildColdRestoreCommand`, in turn
+    /// `TerminalRestoreRuntime.startupCommand(for:kind:.cold)`) -- S3's
+    /// zmx-e2e proof exercises the real command string, not a hand-rolled
+    /// approximation. `buildColdRestoreCommand`'s result is a single,
+    /// already shell-quoted command line starting with the zmx executable
+    /// itself, so it runs through `/bin/sh -c` exactly as a user pasting it
+    /// would.
+    ///
+    /// The returned process must be awaited by callers through `cleanup()`.
+    func spawnColdRestoreSession(plan: TerminalColdRestorePlan) throws -> Process {
+        let commandLine = ZmxBackend.buildColdRestoreCommand(plan)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", commandLine]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = Pipe()
+        var env = ProcessInfo.processInfo.environment
+        env["ZMX_DIR"] = zmxDir
+        env["ZMX_SESSION"] = ""
+        env["ZMX_SESSION_PREFIX"] = ""
+        process.environment = env
+        try process.run()
+
+        let processID = process.processIdentifier
+        spawnedProcesses.append(
+            SpawnedProcess(
+                process: process,
+                processID: processID
+            ))
+
+        return process
+    }
+
     func sessionHistory(sessionId: String) async throws -> String {
         guard let zmxPath else { return "" }
         let result = try await executor.execute(

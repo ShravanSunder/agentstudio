@@ -6,6 +6,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioTerminal
 
 /// End-to-end tests that exercise the full zmx daemon lifecycle against a real zmx binary.
 ///
@@ -491,6 +492,71 @@ extension E2ESerializedTests {
                     timeout: .seconds(5)
                 )
                 #expect(gone, "Session should be gone after kill from recreated backend")
+            }
+        }
+
+        /// S4 (Program Design item 5): the post-attach recreation check's
+        /// three outcomes against a real daemon -- `PaneRecreationChecker`
+        /// itself is pure and already unit-tested; this proves the real
+        /// `observeSessionIdentity` calls it's compared against actually
+        /// behave the way S4's proof list assumes.
+        @Test("a warm daemon replaced under the same name between check and attach compares as recreated")
+        func warmDaemonReplacedUnderTheSameNameComparesAsRecreated() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let zmxPath = try #require(harness.zmxPath)
+                _ = try harness.spawnZmxSession(
+                    zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+
+                // Simulate app restart replacing the daemon under the exact
+                // same session id, including within the same second.
+                try await backend.destroySessionByID(sessionID)
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
+                _ = try harness.spawnZmxSession(
+                    zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let replacementIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+
+                #expect(replacementIdentity != baselineIdentity)
+                let result = PaneRecreationChecker.checkForRecreation(
+                    baselineIdentity: baselineIdentity, observedIdentity: replacementIdentity)
+                #expect(result == .recreated)
+            }
+        }
+
+        @Test("observing a session with no socket reports couldNotCheck, never recreated on a mere absence of proof")
+        func observingASessionWithNoSocketReportsCouldNotCheck() async throws {
+            try await withRealBackend { _, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let baselineIdentity = Data([1, 2, 3])
+                let observedIdentity = try await backend.observeSessionIdentity(sessionID)
+
+                #expect(observedIdentity == nil)
+                let result = PaneRecreationChecker.checkForRecreation(
+                    baselineIdentity: baselineIdentity, observedIdentity: observedIdentity)
+                #expect(result == .couldNotCheck)
+            }
+        }
+
+        @Test("a live, unchanged session compares as unchanged")
+        func aLiveUnchangedSessionComparesAsUnchanged() async throws {
+            try await withRealBackend { harness, backend in
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let zmxPath = try #require(harness.zmxPath)
+                _ = try harness.spawnZmxSession(
+                    zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
+                try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
+                let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+
+                // The same still-live daemon, observed again after the
+                // attach settles -- no replacement in between.
+                let postAttachIdentity = try await backend.observeSessionIdentity(sessionID)
+
+                let result = PaneRecreationChecker.checkForRecreation(
+                    baselineIdentity: baselineIdentity, observedIdentity: postAttachIdentity)
+                #expect(result == .unchanged)
             }
         }
 
