@@ -1,5 +1,7 @@
+import AgentStudioCommandBar
 import AgentStudioCore
 import AgentStudioGit
+import AgentStudioInfrastructure
 import Foundation
 
 /// The SDK reads and writes worktree creation needs, narrowed so the coordinator can be
@@ -32,6 +34,74 @@ struct LibGit2WorktreeCreationGitClient: WorktreeCreationGitClient {
 
     func forkWorktree(_ request: GitForkWorktreeRequest) async throws(GitWorktreeForkError) -> GitForkWorktreeResult {
         try await client.forkWorktree(request)
+    }
+}
+
+/// Lazy, repository-keyed local branch listing. A newer enrichment revision invalidates
+/// only that repository's entry; one query per revision is shared across callers.
+actor WorktreeBranchListingCache: WorktreeBranchListing {
+    typealias BranchQuery = @Sendable (URL) async throws -> [GitBranchSnapshot]
+
+    private struct CachedListing {
+        let enrichmentRevision: Int
+        let snapshots: [GitBranchSnapshot]
+    }
+
+    private struct InFlightListing {
+        let enrichmentRevision: Int
+        let token: UUID
+        let task: Task<[GitBranchSnapshot], Error>
+    }
+
+    private let query: BranchQuery
+    private var cachedListingsByRepositoryId: [UUID: CachedListing] = [:]
+    private var inFlightListingsByRepositoryId: [UUID: InFlightListing] = [:]
+
+    init(
+        query: @escaping BranchQuery = { repositoryPath in
+            try await LibGit2AgentStudioGitLocalClient().branches(for: repositoryPath)
+        }
+    ) {
+        self.query = query
+    }
+
+    func branchNames(
+        forRepositoryId repositoryId: UUID,
+        repositoryPath: URL,
+        enrichmentRevision: Int
+    ) async throws -> [String] {
+        if let cached = cachedListingsByRepositoryId[repositoryId],
+            cached.enrichmentRevision == enrichmentRevision
+        {
+            return cached.snapshots.map(\.name)
+        }
+        cachedListingsByRepositoryId.removeValue(forKey: repositoryId)
+
+        if let inFlight = inFlightListingsByRepositoryId[repositoryId],
+            inFlight.enrichmentRevision == enrichmentRevision
+        {
+            return try await inFlight.task.value.map(\.name)
+        }
+
+        let token = UUIDv7.generate()
+        let query = query
+        let task = Task { try await query(repositoryPath) }
+        inFlightListingsByRepositoryId[repositoryId] = InFlightListing(
+            enrichmentRevision: enrichmentRevision, token: token, task: task)
+        do {
+            let snapshots = try await task.value
+            if inFlightListingsByRepositoryId[repositoryId]?.token == token {
+                cachedListingsByRepositoryId[repositoryId] = CachedListing(
+                    enrichmentRevision: enrichmentRevision, snapshots: snapshots)
+                inFlightListingsByRepositoryId.removeValue(forKey: repositoryId)
+            }
+            return snapshots.map(\.name)
+        } catch {
+            if inFlightListingsByRepositoryId[repositoryId]?.token == token {
+                inFlightListingsByRepositoryId.removeValue(forKey: repositoryId)
+            }
+            throw error
+        }
     }
 }
 

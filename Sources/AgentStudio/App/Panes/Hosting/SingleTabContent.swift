@@ -213,7 +213,7 @@ struct SingleTabContent: View {
                 companionContent: companionContent,
                 isCompanionVisible: renderState.isCompanionVisible,
                 parentToolbarPresentation: renderState.parentToolbar,
-                splitRatio: presentation.transientSplitRatio ?? 0.5,
+                splitRatio: presentation.transientSplitRatio ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio,
                 store: store,
                 octiconLoader: octiconLoader,
                 editorChooser: editorChooser,

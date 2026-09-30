@@ -16,7 +16,7 @@ export type TranscriptRow = {
   readonly kind: TranscriptRowKind;
   readonly text: string;
   readonly tiers: readonly TranscriptTier[];
-  readonly beat?: "progress" | "working" | "prompt" | "command" | "worktree" | "result";
+  readonly beat?: "progress" | "working" | "prompt" | "running" | "command" | "worktree" | "result";
   readonly earlierContext?: true;
 };
 
@@ -25,6 +25,48 @@ const desktopTiers = ["full", "compact"] as const;
 
 export const claudePreludeTranscript: readonly TranscriptRow[] = [
   { kind: "blank", text: "", tiers: ["full"] },
+  {
+    kind: "user-band",
+    text: "› inspect sidebar filter ordering",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "assistant-text",
+    text: "● I'll check the current sort.",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "tool-call",
+    text: "● Search(src/sidebar/filter.ts)",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "tool-result",
+    text: "  ⎿ Found the pinned-row comparator",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "tool-call",
+    text: "● Read(src/sidebar/filter.ts)",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "tool-result",
+    text: "  ⎿ Pinned rows sort after matches",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
+  {
+    kind: "assistant-text",
+    text: "● I'll put pinned rows first.",
+    tiers: ["full", "phone"],
+    earlierContext: true,
+  },
   {
     kind: "user-band",
     text: "› fix the sidebar filter ordering",
@@ -79,6 +121,7 @@ export const codexFinaleTranscript: readonly TranscriptRow[] = [
     tiers: desktopTiers,
     beat: "working",
   },
+  { kind: "codex-action", text: "• Ran", tiers: desktopTiers, beat: "running" },
   { kind: "codex-detail", text: "  └ git worktree list", tiers: desktopTiers, beat: "command" },
   { kind: "codex-detail", text: "  └ ~/agent-studio  main", tiers: desktopTiers, beat: "worktree" },
   {
@@ -131,12 +174,37 @@ export const claudeFinaleTranscript: readonly TranscriptRow[] = [
   { kind: "tool-result", text: "  ⎿ Installing agent-studio", tiers: ["phone"], beat: "progress" },
   { kind: "tool-result", text: "  ⎿ ✓ Ready. Copy it below ↓", tiers: allTiers },
   { kind: "user-band", text: "› map the worktrees", tiers: allTiers, beat: "prompt" },
+  { kind: "tool-result", text: "  ⎿ Ran", tiers: allTiers, beat: "working" },
   { kind: "tool-result", text: "  ⎿ git worktree list", tiers: allTiers, beat: "command" },
-  { kind: "tool-result", text: "     main  ~/agent-studio", tiers: allTiers, beat: "worktree" },
   {
     kind: "tool-result",
-    text: "     drawer  ~/agent-studio.drawer",
-    tiers: allTiers,
+    text: "  ⎿ ~/agent-studio          main",
+    tiers: desktopTiers,
+    beat: "worktree",
+  },
+  { kind: "tool-result", text: "  ⎿ ~/agent-studio  main", tiers: ["phone"], beat: "worktree" },
+  {
+    kind: "tool-result",
+    text: "  ⎿ ~/agent-studio.drawer   drawer-improvements",
+    tiers: desktopTiers,
+    beat: "worktree",
+  },
+  {
+    kind: "tool-result",
+    text: "  ⎿ ~/agent-studio.drawer  drawer",
+    tiers: ["phone"],
+    beat: "worktree",
+  },
+  {
+    kind: "tool-result",
+    text: "  ⎿ ~/agent-studio.review   review-comments",
+    tiers: desktopTiers,
+    beat: "worktree",
+  },
+  {
+    kind: "tool-result",
+    text: "  ⎿ ~/agent-studio.review  review",
+    tiers: ["phone"],
     beat: "worktree",
   },
   { kind: "tool-result", text: "  ⎿ 3 worktrees · 5 branches", tiers: allTiers, beat: "result" },

@@ -114,8 +114,7 @@ body:has([data-finale-state="ready"]) [data-topology-terminal-route] {
 }
 
 .chapter-caption__content,
-.chapter-step-panel,
-.chapter-single-description {
+.chapter-step-panel {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -140,7 +139,13 @@ body:has([data-finale-state="ready"]) [data-topology-terminal-route] {
 
 .chapter-caption__copy {
   min-width: 0;
-  max-width: 70ch;
+  width: max(72ch, 60%);
+  max-width: calc(100% - 32px);
+}
+
+.chapter-caption__copy p,
+p.chapter-caption__copy {
+  text-wrap: pretty;
 }
 
 .chapter-caption [data-chapter-step-panel] {

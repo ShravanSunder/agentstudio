@@ -315,7 +315,8 @@ extension AppDelegate {
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             traceRuntime: traceRuntime,
-            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
+            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write,
+            legacyDrawerPresentationSource: .standardUserDefaults
         ).makeDatastore()
     }
 
@@ -530,7 +531,8 @@ extension AppDelegate {
             searchService: searchService,
             performanceTraceRecorder: performanceTraceRecorder,
             worktreeForkEligibility: SDKWorktreeForkEligibilityChecker(),
-            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver()
+            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver(),
+            branchListing: WorktreeBranchListingCache()
         )
     }
 
@@ -615,6 +617,7 @@ extension AppDelegate {
         }
         coordinator.preparedTerminalGeometryReevaluationHandler = { [weak self] framesByPaneID in
             guard let preparedMountOwners = self?.installedWorkspacePreparedContentMountOwners else { return }
+            _ = preparedMountOwners.terminalAdmissionPort.refreshQueuedTrustedFrames(framesByPaneID)
             let acceptedPaneIDs = preparedMountOwners.terminalAdmissionPort.acceptLaterTrustedFrames(framesByPaneID)
             guard !acceptedPaneIDs.isEmpty else { return }
             await preparedMountOwners.coordinator.acceptTerminalGeometry(acceptedPaneIDs)

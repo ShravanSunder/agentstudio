@@ -53,6 +53,11 @@ extension GitWorkingDirectoryProjector {
         scheduleQuarantineRecheck(worktreeId: worktreeId)
         emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: true)
         rescheduleDeadlineTask()
+        if let factSink {
+            let episode = quarantineFactEpisodeByWorktreeId[worktreeId, default: 0] + 1
+            quarantineFactEpisodeByWorktreeId[worktreeId] = episode
+            factSink(.quarantine(worktreeId: worktreeId, episode: episode), .quarantineOpened)
+        }
     }
 
     /// Rechecks one quarantined root at its existing automatic deadline. A missing
@@ -88,18 +93,25 @@ extension GitWorkingDirectoryProjector {
     private func clearQuarantineEmittingClose(worktreeId: UUID) {
         guard quarantinedWorktreeIds.remove(worktreeId) != nil else { return }
         emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: false)
+        if let factSink, let episode = quarantineFactEpisodeByWorktreeId[worktreeId] {
+            factSink(.quarantine(worktreeId: worktreeId, episode: episode), .quarantineClosed)
+        }
     }
 
     /// Silently drops a quarantine mark for lifecycle transitions (unregistration,
     /// context change) where the old path is no longer the worktree's identity, so
     /// no close fact is warranted. Mirrors the non-emitting `clearStatusBackoffState`.
     func clearQuarantineState(worktreeId: UUID) {
-        quarantinedWorktreeIds.remove(worktreeId)
+        guard quarantinedWorktreeIds.remove(worktreeId) != nil else { return }
+        if let factSink, let episode = quarantineFactEpisodeByWorktreeId[worktreeId] {
+            factSink(.quarantine(worktreeId: worktreeId, episode: episode), .quarantineClosed)
+        }
     }
 
     private func scheduleQuarantineRecheck(worktreeId: UUID) {
         guard isAutomaticEligible(worktreeId: worktreeId) else {
             automaticRefreshDeadlineByWorktreeId.removeValue(forKey: worktreeId)
+            cancelDeadlineFact(worktreeId: worktreeId, sourceKind: .automatic)
             return
         }
         setRefreshDeadline(

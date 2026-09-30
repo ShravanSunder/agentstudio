@@ -89,6 +89,11 @@ package final class WorkspacePanePresentationAtom {
         viewerPresentation: ZoomViewerPresentation,
         transientSplitRatio: Double? = nil
     ) {
+        let storedSplitRatio = transientSplitRatio ?? zoomSplitRatiosBySourcePaneId[sourcePaneId]
+        let splitRatio =
+            storedSplitRatio.map(AppPolicies.PaneZoomSplit.clampTerminalRatio)
+            ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
+        zoomSplitRatiosBySourcePaneId[sourcePaneId] = splitRatio
         setZoomPresentation(
             ZoomPresentation(
                 sourcePaneId: sourcePaneId,
@@ -97,7 +102,7 @@ package final class WorkspacePanePresentationAtom {
                     forSourcePane: sourcePaneId,
                     inTab: tabId
                 ),
-                transientSplitRatio: transientSplitRatio ?? zoomSplitRatiosBySourcePaneId[sourcePaneId]
+                transientSplitRatio: splitRatio
             ),
             forTab: tabId
         )
@@ -112,9 +117,7 @@ package final class WorkspacePanePresentationAtom {
         _ splitRatio: Double,
         inTab tabId: UUID
     ) -> Bool {
-        guard splitRatio.isFinite,
-            splitRatio > 0,
-            splitRatio < 1,
+        guard AppPolicies.PaneZoomSplit.containsTerminalRatio(splitRatio),
             var presentation = zoomPresentationFamily.snapshotValue(for: tabId)
         else {
             return false
@@ -131,16 +134,22 @@ package final class WorkspacePanePresentationAtom {
         to sourcePaneId: UUID,
         viewerPresentation: ZoomViewerPresentation
     ) -> Bool {
-        guard var presentation = zoomPresentationFamily.snapshotValue(for: tabId) else {
+        guard let storedPresentation = zoomPresentationFamily.snapshotValue(for: tabId) else {
             return false
         }
+        var presentation = storedPresentation
         presentation.sourcePaneId = sourcePaneId
         presentation.viewerPresentation = normalizedViewerPresentation(
             viewerPresentation,
             forSourcePane: sourcePaneId,
             inTab: tabId
         )
-        presentation.transientSplitRatio = zoomSplitRatiosBySourcePaneId[sourcePaneId] ?? 0.5
+        let splitRatio =
+            zoomSplitRatiosBySourcePaneId[sourcePaneId].map(
+                AppPolicies.PaneZoomSplit.clampTerminalRatio
+            ) ?? AppPolicies.PaneZoomSplit.defaultTerminalRatio
+        zoomSplitRatiosBySourcePaneId[sourcePaneId] = splitRatio
+        presentation.transientSplitRatio = splitRatio
         setZoomPresentation(presentation, forTab: tabId)
         return true
     }

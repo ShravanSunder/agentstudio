@@ -111,7 +111,7 @@ struct AgentStudioIPCCatalogFrameTransportTests {
                 await harness.tearDown()
                 return
             }
-            #expect(commands.count == 151)
+            #expect(commands.count == 154)
         } catch {
             await harness.tearDown()
             throw error

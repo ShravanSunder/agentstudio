@@ -705,6 +705,8 @@ large|BridgeReviewSmokeFrameLivenessTests|concurrent
 large|BridgeWorktreeRefreshSessionTests|concurrent
 large|CIFastLaneWorkflowTests|concurrent
 large|CIFirstAttemptGateWorkflowTests|concurrent
+large|CISwiftBuildCachePublishScriptTests|concurrent
+large|CISwiftBuildInputsScriptTests|concurrent
 benchmark|CommandBarSearchBenchmarkTests|process-global
 large|CursorPackageInstallerTests|concurrent
 large|DarwinCompositeFSEventContinuityTests|process-global
@@ -716,6 +718,7 @@ large|DarwinSharedLocalFSEventObserverTests|process-global
 large|DerivedActivityNotificationIntegrationTests|process-global
 large|DerivedTerminalActivityNotificationRegressionTests|process-global
 large|DrawerCommandIntegrationTests|process-global
+large|DrawerZoomFrameCurrencyIntegrationTests|process-global
 e2e|E2ESerializedTests|serial
 e2e|E2ESerializedTests/FilesystemSourceE2ETests|serial
 e2e|E2ESerializedTests/ZmxBackendIntegrationTests|serial

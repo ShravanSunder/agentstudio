@@ -322,8 +322,7 @@ package struct CommandBarTextEntryInput: Equatable, Sendable {
 }
 
 package enum CommandBarCreationQuery {
-    case defaultStartPoint(Repo)
-    case forkEligibility(Repo)
+    case branchListing(Repo)
     case worktreeEligibility(Repo, Worktree)
 }
 
@@ -352,6 +351,8 @@ package struct CommandBarLevel: Identifiable {
     package let scopeLabel: String?
     package let breadcrumbIcon: AppEntityIcon?
     package let items: [CommandBarItem]
+    /// Rows searched in this level but absent from its empty-filter presentation.
+    package let searchOnlyItems: [CommandBarItem]
     package let textEntry: CommandBarTextEntry?
     package let creationQuery: CommandBarCreationQuery?
 
@@ -362,6 +363,7 @@ package struct CommandBarLevel: Identifiable {
         scopeLabel: String? = nil,
         breadcrumbIcon: AppEntityIcon? = nil,
         items: [CommandBarItem],
+        searchOnlyItems: [CommandBarItem] = [],
         textEntry: CommandBarTextEntry? = nil,
         creationQuery: CommandBarCreationQuery? = nil
     ) {
@@ -371,6 +373,7 @@ package struct CommandBarLevel: Identifiable {
         self.scopeLabel = scopeLabel
         self.breadcrumbIcon = breadcrumbIcon
         self.items = items
+        self.searchOnlyItems = searchOnlyItems
         self.textEntry = textEntry
         self.creationQuery = creationQuery
     }

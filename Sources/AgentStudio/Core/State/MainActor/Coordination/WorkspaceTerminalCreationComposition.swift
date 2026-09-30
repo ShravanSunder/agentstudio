@@ -176,6 +176,14 @@ enum WorkspaceTerminalCreationComposition {
                 colorHex: original.colorHex)
             updated.tabs[tabIndex] = tab
             let expandsDrawer = insertion.presentation == .interactive
+            if expandsDrawer {
+                // Match WorkspaceDrawerCursorAtom's single-ID expansion in the durable proposal.
+                // A background (agent) insertion leaves every drawer's expansion as the person set it.
+                for paneIndex in updated.panes.indices {
+                    guard paneIndex != parentIndex else { continue }
+                    updated.panes[paneIndex].withDrawer { $0.isExpanded = false }
+                }
+            }
             updated.panes[parentIndex].withDrawer {
                 $0.paneIds.append(pane.id)
                 if expandsDrawer { $0.isExpanded = true }

@@ -71,6 +71,8 @@ package final class SurfaceManager {
     /// The only boundary through which renderer visibility/focus reaches libghostty.
     let rendererStateDelivery: any SurfaceRendererStateDelivery
     private let nativeSurfaceRetirement: @MainActor (Ghostty.SurfaceView) -> Void
+    /// The pinned Ghostty query used by undo restore; injectable for manager tests without a native surface.
+    private let processExitedCheck: @MainActor (Ghostty.SurfaceView) -> Bool
 
     /// Fires when attach/detach/move/swap/destroy changes `activeSurfaces` membership.
     @ObservationIgnored package var onAttachedBindingsChanged: (() -> Void)?
@@ -121,12 +123,14 @@ package final class SurfaceManager {
         healthCheckInterval: TimeInterval = 2.0,
         rendererStateDelivery: any SurfaceRendererStateDelivery = LiveSurfaceRendererStateDelivery.shared,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        nativeSurfaceRetirement: @escaping @MainActor (Ghostty.SurfaceView) -> Void = { $0.retireNativeSurface() }
+        nativeSurfaceRetirement: @escaping @MainActor (Ghostty.SurfaceView) -> Void = { $0.retireNativeSurface() },
+        processExitedCheck: @escaping @MainActor (Ghostty.SurfaceView) -> Bool = { $0.processExited }
     ) {
         self.maxCreationRetries = maxCreationRetries
         self.healthCheckInterval = healthCheckInterval
         self.rendererStateDelivery = rendererStateDelivery
         self.nativeSurfaceRetirement = nativeSurfaceRetirement
+        self.processExitedCheck = processExitedCheck
         self.performanceTraceRecorder = performanceTraceRecorder
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
@@ -505,7 +509,12 @@ package final class SurfaceManager {
         else {
             return nil
         }
-        let entry = undoStack.remove(at: index)
+        let entry = undoStack[index]
+        guard !processExitedCheck(entry.surface.surface) else {
+            destroy(entry.surface.id)
+            return nil
+        }
+        _ = undoStack.remove(at: index)
 
         var managed = entry.surface
         managed.state = .hidden
@@ -618,10 +627,8 @@ package final class SurfaceManager {
 
     /// Check if the process has exited
     func hasProcessExited(_ surfaceId: UUID) -> Bool {
-        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId],
-            let surface = managed.surface.surface
-        else { return true }
-        return ghostty_surface_process_exited(surface)
+        guard let managed = activeSurfaces[surfaceId] ?? hiddenSurfaces[surfaceId] else { return true }
+        return processExitedCheck(managed.surface)
     }
 
     // MARK: - Safe Operation Wrapper

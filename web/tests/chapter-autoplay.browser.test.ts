@@ -4,6 +4,7 @@ import { commands } from "vitest/browser";
 import type {
   ChapterAutoplayObservation,
   ChapterClickObservation,
+  ManualChapterClaimObservation,
 } from "./chapter-autoplay-browser-command.ts";
 
 declare module "vitest/browser" {
@@ -18,8 +19,16 @@ declare module "vitest/browser" {
       width: number,
       height: number,
     ): Promise<ChapterClickObservation[]>;
+    verifyManualChapterClaim(pageUrl: string): Promise<ManualChapterClaimObservation>;
   }
 }
+
+it("lets a manually played chapter claim the only playing scene", async () => {
+  const observation = await commands.verifyManualChapterClaim(inject("siteHeaderBrowserTestUrl"));
+  expect(observation.afterManualPlay).toEqual(["paused", "playing"]);
+  expect(observation.automaticPause).toBe(true);
+  expect(observation.afterReadingLineCrossing).toEqual(["paused", "playing"]);
+});
 
 for (const [width, height] of [
   [1600, 1000],

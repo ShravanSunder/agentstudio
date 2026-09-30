@@ -58,6 +58,8 @@ package enum AppCommand: String, CaseIterable {
     case detachDrawerPane
     case addDrawerPane
     case toggleDrawer
+    case moveZoomDrawerToTerminal
+    case moveZoomDrawerToBridge
     case navigateDrawerPane
     case closeDrawerPane
     case openPaneLocationInBookmarkedEditor
@@ -74,6 +76,7 @@ package enum AppCommand: String, CaseIterable {
     case openWorktreeInPane
     case newWorktree
     case newWorktreeFromDefault
+    case newWorktreeFromBranch
     case forkWorktree
     // Management layer
     case toggleManagementLayer

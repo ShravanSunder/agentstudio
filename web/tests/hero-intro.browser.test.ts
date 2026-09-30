@@ -81,8 +81,12 @@ describe("hero intro", () => {
       expect(flow.progressBeforeReady).toBe(true);
       expect(flow.readyAfterDecode).toBe(true);
       expect(flow.streamedBeforeResult).toBe(true);
+      expect(flow.mapTypedBeforeWork).toBe(true);
+      expect(flow.phoneWorkingBeforeRows).toBe(true);
+      expect(flow.noCodexBurst).toBe(true);
+      expect(flow.resultVisible).toBe(true);
       expect(flow.clippedAtAnySample).toBe(false);
-      expect(flow.largestTranscriptGap, `${width}px`).toBeLessThanOrEqual(36);
+      expect(flow.largestTranscriptGap, `${width}px ${flow.gapDebug}`).toBeLessThanOrEqual(36);
       const text = flow.settledRows.join("\n");
       const orderedFragments = [
         "set up Agent Studio for me",
@@ -91,8 +95,9 @@ describe("hero intro", () => {
         "Ready. Copy it below",
         "map the worktrees",
         "git worktree list",
-        "main  ~/agent-studio",
-        "drawer  ~/agent-studio.drawer",
+        "~/agent-studio",
+        "~/agent-studio.drawer",
+        "~/agent-studio.review",
         "3 worktrees · 5 branches",
       ];
       let lastIndex = -1;

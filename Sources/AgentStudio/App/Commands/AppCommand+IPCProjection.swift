@@ -74,7 +74,7 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .focusSidebar, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .focusSidebar, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             // Worktree creation has no parameterized IPC contract yet (v1 is interactive only).
             [.noArguments]
 
@@ -134,7 +134,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .addDrawerPane, .toggleDrawer:
+            .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
             [.drawerParent]
         case .focusDrawerPaneUp, .focusDrawerPaneLeft,
             .focusDrawerPaneDown, .focusDrawerPaneRight:
@@ -208,7 +208,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
             .navigateDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
@@ -234,7 +234,7 @@ extension AppCommand {
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
-            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             .debugTesting
         }
     }
@@ -269,7 +269,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .copyCurrentPanePath, .openPullRequest,
@@ -296,7 +296,7 @@ extension AppCommand {
             .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             .headless
         }
     }
@@ -351,7 +351,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane, .editPaneNote,
             .watchFolder, .updateRepositoryFacts, .removeRepo,
             .openWorktree, .openWorktreeInPane,
@@ -367,7 +367,7 @@ extension AppCommand {
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             .layoutMutate
         }
     }
@@ -381,7 +381,7 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             []
 
         case .undoCloseTab, .newTab,
@@ -425,7 +425,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
@@ -455,7 +455,7 @@ extension AppCommand {
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .togglePanesSortDirection, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .togglePanesSortDirection, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             [.unavailable]
 
         case .openPaneLocationInEditorMenu, .editPaneNote,
@@ -497,7 +497,8 @@ extension AppCommand {
             .splitRight, .splitLeft, .equalizePanes,
             .zoomPane, .minimizePane, .expandPane,
             .switchArrangement, .saveArrangement, .renameArrangement,
-            .enterDrawer, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .enterDrawer, .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal,
+            .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInFinder, .copyCurrentPanePath, .openPullRequest,
             .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
@@ -538,13 +539,14 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .navigateDrawerPane,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge, .navigateDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .openPullRequest, .reloadBridgeWebView, .showViewer,
             .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo,
             .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab,
-            .newWorktree, .newWorktreeFromDefault, .forkWorktree,
+            .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree,
             .toggleManagementLayer, .managementLayerExit,
             .managementLayerFocusLeft, .managementLayerFocusRight,
             .managementLayerEnterDrawer, .managementLayerExitDrawer,

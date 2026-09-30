@@ -17,7 +17,6 @@ interface Props {
 
 const { chapter } = Astro.props;
 const titleId = `chapter-${chapter.id}-title`;
-const hasStepSelector = chapter.steps.length > 1;
 const railAnchorAttributes = { [railAnchorAttribute]: chapter.id };
 const surfaceAttributes = { [railSurfaceTargetAttribute]: chapter.id };
 const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStageAttribute]: "" };
@@ -30,7 +29,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
   aria-labelledby={titleId}
   data-chapter={chapter.id}
 >
-  <div class="chapter-flow scroll-material-lift-group" data-scroll-material-lift-target data-chapter-steps-root={chapter.id} data-has-steps={String(hasStepSelector)}>
+  <div class="chapter-flow scroll-material-lift-group" data-scroll-material-lift-target data-chapter-steps-root={chapter.id}>
     <h2
       {...railAnchorAttributes}
       id={titleId}
@@ -40,7 +39,7 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
       >{chapter.title.afterAccent}
     </h2>
 
-    {hasStepSelector && <div class="chapter-pill-slot"><ChapterStepLine chapterId={chapter.id} steps={chapter.steps} /></div>}
+    <div class="chapter-pill-slot"><ChapterStepLine chapterId={chapter.id} steps={chapter.steps} /></div>
 
     <ScrollMaterialSurface
       {...surfaceAttributes}
@@ -55,29 +54,15 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
     </ScrollMaterialSurface>
 
     <div class="chapter-caption" data-chapter-caption>
-      {
-        hasStepSelector ? (
-          chapter.steps.map((step, stepIndex) => (
-            <div class="chapter-step-panel" data-chapter-step-panel={step.id} aria-hidden={stepIndex !== 0}>
-              <span class="chapter-caption__icon" data-chapter-caption-icon={step.captionIcon}><KitIcon name={step.captionIcon} /></span>
-              <div class="chapter-caption__copy">
-                <p class="m-0 max-phone:hidden">{step.description}</p>
-                <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
-              </div>
-            </div>
-          ))
-        ) : (
-          chapter.steps.map((step) => (
-            <div class="chapter-single-description">
-              <span class="chapter-caption__icon" data-chapter-caption-icon={step.captionIcon}><KitIcon name={step.captionIcon} /></span>
-              <div class="chapter-caption__copy">
-                <p class="m-0 max-phone:hidden">{step.description}</p>
-                <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
-              </div>
-            </div>
-          ))
-        )
-      }
+      {chapter.steps.map((step, stepIndex) => (
+        <div class="chapter-step-panel" data-chapter-step-panel={step.id} aria-hidden={stepIndex !== 0}>
+          <span class="chapter-caption__icon" data-chapter-caption-icon={step.captionIcon}><KitIcon name={step.captionIcon} /></span>
+          <div class="chapter-caption__copy">
+            <p class="m-0 max-phone:hidden">{step.description}</p>
+            <p class="m-0 hidden max-phone:block">{step.phoneDescription}</p>
+          </div>
+        </div>
+      ))}
     </div>
   </div>
 </article>
@@ -98,7 +83,6 @@ const stageAttributes = { [railMediaTargetAttribute]: chapter.id, [playbackStage
   .chapter-pill-slot { order: 2; margin-top: 14px; margin-bottom: 14px; align-self: flex-start; width: 100%; max-width: 100%; }
   :global(.chapter-surface) { order: 3; }
   .chapter-caption { order: 4; margin-top: 12px; }
-  .chapter-flow[data-has-steps="false"] :global(.chapter-surface) { margin-top: 20px; }
   @media (width < 64rem) {
     :global(.chapter-surface) { order: 2; margin-top: 20px; }
     .chapter-pill-slot { order: 3; margin-top: 14px; margin-bottom: 0; }

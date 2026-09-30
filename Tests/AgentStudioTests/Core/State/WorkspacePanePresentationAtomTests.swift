@@ -67,7 +67,7 @@ struct WorkspacePanePresentationAtomTests {
             sourcePaneId: secondSourcePaneId,
             viewerPresentation: .retryable
         )
-        #expect(atom.setZoomSplitRatio(0.25, inTab: tabId))
+        #expect(atom.setZoomSplitRatio(0.35, inTab: tabId))
         atom.cancelZoom(inTab: tabId)
         atom.enterZoom(
             inTab: tabId,
@@ -76,7 +76,7 @@ struct WorkspacePanePresentationAtomTests {
             transientSplitRatio: 0.5
         )
 
-        let didUpdateRatio = atom.setZoomSplitRatio(0.7, inTab: tabId)
+        let didUpdateRatio = atom.setZoomSplitRatio(0.55, inTab: tabId)
         let didRetarget = atom.retargetZoom(
             inTab: tabId,
             to: secondSourcePaneId,
@@ -85,11 +85,57 @@ struct WorkspacePanePresentationAtomTests {
 
         #expect(didUpdateRatio)
         #expect(didRetarget)
-        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.25)
+        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.35)
     }
 
     @Test
-    func retargetingZoomUsesBalancedSplitForSourceWithoutCachedRatio() {
+    func zoomSplitRatioDefaultsToFortyPercentTerminal() {
+        let atom = WorkspacePanePresentationAtom()
+        let tabId = UUIDv7.generate()
+
+        atom.enterZoom(
+            inTab: tabId,
+            sourcePaneId: UUIDv7.generate(),
+            viewerPresentation: .retryable
+        )
+
+        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.4)
+    }
+
+    @Test("Zoom split ratio rejects values outside 30-60 percent", arguments: [0.29, 0.61])
+    func zoomSplitRatioRejectsValuesOutsideTerminalBounds(splitRatio: Double) {
+        let atom = WorkspacePanePresentationAtom()
+        let tabId = UUIDv7.generate()
+        atom.enterZoom(
+            inTab: tabId,
+            sourcePaneId: UUIDv7.generate(),
+            viewerPresentation: .retryable,
+            transientSplitRatio: 0.4
+        )
+
+        let didUpdateRatio = atom.setZoomSplitRatio(splitRatio, inTab: tabId)
+
+        #expect(!didUpdateRatio)
+        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.4)
+    }
+
+    @Test("Zoom restoration clamps an out-of-range stored ratio")
+    func zoomRestorationClampsStoredRatio() {
+        let atom = WorkspacePanePresentationAtom()
+        let tabId = UUIDv7.generate()
+
+        atom.enterZoom(
+            inTab: tabId,
+            sourcePaneId: UUIDv7.generate(),
+            viewerPresentation: .retryable,
+            transientSplitRatio: 0.9
+        )
+
+        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.6)
+    }
+
+    @Test
+    func retargetingZoomUsesFortyPercentForSourceWithoutCachedRatio() {
         let atom = WorkspacePanePresentationAtom()
         let tabId = UUID()
         let firstSourcePaneId = UUID()
@@ -99,7 +145,7 @@ struct WorkspacePanePresentationAtomTests {
             sourcePaneId: firstSourcePaneId,
             viewerPresentation: .retryable
         )
-        #expect(atom.setZoomSplitRatio(0.7, inTab: tabId))
+        #expect(atom.setZoomSplitRatio(0.55, inTab: tabId))
 
         let didRetarget = atom.retargetZoom(
             inTab: tabId,
@@ -108,7 +154,7 @@ struct WorkspacePanePresentationAtomTests {
         )
 
         #expect(didRetarget)
-        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.5)
+        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.4)
     }
 
     @Test(
@@ -132,7 +178,7 @@ struct WorkspacePanePresentationAtomTests {
     }
 
     @Test
-    func zoomSplitRatioAcceptsInteriorValueNearEndpoint() {
+    func zoomSplitRatioAcceptsMinimumTerminalShare() {
         let atom = WorkspacePanePresentationAtom()
         let tabId = UUID()
         atom.enterZoom(
@@ -142,10 +188,10 @@ struct WorkspacePanePresentationAtomTests {
             transientSplitRatio: 0.5
         )
 
-        let didUpdateRatio = atom.setZoomSplitRatio(0.05, inTab: tabId)
+        let didUpdateRatio = atom.setZoomSplitRatio(0.3, inTab: tabId)
 
         #expect(didUpdateRatio)
-        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.05)
+        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.3)
     }
 
     @Test
@@ -160,7 +206,7 @@ struct WorkspacePanePresentationAtomTests {
             sourcePaneId: sourcePaneId,
             viewerPresentation: .retainedVisible(companionPaneId: companion.companionPaneId)
         )
-        #expect(atom.setZoomSplitRatio(0.7, inTab: tabId))
+        #expect(atom.setZoomSplitRatio(0.6, inTab: tabId))
 
         atom.cancelZoom(inTab: tabId)
         atom.enterZoom(
@@ -169,7 +215,7 @@ struct WorkspacePanePresentationAtomTests {
             viewerPresentation: .retainedVisible(companionPaneId: companion.companionPaneId)
         )
 
-        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.7)
+        #expect(atom.zoomPresentation(forTab: tabId)?.transientSplitRatio == 0.6)
     }
 
     @Test

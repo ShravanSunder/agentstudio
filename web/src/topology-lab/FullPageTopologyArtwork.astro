@@ -148,6 +148,10 @@
     stroke: color-mix(in srgb, var(--color-primary) 46%, transparent);
   }
 
+  :global([data-route-kind="attach"].accent-main > path:not(.topology-clearance)) {
+    stroke: var(--color-primary);
+  }
+
   /* Attach branches enter a target edge, shifting hue from their source lane
      to primary blue along the same weight as the other lines. */
   :global(.accent-port) {
@@ -186,6 +190,7 @@
      - end: the terminal node.
      Until the reveal reaches it, every glyph is a faint thin outline at its
      own size, so the size hierarchy shows before identity and color do. */
+  :global([data-topology-suppressed]) { display: none; }
   :global([data-node] .node-commit),
   :global([data-node] .node-chapter),
   :global([data-node] .node-merge-ring) {
@@ -258,7 +263,7 @@
     transform-origin: center;
     animation: topology-terminal-node-halo-once 1.8s ease-out 1 both;
   }
-  :global([data-topology-terminal-node] .node-terminal-halo) { stroke: var(--color-glyph); }
+  :global([data-topology-terminal-node][data-topology-terminal] .node-terminal-halo) { display: none; }
 
   /* The retired terminal halo (scale 1 → 2.35 while fading), played once, then
      the ring grows back in and holds at its resting size. */

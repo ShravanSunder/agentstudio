@@ -52,6 +52,30 @@ struct AppTerminationDrainDeadlineTests {
         #expect(recorder.outcomes == [.completed])
         withheldDeadline.release()
     }
+    @Test("a termination reply that returns finishes the quit exactly once, after the reply")
+    func returningReplyFinishesTheQuitOnce() {
+        let stages = TerminationStageRecorder()
+
+        // A reply that returns is AppKit cancelling a quit it was asked to commit.
+        replyToTerminationFinishingIfCancelled(
+            reply: { stages.record("reply") },
+            finishCancelledTermination: { stages.record("finish") }
+        )
+
+        #expect(stages.names == ["reply", "finish"])
+    }
+
+    @Test("finishing a cancelled termination runs will-terminate work and exits once")
+    func cancelledTerminationExitsOnce() {
+        let delegate = AppDelegate()
+        var exitStatuses: [Int32] = []
+        delegate.exitProcess = { exitStatuses.append($0) }
+
+        delegate.finishTerminationCancelledAfterDrain()
+
+        #expect(exitStatuses == [EXIT_SUCCESS])
+    }
+
     @Test("the workspace flush completes even when the IPC drain never does")
     func workspaceFlushSurvivesAnUnfinishedIPCDrain() async {
         let stages = TerminationStageRecorder()

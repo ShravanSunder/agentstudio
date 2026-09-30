@@ -40,6 +40,10 @@ for (const width of [390, 820, 1600]) {
     expect(result.branchDrawEnd).toBe(220);
     expect(result.labelUnfoldEnd).toBe(250);
     expect(result.newLabelOpacityAtStart).toBe("0");
+    expect(result.outgoingLabelOpacity["30"]).toBeLessThan(1);
+    expect(result.outgoingLabelOpacity["60"]).toBeLessThanOrEqual(0.3);
+    expect(result.outgoingLabelOpacity["100"]).toBeLessThanOrEqual(0.01);
+    expect(result.outgoingBranchVisibleAt130).toBeLessThanOrEqual(0.5);
     expect(result.travelDelta).toBeLessThan(0);
     expect(result.wrapDelta).toBeGreaterThan(0);
     expect(result.layoutShift).toBeLessThanOrEqual(0.5);

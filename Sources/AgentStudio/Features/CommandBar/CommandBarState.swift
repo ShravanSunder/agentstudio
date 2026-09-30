@@ -88,6 +88,9 @@ package final class CommandBarState {
     private(set) var forkEligibilityBySourceWorktreeId: [UUID: WorktreeForkEligibility] = [:]
     private(set) var defaultStartPointByRepositoryId: [UUID: WorktreeDefaultStartPoint] = [:]
     private(set) var defaultStartPointQueryFailures: Set<UUID> = []
+    private(set) var branchNamesByRepositoryId: [UUID: [String]] = [:]
+    private(set) var branchListingQueryFailures: Set<UUID> = []
+    private(set) var branchListingRevisionByRepositoryId: [UUID: Int] = [:]
 
     // MARK: - Computed — Prefix Parsing
 
@@ -254,6 +257,9 @@ package final class CommandBarState {
         forkEligibilityBySourceWorktreeId = [:]
         defaultStartPointByRepositoryId = [:]
         defaultStartPointQueryFailures = []
+        branchNamesByRepositoryId = [:]
+        branchListingQueryFailures = []
+        branchListingRevisionByRepositoryId = [:]
         selectedIndex = 0
         isVisible = true
         stateLogger.debug("Command bar shown with prefix: \(prefix ?? "(none)")")
@@ -273,6 +279,9 @@ package final class CommandBarState {
         forkEligibilityBySourceWorktreeId = [:]
         defaultStartPointByRepositoryId = [:]
         defaultStartPointQueryFailures = []
+        branchNamesByRepositoryId = [:]
+        branchListingQueryFailures = []
+        branchListingRevisionByRepositoryId = [:]
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
     }
@@ -284,6 +293,9 @@ package final class CommandBarState {
         forkEligibilityBySourceWorktreeId = [:]
         defaultStartPointByRepositoryId = [:]
         defaultStartPointQueryFailures = []
+        branchNamesByRepositoryId = [:]
+        branchListingQueryFailures = []
+        branchListingRevisionByRepositoryId = [:]
         defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
         shouldSelectRestoredRootQuery = false
@@ -324,6 +336,23 @@ package final class CommandBarState {
 
     func recordDefaultStartPointQueryFailure(forRepositoryId repositoryId: UUID) {
         defaultStartPointQueryFailures.insert(repositoryId)
+    }
+
+    func recordBranchNames(_ names: [String], forRepositoryId repositoryId: UUID, enrichmentRevision: Int) {
+        branchNamesByRepositoryId[repositoryId] = names
+        branchListingQueryFailures.remove(repositoryId)
+        branchListingRevisionByRepositoryId[repositoryId] = enrichmentRevision
+    }
+
+    func recordBranchListingQueryFailure(forRepositoryId repositoryId: UUID, enrichmentRevision: Int) {
+        branchListingQueryFailures.insert(repositoryId)
+        branchListingRevisionByRepositoryId[repositoryId] = enrichmentRevision
+    }
+
+    func invalidateBranchListing(forRepositoryId repositoryId: UUID) {
+        branchNamesByRepositoryId.removeValue(forKey: repositoryId)
+        branchListingQueryFailures.remove(repositoryId)
+        branchListingRevisionByRepositoryId.removeValue(forKey: repositoryId)
     }
 
     func replaceLevel(_ level: CommandBarLevel) {

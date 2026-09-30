@@ -115,6 +115,7 @@ function measureAnchors(artwork: SVGSVGElement): readonly TopologyAnchorMeasurem
     const declaredEdge = surface?.getAttribute(railTargetEdgeAttribute);
     return {
       id,
+      chapter: anchor.closest("[data-chapter]") !== null,
       rect: measure(anchor),
       surface: surface === undefined ? undefined : measure(surface),
       targetEdge: declaredEdge === "top" || declaredEdge === "left" ? declaredEdge : undefined,
@@ -229,7 +230,7 @@ function createRouteGroup(ownerDocument: Document, route: TopologyRoute): SVGGEl
 }
 
 function rowDotSignature(dot: TopologyRowDot): string {
-  return `${dot.kind}:${dot.accent}:${dot.incomingAccent ?? ""}:${dot.ownerId}:${dot.anchorId ?? ""}:${dot.terminal === true}`;
+  return `${dot.kind}:${dot.accent}:${dot.incomingAccent ?? ""}:${dot.ownerId}:${dot.anchorId ?? ""}:${dot.terminal === true}:${dot.suppressPaint === true}`;
 }
 
 function createCircle(
@@ -430,6 +431,7 @@ export function layoutFullPageTopology(artwork: SVGSVGElement): boolean {
       setAttributeIfChanged(circle, "cy", String(dot.y));
     }
     setAttributeIfChanged(node, "data-node-owner", dot.ownerId);
+    node.toggleAttribute("data-topology-suppressed", dot.suppressPaint === true);
     setAttributeIfChanged(node, "data-resolved-row", String(dot.row));
     setAttributeIfChanged(
       node,
