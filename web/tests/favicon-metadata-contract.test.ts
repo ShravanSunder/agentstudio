@@ -167,6 +167,29 @@ describe("site discovery metadata", () => {
     });
   });
 
+  it("serves a plain-text agent summary with exact rendered install command parity", async (): Promise<void> => {
+    const response = await fetch(new URL("/llms.txt", previewOrigin));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/^text\/plain\b/u);
+    const text = await response.text();
+    const commands = text.match(/```sh\n([\s\S]*?)\n```/u)?.[1];
+    expect(commands).toBe(marketingCopy.installation.commands.join("\n"));
+    const html = await (await fetch(previewOrigin)).text();
+    const installTag = html.match(/<div\b[^>]*data-install-command-root[^>]*>/u)?.[0];
+    if (installTag === undefined) throw new Error("Rendered install box missing");
+    expect(commands).toBe(parseAttributes(installTag).get("data-install-command"));
+    expect(text).toContain(`# ${marketingCopy.productName}`);
+    expect(text).toContain(marketingCopy.hero.description);
+    expect(text).toContain(marketingCopy.installation.systemRequirement);
+    for (const url of [
+      canonicalHomeUrl,
+      marketingCopy.githubUrl,
+      `${marketingCopy.githubUrl}#readme`,
+      `${marketingCopy.githubUrl}/tree/main/docs`,
+    ])
+      expect(text).toContain(`](${url})`);
+  });
+
   it("advertises a fetchable image favicon from the home page", async (): Promise<void> => {
     const homePageResponse = await fetch(previewOrigin);
     expect(homePageResponse.status).toBe(200);
