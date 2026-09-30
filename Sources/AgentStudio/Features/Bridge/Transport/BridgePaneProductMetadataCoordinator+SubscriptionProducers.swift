@@ -117,6 +117,7 @@ extension BridgePaneProductMetadataCoordinator {
             subscriptionKind: subscription.subscriptionKind,
             executionContext: .init(
                 foregroundWorkAdmission: foregroundWorkAdmission,
+                metadataLease: activeStream.lease,
                 productAdmission: productAdmission,
                 session: activeStream.session
             ),

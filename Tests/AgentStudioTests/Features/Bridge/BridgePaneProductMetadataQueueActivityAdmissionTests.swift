@@ -28,10 +28,9 @@ extension BridgePaneProductMetadataActivityAdmissionTests {
         let (precheckEvents, precheckContinuation) = AsyncStream<Void>.makeStream()
         let enqueueTask = Task {
             try await enqueueActivityMetadataResetAfterLoosePrecheck(
+                context: context,
                 subscriptionId: fileOpen.subscriptionId,
-                productAdmission: context.harness.productAdmission.context,
                 foregroundWorkAdmission: originalForegroundWorkAdmission,
-                session: context.harness.session,
                 precheckContinuation: precheckContinuation,
                 queueMutationGate: queueMutationGate
             )
@@ -60,10 +59,9 @@ extension BridgePaneProductMetadataActivityAdmissionTests {
 }
 
 private func enqueueActivityMetadataResetAfterLoosePrecheck(
+    context: ActivityMetadataContext,
     subscriptionId: String,
-    productAdmission: BridgeProductAdmissionContext,
     foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-    session: BridgeProductSession,
     precheckContinuation: AsyncStream<Void>.Continuation,
     queueMutationGate: ActivityQueueMutationGate
 ) async throws -> BridgeProductProducerEnqueueResult {
@@ -73,10 +71,11 @@ private func enqueueActivityMetadataResetAfterLoosePrecheck(
     precheckContinuation.yield()
     precheckContinuation.finish()
     await queueMutationGate.waitUntilReleased()
-    return try await session.enqueueSubscriptionReset(
+    return try await context.harness.session.enqueueSubscriptionReset(
+        originatingMetadataLease: context.lease,
         subscriptionId: subscriptionId,
         reason: .staleSource,
-        productAdmission: productAdmission,
+        productAdmission: context.harness.productAdmission.context,
         foregroundWorkAdmission: foregroundWorkAdmission
     )
 }
