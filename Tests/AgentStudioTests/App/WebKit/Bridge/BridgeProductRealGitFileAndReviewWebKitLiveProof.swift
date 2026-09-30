@@ -17,6 +17,9 @@ private struct BridgeProductWebKitLiveFileState {
     let pathSelected: Bool
 }
 
+private let liveProofHangBoundNanoseconds: UInt64 = 90_000_000_000
+private let liveProofHangBoundMilliseconds = 90_000
+
 @MainActor
 extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
     func collectLiveProof(
@@ -75,12 +78,31 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
     private func waitForLiveShell(
         _ controller: BridgePaneController
     ) async throws -> Bool {
-        await WebPageEventWaits.waitForNavigationToFinish(controller.page)
-        try await WebPageEventWaits.waitForDocumentSelector(
-            controller.page,
-            "[data-testid=\"bridge-app-root\"]"
+        let navigationReady: @MainActor () -> Bool? = {
+            controller.page.isLoading ? nil : true
+        }
+        _ = try await BridgePaneControllerEventWaits.waitForValue(
+            navigationReady,
+            milestone: "File and Review navigation finished",
+            hangBoundNanoseconds: liveProofHangBoundNanoseconds,
+            lastObservation: { "isLoading=\(controller.page.isLoading)" }
         )
-        await WebPageEventWaits.waitForBridgeReady(controller)
+        _ = try await WebPageEventWaits.waitForDocumentValue(
+            controller.page,
+            reader: "return document.querySelector('[data-testid=\"bridge-app-root\"]') === null ? null : true;",
+            milestone: "File and Review app root mounted",
+            hangBoundMilliseconds: liveProofHangBoundMilliseconds,
+            lastObservation: "return document.readyState;"
+        )
+        let bridgeReady: @MainActor () -> Bool? = {
+            controller.isBridgeReady ? true : nil
+        }
+        _ = try await BridgePaneControllerEventWaits.waitForValue(
+            bridgeReady,
+            milestone: "File and Review bridge ready",
+            hangBoundNanoseconds: liveProofHangBoundNanoseconds,
+            lastObservation: { "isBridgeReady=\(controller.isBridgeReady)" }
+        )
         return controller.isBridgeReady
     }
 
@@ -89,13 +111,24 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         sourceOracle: LiveSourceOracle,
         traceRecorder: BridgeProductWebKitCarrierTraceRecorder
     ) async throws -> BridgeProductWebKitLiveReviewState {
-        let observedGeneration: Int = await BridgePaneControllerEventWaits.waitForValue {
+        let nativePackageReady: @MainActor () -> Int? = {
             guard let package = try? controller.ipcReviewPackageSnapshot(),
                 package.status == "ready",
                 package.items.count >= 128
             else { return nil }
             return package.reviewGeneration
         }
+        let observedGeneration: Int = try await BridgePaneControllerEventWaits.waitForValue(
+            nativePackageReady,
+            milestone: "native Review package has 128 items",
+            hangBoundNanoseconds: liveProofHangBoundNanoseconds,
+            lastObservation: {
+                guard let package = try? controller.ipcReviewPackageSnapshot() else {
+                    return "package unavailable"
+                }
+                return
+                    "status=\(package.status),items=\(package.items.count),generation=\(String(describing: package.reviewGeneration))"
+            })
         let initialPackage = try controller.ipcReviewPackageSnapshot()
         guard initialPackage.status == "ready",
             initialPackage.items.count >= 128,
@@ -122,18 +155,9 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         let expectedSelectedContentHashes = selectedDescriptor.contentRoles.allHandles
             .map { "\($0.role.rawValue):\($0.contentHash)" }
             .joined(separator: ",")
-        let metadataValue = try await WebPageEventWaits.waitForDocumentValue(
-            controller.page,
-            reader: """
-                const shell = document.querySelector('[data-testid="review-viewer-shell"]');
-                const itemCount = Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0');
-                const generation = Number(shell?.getAttribute('data-review-metadata-generation') ?? '0');
-                return itemCount >= minimumItems && generation === expectedGeneration ? itemCount : null;
-                """,
-            arguments: ["minimumItems": 128, "expectedGeneration": successorGeneration]
-        )
-        guard let metadataItemCount = metadataValue as? Int,
-            let reviewTrace = await traceRecorder.waitForTrace(.reviewPublication),
+        let metadataItemCount = try await waitForLiveReviewMetadataGeneration(
+            controller, successorGeneration: successorGeneration)
+        guard let reviewTrace = try await waitForLiveReviewTrace(traceRecorder),
             reviewTrace.hasReviewMetadataPublication
         else { throw LiveProofError.successorReviewPublicationMissing }
         let displayedPath = try await WebPageEventWaits.waitForDocumentValue(
@@ -154,7 +178,14 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             arguments: [
                 "expectedPath": sourceOracle.path,
                 "expectedHashes": expectedSelectedContentHashes,
-            ]
+            ],
+            milestone: "Review selected content rendered",
+            hangBoundMilliseconds: liveProofHangBoundMilliseconds,
+            lastObservation: """
+                const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+                const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+                return `state=${shell?.getAttribute('data-selected-content-state') ?? 'missing'},path=${shell?.getAttribute('data-selected-display-path') ?? 'missing'},lines=${panel?.getAttribute('data-selected-content-line-count') ?? 'missing'}`;
+                """
         )
         guard displayedPath as? String == sourceOracle.path else {
             throw LiveProofError.successorReviewPublicationMissing
@@ -167,6 +198,53 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             itemCount: metadataItemCount,
             successorGeneration: successorGeneration
         )
+    }
+
+    private func waitForLiveReviewMetadataGeneration(
+        _ controller: BridgePaneController,
+        successorGeneration: Int
+    ) async throws -> Int {
+        let metadataValue = try await WebPageEventWaits.waitForDocumentValue(
+            controller.page,
+            reader: """
+                const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+                const itemCount = Number(shell?.getAttribute('data-review-metadata-item-count') ?? '0');
+                const generation = Number(shell?.getAttribute('data-review-metadata-generation') ?? '0');
+                return itemCount >= minimumItems && generation === expectedGeneration ? itemCount : null;
+                """,
+            arguments: ["minimumItems": 128, "expectedGeneration": successorGeneration],
+            milestone: "page Review metadata generation",
+            hangBoundMilliseconds: liveProofHangBoundMilliseconds,
+            lastObservation: """
+                const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+                return `items=${shell?.getAttribute('data-review-metadata-item-count') ?? 'missing'},generation=${shell?.getAttribute('data-review-metadata-generation') ?? 'missing'}`;
+                """
+        )
+        guard let metadataItemCount = metadataValue as? Int else {
+            throw LiveProofError.successorReviewPublicationMissing
+        }
+        return metadataItemCount
+    }
+
+    private func waitForLiveReviewTrace(
+        _ recorder: BridgeProductWebKitCarrierTraceRecorder
+    ) async throws -> BridgeProductWebKitCarrierTrace? {
+        try await withThrowingTaskGroup(of: BridgeProductWebKitCarrierTrace?.self) { group in
+            group.addTask { await recorder.waitForTrace(.reviewPublication) }
+            group.addTask {
+                try await ContinuousClock().sleep(
+                    for: .nanoseconds(Int64(liveProofHangBoundNanoseconds)))
+                let lastTrace = await recorder.scrubbedTrace()
+                throw BridgeWebKitMilestoneHang(
+                    milestone: "Review publication trace",
+                    lastObservation: lastTrace.description
+                )
+            }
+            let first = try await group.next()
+            group.cancelAll()
+            guard let first else { return nil }
+            return first
+        }
     }
 
     private func collectLiveFileState(
@@ -193,6 +271,12 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 const count = Number(shell?.getAttribute('data-file-display-item-count') ?? '0');
                 return shell?.getAttribute('data-file-display-status') === 'ready'
                   && count > 0 ? count : null;
+                """,
+            milestone: "File display ready",
+            hangBoundMilliseconds: liveProofHangBoundMilliseconds,
+            lastObservation: """
+                const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+                return `status=${shell?.getAttribute('data-file-display-status') ?? 'missing'},items=${shell?.getAttribute('data-file-display-item-count') ?? 'missing'}`;
                 """
         )
         _ = try await WebPageEventWaits.waitForOpenShadowRootValue(
@@ -201,7 +285,11 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 const selector = `button[data-type="item"][data-item-type="file"][data-item-path="${CSS.escape(path)}"]`;
                 return findInOpenShadowRoots(document, selector) === null ? null : path;
                 """,
-            arguments: ["path": sourceOracle.path]
+            arguments: ["path": sourceOracle.path],
+            milestone: "File path row mounted",
+            hangBoundMilliseconds: liveProofHangBoundMilliseconds,
+            lastObservation:
+                "return document.querySelector('[data-testid=\"bridge-file-viewer-shell\"]')?.getAttribute('data-file-display-item-count') ?? 'missing';"
         )
         let pathSelected = await BridgeProductWebKitCarrierTestSupport.selectFilePath(
             controller.page,
@@ -215,7 +303,11 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     return fileHost !== null && readOpenShadowRootText(fileHost).includes(canaryText)
                       ? canaryText : null;
                     """,
-                arguments: ["canaryText": sourceOracle.canaryText]
+                arguments: ["canaryText": sourceOracle.canaryText],
+                milestone: "File canary painted",
+                hangBoundMilliseconds: liveProofHangBoundMilliseconds,
+                lastObservation:
+                    "return document.querySelector('[data-testid=\"bridge-viewer-mode-host-file\"]')?.textContent?.slice(0, 80) ?? 'missing';"
             )
         }
         return BridgeProductWebKitLiveFileState(

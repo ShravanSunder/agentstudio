@@ -6,11 +6,9 @@ import WebKit
 
 /// Event-driven waits for the WebKit lane.
 ///
-/// Every one of these replaces a `ContinuousClock` deadline poll. None takes a
-/// timeout: the lane's inactivity watchdog is the hang bound, and a deadline here
-/// is actively wrong — a hidden headless page schedules no animation frames, so
-/// DOM state behind a rAF commit has no sound upper bound and any N you pick is a
-/// verdict about machine speed rather than about the product.
+/// Every one of these replaces a `ContinuousClock` deadline poll. They are
+/// unbounded by default. A named diagnostic hang bound may report a stalled
+/// milestone before the lane watchdog; it does not change the success predicate.
 enum WebPageEventWaits {
     /// Suspends until the page stops loading.
     ///
@@ -56,22 +54,33 @@ enum WebPageEventWaits {
     static func waitForDocumentValue(
         _ page: WebPage,
         reader readerBody: String,
-        arguments: [String: Any] = [:]
+        arguments: [String: Any] = [:],
+        milestone: String? = nil,
+        hangBoundMilliseconds: Int = 0,
+        lastObservation diagnosticBody: String = "return null;"
     ) async throws -> Any? {
-        try await page.callJavaScript(
+        let result = try await page.callJavaScript(
             """
             const readDocumentValue = () => { \(readerBody) };
+            const readDiagnostic = () => { \(diagnosticBody) };
             return await new Promise((resolve) => {
+              let observer = null;
+              const deadline = hangBoundMilliseconds > 0
+                ? setTimeout(() => {
+                    observer?.disconnect();
+                    resolve({ bridgeWebKitMilestoneHang: true, lastObservation: readDiagnostic() });
+                  }, hangBoundMilliseconds)
+                : null;
               const attempt = () => {
                 const value = readDocumentValue();
                 if (value === null || value === undefined) { return false; }
+                if (deadline !== null) clearTimeout(deadline);
+                observer?.disconnect();
                 resolve(value);
                 return true;
               };
               if (attempt()) { return; }
-              const observer = new MutationObserver(() => {
-                if (attempt()) { observer.disconnect(); }
-              });
+              observer = new MutationObserver(attempt);
               observer.observe(document.documentElement, {
                 attributes: true,
                 characterData: true,
@@ -80,8 +89,17 @@ enum WebPageEventWaits {
               });
             });
             """,
-            arguments: arguments
+            arguments: arguments.merging(["hangBoundMilliseconds": hangBoundMilliseconds]) { current, _ in current }
         )
+        if let outcome = result as? [String: Any],
+            outcome["bridgeWebKitMilestoneHang"] as? Bool == true
+        {
+            throw BridgeWebKitMilestoneHang(
+                milestone: milestone ?? "document value",
+                lastObservation: String(describing: outcome["lastObservation"] ?? "missing")
+            )
+        }
+        return result
     }
 
     /// Observes the document and every open shadow root. Pierre places File
@@ -90,9 +108,12 @@ enum WebPageEventWaits {
     static func waitForOpenShadowRootValue(
         _ page: WebPage,
         reader readerBody: String,
-        arguments: [String: Any] = [:]
+        arguments: [String: Any] = [:],
+        milestone: String? = nil,
+        hangBoundMilliseconds: Int = 0,
+        lastObservation diagnosticBody: String = "return null;"
     ) async throws -> Any? {
-        try await page.callJavaScript(
+        let result = try await page.callJavaScript(
             """
             const findInOpenShadowRoots = (root, selector) => {
               const direct = root.querySelector(selector);
@@ -112,8 +133,15 @@ enum WebPageEventWaits {
               return text;
             };
             const readValue = () => { \(readerBody) };
+            const readDiagnostic = () => { \(diagnosticBody) };
             return await new Promise(resolve => {
               const observers = new Map();
+              const deadline = hangBoundMilliseconds > 0
+                ? setTimeout(() => {
+                    for (const observer of observers.values()) observer.disconnect();
+                    resolve({ bridgeWebKitMilestoneHang: true, lastObservation: readDiagnostic() });
+                  }, hangBoundMilliseconds)
+                : null;
               const observeRoot = root => {
                 if (!observers.has(root)) {
                   const observer = new MutationObserver(attempt);
@@ -130,14 +158,24 @@ enum WebPageEventWaits {
                 observeRoot(document.documentElement);
                 const value = readValue();
                 if (value === null || value === undefined) return;
+                if (deadline !== null) clearTimeout(deadline);
                 for (const observer of observers.values()) observer.disconnect();
                 resolve(value);
               };
               attempt();
             });
             """,
-            arguments: arguments
+            arguments: arguments.merging(["hangBoundMilliseconds": hangBoundMilliseconds]) { current, _ in current }
         )
+        if let outcome = result as? [String: Any],
+            outcome["bridgeWebKitMilestoneHang"] as? Bool == true
+        {
+            throw BridgeWebKitMilestoneHang(
+                milestone: milestone ?? "shadow-root value",
+                lastObservation: String(describing: outcome["lastObservation"] ?? "missing")
+            )
+        }
+        return result
     }
 
     /// Suspends until `document.querySelector(selector)` is non-null.
