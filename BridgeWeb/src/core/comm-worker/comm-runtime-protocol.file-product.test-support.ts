@@ -42,6 +42,7 @@ export function makeFileBatchInstallation(
 	});
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('File batch begin missing.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [
@@ -79,6 +80,7 @@ export function makeReviewBatchInstallation(subscriptionId: string): BridgeProdu
 	});
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Review batch begin missing.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [
