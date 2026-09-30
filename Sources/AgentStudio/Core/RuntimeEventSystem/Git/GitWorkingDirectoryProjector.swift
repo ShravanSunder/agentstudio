@@ -771,7 +771,7 @@ package actor GitWorkingDirectoryProjector {
             factSink?(coalescingScope, .deadlineDisposition(.admitted))
         }
 
-        await computeAndEmit(changeset: nextChangeset)
+        await computeAndEmit(changeset: nextChangeset, refreshFactScope: refreshFactScope)
     }
 
     func isCurrent(_ changeset: FileChangeset) -> Bool {
