@@ -407,10 +407,9 @@ describe('bridge page handshake', () => {
 				failures.push(failure);
 			},
 		});
-		session.requestProductSessionReplacement();
-		const [initialRequest, replacementRequest] = bootstrapRequests;
-		if (initialRequest === undefined || replacementRequest === undefined) {
-			throw new Error('Expected initial and replacement bootstrap requests.');
+		const initialRequest = bootstrapRequests[0];
+		if (initialRequest === undefined) {
+			throw new Error('Expected initial bootstrap request.');
 		}
 		const dispatchFailure = (detail: object): void => {
 			target.dispatchEvent(new CustomEvent('__bridge_product_session_bootstrap', { detail }));
@@ -419,19 +418,23 @@ describe('bridge page handshake', () => {
 		// Act
 		dispatchFailure({ failure: { reason: 'retirement_failed' }, requestId: 'uncorrelated' });
 		dispatchFailure({ failure: { reason: 'unknown_reason' }, requestId: initialRequest.requestId });
-		dispatchFailure({
-			failure: { reason: 'retirement_failed' },
-			requestId: replacementRequest.requestId,
-		});
-		dispatchFailure({
-			failure: { reason: 'retirement_failed' },
-			requestId: replacementRequest.requestId,
-		});
 		target.dispatchEvent(
 			new CustomEvent('__bridge_product_session_bootstrap', {
 				detail: makeProductBootstrapDetail(initialRequest.requestId, 'worker-initial'),
 			}),
 		);
+		session.requestProductSessionReplacement();
+		const replacementRequest = bootstrapRequests[1];
+		if (replacementRequest === undefined)
+			throw new Error('Expected replacement bootstrap request.');
+		dispatchFailure({
+			failure: { reason: 'retirement_failed' },
+			requestId: replacementRequest.requestId,
+		});
+		dispatchFailure({
+			failure: { reason: 'retirement_failed' },
+			requestId: replacementRequest.requestId,
+		});
 		session.uninstall();
 
 		// Assert: a malformed failure leaves its request pending for the real answer.

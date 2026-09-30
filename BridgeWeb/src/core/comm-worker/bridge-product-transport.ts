@@ -88,6 +88,7 @@ import type { BridgeProductViewScopeRequest } from './bridge-product-view-contro
 import { bridgeProductInitialViewOpening } from './bridge-product-view-opening.js';
 import { BridgeProductViewScopeOwner } from './bridge-product-view-scope-owner.js';
 import type { BridgeProductViewScopeSettlement } from './bridge-product-view-scope-owner.js';
+import { bridgeWorkerViewRecoveryKindSchema } from './bridge-worker-view-recovery-contracts.js';
 
 export type BridgeProductIdentifierPurpose =
 	| 'content-request'
@@ -480,14 +481,17 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#metadataApplicationRegistry.requireProtocol(protocol);
 		const state = this.#createSubscriptionState(protocol, options);
 		this.#subscriptions.set(state.subscriptionId, state);
-		const recovery = this.#viewRecoveryStatusByKind.get(protocol.kind);
-		if (recovery !== undefined && recovery.status !== 'ready') {
-			// Bind the surviving surface recovery to this fresh E3 before async
-			// initialization, including failures that precede W2 registration.
-			this.#publishViewRecoveryStatus({
+		const recoveryKind = bridgeWorkerViewRecoveryKindSchema.safeParse(protocol.kind);
+		if (recoveryKind.success) {
+			const previous = this.#viewRecoveryStatusByKind.get(protocol.kind);
+			const allocated: ViewRecoveryStatus = {
 				status: 'recovering',
-				view: { kind: recovery.view.kind, subscriptionId: state.subscriptionId },
-			});
+				view: { kind: recoveryKind.data, subscriptionId: state.subscriptionId },
+			};
+			// Keep a first E3 actionable on failure without changing initial-load UI.
+			this.#viewRecoveryStatusByKind.set(protocol.kind, allocated);
+			if (previous !== undefined && previous.status !== 'ready')
+				this.#publishViewRecoveryStatus(allocated);
 		}
 		state.start();
 		return state.publicSubscription;
@@ -514,8 +518,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 					recovery?.status === 'recovering' &&
 					recovery.view.subscriptionId === subscriptionId
 				) {
-					// A user reopen can fail before onOpened registers its fresh W2 view.
-					// Keep the previous kind actionable instead of waiting for bootstrap.
+					// A first open or user reopen can fail before W2 registration.
 					this.#publishViewRecoveryStatus({ ...recovery, status: 'failedRetryable' });
 				}
 				this.#viewScopeOwner.retire(subscriptionId);
