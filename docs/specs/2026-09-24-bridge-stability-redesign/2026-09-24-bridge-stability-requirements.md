@@ -50,8 +50,8 @@ Every row's authority state is **authorized**. Priority was assigned by the owne
 | **U9** | Delivery acknowledgements are windowed and cumulative, with a bounded window and a deadline, instead of one acknowledgement per frame. | Per-frame acknowledgement round trips were one of the wedge chains. | C1, C3 | Required |
 | **U10** | Tests catch real failures: real-path tests with fault injection, no timer-based waits, a test that fails first for every known wedge, and one contract suite every data type must pass. Harmful tests are replaced. | The owner's primary goal. Today, 29 of 60 sampled Bridge tests are harmful as written. | C3 | Primary |
 | **U11** | Exporting comments blocks nothing. By default Export saves to a remembered folder with no dialog, and the drawer shows where. An optional folder picker (a wait on the user) blocks no other Bridge operation, pane or window. Closing or reloading the pane cancels an open picker, and the save does not happen; a save that has already started completes (owner, 2026-09-25). | A human-paced wait must not freeze the pane (S13). | C1 | Required |
-| **U13** | Loading, empty, updating and failed look the same on every Bridge surface (File tree and content, Review, Comments, Markdown): a skeleton shaped like the content while it loads, a quiet empty line, an updating indicator over the last good content, and one failed state with a Retry. A pane that never started shows that same failed state, and its Retry reloads the pane through the existing Reload Bridge command. Nothing ever shows "loading" or "waiting" once it has settled (owner, 2026-09-30). | Today each surface draws these states differently, and some show a loading screen, or "waiting", forever. That looks broken even when it isn't, and hides it when it is. | C1 | Required |
 | **U12** | The File view can filter its tree to changed files, with the same Git status kinds as Review. The two change filters are **"Uncommitted"** (vs HEAD) and **"All Changes"** (vs the merge-base with the origin default branch, e.g. `origin/main`: the same default Review compares against), narrowed by kind. The File view shows no target control; choosing a target is Review-only. With neither selected, all files show. Deleted files appear greyed and can't be opened. Review's picker names **"Uncommitted changes (HEAD)"** explicitly, and its Git status filter's first option reads **"All Changes"**. In a multi-root collection, filters apply per member worktree. Loose documents under "Open Files" are never filtered, and show "not in git". | File and Review should answer "what changed?" the same way, against either baseline. | C1 | Required |
+| **U13** | Loading, empty, updating and failed look the same on every Bridge surface (File tree and content, Review, Comments, Markdown): a skeleton shaped like the content while it loads, a quiet empty line, an updating indicator over the last good content, and one failed state with a Retry. A pane that never started shows that same failed state, and its Retry reloads the pane through the existing Reload Bridge command. Nothing ever shows "loading" or "waiting" once it has settled (owner, 2026-09-30). | Today each surface draws these states differently, and some show a loading screen, or "waiting", forever. That looks broken even when it isn't, and hides it when it is. | C1 | Required |
 
 ## Goal boundary (confirmed 2026-09-24)
 
@@ -65,7 +65,7 @@ Every row's authority state is **authorized**. Priority was assigned by the owne
   - existing UI components;
   - the SQLite comment store and its anchor evaluator;
   - existing draft and source protections.
-- **Missing (this work builds it):** every wait ends; windowed cumulative acks; one owner of "is this current?" per surface; typed recoverable failures with a working Retry (Review included); comments independent of reloads, with a version record and outdated/moved states; the degraded state; Review on demand; a four-kind contract suite plus fault seams; replacement of harmful tests; the File tree change filter (U12, added 2026-09-25).
+- **Missing (this work builds it):** every wait ends; windowed cumulative acks; one owner of "is this current?" per surface; typed recoverable failures with a working Retry (Review included); comments independent of reloads, with a version record and outdated/moved states; the degraded state; Review on demand; a four-kind contract suite plus fault seams; replacement of harmful tests; the File tree change filter (U12, added 2026-09-25); one set of non-content states drawn the same on every surface (U13, added 2026-09-30).
 - **May change:**
   - the Bridge feature (native);
   - Bridge-related App coordination;
@@ -102,6 +102,10 @@ Each image shows the requirement for its screen. The Specification owns the exac
 ![The File view with a Files unavailable status, a Retry button, and a Showing last update · stale marker. The tree and code stay readable, and a comment composer is open with Save enabled.](assets/file-degraded-retry.png)
 
 *U3 and U7: File behaves exactly like Review when updates fail, and comments can still be saved. Generated illustration grounded in the current File screen. The line numbers are not meaningful.*
+
+![Today's Review pane: the centre says Nothing to review while the file rail still pulses a loading skeleton and the comparison chip keeps spinning.](assets/review-loading-today.png)
+
+*U13, today: a settled Review (nothing to review) still shows a loading skeleton and a spinner, so a finished screen looks unfinished. Real screenshot from the PR1 debug app, 2026-09-30. The target picture for U13 is the four-state table in the Specification (C-UI, non-content states).*
 
 The prompts behind these images are kept in [assets/briefs/](assets/briefs/).
 

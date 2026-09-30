@@ -22,8 +22,9 @@ flowchart LR
 
 | ID | Term | Identity: what makes two the same | Relationships | Invariants | Observable states |
 |---|---|---|---|---|---|
-| **E1** | **Pane session** | One Bridge pane plus one page incarnation. A page reload, or a replacement of the page's background worker, starts a **new** pane session. | A pane has at most one active pane session. A pane session owns 0..n E3 and E4. | Nothing from an ended pane session is ever applied to a newer one. | opening → active → ended |
-| **E2** | **Surface** | One pane plus one surface kind: File, Review, or Comments. Comments are a surface of their own, not a part of File or Review (U4). | A pane has exactly one of each surface. A surface has one E8 desired state and 0..1 displayed E7. | A surface displays only complete snapshots (E7). | current · updating · stale (last good shown, update failed or pending) · unavailable (nothing good to show) |
+| **E1** | **Pane session** | One Bridge pane plus one page incarnation. A page reload, or a replacement of the page's background worker, starts a **new** pane session. | A pane has at most one active pane session. A pane session owns 0..n E3 and E4. | Nothing from an ended pane session is ever applied to a newer one. | opening → active → ended. An opening that ends without ever becoming active is a **failed start** (no surface of the pane has anything to show) |
+| **E2** | **Surface** | One pane plus one surface kind: File, Review, or Comments. Comments are a surface of their own, not a part of File or Review (U4). | A pane has exactly one of each surface. A surface has one E8 desired state, 0..1 displayed E7, and 1..n E20 regions. | A surface displays only complete snapshots (E7). | loading (no snapshot yet, first attempt running) · current · updating · stale (last good shown, update failed or pending) · unavailable (nothing good to show) |
+| **E20** | **Surface region** | One E2 plus one display area of it: the File tree or File content; the Review list or diff; the Comments drawer or an inline thread area; a Markdown preview. The same area of the same surface is the same region across updates. | Belongs to exactly one E2. Shows the content of that surface's displayed E7 (or E10 threads for Comments) or one non-content state. | Shows exactly one of: its content, **Loading**, **Empty**, **Updating**, or **Failed** (U13). A region is **settled** when it shows content, Empty or Failed. | loading → content · empty · failed; content → updating → content · failed; failed → loading or updating (Retry) |
 | **E3** | **Subscription** | One pane session plus one opening of a data stream of one kind for one surface. A reopen is a new subscription. | Belongs to one E1 and one E2. Has 0..n E5. | Ends exactly once, and its end is announced to both sides. | opening → open → ended(completed \| cancelled \| failed \| retired) |
 | **E4** | **Operation** | One pane session plus one request from the page to the app (open, change interest, cancel, call, save, resync). A retry of an operation with the same identity is the same operation. | Belongs to one E1. May belong to one E3. | Settles exactly once. A human-wait operation (U11) is marked as such. | admitted → dispatched → settled(succeeded \| refused \| failed \| outcome-unknown \| cancelled) |
 | **E5** | **Record** | One subscription's view plus one **key**: for File, the file's **canonical document location** (its identity, which is stable when a member regroups it); a Review item; a comment thread or session. The collection display key (where the row sits in the tree) and the read descriptor are **fields**, not identity. The same key at a later revision is the same record, updated. | Belongs to one E17 view. Delivered inside one E18 batch. | Carries the latest full value (or a deletion) with a per-key revision. A record for an older revision than the one installed for that key is ignored. Leaving the view's scope is **eviction**, not deletion. | put · deleted · evicted |
@@ -47,6 +48,7 @@ erDiagram
   PANE_SESSION_E1 ||--o{ SUBSCRIPTION_E3 : "opens"
   PANE_SESSION_E1 ||--o{ OPERATION_E4 : "sends"
   SURFACE_E2 ||--|| DESIRED_STATE_E8 : "wants"
+  SURFACE_E2 ||--|{ SURFACE_REGION_E20 : "shown in"
   SURFACE_E2 ||--o| SNAPSHOT_E7 : "displays last good"
   SURFACE_E2 ||--o{ SUBSCRIPTION_E3 : "fed by"
   SUBSCRIPTION_E3 ||--|| VIEW_E17 : "mirrors"
@@ -169,6 +171,7 @@ The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and
 
 | Surface state | File | Review | Comments |
 |---|---|---|---|
+| loading | Tree and content regions show **Loading** (content-shaped skeleton), never an empty panel or "pending" text | List and diff show **Loading** | Drawer shows **Loading** until its first catalog installs |
 | current | Tree and content | Diff for the target | Threads with placement |
 | updating | Last good content, plus an unobtrusive updating indicator | Same | n/a (always usable) |
 | stale | Last good content, plus **"Showing last update · stale"**, plus **"Files unavailable"** and **Retry** (retryable) | Last good diff, plus **"Showing last update · stale"**, plus **"Update unavailable"** and **Retry** | Unaffected by File/Review staleness |
@@ -179,7 +182,7 @@ The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and
 
 #### Non-content states: one set, drawn one way everywhere (U13; owner, 2026-09-30)
 
-Every Bridge surface region (the File tree, File content, Markdown, the Review list and diff, the Comments drawer) has exactly four non-content states, and each is drawn the same way on every surface.
+Every E20 surface region has exactly four non-content states, and each is drawn the same way on every surface. The region's state follows its E2 surface state: E2 `loading` shows **Loading**; `current` shows content, or **Empty** when the complete snapshot has nothing in that region; `updating` shows **Updating**; `stale` shows content marked stale with **Failed**'s Retry (R19, R42); `unavailable` shows **Failed**.
 
 | State | When it is shown | What it looks like | Ends in |
 |---|---|---|---|
@@ -188,10 +191,10 @@ Every Bridge surface region (the File tree, File content, Markdown, the Review l
 | **Updating** | New content is on its way while the last good content is shown | The last good content stays; a small shared indicator in the header | Content or **Failed** |
 | **Failed** | The region cannot show current content | The shared alert plus the shared **Retry**, in the same place on every surface. The copy says what failed | A new attempt (Retry) |
 
-- **R40.** A region MUST show exactly one of these states or its content. A settled region (Empty, Failed, or content) MUST NOT show a Loading skeleton, a spinner, or "loading", "waiting" or "pending" copy anywhere, including its rails and headers. A Loading or Updating state that cannot settle is an R1 wait with no ender.
-- **R41.** **Failed has a scope, not a separate state.** A *view* failure's Retry starts a new attempt for that view (R17). When the pane itself never started (no view exists yet), the same Failed state is shown for the whole pane, and its Retry runs the app's existing **Reload Bridge** command, the same command as the menu, command bar and automation. There is no second reload path.
-- **R42.** A Failed region keeps any last good content readable and marked stale (R19); Failed replaces content only when there is nothing good to show (`unavailable`).
-- **R43.** Loading, Empty, Updating and Failed are built from shared components and the shared Retry control, not per-surface hand-rolled markup. Their labels come from the command and action display system.
+- **R40.** Every E20 region MUST show exactly one of its content or these four states. A settled region MUST NOT show a Loading skeleton, a spinner, or "loading", "waiting" or "pending" copy anywhere in that region, including its rails and headers. Every Loading and Updating state is an E6 wait: it MUST end by R1, in content, Empty or Failed.
+- **R41.** **Failed has a scope, not a separate state.** A *surface* failure's Retry starts a new attempt for that surface (R17). When the E1 pane session is a **failed start**, every region of the pane shows the same Failed state, and its Retry runs the app's existing **Reload Bridge** command, the same command as the menu, command bar and automation. There is no second reload path.
+- **R42.** A Failed region keeps any last good content readable and marked stale (R19). Failed replaces content only when its surface is `unavailable`.
+- **R43.** Loading, Empty, Updating and Failed MUST look and behave the same in every region: the same shape rules, the same placement of the Retry control, and labels from the command and action display system (C-UI).
 
 ![Review keeps the last good diff readable, marked stale, with an Update unavailable pill and a Retry button. An inline comment thread stays usable.](assets/review-degraded-retry.png)
 
@@ -274,6 +277,6 @@ It inherits, and may not override, opening, cancelling, retiring, batching, per-
 | U9 | E15 | R10 | failure behavior | controlled clock, fault injection |
 | U10 | all | R28–R32 | S3 | lint, failing-then-passing runs |
 | U11 | E4 E6 | R4 | failure behavior | automated (held human wait plus pane close) |
-| U13 | E2 E7 E14 | R40–R43 | C-UI (non-content states) | browser tests of each state per region; visual evidence in the running app that no settled region shows loading/waiting |
+| U13 | E1 E2 E6 E14 E20 | R40–R43 | C-UI (non-content states) | browser tests of each state per region; visual evidence in the running app that no settled region shows loading/waiting |
 | U12 | E2 E7 E17 | R33–R38 | C-UI (filters) | automated scope/filter tests, no-Review-build assertion, visual |
 | U1, U2 (agent show) | E5 E17 E19 | R39 | failure behavior | background open with no mounted page → opened, notification posted, nothing on screen changes; background open into a visible pane → the displayed file and focus unchanged; take over → approval requested, approved → shown at the line via the human-click path, declined → stays opened in background; missing file → not found; closed pane → pane unavailable; exactly one reply each: automated + E2E |
