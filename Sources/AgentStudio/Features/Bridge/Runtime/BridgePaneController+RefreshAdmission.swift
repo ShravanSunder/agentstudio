@@ -148,6 +148,8 @@ extension BridgePaneController {
 
     private func scheduleReviewCatchUpIfPossible() {
         guard activeReviewRefreshTask == nil,
+            !hasCurrentReviewPackageLoad,
+            pendingComparisonReviewGeneration == nil,
             let firstReservation = refreshAdmissionCoordinator.reserveForegroundRefreshPass(for: .review)
         else { return }
 

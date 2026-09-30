@@ -60,6 +60,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     private let comparisonFailureByBaseProviderIdentity: [String: BridgeProviderFailure]
     private let contentLoadGate: HeldStep<Void>?
     private var comparisonGate: BridgeComparisonGate?
+    private var comparisonStep: HeldStep<BridgeEndpointComparisonRequest>?
     private let checksCancellationAfterGate: Bool
     private var contentRequests: [BridgeContentLoadRequest] = []
     private var comparisonRequests: [BridgeEndpointComparisonRequest] = []
@@ -113,6 +114,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
             throw failure
         }
         let resolvedComparison = comparison
+        try await comparisonStep?.arrive(request)
         await comparisonGate?.waitUntilReleased()
         return BridgeEndpointComparison(
             baseEndpoint: endpoint(
@@ -188,6 +190,10 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
 
     func setComparison(_ comparison: BridgeEndpointComparison) {
         self.comparison = comparison
+    }
+
+    func setComparisonStep(_ comparisonStep: HeldStep<BridgeEndpointComparisonRequest>?) {
+        self.comparisonStep = comparisonStep
     }
 
     func setRepositoryDefaultTarget(

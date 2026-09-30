@@ -113,7 +113,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         commandId: UUID,
         correlationId: UUID?
     ) async -> ActionResult {
-        await executeDiffCommand(
+        switch command {
+        case .loadDiff:
+            refreshAdmissionCoordinator.advanceAuthority(for: .review)
+            retireActiveReviewRefreshTask()
+        }
+        return await executeDiffCommand(
             command,
             commandId: commandId,
             correlationId: correlationId,
@@ -154,6 +159,21 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         let shouldPresentComparisonReplacement: Bool
     }
 
+    var hasCurrentReviewPackageLoad: Bool {
+        activeReviewPackageLoad?.reviewAuthorityGeneration
+            == refreshAdmissionCoordinator.currentAuthorityGeneration(for: .review)
+    }
+
+    private func finishReviewPackageLoadAttempt(_ reset: ReviewPackageLoadReset) {
+        guard activeReviewPackageLoad?.reviewGeneration == reset.reviewGeneration,
+            activeReviewPackageLoad?.reviewAuthorityGeneration == reset.reviewAuthorityGeneration
+        else { return }
+        activeReviewPackageLoad = nil
+        // Authority supersession preserves dirty input. Its owner must resume it when
+        // the full load ends, even when that load failed and retained a predecessor.
+        scheduleWorktreeProductCatchUpIfPossible()
+    }
+
     private struct ReviewPackageLoadCommit {
         let reset: ReviewPackageLoadReset
         let load: BridgeReviewPackageLoadData
@@ -184,6 +204,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         else {
             return .failure(.invalidPayload(description: "Bridge pane is closed"))
         }
+        defer { finishReviewPackageLoadAttempt(reset) }
         var reviewLoadStage = "designation"
         do {
             try await adoptInitialContributionTargetIfEligible(
@@ -418,12 +439,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                         ?? nextReviewGeneration.next()
                     pendingComparisonReviewGeneration = nil
                     nextReviewGeneration = reviewGeneration
-                    return ReviewPackageLoadReset(
+                    let reset = ReviewPackageLoadReset(
                         buildReason: buildReason,
                         reviewAuthorityGeneration: reviewAuthorityGeneration,
                         reviewGeneration: reviewGeneration,
                         shouldPresentComparisonReplacement: shouldPresentComparisonReplacement
                     )
+                    activeReviewPackageLoad = reset
+                    return reset
                 }
             }).flatMap({ $0 })
         else {
@@ -830,9 +853,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission { () -> BridgeReviewGeneration? in
                 guard pendingComparisonReviewGeneration == nil,
-                    nextReviewGeneration == currentPackage.reviewGeneration
+                    !hasCurrentReviewPackageLoad,
+                    nextReviewGeneration >= currentPackage.reviewGeneration
                 else { return nil }
-                return currentPackage.reviewGeneration
+                // Ordinary refresh stays in its lineage so delta and unchanged-load
+                // handling remain incremental. A failed full load leaves a monotonic
+                // allocation gap; replace the retained package beyond that attempt.
+                if nextReviewGeneration == currentPackage.reviewGeneration {
+                    return currentPackage.reviewGeneration
+                }
+                nextReviewGeneration = nextReviewGeneration.next()
+                return nextReviewGeneration
             }
         }.flatMap { $0 }.flatMap { $0 }
     }

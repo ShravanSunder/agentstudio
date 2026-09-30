@@ -181,6 +181,7 @@ func makeRefreshAdmissionIntegrationFixture(
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil,
     initialContributionTarget: WorkspaceReviewContributionTarget? = nil,
+    lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
     contributionTargetCommit:
         (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
@@ -220,7 +221,8 @@ func makeRefreshAdmissionIntegrationFixture(
         reviewMetadataSource: reviewMetadataSource,
         reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
         markReviewItemViewed: { _, _ in },
-        refreshWorkAdmissionSource: refreshWorkAdmission.source
+        refreshWorkAdmissionSource: refreshWorkAdmission.source,
+        lifecycleTraceRecorder: lifecycleTraceRecorder
     )
     let paneId = UUIDv7.generate()
     let productAdmissionGate = BridgeProductAdmissionGate()

@@ -86,6 +86,7 @@ package final class BridgePaneController {
         (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)?
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var pendingComparisonReviewGeneration: BridgeReviewGeneration?
+    var activeReviewPackageLoad: ReviewPackageLoadReset?
     var reviewGitRefreshSeedHolder = BridgeReviewGitRefreshSeedHolder()
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
