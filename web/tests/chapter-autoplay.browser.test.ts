@@ -46,6 +46,14 @@ for (const [width, height] of [
       "navigation",
     ]);
     expect(samples.every((sample) => sample.sceneState === "playing")).toBe(true);
+    for (const sample of samples) {
+      expect(sample.clickTiming).toMatchObject({
+        stepId: sample.stepId,
+        running: true,
+        manualPause: false,
+        elapsedSeconds: 0,
+      });
+    }
     expect(new Set(samples.map((sample) => sample.stageImageHash)).size).toBe(3);
   });
 }
