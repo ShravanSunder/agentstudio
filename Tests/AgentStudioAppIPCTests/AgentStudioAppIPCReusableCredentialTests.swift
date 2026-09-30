@@ -442,7 +442,7 @@ private struct ReusableCredentialFixture {
         return true
     }
 
-    func withServer<Result>(
+    nonisolated(nonsending) func withServer<Result>(
         credentialResolver: any AgentStudioIPCCredentialResolving,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort,
         canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,

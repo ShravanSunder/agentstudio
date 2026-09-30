@@ -62,7 +62,7 @@ func makeTestIPCSystemCapabilitiesComposition(
     )
 }
 
-func withLiveServer<Result>(
+nonisolated(nonsending) func withLiveServer<Result>(
     makeFixture: () throws -> LiveServerFixture,
     releaseHeldWork: @Sendable () async -> Void = {},
     body: (LiveServerFixture) async throws -> Result
@@ -78,7 +78,7 @@ func withLiveServer<Result>(
     }
 }
 
-private func tearDownLiveServer(
+nonisolated(nonsending) private func tearDownLiveServer(
     _ fixture: LiveServerFixture,
     releaseHeldWork: @Sendable () async -> Void
 ) async {
