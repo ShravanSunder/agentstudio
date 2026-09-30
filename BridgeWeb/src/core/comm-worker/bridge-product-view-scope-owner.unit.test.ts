@@ -61,6 +61,117 @@ class ControlledReplacementBeginClock implements BridgeProductDeadlineClock {
 }
 
 describe('W2 desired view scope owner', () => {
+	test('initial accepted scope with no first begin exhausts its bounded recovery and offers Retry', async () => {
+		const clock = new ControlledReplacementBeginClock();
+		const requests: ViewResnapshotAdmissionProps[] = [];
+		const owner = createTestViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					requests.push(props);
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (): string => 'initial-view',
+			deadlineClock: clock,
+			maximumConsecutiveResnapshots: 1,
+			progressDeadlineMilliseconds: 5_000,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'initial-file',
+			subscriptionKind: 'file.metadata',
+		});
+		expect(await owner.setScope({ scope: emptyFileScope, subscriptionId: 'initial-file' })).toEqual(
+			{
+				kind: 'accepted',
+				scopeRevision: 1,
+			},
+		);
+
+		clock.activeDeadline().fire();
+		await clock.waitForScheduleCount(2);
+		expect(requests).toHaveLength(1);
+		clock.activeDeadline().fire();
+		expect(owner.recoveryState('initial-file')).toEqual({
+			consecutiveResnapshots: 1,
+			status: 'failedRetryable',
+		});
+	});
+
+	test('demand replacement after accepted resnapshot keeps the no-begin deadline and budget', async () => {
+		const clock = new ControlledReplacementBeginClock();
+		const requests: ViewResnapshotAdmissionProps[] = [];
+		const owner = createTestViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					requests.push(props);
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (): string => 'replacement-view',
+			deadlineClock: clock,
+			maximumConsecutiveResnapshots: 2,
+			progressDeadlineMilliseconds: 5_000,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'replacement-file',
+			subscriptionKind: 'file.metadata',
+		});
+		await owner.setScope({ scope: emptyFileScope, subscriptionId: 'replacement-file' });
+		await owner.resnapshot('replacement-file');
+		await owner.setScope({
+			scope: { ...emptyFileScope, pathScope: ['new-selection'] },
+			subscriptionId: 'replacement-file',
+		});
+
+		clock.activeDeadline().fire();
+		await clock.waitForScheduleCount(4);
+		expect(requests.map((request) => request.scopeRevision)).toEqual([1, 2]);
+		clock.activeDeadline().fire();
+		expect(owner.recoveryState('replacement-file')).toEqual({
+			consecutiveResnapshots: 2,
+			status: 'failedRetryable',
+		});
+	});
+
+	test('a replacement begin observed before scope acceptance does not arm a stale deadline', async () => {
+		const clock = new ControlledReplacementBeginClock();
+		let releaseAdmission = (): void => {};
+		const heldAdmission = new Promise<void>((resolve): void => {
+			releaseAdmission = resolve;
+		});
+		const owner = createTestViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => {
+					await heldAdmission;
+					return acceptedScope(props);
+				},
+				resnapshotView: async (props) => acceptedResnapshot(props),
+			},
+			createIdentifier: (): string => 'early-begin-view',
+			deadlineClock: clock,
+			maximumConsecutiveResnapshots: 2,
+		});
+		owner.register({
+			scope: emptyFileScope,
+			subscriptionId: 'early-begin-file',
+			subscriptionKind: 'file.metadata',
+		});
+		const opening = owner.setScope({ scope: emptyFileScope, subscriptionId: 'early-begin-file' });
+		owner.observeReplacementSnapshot({
+			handle: 'early-begin-view',
+			incarnation: 'early-begin-view',
+			scopeRevision: 1,
+			subscriptionId: 'early-begin-file',
+		});
+		releaseAdmission();
+		expect(await opening).toEqual({ kind: 'accepted', scopeRevision: 1 });
+		expect(clock.deadlines.every((deadline) => !deadline.active)).toBe(true);
+	});
+
 	test('render exhaustion fails only the Review metadata view and its Retry uses the existing resnapshot', async () => {
 		const statuses: string[] = [];
 		const requests: ViewResnapshotAdmissionProps[] = [];
@@ -153,6 +264,7 @@ describe('W2 desired view scope owner', () => {
 
 	test('a certified Review install under older demand resets recovery without changing latest scope', async () => {
 		const scopes: ViewScopeAdmissionProps[] = [];
+		const clock = new ControlledReplacementBeginClock();
 		const owner = createTestViewScopeOwner({
 			controlMux: {
 				setViewScope: async (props) => {
@@ -162,6 +274,7 @@ describe('W2 desired view scope owner', () => {
 				resnapshotView: async (props) => acceptedResnapshot(props),
 			},
 			createIdentifier: (): string => 'review-view-identity',
+			deadlineClock: clock,
 			maximumConsecutiveResnapshots: 2,
 		});
 		owner.register({
@@ -193,6 +306,7 @@ describe('W2 desired view scope owner', () => {
 			consecutiveResnapshots: 0,
 			status: 'ready',
 		});
+		expect(clock.activeDeadline().active).toBe(true);
 		expect(scopes).toHaveLength(2);
 	});
 
