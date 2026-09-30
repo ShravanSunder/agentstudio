@@ -340,7 +340,7 @@ describe("scene playback", () => {
     }
   });
 
-  it("seeks to a requested step and holds it against autoplay", () => {
+  it("seeks to a requested step and keeps playing", () => {
     stubReducedMotion(false);
     const scene = createFakeSceneFixture();
     const playback = createScenePlayback({
@@ -363,18 +363,18 @@ describe("scene playback", () => {
       }),
     );
 
-    expect(scene.playbackState()).toBe("paused");
-    expect(timing.at(-1)?.manualPause).toBe(true);
+    expect(scene.playbackState()).toBe("playing");
+    expect(timing.at(-1)?.manualPause).toBe(false);
     expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     expect(reachedSteps).toEqual(["watch-folders"]);
     playback.synchronize(1, true);
-    expect(scene.timeline().paused()).toBe(true);
+    expect(scene.timeline().paused()).toBe(false);
     expect(reachedSteps).toEqual(["watch-folders"]);
 
     playback.dispose();
   });
 
-  it("publishes exact step timing and resumes a paused step on request", () => {
+  it("publishes exact step timing and replays the current step from its label", () => {
     stubReducedMotion(false);
     const scene = createFakeSceneFixture();
     const playback = createScenePlayback({
@@ -406,14 +406,20 @@ describe("scene playback", () => {
         detail: { stepId: "watch-folders" },
       }),
     );
-    expect(timing.at(-1)).toMatchObject({ stepId: "watch-folders", running: false });
+    expect(timing.at(-1)).toMatchObject({ stepId: "watch-folders", running: true });
+    scene.timeline().time(1.5);
     scene.surface.dispatchEvent(
-      new CustomEvent("agentstudio:chapter-step-resume-requested", {
+      new CustomEvent("agentstudio:chapter-step-requested", {
         detail: { stepId: "watch-folders" },
       }),
     );
     expect(scene.playbackState()).toBe("playing");
-    expect(timing.at(-1)).toMatchObject({ stepId: "watch-folders", running: true });
+    expect(timing.at(-1)).toMatchObject({
+      stepId: "watch-folders",
+      running: true,
+      elapsedSeconds: 0,
+    });
+    expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     playback.dispose();
   });
 
@@ -656,7 +662,7 @@ describe("scene playback", () => {
       state: "hidden",
       transition: "instant",
     });
-    expect(scene.playbackState()).toBe("paused");
+    expect(scene.playbackState()).toBe("playing");
     expect(scene.timeline().time()).toBe(scene.timeline().labels["beat-watch"]);
     playback.dispose();
   });

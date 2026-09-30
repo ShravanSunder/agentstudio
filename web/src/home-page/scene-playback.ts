@@ -3,7 +3,6 @@ import { gsap } from "gsap";
 import { sceneRootAttribute } from "../chapters/chapter-dom-contract";
 import {
   chapterStepRequestedEventName,
-  chapterStepResumeRequestedEventName,
   createChapterStepEvent,
   createSceneStepTimingEvent,
   readChapterStepEventStepId,
@@ -514,29 +513,16 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     // A step chosen during the proof beat drops the proof at once, then seeks.
     proofLayer.render(false, "instant");
     clearReplayTimer();
-    timeline.pause(step.timelineLabel);
     state.awaitingReplay = false;
     state.suspendedWhileHidden = false;
-    state.intent = "manual-pause";
-    renderPhase("paused", "instant");
-    reportStep(step.stepId);
-  };
-
-  const handleStepResumeRequest = (event: Event): void => {
-    const stepId = readChapterStepEventStepId(event);
-    if (stepId !== state.lastReportedStepId || state.intent !== "manual-pause") return;
-    const timeline = state.timeline;
-    if (timeline === undefined) return;
     state.intent = "auto";
-    timeline.play();
-    renderPhase("playing");
+    timeline.play(step.timelineLabel);
+    renderPhase("playing", "instant");
+    reportStep(step.stepId);
   };
 
   toggle?.addEventListener("click", handleToggle, { signal: lifecycle.signal });
   surface.addEventListener(chapterStepRequestedEventName, handleStepRequest, {
-    signal: lifecycle.signal,
-  });
-  surface.addEventListener(chapterStepResumeRequestedEventName, handleStepResumeRequest, {
     signal: lifecycle.signal,
   });
   renderPhase("settled", "instant");

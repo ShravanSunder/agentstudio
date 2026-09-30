@@ -162,10 +162,8 @@ export const verifyChapterSceneClicks = defineBrowserCommand(
               "scenePlaybackState"
             ],
           }));
-          if (stillFirst.selected !== "parallel-agents" || stillFirst.state !== "paused") {
-            throw new Error(
-              `Manual first step was reclaimed by autoplay: ${JSON.stringify(stillFirst)}`,
-            );
+          if (stillFirst.selected !== "parallel-agents" || stillFirst.state !== "playing") {
+            throw new Error(`Clicked first step stopped playing: ${JSON.stringify(stillFirst)}`);
           }
         }
       }
