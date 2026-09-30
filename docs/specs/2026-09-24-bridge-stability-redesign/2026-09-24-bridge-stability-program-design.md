@@ -409,6 +409,10 @@ Guarantee: after inputs stop changing, at most `attemptBudget` attempts run per 
   - A pane close or session end before `tryBeginWrite` revokes the token. An open picker is cancelled, and nothing is written.
   - A write that already began completes. It and its outcome recording have an application-owned lifetime, and the outcome is recorded but not reported to the ended session (R4).
   - A pane close cancels only that pane's picker.
+- **E1 authority is per installation (PR1 implementation, 2026-09-30).** The pane admission gate is shared by every installation and never reopens, so it can express pane close but not a page reload or worker replacement. Each E1 installation therefore gets its own admission gate: the same primitive, freshly minted by the session owner, and never reopened. The scheme router composes it with the pane gate once, at product ingress, and that composed context travels unchanged through every route, operation, producer claim and effect. Nothing downstream re-acquires the "current" admission.
+  - E1 ends when that installation's own gate closes. The gate closes synchronously at the accepted end or replacement request, before any lifecycle enqueue, actor hop or candidate preparation. Closing is identity-bound, so a late cleanup for A never closes successor B. Session revocation and physical cleanup follow; they don't define the end.
+  - Admission holds the pane gate, then the installation gate, for one short synchronous transition, and nothing slow runs under them. The fence covers Export, repeat Export, clipboard, the picker and remembered-folder acceptance, Reveal, frame and completion publication, N2 dispatch, and committed UI effects.
+  - Pane-lifetime work such as bootstrap preparation keeps pane-only authority. Begun application writes and dispatched mutations, their outcome recording, and all lease, credit and claim release continue after the fence.
 
 ## How the key paths change
 
