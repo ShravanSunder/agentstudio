@@ -59,6 +59,22 @@ func makeTestIPCSystemCapabilitiesComposition(
     )
 }
 
+func withLiveServer<Result>(
+    makeFixture: () throws -> LiveServerFixture,
+    releaseHeldWork: @Sendable () async -> Void = {},
+    body: (LiveServerFixture) async throws -> Result
+) async throws -> Result {
+    let fixture = try makeFixture()
+    do {
+        let result = try await body(fixture)
+        fixture.cleanup()
+        return result
+    } catch {
+        fixture.cleanup()
+        throw error
+    }
+}
+
 struct LiveServerFixture {
     let runtimeId = UUID()
     let boundPaneId = UUID()

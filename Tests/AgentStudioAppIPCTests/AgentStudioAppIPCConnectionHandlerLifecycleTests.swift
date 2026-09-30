@@ -11,6 +11,54 @@ import Testing
 /// it does.
 @Suite("App IPC connection handler lifecycle")
 struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
+    @Test("a throwing live-server scope joins a handler before returning its error")
+    func throwingFixtureScopeJoinsItsHeldHandler() async throws {
+        let paneId = UUIDv7.generate()
+        let port = SuspendingTerminalWaitPort()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1)],
+            runtimePort: port
+        )
+        var heldRequest: Task<JSONRPCResponseMessage, Error>?
+        do {
+            try await withLiveServer(
+                makeFixture: { fixture },
+                body: { fixture in
+                    try fixture.server.start()
+                    heldRequest = Task {
+                        try await sendRequestWithoutBlockingCooperativePool(
+                            socketPath: fixture.paths.socketURL.path,
+                            request: JSONRPCClientRequest(
+                                id: .number(1), method: "terminal.wait",
+                                params: .object([
+                                    "handle": .string("pane:1"),
+                                    "condition": .string(IPCTerminalWaitCondition.commandFinished.rawValue),
+                                    "timeoutSeconds": .number(60),
+                                ])
+                            )
+                        )
+                    }
+                    _ = await port.waitUntilEntered()
+                    throw FixtureScopeTestError.bodyFailed
+                })
+            Issue.record("Expected the fixture body's error")
+        } catch FixtureScopeTestError.bodyFailed {
+            // The fixture must preserve the original body error after joining.
+        }
+
+        let handlerCountAtScopeReturn = fixture.server.trackedConnectionHandlerCount
+        let observedCancellationAtScopeReturn = port.observedCancellation
+        // Red-proof rescue only: capture the bad postcondition before unblocking
+        // the old cleanup's leaked handler. Removed with the fixture fix.
+        await fixture.server.joinConnectionHandlers()
+        _ = try? await heldRequest?.value
+
+        #expect(handlerCountAtScopeReturn == 0)
+        #expect(observedCancellationAtScopeReturn)
+        #expect(!FileManager.default.fileExists(atPath: fixture.rootURL.path))
+    }
+
     @Test("joinConnectionHandlers waits for a handler held inside a request, then clears its entry")
     func joinWaitsForAHeldHandlerThenClearsItsEntry() async throws {
         let paneId = UUIDv7.generate()
@@ -124,6 +172,10 @@ struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
         _ = try? await waitTask.value
         #expect(port.observedCancellation)
     }
+}
+
+private enum FixtureScopeTestError: Error {
+    case bodyFailed
 }
 
 /// A runtime port whose `waitForTerminal` parks on a continuation until the

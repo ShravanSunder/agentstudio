@@ -14,6 +14,20 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         installTestAtomRegistryIfNeeded()
     }
 
+    @Test("a targeted drawer-focus case preserves its caller's core atoms")
+    func targetedFocusCasePreservesCallerAtomScope() async throws {
+        try await withAsyncTestAtomRegistry { registry in
+            let callerPaneId = UUIDv7.generate()
+            registry.core.workspaceFocusOwner.focusMainPane(callerPaneId)
+            registry.core.managementLayer.activate()
+
+            try await executeFocusDrawerPaneReattachesChildRevealedByArrangementSwitch()
+
+            #expect(registry.core.workspaceFocusOwner.owner == .mainPane(paneId: callerPaneId))
+            #expect(registry.core.managementLayer.isActive)
+        }
+    }
+
     @Test("targeted focusPane is available for an existing main pane")
     func canExecuteFocusPane_targetedMainPane() {
         let harness = makeHarness()
