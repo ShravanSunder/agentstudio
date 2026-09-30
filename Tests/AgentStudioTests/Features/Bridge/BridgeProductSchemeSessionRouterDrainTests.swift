@@ -113,6 +113,37 @@ struct BridgeProductSchemeSessionRouterDrainTests {
         #expect(await router.snapshot.activeSchemeTaskCount == 0)
     }
 
+    @Test("content claim completion is identified while an unrelated metadata claim remains")
+    func contentClaimCompletionIsIndependentOfMetadataClaim() async throws {
+        let (router, capability) = try makeRouterWithLiveStreamClaim()
+        guard
+            case .admitted(let metadataClaim) = await router.claimActiveAdapter(
+                presentedCapability: capability,
+                schemeTaskId: UUIDv7.generate(),
+                route: .metadataStream
+            ),
+            case .admitted(let contentClaim) = await router.claimActiveAdapter(
+                presentedCapability: capability,
+                schemeTaskId: UUIDv7.generate(),
+                route: .content
+            )
+        else {
+            Issue.record("Expected both scheme claims to be admitted")
+            return
+        }
+        let contentRequestId = "content-claim-finish-observation"
+        let finishEvents = await router.observeContentClaimFinish(for: contentRequestId)
+        await contentClaim.associateContentRequest(contentRequestId)
+        #expect(await router.hasActiveContentClaim(for: contentRequestId))
+
+        await contentClaim.finish()
+        var finishIterator = finishEvents.makeAsyncIterator()
+        #expect(await finishIterator.next() != nil)
+        #expect(!(await router.hasActiveContentClaim(for: contentRequestId)))
+        #expect((await router.snapshot).activeSchemeTaskCount == 1)
+        await metadataClaim.finish()
+    }
+
     @Test("a new installation admits work while an old transport claim remains")
     func replacementDoesNotWaitForOldClaim() async throws {
         let gate = BridgeProductAdmissionGate()

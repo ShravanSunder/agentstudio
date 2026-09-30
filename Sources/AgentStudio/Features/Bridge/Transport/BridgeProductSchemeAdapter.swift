@@ -58,7 +58,8 @@ struct BridgeProductSchemeAdapter: Sendable {
     func route(
         _ request: URLRequest,
         productAdmission: BridgeProductAdmissionContext,
-        continuation: BridgeProductSchemeReplyContinuation
+        continuation: BridgeProductSchemeReplyContinuation,
+        contentRequestAccepted: (@Sendable (String) async -> Void)? = nil
     ) async {
         let responseState = BridgeProductSchemeReplyState()
         await BridgeProductSchemeReplyContext.$state.withValue(responseState) {
@@ -66,7 +67,8 @@ struct BridgeProductSchemeAdapter: Sendable {
                 request,
                 productAdmission: productAdmission,
                 continuation: continuation,
-                responseState: responseState
+                responseState: responseState,
+                contentRequestAccepted: contentRequestAccepted
             )
         }
     }
@@ -75,7 +77,8 @@ struct BridgeProductSchemeAdapter: Sendable {
         _ request: URLRequest,
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation,
-        responseState: BridgeProductSchemeReplyState
+        responseState: BridgeProductSchemeReplyState,
+        contentRequestAccepted: (@Sendable (String) async -> Void)?
     ) async {
         guard !Task.isCancelled else {
             continuation.finish(throwing: CancellationError())
@@ -127,7 +130,8 @@ struct BridgeProductSchemeAdapter: Sendable {
                 try await routeAccepted(
                     acceptedRequest,
                     productAdmission: productAdmission,
-                    continuation: continuation
+                    continuation: continuation,
+                    contentRequestAccepted: contentRequestAccepted
                 )
             }
         } catch {
@@ -186,7 +190,8 @@ struct BridgeProductSchemeAdapter: Sendable {
     private func routeAccepted(
         _ request: BridgeProductSchemeAcceptedRequest,
         productAdmission: BridgeProductAdmissionContext,
-        continuation: BridgeProductSchemeReplyContinuation
+        continuation: BridgeProductSchemeReplyContinuation,
+        contentRequestAccepted: (@Sendable (String) async -> Void)?
     ) async throws {
         switch request.route {
         case .command:
@@ -205,7 +210,8 @@ struct BridgeProductSchemeAdapter: Sendable {
             try await routeContent(
                 request,
                 productAdmission: productAdmission,
-                continuation: continuation
+                continuation: continuation,
+                contentRequestAccepted: contentRequestAccepted
             )
         }
     }
@@ -606,7 +612,8 @@ struct BridgeProductSchemeAdapter: Sendable {
     private func routeContent(
         _ request: BridgeProductSchemeAcceptedRequest,
         productAdmission: BridgeProductAdmissionContext,
-        continuation: BridgeProductSchemeReplyContinuation
+        continuation: BridgeProductSchemeReplyContinuation,
+        contentRequestAccepted: (@Sendable (String) async -> Void)?
     ) async throws {
         guard
             let contentRequest = try? BridgeProductStrictJSON.decode(
@@ -631,6 +638,9 @@ struct BridgeProductSchemeAdapter: Sendable {
             productAdmission: productAdmission,
             operation: operation
         )
+        if case .accepted = registration {
+            await contentRequestAccepted?(contentRequest.admission.contentRequestId)
+        }
         // A content request at a newer epoch can advance the surface floor. The
         // retired subscriptions' producers stop alongside this content response
         // rather than ahead of it.

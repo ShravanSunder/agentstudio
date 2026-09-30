@@ -110,9 +110,8 @@ extension BridgeSchemeHandler {
                 await transportClaim.finish()
                 return
             }
-            await transportClaim.adapter.route(
+            await transportClaim.route(
                 request,
-                productAdmission: transportClaim.productAdmission,
                 continuation: continuation
             )
             bridgeProductSchemeTaskLogger.debug(

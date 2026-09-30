@@ -7,6 +7,14 @@ import Testing
 
 @MainActor
 extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
+    private struct ContentAbortRequest {
+        let acknowledgementBody: String
+        let capability: String
+        let contentRequestId: String
+        let leaseId: String
+        let requestBody: String
+    }
+
     /// Link 1: the page reader's finite-progress deadline aborts its fetch signal
     /// (bridge-product-transport-content-progress.unit.test.ts). Link 2: this
     /// packaged WebKit fetch uses that signal path and proves an ACK0-parked
@@ -40,30 +48,20 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 await hostedController.productSessionOwner.activeInstallation
             )
             #expect(await installation.session.waitUntilActive())
-            let baseline = await hostedController.productSessionOwner.snapshot()
             let request = try await makeContentAbortRequest(installation: installation)
             return try await observePackagedContentAbort(
                 controller: hostedController,
-                baseline: baseline,
-                capability: request.capability,
-                requestBody: request.requestBody,
-                acknowledgementBody: request.acknowledgementBody
+                installation: installation,
+                request: request
             )
         }
 
-        #expect(run.value.2 == "404:unknownRead")
-        #expect(run.value.1.activeSchemeTaskCount == run.value.0.activeSchemeTaskCount)
-        #expect(run.value.1.activeTransportLeaseCount == run.value.0.activeTransportLeaseCount)
-        #expect(run.value.1.activeProducerCount == run.value.0.activeProducerCount)
-        #expect(run.value.1.activeProducerTaskCount == run.value.0.activeProducerTaskCount)
-        #expect(run.value.1.activeContentLeaseCount == run.value.0.activeContentLeaseCount)
-        #expect(run.value.1.queuedFrameCount == run.value.0.queuedFrameCount)
-        #expect(run.value.1.inFlightFrameReceiptCount == run.value.0.inFlightFrameReceiptCount)
+        #expect(run.value == "404:unknownRead")
         #expect(run.teardownSnapshot.hasZeroResidue)
     }
     private func makeContentAbortRequest(
         installation: BridgeProductSessionInstallation
-    ) async throws -> (capability: String, requestBody: String, acknowledgementBody: String) {
+    ) async throws -> ContentAbortRequest {
         let fileEpoch = await installation.session.snapshot.workerDerivationEpochBySurface[.file] ?? 0
         let capability = try BridgeProductCapabilityHeaderEncoding.encode(
             installation.capabilityBytes
@@ -123,20 +121,24 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         let acknowledgementText = try #require(
             String(data: acknowledgementBody, encoding: .utf8)
         )
-        return (capability, requestText, acknowledgementText)
+        return ContentAbortRequest(
+            acknowledgementBody: acknowledgementText,
+            capability: capability,
+            contentRequestId: contentRequestID,
+            leaseId: leaseID,
+            requestBody: requestText
+        )
     }
 
     private func observePackagedContentAbort(
         controller hostedController: BridgePaneController,
-        baseline: BridgePaneProductSessionOwnerSnapshot,
-        capability: String,
-        requestBody requestText: String,
-        acknowledgementBody acknowledgementText: String
-    ) async throws -> (
-        BridgePaneProductSessionOwnerSnapshot,
-        BridgePaneProductSessionOwnerSnapshot,
-        String?
-    ) {
+        installation: BridgeProductSessionInstallation,
+        request: ContentAbortRequest
+    ) async throws -> String? {
+        let schemeRouter = await hostedController.productSessionOwner.schemeRouter
+        let finishEvents = await schemeRouter.observeContentClaimFinish(
+            for: request.contentRequestId
+        )
         let contentFetch = Task { @MainActor in
             try await hostedController.page.callJavaScript(
                 """
@@ -175,9 +177,9 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 arguments: [
                     "contentURL": BridgeProductWireContract.contentRoute,
                     "commandURL": BridgeProductWireContract.commandRoute,
-                    "capability": capability,
-                    "requestBody": requestText,
-                    "acknowledgementBody": acknowledgementText,
+                    "capability": request.capability,
+                    "requestBody": request.requestBody,
+                    "acknowledgementBody": request.acknowledgementBody,
                 ]
             ) as? String
         }
@@ -185,16 +187,27 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             hostedController.page,
             "html[data-bridge-test-ack0-opening=\"received\"]"
         )
-        let parked = await hostedController.productSessionOwner.snapshot()
-        #expect(parked.activeProducerCount == baseline.activeProducerCount + 1)
-        #expect(parked.activeProducerTaskCount == baseline.activeProducerTaskCount + 1)
-        #expect(parked.activeContentLeaseCount == baseline.activeContentLeaseCount + 1)
+        #expect(await schemeRouter.hasActiveContentClaim(for: request.contentRequestId))
+        #expect(
+            await installation.session.hasContentAdmission(
+                contentRequestId: request.contentRequestId,
+                leaseId: request.leaseId
+            )
+        )
         _ = try await hostedController.page.callJavaScript(
             "window.dispatchEvent(new Event('bridge-test-abort-content'));"
         )
         let lateAcknowledgement = try await contentFetch.value
-        let settled = await hostedController.productSessionOwner.snapshot()
-        return (baseline, settled, lateAcknowledgement)
+        var finishIterator = finishEvents.makeAsyncIterator()
+        #expect(await finishIterator.next() != nil)
+        #expect(!(await schemeRouter.hasActiveContentClaim(for: request.contentRequestId)))
+        #expect(
+            !(await installation.session.hasContentAdmission(
+                contentRequestId: request.contentRequestId,
+                leaseId: request.leaseId
+            ))
+        )
+        return lateAcknowledgement
     }
 
 }

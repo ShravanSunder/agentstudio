@@ -355,6 +355,12 @@ actor BridgeProductSession {
         )
     }
 
+    func hasContentAdmission(contentRequestId: String, leaseId: String) -> Bool {
+        contentAdmissionByProducerLease.values.contains {
+            $0.contentRequestId == contentRequestId && $0.leaseId == leaseId
+        }
+    }
+
     // Nil means live or unowned residue, empty means clear, and nonempty contains only
     // the existing barriers for metadata producers whose retirement is already in flight.
     func metadataRetirementBarriersForReload() -> [BridgeProductProducerRetirementBarrier]? {

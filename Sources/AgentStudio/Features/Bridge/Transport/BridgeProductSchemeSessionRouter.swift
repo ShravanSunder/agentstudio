@@ -18,8 +18,26 @@ struct BridgeProductSchemeTransportClaim: Sendable {
     fileprivate let id: UUID
     fileprivate let router: BridgeProductSchemeSessionRouter
 
+    func route(
+        _ request: URLRequest,
+        continuation: BridgeProductSchemeReplyContinuation
+    ) async {
+        await adapter.route(
+            request,
+            productAdmission: productAdmission,
+            continuation: continuation,
+            contentRequestAccepted: { contentRequestId in
+                await associateContentRequest(contentRequestId)
+            }
+        )
+    }
+
     func finish() async {
         await router.finish(self)
+    }
+
+    func associateContentRequest(_ contentRequestId: String) async {
+        await router.associateContentRequest(contentRequestId, with: id)
     }
 }
 
@@ -35,6 +53,8 @@ actor BridgeProductSchemeSessionRouter {
     private var activeTransportClaimIds: Set<UUID> = []
     private var claimInstallationById: [UUID: String] = [:]
     private var activeStreamClaimIds: Set<UUID> = []
+    private var contentRequestIdByClaimId: [UUID: String] = [:]
+    private var contentClaimFinishObservers: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
     private var clearWaiters: [CheckedContinuation<Void, Never>] = []
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
     private var drainWaitersByInstallation: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -163,6 +183,42 @@ actor BridgeProductSchemeSessionRouter {
         }
     }
 
+    func observeContentClaimFinish(for contentRequestId: String) -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let observationId = UUID()
+        contentClaimFinishObservers[contentRequestId, default: [:]][observationId] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeContentClaimFinishObserver(
+                    contentRequestId: contentRequestId,
+                    observationId: observationId
+                )
+            }
+        }
+        return stream
+    }
+
+    func hasActiveContentClaim(for contentRequestId: String) -> Bool {
+        contentRequestIdByClaimId.values.contains(contentRequestId)
+    }
+
+    fileprivate func associateContentRequest(_ contentRequestId: String, with claimId: UUID) {
+        guard activeTransportClaimIds.contains(claimId) else { return }
+        contentRequestIdByClaimId[claimId] = contentRequestId
+    }
+
+    private func removeContentClaimFinishObserver(
+        contentRequestId: String,
+        observationId: UUID
+    ) {
+        contentClaimFinishObservers[contentRequestId]?.removeValue(forKey: observationId)
+        if contentClaimFinishObservers[contentRequestId]?.isEmpty == true {
+            contentClaimFinishObservers.removeValue(forKey: contentRequestId)
+        }
+    }
+
     /// Resolves when no metadata-stream claim remains.
     ///
     /// Deliberately narrower than `waitForDrain()`: a command or content claim
@@ -240,6 +296,13 @@ actor BridgeProductSchemeSessionRouter {
         activeSchemeTaskIds.remove(claim.id)
         activeTransportClaimIds.remove(claim.id)
         claimInstallationById.removeValue(forKey: claim.id)
+        if let contentRequestId = contentRequestIdByClaimId.removeValue(forKey: claim.id) {
+            let observers = contentClaimFinishObservers.removeValue(forKey: contentRequestId) ?? [:]
+            for continuation in observers.values {
+                continuation.yield(())
+                continuation.finish()
+            }
+        }
         if activeStreamClaimIds.remove(claim.id) != nil, activeStreamClaimIds.isEmpty {
             resumeAllStreamDrainWaiters()
         }
