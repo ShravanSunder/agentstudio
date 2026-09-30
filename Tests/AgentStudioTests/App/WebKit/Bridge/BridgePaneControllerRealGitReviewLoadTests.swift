@@ -161,7 +161,7 @@ extension WebKitSerializedTests {
             let refreshOutcome = await harness.controller.refreshCurrentReviewPackage(
                 reservation: reservation,
                 foregroundWorkAdmission: reservation.foregroundWorkAdmission,
-                productAdmission: harness.productAdmission
+                productAdmission: harness.paneProductAdmission
             )
             harness.controller.refreshAdmissionCoordinator.completeRefreshPass(
                 reservation,
@@ -321,6 +321,7 @@ private struct RealGitReviewLoadHarness {
     let controller: BridgePaneController
     let constructionCoordinator: BridgeWorktreeProductConstructionCoordinator
     let installation: BridgeProductSessionInstallation
+    let paneProductAdmission: BridgeProductAdmissionContext
     let productAdmission: BridgeProductAdmissionContext
     let productProvider: BridgePaneProductSchemeProvider
     let reviewDataClient: AgentStudioGitBridgeReviewDataClient<LibGit2AgentStudioGitLocalClient>
@@ -367,7 +368,8 @@ private struct RealGitReviewLoadHarness {
         let installation = try #require(
             await controller.productSessionOwner.activeInstallation
         )
-        let productAdmission = try #require(controller.productAdmissionGate.acquire())
+        let paneProductAdmission = try #require(controller.productAdmissionGate.acquire())
+        let productAdmission = try #require(installation.productAdapter.acquireAdmission())
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
             installation.capabilityBytes
         )
@@ -383,6 +385,7 @@ private struct RealGitReviewLoadHarness {
             controller: controller,
             constructionCoordinator: constructionCoordinator,
             installation: installation,
+            paneProductAdmission: paneProductAdmission,
             productAdmission: productAdmission,
             productProvider: productProvider,
             reviewDataClient: reviewDataClient,
