@@ -6,8 +6,8 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 extension RepoExplorerReadModelTests {
-    @Test("By Tab keeps one stored-order tab section regardless of favorites")
-    func tabGroupsKeepStoredOrderWithoutFavoritePartitions() {
+    @Test("fixed Activity keeps panes from both tabs without favorite partitions")
+    func activityKeepsBothTabsWithoutFavoritePartitions() {
         let favoriteRepoId = UUIDv7.generate()
         let regularRepoId = UUIDv7.generate()
         let favoriteWorktree = worktree(repoId: favoriteRepoId, name: "favorite")
@@ -52,17 +52,16 @@ extension RepoExplorerReadModelTests {
         )
 
         #expect(projection.sections.map(\.kind) == [.panes])
+        #expect(projection.resolvedGroups.map(\.id) == ["panes:panes:activity:6"])
+        #expect(Set(projection.resolvedGroups.flatMap(\.repos).map(\.id)) == [regularRepoId, favoriteRepoId])
         #expect(
-            projection.resolvedGroups.map(\.id) == [
-                "panes:panes:tab:\(earlierTabId.uuidString)",
-                "panes:panes:tab:\(laterTabId.uuidString)",
-            ]
+            Set(projection.paneRowsByGroupId["panes:panes:activity:6", default: []].map(\.destination.tabId))
+                == [earlierTabId, laterTabId]
         )
-        #expect(projection.resolvedGroups.flatMap(\.repos).map(\.id) == [regularRepoId, favoriteRepoId])
     }
 
-    @Test("By Tab disclosure state collapses the complete tab")
-    func tabDisclosureStateCollapsesCompleteTab() {
+    @Test("Activity bucket disclosure hides its pane rows")
+    func activityDisclosureStateCollapsesCompleteBucket() {
         let repoId = UUIDv7.generate()
         let worktree = worktree(repoId: repoId)
         let tabId = UUIDv7.generate()
@@ -94,7 +93,7 @@ extension RepoExplorerReadModelTests {
         )
         let collapsed = RepoExplorerRowIndex(
             projection: projection,
-            collapsedGroupIds: ["panes:panes:tab:\(tabId.uuidString)"],
+            collapsedGroupIds: ["panes:panes:activity:6"],
             isFiltering: false
         )
 

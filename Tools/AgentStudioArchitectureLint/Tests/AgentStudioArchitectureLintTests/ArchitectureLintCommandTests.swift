@@ -1,8 +1,13 @@
-import Darwin
 import Foundation
 import Testing
 
 @testable import AgentStudioArchitectureLintCore
+
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
 
 @Suite(.serialized)
 struct ArchitectureLintCommandTests {
@@ -257,6 +262,100 @@ struct ArchitectureLintCommandTests {
         #expect(over.output.components(separatedBy: "count 5 exceeds 4 permitted").count - 1 == 5)
     }
 
+    @Test("three Swift ledgers reconcile their own rule counts")
+    func repeatedLedgersReconcileAllThreeRuleFamilies() throws {
+        let workspace = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("agentstudio-two-ledgers-\(UUID().uuidString)")
+        let testsDirectory = workspace.appendingPathComponent("Tests")
+        try FileManager.default.createDirectory(at: testsDirectory, withIntermediateDirectories: true)
+        let source = testsDirectory.appendingPathComponent("Waits.swift")
+        try """
+        struct ContinuationWaiter {
+            var waiter: CheckedContinuation<Void, Never>?
+            func suspendAtContinuation() async { await withCheckedContinuation { _ in } }
+        }
+        func scenario() { waitUntilIdle(); waitUntilIdle() }
+        """
+        .write(to: source, atomically: true, encoding: .utf8)
+        let architectureLedger = try writeLedger(rows: [])
+        let exactForbidden = try writeLedger(
+            rows: ["agentstudio_no_forbidden_test_wait\tTests/Waits.swift\t2"],
+            filename: "forbidden-test-wait-ledger.tsv"
+        )
+        let underForbidden = try writeLedger(
+            rows: ["agentstudio_no_forbidden_test_wait\tTests/Waits.swift\t1"],
+            filename: "forbidden-test-wait-ledger.tsv"
+        )
+        let overForbidden = try writeLedger(
+            rows: ["agentstudio_no_forbidden_test_wait\tTests/Waits.swift\t3"],
+            filename: "forbidden-test-wait-ledger.tsv"
+        )
+        let exactContinuation = try writeLedger(
+            rows: ["agentstudio_no_adhoc_continuation_wait\tTests/Waits.swift\t2"],
+            filename: "adhoc-continuation-wait-ledger.tsv"
+        )
+        let underContinuation = try writeLedger(
+            rows: ["agentstudio_no_adhoc_continuation_wait\tTests/Waits.swift\t1"],
+            filename: "adhoc-continuation-wait-ledger.tsv"
+        )
+        let overContinuation = try writeLedger(
+            rows: ["agentstudio_no_adhoc_continuation_wait\tTests/Waits.swift\t3"],
+            filename: "adhoc-continuation-wait-ledger.tsv"
+        )
+
+        func lint(with forbiddenLedger: URL, continuationLedger: URL) -> CommandRunResult {
+            runCommand(
+                arguments: [
+                    "Tests/Waits.swift", "--ledger", architectureLedger.path,
+                    "--ledger", forbiddenLedger.path, "--ledger", continuationLedger.path,
+                ],
+                workspaceRootPath: canonicalFileSystemPath(workspace.path)
+            )
+        }
+        let exact = lint(with: exactForbidden, continuationLedger: exactContinuation)
+        let overForbiddenCount = lint(with: underForbidden, continuationLedger: exactContinuation)
+        let underForbiddenCount = lint(with: overForbidden, continuationLedger: exactContinuation)
+        let overContinuationCount = lint(with: exactForbidden, continuationLedger: underContinuation)
+        let underContinuationCount = lint(with: exactForbidden, continuationLedger: overContinuation)
+
+        #expect(exact.exitCode == 0, Comment(rawValue: exact.output))
+        #expect(overForbiddenCount.exitCode == 1)
+        #expect(overForbiddenCount.output.components(separatedBy: "count 2 exceeds 1 permitted").count - 1 == 2)
+        #expect(underForbiddenCount.exitCode == 1)
+        #expect(underForbiddenCount.output.contains("lower the row to 2"))
+        #expect(overContinuationCount.exitCode == 1)
+        #expect(overContinuationCount.output.components(separatedBy: "count 2 exceeds 1 permitted").count - 1 == 2)
+        #expect(underContinuationCount.exitCode == 1)
+        #expect(underContinuationCount.output.contains("lower the row to 2"))
+    }
+
+    @Test("a row in the wrong ledger and a duplicate cross-ledger key fail closed")
+    func ledgerOwnershipAndDuplicateKeysFailClosed() throws {
+        let wrongArchitectureLedger = try writeLedger(rows: [
+            "agentstudio_no_forbidden_test_wait\tTests/Waits.swift\t1"
+        ])
+        let forbiddenLedger = try writeLedger(
+            rows: ["agentstudio_no_forbidden_test_wait\tTests/Waits.swift\t1"],
+            filename: "forbidden-test-wait-ledger.tsv"
+        )
+        let wrongForbiddenLedger = try writeLedger(
+            rows: ["agentstudio_no_adhoc_continuation_wait\tTests/Waits.swift\t1"],
+            filename: "forbidden-test-wait-ledger.tsv"
+        )
+        let wrong = runCommand(arguments: ["--ledger", wrongArchitectureLedger.path])
+        let wrongSpecialized = runCommand(arguments: ["--ledger", wrongForbiddenLedger.path])
+        let duplicate = runCommand(arguments: [
+            "--ledger", wrongArchitectureLedger.path, "--ledger", forbiddenLedger.path,
+        ])
+
+        #expect(wrong.exitCode == 2)
+        #expect(wrong.output.contains("belongs in the other Swift debt ledger"))
+        #expect(wrongSpecialized.exitCode == 2)
+        #expect(wrongSpecialized.output.contains("belongs in the other Swift debt ledger"))
+        #expect(duplicate.exitCode == 2)
+        #expect(duplicate.output.contains("duplicate row across ledgers"))
+    }
+
     @Test("lowering rewrites the ledger to the found count and then passes")
     func loweringRewritesLedgerToFoundCount() throws {
         let fixture = fixturePath("Bad")
@@ -298,17 +397,43 @@ struct ArchitectureLintCommandTests {
     func ratchetFailsRaisedRowAndPassesWithoutBaseLedger() throws {
         let base = try writeLedger(rows: ["a_rule\tTests/A.swift\t1"])
         let raised = try writeLedger(rows: ["a_rule\tTests/A.swift\t2"])
+        let forbiddenBase = try writeLedger(
+            rows: ["agentstudio_no_forbidden_test_wait\tTests/Waits.swift\t1"],
+            filename: "forbidden-test-wait-ledger.tsv"
+        )
+        let forbiddenRaised = try writeLedger(
+            rows: ["agentstudio_no_forbidden_test_wait\tTests/Waits.swift\t2"],
+            filename: "forbidden-test-wait-ledger.tsv"
+        )
+        let continuationBase = try writeLedger(
+            rows: ["agentstudio_no_adhoc_continuation_wait\tTests/Waits.swift\t1"],
+            filename: "adhoc-continuation-wait-ledger.tsv"
+        )
+        let continuationRaised = try writeLedger(
+            rows: ["agentstudio_no_adhoc_continuation_wait\tTests/Waits.swift\t2"],
+            filename: "adhoc-continuation-wait-ledger.tsv"
+        )
 
         let raisedResult = runCommand(arguments: ["--ledger", raised.path, "--check-ledger-ratchet", base.path])
         let noBaseResult = runCommand(
             arguments: ["--ledger", raised.path, "--check-ledger-ratchet", "/nonexistent/base.tsv"]
         )
+        let raisedForbiddenResult = runCommand(arguments: [
+            "--ledger", forbiddenRaised.path, "--check-ledger-ratchet", forbiddenBase.path,
+        ])
+        let raisedContinuationResult = runCommand(arguments: [
+            "--ledger", continuationRaised.path, "--check-ledger-ratchet", continuationBase.path,
+        ])
 
         #expect(raisedResult.exitCode == 1)
         #expect(raisedResult.output.contains("[agentstudio_debt_ledger_ratchet]"))
         #expect(raisedResult.output.contains("from 1 to 2"))
         #expect(noBaseResult.exitCode == 0, Comment(rawValue: noBaseResult.output))
         #expect(noBaseResult.output.contains("no debt ledger at the merge base"))
+        #expect(raisedForbiddenResult.exitCode == 1)
+        #expect(raisedForbiddenResult.output.contains("from 1 to 2"))
+        #expect(raisedContinuationResult.exitCode == 1)
+        #expect(raisedContinuationResult.output.contains("from 1 to 2"))
     }
 
     @Test("configuration diagnostics are reported by full runs only")
@@ -393,11 +518,11 @@ struct ArchitectureLintCommandTests {
 
     /// A ledger file in a fresh temporary directory; the directory is left
     /// for the system to clean, like the command runs' own output files.
-    private func writeLedger(rows: [String]) throws -> URL {
+    private func writeLedger(rows: [String], filename: String = "architecture-debt-ledger.tsv") throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-architecture-ledger-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let ledger = directory.appendingPathComponent("architecture-debt-ledger.tsv")
+        let ledger = directory.appendingPathComponent(filename)
         try (([ArchitectureDebtLedger.header] + rows).joined(separator: "\n") + "\n")
             .write(to: ledger, atomically: true, encoding: .utf8)
         return ledger
@@ -413,8 +538,8 @@ struct ArchitectureLintCommandTests {
         let outputURL = temporaryDirectory.appendingPathComponent("stdout.log")
         let errorURL = temporaryDirectory.appendingPathComponent("stderr.log")
         try? FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        FileManager.default.createFile(atPath: errorURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: errorURL.path, contents: nil)
         defer {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
@@ -441,10 +566,10 @@ struct ArchitectureLintCommandTests {
 
 private func canonicalFileSystemPath(_ path: String) -> String {
     let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-    guard let resolvedPath = standardizedPath.withCString({ Darwin.realpath($0, nil) }) else {
+    guard let resolvedPath = standardizedPath.withCString({ realpath($0, nil) }) else {
         return standardizedPath
     }
-    defer { Darwin.free(resolvedPath) }
+    defer { free(resolvedPath) }
     return String(cString: resolvedPath)
 }
 

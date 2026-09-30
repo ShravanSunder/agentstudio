@@ -120,23 +120,30 @@ extension RepoExplorerProjectionWorker {
     ) -> [UUID: RepoExplorerPaneRowFacts] {
         guard snapshot.surface == .panes else { return capturedFacts }
         return capturedFacts.mapValues { facts in
-            RepoExplorerPaneRowFacts(
+            let referenceInstant =
+                snapshot.referenceInstant
+                ?? facts.paneActivityTime?.orderingInstant
+                ?? ContinuousClock.now
+            let activity = RepoExplorerPaneActivityProjection.make(
+                time: snapshot.referenceInstant == nil ? nil : facts.paneActivityTime,
+                referenceInstant: referenceInstant,
+                wallNow: snapshot.referenceDate,
+                calendar: snapshot.calendar
+            )
+            return RepoExplorerPaneRowFacts(
                 terminalTitle: facts.terminalTitle,
-                activityAt: facts.activityAt,
+                activityAt: activity.activityDate,
+                paneActivityTime: facts.paneActivityTime,
                 isPinned: facts.isPinned,
                 noteText: facts.noteText,
                 latestMessageText: facts.latestMessageText,
-                recencyReferenceDate: facts.recencyReferenceDate,
-                recencyText: RepoExplorerPaneRecencyText.display(
-                    lastInteractedAt: facts.recencyReferenceDate,
-                    now: snapshot.referenceDate
-                ),
-                recencyTier: RepoExplorerPaneRecencyTier.classify(
-                    referenceDate: facts.recencyReferenceDate,
-                    now: snapshot.referenceDate
-                ),
-                isActive: facts.isActive,
-                isDrawerPane: facts.isDrawerPane
+                recencyReferenceDate: activity.activityDate ?? .distantPast,
+                recencyText: activity.clockText,
+                recencyTier: activity.recencyTier,
+                nextPresentationChangeDate: activity.nextPresentationChangeDate,
+                isActive: activity.isActive,
+                isDrawerPane: facts.isDrawerPane,
+                drawerOwnerPaneID: facts.drawerOwnerPaneID
             )
         }
     }
@@ -152,15 +159,9 @@ extension RepoExplorerProjectionWorker {
         var transitions: [UUID: Date] = [:]
         transitions.reserveCapacity(paneFacts.count)
         for (paneID, facts) in paneFacts {
-            let recencyTransition =
-                snapshot.surface == .panes
-                ? RepoExplorerPaneRecencyText.nextPresentationChangeDate(
-                    referenceDate: facts.recencyReferenceDate,
-                    now: snapshot.referenceDate
-                )
-                : nil
+            let recencyTransition = snapshot.surface == .panes ? facts.nextPresentationChangeDate : nil
             let activityTransition =
-                usesActivityTime
+                snapshot.surface == .repos && usesActivityTime
                 ? RepoExplorerActivityBucket.nextChangeDate(
                     activityAt: facts.activityAt,
                     now: snapshot.referenceDate,

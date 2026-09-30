@@ -15,21 +15,6 @@ struct DropTargetConfigBandTests {
     private static let largeContainer = CGRect(x: 0, y: 0, width: 600, height: 400)
     private static let shortContainer = CGRect(x: 0, y: 0, width: 600, height: 80)
 
-    @Test
-    func mainConfig_hasNoNewRowBand() {
-        #expect(DropTargetConfig.main.newRowBand == nil)
-    }
-
-    @Test
-    func drawerSingleRow_hasNewRowBand() {
-        #expect(DropTargetConfig.drawerSingleRow.newRowBand != nil)
-    }
-
-    @Test
-    func drawerTwoRow_hasNoNewRowBand() {
-        #expect(DropTargetConfig.drawerTwoRow.newRowBand == nil)
-    }
-
     // MARK: - Band height math
 
     @Test

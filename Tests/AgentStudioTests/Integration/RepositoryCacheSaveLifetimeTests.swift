@@ -9,6 +9,69 @@ import Testing
 @MainActor
 @Suite("Repository cache save lifetime", .serialized)
 struct RepositoryCacheSaveLifetimeTests {
+    @Test("flush supersedes an autosave queued behind a held save")
+    func flushSupersedesQueuedAutosaveChain() async throws {
+        let workspaceID = UUIDv7.generate()
+        let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceID)
+        let firstSaveBarrier = FirstRepoCacheSaveTraceBarrier()
+        let traceRuntime = makeTraceRuntime(firstSaveBarrier: firstSaveBarrier)
+        let preparedCore = try WorkspaceSQLiteDatastoreActor.strictlyPrepareCore(using: sqliteFixture.backend)
+        let sqliteDatastore = WorkspaceSQLiteDatastoreActor(
+            preparedCoreRepository: sqliteFixture.coreRepository,
+            preparationReceipt: .init(core: preparedCore, local: .available(recovery: nil)),
+            preparedApplicationLocalRepository: sqliteFixture.localRepository,
+            traceRuntime: traceRuntime
+        )
+        let repoCache = RepoCacheAtom()
+        let clock = TestPushClock()
+        let cacheStore = RepoCacheStore(
+            atom: repoCache,
+            sqliteDatastore: sqliteDatastore,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+        let repositoryID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        await cacheStore.restoreAsync(for: workspaceID)
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktreeID, repoId: repositoryID, branch: "old")
+        )
+        let heldSave = Task { @MainActor in
+            try await cacheStore.flushAsync(for: workspaceID)
+        }
+        do {
+            #expect(await firstSaveBarrier.waitForFirstSavePaused())
+            cacheStore.startObserving()
+            repoCache.setWorktreeEnrichment(
+                WorktreeEnrichment(worktreeId: worktreeID, repoId: repositoryID, branch: "middle")
+            )
+            await clock.waitForPendingSleepCount()
+            clock.advance(by: .milliseconds(10))
+            await Task { @MainActor in }.value
+
+            repoCache.setWorktreeEnrichment(
+                WorktreeEnrichment(worktreeId: worktreeID, repoId: repositoryID, branch: "new")
+            )
+            try await cacheStore.flushAsync(for: workspaceID)
+            await firstSaveBarrier.releaseFirstSave()
+            if case .failure(let error) = await heldSave.result {
+                #expect(error is CancellationError)
+            }
+
+            let persistedState = try sqliteFixture.localRepository.fetchCacheState()
+            #expect(persistedState.worktreeEnrichmentByWorktreeId[worktreeID]?.branch == "new")
+            let restoredCache = RepoCacheAtom()
+            await RepoCacheStore(atom: restoredCache, sqliteDatastore: sqliteDatastore).restoreAsync(for: workspaceID)
+            #expect(restoredCache.worktreeEnrichmentByWorktreeId[worktreeID]?.branch == "new")
+            try await traceRuntime.shutdown()
+        } catch {
+            await firstSaveBarrier.releaseFirstSave()
+            _ = await heldSave.result
+            try? await traceRuntime.shutdown()
+            throw error
+        }
+    }
+
     @Test("a save captured before hide and same-path return cannot overwrite current enrichment")
     func supersededFlushCannotRestorePreHideEnrichment() async throws {
         try await withAsyncTestCoreAtoms { _ in
@@ -153,10 +216,8 @@ struct RepositoryCacheSaveLifetimeTests {
                 try await hideAndReturnRepository(scenario.lifecycleContext)
                 #expect(scenario.repoCache.repoEnrichmentByRepoId[scenario.repository.id] == baselineEnrichment)
                 #expect(scenario.repoCache.worktreeEnrichmentByWorktreeId[scenario.worktree.id] == nil)
-                await assertEventuallyAsync("corrective autosave registers one debounce wait") {
-                    scenario.clock.pendingSleepCount == 1
-                }
-                try #require(scenario.clock.pendingSleepCount == 1)
+                await scenario.clock.waitForPendingSleepCount(exactly: 2)
+                try #require(scenario.clock.pendingSleepCount == 2)
                 scenario.clock.advance(by: .milliseconds(10))
 
                 await scenario.saveBarrier.releasePausedSave()
@@ -165,13 +226,8 @@ struct RepositoryCacheSaveLifetimeTests {
                 if case .failure(let error) = heldSaveResult {
                     #expect(error is CancellationError)
                 }
-                await assertEventuallyAsync(
-                    "the non-forced corrective autosave commits",
-                    timeout: .milliseconds(250)
-                ) {
-                    await scenario.saveBarrier.didObserveCorrectiveSaveSucceeded
-                }
-                try #require(await scenario.saveBarrier.didObserveCorrectiveSaveSucceeded)
+                let correctiveSaveSucceeded = await scenario.saveBarrier.waitForCorrectiveSaveSucceeded()
+                try #require(correctiveSaveSucceeded)
 
                 let correctedState = try scenario.sqliteFixture.localRepository.fetchCacheState()
                 #expect(correctedState.repoEnrichmentByRepoId[scenario.repository.id] == baselineEnrichment)
@@ -433,6 +489,7 @@ private actor FirstRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
     private var matchingSaveStartCount = 0
     private var firstSavePauseContinuation: CheckedContinuation<Void, Never>?
     private var shouldReleaseFirstSave = false
+    private var firstSavePausedContinuation: CheckedContinuation<Bool, Never>?
     private(set) var isFirstSavePaused = false
 
     func record(_ record: AgentStudioTraceRecord) async throws {
@@ -441,6 +498,8 @@ private actor FirstRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
         guard matchingSaveStartCount == 1 else { return }
 
         isFirstSavePaused = true
+        firstSavePausedContinuation?.resume(returning: isFirstSavePaused)
+        firstSavePausedContinuation = nil
         guard !shouldReleaseFirstSave else { return }
         await withCheckedContinuation { continuation in
             firstSavePauseContinuation = continuation
@@ -451,6 +510,13 @@ private actor FirstRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
         shouldReleaseFirstSave = true
         firstSavePauseContinuation?.resume()
         firstSavePauseContinuation = nil
+    }
+
+    func waitForFirstSavePaused() async -> Bool {
+        guard !isFirstSavePaused else { return isFirstSavePaused }
+        return await withCheckedContinuation { continuation in
+            firstSavePausedContinuation = continuation
+        }
     }
 
     func flush() async throws {}
@@ -476,6 +542,7 @@ private actor PostcommitRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
     private var isArmed = false
     private var matchingSucceededSaveCount = 0
     private var pausedSaveContinuation: CheckedContinuation<Void, Never>?
+    private var correctiveSaveSucceededContinuation: CheckedContinuation<Bool, Never>?
     private var shouldReleasePausedSave = false
     private(set) var isSavePausedAfterCommit = false
     private(set) var didObserveCorrectiveSaveSucceeded = false
@@ -495,6 +562,15 @@ private actor PostcommitRepoCacheSaveTraceBarrier: AgentStudioTraceSink {
             }
         } else {
             didObserveCorrectiveSaveSucceeded = true
+            correctiveSaveSucceededContinuation?.resume(returning: didObserveCorrectiveSaveSucceeded)
+            correctiveSaveSucceededContinuation = nil
+        }
+    }
+
+    func waitForCorrectiveSaveSucceeded() async -> Bool {
+        guard !didObserveCorrectiveSaveSucceeded else { return didObserveCorrectiveSaveSucceeded }
+        return await withCheckedContinuation { continuation in
+            correctiveSaveSucceededContinuation = continuation
         }
     }
 

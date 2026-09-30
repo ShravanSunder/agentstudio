@@ -1,6 +1,7 @@
 import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AgentStudioBridge
@@ -61,14 +62,15 @@ struct BridgeProductOperationTableTests {
         )
 
         let cancelledWaiterId = UUIDv7.generate()
-        let cancelledRead: OperationRead = await withCheckedContinuation { continuation in
-            table.observeResult(
-                operationId: operationId,
-                waiterId: cancelledWaiterId,
-                continuation: continuation
-            )
-            table.cancelResultWaiter(operationId: operationId, waiterId: cancelledWaiterId)
-        }
+        let cancelledReadResults = Mutex<[OperationRead]>([])
+        table.observeResult(
+            operationId: operationId,
+            waiterId: cancelledWaiterId,
+            resume: { result in cancelledReadResults.withLock { $0.append(result) } }
+        )
+        table.cancelResultWaiter(operationId: operationId, waiterId: cancelledWaiterId)
+        #expect(cancelledReadResults.withLock { $0.count } == 1)
+        let cancelledRead = try #require(cancelledReadResults.withLock { $0.first })
         #expect(cancelledRead == nil)
         #expect(table.entriesById[operationId]?.resultWaiters.isEmpty == true)
 
@@ -78,13 +80,14 @@ struct BridgeProductOperationTableTests {
         )
         let didSettle = table.settle(settlement)
         #expect(didSettle)
-        let repeatedRead: OperationRead = await withCheckedContinuation { continuation in
-            table.observeResult(
-                operationId: operationId,
-                waiterId: UUIDv7.generate(),
-                continuation: continuation
-            )
-        }
+        let repeatedReadResults = Mutex<[OperationRead]>([])
+        table.observeResult(
+            operationId: operationId,
+            waiterId: UUIDv7.generate(),
+            resume: { result in repeatedReadResults.withLock { $0.append(result) } }
+        )
+        #expect(repeatedReadResults.withLock { $0.count } == 1)
+        let repeatedRead = try #require(repeatedReadResults.withLock { $0.first })
         #expect(repeatedRead == settlement)
         let didAcknowledge = table.acknowledge(operationId: operationId)
         #expect(didAcknowledge)
@@ -110,14 +113,15 @@ struct BridgeProductOperationTableTests {
             )
         )
 
-        let observed: OperationRead = await withCheckedContinuation { continuation in
-            table.observeResult(
-                operationId: operationId,
-                waiterId: UUIDv7.generate(),
-                continuation: continuation
-            )
-            table.cancelAndForgetAllOperations()
-        }
+        let observedResults = Mutex<[OperationRead]>([])
+        table.observeResult(
+            operationId: operationId,
+            waiterId: UUIDv7.generate(),
+            resume: { result in observedResults.withLock { $0.append(result) } }
+        )
+        table.cancelAndForgetAllOperations()
+        #expect(observedResults.withLock { $0.count } == 1)
+        let observed = try #require(observedResults.withLock { $0.first })
         #expect(observed?.outcome == .cancelled)
         #expect(table.entriesById.isEmpty)
         #expect(table.executionTasksById.isEmpty)
@@ -150,14 +154,15 @@ struct BridgeProductOperationTableTests {
             result: .object(["committed": .boolean(true)])
         )
         let acknowledgedUnknown = table.acknowledge(operationId: operationId)
-        let observed: BridgeProductOperationObservationResponse? = await withCheckedContinuation { continuation in
-            table.observeAfter(
-                operationId: operationId,
-                revision: 1,
-                waiterId: UUIDv7.generate(),
-                continuation: continuation
-            )
-        }
+        let observedResults = Mutex<[BridgeProductOperationObservationResponse?]>([])
+        table.observeAfter(
+            operationId: operationId,
+            revision: 1,
+            waiterId: UUIDv7.generate(),
+            resume: { result in observedResults.withLock { $0.append(result) } }
+        )
+        #expect(observedResults.withLock { $0.count } == 1)
+        let observed = try #require(observedResults.withLock { $0.first })
         #expect(unknown && late && acknowledgedUnknown)
         guard case .lateOutcome(let evidence) = observed else {
             Issue.record("Revision two was lost after revision one acknowledgement")

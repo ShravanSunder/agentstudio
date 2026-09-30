@@ -62,6 +62,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             environment: [
                 "FAKE_ZMX_INVENTORY": inventory.path,
                 "FAKE_ZMX_CALLS": calls.path,
+                "OWNED_ZMX_LIST_DEADLINE_SECONDS": "none",
             ]
         )
 
@@ -75,6 +76,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
 
     @Test("owned zmx cleanup recognizes padded inventory names and verifies exact IDs are absent")
     func ownedZmxCleanupRecognizesPaddedInventoryNames() async throws {
+        try await verifyOwnedZmxCleanupWithPaddedInventory(listDeadline: "none")
+    }
+
+    func verifyOwnedZmxCleanupWithPaddedInventory(listDeadline: String) async throws {
         let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.padded-\(UUIDv7.generate().uuidString)")
         let fakeZmx = fixtureRoot.appendingPathComponent("zmx")
         let inventory = fixtureRoot.appendingPathComponent("inventory")
@@ -107,6 +112,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             environment: [
                 "FAKE_ZMX_INVENTORY": inventory.path,
                 "FAKE_ZMX_CALLS": calls.path,
+                "OWNED_ZMX_LIST_DEADLINE_SECONDS": listDeadline,
             ]
         )
 
@@ -117,6 +123,30 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(cleanupArtifact.contains("attempted_session_id=owned"))
         #expect(cleanupArtifact.contains("attempted_session_id=independent"))
         #expect(cleanupArtifact.contains("cleanup_status=verified_clean"))
+    }
+
+    @Test("owned zmx cleanup reports a hung inventory call")
+    func ownedZmxCleanupReportsHungInventoryCall() async throws {
+        let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.hung-\(UUIDv7.generate().uuidString)")
+        let fakeZmx = fixtureRoot.appendingPathComponent("zmx")
+        let inventoryFIFO = fixtureRoot.appendingPathComponent("inventory-fifo")
+        let artifact = fixtureRoot.appendingPathComponent("cleanup.env")
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        #expect(mkfifo(inventoryFIFO.path, 0o600) == 0)
+        try "#!/bin/bash\nIFS= read -r ignored < '\(inventoryFIFO.path)'\n"
+            .write(to: fakeZmx, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeZmx.path)
+
+        let result = try await runScript(
+            arguments: [cleanupScriptPath, fakeZmx.path, fixtureRoot.path, artifact.path, "owned"],
+            environment: ["OWNED_ZMX_LIST_DEADLINE_SECONDS": "0"]
+        )
+
+        #expect(result.exitCode == 1)
+        let cleanupArtifact = try String(contentsOf: artifact, encoding: .utf8)
+        #expect(cleanupArtifact.contains("list_error=timeout"))
+        #expect(cleanupArtifact.contains("unresolved_session_id=owned"))
     }
 
     @Test("owned zmx cleanup rejects production beta and ordinary debug roots before inspection")
@@ -652,7 +682,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("read_already_in_flight"))
     }
 
-    private func runScript(
+    func runScript(
         arguments: [String],
         environment: [String: String] = [:]
     ) async throws -> ScriptRunResult {

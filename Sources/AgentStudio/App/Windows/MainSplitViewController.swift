@@ -682,6 +682,7 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     private func restoreSidebarReturnFocusOrigin() {
+        heldPanePreviewState?.cancelIfHeld()
         sidebarReturnFocusOrigin.restore(in: view.window) { [weak self] in
             self?.paneTabViewController?.refocusActivePane()
         }

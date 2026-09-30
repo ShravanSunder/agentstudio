@@ -43,7 +43,7 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        let expectedGroupId = "panes:panes:repo:\(repoId.uuidString)"
+        let expectedGroupId = "panes:panes:activity:6"
         let paneRow = try #require(projection.paneRowsByGroupId[expectedGroupId]?.first)
         #expect(paneRow.destination.worktreeLabel == "feature-display-name")
     }

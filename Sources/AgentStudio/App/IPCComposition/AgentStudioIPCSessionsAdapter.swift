@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
@@ -37,6 +38,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     private let providerRegistry: SessionsProviderAdapterRegistry
     private let admissionFreshness: SessionsEvidenceFreshness
     private let now: @Sendable () -> Date
+    private let continuousNow: @Sendable () -> ContinuousClock.Instant
+    private let activityClock: PaneActivityClock?
 
     /// The live IPC server admits messages as `.live`. The offline spool drainer
     /// composes a second adapter over the same ingestion with `.late`, so one
@@ -45,12 +48,16 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         ingestion: SessionsIngestion,
         providerRegistry: SessionsProviderAdapterRegistry,
         admissionFreshness: SessionsEvidenceFreshness = .live,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
+        activityClock: PaneActivityClock? = nil
     ) {
         self.ingestion = ingestion
         self.providerRegistry = providerRegistry
         self.admissionFreshness = admissionFreshness
         self.now = now
+        self.continuousNow = continuousNow
+        self.activityClock = activityClock
     }
 
     func recordDeliberateReport(
@@ -142,7 +149,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
 
     func recordProviderEvent(
         paneId: UUID,
-        params: IPCSessionEventParams
+        params: IPCSessionEventParams,
+        provenance: IPCSessionEventProvenance
     ) async throws -> IPCSessionEventResult {
         let admission = try await providerAdmission(
             paneId: paneId,
@@ -159,8 +167,25 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                 correlationId: params.correlationId
             )
         }
+        let activityOccurrence: PaneActivityOccurrence? =
+            if provenance == .matchingPane, case .recordEvidence = mutation {
+                PaneActivityOccurrence(
+                    paneId: paneId,
+                    source: .hook,
+                    orderingInstant: continuousNow(),
+                    wallTime: now()
+                )
+            } else {
+                nil
+            }
         do {
-            _ = try await ingestion.submit(correlationId: params.correlationId, mutation: mutation)
+            let submission = try await ingestion.submitWithCommitDisposition(
+                correlationId: params.correlationId,
+                mutation: mutation
+            )
+            if submission.disposition == .inserted, let activityOccurrence {
+                activityClock?.submit(activityOccurrence)
+            }
         } catch {
             throw Self.portError(from: error)
         }

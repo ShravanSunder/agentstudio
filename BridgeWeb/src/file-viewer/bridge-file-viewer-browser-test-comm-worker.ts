@@ -22,6 +22,7 @@ import {
 import { bridgeProductFileMetadataApplicationProtocol } from '../core/comm-worker/bridge-product-metadata-application-registry.js';
 import type { BridgeProductMetadataApplicationSubscription } from '../core/comm-worker/bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from '../core/comm-worker/bridge-product-transport.js';
+import { createTestMetadataReopenPort } from '../core/comm-worker/bridge-product-view-reopen.test-support.js';
 import {
 	bridgeWorkerServerToMainWireMessageSchema,
 	type BridgeWorkerFileQueryOutcomeEvent,
@@ -507,6 +508,7 @@ function createBrowserTestProductTransport(props: {
 	let viewScopeRevision = 0;
 	let batchSinks: BridgeProductBatchFrameSinks | null = null;
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			return surface === 'file' ? fileEpoch : 0;

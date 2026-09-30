@@ -91,7 +91,8 @@ flowchart TB
 | W3 | Data kind registry | E16 definitions (C-KIND) | W2 | Changed: comment kinds bound to the Comments surface |
 | W4 | Batch receiver | Per view: stages a batch in a side bank, verifies every declared part, installs atomically, applies per-key revision rules, asks for a resnapshot on any gap, and emits cumulative acks | W2, N3 | Changed: no per-frame ack await (`bridge-product-transport.ts:681-742`); no sequence poison (`bridge-product-subscription-state.ts:358`); no wipe on reopen |
 | W5 | Surface epoch authority | Transport-incarnation epochs for File, Review and Comments | W1, W2 | Kept; the advance no longer waits for cancels |
-| INST | Page installation gate | What the page actually shows, and emitting the installed receipt | N5 (via W1), UI | Changed: sends a receipt on install (`bridge-main-review-presentation-installation-gate.ts:173-211,354-366`) |
+| INST | Page installation gate | What the page actually shows, and emitting the installed receipt | N5 (via W1), UI | Changed: sends a receipt on install (`bridge-main-review-presentation-installation-gate.ts:173-211,354-366`). An install-admission failure on the current candidate becomes a retryable surface failure whose Retry redelivers the unchanged publication; it is never a silent discard |
+| W6 | Region presentation (U13) | Mapping each E20 region's inputs (its surface status, its demanded identity, its own read) to one presentation state, and the one shared renderer for Loading, Empty, Updating and Failed | File, Review, Comments and Markdown UI | New in PR1 (2026-09-30). A page presentation boundary only: it is not a second currentness owner, and it adds no timer, retry or atom. Pane failed-start Retry projects `AppCommand.reloadBridgeWebView` |
 
 **Dependency and executor rules.**
 - N5 and N6 run off the MainActor, in their own actors. The MainActor only publishes the surface status and applies the reconciler's already-decided outcome (CLAUDE.md, "Performance Lane Directive"). Blocking I/O in builders stays `@concurrent nonisolated`.
@@ -163,7 +164,14 @@ flowchart TB
   - An abandoned staging bank is dropped, and its in-transit credits are returned.
   - Finite content reads are separate: their failures end only that read.
 - **Where it matters for each kind:**
-  - **File:** rows keyed by path, carrying parent and sort key, so the page computes the order. A File snapshot is windowed per directory range; each window certifies its own range. The admitted scan is frozen while it's sent, so churn can't keep a snapshot from ever completing: newer changes go in the next batch.
+  - **File:** rows keyed by path, carrying parent and sort key, so the page computes the order. **First paint is progressive coverage, then one certifying snapshot (amended 2026-09-30; replaces "windowed per directory range", which needed range certificates this sender and receiver don't have).**
+    - While the admitted scan enumerates, N10 sends **coverage** batches: cumulative, base 0, under the exact current handle, domain, incarnation and filter. Each is atomic, carries positive records only, and certifies no absence.
+    - The scan ends with one **snapshot** carrying the entire accumulated frozen inventory at its captured target and filter, not just the last window. Only that snapshot prunes, certifies absence, and establishes source readiness. A stale scan is rejected before any batch is minted.
+    - W4 admits initial coverage before `hasCertifiedSnapshot` without setting it. Per-key revision, tombstone and absence-floor fences apply to coverage. Behaviour after certification is unchanged.
+    - Coverage installs have no certified-install side effects: they renew no recovery budget, don't emit ready, and don't discharge the obligation to deliver the final snapshot. The chain has one inter-window progress ender, owned by W2.
+    - Rows from the old handle stay a separately marked stale bank until the final snapshot covers them. Failed enumeration never prunes.
+    - The completing snapshot prunes only the single-domain membership it actually enumerated. Multi-root range semantics stay #367's.
+    - The admitted scan is frozen while it's sent, so churn can't keep a snapshot from ever completing: newer changes go in the next batch.
   - **Review:** one publication is one batch. Keys from different comparisons are never merged; a superseded, uninstalled publication is replaced whole.
     - **Record set (advisor round 6; PR1 QUESTION-20).** Today's six event kinds (`BridgeProductReviewMetadataEvents.swift:3-12`) are not wire concepts. They become:
       - **Item records**, keyed by the existing item id. Each carries everything an item means today (`BridgeProductReviewMetadataItemValues.swift:178-219`): path and both rename paths, change kind, binary and classification facts, provenance, review state, priority, sort key, and a **role-qualified** content descriptor for each role (base, head, diff, file), each with an explicit `available | unavailable | absent` state. Content invalidation is a new role value; replacing or removing a descriptor also fences stale content reads and caches. A descriptor an editor still holds stays under its separate installed identity. Extents (one line count per content role) stay inside the item. A late extent result merges into N10's **latest** item and emits its complete value, fenced by publication and that role's content identity, so an old count never attaches to replacement bytes, and enrichment never marks a pending comparison current.
@@ -171,7 +179,7 @@ flowchart TB
     - **Order and tree rows are derived on the page, preserving today's order.** Items carry explicit sort keys from `package.orderedItemIds` (`BridgePaneProductReviewMetadataSource.swift:510-513`), with a deterministic tie-break and stable derived directory identities; never alphabetical. The complete next index is derived before the atomic install, off the paint path.
     - **A new comparison is a complete replacement snapshot**, not generic coverage, because an item id shared by two comparisons must still take its new value. The whole publication is frozen, including an empty one, staged, derived, then swapped. Every change and enrichment batch names its publication as well as its scope revision, and updates from a retired publication never apply. The old displayed bank stays until installation and INST (R11-R14, editor holds).
     - One `default` domain. A typed Review installer in the page's application owner does the derivation; generic W4 validation stays kind-agnostic.
-  - **Comments:** catalog keys (sessions, threads) are keyed state. **Message bodies and placement are pulled on demand** by the page, through the finite comment query, against the Review or File identity the page has installed. The page is the only party that knows which version it displays, so it asks when that changes, and native never guesses (PR1 Q50). Review placement is fenced to the installed publication identity. File placement uses current worktree material and converges on each File install; a one-install lag is accepted (PR1 Q51). Comment *creation* stays bound to the displayed version. Thread and message changes from one transaction go in one batch.
+  - **Comments:** catalog keys (sessions, threads) are keyed state. **Message bodies and placement are pulled on demand** by the page, through the finite comment query, against the Review or File identity the page has installed. The page is the only party that knows which version it displays, so it asks when that changes, and native never guesses (PR1 Q50). Review placement is fenced to the installed publication identity. File placement is evaluated only against bytes verified to be the displayed File version. When those bytes can't be read, placement is **unavailable**, while the thread, its excerpt and editing remain (R23; owner, 2026-09-30, F9 option B, which supersedes PR1 Q51's accepted current-disk lag). The realization lands with comments in PR4. Comment *creation* stays bound to the displayed version. Thread and message changes from one transaction go in one batch.
 
 **Merged seams with #367, the multi-root Files collection plus the annotation subject model** (owner decision C, 2026-09-25; evidence in `tmp/2026-09-24-bridge-stability-research/seam-comparison/2026-09-25-seam-comparison.md`).
 - **File record key = identity, not address.**
@@ -260,7 +268,7 @@ flowchart TB
     - **Shared fixtures:** `Tests/BridgeContractFixtures/pane-links/` and `…/reveal/` are published by PR2 and imported by PR B's stand-ins. They cover drawer moves, draft refusal, duplicate contributions, missing targets, page replacement, and lost receipts. The stand-ins stay unverified until the real Bridge integration passes.
     - **Git/PR summary delivery (navigation-spec R19; replaces B3).**
       - PR B owns the pure, off-main summary derivation. It takes values and does no IO.
-      - Forge owns fetching and facts, and a Forge fact change bumps the pane-context revision.
+      - Forge owns fetching and facts. The pane-context revision bumps when the pull-request summary state or any member row changes, not on Forge facts the summary doesn't carry, such as mergeability or draft (PR B Spec R32).
       - PR C owns the one shared stateless chip-and-popover component. Bridge's bottom bar, the Panes row and the drawer row consume it.
       - Any visible consumer keeps the demand alive, and hiding one never cancels another's.
       - The chip shows only a PR icon, a count and a state glyph, with color carrying the state (✓ green, ✗ red, ◌ blue running, grey no info).
@@ -584,6 +592,89 @@ sequenceDiagram
 - Removed edge: the File/Review epoch advance → comment subscription retirement (`bridge-product-metadata-application-registry.ts:99,125`; `bridge-comm-worker-annotation-projection-query-controller.ts:363-377`).
 - The seven silent `return false` gates (`worktree-annotation-projection-store.ts:148-180`) become typed outcomes. An obsolete result is ignored because its tags don't match. A current result that is rejected leads to a re-query, then `failed(retryable)` on the Comments status after the budget (R25).
 
+### Settled during PR1 (2026-09-30)
+
+The PR1 main assessment, the real-app journey and the Advisor's wedge hunt found that PR1 can't be declared working without a few N5/N6 and page behaviours that were planned for PR3. The bounded slices below are **brought forward into PR1**. Each lands in the owner that PR3 will extend. None is a parallel interim machine, and PR3 grows these same owners rather than replacing them.
+
+**Brought-forward surface slices (N5/N6 minimum).**
+- **One surface-attempt owner decides File restarts.** Construction `.invalidated` with evidence of newer input maps to `superseded(newerInputs)`. The producer restarts at that input on the **same E3**, keeping the live handle, the minter and the last good bank; only the old producer and its scan lease retire.
+  - Genuine newer input consumes no W2 delivery-resnapshot budget and is never Failed (R13).
+  - Repeating a superseded attempt at unchanged input is a logic failure, bounded by the surface budget, never an E3 reopen.
+  - Budgets renew only on a material desired or input change, or on Retry. Allocating an E3 or equal status noise renews nothing.
+  - Every automatic ensure or reopen entrant goes through W2's generic lifecycle decision.
+  - This replaces the classifier fall-through to `unexpected` and the `staleSource` reset (`+ProducerOutcomes.swift:115-156`, `+ProducerLifecycle.swift:82-128`).
+  - The Review binder's silent retry on epoch mismatch (`BridgePaneReviewSharedConstructionBinder.swift:81-112`) stays until N5. PR1 records it but doesn't change it.
+- **Minimum native progress enders.** Each native surface-attempt wait that can suspend indefinitely gets a finite-progress deadline (`AppPolicies`, injected clock). On expiry the attempt detaches logically, fences its late publications, keeps old content and reports a typed phase failure. Physical tasks that linger are recorded separately. This covers:
+  - File descriptor and refresh work;
+  - background Review catch-up joining a shared build.
+  File first-paint metadata never awaits descriptor enrichment. There is no second native content-body timer: the page's content read owns it (below).
+- **Review builds only while shown (U8/R15).** Every Review build entry is admitted on the admitted **desired viewer visibility**, including before the first source exists. The entries are: initial intake, resync, explicit target, refresh tail and the show transition. Gating on `acceptedSignal` alone would deadlock first load, because its active source can be nil before the first package.
+  - While hidden, Review retains and coalesces dirty input.
+  - On show, it schedules the latest desired state.
+  - On hide, it fences building attempts. Publishing and AwaitingInstall follow their own lifecycle.
+- **Root enumeration is typed.** The materializer propagates root and range enumeration outcomes. A failed read never synthesizes a successful final coverage, and an existence preflight alone is not enough because removal can race it.
+  - A missing or unreadable root is a retryable File surface failure, even before E3, while a healthy Review survives.
+  - An authority or configuration refusal is permanent.
+  - Old rows stay stale and readable. An existing empty root is Empty.
+- **Empty Review is a complete publication.** A zero-item package keeps its package, publication and comparison identity in the publication record. It travels the ordinary candidate, W4 and INST path; the identityless ready-empty shortcut is removed. A null package is never read as settled, and no identity is minted for it.
+- **Cancellation is classified by cause.** Newer input or target supersession, hidden suspension, and E1 retirement end the attempt as superseded or cancelled, never Failed. A provider cancellation with current authority and no successor ends in a typed retryable failure or a bounded retry, never stale. That keeps first Loading from having no ender and prevents a stale reschedule loop at unchanged input.
+- **Moved File descriptor.** A moved descriptor answers `superseded` (as in *Content*), not `content.reset(staleSource)` (`+ContentObservation.swift:31-53`).
+- **A comparison mismatch is target-scoped (R32, wedge h minimum; independent review D1, 2026-09-30).**
+  - A comparison that a newer target has replaced is `superseded`.
+  - A current bad or mismatched comparison is a target-scoped typed failure: permanent for that target, or retryable when the cause is external. The last good display and the pane's healthy File and Comments keep their authority.
+  - Neither the inner handler (`ReviewContribution.swift:11-16,36-42`) nor the outer relay's false-result close (`Bootstrap.swift:117-130`) closes the pane admission gate or the refresh coordinator. Only actual pane removal or retirement ends E1.
+  - A later valid target re-opens Review eligibility.
+  - The permanent-close oracle (`BridgePaneControllerReviewComparisonPresentationTests.swift:51-83`) is rewritten in PR1.
+  - The rest of N5 convergence stays in PR3.
+
+**Liveness and fences settled in PR1.**
+- **Bootstrap delivery has an ender (amends RR2-V1).** Installation admission stays serialized and cheap. Bootstrap delivery into the page gets a logical finite-progress, close and supersession ender tied to the captured request and installation, covering both the success and typed-failure replies. The transition never joins an uncooperative sink task: a successor bootstraps without waiting for it. A late predecessor completion neither publishes into nor retires the successor. Latest-request fencing alone is a safety rule, not a liveness one.
+- **The Review floor reaches the effect.** A committed Review comparison effect carries its original per-Review admission identity. It is validated synchronously at the canonical target mutation, against the latest admitted Review intent. A floor check at `completeControl` alone leaves a gap before the asynchronous effect runs (`BridgeProductSchemeControlDispatcher.swift:166-175`). The pane-wide request sequence is not used, because it would couple unrelated controls, and providers stay concurrent.
+- **Pane-job publication (RR2-V2).** Only a genuine pane-only producer publishes with pane authority (`BridgeProductAdmissionGate.swift:47-52`). An installation-bound request is never reinterpreted as canonical, and downstream subscription, descriptor and consumer matching stays on the full composed E1.
+- **Comment query order (BH4-V1).** The request sequence is compared only under a matching original composed E1, inside its valid guard and before mutating the revision. Sequences are incomparable across E1s.
+- **Review generation (BH9), interim.** Explicit loads supersede catch-up and keep same-lineage deltas. BH9 is not a convergence solution. N5 deletes the old scheduler and generation duplication at one cutover in PR3, and both never coexist.
+- **Settlement credits (BH6).** A settlement carries zero credits. The receiver reopens before granting explicit credits, and the grant matches the producer generation and barrier.
+- **Operation table resume.** The N2 operation table is a value-type state machine and holds a resume callback, not a concurrency primitive. The one production caller owns the continuation.
+- **Keepalive (Q56).** Keepalive is transport-only: a carrier or bookend frame that advances no N3 credit or cursor and renews no view readiness or progress. It stays only if the WKWebView carrier reason is proved, with bounded cadence, teardown quiescence and a cross-language envelope. Periodic pulses are dropped if a bookend alone is the proved need.
+- **Deadlines are `AppPolicies`.** That includes the page's bootstrap and content-ACK fallbacks, today hard-coded 5000 ms. The bootstrap policy must be available before bootstrap, so it can't come from the response it times out.
+
+**Non-content presentation (W6, U13 minimum for PR1).**
+- **File tree:** Loading until the first coverage. Each complete coverage shows its rows while the rest of the inventory is unsettled. A complete zero-row inventory is Empty. The tree stays shown during selected-content work. A failure keeps rows stale, or shows Failed when there are none.
+- **File content:** no selection is Empty. A selected descriptor awaiting its first body is Loading. A refresh of the same displayed identity is Updating. A failed read is a scoped Failed. A different selected identity never relabels old bytes.
+- **Review:** a first package is Loading. A complete zero-item package is Empty in the centre and the rail. Updating keeps the installed comparison, with no settled-target spinner. Failed takes precedence over any ready-empty fallback. A held update is a quiet Updating with Apply now.
+- **Retry:** a surface Retry is W2 view recovery plus the surface's recovery job. A pre-E3 source failure reopens that surface. A pane failed start projects the same Failed control wired to `AppCommand.reloadBridgeWebView`. A permanent failure shows corrective copy and no Retry.
+- Comments and Markdown adopt the same primitive over their existing statuses, without changing their lifetime or version contracts.
+
+**PR1 bindings (independent review D3, 2026-09-30).** Each new or extracted piece of PR1 state has one home, a closed shape, and named producers.
+
+- **E20 → W6 derived value (page, presentation only).**
+  - Home: `BridgeWeb/src/app/bridge-region-presentation-state.ts` (projection) and `bridge-region-presentation.tsx` (the one renderer).
+  - Input: `BridgeRegionPresentationInput { demandedIdentity, read, surface }`.
+  - `surface`: `current | loading | updating(rest: held|hidden|none) | failed(failure)`.
+  - `read`: `loading | complete|partial(identity, hasContent) | failed(failure, retainedIdentity)`.
+  - `failure`: `retryable | permanent(correctiveAction)`, with `scope: pane|surface|read`.
+  - Output (closed): `content | loading | empty(noSelection|certified|noSource) | updating(rest) | failed(failure, retainsContent)`. `noSource` is the settled absence of a File source (a typed `file.source.current` unavailable that isn't an authorization or configuration refusal); a refusal is a permanent `failed`.
+  - Per-region adapters in each feature folder (File: `file-viewer/bridge-file-region-presentation.ts`; Review, Comments and Markdown alongside their shells) build the input from existing facts only:
+    - `surface`: W2 view recovery status (`bridge-product-view-scope-owner.ts`), keyed member/publication status, and the pane bootstrap outcome;
+    - `read`: the Main render snapshot store's installed model and the selected content read;
+    - `demandedIdentity`: the view's selection/comparison state.
+  - The Retry control comes from the existing recovery action spec (`bridge-viewer-recovery-action-spec.ts`). The pane failed-start Retry is a port whose native wiring waits on the owner's page-command decision.
+  - W6 holds no state, timer, retry budget or atom, and writes no currentness.
+- **PR1 File attempt owner = the N5 File reconciler, minimum form (native).**
+  - An off-MainActor actor `BridgeFileSurfaceReconciler`, home `Sources/AgentStudio/Features/Bridge/Runtime/SurfaceReconciliation/`.
+  - It owns, per File surface: the current input generation, the running and retiring attempt identity (input generation + nonce), the surface attempt budget, and the attempt's finite-progress deadline (`AppPolicies`).
+  - Inputs, a subset of N5's: `inputsChanged(generation)`, `retry()`, and the N6 builder outcome `built | superseded(newerInputs) | failed(retryable|permanent, phase)`.
+  - Output: start, restart on the same E3, or rest; a typed surface failure.
+  - The metadata coordinator (`BridgePaneProductMetadataCoordinator`) stops deciding resets for construction outcomes and forwards them to this owner. W2 keeps view-delivery resnapshots only.
+  - **Survives into PR3:** this actor. PR3 adds `setVisibility`, `setTarget`, `installed`, `sessionRecovered`, and the Review instance, extending it rather than replacing it.
+  - **Retired in PR1:** the coordinator's `.staleSource` reset for construction outcomes (`+ProducerOutcomes`, `+ProducerLifecycle`) and W2's per-kind reset flags (`product-controller.ts:121,126`).
+  - **Retired in PR3 at the N5 cutover:** Review's `activeReviewRefreshTask`, both Review generation counters, and the BH9 interim fences.
+- **Review in PR1** keeps its existing controller scheduling with the PR1 fences above: visibility admission, the effect floor, and target-scoped mismatch. No second Review attempt owner is added in PR1.
+
+**Deferred with a named PR1 limitation (PR3).**
+- A publication delivery failure is still flattened into refresh or load success. R18 and wedge f stay with N5.
+- PR1's proof claim names this limitation and doesn't imply the stability program is complete.
+
 ## State ownership
 
 | State | Owner | Kind |
@@ -702,8 +793,8 @@ Each head must pass `mise run test` and leave a working app.
 
 | PR | Delivers | Proves | Oracle rewrites that move with it |
 |---|---|---|---|
-| **Landing order (owner, 2026-09-25):** #364 (IPC; not ours) → **PR1** transport → **PR2 = #367** multi-root, starting with the INST receipt core, adapted onto PR1 and proved on it → **PR3** surfaces + File change filter per member → **PR4** comments on migration 017 + our 018. Each boundary freezes the shared contracts and fixtures. #367 must pass on PR1 before PR3 may supply any missing behavior. | | | |
-| 1 Transport that always settles | N1–N4, N9, **N10 (keyed state for all four kinds; File rows keyed by canonical location with parent and sort key; comment wire revisions minted by N10 over current rows from commit invalidations; `semantic_revision` stays a payload concurrency token; no new migration, to avoid colliding with #367's 017)**, **in-session late mutation outcomes** (below), W1, W2 (generic lifecycle, with every consumer cut over), W3, W4 (sealed batches), W5; clocks and quiescence probes; test seams; contract suite, transport part | R1–R10, R9a–R9c; wedges a, b, e, i, j. **The File scope values for U12 are in PR1.** The INST receipt core moves to PR2's first slice, where #367's receipt owner lives. | S13 held-provider tests, the retirement-transport poll helpers |
+| **Landing order (owner, 2026-09-25):** #364 (IPC; not ours) → **PR1** transport → **PR2 = #367** multi-root, starting with the INST receipt core, adapted onto PR1 and proved on it → **PR3** surfaces + File change filter per member → **PR4** comments on migration 017 + our 018. Each boundary freezes the shared contracts and fixtures. #367 must pass on PR1 before PR3 may supply any missing behavior. **PR1 lands first; #367 → PR3 → PR4 then stack, so at most three PRs are stacked at once (Requirements limit, reconciled 2026-09-30).** | | | |
+| 1 Transport that always settles, with working File and Review states | N1–N4, N9, **N10 (keyed state for all four kinds; File rows keyed by canonical location with parent and sort key; File first paint by coverage then one certifying snapshot; comment wire revisions minted by N10 over current rows from commit invalidations; `semantic_revision` stays a payload concurrency token; no new migration, to avoid colliding with #367's 017)**, **in-session late mutation outcomes** (below), W1, W2 (generic lifecycle, with every consumer cut over), W3, W4 (sealed batches), W5; **W6 region presentation for File and Review; the brought-forward N5/N6 slices and liveness fences in *Settled during PR1***; clocks and quiescence probes; test seams; contract suite, transport part | R1–R10, R9a–R9c, R40–R43 for File and Review, the brought-forward parts of R13, R15 and R17, and R32's target-scoped mismatch; wedges a, b, e, i, j, h's containment, and d's File classification. **The File scope values for U12 are in PR1.** The INST receipt core moves to PR2's first slice, where #367's receipt owner lives. PR1 names the R18 limitation it leaves to PR3. | S13 held-provider tests, the retirement-transport poll helpers, the per-kind reset booleans, the "gates stay closed" comparison test |
 | 2 = #367 multi-root, adapted onto PR1 | **First: the INST receipt core** (page receipt, native receiver, correlation by session, source, selection generation, command and descriptor; activation proof). Then #367's receiver, navigation, Files collection and subjects re-carried on PR1: the collection index and one minter, sealed membership updates, per-member cursors and status, the canonical-location key, activation with generation checks and the session-replacement budget, reveal by point lookup, the collection search coverage. Its CI fixes and S10 native proof. **Local-subject comments re-proved on this head.** It gets its own plan (v3 section). | #367's R1–R19 and C1–C7 on PR1, plus the R39 reveal scenarios; the regroup-keeps-editor E2E | #367's tests that assume the old stream (per-frame acks, sourceAccepted wipes) |
 | 3 Surfaces that converge | N5, N6, N7, extending the INST owner from PR2; File/Review status and Retry UI; **the File change filter per member** (changed-set sources, ghost rows, facet UI, Review label changes) | R11–R20; contract suite adds R11–R14; wedges c, d, f, h | The "gates stay closed" comparison test; refresh-admission tests |
 | 4 Comments stand on their own | N8 (version records, creation on the displayed version, placement tags, persistent receipts, evaluator), comment kinds on the Comments surface, placement UI, **migration 018 after #367's 017** | R21–R27; wedges g, k; **local-subject comments re-proved** | Annotation epoch-cutover tests, the recovery/history browser waits |
@@ -732,3 +823,8 @@ PR1 through PR3 keep comment subscriptions on their current epochs, through W2. 
 | R29, R30, R32 | test support, lint | lint, rewritten tests |
 | R33–R38 | N10 File publisher, Review data client (files-only diff), UI | scope/filter tests per baseline, a no-Review-build assertion, visual |
 | R31 | all | failing-then-passing runs per wedge |
+| R40 | W6 projection over the per-region adapters (inputs bound in *PR1 bindings*) | browser: sibling stays settled while one region loads; no settled skeleton/spinner/loading copy; held and hidden rest do no work |
+| R41 | W6 + W2 view recovery + the surface recovery job; the pane port for a failed start | browser: surface Retry reopens a pre-E3 failed File source; permanent failure has no Retry; failed start projects the pane control (native wiring after the owner's decision) |
+| R42 | W6 `retainsContent`, fed by the Main store's installed model | browser: failed update keeps last good content marked stale; failed start keeps retained content |
+| R43 | the one W6 renderer and the command/action display system | browser: the same shapes and Retry placement in File, Review, Comments and Markdown; running-app visual |
+| R32 (PR1 minimum) | the Review comparison handler and outer relay | the real comparison callback: A → mismatched B → main; File and Comments stay usable; main installs; actual pane removal still ends E1 |

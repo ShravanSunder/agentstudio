@@ -5,12 +5,13 @@ import Testing
 
 @testable import AgentStudioRepoExplorer
 
-@Suite("Pinned order and full Panes projection parity")
+@Suite("Pinned order under fixed Panes activity")
 struct RepoExplorerPinnedOrderProjectionParityTests {
-    @Test("shared ordering agrees across every grouping, subgroup and leaf sort")
-    func allOrganizationSettingsAgree() {
+    @Test("legacy organization settings cannot change pinned activity order")
+    func legacyOrganizationSettingsDoNotChangePinnedOrder() {
         let tabIDs = [UUIDv7.generate(), UUIDv7.generate()]
         let referenceDate = Date(timeIntervalSince1970: 1_000_000)
+        let referenceInstant = ContinuousClock.now
         let members: [RepoExplorerPaneOrganizationMember] = (0..<6).map { index in
             let activityAt: Date? = index == 3 ? nil : referenceDate.addingTimeInterval(-Double(index * 900))
             return RepoExplorerPaneOrganizationMember(
@@ -33,6 +34,14 @@ struct RepoExplorerPinnedOrderProjectionParityTests {
                     member.paneID,
                     RepoExplorerPaneRowFacts(
                         terminalTitle: member.normalizedTitle, activityAt: member.activityAt,
+                        paneActivityTime: member.activityAt.map {
+                            PaneActivityTime(
+                                orderingInstant: referenceInstant.advanced(
+                                    by: .seconds(Int($0.timeIntervalSince(referenceDate)))
+                                ),
+                                wallTime: $0, source: .terminal
+                            )
+                        },
                         isPinned: member.isPinned, latestMessageText: nil,
                         recencyReferenceDate: referenceDate, recencyText: "", isActive: false
                     )
@@ -42,16 +51,12 @@ struct RepoExplorerPinnedOrderProjectionParityTests {
             for subgroup in SidebarSubgroupMode.allCases {
                 for sortField in SidebarSortField.allCases {
                     for direction in SidebarSortDirection.allCases {
-                        let preferences = RepoExplorerPaneOrganizationPreferences(
-                            groupingMode: grouping, subgroupMode: subgroup,
-                            sortField: sortField, sortOrder: direction,
-                            referenceDate: referenceDate, calendar: .current
-                        )
                         let projection = RepoExplorerProjection.project(
                             RepoExplorerSnapshot(
                                 repos: [], repoEnrichmentByRepoId: [:], surface: .panes,
                                 groupingMode: grouping, subgroupMode: subgroup,
                                 sortField: sortField, referenceDate: referenceDate,
+                                referenceInstant: referenceInstant,
                                 sortOrder: direction, query: "", unassociatedPaneLocations: locations
                             ),
                             paneRowFactsByPaneId: facts
@@ -59,11 +64,12 @@ struct RepoExplorerPinnedOrderProjectionParityTests {
                         let sidebarIDs = projection.sections.filter { $0.kind == .pinnedPanes }
                             .flatMap(\.resolvedGroups)
                             .flatMap { projection.paneRowsByGroupId[$0.id, default: []].map { $0.destination.paneId } }
-                        let pinnedIDs = RepoExplorerPinnedPaneNavigationPolicy.orderedPaneIDs(
-                            .init(members: members, preferences: preferences)
-                        )
-                        #expect(sidebarIDs == pinnedIDs)
-                        #expect(Set(pinnedIDs) == Set(members.filter(\.isPinned).map(\.paneID)))
+                        let expectedPinnedIDs = [
+                            members[0].paneID, members[1].paneID,
+                            members[4].paneID, members[5].paneID, members[3].paneID,
+                        ]
+                        #expect(sidebarIDs == expectedPinnedIDs)
+                        #expect(Set(sidebarIDs) == Set(members.filter(\.isPinned).map(\.paneID)))
                     }
                 }
             }

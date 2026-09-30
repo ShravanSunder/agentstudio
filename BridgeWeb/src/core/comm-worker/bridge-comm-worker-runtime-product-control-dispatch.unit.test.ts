@@ -7,6 +7,7 @@ import { flushBridgeWorkerRuntimeContinuations } from './bridge-comm-worker-runt
 import type { BridgeProductWorktreeAnnotationOperation } from './bridge-product-call-contracts.js';
 import { BridgeProductControlRequestError } from './bridge-product-session-authority.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	type BridgeWorkerServerToMainMessage,
@@ -487,6 +488,7 @@ function createUnusedProductController(): BridgeCommWorkerProductController {
 
 function unusedProductTransport(): BridgeProductTransportSession {
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (): number => 0,
 		call: async (): Promise<never> => {
 			throw new Error('Unexpected product call.');

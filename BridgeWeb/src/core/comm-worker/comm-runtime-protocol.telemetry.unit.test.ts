@@ -26,6 +26,7 @@ import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
 import { makeReviewBatchInstallation } from './comm-runtime-protocol.file-product.test-support.js';
 
@@ -369,6 +370,7 @@ function makeTelemetryReviewProductTransport(props: {
 		subscriptionKind: 'review.metadata',
 	};
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileWorkerDerivationEpoch += 1;
 			if (surface === 'review') reviewWorkerDerivationEpoch += 1;

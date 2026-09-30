@@ -7,6 +7,7 @@ import {
 } from './bridge-product-async-queue.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 describe('Bridge comm worker product controller active viewer mode', () => {
 	test('does not start metadata for an older mode that completes after a newer mode', async () => {
@@ -117,6 +118,7 @@ function activeModeTransport(
 	reviewAdmission: Promise<unknown>,
 ): BridgeProductTransportSession {
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (): number => 0,
 		call: (...arguments_): Promise<never> => {
 			const [method] = arguments_;

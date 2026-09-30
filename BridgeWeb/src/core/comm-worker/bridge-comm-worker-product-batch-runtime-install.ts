@@ -19,7 +19,7 @@ import type {
 
 type BatchBegin = Extract<BridgeProductBatchFrame, { readonly kind: 'subscription.batchBegin' }>;
 
-/** W4 composition: a certified bank enters its typed application owner once. */
+/** W4 composition: an installed bank carries its certification to its typed owner. */
 export function installBridgeCommWorkerProductBatchRuntime(props: {
 	readonly createSequence: () => number;
 	readonly applyCommentCatalog: (
@@ -34,7 +34,11 @@ export function installBridgeCommWorkerProductBatchRuntime(props: {
 		application: BridgeCommWorkerReviewMetadataApplication,
 	) => BridgeCommWorkerReviewMetadataApplicationTransaction;
 	readonly beforeApplyFile: (view: BridgeProductInstalledFileView) => void;
-	readonly didInstallFile: (view: BridgeProductInstalledFileView, begin: BatchBegin) => void;
+	readonly didInstallFile: (
+		view: BridgeProductInstalledFileView,
+		begin: BatchBegin,
+		certified: boolean,
+	) => void;
 	readonly didInstallReview: (
 		presentation: BridgeCommWorkerReviewBatchPresentation,
 		begin: BatchBegin,
@@ -55,7 +59,7 @@ export function installBridgeCommWorkerProductBatchRuntime(props: {
 		applyComment: (catalog: BridgeCommWorkerAnnotationCatalog, surface): void => {
 			props.applyCommentCatalog(catalog, surface);
 		},
-		applyFile: (view, begin): void => {
+		applyFile: (view, begin, certified): void => {
 			const epoch = props.productTransport.workerDerivationEpoch('file');
 			props.beforeApplyFile(view);
 			applyBridgeCommWorkerFileBatchToRuntime({
@@ -66,7 +70,7 @@ export function installBridgeCommWorkerProductBatchRuntime(props: {
 				queryProjection: props.fileQueryProjection,
 				view,
 			});
-			props.didInstallFile(view, begin);
+			props.didInstallFile(view, begin, certified);
 		},
 		applyReview: (presentation, begin, sourceEpoch, previous): void => {
 			const workerDerivationEpoch = props.productTransport.workerDerivationEpoch('review');

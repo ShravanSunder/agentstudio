@@ -178,7 +178,7 @@ export const contextWithTaskSource: KitSourceViewModel = {
       ["punctuation", ";"],
     ]),
     codeLine(3, []),
-    codeLine(4, [["comment", "/** Requests a tool lease through the controller. */"]]),
+    codeLine(4, [["comment", "// Requests a tool lease through the controller."]]),
     codeLine(5, [
       ["keyword", "export async function "],
       ["function", "requestToolLease"],

@@ -8,7 +8,7 @@ extension AppCommand {
         case .closeTab:
             return AppCommandSpec(
                 command: self,
-                shortcut: .closeTab,
+                shortcut: nil,
                 label: "Close Tab",
                 icon: .system(.xmark),
                 helpText: "Close the active tab",
@@ -69,9 +69,9 @@ extension AppCommand {
             return AppCommandSpec(
                 command: self,
                 shortcut: .undoCloseTab,
-                label: "Undo Close Tab",
+                label: "Undo Close",
                 icon: .system(.arrowUturnBackward),
-                helpText: "Restore the most recently closed tab",
+                helpText: "Reopen the most recently closed pane or tab",
                 surfacePolicy: .exposed([.commandBar, .mainMenu]),
                 targeting: .contextual,
                 commandBarGroupName: "Window",
@@ -608,6 +608,30 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
+        case .moveZoomDrawerToTerminal:
+            return AppCommandSpec(
+                command: self,
+                label: "Move Drawer to Terminal",
+                icon: .system(.arrowLeft),
+                helpText: "Place the Pane Zoom drawer over the terminal",
+                surfacePolicy: .exposed([.commandBar, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
+                visibleWhen: [.hasActiveTerminalZoom],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
+        case .moveZoomDrawerToBridge:
+            return AppCommandSpec(
+                command: self,
+                label: "Move Drawer to Worktree Viewer",
+                icon: .system(.arrowRight),
+                helpText: "Place the Pane Zoom drawer over the Worktree Viewer",
+                surfacePolicy: .exposed([.commandBar, .inlineControl]),
+                targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
+                visibleWhen: [.hasActiveTerminalZoom],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
         case .navigateDrawerPane:
             return AppCommandSpec(
                 command: self,
@@ -677,6 +701,7 @@ extension AppCommand {
             )
         case .newWorktree: return newWorktreeDefinition()
         case .newWorktreeFromDefault: return newWorktreeFromDefaultDefinition()
+        case .newWorktreeFromBranch: return newWorktreeFromBranchDefinition()
         case .forkWorktree: return forkWorktreeDefinition()
         case .openPaneLocationInBookmarkedEditor:
             return AppCommandSpec(
@@ -781,15 +806,14 @@ extension AppCommand {
         case .showPanesSidebar: return showPanesSidebarDefinition()
         case .setReposGroupingRepo: return setReposGroupingRepoDefinition()
         case .setReposGroupingActivity: return setReposGroupingActivityDefinition()
-        case .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
-            .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
+        case .setPanesSortFieldName, .setPanesSortFieldActivity, .togglePanesSortDirection:
             return retiredPanesOrganizationDefinition()
         case .setReposSortFieldName: return setReposSortFieldNameDefinition()
         case .setReposSortFieldActivity: return setReposSortFieldActivityDefinition()
         case .toggleReposSortDirection: return toggleReposSortDirectionDefinition()
         case .toggleReposShowsPinned: return toggleReposShowsPinnedDefinition()
         case .togglePanesShowsPinned: return togglePanesShowsPinnedDefinition()
+        case .togglePanesShowsDrawers: return togglePanesShowsDrawersDefinition()
         case .setInboxGroupingTab: return setInboxGroupingTabDefinition()
         case .setInboxGroupingRepo: return setInboxGroupingRepoDefinition()
         case .setInboxGroupingPane: return setInboxGroupingPaneDefinition()
@@ -818,7 +842,7 @@ extension AppCommand {
             )
         case .closeWindow:
             return windowDefinition(
-                shortcut: .closeWindow,
+                shortcut: nil,
                 label: "Close Window",
                 icon: .system(.xmarkRectangle),
                 helpText: "Close the current application window",

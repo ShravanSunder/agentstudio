@@ -4,6 +4,7 @@ import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../../app/bridge-app.css';
+import { settleRenderedReviewFrame } from '../../app/bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerShellBoundary } from '../../app/bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeReviewComparisonPaneState } from '../../app/bridge-review-comparison-pane-state.js';
 import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
@@ -64,10 +65,19 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 				viewerHeaderControls={<div>Review controls</div>}
 			/>,
 		);
+		await act(async (): Promise<void> => {
+			await settleRenderedReviewFrame();
+		});
 		await expect.element(rendered.getByTestId('bridge-review-empty-canvas')).toBeVisible();
 		await expect.element(rendered.getByText('Nothing to review')).toBeVisible();
 		expect(rendered.getByText('Waiting for review metadata').query()).toBeNull();
 		expect(rendered.getByTestId('bridge-review-comparison-initial-shell').query()).toBeNull();
+		expect(
+			rendered
+				.getByTestId('bridge-review-sidebar')
+				.element()
+				.querySelectorAll('[data-slot="skeleton"]'),
+		).toHaveLength(0);
 	});
 
 	test('keeps initial comparison loading inside the content pane while navigation remains available', async () => {

@@ -56,7 +56,8 @@ struct WorktreeAnnotationOutputEffectsTests {
     func jsonDestinationConfiguresFolderPanel() async {
         let destination = URL(filePath: "/tmp/agentstudio-selected-output-folder", directoryHint: .isDirectory)
         let panel = TestJSONFolderPanel(response: .OK, selectedURL: destination)
-        let effect = WorktreeAnnotationOutputEffects(makeFolderPanel: { panel })
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(), makeFolderPanel: { panel })
 
         let outcome = await effect.chooseJSONDestination(productAdmission: freshOutputAdmission())
 
@@ -71,7 +72,8 @@ struct WorktreeAnnotationOutputEffectsTests {
     @Test("JSON destination cancellation is typed cancellation")
     func jsonDestinationCancellationIsTyped() async {
         let panel = TestJSONFolderPanel(response: .cancel, selectedURL: nil)
-        let effect = WorktreeAnnotationOutputEffects(makeFolderPanel: { panel })
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(), makeFolderPanel: { panel })
 
         let outcome = await effect.chooseJSONDestination(productAdmission: freshOutputAdmission())
 
@@ -85,6 +87,7 @@ struct WorktreeAnnotationOutputEffectsTests {
             folderURL: URL(filePath: "/tmp/original-folder", directoryHint: .isDirectory)
         )
         let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: NSPasteboard(name: .init("agentstudio.annotation-output.\(UUIDv7.generate().uuidString)")),
             makeFolderPanel: { panel },
             folderPreference: preference
         )
@@ -113,6 +116,7 @@ struct WorktreeAnnotationOutputEffectsTests {
         let writer = RecordingJSONWriter()
         let gate = HeldStep<Void>("after-folder-selection", cancellation: .holdThroughCancellation)
         let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
             makeFolderPanel: { panel },
             writeJSONData: { data, destination, filename in
                 await writer.record(data: data, destination: destination, filename: filename)
@@ -143,6 +147,7 @@ struct WorktreeAnnotationOutputEffectsTests {
     func begunWriteCompletesAfterCancellation() async throws {
         let writeGate = HeldStep<Void>("application-owned-write", cancellation: .holdThroughCancellation)
         let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
             writeJSONData: { data, destination, filename in
                 _ = (data, filename)
                 try await writeGate.arrive(())
@@ -169,9 +174,11 @@ struct WorktreeAnnotationOutputEffectsTests {
 
     @Test("JSON destination panel errors are typed failures")
     func jsonDestinationPanelErrorIsTypedFailure() async {
-        let effect = WorktreeAnnotationOutputEffects(makeFolderPanel: {
-            throw TestOutputEffectFailure.forced
-        })
+        let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
+            makeFolderPanel: {
+                throw TestOutputEffectFailure.forced
+            })
 
         let outcome = await effect.chooseJSONDestination(productAdmission: freshOutputAdmission())
 
@@ -193,7 +200,7 @@ struct WorktreeAnnotationOutputEffectsTests {
         let destination = temporaryRoot.appending(path: "review-comments.json")
         try Data("existing".utf8).write(to: destination)
         let exactBytes = Data("{\"formatVersion\":1,\"comments\":[]}".utf8)
-        let effect = WorktreeAnnotationOutputEffects()
+        let effect = WorktreeAnnotationOutputEffects(pasteboard: RejectingAnnotationPasteboard())
 
         let outcome = await effect.perform(
             outputRequest(
@@ -211,7 +218,7 @@ struct WorktreeAnnotationOutputEffectsTests {
 
     @Test("JSON output fails without the persisted selected path")
     func jsonOutputRejectsMissingPersistedPath() async {
-        let effect = WorktreeAnnotationOutputEffects()
+        let effect = WorktreeAnnotationOutputEffects(pasteboard: RejectingAnnotationPasteboard())
 
         let outcome = await effect.perform(
             outputRequest(kind: .jsonFile, exactBytes: Data("{}".utf8))
@@ -230,7 +237,7 @@ struct WorktreeAnnotationOutputEffectsTests {
             path: "missing-annotation-output-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
         )
-        let effect = WorktreeAnnotationOutputEffects()
+        let effect = WorktreeAnnotationOutputEffects(pasteboard: RejectingAnnotationPasteboard())
 
         let outcome = await effect.perform(
             outputRequest(
@@ -254,6 +261,7 @@ struct WorktreeAnnotationOutputEffectsTests {
     func jsonOutputDoesNotRetryKnownWriteFailure() async {
         let writer = RecordingFailingJSONWriter()
         let effect = WorktreeAnnotationOutputEffects(
+            pasteboard: RejectingAnnotationPasteboard(),
             writeJSONData: { data, destination, _ in
                 try await writer.write(data, to: destination)
                 return destination

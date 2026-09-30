@@ -98,6 +98,25 @@ struct RepoExplorerNavigationIndexTests {
         #expect(snapshot.navigationIndex.digit(for: .unassociatedPane(paneID: paneIDs[9])) == nil)
     }
 
+    @Test("all displayed destinations remain navigable after the ninth digit")
+    func destinationTraversalExtendsPastDigitLimit() {
+        let tabID = UUIDv7.generate()
+        let paneIDs = (0..<12).map { _ in UUIDv7.generate() }
+        let groupRowID = RepoExplorerRowID.group(groupID: "panes")
+        let snapshot = navigationSnapshot(
+            [.group(id: "panes", expanded: true), .activity(groupID: "panes", bucket: .active)]
+                + paneIDs.map { .tabPane(groupID: "panes", paneID: $0, tabID: tabID) }
+        )
+        let destinationRows = paneIDs.map { RepoExplorerRowID.tabPane(groupID: "panes", paneID: $0) }
+
+        #expect(snapshot.navigationIndex.destinationRowIDs == destinationRows)
+        #expect(snapshot.navigationIndex.numberedDestinationRowIDs == Array(destinationRows.prefix(9)))
+        #expect(snapshot.navigationIndex.nextDestinationRowID(after: groupRowID) == destinationRows[0])
+        #expect(snapshot.navigationIndex.nextDestinationRowID(after: destinationRows[8]) == destinationRows[9])
+        #expect(snapshot.navigationIndex.previousDestinationRowID(before: destinationRows[11]) == destinationRows[10])
+        #expect(snapshot.navigationIndex.digit(for: destinationRows[9]) == nil)
+    }
+
     @Test("previous and next selection stop at both edges")
     func previousAndNextSelectionStopAtEdges() {
         let firstGroupID = "group:first"

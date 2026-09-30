@@ -10,15 +10,15 @@ import Testing
 struct BridgeDevHostSharedConstructionTests {
     @Test("initial and explicit-target publications omit same-source refresh classification")
     func initialAndExplicitTargetPublicationsOmitRefreshClassification() async throws {
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-unclassified-publications"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -44,10 +44,10 @@ struct BridgeDevHostSharedConstructionTests {
 
     @Test("observed worktree refresh publishes existing provider classification")
     func observedWorktreeRefreshPublishesProviderClassification() async throws {
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-classified-observed-refresh"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider(
             changedFiles: [
                 makeBridgeEndpointChangedFile(
@@ -58,11 +58,11 @@ struct BridgeDevHostSharedConstructionTests {
                 )
             ]
         )
-        let source = makeDevelopmentProductSource(worktreeRoot: repositoryURL)
+        let source = makeDevelopmentProductSource(worktreeRoot: worktreeRoot)
         let host = try await BridgeDevelopmentProductHost(
             source: source,
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -124,15 +124,15 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("committed comparison update acknowledges before its publication is delivered")
     func committedComparisonUpdateAcknowledgesBeforePublicationDelivery() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-comparison-update"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -212,15 +212,15 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("a newer comparison update supersedes the host-owned publication task")
     func newerComparisonUpdateSupersedesPublicationTask() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-comparison-supersede"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -263,16 +263,16 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("source invalidations supersede the development Review publication task")
     func sourceInvalidationsSupersedeDevelopmentReviewPublicationTask() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-source-refresh"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
-        let source = makeDevelopmentProductSource(worktreeRoot: repositoryURL)
+        let source = makeDevelopmentProductSource(worktreeRoot: worktreeRoot)
         let host = try await BridgeDevelopmentProductHost(
             source: source,
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -314,15 +314,15 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("shutdown cancels and drains the host-owned comparison publication task")
     func shutdownCancelsAndDrainsComparisonPublicationTask() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-comparison-shutdown"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -357,15 +357,15 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("detected observation terminal retains the last complete Review publication")
     func detectedObservationTerminalRetainsLastCompleteReviewPublication() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-observation-terminal"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -394,10 +394,10 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("initial Review bootstrap settles presentation for the restored symbolic target")
     func initialReviewBootstrapSettlesRestoredTargetPresentation() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-initial-presentation"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let repositoryDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
             remoteName: "origin",
             branchName: "main"
@@ -406,9 +406,9 @@ struct BridgeDevHostSharedConstructionTests {
             repositoryDefaultTarget: repositoryDefaultTarget
         )
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -433,10 +433,10 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("successor comparison clears and refreshes repository default identity")
     func successorComparisonClearsAndRefreshesRepositoryDefaultIdentity() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-default-refresh"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let initialDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
             remoteName: "origin",
             branchName: "main"
@@ -449,9 +449,9 @@ struct BridgeDevHostSharedConstructionTests {
             repositoryDefaultTarget: initialDefaultTarget
         )
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -492,15 +492,15 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("Review bootstrap uses the existing shared construction authority")
     func reviewBootstrapUsesSharedConstructionAuthority() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-shared-review"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -524,18 +524,18 @@ struct BridgeDevHostSharedConstructionTests {
     @Test("a cancelled Review bootstrap cannot commit after its successor")
     func cancelledReviewBootstrapCannotCommitAfterSuccessor() async throws {
         // Arrange
-        let repositoryURL = try await FilesystemTestGitRepo.create(
+        let worktreeRoot = try makeDevelopmentWorktreeRoot(
             named: "bridge-development-product-host-overlap"
         )
-        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
         let comparisonGate = BridgeComparisonGate()
         let provider = BridgeDevelopmentSharedConstructionReviewProvider(
             comparisonGate: comparisonGate
         )
         let host = try await BridgeDevelopmentProductHost(
-            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            source: makeDevelopmentProductSource(worktreeRoot: worktreeRoot),
             contributionTargetCommit: developmentContributionTargetCommit(
-                worktreeRoot: repositoryURL
+                worktreeRoot: worktreeRoot
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -863,6 +863,17 @@ extension BridgeReviewRefreshImpact {
         deletedLineCount: 3,
         affectedStableFileIdentities: []
     )
+}
+
+private func makeDevelopmentWorktreeRoot(named name: String) throws -> URL {
+    let worktreeRoot = FileManager.default.temporaryDirectory.appending(
+        path: "\(name)-\(UUIDv7.generate().uuidString)",
+        directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: false)
+    let gitDirectory = worktreeRoot.appending(path: ".git", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: false)
+    return worktreeRoot
 }
 
 func makeDevelopmentBootstrapRequest(

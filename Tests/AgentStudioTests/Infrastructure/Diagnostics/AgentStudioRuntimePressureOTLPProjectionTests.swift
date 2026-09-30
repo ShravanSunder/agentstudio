@@ -80,4 +80,30 @@ struct AgentStudioRuntimePressureOTLPProjectionTests {
             projection.attributes["agentstudio.performance.terminal.activity_projection.round_trip_ms"]
                 == .double(4.5))
     }
+
+    @Test("terminal close read projection keeps only its numeric duration")
+    func terminalCloseReadProjectionScrubsOtherFields() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 604,
+            severityText: .info,
+            body: "performance.terminal.activity_projection.close_read",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.terminal.activity_projection.close_read_ms": .double(3.5),
+                "terminal.output.line": .string("private output"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.performance.terminal.activity_projection.close_read_ms"]
+                == .double(3.5)
+        )
+        #expect(projection.attributes["terminal.output.line"] == nil)
+    }
 }

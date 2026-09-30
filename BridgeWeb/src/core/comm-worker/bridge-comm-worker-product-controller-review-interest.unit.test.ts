@@ -9,6 +9,7 @@ import { bridgeProductReviewMetadataApplicationProtocol } from './bridge-product
 import type { BridgeProductSubscriptionOptions } from './bridge-product-subscription-contracts.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 type ReviewMetadataProtocol = typeof bridgeProductReviewMetadataApplicationProtocol;
 type ReviewMetadataSubscription =
@@ -242,6 +243,7 @@ function reviewEpochTransport(props: {
 	>;
 }): BridgeProductTransportSession {
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number =>
 			surface === 'review' ? props.incrementEpoch() : 0,
 		call: async (): Promise<never> => {

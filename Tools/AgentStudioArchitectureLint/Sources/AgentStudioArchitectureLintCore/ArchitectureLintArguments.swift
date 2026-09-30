@@ -23,8 +23,8 @@ struct ArchitectureLintArguments: Equatable {
     /// parsed so cross-file indexes match a full run.
     var onlyPaths: [String] = []
     var printsTimings = false
-    /// The debt ledger to reconcile against. Without it every site is new.
-    var ledgerPath: String?
+    /// Debt ledgers to reconcile against. Without them every site is new.
+    var ledgerPaths: [String] = []
     /// Rewrite the ledger with the counts this run found, lowering only.
     var lowersLedgerCounts = false
 
@@ -42,7 +42,7 @@ struct ArchitectureLintArguments: Equatable {
             case "--only":
                 parsed.onlyPaths.append(try value(for: argument, from: &remaining))
             case "--ledger":
-                parsed.ledgerPath = try value(for: argument, from: &remaining)
+                parsed.ledgerPaths.append(try value(for: argument, from: &remaining))
             case "--lower-ledger-counts":
                 parsed.lowersLedgerCounts = true
             case "--check-ledger-ratchet":
@@ -54,7 +54,7 @@ struct ArchitectureLintArguments: Equatable {
                 parsed.roots.append(argument)
             }
         }
-        if parsed.ledgerPath == nil, parsed.lowersLedgerCounts || parsed.mode.readsLedger {
+        if parsed.ledgerPaths.isEmpty, parsed.lowersLedgerCounts || parsed.mode.readsLedger {
             throw ArchitectureLintArgumentsError.requiresLedger
         }
         if parsed.lowersLedgerCounts, !parsed.onlyPaths.isEmpty {

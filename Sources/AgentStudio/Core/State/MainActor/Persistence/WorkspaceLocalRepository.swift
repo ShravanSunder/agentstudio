@@ -32,6 +32,7 @@ package struct WorkspaceLocalRepository: Sendable {
         var paneSubgroupMode: SidebarSubgroupMode = .activity
         var showsPinnedRepos: Bool = true
         var showsPinnedPanes: Bool = true
+        var showsDrawerPanes: Bool = true
     }
 
     struct WorkspaceMemoryRecord: Equatable, Sendable {
@@ -228,9 +229,18 @@ package struct WorkspaceLocalRepository: Sendable {
     func replaceWorkspaceSnapshotLocalState(
         cursorState: CursorStateRecord,
         windowState: WindowStateRecord?,
+        drawerPresentation: DrawerPresentationWrite? = nil,
         completedAt: Date
     ) throws {
         try databaseWriter.write { database in
+            if let drawerPresentation {
+                try WorkspaceLocalRepositoryStorage.mergeDrawerPresentationRows(
+                    database,
+                    workspaceId: workspaceId,
+                    write: drawerPresentation,
+                    updatedAt: completedAt
+                )
+            }
             try WorkspaceLocalRepositoryStorage.replaceWindowStateRows(
                 database,
                 workspaceId: workspaceId,

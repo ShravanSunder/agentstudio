@@ -22,8 +22,9 @@ flowchart LR
 
 | ID | Term | Identity: what makes two the same | Relationships | Invariants | Observable states |
 |---|---|---|---|---|---|
-| **E1** | **Pane session** | One Bridge pane plus one page incarnation. A page reload, or a replacement of the page's background worker, starts a **new** pane session. | A pane has at most one active pane session. A pane session owns 0..n E3 and E4. | Nothing from an ended pane session is ever applied to a newer one. | opening → active → ended |
-| **E2** | **Surface** | One pane plus one surface kind: File, Review, or Comments. Comments are a surface of their own, not a part of File or Review (U4). | A pane has exactly one of each surface. A surface has one E8 desired state and 0..1 displayed E7. | A surface displays only complete snapshots (E7). | current · updating · stale (last good shown, update failed or pending) · unavailable (nothing good to show) |
+| **E1** | **Pane session** | One Bridge pane plus one page incarnation. A page reload, or a replacement of the page's background worker, starts a **new** pane session. | A pane has at most one active pane session. A pane session owns 0..n E3 and E4. | Nothing from an ended pane session is ever applied to a newer one. | opening → active → ended. An opening that ends without ever becoming active is a **failed start**: that attempt never delivered anything. Content already shown on the page from before it stays readable and marked stale (R42) |
+| **E2** | **Surface** | One pane plus one surface kind: File, Review, or Comments. Comments are a surface of their own, not a part of File or Review (U4). | A pane has exactly one of each surface. A surface has one E8 desired state, 0..1 displayed E7, and 1..n E20 regions. | A surface displays only complete snapshots (E7). | loading (no snapshot yet, first attempt running) · current · updating · stale (last good shown, update failed or pending) · unavailable (nothing good to show) |
+| **E20** | **Surface region** | One E2 plus one display area of it: the File tree or File content; the Review list or diff; the Comments drawer or an inline thread area; a Markdown preview. The same area of the same surface is the same region across updates. | Belongs to exactly one E2. Shows its part of that surface's displayed E7 (or E10 threads for Comments). A region also has its own **demanded identity**: what it is currently asked to show (for example, the selected file). Regions of one surface settle independently. | Shows exactly one **presentation state** at a time: content, **Loading**, **Empty**, **Updating** (last good content plus the updating indicator), or **Failed** (keeping any last good content readable, R42) (U13). A region is **settled** when it shows content, Empty or Failed. | loading → content · empty · failed; content → updating → content · failed; content → loading when its demanded identity changes and it has no good content for the new one; failed → loading or updating (Retry) |
 | **E3** | **Subscription** | One pane session plus one opening of a data stream of one kind for one surface. A reopen is a new subscription. | Belongs to one E1 and one E2. Has 0..n E5. | Ends exactly once, and its end is announced to both sides. | opening → open → ended(completed \| cancelled \| failed \| retired) |
 | **E4** | **Operation** | One pane session plus one request from the page to the app (open, change interest, cancel, call, save, resync). A retry of an operation with the same identity is the same operation. | Belongs to one E1. May belong to one E3. | Settles exactly once. A human-wait operation (U11) is marked as such. | admitted → dispatched → settled(succeeded \| refused \| failed \| outcome-unknown \| cancelled) |
 | **E5** | **Record** | One subscription's view plus one **key**: for File, the file's **canonical document location** (its identity, which is stable when a member regroups it); a Review item; a comment thread or session. The collection display key (where the row sits in the tree) and the read descriptor are **fields**, not identity. The same key at a later revision is the same record, updated. | Belongs to one E17 view. Delivered inside one E18 batch. | Carries the latest full value (or a deletion) with a per-key revision. A record for an older revision than the one installed for that key is ignored. Leaving the view's scope is **eviction**, not deletion. | put · deleted · evicted |
@@ -38,7 +39,7 @@ flowchart LR
 | **E11** | **Comment group** | A group id. It is the set of threads a user created in one commenting session on one **subject**: a Git worktree or a local file, per #367's subject model ("comment group" in the owner's words). | Has exactly one subject, 1..n E10, and exactly one E12 describing the source at group start. | The group's version record is shown with the group. | open · completed |
 | **E12** | **Version record** | The identity of the code a thread or group was written against. File (Git or local-file subject): a file-content identity (for example a content hash) plus the source-qualified path. Review: comparison target name, the resolved commits, and the published snapshot identity. | Referenced by E10 and E11. | Records identity only, never file bytes (U6). Unknown only for data created before this work, which may be discarded. | known · unknown |
 | **E13** | **Anchor** | One thread's placement request: path, line range, which side (File, or Review base/head), plus the selected excerpt and adjacent context lines. | Belongs to one E10. | Re-evaluated against every newly displayed snapshot of its surface. Never silently changed. | see C-COM placement states |
-| **E14** | **Failure** | One surface or subscription plus one failure occurrence. Kind: **retryable** (a Retry may succeed) or **permanent** (authorization, contract or configuration errors; Retry cannot help). | Belongs to one E2, E3 or E4. | Retryable failures offer a Retry that starts a new attempt. Permanent failures stop automatic retries. | shown → retried \| superseded |
+| **E14** | **Failure** | One pane session, surface or subscription plus one failure occurrence. Kind: **retryable** (a Retry may succeed) or **permanent** (authorization, contract or configuration errors; Retry cannot help). | Belongs to one E1 (a failed start), E2, E3 or E4. | Retryable failures offer a Retry that starts a new attempt. Permanent failures stop automatic retries. | shown → retried \| superseded |
 | **E15** | **Acknowledgement window** | One subscription's delivered but unacknowledged batch parts. | One per active E3. | Bounded in count and bytes, and acknowledged cumulatively. It paces sending only; correctness never depends on it. Its oldest part has a deadline. | open · full · expired |
 | **E16** | **Data kind** | A named category of subscription payload (today: file metadata, review metadata, file comments, review comments). | Defines the key space and record shape for 0..n E3. | Differs from other kinds only in its keys, its record shape, its scope, and how records apply. | — |
 
@@ -47,6 +48,7 @@ erDiagram
   PANE_SESSION_E1 ||--o{ SUBSCRIPTION_E3 : "opens"
   PANE_SESSION_E1 ||--o{ OPERATION_E4 : "sends"
   SURFACE_E2 ||--|| DESIRED_STATE_E8 : "wants"
+  SURFACE_E2 ||--|{ SURFACE_REGION_E20 : "shown in"
   SURFACE_E2 ||--o| SNAPSHOT_E7 : "displays last good"
   SURFACE_E2 ||--o{ SUBSCRIPTION_E3 : "fed by"
   SUBSCRIPTION_E3 ||--|| VIEW_E17 : "mirrors"
@@ -62,7 +64,7 @@ erDiagram
   SNAPSHOT_E7 }o--o| COMPARISON_TARGET_E9 : "Review built for"
 ```
 
-The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and every E14 Failure belongs to an E2, E3 or E4. The diagram omits those edges for readability.
+The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and every E14 Failure belongs to an E1, E2, E3 or E4. The diagram omits those edges for readability.
 
 ## Normative requirements
 
@@ -169,6 +171,7 @@ The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and
 
 | Surface state | File | Review | Comments |
 |---|---|---|---|
+| loading | Each region that has no good content yet for its demanded identity shows **Loading** (content-shaped skeleton), never an empty panel or "pending" text. An installed tree stays shown while a newly selected file loads | List and diff show **Loading** until the first package installs | Drawer shows **Loading** until its first catalog installs |
 | current | Tree and content | Diff for the target | Threads with placement |
 | updating | Last good content, plus an unobtrusive updating indicator | Same | n/a (always usable) |
 | stale | Last good content, plus **"Showing last update · stale"**, plus **"Files unavailable"** and **Retry** (retryable) | Last good diff, plus **"Showing last update · stale"**, plus **"Update unavailable"** and **Retry** | Unaffected by File/Review staleness |
@@ -176,6 +179,22 @@ The entity table is normative. Every E6 Wait belongs to an E1, E3, E4 or E7, and
 
 - No modal dialogs, toasts, or full-view overlays for these states. This follows the owner's standing preference for persistent indicators over transient popups.
 - Retry, status text and comment actions (Re-attach, Resolve) use the app's command and action display system, like every other control.
+
+#### Non-content states: one set, drawn one way everywhere (U13; owner, 2026-09-30)
+
+Every E20 surface region has exactly four non-content states, and each is drawn the same way on every surface. A region's state comes from two things together: its surface's E2 state (desired, displayed, failure) and the region's own demanded identity and read. So one region can wait while its sibling stays settled. For example, a File tree stays shown while a newly selected file loads, and settled comment threads stay shown while one thread body loads. In outline: nothing good yet for the demanded identity shows **Loading**; complete content shows content, or **Empty** when it certifies nothing to show; a running update over good content shows **Updating**; a failed update keeps good content marked stale with **Failed**'s control (R19, R42); a failure with nothing good shows **Failed**.
+
+| State | When it is shown | What it looks like | Ends in |
+|---|---|---|---|
+| **Loading** | Only while the region has no good content for its current demanded identity and that content is being fetched or installed | A skeleton shaped like that region's real content (tree rows, code lines, diff hunks, comment cards), with a muted pulse | Content, **Empty** or **Failed**, within R1's bounds. It stops the moment the region settles |
+| **Empty** | A **complete** snapshot certifies there is nothing to show (for example, no changes), or the region has no applicable selection (no file selected). A partial snapshot is never Empty, and a failed read is **Failed**, never Empty | One quiet line of copy in the content area. The two cases use different copy | — |
+| **Updating** | New content is on its way while the last good content is shown | The last good content stays; a small shared indicator in the header | Content or **Failed** |
+| **Failed** | The region cannot show current content | The shared alert, in the same place on every surface. A retryable failure adds the shared **Retry**. A permanent failure states the corrective action and offers no Retry (R20). The copy says what failed | Retryable: a new attempt (Retry). Permanent: a change to its cause |
+
+- **R40.** Every E20 region MUST show exactly one presentation state (E20). A settled region MUST NOT show a Loading skeleton, a spinner, or "loading", "waiting" or "pending" copy anywhere in that region, including its rails and headers. Every attempt behind a Loading or Updating state is an E6 wait: it MUST end by R1, in content, Empty or Failed. A region MAY stay Updating across successive attempts while its inputs keep changing (R13), and MAY rest in Updating while an update is deliberately held or its surface is hidden (R12a). A resting region does no work. It leaves that state on release, show or retirement, never through an expiring spinner or a new automatic retry. When inputs stop and nothing is held, R12's bounded convergence applies.
+- **R41.** **Failed has a scope, not a separate state.** A *retryable surface* failure's Retry starts a new attempt for that surface (R17), including a surface whose source failed before any subscription opened while the pane session is healthy. When the E1 pane session is a **failed start**, every region of the pane shows the same Failed state (keeping any retained content readable, R42), and its Retry runs the app's existing **Reload Bridge** command, the same command as the menu, command bar and automation. There is no second reload path.
+- **R42.** A Failed region keeps any last good content readable and marked stale (R19). Failed replaces content only when its surface is `unavailable`.
+- **R43.** Loading, Empty, Updating and Failed MUST look and behave the same in every region: the same shape rules, the same placement of the Retry control, and labels from the command and action display system (C-UI).
 
 ![Review keeps the last good diff readable, marked stale, with an Update unavailable pill and a Retry button. An inline comment thread stays usable.](assets/review-degraded-retry.png)
 
@@ -237,6 +256,7 @@ It inherits, and may not override, opening, cancelling, retiring, batching, per-
 | R7, R28 | The contract suite passing for all four current data kinds at all three layers |
 | R11–R15 | Automated behavior with held and invalidated builds, plus convergence assertions (finite attempts, then quiescence) |
 | R16–R20 | Automated behavior plus visual evidence of each C-UI state in the running app |
+| R40–R43 | Browser tests of Loading, Empty, Updating and Failed for every region. These include: a sibling region staying settled while one region loads; no-selection vs certified-empty copy; a permanent failure with no Retry; a held or hidden region resting without work; a failed pane start keeping retained content. Plus running-app visual evidence that a settled region never shows a skeleton, spinner or loading/waiting copy |
 | R21–R27 | Automated behavior (File and Review parity), SQLite state inspection for E12, and visual evidence of the C-COM states |
 | R30–R32 | Repo lint (`no-timed-wait-in-tests` once PR #358 lands) and review of the replaced tests |
 | R31 | Each wedge test's failing run on the pre-change code, plus its passing run |
@@ -257,5 +277,6 @@ It inherits, and may not override, opening, cancelling, retiring, batching, per-
 | U9 | E15 | R10 | failure behavior | controlled clock, fault injection |
 | U10 | all | R28–R32 | S3 | lint, failing-then-passing runs |
 | U11 | E4 E6 | R4 | failure behavior | automated (held human wait plus pane close) |
+| U13 | E1 E2 E6 E14 E20 | R40–R43 | C-UI (non-content states) | browser tests of each state per region; visual evidence in the running app that no settled region shows loading/waiting |
 | U12 | E2 E7 E17 | R33–R38 | C-UI (filters) | automated scope/filter tests, no-Review-build assertion, visual |
 | U1, U2 (agent show) | E5 E17 E19 | R39 | failure behavior | background open with no mounted page → opened, notification posted, nothing on screen changes; background open into a visible pane → the displayed file and focus unchanged; take over → approval requested, approved → shown at the line via the human-click path, declined → stays opened in background; missing file → not found; closed pane → pane unavailable; exactly one reply each: automated + E2E |

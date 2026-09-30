@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioTestHarness
 import Foundation
 
 /// Holds one real File status read so the two-pane journey can inspect the
@@ -7,8 +8,11 @@ actor BridgeProductWebKitGatedGitStatusProvider: GitWorkingTreeStatusProvider {
     private let base: any GitWorkingTreeStatusProvider
     private var shouldBlockNextStatusRead = false
     private var blockedStatusReadCount = 0
-    private var blockedStatusReadContinuation: CheckedContinuation<Void, Never>?
-    private var blockedStatusReadWaiters: [(Int, CheckedContinuation<Int, Never>)] = []
+    private var blockedStatusReadStep: HeldStep<Int>?
+    private let blockedReads = FactRecorder<Int, Int>(
+        vocabulary: .init(
+            describeScope: { "blocked File status read \($0)" }, describeFact: { "blocked count \($0)" },
+            isClosing: { _, _ in false }))
 
     init(base: any GitWorkingTreeStatusProvider) {
         self.base = base
@@ -18,41 +22,25 @@ actor BridgeProductWebKitGatedGitStatusProvider: GitWorkingTreeStatusProvider {
         shouldBlockNextStatusRead = true
     }
 
-    func waitForBlockedStatusReadCount(_ count: Int) async -> Int {
-        if blockedStatusReadCount < count {
-            return await withCheckedContinuation { continuation in
-                blockedStatusReadWaiters.append((count, continuation))
-            }
-        }
-        return blockedStatusReadCount
+    func waitForBlockedStatusReadCount(_ count: Int) async throws -> Int {
+        if blockedStatusReadCount >= count { return blockedStatusReadCount }
+        return try await blockedReads.expectNext(in: count, where: { $0 >= count }, "File status read blocked")
     }
 
     func releaseBlockedStatusRead() {
         shouldBlockNextStatusRead = false
-        blockedStatusReadContinuation?.resume()
-        blockedStatusReadContinuation = nil
+        blockedStatusReadStep?.release()
+        blockedStatusReadStep = nil
     }
 
     func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult {
         if shouldBlockNextStatusRead {
             shouldBlockNextStatusRead = false
             blockedStatusReadCount += 1
-            let readyWaiters = blockedStatusReadWaiters.filter { blockedStatusReadCount >= $0.0 }
-            blockedStatusReadWaiters.removeAll { blockedStatusReadCount >= $0.0 }
-            for (_, continuation) in readyWaiters {
-                continuation.resume(returning: blockedStatusReadCount)
-            }
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    if Task.isCancelled {
-                        continuation.resume()
-                    } else {
-                        blockedStatusReadContinuation = continuation
-                    }
-                }
-            } onCancel: {
-                Task { await self.releaseBlockedStatusRead() }
-            }
+            let step = HeldStep<Int>("blocked File status read")
+            blockedStatusReadStep = step
+            blockedReads.append(scope: blockedStatusReadCount, fact: blockedStatusReadCount)
+            try? await step.arrive(blockedStatusReadCount)
         }
         return await base.statusResult(for: rootPath, pathspecs: pathspecs)
     }

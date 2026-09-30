@@ -32,7 +32,12 @@ struct RepoExplorerViewTests {
         )
 
         for source in [worktreeRowSource, paneRowSource] {
-            #expect(source.contains("SidebarGitStatusChips(branchStatus:"))
+            #expect(
+                source.range(
+                    of: #"SidebarGitStatusChips\(\s*branchStatus:"#,
+                    options: .regularExpression
+                ) != nil
+            )
             // Neither row constructs its own inline PR chip anymore; the octicon string only
             // appears inside the shared spec itself (SidebarChips.swift), never at a row call site.
             #expect(!source.contains("octicon-git-pull-request"))

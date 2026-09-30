@@ -5,7 +5,8 @@ import Testing
 
 @testable import AgentStudioArchitectureLintCore
 
-@Suite
+@MainActor
+@Suite(.serialized)
 struct RuleParityTests {
     @Test("drawer toolbar rejects raw button constructors while owned controls remain valid")
     func drawerToolbarRequiresOwnedControls() throws {

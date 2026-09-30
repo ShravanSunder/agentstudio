@@ -4,6 +4,7 @@ import { sceneRootAttribute } from "../chapters/chapter-dom-contract";
 import {
   chapterStepRequestedEventName,
   createChapterStepEvent,
+  createSceneStepTimingEvent,
   readChapterStepEventStepId,
   sceneStepReachedEventName,
 } from "../chapters/chapter-step-events";
@@ -14,19 +15,29 @@ import {
   type SceneTimeline,
 } from "../motion-scenes/scene-contract";
 import { resolveSceneModule } from "../motion-scenes/scene-registry";
+import { createDeferredProofVideo } from "./deferred-proof-video";
 import { findSceneProofLayer, type SceneProofTransition } from "./scene-proof-layer";
+import { publishSceneStepTiming } from "./scene-step-timing-publisher";
 import { combineSurfacePlaybacks, type SurfacePlayback } from "./surface-playback";
 
 // Same thresholds and replay delay as the scroll-autoplay video, so a scene and
 // a video on the page start, stop, and loop at the same scroll positions.
 const startProgress = 0.95;
 const stopProgress = 0.9;
-const replayDelayMs = 3000;
+export const sceneReplayDelayMs = 3000;
 const sceneSeed = 1;
 const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
 
 /** The visitor's play/pause control for a scene; hidden until motion can run. */
 const scenePlaybackToggleSelector = "[data-scene-playback-toggle]";
+export const scenePlaybackReadyEventName = "scene-playback-ready";
+
+export interface ScenePlaybackControl {
+  readonly duration: number;
+  pause(): void;
+  seek(seconds: number): void;
+  finish(): void;
+}
 
 export type SceneModuleResolver = (sceneId: SceneId) => SceneModule | undefined;
 
@@ -42,6 +53,8 @@ export interface ScenePlaybackProps {
   readonly resolveModule?: SceneModuleResolver;
   readonly sceneRoot: HTMLElement;
   readonly surface: HTMLElement;
+  /** The page controller owns the single playing slot across chapter surfaces. */
+  readonly onManualPlay?: (() => void) | undefined;
 }
 
 interface ScenePlaybackState {
@@ -52,6 +65,7 @@ interface ScenePlaybackState {
   lastReportedStepId: string | undefined;
   latestProgress: number;
   phase: ScenePlaybackPhase;
+  proofVideoEnded: boolean;
   replayTimer: number | undefined;
   /** A manual play paused only because the document is hidden; intent is kept. */
   suspendedWhileHidden: boolean;
@@ -95,6 +109,8 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   const sceneModule = readSceneModule(sceneRoot, props.resolveModule ?? resolveSceneModule);
   const motionPreference = window.matchMedia(reducedMotionQuery);
   const toggle = surface.querySelector<HTMLButtonElement>(scenePlaybackToggleSelector);
+  const proofVideo = surface.querySelector<HTMLVideoElement>("[data-scene-proof-video]");
+  const deferredVideo = createDeferredProofVideo(proofVideo);
   const proofLayer = findSceneProofLayer(surface, sceneRoot);
   const lifecycle = new AbortController();
   const state: ScenePlaybackState = {
@@ -105,6 +121,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     lastReportedStepId: undefined,
     latestProgress: 0,
     phase: "settled",
+    proofVideoEnded: false,
     replayTimer: undefined,
     suspendedWhileHidden: false,
     timeline: undefined,
@@ -112,6 +129,71 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
 
   const motionAllowed = (): boolean =>
     sceneModule !== undefined && !state.buildFailed && !motionPreference.matches;
+
+  let proofVideoIntent: PlaybackIntent = "auto";
+  let automaticVideoPlayPending = false;
+  let automaticVideoPausePending = false;
+  let activeStepPreview: HTMLElement | undefined;
+  let replayTimerStartedAt: number | undefined;
+  const endFailedProofBeat = (): void => {
+    automaticVideoPlayPending = false;
+    if (!state.awaitingReplay || proofVideoIntent !== "auto") return;
+    state.proofVideoEnded = true;
+    replayIfEligible();
+  };
+  const publishStepTiming = (): void => {
+    const timeline = state.timeline;
+    const stepId = state.lastReportedStepId;
+    if (timeline === undefined || sceneModule === undefined || stepId === undefined) return;
+    publishSceneStepTiming({
+      awaitingReplay: state.awaitingReplay,
+      manualPause: state.intent === "manual-pause",
+      playingScene: state.phase === "playing",
+      proofVideo,
+      proofVideoEnded: state.proofVideoEnded,
+      replayDelayMs: sceneReplayDelayMs,
+      replayTimerActive: state.replayTimer !== undefined,
+      replayTimerStartedAt,
+      sceneModule,
+      sceneRoot,
+      stepId,
+      timeline,
+    });
+  };
+  const pauseProofVideoAutomatically = (): void => {
+    if (proofVideo === null || proofVideo.paused || proofVideoIntent === "manual-play") return;
+    automaticVideoPausePending = true;
+    proofVideo.pause();
+  };
+  const playProofVideoAutomatically = (): void => {
+    if (
+      proofVideo === null ||
+      !proofVideo.paused ||
+      proofVideoIntent !== "auto" ||
+      state.proofVideoEnded
+    )
+      return;
+    deferredVideo.prime();
+    // Near-view loading can fail before the scene hands over to its proof.
+    if (proofVideo.error !== null) {
+      endFailedProofBeat();
+      return;
+    }
+    // A loading source holds the poster; canplay resumes this same proof beat.
+    if (proofVideo.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return;
+    automaticVideoPlayPending = true;
+    void proofVideo.play().catch(endFailedProofBeat);
+  };
+  const resetProofVideo = (): void => {
+    if (proofVideo === null) return;
+    if (!proofVideo.paused) {
+      automaticVideoPausePending = true;
+      proofVideo.pause();
+    }
+    proofVideo.currentTime = 0;
+    proofVideoIntent = "auto";
+    state.proofVideoEnded = false;
+  };
 
   // Show, then prove: the real capture holds the stage between loops, and it is
   // the static view whenever a registered scene cannot move (reduced motion or
@@ -129,6 +211,13 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.phase = phase;
     sceneRoot.dataset["scenePlaybackState"] = phase;
     proofLayer.render(proofBelongsToPhase(phase), proofTransition);
+    publishStepTiming();
+    if (phase === "awaiting-replay") {
+      if (state.autoplayEnabled && state.latestProgress >= startProgress)
+        playProofVideoAutomatically();
+    } else {
+      resetProofVideo();
+    }
     if (toggle === null) {
       return;
     }
@@ -146,6 +235,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     }
     state.lastReportedStepId = stepId;
     sceneRoot.dispatchEvent(createChapterStepEvent(sceneStepReachedEventName, stepId));
+    publishStepTiming();
   };
 
   const clearReplayTimer = (): void => {
@@ -154,9 +244,11 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     }
     window.clearTimeout(state.replayTimer);
     state.replayTimer = undefined;
+    replayTimerStartedAt = undefined;
   };
 
   const settle = (): void => {
+    const priorStepId = state.lastReportedStepId;
     clearReplayTimer();
     state.timeline?.revert();
     state.timeline = undefined;
@@ -165,6 +257,17 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.lastReportedStepId = undefined;
     state.suspendedWhileHidden = false;
     renderPhase("settled");
+    if (priorStepId !== undefined) {
+      sceneRoot.dispatchEvent(
+        createSceneStepTimingEvent({
+          stepId: priorStepId,
+          dwellSeconds: 0,
+          elapsedSeconds: 0,
+          running: false,
+          manualPause: false,
+        }),
+      );
+    }
   };
 
   const handleTimelineComplete = (): void => {
@@ -200,7 +303,9 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
       return undefined;
     }
     timeline.eventCallback("onUpdate", (): void => {
+      const previousStepId = state.lastReportedStepId;
       reportStep(findStepAtTime(sceneModule, timeline));
+      if (previousStepId === state.lastReportedStepId && timeline.paused()) publishStepTiming();
     });
     timeline.eventCallback("onComplete", handleTimelineComplete);
     state.timeline = timeline;
@@ -218,6 +323,23 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     if (sceneModule !== undefined) {
       reportStep(findStepAtTime(sceneModule, timeline));
     }
+    sceneRoot.dispatchEvent(
+      new CustomEvent<ScenePlaybackControl>(scenePlaybackReadyEventName, {
+        bubbles: true,
+        detail: {
+          duration: timeline.duration(),
+          pause: (): void => {
+            timeline.pause();
+          },
+          seek: (seconds: number): void => {
+            timeline.pause().time(seconds);
+          },
+          finish: (): void => {
+            timeline.progress(1);
+          },
+        },
+      }),
+    );
   };
 
   const playAutomatically = (): void => {
@@ -243,14 +365,17 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     if (
       state.replayTimer !== undefined ||
       !state.awaitingReplay ||
+      (proofVideo !== null && !state.proofVideoEnded) ||
       !state.autoplayEnabled ||
       state.intent !== "auto" ||
       state.latestProgress < startProgress
     ) {
       return;
     }
+    replayTimerStartedAt = performance.now();
     state.replayTimer = window.setTimeout((): void => {
       state.replayTimer = undefined;
+      replayTimerStartedAt = undefined;
       if (
         !state.autoplayEnabled ||
         state.intent !== "auto" ||
@@ -259,7 +384,8 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
         return;
       }
       playAutomatically();
-    }, replayDelayMs);
+    }, sceneReplayDelayMs);
+    publishStepTiming();
   };
 
   const playManually = (timeline: SceneTimeline): void => {
@@ -267,8 +393,59 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.suspendedWhileHidden = false;
     state.awaitingReplay = false;
     state.intent = "manual-play";
+    props.onManualPlay?.();
     startTimeline(timeline);
   };
+
+  proofVideo?.addEventListener(
+    "play",
+    (): void => {
+      publishStepTiming();
+      if (automaticVideoPlayPending) {
+        automaticVideoPlayPending = false;
+        return;
+      }
+      proofVideoIntent = "manual-play";
+    },
+    { signal: lifecycle.signal },
+  );
+  proofVideo?.addEventListener(
+    "pause",
+    (): void => {
+      publishStepTiming();
+      if (automaticVideoPausePending) {
+        automaticVideoPausePending = false;
+        return;
+      }
+      if (!proofVideo.ended) proofVideoIntent = "manual-pause";
+    },
+    { signal: lifecycle.signal },
+  );
+  proofVideo?.addEventListener("loadedmetadata", publishStepTiming, { signal: lifecycle.signal });
+  proofVideo?.addEventListener(
+    "canplay",
+    (): void => {
+      if (
+        state.awaitingReplay &&
+        state.autoplayEnabled &&
+        state.latestProgress >= startProgress &&
+        motionAllowed()
+      )
+        playProofVideoAutomatically();
+    },
+    { signal: lifecycle.signal },
+  );
+  proofVideo?.addEventListener("error", endFailedProofBeat, { signal: lifecycle.signal });
+  proofVideo?.addEventListener(
+    "ended",
+    (): void => {
+      state.proofVideoEnded = true;
+      proofVideoIntent = "auto";
+      proofVideo.currentTime = 0;
+      replayIfEligible();
+    },
+    { signal: lifecycle.signal },
+  );
 
   // Manual intent wins over scroll position, but never over a hidden document:
   // pause without changing intent, and resume on return while still centered.
@@ -317,10 +494,54 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     if (step === undefined || timeline === undefined) {
       return;
     }
+    activeStepPreview?.remove();
+    activeStepPreview = undefined;
+    if (!motionPreference.matches && sceneRoot.getAttribute("aria-hidden") !== "true") {
+      const preview = sceneRoot.cloneNode(true);
+      const parent = sceneRoot.parentElement;
+      if (preview instanceof HTMLElement && parent !== null) {
+        const sceneBounds = sceneRoot.getBoundingClientRect();
+        const parentBounds = parent.getBoundingClientRect();
+        preview.removeAttribute(sceneRootAttribute);
+        preview.dataset["sceneStepPreview"] = "";
+        preview.setAttribute("aria-hidden", "true");
+        preview.inert = true;
+        Object.assign(preview.style, {
+          position: "absolute",
+          left: `${sceneBounds.left - parentBounds.left}px`,
+          top: `${sceneBounds.top - parentBounds.top}px`,
+          width: `${sceneBounds.width}px`,
+          height: `${sceneBounds.height}px`,
+          pointerEvents: "none",
+          zIndex: "3",
+        });
+        parent.append(preview);
+        activeStepPreview = preview;
+        const fade = preview.animate([{ opacity: 1 }, { opacity: 0 }], {
+          delay: 160,
+          duration: 90,
+          fill: "forwards",
+        });
+        void fade.finished
+          .then((): void => {
+            preview.remove();
+            if (activeStepPreview === preview) activeStepPreview = undefined;
+          })
+          .catch((): void => {
+            preview.remove();
+            if (activeStepPreview === preview) activeStepPreview = undefined;
+          });
+      }
+    }
     // A step chosen during the proof beat drops the proof at once, then seeks.
     proofLayer.render(false, "instant");
-    timeline.pause(step.timelineLabel);
-    playManually(timeline);
+    clearReplayTimer();
+    state.awaitingReplay = false;
+    state.suspendedWhileHidden = false;
+    state.intent = "auto";
+    timeline.play(step.timelineLabel);
+    renderPhase("playing", "instant");
+    reportStep(step.stepId);
   };
 
   toggle?.addEventListener("click", handleToggle, { signal: lifecycle.signal });
@@ -330,13 +551,36 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   renderPhase("settled", "instant");
 
   return {
+    restart: (): void => {
+      clearReplayTimer();
+      state.timeline?.pause(0);
+      state.awaitingReplay = false;
+      state.intent = "auto";
+      state.lastReportedStepId = undefined;
+      state.suspendedWhileHidden = false;
+      renderPhase("paused", "instant");
+    },
+    deactivate: (): void => {
+      clearReplayTimer();
+      state.intent = "auto";
+      if (state.phase === "playing" || state.phase === "awaiting-replay") {
+        state.timeline?.pause();
+        renderPhase("paused");
+      }
+    },
     dispose: (): void => {
+      deferredVideo.dispose();
       lifecycle.abort();
+      activeStepPreview?.remove();
       settle();
     },
     synchronize: (progress: number, autoplayEnabled: boolean): void => {
       state.latestProgress = progress;
       state.autoplayEnabled = autoplayEnabled;
+      if (state.phase === "awaiting-replay") {
+        if (!autoplayEnabled || progress < stopProgress) pauseProofVideoAutomatically();
+        else if (progress >= startProgress) playProofVideoAutomatically();
+      }
       // Follows a reduced-motion change that happens before any timeline exists.
       proofLayer.render(proofBelongsToPhase(state.phase), "instant");
 
@@ -377,11 +621,14 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
 }
 
 /** One scene playback per `data-scene-root` inside the surface. */
-export function createSurfaceScenePlayback(surface: HTMLElement): SurfacePlayback {
+export function createSurfaceScenePlayback(
+  surface: HTMLElement,
+  onManualPlay?: () => void,
+): SurfacePlayback {
   return combineSurfacePlaybacks(
     Array.from(
       surface.querySelectorAll<HTMLElement>(`[${sceneRootAttribute}]`),
-      (sceneRoot): SurfacePlayback => createScenePlayback({ sceneRoot, surface }),
+      (sceneRoot): SurfacePlayback => createScenePlayback({ sceneRoot, surface, onManualPlay }),
     ),
   );
 }

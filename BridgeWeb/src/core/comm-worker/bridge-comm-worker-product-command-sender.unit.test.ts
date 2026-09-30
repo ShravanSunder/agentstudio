@@ -3,12 +3,14 @@ import { describe, expect, test } from 'vitest';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 describe('Bridge comm worker product command sender', () => {
 	test('maps permanent commands to closed surface-derived product calls', async () => {
 		// Arrange
 		const calls: unknown[] = [];
 		const productTransport = {
+			...createTestMetadataReopenPort(),
 			advanceWorkerDerivationEpoch: (): number => 1,
 			call: async (...arguments_): Promise<null> => {
 				calls.push(arguments_);
@@ -104,6 +106,7 @@ describe('Bridge comm worker product command sender', () => {
 		// Arrange
 		const calls: unknown[] = [];
 		const productTransport = {
+			...createTestMetadataReopenPort(),
 			advanceWorkerDerivationEpoch: (): number => 1,
 			call: async (...arguments_): Promise<null> => {
 				calls.push(arguments_);

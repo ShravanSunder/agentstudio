@@ -22,11 +22,16 @@ struct WorktreeCreationCommandSpecTests {
     @Test("From Default and Fork are distinct submenu identities")
     func forkWorktreeIsNotPresentedAsASecondRoot() {
         let defaultDefinition = AppCommand.newWorktreeFromDefault.definition
+        let branchDefinition = AppCommand.newWorktreeFromBranch.definition
         let definition = AppCommand.forkWorktree.definition
 
         #expect(defaultDefinition.label == "From Default")
         #expect(defaultDefinition.targeting == .targeted([.repo]))
         #expect(defaultDefinition.surfacePolicy == .notPresented)
+        #expect(branchDefinition.label == "From Branch")
+        #expect(branchDefinition.icon == .octicon(.gitBranch))
+        #expect(branchDefinition.surfacePolicy == .exposed([.commandBar]))
+        #expect(branchDefinition.targeting == .targeted([.repo]))
         #expect(definition.label == "Fork…")
         #expect(definition.icon == .octicon(.repoForked))
         #expect(definition.helpText == "Fork a worktree with its uncommitted, untracked, and ignored files")
@@ -37,7 +42,7 @@ struct WorktreeCreationCommandSpecTests {
 
     @Test("both creation commands are unexposed over typed IPC until a parameterized contract exists")
     func creationCommandsAreUnexposedOverIPC() {
-        for command in [AppCommand.newWorktree, .newWorktreeFromDefault, .forkWorktree] {
+        for command in [AppCommand.newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree] {
             let ipcSpec = command.ipcSpec
             #expect(ipcSpec.exposure == .debugTesting)
             #expect(ipcSpec.argumentVariants == [.noArguments])
@@ -50,9 +55,11 @@ struct WorktreeCreationCommandSpecTests {
     func creationKindsMapToCommands() {
         #expect(WorktreeCreationKind(command: .newWorktree) == nil)
         #expect(WorktreeCreationKind(command: .newWorktreeFromDefault) == .fromDefault)
+        #expect(WorktreeCreationKind(command: .newWorktreeFromBranch) == nil)
         #expect(WorktreeCreationKind(command: .forkWorktree) == .fork)
         #expect(WorktreeCreationKind(command: .openWorktree) == nil)
         #expect(WorktreeCreationKind.fromDefault.command == .newWorktreeFromDefault)
+        #expect(WorktreeCreationKind.fromBranch(referenceName: "refs/heads/topic").command == .newWorktreeFromBranch)
         #expect(WorktreeCreationKind.fork.command == .forkWorktree)
     }
 }

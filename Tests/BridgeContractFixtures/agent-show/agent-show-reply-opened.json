@@ -1,0 +1,6 @@
+{
+  "union": "BridgeAgentShowReply",
+  "value": {
+    "kind": "opened"
+  }
+}

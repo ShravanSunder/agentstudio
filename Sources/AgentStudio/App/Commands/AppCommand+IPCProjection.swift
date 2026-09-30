@@ -9,6 +9,7 @@ struct AppCommandIPCSpec: Sendable {
     let requiredPrivilege: IPCPrivilegeClass
     let allowedTargetKinds: Set<IPCHandleKind>
     let resultVariants: [IPCCommandResultVariant]
+    let agentEligibility: IPCAgentEligibility
 
     func descriptorInput(
         definition: AppCommandSpec,
@@ -25,7 +26,8 @@ struct AppCommandIPCSpec: Sendable {
             dataScope: Self.dataScope(for: requiredPrivilege),
             allowedTargetKinds: allowedTargetKinds,
             resultVariants: resultVariants,
-            examples: examples
+            examples: examples,
+            agentEligibility: agentEligibility
         )
     }
 
@@ -72,7 +74,7 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .focusSidebar, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .focusSidebar, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             // Worktree creation has no parameterized IPC contract yet (v1 is interactive only).
             [.noArguments]
 
@@ -82,12 +84,10 @@ extension AppCommand {
             .toggleManagementLayer, .managementLayerExit,
             .toggleSidebar, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -134,7 +134,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .addDrawerPane, .toggleDrawer:
+            .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
             [.drawerParent]
         case .focusDrawerPaneUp, .focusDrawerPaneLeft,
             .focusDrawerPaneDown, .focusDrawerPaneRight:
@@ -175,6 +175,11 @@ extension AppCommand {
         switch self {
         case .focusSidebar:
             .allChannels
+        // Own-pane commands reach pane agents on every channel.
+        case .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane:
+            .allChannels
         case .zoomPane, .reloadBridgeWebView,
             .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
@@ -189,11 +194,9 @@ extension AppCommand {
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
             .closePane, .extractPaneToTab, .movePaneToTab, .focusPane,
-            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .splitRight, .splitLeft, .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
             .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
-            .scrollPageDown, .scrollSmallStepUp, .scrollSmallStepDown,
             .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
             .focusPane6, .focusPane7, .focusPane8, .focusPane9,
             .minimizePane, .expandPane,
@@ -205,8 +208,8 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
-            .navigateDrawerPane, .closeDrawerPane,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
+            .navigateDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .openPullRequest, .watchFolder, .updateRepositoryFacts, .removeRepo,
@@ -221,10 +224,9 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .togglePanesSortDirection,
+            .togglePanesShowsDrawers,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -232,7 +234,7 @@ extension AppCommand {
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
             .signInGitHub, .signInGoogle, .filterSidebar,
-            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             .debugTesting
         }
     }
@@ -267,7 +269,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .copyCurrentPanePath, .openPullRequest,
@@ -284,19 +286,17 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             .headless
         }
     }
@@ -316,12 +316,10 @@ extension AppCommand {
 
         case .showInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .setInboxGroupingTab, .setInboxGroupingRepo,
             .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
@@ -353,7 +351,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane, .editPaneNote,
             .watchFolder, .updateRepositoryFacts, .removeRepo,
             .openWorktree, .openWorktreeInPane,
@@ -369,7 +367,7 @@ extension AppCommand {
             .openWebview, .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
-            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .openNewTerminalInTab, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             .layoutMutate
         }
     }
@@ -383,19 +381,17 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             []
 
         case .undoCloseTab, .newTab,
             .toggleManagementLayer, .managementLayerExit,
             .toggleSidebar, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen,
             .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
@@ -429,7 +425,7 @@ extension AppCommand {
             .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
             .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
             .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
-            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
@@ -458,10 +454,8 @@ extension AppCommand {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
             .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
-            .togglePanesSortDirection, .newWorktree, .newWorktreeFromDefault, .forkWorktree:
+            .togglePanesSortDirection, .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree:
             [.unavailable]
 
         case .openPaneLocationInEditorMenu, .editPaneNote,
@@ -503,7 +497,8 @@ extension AppCommand {
             .splitRight, .splitLeft, .equalizePanes,
             .zoomPane, .minimizePane, .expandPane,
             .switchArrangement, .saveArrangement, .renameArrangement,
-            .enterDrawer, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .enterDrawer, .detachDrawerPane, .addDrawerPane, .toggleDrawer, .moveZoomDrawerToTerminal,
+            .moveZoomDrawerToBridge,
             .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInFinder, .copyCurrentPanePath, .openPullRequest,
             .removeRepo, .pinRepo, .unpinRepo, .pinPane, .unpinPane,
@@ -513,10 +508,69 @@ extension AppCommand {
             .setReposGroupingRepo, .setReposGroupingActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .toggleReposSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .openWebview, .openNewTerminalInTab:
             [.applied]
+        }
+    }
+    /// A1 own-pane set: the pane agent's own terminal navigation and closing
+    /// its own drawer child. Every other command is not yet allowed.
+    private var ipcAgentEligibility: IPCAgentEligibility {
+        switch self {
+        case .scrollToBottom, .scrollPageUp, .scrollPageDown,
+            .scrollSmallStepUp, .scrollSmallStepDown,
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .closeDrawerPane:
+            .ownPane
+        case .newWindow, .closeWindow, .undoCloseTab, .newTab, .closeTab, .breakUpTab,
+            .renameTab, .newTerminalInTab, .selectTab, .nextTab, .prevTab,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .closePane, .extractPaneToTab, .movePaneToTab, .splitRight, .splitLeft,
+            .equalizePanes, .minimizePane, .expandPane, .focusPane, .zoomPane,
+            .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane, .focusPreviousPinnedPane, .focusNextPinnedPane,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement,
+            .saveArrangement, .deleteArrangement, .renameArrangement,
+            .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft,
+            .focusDrawerPaneDown, .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+            .detachDrawerPane, .addDrawerPane, .toggleDrawer,
+            .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge, .navigateDrawerPane,
+            .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+            .openPullRequest, .reloadBridgeWebView, .showViewer,
+            .watchFolder, .updateRepositoryFacts, .removeRepo, .pinRepo, .unpinRepo,
+            .pinPane, .unpinPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab,
+            .newWorktree, .newWorktreeFromDefault, .newWorktreeFromBranch, .forkWorktree,
+            .toggleManagementLayer, .managementLayerExit,
+            .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser,
+            .toggleSidebar, .focusSidebar, .filterSidebar,
+            .showReposSidebar, .showPanesSidebar,
+            .setReposGroupingRepo, .setReposGroupingActivity,
+            .setReposSortFieldName, .setReposSortFieldActivity,
+            .setPanesSortFieldName, .setPanesSortFieldActivity,
+            .toggleReposSortDirection, .togglePanesSortDirection,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane,
+            .setInboxGroupingNone, .setInboxRowStateFilter, .setInboxContentMode,
+            .showCommandBarEverything, .showCommandBarQuickOpen,
+            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
+            .newFloatingTerminal, .openWebview,
+            .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
+            .signInGitHub, .signInGoogle:
+            .notYetAllowed
         }
     }
     var ipcSpec: AppCommandIPCSpec {
@@ -526,7 +580,8 @@ extension AppCommand {
             argumentVariants: ipcArgumentVariants,
             requiredPrivilege: ipcRequiredPrivilege,
             allowedTargetKinds: ipcAllowedTargetKinds,
-            resultVariants: ipcResultVariants
+            resultVariants: ipcResultVariants,
+            agentEligibility: ipcAgentEligibility
         )
     }
 }

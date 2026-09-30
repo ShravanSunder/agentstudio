@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Where a `HeldStep` records that a test started waiting for it and that the
 /// work first arrived at it.
@@ -32,7 +33,7 @@ package struct HeldStepEventLog: Sendable {
         self.path = path
     }
 
-    func recordWaiting(instanceID: UInt64, stepName: String, test: String) {
+    package func recordWaiting(instanceID: UInt64, stepName: String, test: String) {
         append("waiting\t\(instanceID)\t\(stepName)\t\(test)\n")
     }
 
@@ -41,13 +42,44 @@ package struct HeldStepEventLog: Sendable {
     }
 
     private func append(_ line: String) {
+        TestEventLogWriter.append(line, path: path)
+    }
+}
+
+/// Both harness logs share one failure signal because a failed log cannot
+/// reliably record its own unavailability in that same file.
+package enum TestEventLogWriter {
+    private static let reportedUnavailable = Mutex(false)
+
+    package static func append(_ line: String, path: String?) {
         guard let path else { return }
         let descriptor = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
-        guard descriptor >= 0 else { return }
+        guard descriptor >= 0 else {
+            reportUnavailable(path: path, errorNumber: errno)
+            return
+        }
         defer { close(descriptor) }
         let bytes = Array(line.utf8)
-        _ = bytes.withUnsafeBytes { buffer in
+        let written = bytes.withUnsafeBytes { buffer in
             write(descriptor, buffer.baseAddress, buffer.count)
+        }
+        if written != bytes.count {
+            reportUnavailable(path: path, errorNumber: written < 0 ? errno : EIO)
+        }
+    }
+
+    private static func reportUnavailable(path: String, errorNumber: Int32) {
+        let firstFailure = reportedUnavailable.withLock { reported -> Bool in
+            guard !reported else { return false }
+            reported = true
+            return true
+        }
+        guard firstFailure else { return }
+        let safePath = path.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r")
+        let line = "[agentstudio-test-log] unavailable path=\(safePath) errno=\(errorNumber)\n"
+        let bytes = Array(line.utf8)
+        _ = bytes.withUnsafeBytes { buffer in
+            write(STDERR_FILENO, buffer.baseAddress, buffer.count)
         }
     }
 }

@@ -81,7 +81,7 @@ describe("full-page topology layout", () => {
     for (const anchor of fixture.host.querySelectorAll<HTMLElement>("[data-rail-anchor]")) {
       const id = anchor.dataset["railAnchor"];
       const node = required(fixture.artwork, `[data-topology-chapter-node="${id}"]`);
-      const nodeBounds = node.getBoundingClientRect();
+      const nodeY = Number(node.querySelector("circle")?.getAttribute("cy"));
       const range = document.createRange();
       range.selectNodeContents(anchor);
       const [firstLine] = range.getClientRects();
@@ -89,7 +89,11 @@ describe("full-page topology layout", () => {
         throw new Error(`Anchor ${id ?? ""} has no line box`);
       }
       expect(
-        Math.abs(nodeBounds.top + nodeBounds.height / 2 - (firstLine.top + firstLine.height / 2)),
+        Math.abs(
+          fixture.artwork.getBoundingClientRect().top +
+            nodeY -
+            (firstLine.top + firstLine.height / 2),
+        ),
       ).toBeLessThanOrEqual(1);
     }
     // Chapter titles wrap, so the first line sits above the title's centre.
@@ -122,16 +126,48 @@ describe("full-page topology layout", () => {
       const start = core.getPointAtLength(0);
       const end = pathEnd(fixture.artwork, core);
       const glassBounds = glass.getBoundingClientRect();
-      expect(Math.abs(end.x - glassBounds.left)).toBeLessThanOrEqual(1);
-      expect(end.y).toBeGreaterThan(glassBounds.top);
-      expect(end.y).toBeLessThan(glassBounds.bottom);
-      expect(end.x - (fixture.artwork.getBoundingClientRect().left + start.x)).toBeCloseTo(unit, 0);
-      // The port is primary blue and ends in a node exactly on the glass edge.
+      if (anchorId === "hero") {
+        expect(Math.abs(end.y - glassBounds.top)).toBeLessThanOrEqual(1);
+        expect(end.x - glassBounds.left).toBeGreaterThanOrEqual(16 + 8);
+      } else {
+        expect(Math.abs(end.x - glassBounds.left)).toBeLessThanOrEqual(1);
+        expect(end.y).toBeGreaterThan(glassBounds.top);
+        expect(end.y).toBeLessThan(glassBounds.bottom);
+      }
+      const heroTopInset = anchorId === "hero" ? 24 : 0;
+      expect(end.x - (fixture.artwork.getBoundingClientRect().left + start.x)).toBeCloseTo(
+        unit + heroTopInset,
+        0,
+      );
+      // The primary-blue branch ends directly on the glass edge, with no port node.
       expect(group.classList.contains("accent-port")).toBe(true);
-      const port = required(group, "[data-topology-port-node]").getBoundingClientRect();
-      expect(Math.abs(port.left + port.width / 2 - glassBounds.left)).toBeLessThanOrEqual(1);
-      expect(Math.abs(port.top + port.height / 2 - end.y)).toBeLessThanOrEqual(1);
+      expect(group.querySelector("[data-topology-port-node]")).toBeNull();
     }
+  });
+
+  it("measures a non-hero surface's declared top edge", async () => {
+    await page.viewport(1600, 1000);
+    const fixture = mount({
+      contentLeft: 197,
+      anchorTops: [110, 1300],
+      height: 2500,
+      phone: false,
+    });
+    const glass = required(fixture.host, '[data-rail-surface-target="chapter-1"]');
+    glass.setAttribute("data-rail-target-edge", "top");
+
+    expect(layoutFullPageTopology(fixture.artwork)).toBe(true);
+
+    const route = required(
+      fixture.artwork,
+      '[data-route-kind="attach"][data-route-anchor="chapter-1"]',
+    );
+    const core = requiredPath(route, '[data-topology-path-role="core"]');
+    const endpoint = pathEnd(fixture.artwork, core);
+    const bounds = glass.getBoundingClientRect();
+    expect(route.getAttribute("data-target-edge")).toBe("top");
+    expect(Math.abs(endpoint.y - bounds.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(endpoint.x - bounds.left - 24)).toBeLessThanOrEqual(1);
   });
 
   it("draws a single mainline on a phone and drops each branch into its glass's top edge", async () => {
