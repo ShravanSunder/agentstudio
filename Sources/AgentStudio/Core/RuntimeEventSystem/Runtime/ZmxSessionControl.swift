@@ -160,11 +160,16 @@ enum ZmxSessionControl {
                 }
             }
             if result == 0 { return }
+            if errno == ECONNREFUSED { throw ZmxSessionControlFailure.connectionRefused }
             guard errno == EINPROGRESS else { throw ZmxSessionControlFailure.unavailable }
             try waitFor(POLLOUT)
             var socketError: Int32 = 0
             var size = socklen_t(MemoryLayout<Int32>.size)
-            guard getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &size) == 0, socketError == 0 else {
+            guard getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &size) == 0 else {
+                throw ZmxSessionControlFailure.unavailable
+            }
+            guard socketError == 0 else {
+                if socketError == ECONNREFUSED { throw ZmxSessionControlFailure.connectionRefused }
                 throw ZmxSessionControlFailure.unavailable
             }
         }

@@ -16,6 +16,14 @@ struct ColdStartObserverTests {
     private final class ScriptedSyscalls: ColdStartObserverSyscalls, @unchecked Sendable {
         var directoryOpenResult: Result<Int32, POSIXErrorNumber> = .failure(POSIXErrorNumber(EACCES))
         var processArgumentsResult: Result<[UInt8], POSIXErrorNumber> = .failure(POSIXErrorNumber(ESRCH))
+        /// Consumed one per `observeSession` call, in order; once exhausted,
+        /// every further call repeats the last scripted result (or
+        /// `.failure(.unavailable)` if none was ever scripted).
+        var observeSessionResults: [Result<ZmxSessionIdentity, ZmxSessionControlFailure>] = []
+
+        private let lock = NSLock()
+        private var callCount = 0
+        private var callCountWaiters: [(threshold: Int, continuation: CheckedContinuation<Int, Never>)] = []
 
         func openDirectoryForWatching(path: String) -> Result<Int32, POSIXErrorNumber> {
             directoryOpenResult
@@ -24,6 +32,56 @@ struct ColdStartObserverTests {
         func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber> {
             processArgumentsResult
         }
+
+        func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure> {
+            lock.lock()
+            let result = observeSessionResults.isEmpty ? .failure(.unavailable) : observeSessionResults.removeFirst()
+            callCount += 1
+            let count = callCount
+            let readyWaiters = callCountWaiters.filter { $0.threshold <= count }
+            callCountWaiters.removeAll { $0.threshold <= count }
+            lock.unlock()
+            for waiter in readyWaiters { waiter.continuation.resume(returning: count) }
+            return result
+        }
+
+        var observeSessionCallCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return callCount
+        }
+
+        /// Event-driven wait for the Nth `observeSession` call to have
+        /// happened -- no polling, no sleeping: a continuation registered
+        /// under the same lock `observeSession` itself resumes under.
+        /// Returns the call count observed at resumption, so a caller
+        /// asserts on that value directly rather than re-reading
+        /// `observeSessionCallCount` afterward.
+        @discardableResult
+        func waitUntilObserveSessionCalled(atLeast threshold: Int) async -> Int {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if callCount >= threshold {
+                    let observedCount = callCount
+                    lock.unlock()
+                    continuation.resume(returning: observedCount)
+                    return
+                }
+                callCountWaiters.append((threshold, continuation))
+                lock.unlock()
+            }
+        }
+    }
+
+    /// A minimal, valid `KERN_PROCARGS2`-shaped buffer with `argc = 0` --
+    /// `ProcessArgumentsBufferParser.argumentVector` parses it to an empty
+    /// array, which never contains a startup token, without needing any
+    /// argv strings encoded.
+    private func makeEmptyArgumentVectorBuffer(execPath: String = "/bin/example") -> [UInt8] {
+        var buffer = withUnsafeBytes(of: Int32(0)) { Array($0) }
+        buffer.append(contentsOf: Array(execPath.utf8))
+        buffer.append(0)
+        return buffer
     }
 
     @Test("a directory-watch registration failure settles unobservable, carrying the injected errno")
@@ -125,5 +183,109 @@ struct ColdStartObserverTests {
         // The awaiter is unblocked; the specific outcome value carries no
         // meaning the caller of cancel() should act on (see cancel()'s doc).
         _ = await observationTask.value
+    }
+
+    /// Opens `path` for `EVFILT_VNODE` watching itself, the same call
+    /// `DarwinColdStartObserverSyscalls.openDirectoryForWatching` makes --
+    /// a scripted `ScriptedSyscalls` still needs a real, valid descriptor
+    /// for `ColdStartObserver`'s real `DispatchSource` registration to work
+    /// against, even though the connect/observe step past it is faked. The
+    /// observer's own `teardownWatches()` closes it on settlement.
+    private func openRealDirectoryDescriptor(at path: String) throws -> Int32 {
+        let descriptor = open(path, O_EVTONLY)
+        try #require(descriptor >= 0, "expected to open a real directory for EVFILT_VNODE watching")
+        return descriptor
+    }
+
+    /// Program Design item 3, stage 1, amended 2026-09-30: zmx binds the
+    /// session socket's filesystem path before it calls `listen`, so a
+    /// connect landing in that gap is refused, not queued -- `discovery`
+    /// retries rather than settling unobservable. `terminalLeader` is this
+    /// test process's own real, live incarnation (queried the same way
+    /// `ZmxSessionControl.currentIncarnation` does), so stage 2's handoff
+    /// comparison is fully real, not scripted -- only the discovery-connect
+    /// seam is a test double.
+    @Test("a connect refused twice then succeeding retries discovery and reaches handoff")
+    func connectRefusedTwiceThenSucceedingRetriesDiscoveryAndReachesHandoff() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-discovery-retry-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        // Pre-created: "register first, then check" means discovery must
+        // already find this socket path present the moment it starts.
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let selfIncarnation = try #require(ZmxSessionControl.currentIncarnation(forPID: selfPID))
+        let identity = ZmxSessionIdentity(
+            version: 1,
+            bootID: "test-boot-id",
+            daemon: selfIncarnation,
+            terminalLeader: selfIncarnation,
+            processGroupID: selfIncarnation.pid,
+            sessionCreatedAt: 0
+        )
+        syscalls.observeSessionResults = [
+            .failure(.connectionRefused),
+            .failure(.connectionRefused),
+            .success(identity),
+        ]
+        syscalls.processArgumentsResult = .success(makeEmptyArgumentVectorBuffer())
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        let outcome = await observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
+
+        #expect(outcome == .handedOff)
+        #expect(syscalls.observeSessionCallCount == 3)
+    }
+
+    /// The other half of the same amendment: exhausting every retry still
+    /// refused must NOT settle on the timing alone -- the window stays
+    /// discovering until a real fact resolves it. Driven entirely through
+    /// the scripted call-count seam, never a sleep in this test.
+    @Test("a connect refused on every retry stays discovering, and settles only on a later attach-client exit")
+    func connectRefusedOnEveryRetryStaysDiscoveringAndSettlesOnAttachClientExit() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-discovery-exhausted-test-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        syscalls.observeSessionResults = Array(
+            repeating: .failure(.connectionRefused), count: AppPolicies.Restore.discoveryConnectRetryDelays.count + 1)
+        let observer = ColdStartObserver(syscalls: syscalls)
+
+        let observationTask = Task {
+            await observer.observeColdStart(
+                zmxDirectory: temporaryDirectory,
+                socketPath: socketPath,
+                bootID: "test-boot-id",
+                attemptID: ColdRestoreAttemptID.generate()
+            )
+        }
+
+        // Every scripted attempt (the initial connect plus every retry) has
+        // genuinely run before the exit fires -- proves the window was
+        // still discovering through the whole retry budget, not settled
+        // early by some other path.
+        let expectedAttempts = AppPolicies.Restore.discoveryConnectRetryDelays.count + 1
+        let observedCallCount = await syscalls.waitUntilObserveSessionCalled(atLeast: expectedAttempts)
+        #expect(observedCallCount == expectedAttempts)
+        await observer.reportAttachClientExited()
+
+        let outcome = await observationTask.value
+
+        #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
     }
 }

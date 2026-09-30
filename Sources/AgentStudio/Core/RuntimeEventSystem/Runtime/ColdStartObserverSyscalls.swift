@@ -12,20 +12,21 @@ package struct POSIXErrorNumber: Error, Equatable, Sendable {
     }
 }
 
-/// The raw Darwin calls `ColdStartObserver` makes at its two register
-/// points (Program Design revision 11, item 3): opening the zmx directory
-/// for `EVFILT_VNODE` watching, and reading `KERN_PROCARGS2` for the
-/// handoff token, which lives in the leader's **arguments** -- macOS
-/// returns no environment to a third-party reader for any process
-/// (confirmed against XNU's `kern_sysctl.c` and reproduced independently on
-/// macOS 26.5 with SIP on), so only argv is ever read here. A seam so tests
-/// can inject a specific failure at the boundary without provoking the real
-/// syscall into failing -- "a registration error or unreadable process
-/// args, injected at the Darwin call boundary with a test double of the
-/// syscall wrapper only" (S3 proof list). The real zmx/process paths stay
+/// The raw Darwin/zmx calls `ColdStartObserver` makes at its two
+/// register-then-check stages (Program Design revision 11, item 3): opening
+/// the zmx directory for `EVFILT_VNODE` watching and connecting to the new
+/// session for its identity, then reading `KERN_PROCARGS2` for the handoff
+/// token, which lives in the leader's **arguments** -- macOS returns no
+/// environment to a third-party reader for any process (confirmed against
+/// XNU's `kern_sysctl.c` and reproduced independently on macOS 26.5 with SIP
+/// on), so only argv is ever read here. A seam so tests can inject a
+/// specific failure at each boundary without provoking the real syscall or
+/// a real zmx daemon into failing -- "a registration error or unreadable
+/// process args, injected at the Darwin call boundary with a test double of
+/// the syscall wrapper only" (S3 proof list), and the discovery-connect
+/// retry (added 2026-09-30) the same way. The real zmx/process paths stay
 /// proven against real zmx and real processes elsewhere; this seam exists
-/// only for the two `.unobservable` cases that are otherwise unreachable in
-/// a test.
+/// only for cases otherwise unreachable in a test.
 package protocol ColdStartObserverSyscalls: Sendable {
     /// Opens `path` (the zmx directory) for `EVFILT_VNODE` watching.
     /// `.failure(errno)` on failure, for `ColdStartUnobservableReason
@@ -39,6 +40,15 @@ package protocol ColdStartObserverSyscalls: Sendable {
     /// parsed. `.failure(errno)` on any sysctl failure, mapped to
     /// `ColdStartUnobservableReason.processArgsUnreadable`.
     func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber>
+
+    /// Connects to the new session's socket at `path` and returns its
+    /// identity (Program Design item 3, stage 1, amended 2026-09-30).
+    /// `.failure(.connectionRefused)` is the one retried case -- zmx binds
+    /// the socket's filesystem path before it calls `listen`, so a connect
+    /// landing in that gap is refused, not queued. Every other failure
+    /// reaches `ColdStartObserver`'s existing discovery-settlement logic
+    /// unchanged.
+    func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure>
 }
 
 /// The real Darwin implementation. Kept separate from the protocol so a
@@ -113,4 +123,14 @@ package struct DarwinColdStartObserverSyscalls: ColdStartObserverSyscalls {
         let result = sysctl(&mib, 2, &argumentsMax, &size, nil, 0)
         return result == 0 && argumentsMax > 0 ? Int(argumentsMax) : 256 * 1024
     }()
+
+    package func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure> {
+        do {
+            return .success(try ZmxSessionControl.observe(path: path, bootID: bootID))
+        } catch let failure as ZmxSessionControlFailure {
+            return .failure(failure)
+        } catch {
+            return .failure(.unavailable)
+        }
+    }
 }

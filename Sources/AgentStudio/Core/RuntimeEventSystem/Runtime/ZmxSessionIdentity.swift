@@ -8,7 +8,9 @@ package protocol ZmxSessionControlling: Sendable {
 }
 
 /// Local cleanup evidence, never terminal output or a process-supervision graph.
-struct ZmxSessionIdentity: Codable, Equatable, Sendable {
+/// `package`: exposed on `ColdStartObserverSyscalls.observeSession(path:bootID:)`
+/// so a test can script the discovery-connect seam directly.
+package struct ZmxSessionIdentity: Codable, Equatable, Sendable {
     let version: Int
     let bootID: String
     let daemon: ZmxProcessIncarnation
@@ -49,6 +51,14 @@ package enum ZmxSessionCleanupStatus: Equatable, Sendable {
 package enum ZmxSessionControlFailure: String, Error, Sendable {
     case invalidIdentity
     case unavailable
+    /// The Unix-domain-socket `connect` failed with `ECONNREFUSED`,
+    /// distinct from every other `.unavailable` cause (Program Design item
+    /// 3, amended 2026-09-30). zmx creates the session socket's filesystem
+    /// path (`bind`) before it calls `listen` (socket.zig:113-114); a
+    /// connect landing in that narrow gap is refused, not queued. This is
+    /// "still discovering," never "unobservable" -- see
+    /// `ColdStartObserver`'s discovery retry.
+    case connectionRefused
     case invalidSocketPath
     case timeout
     case invalidResponse

@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Darwin
 import Dispatch
 import Foundation
@@ -9,7 +10,10 @@ import Foundation
 ///
 /// 1. **Discovery** — `EVFILT_VNODE` `NOTE_WRITE` on the zmx directory, then
 ///    checks whether the session's socket exists; on appearance, calls
-///    `ZmxSessionControl.observe` for the new session's identity.
+///    `ZmxSessionControl.observe` for the new session's identity. A
+///    `.connectionRefused` connect (zmx binds the socket's path before it
+///    calls `listen`; amended 2026-09-30) retries on a short backoff rather
+///    than settling — see `attemptDiscoveryConnect`.
 /// 2. **Handoff** — `EVFILT_PROC` `NOTE_EXEC | NOTE_EXIT` on the identity's
 ///    terminal-leader pid, then reads its argument vector via
 ///    `KERN_PROCARGS2` (never the environment: macOS returns none to a
@@ -154,24 +158,58 @@ package actor ColdStartObserver {
     }
 
     /// Runs wherever it's called from — the DispatchSource's own GCD queue
-    /// (its event handler) or synchronously right after registration —
-    /// never on this actor's executor, so the blocking
-    /// `ZmxSessionControl.observe` call below never blocks the actor's
-    /// serial executor (SE-0461). Re-enters the actor only to record the
-    /// result.
+    /// (its event handler) or synchronously right after registration.
+    /// Launches the connect attempt as its own task rather than blocking
+    /// here, since a refused connect now retries with a real `Task.sleep`
+    /// (see `attemptDiscoveryConnect`), which this `nonisolated` function
+    /// itself cannot `await`.
     nonisolated private func checkForSocketAndAdvance(
         socketPath: String,
         bootID: String,
         attemptID: ColdRestoreAttemptID
     ) {
         guard FileManager.default.fileExists(atPath: socketPath) else { return }
-        let identity: ZmxSessionIdentity?
-        do {
-            identity = try ZmxSessionControl.observe(path: socketPath, bootID: bootID)
-        } catch {
-            identity = nil
+        Task {
+            await self.attemptDiscoveryConnect(
+                socketPath: socketPath, bootID: bootID, attemptID: attemptID, retryIndex: 0)
         }
-        Task { await self.discoverySettled(identity: identity, socketPath: socketPath, attemptID: attemptID) }
+    }
+
+    /// Program Design item 3, stage 1, amended 2026-09-30: zmx binds the
+    /// session socket's filesystem path before it calls `listen`
+    /// (socket.zig:113-114), so a connect landing in that gap is refused,
+    /// not queued, and no further kqueue directory event follows `listen`
+    /// to re-trigger discovery -- the next-`NOTE_WRITE` idea doesn't work
+    /// here. `.connectionRefused` retries on `AppPolicies.Restore
+    /// .discoveryConnectRetryDelays`'s backoff instead. Exhausting every
+    /// attempt still refused does NOT settle: the window stays discovering,
+    /// resolved only by a later real fact -- `reportAttachClientExited()`,
+    /// or a subsequent `observeSession` failure that isn't `.connectionRefused`
+    /// reaching `discoverySettled`'s existing endpoint check.
+    ///
+    /// `@concurrent nonisolated` (SE-0461): escapes to the global concurrent
+    /// executor for its blocking `syscalls.observeSession` call and its
+    /// `Task.sleep` backoff, neither of which may run on this actor's own
+    /// serial executor. Re-enters the actor only through `discoverySettled`.
+    @concurrent nonisolated private func attemptDiscoveryConnect(
+        socketPath: String,
+        bootID: String,
+        attemptID: ColdRestoreAttemptID,
+        retryIndex: Int
+    ) async {
+        switch syscalls.observeSession(path: socketPath, bootID: bootID) {
+        case .success(let identity):
+            await discoverySettled(identity: identity, socketPath: socketPath, attemptID: attemptID)
+        case .failure(.connectionRefused):
+            let delaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
+            guard retryIndex < delaysMilliseconds.count else { return }
+            let delayNanoseconds = UInt64(delaysMilliseconds[retryIndex]) * 1_000_000
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+            await attemptDiscoveryConnect(
+                socketPath: socketPath, bootID: bootID, attemptID: attemptID, retryIndex: retryIndex + 1)
+        case .failure:
+            await discoverySettled(identity: nil, socketPath: socketPath, attemptID: attemptID)
+        }
     }
 
     private func discoverySettled(

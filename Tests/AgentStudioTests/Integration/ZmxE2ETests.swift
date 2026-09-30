@@ -158,6 +158,11 @@ extension E2ESerializedTests {
                     if let identity = try await backend.observeSessionIdentity(sessionID) { return identity }
                 } catch ZmxSessionControlFailure.unavailable {
                     // Socket creation precedes the daemon accepting control requests.
+                } catch ZmxSessionControlFailure.connectionRefused {
+                    // Amended 2026-09-30: zmx binds the socket's path
+                    // before it calls listen, so a connect landing in that
+                    // gap is refused the same way an unavailable endpoint
+                    // is here.
                 } catch ZmxSessionControlFailure.processUnverifiable {
                     // The daemon/terminal fork may still be settling.
                 } catch ZmxSessionControlFailure.timeout {
@@ -312,6 +317,10 @@ extension E2ESerializedTests {
                         // Kernel inspection can race final process reaping.
                     } catch ZmxSessionControlFailure.unavailable {
                         // The endpoint can disappear between inspection and connection.
+                    } catch ZmxSessionControlFailure.connectionRefused {
+                        // Amended 2026-09-30: a replacement daemon's socket
+                        // can bind before it listens, refusing a connect
+                        // landing in that gap the same way.
                     }
                     await Task.yield()
                 }
@@ -492,6 +501,82 @@ extension E2ESerializedTests {
                     timeout: .seconds(5)
                 )
                 #expect(gone, "Session should be gone after kill from recreated backend")
+            }
+        }
+
+        /// S3 (Program Design item 3, revision 11's argument-vector witness):
+        /// a real cold-restore attach command -- built by the exact
+        /// production path, `ZmxBackend.buildColdRestoreCommand` -- hands
+        /// off once its script's only in-process exec replaces it. Driven
+        /// end to end through the real `ColdStartObserver`, so this doesn't
+        /// hand-roll a second, potentially racy argument-vector read
+        /// alongside the observer's own register-then-check logic --
+        /// `.handedOff` is only reachable when the observer itself saw the
+        /// token gone from a live leader whose pid and start time still
+        /// match what stage 1 discovered.
+        ///
+        /// Asserts `.handedOff` strictly (amended 2026-09-30, twice). Two
+        /// real races were found and fixed against this exact test, both by
+        /// diagnosing against real zmx first, never by loosening this
+        /// assertion:
+        /// - `.unobservable(.processArgsUnreadable)`: `DarwinColdStartObserverSyscalls`'
+        ///   two-`sysctl`-call TOCTOU, fixed by a single sized read with an
+        ///   immediate retry budget (`AppPolicies.Restore
+        ///   .processArgumentsReadAttempts`) -- see `ColdStartObserverSyscalls.swift`.
+        /// - `.unobservable(.identityUnverifiable)`: zmx binds the session
+        ///   socket's filesystem path before it calls `listen`
+        ///   (socket.zig:113-114), so a stage-1 connect landing in that gap
+        ///   was refused and settled unobservable immediately. Fixed by
+        ///   `ZmxSessionControlFailure.connectionRefused` retrying on
+        ///   `AppPolicies.Restore.discoveryConnectRetryDelays`'s backoff,
+        ///   staying discovering rather than settling on the timing alone
+        ///   -- see `ColdStartObserver.attemptDiscoveryConnect`.
+        ///
+        /// Spawns before observing, deliberately: `async let` gives no
+        /// guarantee stage 1's directory watch actually registers before
+        /// the next line runs (an early draft raced there and flaked under
+        /// load). A cold-restore session stays alive once its script execs
+        /// into the final shell -- the daemon and socket persist -- so
+        /// stage 1's register-then-check logic finds the already-existing
+        /// socket regardless of exactly when it runs; production still
+        /// registers before creating the surface for the *fast-exit* case,
+        /// which is a separate proof (S3's zmx-e2e list), not this one.
+        @Test("a real cold-restore attach hands off once its script execs into the final shell")
+        func coldRestoreAttachHandsOffOnceItsScriptExecsIntoTheFinalShell() async throws {
+            try await withRealBackend { harness, _ in
+                let zmxPath = try #require(harness.zmxPath)
+                let sessionID = ZmxSessionID.generateUUIDv7()
+                let attemptID = ColdRestoreAttemptID.generate()
+                let plan = TerminalColdRestorePlan(
+                    zmxExecutable: URL(fileURLWithPath: zmxPath),
+                    zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
+                    sessionID: sessionID,
+                    // coldRestoreScript unconditionally appends "-i -l" to
+                    // whatever loginShell is given -- those are interactive-
+                    // login flags a real shell understands, not generic
+                    // arguments (/bin/cat rejected them as illegal options
+                    // and exited immediately, which was this test's first,
+                    // flaky draft). /bin/bash -i -l blocks reading stdin at
+                    // an interactive prompt, exactly like a real restore.
+                    loginShell: URL(fileURLWithPath: "/bin/bash"),
+                    folderCandidates: [URL(fileURLWithPath: "/tmp")],
+                    notice: ColdRestoreNotice(linesByCandidateIndex: ["Restored after restart"]),
+                    replayFile: nil,
+                    resume: nil,
+                    attemptID: attemptID
+                )
+                let bootID = try await WorkspaceUndoJournalClock.current().bootID
+                let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
+                let observer = ColdStartObserver()
+
+                _ = try harness.spawnColdRestoreSession(plan: plan)
+                let settledOutcome = await observer.observeColdStart(
+                    zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
+                    socketPath: socketPath,
+                    bootID: bootID,
+                    attemptID: attemptID
+                )
+                #expect(settledOutcome == .handedOff)
             }
         }
 

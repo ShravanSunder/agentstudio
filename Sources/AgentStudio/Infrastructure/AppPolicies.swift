@@ -321,6 +321,22 @@ package enum AppPolicies {
         /// live throughout). Only exhausting every attempt counts as
         /// `.processArgsUnreadable`.
         package static let processArgumentsReadAttempts: Int = 3
+        /// `ColdStartObserver`'s discovery-stage backoff, in milliseconds,
+        /// after `ZmxSessionControl.observe` throws `.connectionRefused`
+        /// (Program Design item 3, stage 1, amended 2026-09-30): zmx binds
+        /// the session socket's filesystem path before it calls `listen`
+        /// (socket.zig:113-114), so a connect landing in that narrow gap is
+        /// refused rather than queued, and no further kqueue directory
+        /// event follows `listen` to re-trigger discovery. Retried
+        /// immediately, this many times, on this backoff, via
+        /// `Task.sleep(nanoseconds:)` with an explicit millisecond-to-
+        /// nanosecond conversion -- the one justified sleep in this actor,
+        /// since the kernel offers no event to wait on instead. Exhausting
+        /// every attempt still refused leaves the window discovering, not
+        /// unobservable: it settles only on a real fact afterward (the
+        /// attach client's own exit, or a later, non-refused `observe`
+        /// failure once the socket itself is gone).
+        package static let discoveryConnectRetryDelays: [Int] = [1, 2, 4, 8, 16, 32]
     }
 
     package enum TerminalNavigation {

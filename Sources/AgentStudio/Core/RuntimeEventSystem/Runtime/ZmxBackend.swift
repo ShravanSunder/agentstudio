@@ -448,9 +448,13 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
         let time = try await WorkspaceUndoJournalClock.current()
         do {
             return try ZmxSessionControl.observe(path: path, bootID: time.bootID).encoded()
-        } catch ZmxSessionControlFailure.unavailable {
+        } catch let failure as ZmxSessionControlFailure where failure == .unavailable || failure == .connectionRefused {
+            // .connectionRefused (amended 2026-09-30): zmx binds the
+            // socket's path before it calls listen, so a connect landing
+            // in that gap is refused the same way an otherwise-unavailable
+            // endpoint is -- treated identically here.
             if try ZmxSessionControl.endpointIsAbsent(path: path) { return nil }
-            throw ZmxSessionControlFailure.unavailable
+            throw failure
         }
     }
 

@@ -54,6 +54,12 @@ struct ColdStartObservationWiringTests {
         func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber> {
             .failure(POSIXErrorNumber(ESRCH))
         }
+
+        // Never reached: openDirectoryForWatching's EACCES settles this
+        // window before discovery gets as far as a connect attempt.
+        func observeSession(path: String, bootID: String) -> Result<ZmxSessionIdentity, ZmxSessionControlFailure> {
+            .failure(.unavailable)
+        }
     }
 
     private func vocabulary() -> FactVocabulary<UUID, ColdStartOutcome> {
