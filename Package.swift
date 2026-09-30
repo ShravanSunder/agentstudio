@@ -17,6 +17,10 @@ let package = Package(
             name: "agentstudio-sqlite-crash-fixture",
             targets: ["AgentStudioSQLiteCrashFixture"]
         ),
+        .executable(
+            name: "agentstudio-cli-store-process-fixture",
+            targets: ["AgentStudioCLIStoreProcessFixture"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
@@ -298,6 +302,15 @@ let package = Package(
             ]
         ),
         .target(
+            name: "AgentStudioCLIStore",
+            dependencies: [
+                "AgentStudioPrimitives",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Sources/AgentStudioCLIStore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
             name: "AgentStudioIPCClientCore",
             dependencies: [
                 "AgentStudioIPCTransport",
@@ -355,6 +368,25 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
+        ),
+        .executableTarget(
+            name: "AgentStudioCLIStoreProcessFixture",
+            dependencies: ["AgentStudioCLIStore", "AgentStudioPrimitives"],
+            path: "Tests/AgentStudioCLIStoreProcessFixture",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "AgentStudioCLIStoreTests",
+            dependencies: [
+                "AgentStudioCLIStore",
+                "AgentStudioCLIStoreProcessFixture",
+                "AgentStudioPrimitives",
+                "AgentStudioTestHarness",
+                "AgentStudioTestSupport",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
+            path: "Tests/AgentStudioCLIStoreTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
             name: "AgentStudioTestHarness",
