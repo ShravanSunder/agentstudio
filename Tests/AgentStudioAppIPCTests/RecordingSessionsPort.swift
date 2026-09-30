@@ -9,6 +9,7 @@ actor RecordingSessionsPort: AppIPCSessionsPort {
     private(set) var reportPaneIds: [UUID] = []
     private(set) var messagePaneIds: [UUID] = []
     private(set) var eventPaneIds: [UUID] = []
+    private(set) var eventProvenances: [IPCSessionEventProvenance] = []
     private(set) var queryPaneIds: [UUID] = []
     private(set) var reportedExplanations: [String?] = []
     private let occurrenceId = UUIDv7.generate()
@@ -43,9 +44,11 @@ actor RecordingSessionsPort: AppIPCSessionsPort {
 
     func recordProviderEvent(
         paneId: UUID,
-        params: IPCSessionEventParams
+        params: IPCSessionEventParams,
+        provenance: IPCSessionEventProvenance
     ) async throws -> IPCSessionEventResult {
         eventPaneIds.append(paneId)
+        eventProvenances.append(provenance)
         return IPCSessionEventResult(
             paneId: paneId,
             disposition: .unknownCapability,

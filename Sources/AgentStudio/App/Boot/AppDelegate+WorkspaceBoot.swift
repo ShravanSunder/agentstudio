@@ -5,6 +5,7 @@ import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import AgentStudioTerminal
+import AgentStudioWorktreeOperations
 import AppKit
 import Foundation
 import Observation
@@ -314,7 +315,8 @@ extension AppDelegate {
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastoreActor {
         WorkspaceSQLiteDatastoreFactory(
             traceRuntime: traceRuntime,
-            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
+            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write,
+            legacyDrawerPresentationSource: .standardUserDefaults
         ).makeDatastore()
     }
 
@@ -513,6 +515,7 @@ extension AppDelegate {
     }
 
     private func bootInstallCommandBar() {
+        let searchService = SearchService(performanceTraceRecorder: performanceTraceRecorder)
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,
@@ -525,9 +528,11 @@ extension AppDelegate {
                 )
             },
             commandBarSurface: atomStore.core.commandBarSurface,
+            searchService: searchService,
             performanceTraceRecorder: performanceTraceRecorder,
             worktreeForkEligibility: SDKWorktreeForkEligibilityChecker(),
-            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver()
+            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver(),
+            branchListing: WorktreeBranchListingCache()
         )
     }
 
@@ -612,6 +617,7 @@ extension AppDelegate {
         }
         coordinator.preparedTerminalGeometryReevaluationHandler = { [weak self] framesByPaneID in
             guard let preparedMountOwners = self?.installedWorkspacePreparedContentMountOwners else { return }
+            _ = preparedMountOwners.terminalAdmissionPort.refreshQueuedTrustedFrames(framesByPaneID)
             let acceptedPaneIDs = preparedMountOwners.terminalAdmissionPort.acceptLaterTrustedFrames(framesByPaneID)
             guard !acceptedPaneIDs.isEmpty else { return }
             await preparedMountOwners.coordinator.acceptTerminalGeometry(acceptedPaneIDs)

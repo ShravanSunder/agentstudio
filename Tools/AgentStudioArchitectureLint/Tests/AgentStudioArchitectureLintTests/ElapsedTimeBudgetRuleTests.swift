@@ -7,7 +7,8 @@ import Testing
 /// the Bad fixture and none in the Good fixture, production sources are out of
 /// scope, and named owners are exempt only by their exact file and fail when
 /// stale.
-@Suite
+@MainActor
+@Suite(.serialized)
 struct ElapsedTimeBudgetRuleTests {
     private static let ruleID = "agentstudio_no_test_elapsed_time_budget"
 

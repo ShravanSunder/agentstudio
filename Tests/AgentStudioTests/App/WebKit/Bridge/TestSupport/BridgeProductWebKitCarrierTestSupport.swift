@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AppKit
 import Foundation
 import SwiftUI
@@ -180,8 +181,7 @@ actor BridgeWebKitTrackingFileMetadataSource:
     private let source: BridgePaneProductFileMetadataSource
     private var cancelledSubscriptionIds: [String] = []
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
-    private var firstOpenWaiters: [UUID: CheckedContinuation<BridgeProductWebKitCarrierSubscriptionIdentity?, Never>] =
-        [:]
+    private let firstOpen = HeldStep<BridgeProductWebKitCarrierSubscriptionIdentity>("first carrier metadata open")
 
     init(source: BridgePaneProductFileMetadataSource) {
         self.source = source
@@ -211,9 +211,8 @@ actor BridgeWebKitTrackingFileMetadataSource:
     ) async throws {
         let identity = Self.identity(subscription)
         openedSubscriptions.append(identity)
-        let waiters = Array(firstOpenWaiters.values)
-        firstOpenWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume(returning: identity) }
+        firstOpen.release()
+        try await firstOpen.arrive(identity)
         try await source.open(
             subscription: subscription,
             productAdmission: productAdmission,
@@ -223,25 +222,7 @@ actor BridgeWebKitTrackingFileMetadataSource:
     }
 
     func waitForFirstOpen() async -> BridgeProductWebKitCarrierSubscriptionIdentity? {
-        if let first = openedSubscriptions.first { return first }
-        let waiterID = UUIDv7.generate()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled {
-                    continuation.resume(returning: nil)
-                } else if let first = openedSubscriptions.first {
-                    continuation.resume(returning: first)
-                } else {
-                    firstOpenWaiters[waiterID] = continuation
-                }
-            }
-        } onCancel: {
-            Task { await self.cancelFirstOpenWaiter(waiterID) }
-        }
-    }
-
-    private func cancelFirstOpenWaiter(_ waiterID: UUID) {
-        firstOpenWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
+        try? await firstOpen.firstArrival()
     }
 
     func applyViewDemand(
@@ -347,8 +328,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private var didCorruptViewCapture = false
     private var deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt] = []
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
-    private var firstOpenWaiters: [UUID: CheckedContinuation<BridgeProductWebKitCarrierSubscriptionIdentity?, Never>] =
-        [:]
+    private let firstOpen = HeldStep<BridgeProductWebKitCarrierSubscriptionIdentity>("first carrier metadata open")
     private var replayIsBlocked = false
     private var replayIsReleased = false
     private var successorEventKinds: [String] = []
@@ -365,32 +345,13 @@ actor BridgeWebKitFailingReviewMetadataSource:
             workerDerivationEpoch: subscription.workerDerivationEpoch
         )
         openedSubscriptions.append(identity)
-        let waiters = Array(firstOpenWaiters.values)
-        firstOpenWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume(returning: identity) }
+        firstOpen.release()
+        try await firstOpen.arrive(identity)
         try await source.open(subscription: subscription, productAdmission: productAdmission)
     }
 
     func waitForFirstOpen() async -> BridgeProductWebKitCarrierSubscriptionIdentity? {
-        if let first = openedSubscriptions.first { return first }
-        let waiterID = UUIDv7.generate()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled {
-                    continuation.resume(returning: nil)
-                } else if let first = openedSubscriptions.first {
-                    continuation.resume(returning: first)
-                } else {
-                    firstOpenWaiters[waiterID] = continuation
-                }
-            }
-        } onCancel: {
-            Task { await self.cancelFirstOpenWaiter(waiterID) }
-        }
-    }
-
-    private func cancelFirstOpenWaiter(_ waiterID: UUID) {
-        firstOpenWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
+        try? await firstOpen.firstArrival()
     }
 
     func applyViewDemand(_ request: BridgePaneProductReviewViewDemandRequest) async throws

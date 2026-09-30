@@ -24,12 +24,12 @@ extension RepoScannerTraversalSession {
         }.standardizedFileURL.path
     }
 
-    func inspectNextRetainedTarget(
+    func inspectNextRetainedTarget<ServiceClock: Clock<Duration>>(
         at nextIndex: Int,
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         guard !traversalLease.state.remainingRetainedPathKeys.isEmpty else {
             traversalLease.state.position = .exhausted
@@ -123,13 +123,13 @@ extension RepoScannerTraversalSession {
         )
     }
 
-    private func inspectRetainedTargetGitMarker(
+    private func inspectRetainedTargetGitMarker<ServiceClock: Clock<Duration>>(
         at retainedCheckoutPath: URL,
         nextIndex: Int,
         traversalLease: TraversalLease,
         usage: inout MutableQuantumUsage,
-        serviceClock: ContinuousClock,
-        serviceStartedAt: ContinuousClock.Instant
+        serviceClock: ServiceClock,
+        serviceStartedAt: ServiceClock.Instant
     ) -> QuantumDisposition? {
         let followingPosition = TraversalPosition.retainedTargets(nextIndex: nextIndex + 1)
         switch inspectGitMarker(at: retainedCheckoutPath) {

@@ -302,6 +302,7 @@ struct CommandBarWorktreeRowBuilderTests {
         let path = URL(filePath: "/tmp/command-bar-injected-path")
         let recorder = PathActionRecorder(copySucceeds: false, revealSucceeds: false)
         var failures: [CommandBarPathActionFailure] = []
+        let (failureEvents, failureContinuation) = AsyncStream.makeStream(of: CommandBarPathActionFailure.self)
 
         let copyItem = CommandBarDataSource.copyPathItem(
             id: "test",
@@ -309,7 +310,10 @@ struct CommandBarWorktreeRowBuilderTests {
             group: "Open",
             groupPriority: 0,
             pathActions: recorder,
-            onPathActionFailure: { failures.append($0) }
+            onPathActionFailure: {
+                failures.append($0)
+                failureContinuation.yield($0)
+            }
         )
         let revealItem = CommandBarDataSource.revealInFinderItem(
             id: "test",
@@ -317,7 +321,10 @@ struct CommandBarWorktreeRowBuilderTests {
             group: "Open",
             groupPriority: 0,
             pathActions: recorder,
-            onPathActionFailure: { failures.append($0) }
+            onPathActionFailure: {
+                failures.append($0)
+                failureContinuation.yield($0)
+            }
         )
 
         guard case .custom(let copyAction) = copyItem.action else {
@@ -329,13 +336,14 @@ struct CommandBarWorktreeRowBuilderTests {
             return
         }
 
+        var failureIterator = failureEvents.makeAsyncIterator()
         copyAction()
         revealAction()
 
-        for _ in 0..<10 {
-            if recorder.copiedPaths == [path], recorder.revealedPaths == [path], failures.count == 2 { break }
-            await Task.yield()
-        }
+        let firstFailure = await failureIterator.next()
+        let secondFailure = await failureIterator.next()
+        #expect(firstFailure != nil)
+        #expect(secondFailure != nil)
 
         #expect(recorder.copiedPaths == [path])
         #expect(recorder.revealedPaths == [path])

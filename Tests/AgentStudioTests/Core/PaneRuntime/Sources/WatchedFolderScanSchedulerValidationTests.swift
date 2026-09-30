@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -13,35 +14,17 @@ struct WatchedFolderScanSchedulerValidationTests {
         let unrelated = try fixture.makeRequest(name: "unrelated", containsGitMarker: false)
 
         _ = await fixture.scheduler.submit(validating)
-        try await fixture.waitForState(
-            ready: 0,
-            active: 0,
-            awaitingValidation: 1,
-            pending: 0
-        )
         let candidate = await fixture.validationClient.nextCandidate()
 
         _ = await fixture.scheduler.submit(unrelated)
-        try await fixture.waitForState(
-            ready: 0,
-            active: 0,
-            awaitingValidation: 1,
-            pending: 1
-        )
+        let unrelatedLease = try await fixture.nextLease()
+        #expect(unrelatedLease.result.request.sourceID == unrelated.sourceID)
+        #expect(await fixture.transfer(unrelatedLease) == .transferred)
+
         await fixture.validationClient.complete(
             candidate,
             with: .authoritativeNegative(.exactCandidateIsNotRepository)
         )
-        try await fixture.waitForState(
-            ready: 1,
-            active: 0,
-            awaitingValidation: 0,
-            pending: 1
-        )
-
-        let unrelatedLease = try await fixture.nextLease()
-        #expect(unrelatedLease.result.request.sourceID == unrelated.sourceID)
-        #expect(await fixture.transfer(unrelatedLease) == .transferred)
         let validatingLease = try await fixture.nextLease()
         #expect(validatingLease.result.request.sourceID == validating.sourceID)
         #expect(validatingLease.result.scanRunGeneration == 1)
@@ -214,7 +197,10 @@ private struct ValidationSchedulerFixture {
                     fileURLWithPath: request.canonicalRoot.aliases.onceResolvedCanonical.path,
                     isDirectory: true
                 )
-                let scannerPort = RepoScanner().makeSession(in: rootURL)
+                let scannerPort = RepoScanner().makeSession(
+                    in: rootURL,
+                    serviceClock: TestPushClock()
+                )
                 return WatchedFolderScannerSessionPort(
                     id: scannerPort.id,
                     advanceOneQuantum: scannerPort.advanceOneQuantum,
@@ -283,29 +269,8 @@ private struct ValidationSchedulerFixture {
         )
     }
 
-    func waitForState(
-        ready: Int,
-        active: Int,
-        awaitingValidation: Int,
-        pending: Int
-    ) async throws {
-        for _ in 0..<10_000 {
-            if case .active(let snapshot) = await scheduler.stateSnapshot(),
-                snapshot.ready == ready,
-                snapshot.activeQuanta == active,
-                snapshot.awaitingValidations == awaitingValidation,
-                snapshot.pendingResults == pending
-            {
-                return
-            }
-            await Task.yield()
-        }
-        Issue.record("scheduler did not reach expected validation custody state")
-        throw ValidationSchedulerTestError.expectedState
-    }
 }
 
 private enum ValidationSchedulerTestError: Error {
     case expectedLease
-    case expectedState
 }

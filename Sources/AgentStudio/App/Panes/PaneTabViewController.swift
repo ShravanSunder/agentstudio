@@ -2567,6 +2567,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .closeDrawerPane:
             guard let parentPaneId = activeMainPaneId() else { return false }
             return visibleActiveDrawerPaneId(for: parentPaneId) != nil
+        case .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
+            guard let side = command.zoomDrawerTargetSide,
+                let action = zoomDrawerSideAction(side: side, ownerPaneId: activeZoomSourcePaneId())
+            else { return false }
+            return canDispatchAction(action)
         default:
             return false
         }
@@ -3014,6 +3019,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
+        if let side = command.zoomDrawerTargetSide {
+            if let action = zoomDrawerSideAction(side: side, ownerPaneId: activeZoomSourcePaneId()) {
+                // fire-and-forget: UI handler; the executor serializes the gesture, no caller reads it
+                _ = dispatchPaneAction(action)
+            }
+            return
+        }
+
         if handlePaneFocusCommand(command) {
             return
         }
@@ -3338,6 +3351,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             if didShowViewer {
                 executor.refreshZoomCompanionActivities()
+                executor.reevaluatePreparedTerminalGeometry()
             }
             return didShowViewer
         case .retryable:
@@ -3375,6 +3389,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             if didToggle {
                 executor.refreshZoomCompanionActivities()
+                executor.reevaluatePreparedTerminalGeometry()
             }
             return .toggled(didToggle)
         case .retainedVisible, .unavailableVisible:
@@ -3388,6 +3403,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             if didToggle {
                 executor.refreshZoomCompanionActivities()
+                executor.reevaluatePreparedTerminalGeometry()
             }
             return .toggled(didToggle)
         case .retryable:
@@ -3396,6 +3412,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 owningTabId: activeTabId,
                 viewerSurfaceRequest: bridgeViewerSurfaceRequestHandler
             )
+            executor.reevaluatePreparedTerminalGeometry()
             return .toggled(reconciledPresentation.companionPaneId != nil)
         }
     }
@@ -3491,6 +3508,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 tabId: capability.tabId
             )
             executor.refreshZoomCompanionActivities()
+            executor.reevaluatePreparedTerminalGeometry()
             requestPaneRefocus(.explicit)
             return true
         case .retarget:
@@ -3520,6 +3538,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             owningTabId: capability.tabId,
             viewerSurfaceRequest: bridgeViewerSurfaceRequestHandler
         )
+        executor.reevaluatePreparedTerminalGeometry()
         requestPaneRefocus(.explicit)
         return true
     }
@@ -3672,12 +3691,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showReposSidebar, .showPanesSidebar,
             .setReposGroupingRepo, .setReposGroupingActivity,
-            .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-            .setPanesSubgroupNone, .setPanesSubgroupActivity,
             .setReposSortFieldName, .setReposSortFieldActivity,
             .setPanesSortFieldName, .setPanesSortFieldActivity,
             .toggleReposSortDirection, .togglePanesSortDirection,
-            .toggleReposShowsPinned, .togglePanesShowsPinned,
+            .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
             .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
@@ -4148,6 +4165,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard let trigger = makePaneKeyboardFocusTrigger(for: command) else { return false }
             handlePaneFocusTrigger(.keyboard(trigger))
             return true
+        case .focusPreviousPinnedPane, .focusNextPinnedPane:
+            return focusPinnedPane(command: command)
         case .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9:
@@ -4157,6 +4176,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         default:
             return false
         }
+    }
+
+    private func focusPinnedPane(command: AppCommand) -> Bool {
+        guard pinnedPanePreferences != nil, let originPaneID = preferredVisibleFocusPaneId() else {
+            return false
+        }
+        // fire-and-forget: the executor owns the ordered focus outcome after shortcut admission.
+        _ = dispatchGesture { [self] execute in
+            let request = RepoExplorerPinnedPaneProjectionRequest(coreAtoms: CoreAtomScope.store)
+            guard
+                let targetPaneID = try? await RepoExplorerPinnedPaneProjector.targetPaneID(
+                    from: request,
+                    originPaneID: originPaneID,
+                    previous: command == .focusPreviousPinnedPane,
+                    performanceTraceRecorder: performanceTraceRecorder
+                )
+            else { return false }
+            return await prepareAndApplyTargetFocus(paneId: targetPaneID, execute: execute)
+        }
+        return true
     }
 
     private func makePaneKeyboardFocusTrigger(for command: AppCommand) -> PaneKeyboardFocusTrigger? {
@@ -4396,6 +4435,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return nil
             }
             return .toggleDrawer(paneId: target.paneId)
+        case .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
+            guard let side = command.zoomDrawerTargetSide else { return nil }
+            return zoomDrawerSideAction(side: side, ownerPaneId: target.drawerParentPaneId ?? target.paneId)
         default:
             return nil
         }
@@ -4836,6 +4878,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         paneId: UUID,
         targetType: SearchItemType
     ) -> Bool? {
+        if command.zoomDrawerTargetSide != nil {
+            guard targetType == .pane else { return nil }
+            return targetedPaneWorkspaceAction(command: command, paneId: paneId, targetType: targetType)
+                .map(canDispatchAction) ?? false
+        }
         switch command {
         case .minimizePane, .expandPane, .closePane, .splitRight, .detachDrawerPane,
             .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane, .editPaneNote:
@@ -4964,6 +5011,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func workspacePresentationCommandAvailability(_ command: AppCommand) -> Bool? {
         if Self.shellOwnedNoOpCommands.contains(command) { return false }
         switch command {
+        case .focusPreviousPinnedPane, .focusNextPinnedPane:
+            return pinnedPanePreferences != nil && preferredVisibleFocusPaneId() != nil
         case .toggleManagementLayer:
             return true
         case .zoomPane:
@@ -5008,12 +5057,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         .clearReadInboxNotifications, .clearAllInboxNotifications,
         .showReposSidebar, .showPanesSidebar,
         .setReposGroupingRepo, .setReposGroupingActivity,
-        .setPanesGroupingRepo, .setPanesGroupingTab, .setPanesGroupingActivity,
-        .setPanesSubgroupNone, .setPanesSubgroupActivity,
         .setReposSortFieldName, .setReposSortFieldActivity,
         .setPanesSortFieldName, .setPanesSortFieldActivity,
         .toggleReposSortDirection, .togglePanesSortDirection,
-        .toggleReposShowsPinned, .togglePanesShowsPinned,
+        .toggleReposShowsPinned, .togglePanesShowsPinned, .togglePanesShowsDrawers,
         .signInGitHub, .signInGoogle,
     ]
 
@@ -5055,7 +5102,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return store.tabLayoutAtom.activeTabId != nil
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return focusedTerminalCommandTargetPaneId() != nil
-        case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
+        case .addDrawerPane, .toggleDrawer, .closeDrawerPane, .moveZoomDrawerToTerminal, .moveZoomDrawerToBridge:
             return canExecuteContextualCommand(command)
         case .newTerminalInTab:
             guard

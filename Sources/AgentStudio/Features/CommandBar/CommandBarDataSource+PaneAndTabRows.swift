@@ -35,6 +35,9 @@ extension CommandBarDataSource {
                         group: tabGroupName,
                         groupPriority: Priority.paneTabBase + tabIndex,
                         keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
+                        searchFields: searchablePaneAndTabFields(
+                            keywordsForTab(tab, store: store, repoCache: repoCache)
+                        ),
                         action: .dispatchTargeted(selectTabSpec.command, target: tab.id, targetType: .tab),
                         command: selectTabSpec.command
                     ))
@@ -70,6 +73,7 @@ extension CommandBarDataSource {
                         group: tabGroupName,
                         groupPriority: Priority.paneTabBase + tabIndex,
                         keywords: stableUniqueKeywords(paneKeywords),
+                        searchFields: searchablePaneAndTabFields(paneKeywords),
                         action: .dispatchTargeted(
                             focusPaneSpec.command,
                             target: pane.id,

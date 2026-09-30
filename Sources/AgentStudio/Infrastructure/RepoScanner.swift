@@ -285,7 +285,8 @@ extension RepoScanner {
         maxDepth: Int = Self.defaultMaxDepth,
         retainedCheckoutPaths: [URL] = [],
         quantumBudget: RepoScannerQuantumBudget = .productionDefault,
-        capacity: RepoScannerSessionCapacity = .productionDefault
+        capacity: RepoScannerSessionCapacity = .productionDefault,
+        serviceClock: any Clock<Duration> = ContinuousClock()
     ) -> RepoScannerSessionPort {
         let standardizedRootURL = rootURL.standardizedFileURL
         let canonicalRootURL = Self.canonicalURL(rootURL)
@@ -301,7 +302,8 @@ extension RepoScanner {
             retainedCheckoutPaths: retainedTargets.paths,
             retainedTargetPreparationFailure: retainedTargets.failure,
             quantumBudget: quantumBudget,
-            capacity: capacity
+            capacity: capacity,
+            serviceClock: serviceClock
         )
         return RepoScannerSessionPort(
             id: storage.id,

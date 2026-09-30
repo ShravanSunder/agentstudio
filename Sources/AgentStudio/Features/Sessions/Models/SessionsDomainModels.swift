@@ -494,6 +494,21 @@ package enum SessionsMutationOutcome: Sendable, Codable, Equatable {
     case launchPrepared(activeSourcesEnded: Int)
 }
 
+package enum SessionsCommitDisposition: Sendable, Equatable {
+    case inserted
+    case replayed
+}
+
+package struct SessionsSubmissionResult: Sendable, Equatable {
+    package let outcome: SessionsMutationOutcome
+    package let disposition: SessionsCommitDisposition
+
+    package init(outcome: SessionsMutationOutcome, disposition: SessionsCommitDisposition) {
+        self.outcome = outcome
+        self.disposition = disposition
+    }
+}
+
 package struct SessionsLaunchPreparationOutcome: Sendable, Equatable {
     package let activeSourcesEnded: Int
 }

@@ -31,7 +31,7 @@ struct DrawerPaneHostPublicationTests {
             editorChooser: AtomRegistry(core: CoreAtomScope.store).editorChooser,
             viewRegistry: registry, action: { _ in },
             arrangementInlineRenameState: ArrangementInlineRenameState(),
-            onResize: { _ in }, onDismiss: {}, onPaneFocusTrigger: { _ in },
+            resizeInteraction: nil, onDismiss: {}, onPaneFocusTrigger: { _ in },
             onFocusParentPane: {}, appLifecycleStore: AppLifecycleAtom(),
             paneInboxPresentation: nil, onOpenPaneGitHub: { _ in },
             dropTarget: nil, dragSourcePaneId: nil)

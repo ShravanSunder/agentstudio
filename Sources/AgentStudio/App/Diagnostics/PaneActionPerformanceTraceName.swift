@@ -81,6 +81,8 @@ extension WorkspaceActionCommand {
             return "addDrawerPane"
         case .addWebviewDrawerPane:
             return "addWebviewDrawerPane"
+        case .addDrawerChildInBackground:
+            return "addDrawerChildInBackground"
         case .removeDrawerPane:
             return "removeDrawerPane"
         case .toggleDrawer:
@@ -99,6 +101,12 @@ extension WorkspaceActionCommand {
             return "expandDrawerPane"
         case .insertDrawerPane:
             return "insertDrawerPane"
+        case .setZoomSplitRatio:
+            return "setZoomSplitRatio"
+        case .setDrawerNormalHeightRatio:
+            return "setDrawerNormalHeightRatio"
+        case .setDrawerZoomSide:
+            return "setDrawerZoomSide"
         case .moveDrawerPane:
             return "moveDrawerPane"
         case .expireUndoEntry:

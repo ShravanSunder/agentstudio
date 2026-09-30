@@ -12,7 +12,7 @@ struct BridgeProductOperationTable {
         var didDispatchMutation = false
         var deadlineTask: Task<Void, Never>?
         var executionTask: Task<Void, Never>?
-        var resultWaiters: [UUID: CheckedContinuation<BridgeProductOperationResultResponse?, Never>] = [:]
+        var resultWaiters: [UUID: @Sendable (BridgeProductOperationResultResponse?) -> Void] = [:]
         var settlement: BridgeProductOperationResultResponse?
     }
 
@@ -20,7 +20,7 @@ struct BridgeProductOperationTable {
         var wasSettledUnknown = false
         var unknownAcknowledged = false
         var lateOutcome: BridgeProductOperationObservationResponse?
-        var observers: [UUID: CheckedContinuation<BridgeProductOperationObservationResponse?, Never>] = [:]
+        var observers: [UUID: @Sendable (BridgeProductOperationObservationResponse?) -> Void] = [:]
     }
 
     private let maximumMutationWatches: Int
@@ -103,19 +103,19 @@ struct BridgeProductOperationTable {
     mutating func observeResult(
         operationId: String,
         waiterId: UUID,
-        continuation: CheckedContinuation<BridgeProductOperationResultResponse?, Never>
+        resume: @escaping @Sendable (BridgeProductOperationResultResponse?) -> Void
     ) -> Bool {
         guard var entry = entriesById[operationId] else {
-            continuation.resume(returning: nil)
+            resume(nil)
             return false
         }
         if let settlement = entry.settlement {
-            continuation.resume(returning: settlement)
+            resume(settlement)
             return false
         }
         // Keep the optional at the session boundary so an unknown id can be
         // reported without fabricating an operation settlement.
-        entry.resultWaiters[waiterId] = continuation
+        entry.resultWaiters[waiterId] = resume
         entriesById[operationId] = entry
         return true
     }
@@ -125,7 +125,7 @@ struct BridgeProductOperationTable {
             let waiter = entry.resultWaiters.removeValue(forKey: waiterId)
         else { return }
         entriesById[operationId] = entry
-        waiter.resume(returning: nil)
+        waiter(nil)
     }
 
     @discardableResult
@@ -145,7 +145,7 @@ struct BridgeProductOperationTable {
         entry.resultWaiters.removeAll(keepingCapacity: false)
         entriesById[result.operationId] = entry
         for waiter in waiters {
-            waiter.resume(returning: result)
+            waiter(result)
         }
         return true
     }
@@ -190,7 +190,7 @@ struct BridgeProductOperationTable {
         let observers = Array(watch.observers.values)
         watch.observers.removeAll(keepingCapacity: false)
         mutationWatchesById[operationId] = watch
-        for observer in observers { observer.resume(returning: evidence) }
+        for observer in observers { observer(evidence) }
         return true
     }
 
@@ -199,22 +199,22 @@ struct BridgeProductOperationTable {
         operationId: String,
         revision: Int,
         waiterId: UUID,
-        continuation: CheckedContinuation<BridgeProductOperationObservationResponse?, Never>
+        resume: @escaping @Sendable (BridgeProductOperationObservationResponse?) -> Void
     ) -> Bool {
         guard var watch = mutationWatchesById[operationId],
             watch.wasSettledUnknown,
             watch.unknownAcknowledged
         else {
-            continuation.resume(returning: nil)
+            resume(nil)
             return false
         }
         if let evidence = watch.lateOutcome {
             if case .lateOutcome(let late) = evidence, late.revision > revision {
-                continuation.resume(returning: evidence)
+                resume(evidence)
                 return false
             }
         }
-        watch.observers[waiterId] = continuation
+        watch.observers[waiterId] = resume
         mutationWatchesById[operationId] = watch
         return true
     }
@@ -224,7 +224,7 @@ struct BridgeProductOperationTable {
             let observer = watch.observers.removeValue(forKey: waiterId)
         else { return }
         mutationWatchesById[operationId] = watch
-        observer.resume(returning: .stillUnknown(operationId: operationId, revision: revision))
+        observer(.stillUnknown(operationId: operationId, revision: revision))
     }
 
     mutating func cancelObservation(operationId: String, waiterId: UUID) {
@@ -232,7 +232,7 @@ struct BridgeProductOperationTable {
             let observer = watch.observers.removeValue(forKey: waiterId)
         else { return }
         mutationWatchesById[operationId] = watch
-        observer.resume(returning: nil)
+        observer(nil)
     }
 
     mutating func acknowledgeLateOutcome(operationId: String, revision: Int) -> Bool {
@@ -266,7 +266,7 @@ struct BridgeProductOperationTable {
         entriesById.removeAll(keepingCapacity: false)
         operationIdByToken.removeAll(keepingCapacity: false)
         for watch in mutationWatchesById.values {
-            for observer in watch.observers.values { observer.resume(returning: nil) }
+            for observer in watch.observers.values { observer(nil) }
         }
         mutationWatchesById.removeAll(keepingCapacity: false)
     }

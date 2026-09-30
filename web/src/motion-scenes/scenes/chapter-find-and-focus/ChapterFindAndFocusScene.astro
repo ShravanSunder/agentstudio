@@ -55,6 +55,7 @@ const sceneRootAttributes = { [sceneRootAttribute]: "chapter-find-and-focus" };
     scenePart={findAndFocusParts.commandBar}
     placeholderPart={findAndFocusParts.commandPlaceholder}
     queryPart={findAndFocusParts.commandQuery}
+    shortcutPart={findAndFocusParts.commandShortcut}
   />
 </AppWindow>
 
@@ -69,6 +70,16 @@ const sceneRootAttributes = { [sceneRootAttribute]: "chapter-find-and-focus" };
 
   .scene-find-and-focus .kit-window__body {
     position: relative;
+  }
+
+  .scene-find-and-focus .kit-terminal [data-line-kind="shell-prompt"] {
+    font-size: 0.7em;
+  }
+
+  @container recreation-kit (max-width: 600px) {
+    .scene-find-and-focus .kit-terminal [data-line-kind="shell-prompt"] {
+      font-size: 1em;
+    }
   }
 
   .scene-find-and-focus .scene-find-and-focus__yielding {

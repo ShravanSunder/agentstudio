@@ -38,7 +38,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             )
             // Native construction and page installation have separate owners.
             // Observe the native ready package before asserting the page view.
-            _ = await BridgePaneControllerEventWaits.waitForValue {
+            _ = try await BridgePaneControllerEventWaits.waitForValue {
                 hostedController.paneState.diff.status == .ready
                     ? hostedController.paneState.diff.packageMetadata : nil
             }

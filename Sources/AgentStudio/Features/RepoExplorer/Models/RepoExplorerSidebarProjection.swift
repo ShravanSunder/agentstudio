@@ -61,7 +61,7 @@ enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
         case .olderRepos: "Older"
         case .noActivityRepos: "No activity"
         case .pinnedPanes: "Pinned Panes"
-        case .panes: "Other Panes"
+        case .panes: "Panes"
         }
     }
 }

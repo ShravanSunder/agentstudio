@@ -15,6 +15,7 @@ extension WorkspaceSurfaceCoordinator {
                 }
             },
             didPublish: { [self] removedIDs in
+                retirePanesPermanently(removedIDs)
                 for removedID in removedIDs { viewRegistry.retireSlot(for: removedID) }
                 signalTerminalSessionCleanup()
             })
@@ -43,6 +44,7 @@ extension WorkspaceSurfaceCoordinator {
                 for removedID in removedIDs { teardownView(for: removedID) }
             },
             didPublish: { [self] removedIDs in
+                retirePanesPermanently(removedIDs)
                 for removedID in removedIDs { viewRegistry.retireSlot(for: removedID) }
                 signalTerminalSessionCleanup()
                 guard restoreFocus else { return }

@@ -75,7 +75,7 @@ jobs:
 
       - name: Cache Ghostty artifacts
         id: cache-ghostty
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             vendor/ghostty/macos/GhosttyKit.xcframework
@@ -84,7 +84,7 @@ jobs:
 
       - name: Cache zmx artifacts
         id: cache-zmx
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: vendor/zmx/zig-out
           key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
@@ -94,15 +94,15 @@ jobs:
 
       - name: Cache Zig compilation
         if: steps.cache-ghostty.outputs.cache-hit != 'true' || steps.cache-zmx.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/zig
             vendor/ghostty/.zig-cache
             vendor/zmx/.zig-cache
-          key: zig-compile-${{ runner.os }}-${{ hashFiles('.mise.toml') }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+          key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
           restore-keys: |
-            zig-compile-${{ runner.os }}-${{ hashFiles('.mise.toml') }}-
+            zig-compile-${{ runner.os }}-
 
       # --- Build Ghostty (only on cache miss) ---
 
@@ -184,15 +184,6 @@ jobs:
         run: |
           mise run bridge-web-build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
-
-      - name: Cache Swift build
-        uses: actions/cache@v4
-        with:
-          path: .build-ci
-          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ hashFiles('Sources/**/*.swift') }}
-          restore-keys: |
-            swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-
-            swift-${{ runner.os }}-
 
       - name: Build AgentStudio
         run: |

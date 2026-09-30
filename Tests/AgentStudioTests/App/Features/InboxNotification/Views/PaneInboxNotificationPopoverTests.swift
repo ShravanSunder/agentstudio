@@ -52,17 +52,6 @@ struct PaneInboxNotificationPopoverTests {
         }
     }
 
-    @Test("retired clear command stays absent when capability denies")
-    func retiredClearCommandStaysAbsentWhenCapabilityDenies() throws {
-        let commandDispatcher = PaneInboxCommandDispatcherProbe(targetedCapability: false)
-
-        try withMountedClearButton(commandDispatcher: commandDispatcher) { clearButton, _ in
-            #expect(clearButton == nil)
-            #expect(commandDispatcher.capabilityQueries.isEmpty)
-            #expect(commandDispatcher.dispatchedTargets.isEmpty)
-        }
-    }
-
     private func withMountedClearButton(
         commandDispatcher: PaneInboxCommandDispatcherProbe,
         assertions: (AccessibilityPressBridgeView?, UUID) -> Void
