@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 
 import type { BridgeCommWorkerReviewBatchPresentation } from './bridge-comm-worker-review-batch-installer.js';
-import { reviewRuntimeItemSignatures } from './bridge-comm-worker-review-runtime-index.js';
+import { reviewRuntimeChangedItemIds } from './bridge-comm-worker-review-runtime-index.js';
 import type { bridgeProductReviewRefreshImpactSchema } from './bridge-product-review-metadata-contracts.js';
 import type { BridgeWorkerReviewCandidateStartDisposition } from './bridge-worker-contracts.js';
 
@@ -27,11 +27,10 @@ export function reviewCandidateStartDispositionFromRefreshImpact(props: {
 			presentationClass: impact.preDeliveryPresentationClass,
 		};
 	}
-	const previousSignatures = reviewRuntimeItemSignatures(previous.runtimeSource);
-	const successorSignatures = reviewRuntimeItemSignatures(successor.runtimeSource);
-	const affectedStableFileIdentities = [
-		...new Set([...previousSignatures.keys(), ...successorSignatures.keys()]),
-	].filter((itemId): boolean => previousSignatures.get(itemId) !== successorSignatures.get(itemId));
+	const affectedStableFileIdentities = reviewRuntimeChangedItemIds(
+		previous.runtimeSource,
+		successor.runtimeSource,
+	);
 	return {
 		affectedStableFileIdentities,
 		kind: 'sameSource',

@@ -1,5 +1,6 @@
 import type { BridgeCommWorkerReviewBatchPresentation } from './bridge-comm-worker-review-batch-installer.js';
 import type { BridgeCommWorkerReviewMetadataApplication } from './bridge-comm-worker-review-runtime-application.js';
+import { reviewRuntimeChangedItemIds } from './bridge-comm-worker-review-runtime-index.js';
 
 /** A certified Review bank replaces the complete runtime source at one local source epoch. */
 export function bridgeCommWorkerReviewRuntimeApplicationFromBatch(props: {
@@ -14,9 +15,14 @@ export function bridgeCommWorkerReviewRuntimeApplicationFromBatch(props: {
 		props.previous?.orderedItems
 			.map((item) => item.itemId)
 			.filter((itemId) => !currentItemIdSet.has(itemId)) ?? [];
+	const affectedItemIds =
+		props.previous === null
+			? currentItemIds
+			: reviewRuntimeChangedItemIds(props.previous.runtimeSource, props.presentation.runtimeSource);
 	return {
-		affectedItemIds: currentItemIds,
+		affectedItemIds,
 		affectedRowIds: props.presentation.runtimeSource.rows.map((row) => row.id),
+		// This is full-bank membership for pruning removed metadata, not the changed subset.
 		completeContentItemIds: currentItemIds,
 		completeRowIds: props.presentation.runtimeSource.rows.map((row) => row.id),
 		operationCorrelationId: null,

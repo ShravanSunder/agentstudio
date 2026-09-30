@@ -81,4 +81,54 @@ describe('certified Review batch display projection', () => {
 		expect(application.removedItemIds).toEqual(['review-item-1']);
 		expect(application.sourceEpoch).toBe(2);
 	});
+
+	test('identical reseal leaves selected content unaffected while content and semantics changes do not', async () => {
+		const previous = await installedPresentation([0, 2]);
+		const identical = bridgeCommWorkerReviewRuntimeApplicationFromBatch({
+			previous,
+			presentation: previous,
+			sourceEpoch: 2,
+			workerDerivationEpoch: 4,
+		});
+		expect(identical.affectedItemIds).toEqual([]);
+		expect(identical.completeContentItemIds).toEqual(['review-item-1']);
+
+		const contentChanged = {
+			...previous,
+			runtimeSource: {
+				...previous.runtimeSource,
+				contentItems: previous.runtimeSource.contentItems.map((item) => ({
+					...item,
+					cacheKey: `${item.cacheKey}:changed`,
+				})),
+			},
+		};
+		expect(
+			bridgeCommWorkerReviewRuntimeApplicationFromBatch({
+				previous,
+				presentation: contentChanged,
+				sourceEpoch: 2,
+				workerDerivationEpoch: 4,
+			}).affectedItemIds,
+		).toEqual(['review-item-1']);
+
+		const semanticsChanged = {
+			...previous,
+			runtimeSource: {
+				...previous.runtimeSource,
+				renderSemantics: previous.runtimeSource.renderSemantics.map((item) => ({
+					...item,
+					language: 'typescript',
+				})),
+			},
+		};
+		expect(
+			bridgeCommWorkerReviewRuntimeApplicationFromBatch({
+				previous,
+				presentation: semanticsChanged,
+				sourceEpoch: 2,
+				workerDerivationEpoch: 4,
+			}).affectedItemIds,
+		).toEqual(['review-item-1']);
+	});
 });
