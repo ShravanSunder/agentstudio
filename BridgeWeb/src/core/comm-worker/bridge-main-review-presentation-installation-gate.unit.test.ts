@@ -587,6 +587,7 @@ class FakeCandidateStore implements BridgeMainReviewCandidateStore {
 			? null
 			: { publicationId: this.presentation.candidate.identity.publicationId, status: 'ready' };
 	subscribeReviewRefreshPresentation = (): (() => void) => (): void => {};
+	subscribeReviewCandidateSource = (): (() => void) => (): void => {};
 	setReviewCandidateCodeViewItem = (): boolean => false;
 	startReviewCandidate = (): boolean => false;
 	escalateReviewCandidatePresentation: BridgeMainReviewCandidateStore['escalateReviewCandidatePresentation'] =

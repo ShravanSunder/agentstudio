@@ -108,6 +108,8 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 	let lifecycleRevision = 0;
 	let pendingInstalledReceiptCandidate: ReadyCandidate | null = null;
 	let readyCandidate: ReadyCandidate | null = null;
+	let awaitingSourceCandidate: ReadyCandidate | null = null;
+	let unsubscribeCandidateSource: (() => void) | null = null;
 	// Retained paint does not establish native display ownership for a replacement worker.
 	let confirmedDisplayedPublicationId =
 		props.store.getReviewRefreshPresentation().activeIdentity?.publicationId ?? null;
@@ -135,6 +137,52 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		});
 	};
 	recordGateDecision({ kind: 'skipped', reason: 'candidateMissing' });
+	const stopAwaitingCandidateSource = (): void => {
+		unsubscribeCandidateSource?.();
+		unsubscribeCandidateSource = null;
+		awaitingSourceCandidate = null;
+	};
+	const observeCandidateSource = (): void => {
+		const candidate = awaitingSourceCandidate;
+		if (candidate === null) return;
+		const source = props.store.getReviewCandidateSourceDiagnostic();
+		if (source?.publicationId !== candidate.identity.publicationId) {
+			stopAwaitingCandidateSource();
+			if (readyCandidate === candidate) {
+				readyCandidate = null;
+				props.onLifecycleEvent?.({
+					...candidateTelemetryFacts(candidate),
+					phase: 'candidateSuperseded',
+				});
+			}
+			return;
+		}
+		if (source.status === 'failed') {
+			stopAwaitingCandidateSource();
+			if (readyCandidate !== candidate) return;
+			readyCandidate = null;
+			if (props.store.failReviewCandidate({ identity: candidate.identity, retryable: true })) {
+				props.onLifecycleEvent?.({
+					...candidateTelemetryFacts(candidate),
+					phase: 'candidateFailed',
+					retryable: true,
+				});
+			}
+			recordGateDecision({ kind: 'rejected', reason: 'candidateSourceFailed' });
+			return;
+		}
+		if (source.status === 'ready') {
+			stopAwaitingCandidateSource();
+			void evaluateReadyCandidate();
+		}
+	};
+	const awaitCandidateSource = (candidate: ReadyCandidate): void => {
+		stopAwaitingCandidateSource();
+		awaitingSourceCandidate = candidate;
+		unsubscribeCandidateSource = props.store.subscribeReviewCandidateSource(observeCandidateSource);
+		recordGateDecision({ kind: 'held', reason: 'candidateSourcePending' });
+		observeCandidateSource();
+	};
 
 	const candidateMatchesStore = (candidate: ReadyCandidate): boolean => {
 		const storedCandidate = props.store.getReviewRefreshPresentation().candidate;
@@ -417,6 +465,11 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 				role: 'provisional',
 			})
 		) {
+			const source = props.store.getReviewCandidateSourceDiagnostic();
+			if (source?.publicationId === candidate.identity.publicationId && source.status !== 'ready') {
+				awaitCandidateSource(candidate);
+				return;
+			}
 			recordGateDecision({ kind: 'rejected', reason: 'provisionalMarkRejected' });
 			return;
 		}
@@ -457,6 +510,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		close: (): void => {
 			if (isClosed) return;
 			isClosed = true;
+			stopAwaitingCandidateSource();
 			lifecycleRevision += 1;
 			installationInFlightPublicationId = null;
 			pendingInstalledReceiptCandidate = null;
@@ -532,6 +586,9 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		},
 		handleCandidateFailed: (event, attention): void => {
 			if (isClosed) return;
+			if (awaitingSourceCandidate?.identity.publicationId === event.publicationId) {
+				stopAwaitingCandidateSource();
+			}
 			attentionFileIdentities = new Set(attention.stableFileIdentities);
 			activeEditorFileIdentities = new Set(attention.activeEditorStableFileIdentities);
 			const identity = {
@@ -561,6 +618,7 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 		},
 		prepareForWorkerReplacement: (): void => {
 			if (isClosed) return;
+			stopAwaitingCandidateSource();
 			lifecycleRevision += 1;
 			installationInFlightPublicationId = null;
 			pendingInstalledReceiptCandidate = null;

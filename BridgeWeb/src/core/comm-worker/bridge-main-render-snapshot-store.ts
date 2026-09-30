@@ -280,6 +280,7 @@ export function createBridgeMainRenderSnapshotStore(
 	const reviewItemListeners = new BridgeMainKeyedListenerRegistry<string>();
 	const reviewSelectionListeners = new Set<() => void>();
 	const reviewSourceListeners = new Set<() => void>();
+	const reviewCandidateSourceListeners = new Set<() => void>();
 	const reviewRefreshPresentationListeners = new Set<() => void>();
 	const reviewTreeRowById = new Map<string, BridgeMainReviewTreeDisplayRow>();
 	const reviewTreeRowListeners = new BridgeMainKeyedListenerRegistry<string>();
@@ -313,27 +314,28 @@ export function createBridgeMainRenderSnapshotStore(
 			return unsubscribe;
 		},
 	};
-
 	const publish = (nextSnapshot: MutableBridgeMainRenderSnapshot): void => {
 		snapshot = nextSnapshot;
 		for (const listener of listeners) {
 			listener();
 		}
 	};
-
 	const publishReviewRefreshPresentation = (): void => {
 		publishBridgeMainListeners(reviewRefreshPresentationListeners);
 	};
-
+	const publishCandidatePresentation = (): void => {
+		publishReviewRefreshPresentation();
+		publishBridgeMainListeners(reviewCandidateSourceListeners);
+	};
 	const discardReviewCandidate = (identity?: BridgeMainReviewPublicationIdentity): boolean => {
 		if (!reviewCandidateBankOwner.discard(identity)) return false;
-		publishReviewRefreshPresentation();
+		publishCandidatePresentation();
 		return true;
 	};
-
 	const promoteReviewCandidate = (identity: BridgeMainReviewPublicationIdentity): boolean => {
 		const candidate = reviewCandidateBankOwner.promote(identity);
 		if (candidate === null) return false;
+		publishBridgeMainListeners(reviewCandidateSourceListeners);
 		const previousSnapshot = snapshot;
 		const previousItemIds = Object.keys(previousSnapshot.reviewItemById);
 		const nextItemIds = Object.keys(candidate.snapshot.reviewItemById);
@@ -457,6 +459,7 @@ export function createBridgeMainRenderSnapshotStore(
 			reviewItemListeners.clear();
 			reviewSelectionListeners.clear();
 			reviewSourceListeners.clear();
+			reviewCandidateSourceListeners.clear();
 			reviewRefreshPresentationListeners.clear();
 			reviewTreeRowListeners.clear();
 			workerReplacementListeners.clear();
@@ -553,6 +556,10 @@ export function createBridgeMainRenderSnapshotStore(
 			isDisposed ? (): void => {} : subscribeBridgeMainListener(reviewSelectionListeners, listener),
 		subscribeReviewSource: (listener): (() => void) =>
 			isDisposed ? (): void => {} : subscribeBridgeMainListener(reviewSourceListeners, listener),
+		subscribeReviewCandidateSource: (listener): (() => void) =>
+			isDisposed
+				? (): void => {}
+				: subscribeBridgeMainListener(reviewCandidateSourceListeners, listener),
 		subscribeReviewRefreshPresentation: (listener): (() => void) =>
 			isDisposed
 				? (): void => {}
@@ -611,7 +618,7 @@ export function createBridgeMainRenderSnapshotStore(
 		startReviewCandidate: (props): boolean => {
 			if (isDisposed) return false;
 			const started = reviewCandidateBankOwner.start({ activeSnapshot: snapshot, ...props });
-			if (started) publishReviewRefreshPresentation();
+			if (started) publishCandidatePresentation();
 			return started;
 		},
 		stageReviewCandidateDisplayEvent: (props): boolean => {
@@ -621,6 +628,7 @@ export function createBridgeMainRenderSnapshotStore(
 			if (staged && reviewCandidateBankOwner.currentPresentation !== presentationBeforeStage) {
 				publishReviewRefreshPresentation();
 			}
+			if (staged) publishBridgeMainListeners(reviewCandidateSourceListeners);
 			return staged;
 		},
 		applyReviewCandidateSnapshotUpdate: (update): boolean => {
@@ -658,7 +666,7 @@ export function createBridgeMainRenderSnapshotStore(
 		failReviewCandidate: (props): boolean => {
 			if (isDisposed) return false;
 			const failed = reviewCandidateBankOwner.fail(props);
-			if (failed) publishReviewRefreshPresentation();
+			if (failed) publishCandidatePresentation();
 			return failed;
 		},
 		clearReviewCandidateFailure: (): boolean => {

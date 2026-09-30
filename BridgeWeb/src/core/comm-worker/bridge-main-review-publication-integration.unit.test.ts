@@ -19,6 +19,79 @@ import {
 } from './bridge-main-review-publication-integration.test-support.js';
 
 describe('Bridge main Review publication integration', () => {
+	test('late candidate source readiness resumes one installation after an early ready fact', async () => {
+		const harness = createHarness();
+		harness.startCandidate(CANDIDATE, 'ordinary', []);
+		harness.receive(candidateReady(CANDIDATE, 'ordinary', []));
+		await harness.integration.whenSettled();
+		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(0);
+
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+		await harness.integration.whenSettled();
+		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(1);
+		const admission = await harness.nextCommand('reviewPublicationInstallAdmit');
+		harness.admit(admission, CANDIDATE, 'admitted');
+		const installed = await harness.nextCommand('reviewPublicationInstalled');
+		harness.ack(installed);
+		await harness.integration.whenSettled();
+		expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+			mainIdentity(CANDIDATE),
+		);
+		harness.dispose();
+	});
+
+	test('a failed source ends an awaiting candidate with a typed failure and no install request', async () => {
+		const harness = createHarness();
+		harness.startCandidate(CANDIDATE, 'ordinary', []);
+		harness.receive(candidateReady(CANDIDATE, 'ordinary', []));
+		await harness.integration.whenSettled();
+		const display = reviewDisplayEvent(CANDIDATE, 'item-b');
+		const failedSourcePatch = {
+			operation: 'failed',
+			payload: { error: 'metadataUnavailable', status: 'failed' },
+			slice: 'reviewSource',
+		} as const;
+
+		harness.receive({
+			...display,
+			patches: display.patches.map((patch) =>
+				patch.slice === 'reviewSource' ? failedSourcePatch : patch,
+			),
+		});
+		await harness.integration.whenSettled();
+
+		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(0);
+		expect(harness.store.getReviewRefreshPresentation().candidate).toBeNull();
+		expect(
+			harness.telemetrySamples.some(
+				(sample): boolean =>
+					sample.stringAttributes['agentstudio.bridge.phase'] === 'review_refresh_candidate_failed',
+			),
+		).toBe(true);
+		harness.dispose();
+	});
+
+	test('a superseded source wait cannot install the retired candidate', async () => {
+		const harness = createHarness();
+		harness.startCandidate(CANDIDATE, 'ordinary', []);
+		harness.receive(candidateReady(CANDIDATE, 'ordinary', []));
+		await harness.integration.whenSettled();
+		harness.startCandidate(SUCCESSOR, 'ordinary', []);
+		harness.receive(reviewDisplayEvent(CANDIDATE, 'item-b'));
+		harness.receive(candidateReady(SUCCESSOR, 'ordinary', []));
+		await harness.integration.whenSettled();
+		expect(harness.pendingCommandCount('reviewPublicationInstallAdmit')).toBe(0);
+
+		harness.receive(reviewDisplayEvent(SUCCESSOR, 'item-c'));
+		await harness.integration.whenSettled();
+		const admission = await harness.nextCommand('reviewPublicationInstallAdmit');
+		expect(admission).toMatchObject({ candidatePublicationId: SUCCESSOR.publicationId });
+		expect(harness.commandKinds.filter((kind) => kind === 'reviewPublicationInstallAdmit')).toEqual(
+			['reviewPublicationInstallAdmit'],
+		);
+		harness.dispose();
+	});
+
 	test('retains the displayed item while exact-active metadata rebinds to a newer worker epoch', async () => {
 		// Arrange — installed content precedes a subscription-only authority replacement.
 		const harness = createHarness();

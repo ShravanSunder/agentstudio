@@ -65,6 +65,8 @@ export interface BridgeReviewInstallationGateDiagnostic {
 			| 'attention'
 			| 'candidateMismatch'
 			| 'candidateMissing'
+			| 'candidateSourceFailed'
+			| 'candidateSourcePending'
 			| 'closed'
 			| 'installInFlight'
 			| 'nativeAdmissionAdmitted'

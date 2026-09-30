@@ -71,6 +71,7 @@ export interface BridgeMainReviewCandidateSnapshotUpdate {
 }
 export interface BridgeMainReviewCandidateStore {
 	readonly getReviewRefreshPresentation: () => BridgeMainReviewRefreshPresentation;
+	readonly subscribeReviewCandidateSource: (listener: () => void) => () => void;
 	readonly getReviewCandidateSourceDiagnostic: () => {
 		readonly publicationId: string;
 		readonly status: string | null;
