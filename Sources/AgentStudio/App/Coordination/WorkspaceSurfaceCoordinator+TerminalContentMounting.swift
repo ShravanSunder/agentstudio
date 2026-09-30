@@ -267,7 +267,7 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     ) {
         let baselineIdentity: Data?
         switch restoreKind {
-        case .warm(let identity):
+        case .warm(let identity, _):
             baselineIdentity = identity
         case .unverified:
             baselineIdentity = nil

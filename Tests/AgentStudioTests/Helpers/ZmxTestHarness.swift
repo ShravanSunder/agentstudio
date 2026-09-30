@@ -339,7 +339,23 @@ final class ZmxTestHarness: @unchecked Sendable {
     ///
     /// The returned process must be awaited by callers through `cleanup()`.
     func spawnColdRestoreSessionWithoutWaitingForSettlement(plan: TerminalColdRestorePlan) throws -> Process {
-        let commandLine = ZmxBackend.buildColdRestoreCommand(plan)
+        try spawnShellCommandWithoutWaitingForSettlement(ZmxBackend.buildColdRestoreCommand(plan))
+    }
+
+    /// The general form of `spawnColdRestoreSessionWithoutWaitingForSettlement`
+    /// for a caller that already has its own full command line -- such as
+    /// `TerminalRestoreRuntime.startupCommand(for:kind:)`'s own returned
+    /// string -- rather than a `TerminalColdRestorePlan` to build one from
+    /// (S4b "option A" zmx-e2e proof: the production entry point itself,
+    /// not just `ZmxBackend.buildColdRestoreCommand`, reaches real zmx).
+    /// No settlement wait, for the same reason as the plan-based sibling:
+    /// a caller reconnecting to an already-alive leader has no fresh
+    /// incarnation to wait for, and a caller expecting recreation instead
+    /// waits on its own observable proof (a socket, an identity, session
+    /// history) after this returns.
+    ///
+    /// The returned process must be awaited by callers through `cleanup()`.
+    func spawnShellCommandWithoutWaitingForSettlement(_ commandLine: String) throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", commandLine]

@@ -78,6 +78,23 @@ struct PostAttachRecreationCheckWiringTests {
         )
     }
 
+    /// `beginPostAttachRecreationCheckIfNeeded` never reads `.warm`/
+    /// `.unverified`'s fallback plan -- only the identity/reason -- so any
+    /// valid plan satisfies the type here.
+    private func makeFallbackPlan(sessionIDText: String) -> TerminalColdRestorePlan {
+        TerminalColdRestorePlan(
+            zmxExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            zmxDirectory: URL(fileURLWithPath: "/tmp"),
+            sessionID: ZmxSessionID(restoring: sessionIDText)!,
+            loginShell: URL(fileURLWithPath: "/bin/zsh"),
+            folderCandidates: [URL(fileURLWithPath: "/tmp")],
+            notice: ColdRestoreNotice(linesByCandidateIndex: ["Restored after restart"]),
+            replayFile: nil,
+            resume: nil,
+            attemptID: .generate()
+        )
+    }
+
     @Test("a matching post-attach identity settles unchanged")
     func matchingIdentitySettlesUnchanged() async throws {
         // Arrange
@@ -92,7 +109,10 @@ struct PostAttachRecreationCheckWiringTests {
         let pane = makeZmxPane(sessionIDText: "as-post-attach-unchanged")
 
         // Act
-        coordinator.beginPostAttachRecreationCheckIfNeeded(pane: pane, restoreKind: .warm(identity: baseline))
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unchanged")))
 
         // Assert
         try await recorder.expectNext(in: pane.id, .unchanged)
@@ -113,7 +133,10 @@ struct PostAttachRecreationCheckWiringTests {
 
         // Act
         coordinator.beginPostAttachRecreationCheckIfNeeded(
-            pane: pane, restoreKind: .warm(identity: Data([1, 2, 3])))
+            pane: pane,
+            restoreKind: .warm(
+                identity: Data([1, 2, 3]),
+                fallback: makeFallbackPlan(sessionIDText: "as-post-attach-recreated")))
 
         // Assert
         try await recorder.expectNext(in: pane.id, .recreated)
@@ -134,7 +157,10 @@ struct PostAttachRecreationCheckWiringTests {
 
         // Act
         coordinator.beginPostAttachRecreationCheckIfNeeded(
-            pane: pane, restoreKind: .warm(identity: Data([1, 2, 3])))
+            pane: pane,
+            restoreKind: .warm(
+                identity: Data([1, 2, 3]),
+                fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unobservable")))
 
         // Assert
         try await recorder.expectNext(in: pane.id, .couldNotCheck)
@@ -154,7 +180,10 @@ struct PostAttachRecreationCheckWiringTests {
 
         // Act
         coordinator.beginPostAttachRecreationCheckIfNeeded(
-            pane: pane, restoreKind: .unverified(.warmIdentityUnobservable))
+            pane: pane,
+            restoreKind: .unverified(
+                .warmIdentityUnobservable,
+                fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unverified")))
 
         // Assert
         try await recorder.expectNext(in: pane.id, .couldNotCheck)

@@ -138,20 +138,28 @@ struct TerminalRestoreKindResolver: Sendable {
     ) -> TerminalRestoreKind {
         switch inventory {
         case .unavailable(let failure):
-            return .unverified(.inventoryUnavailable(failure))
+            return .unverified(
+                .inventoryUnavailable(failure),
+                fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
         case .complete(let entriesBySessionID):
             switch entriesBySessionID[sessionID] {
             case .alive:
                 guard let observedIdentity else {
-                    return .unverified(.warmIdentityUnobservable)
+                    return .unverified(
+                        .warmIdentityUnobservable,
+                        fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
                 }
-                return .warm(identity: observedIdentity)
+                return .warm(
+                    identity: observedIdentity,
+                    fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
             case .refused, nil:
                 // Absent from a complete inventory, or refused: both are
                 // proof of death (SR2), never merely unseen.
                 return .cold(buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
             case .unresponsive:
-                return .unverified(.sessionUnresponsive)
+                return .unverified(
+                    .sessionUnresponsive,
+                    fallback: buildColdPlan(pane: pane, sessionID: sessionID, zmxPath: zmxPath))
             }
         }
     }

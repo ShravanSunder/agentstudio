@@ -53,11 +53,12 @@ struct TerminalRestoreKindResolverTests {
 
         let kinds = await resolver.resolveRestoreKinds(for: [descriptor(for: pane)])
 
-        guard case .warm(let identity) = kinds[PaneId(existingUUID: pane.id)] else {
+        guard case .warm(let identity, let fallback) = kinds[PaneId(existingUUID: pane.id)] else {
             Issue.record("expected .warm, got \(String(describing: kinds[PaneId(existingUUID: pane.id)]))")
             return
         }
         #expect(identity == Data([9, 9, 9]))
+        #expect(fallback.sessionID == sessionID)
     }
 
     @Test("an alive session whose identity can't be observed resolves unverified, never warm on the pid alone")
@@ -71,7 +72,12 @@ struct TerminalRestoreKindResolverTests {
 
         let kinds = await resolver.resolveRestoreKinds(for: [descriptor(for: pane)])
 
-        #expect(kinds[PaneId(existingUUID: pane.id)] == .unverified(.warmIdentityUnobservable))
+        guard case .unverified(let reason, let fallback) = kinds[PaneId(existingUUID: pane.id)] else {
+            Issue.record("expected .unverified, got \(String(describing: kinds[PaneId(existingUUID: pane.id)]))")
+            return
+        }
+        #expect(reason == .warmIdentityUnobservable)
+        #expect(fallback.sessionID == sessionID)
     }
 
     @Test("N live sessions, exceeding the concurrency bound, all resolve warm with their own identity")
@@ -99,13 +105,14 @@ struct TerminalRestoreKindResolverTests {
 
         #expect(kinds.count == sessionCount)
         for (sessionID, pane) in panesBySessionID {
-            guard case .warm(let identity) = kinds[PaneId(existingUUID: pane.id)] else {
+            guard case .warm(let identity, let fallback) = kinds[PaneId(existingUUID: pane.id)] else {
                 Issue.record(
                     "expected .warm for session \(sessionID), got \(String(describing: kinds[PaneId(existingUUID: pane.id)]))"
                 )
                 continue
             }
             #expect(identity == probe.identitiesBySessionID[sessionID])
+            #expect(fallback.sessionID == sessionID)
         }
     }
 
@@ -152,7 +159,12 @@ struct TerminalRestoreKindResolverTests {
 
         let kinds = await resolver.resolveRestoreKinds(for: [descriptor(for: pane)])
 
-        #expect(kinds[PaneId(existingUUID: pane.id)] == .unverified(.sessionUnresponsive))
+        guard case .unverified(let reason, let fallback) = kinds[PaneId(existingUUID: pane.id)] else {
+            Issue.record("expected .unverified, got \(String(describing: kinds[PaneId(existingUUID: pane.id)]))")
+            return
+        }
+        #expect(reason == .sessionUnresponsive)
+        #expect(fallback.sessionID == sessionID)
     }
 
     @Test("a whole-inventory unavailable outcome makes every pane unverified")
@@ -171,8 +183,14 @@ struct TerminalRestoreKindResolverTests {
         ])
 
         #expect(kinds.count == 2)
+        let expectedSessionIDs = Set([firstSessionID, secondSessionID])
         for kind in kinds.values {
-            #expect(kind == .unverified(.inventoryUnavailable(.timedOut)))
+            guard case .unverified(let reason, let fallback) = kind else {
+                Issue.record("expected .unverified, got \(kind)")
+                continue
+            }
+            #expect(reason == .inventoryUnavailable(.timedOut))
+            #expect(expectedSessionIDs.contains(fallback.sessionID))
         }
     }
 

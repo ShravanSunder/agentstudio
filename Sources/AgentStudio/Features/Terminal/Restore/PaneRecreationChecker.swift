@@ -7,7 +7,7 @@ import Foundation
 /// 'couldn't check.' A PID or a clock is never a substitute for identity."
 ///
 /// A pure comparison over two already-opaque identity blobs
-/// (`TerminalRestoreKind.warm(identity: Data)`'s own shape,
+/// (`TerminalRestoreKind.warm(identity:fallback:)`'s `identity` payload,
 /// `ZmxSessionIdentity.encoded()`'s deterministic `.sortedKeys` JSON) — no
 /// decoding needed, since two encodings of the same logical identity are
 /// byte-identical and two different identities are not. This is
@@ -30,8 +30,8 @@ package enum PaneRecreationCheckResult: Equatable, Sendable {
 }
 
 package enum PaneRecreationChecker {
-    /// `baselineIdentity` is `TerminalRestoreKind.warm(identity:)`'s stored
-    /// value for a warm pane, or `nil` for an unverified one (which never
+    /// `baselineIdentity` is `TerminalRestoreKind.warm(identity:fallback:)`'s
+    /// stored `identity` for a warm pane, or `nil` for an unverified one (which never
     /// had a baseline to begin with). `observedIdentity` is the result of
     /// one more `ZmxSessionRestoreProbing.observeSessionIdentity(_:)` call
     /// made after the attach settles — `nil` on any observation failure,
