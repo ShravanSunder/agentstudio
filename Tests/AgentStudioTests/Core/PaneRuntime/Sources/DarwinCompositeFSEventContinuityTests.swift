@@ -9,6 +9,38 @@ import Testing
 
 @Suite("DarwinCompositeFSEventContinuity", .serialized)
 struct DarwinCompositeFSEventContinuityTests {
+    @Test("local root replacement retires its generation before ordinary routing")
+    func localRootReplacementRequiresCompleteReregistration() async throws {
+        let fixture = try CompositeContinuityFixture()
+        let originalBarrier = try await fixture.requirePreparedBarrier()
+        let canonicalRootPath = DarwinFSEventPathCanonicalizer.canonicalURL(fixture.worktreeRoot).path
+
+        try #require(
+            fixture.localStreamFactory.send(
+                path: canonicalRootPath,
+                eventId: 200,
+                flags: FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)
+            )
+        )
+        let rootReplacementBatch = try await fixture.requireFullRefreshBatch()
+        #expect(rootReplacementBatch.worktreeId == fixture.worktreeId)
+        #expect(rootReplacementBatch.paths == [canonicalRootPath])
+        #expect(rootReplacementBatch.requiresFullGitRefresh)
+        #expect(await fixture.client.commit(originalBarrier) == .requiresExact(.registrationMissing))
+        #expect(await fixture.prepare() == .unavailable(.registrationMissing))
+
+        try #require(
+            fixture.client.register(
+                worktreeId: fixture.worktreeId,
+                repoId: UUIDv7.generate(),
+                rootPath: fixture.worktreeRoot
+            ) == .observing
+        )
+        let replacementBarrier = try await fixture.requirePreparedBarrier()
+        #expect(replacementBarrier.registrationGeneration != originalBarrier.registrationGeneration)
+        await fixture.shutdown()
+    }
+
     @Test("unchanged shared ancestor ambiguity resolves without full Git fallback")
     func unchangedAncestorAmbiguityResolvesWithoutFallback() async throws {
         let fixture = try CompositeContinuityFixture()
@@ -486,6 +518,23 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         return false
     }
 
+    func requireFullRefreshBatch() async throws -> FSEventBatch {
+        for await batch in fullRefreshEvents where batch.worktreeId == worktreeId {
+            return batch
+        }
+        throw CompositeFullRefreshStreamEnded()
+    }
+
+    func shutdown() async {
+        let task = ingressTask
+        ingressTask = nil
+        task?.cancel()
+        fullRefreshContinuation.finish()
+        streamFactory.allowBlockedFlush(result: false)
+        client.shutdown()
+        await task?.value
+    }
+
     func sharedDeliveredEventID(in barrier: FSEventActivityBarrier) -> UInt64? {
         barrier.deliveredEventIDByParticipant.first { participant, _ in
             participant.scopeKey.hasPrefix("shared:")
@@ -502,12 +551,28 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
 }
 
 private final class CompositeLocalStreamFactory: @unchecked Sendable {
+    private let lock = NSLock()
+    private var eventHandler: (@Sendable ([DarwinLocalFSEventRawEvent]) -> Void)?
+
     func makeStream(
-        request _: DarwinLocalFSEventStreamRequest
+        request: DarwinLocalFSEventStreamRequest
     ) -> (any DarwinLocalFSEventStreamLifetime)? {
-        CompositeLocalStreamLifetime()
+        lock.withLock { eventHandler = request.eventHandler }
+        return CompositeLocalStreamLifetime()
+    }
+
+    func send(
+        path: String,
+        eventId: FSEventStreamEventId,
+        flags: FSEventStreamEventFlags
+    ) -> Bool {
+        guard let eventHandler = lock.withLock({ eventHandler }) else { return false }
+        eventHandler([DarwinLocalFSEventRawEvent(path: path, eventId: eventId, flags: flags)])
+        return true
     }
 }
+
+private struct CompositeFullRefreshStreamEnded: Error {}
 
 private final class CompositeLocalStreamLifetime:
     DarwinLocalFSEventStreamLifetime, @unchecked Sendable

@@ -770,124 +770,61 @@ extension DarwinFSEventStreamClientTests {
         client.shutdown()
     }
 
-    @Test("local root replacement retires its generation before ordinary routing")
-    func localRootReplacementRequiresCompleteReregistration() async throws {
+    @Test("replacement native registration receives events from its own root")
+    func replacementNativeRegistrationReceivesItsOwnRootEvents() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory.appending(
             path: "darwin-fsevents-local-root-change-\(UUIDv7.generate().uuidString)",
             directoryHint: .isDirectory
         )
-        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        let firstRoot = fixtureRoot.appending(path: "first", directoryHint: .isDirectory)
+        let replacementRoot = fixtureRoot.appending(path: "replacement", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: firstRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: replacementRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         let client = DarwinFSEventStreamClient()
         defer { client.shutdown() }
         let worktreeId = UUIDv7.generate()
         let repositoryId = UUIDv7.generate()
-        _ = client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
-        try await requireNativeStreamReadiness(client: client, worktreeId: worktreeId, rootPath: fixtureRoot)
-        let observationPlan = AgentStudioGit.GitStatusObservationPlan(
-            identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "local-root-change"),
-            scopes: [
-                AgentStudioGit.GitStatusObservationScope(kind: .subtree, path: fixtureRoot)
-            ],
-            support: .supported
-        )
-        let originalPrepareOutcome = await client.prepare(
-            worktreeId: worktreeId,
-            rootPath: fixtureRoot,
-            observationPlan: observationPlan
-        )
-        let originalBarrier = try #require(
-            originalPrepareOutcome.barrier,
-            Comment(rawValue: "original preparation: \(originalPrepareOutcome)")
-        )
-        let eventTask = Task<FSEventBatch?, Never> {
-            for await ingressItem in client.events() {
-                guard case .batch(let batch) = ingressItem else { continue }
-                if batch.requiresFullGitRefresh {
-                    return batch
-                }
-            }
-            return nil
-        }
-        let canonicalFixturePath = try #require(
-            fixtureRoot.withUnsafeFileSystemRepresentation { pathPointer -> String? in
-                guard let pathPointer, let resolvedPointer = Darwin.realpath(pathPointer, nil) else {
-                    return nil
-                }
-                defer { free(resolvedPointer) }
-                return String(cString: resolvedPointer)
-            }
-        )
+        try #require(client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: firstRoot) == .observing)
+        let firstBatch = try await requireNativeRootEvent(client: client, worktreeId: worktreeId, rootPath: firstRoot)
+        let canonicalFirstRoot = DarwinFSEventPathCanonicalizer.canonicalURL(firstRoot).path
+        #expect(firstBatch.worktreeId == worktreeId)
+        #expect(firstBatch.paths.contains { $0.hasPrefix(canonicalFirstRoot + "/") })
 
-        client.receiveLocalRawEvents(
-            worktreeId: worktreeId,
-            rawEvents: [
-                (
-                    path: canonicalFixturePath,
-                    eventId: 200,
-                    flags: FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged)
-                )
-            ]
+        try #require(
+            client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: replacementRoot) == .observing
         )
-
-        let ordinaryBatch = try #require(
-            await eventTask.value
+        let replacementBatch = try await requireNativeRootEvent(
+            client: client, worktreeId: worktreeId, rootPath: replacementRoot
         )
-        #expect(ordinaryBatch.worktreeId == worktreeId)
-        #expect(ordinaryBatch.paths == [canonicalFixturePath])
-        #expect(ordinaryBatch.requiresFullGitRefresh)
-        #expect(
-            await client.commit(originalBarrier) == .requiresExact(.registrationMissing)
-        )
-        #expect(
-            await client.prepare(
-                worktreeId: worktreeId,
-                rootPath: fixtureRoot,
-                observationPlan: observationPlan
-            ) == .unavailable(.registrationMissing)
-        )
-
-        _ = client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
-        // Fence this registration's callbacks before opening its replacement barrier.
-        try await requireNativeStreamReadiness(client: client, worktreeId: worktreeId, rootPath: fixtureRoot)
-        let replacementPrepareOutcome = await client.prepare(
-            worktreeId: worktreeId,
-            rootPath: fixtureRoot,
-            observationPlan: observationPlan
-        )
-        let replacementBarrier = try #require(
-            replacementPrepareOutcome.barrier,
-            Comment(rawValue: "replacement preparation: \(replacementPrepareOutcome)")
-        )
-        #expect(replacementBarrier.registrationGeneration != originalBarrier.registrationGeneration)
+        let canonicalReplacementRoot = DarwinFSEventPathCanonicalizer.canonicalURL(replacementRoot).path
+        #expect(replacementBatch.worktreeId == worktreeId)
+        #expect(replacementBatch.paths.contains { $0.hasPrefix(canonicalReplacementRoot + "/") })
+        let firstParticipant = try #require(firstBatch.participant)
+        let replacementParticipant = try #require(replacementBatch.participant)
+        #expect(replacementParticipant.generation != firstParticipant.generation)
     }
 
-    private func requireNativeStreamReadiness(
+    private func requireNativeRootEvent(
         client: DarwinFSEventStreamClient,
         worktreeId: UUID,
         rootPath: URL
-    ) async throws {
-        let readinessSentinelPath = rootPath.appending(
+    ) async throws -> FSEventBatch {
+        let sentinelPath = rootPath.appending(
             path: "native-stream-ready-\(UUIDv7.generate().uuidString).sentinel"
         )
-        let canonicalReadinessSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(
-            readinessSentinelPath
-        ).path
-        let readinessBatchTask = Task<FSEventBatch?, Never> {
+        let canonicalSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(sentinelPath).path
+        let observedBatchTask = Task<FSEventBatch?, Never> {
             for await ingressItem in client.events() {
                 guard case .batch(let batch) = ingressItem else { continue }
-                if batch.worktreeId == worktreeId,
-                    batch.paths.contains(canonicalReadinessSentinelPath)
-                {
+                if batch.worktreeId == worktreeId, batch.paths.contains(canonicalSentinelPath) {
                     return batch
                 }
             }
             return nil
         }
-        try Data("ready".utf8).write(to: readinessSentinelPath)
-        _ = try #require(
-            await readinessBatchTask.value
-        )
+        try Data("ready".utf8).write(to: sentinelPath)
+        return try #require(await observedBatchTask.value)
     }
 
     @Test("shutdown is idempotent and blocks future registration")
