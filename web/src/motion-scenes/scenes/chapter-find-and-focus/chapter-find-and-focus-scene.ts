@@ -13,6 +13,13 @@ import {
 
 const totalDurationSeconds = 8;
 
+function hasNonWhitespaceDirectText(element: HTMLElement): boolean {
+  return Array.from(element.childNodes).some(
+    (childNode) =>
+      childNode.nodeType === Node.TEXT_NODE && (childNode.textContent ?? "").trim().length > 0,
+  );
+}
+
 interface FindAndFocusElements {
   readonly arrangementZoom: HTMLElement;
   readonly commandBar: HTMLElement;
@@ -23,7 +30,7 @@ interface FindAndFocusElements {
   readonly worktreesSection: HTMLElement;
   readonly targetLines: readonly HTMLElement[];
   readonly paneTextContainers: readonly HTMLElement[];
-  readonly paneTextLines: readonly HTMLElement[];
+  readonly paneOverlapTextElements: readonly HTMLElement[];
   readonly rightPaneCoveredText: HTMLElement;
   readonly targetFocusRing: HTMLElement;
   readonly targetZoomedChip: HTMLElement;
@@ -50,9 +57,9 @@ function resolveFindAndFocusElements(root: HTMLElement): FindAndFocusElements {
       9,
     ),
     paneTextContainers: [...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal")],
-    paneTextLines: [
-      ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal .kit-terminal__line"),
-    ],
+    paneOverlapTextElements: [
+      ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal *"),
+    ].filter((element) => element !== rightPaneCoveredText && hasNonWhitespaceDirectText(element)),
     rightPaneCoveredText,
     targetFocusRing: requireScenePart(root, findAndFocusParts.targetFocusRing),
     targetZoomedChip: requireScenePart(root, findAndFocusParts.targetZoomedChip),
@@ -74,12 +81,12 @@ function buildFindAndFocusScene(
   for (const paneTextContainer of elements.paneTextContainers) {
     timeline.set(paneTextContainer, { attr: { "data-layout-allow-occlusion": "" } }, barOpenAt);
   }
-  for (const paneTextLine of elements.paneTextLines) {
+  for (const paneTextElement of elements.paneOverlapTextElements) {
     timeline.set(
-      paneTextLine,
+      paneTextElement,
       {
         attr: { "data-layout-allow-overlap": "" },
-        onReverseComplete: () => paneTextLine.removeAttribute("data-layout-allow-overlap"),
+        onReverseComplete: () => paneTextElement.removeAttribute("data-layout-allow-overlap"),
       },
       barOpenAt,
     );
@@ -107,12 +114,12 @@ function buildFindAndFocusScene(
       barClosed,
     );
   }
-  for (const paneTextLine of elements.paneTextLines) {
+  for (const paneTextElement of elements.paneOverlapTextElements) {
     timeline.set(
-      paneTextLine,
+      paneTextElement,
       {
-        onComplete: () => paneTextLine.removeAttribute("data-layout-allow-overlap"),
-        onReverseComplete: () => paneTextLine.setAttribute("data-layout-allow-overlap", ""),
+        onComplete: () => paneTextElement.removeAttribute("data-layout-allow-overlap"),
+        onReverseComplete: () => paneTextElement.setAttribute("data-layout-allow-overlap", ""),
       },
       barClosed,
     );

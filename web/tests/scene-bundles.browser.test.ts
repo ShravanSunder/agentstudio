@@ -101,6 +101,21 @@ function phoneHiddenWidths(root: HTMLElement): readonly number[] {
   );
 }
 
+function hasNonWhitespaceDirectText(element: Element): boolean {
+  return Array.from(element.childNodes).some(
+    (childNode) =>
+      childNode.nodeType === Node.TEXT_NODE && (childNode.textContent ?? "").trim().length > 0,
+  );
+}
+
+function directTextContent(element: Element): string {
+  return Array.from(element.childNodes)
+    .filter((childNode) => childNode.nodeType === Node.TEXT_NODE)
+    .map((childNode) => childNode.textContent ?? "")
+    .join("")
+    .trim();
+}
+
 function requireBundle(sceneId: string): SceneBundleUnderTest {
   const bundle = bundlesBySceneId.get(sceneId);
   if (bundle === undefined) {
@@ -404,18 +419,22 @@ describe("scene bundles for HyperFrames", () => {
         expect(Number(gsap.getProperty(focusRing, "opacity"))).toBe(0);
         timeline.time(3.4);
         expect(Number(gsap.getProperty(focusRing, "opacity"))).toBeGreaterThan(0.9);
+        const activityLineTextElements = [
+          ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal__line--activity *"),
+        ].filter(hasNonWhitespaceDirectText);
+        expect(activityLineTextElements.length).toBeGreaterThan(0);
         timeline.time(2.8);
         expect(
-          root
-            .querySelector(".kit-terminal__line--activity")
-            ?.hasAttribute("data-layout-allow-overlap"),
+          activityLineTextElements.every((element) =>
+            element.hasAttribute("data-layout-allow-overlap"),
+          ),
         ).toBe(true);
         timeline.time(3.1);
         expect(
-          root
-            .querySelector(".kit-terminal__line--activity")
-            ?.hasAttribute("data-layout-allow-overlap"),
-        ).toBe(false);
+          activityLineTextElements.every(
+            (element) => !element.hasAttribute("data-layout-allow-overlap"),
+          ),
+        ).toBe(true);
       } finally {
         timeline.revert();
         timeline.kill();
@@ -470,7 +489,7 @@ describe("scene bundles for HyperFrames", () => {
   });
 
   it.each([600, 1280])(
-    "marks each find-and-focus terminal line as an allowed overlap only while the bar is open at %ipx",
+    "marks every find-and-focus terminal text element as an allowed overlap only while the bar is open at %ipx",
     (stageWidth) => {
       const bundle = requireBundle("chapter-find-and-focus");
       mountStyle(bundle.sceneCss);
@@ -483,31 +502,34 @@ describe("scene bundles for HyperFrames", () => {
         seed: bundle.manifest.seed,
       });
 
-      const terminalLines = [
-        ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal .kit-terminal__line"),
-      ];
-      const coveredLeaseLine = terminalLines.find((line) =>
-        line.textContent?.includes("Reading src/lease.ts"),
+      const terminalTextElements = [
+        ...root.querySelectorAll<HTMLElement>(".kit-pane-grid .kit-terminal *"),
+      ].filter(hasNonWhitespaceDirectText);
+      const coveredLeaseText = terminalTextElements.find(
+        (element) => directTextContent(element) === "Reading src/lease.ts",
       );
-      expect(terminalLines.length).toBeGreaterThan(0);
-      expect(coveredLeaseLine).toBeDefined();
+      expect(terminalTextElements.length).toBeGreaterThan(0);
+      expect(coveredLeaseText).toBeDefined();
 
       for (const [time, expected] of [
         [0.3, false],
+        [0.6, true],
         [1.7, true],
-        [2.8, true],
+        [2.9, true],
         [3.1, false],
         [1.7, true],
         [0.3, false],
       ] as const) {
         timeline.time(time);
         expect(
-          terminalLines.every((line) => line.hasAttribute("data-layout-allow-overlap")),
-          `every terminal line at ${stageWidth}px, t=${time}`,
+          terminalTextElements.every((element) =>
+            element.hasAttribute("data-layout-allow-overlap"),
+          ),
+          `every terminal text element at ${stageWidth}px, t=${time}`,
         ).toBe(expected);
         expect(
-          coveredLeaseLine?.hasAttribute("data-layout-allow-overlap"),
-          `lease line itself at ${stageWidth}px, t=${time}`,
+          coveredLeaseText?.hasAttribute("data-layout-allow-overlap"),
+          `lease typed text span itself at ${stageWidth}px, t=${time}`,
         ).toBe(expected);
       }
       timeline.revert();
