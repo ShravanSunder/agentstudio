@@ -90,6 +90,40 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
         )
     }
 
+    func reviewStageSamples() -> [String] {
+        samples.enumerated().compactMap { index, sample in
+            let attributes = sample.stringAttributes
+            let phase = attributes["agentstudio.bridge.phase"] ?? "none"
+            let surface = attributes["agentstudio.bridge.surface"] ?? "none"
+            let slice = attributes["agentstudio.bridge.slice"] ?? "none"
+            let protocolName = attributes["agentstudio.bridge.protocol"] ?? "none"
+            let taskKind = attributes["agentstudio.bridge.task_kind"] ?? "none"
+            let isApplicationStage = ["batch", "candidate", "publication", "application", "install"]
+                .contains { phase.contains($0) }
+            guard
+                sample.name.contains("review") || phase.contains("review")
+                    || surface == "review" || slice.contains("review")
+                    || protocolName == "review" || taskKind.contains("review") || isApplicationStage
+            else { return nil }
+            let revisions = sample.numericAttributes.filter { $0.key.contains("revision") }
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ",")
+            return [
+                "index=\(index)",
+                "name=\(sample.name)",
+                "phase=\(phase)",
+                "result=\(attributes["agentstudio.bridge.result"] ?? "none")",
+                "reason=\(attributes["agentstudio.bridge.result_reason"] ?? "none")",
+                "revision=\(revisions)",
+                "operation=\(attributes["agentstudio.bridge.operation.id"] ?? "none")",
+                "surface=\(surface)",
+                "slice=\(slice)",
+                "taskKind=\(taskKind)",
+            ].joined(separator: " ")
+        }
+    }
+
     private func panePresentationEvents() -> [BridgeProductWebKitCarrierPanePresentationTrace] {
         samples.compactMap { sample in
             guard sample.name == "performance.bridge.swift.pane_presentation",

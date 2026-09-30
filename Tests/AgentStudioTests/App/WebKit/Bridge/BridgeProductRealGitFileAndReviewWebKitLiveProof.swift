@@ -241,9 +241,29 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             let installation = await controller.productSessionOwner.activeInstallation
             let nativeReview = await installation?.session.reviewMilestoneSnapshot() ?? "no native session"
             let trace = await traceRecorder.scrubbedTrace()
+            let reviewSamples = await traceRecorder.reviewStageSamples()
+            print("PR1_REVIEW_STAGE_SAMPLES count=\(reviewSamples.count)")
+            for sample in reviewSamples { print("PR1_REVIEW_STAGE_SAMPLE \(sample)") }
+            let lossReadback: String
+            do {
+                let snapshot = try await controller.telemetrySidecarSnapshot()
+                if let sidecar = snapshot.sidecar {
+                    lossReadback = [
+                        "required=\(sidecar.requiredLossCount)",
+                        "optional=\(sidecar.optionalLossCount)",
+                        "sequenceGaps=\(sidecar.sequenceGapCount)",
+                        "lossDiagnostics=\(sidecar.lossDiagnostics)",
+                    ].joined(separator: ",")
+                } else {
+                    lossReadback = "unavailable=\(String(describing: snapshot.reason))"
+                }
+            } catch {
+                lossReadback = "snapshotFailure=\(error)"
+            }
             throw BridgeWebKitMilestoneHang(
                 milestone: hang.milestone,
-                lastObservation: "page=\(hang.lastObservation),native=\(nativeReview),trace=\(trace)"
+                lastObservation:
+                    "page=\(hang.lastObservation),native=\(nativeReview),trace=\(trace),loss=\(lossReadback)"
             )
         }
         guard let metadataItemCount = metadataValue as? Int else {
