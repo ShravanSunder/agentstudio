@@ -309,26 +309,34 @@ struct AgentStudioAppIPCReusableCredentialTests {
             credentialContinuityPort: barrierPort
         )
         defer { serverFixture.cleanup() }
-        try serverFixture.server.start()
-        let token = AgentStudioIPCSubjectToken(rawValue: "throw-after-hold-token")
-        try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
-            paneID: serverFixture.boundPaneId,
-            workspaceID: serverFixture.workspaceId,
-            credentialRecordID: UUIDv7.generate(),
-            verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
-        )
-        let response = try await fixture.loginResponse(fixture: serverFixture, token: token, requestID: 91)
-        #expect(try decodeResponseResult(IPCAuthStatusResult.self, from: response).isAuthenticated)
-        await barrierPort.waitUntilRegistrationHeld()
-        #expect(barrierPort.registrationCallCount == 1)
-
+        // Widened to cover the whole resource-owning body, not just the
+        // deliberate throw below: a real failure in start/register/login/
+        // decode, before the write is ever held or while it is, must reach
+        // the same cleanup as the staged one — the catch runs it either way
+        // and only swallows the deliberate case, rethrowing anything else.
         do {
+            try serverFixture.server.start()
+            let token = AgentStudioIPCSubjectToken(rawValue: "throw-after-hold-token")
+            try serverFixture.server.principalRegistry.registerIssuedPaneCredential(
+                paneID: serverFixture.boundPaneId,
+                workspaceID: serverFixture.workspaceId,
+                credentialRecordID: UUIDv7.generate(),
+                verifierSHA256: Data(SHA256.hash(data: Data(token.rawValue.utf8)))
+            )
+            let response = try await fixture.loginResponse(fixture: serverFixture, token: token, requestID: 91)
+            #expect(try decodeResponseResult(IPCAuthStatusResult.self, from: response).isAuthenticated)
+            await barrierPort.waitUntilRegistrationHeld()
+            #expect(barrierPort.registrationCallCount == 1)
+
             // Deliberate, test-local failure: stands in for the
             // transport/decode throw the reviewer identified, staged after
             // the write is held and before any release.
             throw ReusableCredentialTestError.deliberateFailureAfterHold
-        } catch ReusableCredentialTestError.deliberateFailureAfterHold {
+        } catch {
             await releaseHeldRegistrationJoinAndDrain(server: serverFixture.server, barrierPort: barrierPort)
+            guard case ReusableCredentialTestError.deliberateFailureAfterHold = error else {
+                throw error
+            }
         }
 
         // Asserts on what the cleanup above left behind, not on a second
