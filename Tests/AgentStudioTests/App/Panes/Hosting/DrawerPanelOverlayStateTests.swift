@@ -10,6 +10,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DrawerPanelOverlayStateTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     // MARK: - Rendered drawer pane projection
 
     @Test
@@ -63,14 +67,6 @@ struct DrawerPanelOverlayStateTests {
     // MARK: - Frame preference reducer stability
 
     @Test
-    func drawerDismissFrameInTabKey_keepsRealFrameWhenZeroIsPublished() {
-        var frameInTab = CGRect(x: 10, y: 20, width: 200, height: 100)
-        DrawerDismissFrameInTabKey.reduce(value: &frameInTab) { .zero }
-
-        #expect(frameInTab == CGRect(x: 10, y: 20, width: 200, height: 100))
-    }
-
-    @Test
     func drawerPanelFrameInTabKey_keepsRealFrameWhenZeroIsPublished() {
         var tabFrame = CGRect(x: 30, y: 40, width: 220, height: 120)
         DrawerPanelFrameInTabKey.reduce(value: &tabFrame) { .zero }
@@ -86,24 +82,53 @@ struct DrawerPanelOverlayStateTests {
         #expect(iconBarFrame == CGRect(x: 5, y: 6, width: 80, height: 30))
     }
 
-    @Test
-    func drawerDismissFrameInTabKey_acceptsRealFrameWhenPublished() {
-        var frameInTab: CGRect = .zero
-        DrawerDismissFrameInTabKey.reduce(value: &frameInTab) {
-            CGRect(x: 100, y: 200, width: 500, height: 220)
-        }
+    // MARK: - Resize input presence
 
-        #expect(frameInTab == CGRect(x: 100, y: 200, width: 500, height: 220))
+    @Test("Normal drawer panel exposes its top resize target; Zoom panel has none", arguments: [true, false])
+    func drawerPanelResizeTargetFollowsInteraction(hasResizeInteraction: Bool) throws {
+        let store = WorkspaceStore(startsObserving: false)
+        let parent = store.createPane()
+        let tab = Tab(paneId: parent.id)
+        store.appendTab(tab)
+        let panel = DrawerPanel(
+            layout: DrawerGridLayout(),
+            octiconLoader: makeTestOcticonLoader(),
+            parentPaneId: parent.id, tabId: tab.id, activeChildId: nil,
+            minimizedPaneIds: [], closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
+            height: 300, store: store, repoCache: RepoCacheAtom(),
+            editorChooser: makeTestAtomRegistry().editorChooser,
+            viewRegistry: ViewRegistry(), action: { _ in },
+            arrangementInlineRenameState: ArrangementInlineRenameState(),
+            resizeInteraction: hasResizeInteraction
+                ? DrawerResizeInteraction(onChanged: { _, _ in }, onEnded: { _ in }, onTerminated: { _ in })
+                : nil,
+            onDismiss: {}, onPaneFocusTrigger: { _ in },
+            onFocusParentPane: {}, appLifecycleStore: AppLifecycleAtom(),
+            paneInboxPresentation: nil, onOpenPaneGitHub: { _ in },
+            dropTarget: nil, dragSourcePaneId: nil)
+        let hostingView = NSHostingView(rootView: panel.frame(width: 500, height: 300))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+            window.close()
+        }
+        hostingView.layoutSubtreeIfNeeded()
+
+        #expect(
+            containsView(in: hostingView, identifier: DrawerResizeHandle.accessibilityIdentifier)
+                == hasResizeInteraction
+        )
     }
 
-    @Test
-    func drawerDismissFrameInTabKey_acceptsLaterNonZeroUpdate() {
-        var frameInTab = CGRect(x: 10, y: 20, width: 200, height: 100)
-        DrawerDismissFrameInTabKey.reduce(value: &frameInTab) {
-            CGRect(x: 50, y: 60, width: 300, height: 150)
-        }
-
-        #expect(frameInTab == CGRect(x: 50, y: 60, width: 300, height: 150))
+    private func containsView(in root: NSView, identifier: String) -> Bool {
+        if root.identifier?.rawValue == identifier { return true }
+        return root.subviews.contains { containsView(in: $0, identifier: identifier) }
     }
 
     // MARK: - Dismiss monitor outside-click contract

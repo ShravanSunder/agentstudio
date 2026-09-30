@@ -69,8 +69,8 @@ extension Ghostty {
                         confirm: confirm
                     )
                 },
-                close_surface_cb: { userdata, processAlive in
-                    Self.closeSurface(userdata, processAlive: processAlive)
+                close_surface_cb: { userdata, _ in
+                    Self.closeSurface(userdata)
                 }
             )
         }
@@ -178,22 +178,19 @@ extension Ghostty {
             return selectedText
         }
 
-        private static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {
+        private static func closeSurface(_ userdata: UnsafeMutableRawPointer?) {
             guard let userdata else {
                 ghosttyLogger.debug("Ghostty closeSurface callback dropped: userdata was nil")
                 return
             }
             let surfaceView = Unmanaged<SurfaceView>.fromOpaque(userdata).takeUnretainedValue()
-            RestoreTrace.log(
-                "Ghostty.CallbackRouter.closeSurface view=\(ObjectIdentifier(surfaceView)) processAlive=\(processAlive)"
-            )
             let surfaceViewObjectId = ObjectIdentifier(surfaceView)
             Task { @MainActor [weak surfaceView] in
                 guard let surfaceView else { return }
                 RestoreTrace.log(
-                    "Ghostty.CallbackRouter.closeSurface delivering direct close callback view=\(surfaceViewObjectId) processAlive=\(processAlive)"
+                    "Ghostty.CallbackRouter.closeSurface delivering close request view=\(surfaceViewObjectId)"
                 )
-                surfaceView.handleCloseRequested(processAlive: processAlive)
+                surfaceView.handleCloseRequested()
             }
         }
     }

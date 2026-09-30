@@ -202,6 +202,24 @@ final class ViewRegistry {
         return true
     }
 
+    /// Pane IDs the prepared lane still holds before mount completion —
+    /// `pending`, `deferredGeometry`, or `mounting` custody — for one owner
+    /// lane in the given generation. Empty for a stale generation.
+    func unmountedPreparedContentMountPaneIDs(
+        owner: PreparedContentMountOwnerLane,
+        generation: WorkspaceContentMountGeneration
+    ) -> [PaneId] {
+        guard preparedContentMountGeneration == generation else { return [] }
+        return preparedContentMountStatesByPaneID.compactMap { paneID, state in
+            switch state {
+            case .pending(owner), .deferredGeometry(owner), .mounting(owner):
+                paneID
+            default:
+                nil
+            }
+        }
+    }
+
     /// All pane IDs currently holding `deferredGeometry(owner:)` custody in
     /// the given generation, for the given owner lane. Empty for a stale
     /// generation.

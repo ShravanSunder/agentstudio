@@ -32,13 +32,21 @@ struct RepositoryTopologySQLiteSnapshot: Equatable, Sendable {
 struct WorkspaceSQLiteSaveBundle: Equatable, Sendable {
     let workspace: WorkspaceSQLiteSnapshot
     let captureRevision: WorkspaceCompositionRevision?
+    /// Drawer presentation preference revision captured with this bundle;
+    /// a newer live revision keeps the store dirty after this save.
+    let drawerPresentationRevision: Int?
 
     var id: UUID { workspace.id }
     var updatedAt: Date { workspace.updatedAt }
 
-    init(workspace: WorkspaceSQLiteSnapshot, captureRevision: WorkspaceCompositionRevision? = nil) {
+    init(
+        workspace: WorkspaceSQLiteSnapshot,
+        captureRevision: WorkspaceCompositionRevision? = nil,
+        drawerPresentationRevision: Int? = nil
+    ) {
         self.workspace = workspace
         self.captureRevision = captureRevision
+        self.drawerPresentationRevision = drawerPresentationRevision
     }
 }
 

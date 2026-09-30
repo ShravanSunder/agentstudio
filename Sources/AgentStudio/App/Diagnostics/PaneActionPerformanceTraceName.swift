@@ -99,6 +99,12 @@ extension WorkspaceActionCommand {
             return "expandDrawerPane"
         case .insertDrawerPane:
             return "insertDrawerPane"
+        case .setZoomSplitRatio:
+            return "setZoomSplitRatio"
+        case .setDrawerNormalHeightRatio:
+            return "setDrawerNormalHeightRatio"
+        case .setDrawerZoomSide:
+            return "setDrawerZoomSide"
         case .moveDrawerPane:
             return "moveDrawerPane"
         case .expireUndoEntry:

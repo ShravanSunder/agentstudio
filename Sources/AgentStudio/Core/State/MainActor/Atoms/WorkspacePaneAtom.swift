@@ -415,6 +415,20 @@ package final class WorkspacePaneAtom {
         drawerCursorAtom.expandedDrawerId
     }
 
+    package func drawerPresentationPreference(forOwner ownerPaneId: UUID) -> DrawerPresentationPreference {
+        drawerCursorAtom.presentationPreference(forOwner: ownerPaneId)
+    }
+
+    package func setDrawerNormalHeightRatio(_ ratio: Double, forOwner ownerPaneId: UUID) {
+        let current = drawerCursorAtom.presentationPreference(forOwner: ownerPaneId)
+        drawerCursorAtom.setPresentationPreference(current.replacingNormalHeightRatio(ratio), forOwner: ownerPaneId)
+    }
+
+    package func setDrawerZoomSide(_ side: DrawerZoomSide, forOwner ownerPaneId: UUID) {
+        let current = drawerCursorAtom.presentationPreference(forOwner: ownerPaneId)
+        drawerCursorAtom.setPresentationPreference(current.replacingZoomSide(side), forOwner: ownerPaneId)
+    }
+
     func snapshotPanes(with ids: [UUID]) -> [Pane] {
         ids.compactMap { pane($0) }
     }

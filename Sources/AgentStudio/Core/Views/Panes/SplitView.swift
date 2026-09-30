@@ -20,6 +20,57 @@ extension EnvironmentValues {
     }
 }
 
+/// The two child rectangles of a split, in the split's own coordinate space.
+package struct SplitViewRegions: Equatable, Sendable {
+    package let left: CGRect
+    package let right: CGRect
+}
+
+/// Pure split arithmetic shared by `SplitView` paint and callers that must
+/// predict the same regions without a SwiftUI pass (drawer bootstrap
+/// geometry for Pane Zoom).
+package enum SplitViewRegionLayout {
+    /// Visible divider gap between the two split regions.
+    package static let dividerGapSize: CGFloat = 2
+
+    package static func regions(
+        direction: SplitViewDirection,
+        size: CGSize,
+        split: CGFloat,
+        reservesDividerSpace: Bool,
+        resizeIncrements: NSSize = .init(width: 1, height: 1)
+    ) -> SplitViewRegions {
+        var left = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        var right = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        switch direction {
+        case .horizontal:
+            left.size.width *= split
+            if reservesDividerSpace {
+                left.size.width -= dividerGapSize / 2
+            }
+            left.size.width -= left.size.width.truncatingRemainder(dividingBy: resizeIncrements.width)
+            right.origin.x += left.size.width
+            if reservesDividerSpace {
+                right.origin.x += dividerGapSize / 2
+            }
+            right.size.width -= right.origin.x
+
+        case .vertical:
+            left.size.height *= split
+            if reservesDividerSpace {
+                left.size.height -= dividerGapSize / 2
+            }
+            left.size.height -= left.size.height.truncatingRemainder(dividingBy: resizeIncrements.height)
+            right.origin.y += left.size.height
+            if reservesDividerSpace {
+                right.origin.y += dividerGapSize / 2
+            }
+            right.size.height -= right.origin.y
+        }
+        return SplitViewRegions(left: left, right: right)
+    }
+}
+
 /// A split view shows a left and right (or top and bottom) view with a divider in the middle for resizing.
 /// The terminology "left" and "right" is always used but for vertical splits "left" is "top" and "right" is "bottom".
 ///
@@ -44,6 +95,9 @@ package struct SplitView<L: View, R: View>: View {
     /// Whether layout continues reserving the divider gap while its paint and interaction are hidden.
     let reservesDividerSpace: Bool
 
+    /// Optional ratio limits for a split owned by a narrower product policy.
+    let splitRatioBounds: ClosedRange<CGFloat>?
+
     /// Called once when a drag resize begins (for UI state like suppressing overlays)
     let onResizeBegin: (() -> Void)?
 
@@ -59,14 +113,15 @@ package struct SplitView<L: View, R: View>: View {
     @State private var frameMeasurement = DividerFrameMeasurementState()
 
     /// Gap size between panes (the background color shows through as the separator)
-    private let splitterGapSize: CGFloat = 2
+    private let splitterGapSize: CGFloat = SplitViewRegionLayout.dividerGapSize
     /// Total hit area for resize dragging (extends beyond the visible gap)
     private let splitterHitSize: CGFloat = 6
 
     package var body: some View {
         GeometryReader { geo in
-            let leftRect = self.leftRect(for: geo.size)
-            let rightRect = self.rightRect(for: geo.size, leftRect: leftRect)
+            let regions = self.regions(for: geo.size)
+            let leftRect = regions.left
+            let rightRect = regions.right
             let splitterPoint = self.splitterPoint(for: geo.size, leftRect: leftRect)
 
             ZStack(alignment: .topLeading) {
@@ -85,7 +140,8 @@ package struct SplitView<L: View, R: View>: View {
                         direction: direction,
                         gapSize: splitterGapSize,
                         hitSize: splitterHitSize,
-                        split: $split
+                        split: $split,
+                        splitRatioBounds: splitRatioBounds
                     )
                     .position(splitterPoint)
                     .gesture(dragGesture(geo.size, splitterPoint: splitterPoint))
@@ -116,7 +172,8 @@ package struct SplitView<L: View, R: View>: View {
         showsDivider: Bool = true,
         reservesDividerSpace: Bool? = nil,
         onResizeBegin: (() -> Void)? = nil,
-        onResizeEnd: (() -> Void)? = nil
+        onResizeEnd: (() -> Void)? = nil,
+        splitRatioBounds: ClosedRange<CGFloat>? = nil
     ) {
         self.direction = direction
         self._split = split
@@ -128,6 +185,7 @@ package struct SplitView<L: View, R: View>: View {
         self.reservesDividerSpace = reservesDividerSpace ?? showsDivider
         self.onResizeBegin = onResizeBegin
         self.onResizeEnd = onResizeEnd
+        self.splitRatioBounds = splitRatioBounds
     }
 
     @State private var hasStartedResize = false
@@ -144,21 +202,29 @@ package struct SplitView<L: View, R: View>: View {
                 }
                 switch direction {
                 case .horizontal:
-                    let new = min(max(minSize, gesture.location.x), size.width - minSize)
+                    guard
+                        let resizedSplit = boundedSplitRatio(
+                            at: gesture.location.x,
+                            extent: size.width
+                        )
+                    else { return }
                     RestoreTrace.log(
-                        "SplitView.dragChanged direction=horizontal location=\(NSStringFromPoint(gesture.location)) size=\(NSStringFromSize(size)) split(before)=\(split) split(after)=\(new / size.width)"
+                        "SplitView.dragChanged direction=horizontal location=\(NSStringFromPoint(gesture.location)) size=\(NSStringFromSize(size)) split(before)=\(split) split(after)=\(resizedSplit)"
                     )
-                    let resizedSplit = new / size.width
                     guard resizedSplit != split else { return }
                     split = resizedSplit
                     frameMeasurement.admitSample(using: interactionProbe)
 
                 case .vertical:
-                    let new = min(max(minSize, gesture.location.y), size.height - minSize)
+                    guard
+                        let resizedSplit = boundedSplitRatio(
+                            at: gesture.location.y,
+                            extent: size.height
+                        )
+                    else { return }
                     RestoreTrace.log(
-                        "SplitView.dragChanged direction=vertical location=\(NSStringFromPoint(gesture.location)) size=\(NSStringFromSize(size)) split(before)=\(split) split(after)=\(new / size.height)"
+                        "SplitView.dragChanged direction=vertical location=\(NSStringFromPoint(gesture.location)) size=\(NSStringFromSize(size)) split(before)=\(split) split(after)=\(resizedSplit)"
                     )
-                    let resizedSplit = new / size.height
                     guard resizedSplit != split else { return }
                     split = resizedSplit
                     frameMeasurement.admitSample(using: interactionProbe)
@@ -174,46 +240,36 @@ package struct SplitView<L: View, R: View>: View {
             }
     }
 
-    /// Calculates the bounding rect for the left view.
-    private func leftRect(for size: CGSize) -> CGRect {
-        var result = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        switch direction {
-        case .horizontal:
-            result.size.width *= split
-            if reservesDividerSpace {
-                result.size.width -= splitterGapSize / 2
-            }
-            result.size.width -= result.size.width.truncatingRemainder(dividingBy: resizeIncrements.width)
-
-        case .vertical:
-            result.size.height *= split
-            if reservesDividerSpace {
-                result.size.height -= splitterGapSize / 2
-            }
-            result.size.height -= result.size.height.truncatingRemainder(dividingBy: resizeIncrements.height)
-        }
-        return result
+    private func boundedSplitRatio(at location: CGFloat, extent: CGFloat) -> CGFloat? {
+        guard extent.isFinite, extent > 0 else { return nil }
+        let minimumPaneExtent = min(minSize, extent / 2)
+        let minimumPosition = max(
+            minimumPaneExtent,
+            extent * (splitRatioBounds?.lowerBound ?? 0)
+        )
+        let maximumPosition = max(
+            minimumPosition,
+            min(extent - minimumPaneExtent, extent * (splitRatioBounds?.upperBound ?? 1))
+        )
+        let clampedPosition = min(max(location, minimumPosition), maximumPosition)
+        guard let splitRatioBounds else { return clampedPosition / extent }
+        // `(extent * bound) / extent` can misround (1714 * 0.3 / 1714 == 0.29999999999999993)
+        // and owners validate bounds exactly, so a drag held at a bound emits the bound itself
+        // and any other ratio is clamped after the division.
+        if clampedPosition <= extent * splitRatioBounds.lowerBound { return splitRatioBounds.lowerBound }
+        if clampedPosition >= extent * splitRatioBounds.upperBound { return splitRatioBounds.upperBound }
+        return min(max(clampedPosition / extent, splitRatioBounds.lowerBound), splitRatioBounds.upperBound)
     }
 
-    /// Calculates the bounding rect for the right view.
-    private func rightRect(for size: CGSize, leftRect: CGRect) -> CGRect {
-        var result = CGRect(x: 0, y: 0, width: size.width, height: size.height)
-        switch direction {
-        case .horizontal:
-            result.origin.x += leftRect.size.width
-            if reservesDividerSpace {
-                result.origin.x += splitterGapSize / 2
-            }
-            result.size.width -= result.origin.x
-
-        case .vertical:
-            result.origin.y += leftRect.size.height
-            if reservesDividerSpace {
-                result.origin.y += splitterGapSize / 2
-            }
-            result.size.height -= result.origin.y
-        }
-        return result
+    /// Calculates the bounding rects for the left and right views.
+    private func regions(for size: CGSize) -> SplitViewRegions {
+        SplitViewRegionLayout.regions(
+            direction: direction,
+            size: size,
+            split: split,
+            reservesDividerSpace: reservesDividerSpace,
+            resizeIncrements: resizeIncrements
+        )
     }
 
     /// Calculates the point at which the splitter should be rendered.
@@ -261,6 +317,7 @@ extension SplitView {
         let gapSize: CGFloat
         let hitSize: CGFloat
         @Binding var split: CGFloat
+        let splitRatioBounds: ClosedRange<CGFloat>?
 
         private var hitWidth: CGFloat? {
             switch direction {
@@ -315,11 +372,12 @@ extension SplitView {
             .accessibilityAddTraits(.isButton)
             .accessibilityAdjustableAction { direction in
                 let adjustment: CGFloat = 0.025
+                let bounds = splitRatioBounds ?? 0.1...0.9
                 switch direction {
                 case .increment:
-                    split = min(split + adjustment, 0.9)
+                    split = min(split + adjustment, bounds.upperBound)
                 case .decrement:
-                    split = max(split - adjustment, 0.1)
+                    split = max(split - adjustment, bounds.lowerBound)
                 @unknown default:
                     break
                 }
