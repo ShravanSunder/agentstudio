@@ -121,13 +121,32 @@ extension SessionsEvidenceReducer {
         else {
             throw SessionsRepositoryError.sourceNotFound(mutation.sourceGenerationId)
         }
-        guard source.status == .active else {
+        guard binding.providerEndedAt == nil else {
             return SessionsRepositoryReduction(
                 outcome: .sourceEnded(sourceGenerationId: mutation.sourceGenerationId)
             )
         }
-        let endedSource = replacing(source, status: .ended, endedAt: mutation.endedAt)
-        let endedBinding = replacing(binding, status: .ended, endedAt: mutation.endedAt)
+        // A sweep ends bookkeeping without reporting a provider end. Keep its
+        // original end time while recording the later provider fact separately.
+        let endedBinding = SessionsBindingRecord(
+            bindingGenerationId: binding.bindingGenerationId,
+            paneId: binding.paneId,
+            conversationId: binding.conversationId,
+            providerIdentifier: binding.providerIdentifier,
+            providerConversationId: binding.providerConversationId,
+            sourceGenerationId: binding.sourceGenerationId,
+            transitionOccurrenceId: binding.transitionOccurrenceId,
+            origin: binding.origin,
+            status: .ended,
+            startedAt: binding.startedAt,
+            endedAt: binding.endedAt ?? mutation.endedAt,
+            providerEndReason: mutation.providerEndReason,
+            providerEndReasonText: mutation.providerEndReasonText,
+            providerEndedAt: mutation.endedAt,
+            startedFromHistoricalReport: binding.startedFromHistoricalReport,
+            evidenceUnordered: binding.evidenceUnordered,
+            unorderedFenceSequence: binding.unorderedFenceSequence
+        )
         let staleAttention = context.attention.filter {
             $0.bindingGenerationId == binding.bindingGenerationId && $0.disposition == .current
         }.map { attention in
@@ -135,7 +154,8 @@ extension SessionsEvidenceReducer {
         }
         return SessionsRepositoryReduction(
             bindingChanges: [endedBinding],
-            sourceChanges: [endedSource],
+            sourceChanges: source.status == .active
+                ? [replacing(source, status: .ended, endedAt: mutation.endedAt)] : [],
             attentionChanges: staleAttention,
             outcome: .sourceEnded(sourceGenerationId: mutation.sourceGenerationId)
         )
@@ -393,7 +413,13 @@ extension SessionsEvidenceReducer {
             origin: binding.origin,
             status: status,
             startedAt: binding.startedAt,
-            endedAt: endedAt
+            endedAt: endedAt,
+            providerEndReason: binding.providerEndReason,
+            providerEndReasonText: binding.providerEndReasonText,
+            providerEndedAt: binding.providerEndedAt,
+            startedFromHistoricalReport: binding.startedFromHistoricalReport,
+            evidenceUnordered: binding.evidenceUnordered,
+            unorderedFenceSequence: binding.unorderedFenceSequence
         )
     }
 

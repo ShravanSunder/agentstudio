@@ -22,7 +22,7 @@ private enum SessionsProviderEventGeneration: Sendable {
     /// The pane's live binding, which this event's conversation still owns.
     case live(SessionsBindingRecord)
     /// A generation of this pane that has already been retired. Evidence
-    /// against it is history and an end for it is a duplicate.
+    /// against it is history; a provider end may still add a fact after a sweep.
     case retired(SessionsBindingRecord)
     /// The pane has bindings, but never one for this conversation.
     case foreignConversation
@@ -290,8 +290,8 @@ extension AgentStudioIPCSessionsAdapter {
         // evidence against it. It is decided before the binding requirement
         // below because ending a pane that is already unbound is not a caller
         // error — there is simply nothing left to retire. An end for a
-        // generation that is already retired is a duplicate: the reduction
-        // recognizes the ended source and changes nothing.
+        // generation that is already retired can still add the reported end
+        // fact after a launch sweep. Only an already-reported end is a no-op.
         guard params.event.name != .sessionEnd else {
             switch generation {
             case .unbound, .foreignConversation:
@@ -299,11 +299,7 @@ extension AgentStudioIPCSessionsAdapter {
             case .live(let binding), .retired(let binding):
                 return .admitted(
                     .sourceEnded(
-                        SessionsSourceEndMutation(
-                            paneId: paneId,
-                            sourceGenerationId: binding.sourceGenerationId,
-                            endedAt: occurredAt
-                        )
+                        Self.sourceEndMutation(for: params, binding: binding, occurredAt: occurredAt)
                     )
                 )
             }
@@ -352,6 +348,22 @@ extension AgentStudioIPCSessionsAdapter {
                     sourceCursor: nil
                 )
             )
+        )
+    }
+
+    private static func sourceEndMutation(
+        for params: IPCSessionEventParams,
+        binding: SessionsBindingRecord,
+        occurredAt: Date
+    ) -> SessionsSourceEndMutation {
+        SessionsSourceEndMutation(
+            paneId: binding.paneId,
+            sourceGenerationId: binding.sourceGenerationId,
+            endedAt: occurredAt,
+            providerEndReason: ProviderEndReason.parse(
+                providerIdentifier: params.provider.identifier, rawReason: params.event.endReason
+            ),
+            providerEndReasonText: params.event.endReason
         )
     }
 

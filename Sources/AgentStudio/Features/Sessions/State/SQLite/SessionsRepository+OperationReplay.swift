@@ -346,7 +346,13 @@ extension SessionsRepositoryStorage {
             origin: binding.origin,
             status: .active,
             startedAt: binding.startedAt,
-            endedAt: nil
+            endedAt: nil,
+            providerEndReason: nil,
+            providerEndReasonText: nil,
+            providerEndedAt: nil,
+            startedFromHistoricalReport: false,
+            evidenceUnordered: false,
+            unorderedFenceSequence: nil
         )
     }
 
@@ -365,7 +371,13 @@ extension SessionsRepositoryStorage {
             origin: binding.origin,
             status: .ended,
             startedAt: binding.startedAt,
-            endedAt: endedAt
+            endedAt: endedAt,
+            providerEndReason: nil,
+            providerEndReasonText: nil,
+            providerEndedAt: nil,
+            startedFromHistoricalReport: false,
+            evidenceUnordered: false,
+            unorderedFenceSequence: nil
         )
     }
 }

@@ -103,11 +103,19 @@ extension SessionsRepositoryStorage {
                 INSERT INTO sessions_pane_binding(
                     binding_generation_id, pane_id, conversation_id, source_generation_id,
                     origin, status, transition_occurrence_id, started_at, ended_at,
+                    provider_end_reason, provider_end_reason_text, provider_ended_at,
+                    started_from_historical_report, evidence_unordered, unordered_fence_sequence,
                     committed_revision
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(binding_generation_id) DO UPDATE SET
                     status = excluded.status,
                     ended_at = excluded.ended_at,
+                    provider_end_reason = excluded.provider_end_reason,
+                    provider_end_reason_text = excluded.provider_end_reason_text,
+                    provider_ended_at = excluded.provider_ended_at,
+                    started_from_historical_report = excluded.started_from_historical_report,
+                    evidence_unordered = excluded.evidence_unordered,
+                    unordered_fence_sequence = excluded.unordered_fence_sequence,
                     committed_revision = excluded.committed_revision
                 """,
             arguments: [
@@ -120,6 +128,12 @@ extension SessionsRepositoryStorage {
                 binding.transitionOccurrenceId.uuidString,
                 binding.startedAt.timeIntervalSince1970,
                 binding.endedAt?.timeIntervalSince1970,
+                binding.providerEndReason?.rawValue,
+                binding.providerEndReasonText,
+                encodeProviderEndTimestamp(binding.providerEndedAt),
+                binding.startedFromHistoricalReport ? 1 : 0,
+                binding.evidenceUnordered ? 1 : 0,
+                binding.unorderedFenceSequence,
                 commitRevision,
             ]
         )

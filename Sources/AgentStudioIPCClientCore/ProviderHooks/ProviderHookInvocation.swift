@@ -1,3 +1,4 @@
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -114,7 +115,12 @@ package enum ProviderHookInvocation {
                 "agentstudio hook codex \(eventName.rawValue): unreadable hook payload")
             return 0
         }
-        guard let projected = CodexHookProjection.project(eventName: eventName, payload: payload) else {
+        let reportIdentifier = UUIDv7.generate()
+        guard
+            let projected = CodexHookProjection.project(
+                eventName: eventName, payload: payload, reportIdentifier: reportIdentifier
+            )
+        else {
             return 0
         }
         do {

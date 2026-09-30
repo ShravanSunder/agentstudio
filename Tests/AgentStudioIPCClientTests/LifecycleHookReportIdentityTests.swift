@@ -158,6 +158,22 @@ struct LifecycleHookReportIdentityTests {
 
         #expect(decoded == projected.event)
         #expect(decoded.endReason == "future-reason")
+        let normalized = try IPCSessionEventIdentity.ipcSchema().decode(
+            IPCSessionEventIdentity.self, from: JSONEncoder().encode(projected.event)
+        )
+        #expect(normalized == projected.event)
+    }
+
+    @Test("non-end envelopes cannot carry an end reason")
+    func nonEndEnvelopeDropsReason() throws {
+        let document = [
+            "name": "sessionStart", "conversationId": UUIDv7.generate().uuidString,
+            "occurrenceId": UUIDv7.generate().uuidString, "endReason": "exit",
+        ]
+        let event = try JSONDecoder().decode(
+            IPCSessionEventIdentity.self, from: JSONEncoder().encode(document)
+        )
+        #expect(event.endReason == nil)
     }
 
     private func codexPayload(event: CodexHookEventName, rawReason: String?) throws -> CodexHookPayload {

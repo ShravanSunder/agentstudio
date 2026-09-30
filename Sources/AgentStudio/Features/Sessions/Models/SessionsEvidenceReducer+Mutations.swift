@@ -41,7 +41,13 @@ extension SessionsEvidenceReducer {
             origin: admittedOrigin,
             status: .active,
             startedAt: mutation.reportedAt,
-            endedAt: nil
+            endedAt: nil,
+            providerEndReason: nil,
+            providerEndReasonText: nil,
+            providerEndedAt: nil,
+            startedFromHistoricalReport: false,
+            evidenceUnordered: false,
+            unorderedFenceSequence: nil
         )
         let newSource = SessionsSourceRecord(
             id: UUIDv7.generate(),
@@ -61,38 +67,11 @@ extension SessionsEvidenceReducer {
         var sourceChanges = [newSource]
         let outcome: SessionsMutationOutcome
         if let currentBinding = context.currentBinding, currentBinding.status == .active {
-            let endedBinding = SessionsBindingRecord(
-                bindingGenerationId: currentBinding.bindingGenerationId,
-                paneId: currentBinding.paneId,
-                conversationId: currentBinding.conversationId,
-                providerIdentifier: currentBinding.providerIdentifier,
-                providerConversationId: currentBinding.providerConversationId,
-                sourceGenerationId: currentBinding.sourceGenerationId,
-                transitionOccurrenceId: currentBinding.transitionOccurrenceId,
-                origin: currentBinding.origin,
-                status: .ended,
-                startedAt: currentBinding.startedAt,
-                endedAt: mutation.reportedAt
-            )
+            let endedBinding = replacing(currentBinding, status: .ended, endedAt: mutation.reportedAt)
             bindingChanges.insert(endedBinding, at: 0)
             sourceChanges.insert(
                 contentsOf: context.sources.filter { $0.bindingGenerationId == currentBinding.bindingGenerationId }
-                    .map { source in
-                        SessionsSourceRecord(
-                            id: source.id,
-                            bindingGenerationId: source.bindingGenerationId,
-                            sourceIdentifier: source.sourceIdentifier,
-                            sourceGenerationId: source.sourceGenerationId,
-                            providerIdentifier: source.providerIdentifier,
-                            providerVersion: source.providerVersion,
-                            providerMode: source.providerMode,
-                            qualification: source.qualification,
-                            status: .ended,
-                            lastCursor: source.lastCursor,
-                            startedAt: source.startedAt,
-                            endedAt: mutation.reportedAt
-                        )
-                    },
+                    .map { replacing($0, status: .ended, endedAt: mutation.reportedAt) },
                 at: 0
             )
             outcome = .binding(.replaced(endedBinding, newBinding))

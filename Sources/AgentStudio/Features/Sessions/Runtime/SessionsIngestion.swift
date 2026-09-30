@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
@@ -16,6 +17,7 @@ package struct SessionsIngestionStatistics: Sendable, Equatable {
     package enum Event: Sendable, Equatable {
         case depthChanged
         case capacityRejected(SessionsLossReason)
+        case providerEndReported(ProviderEndReason)
         case finishing
     }
 
@@ -188,6 +190,10 @@ extension SessionsIngestion {
                 )
                 let outcome = try await repository.apply(operation: operation) { context in
                     try SessionsEvidenceReducer.reduce(mutation: pending.mutation, against: context)
+                }
+                if outcome.disposition == .inserted, case .sourceEnded(let mutation) = pending.mutation {
+                    // Raw provider reason text is durable display data only.
+                    emitStatistics(for: pending.paneId, event: .providerEndReported(mutation.providerEndReason))
                 }
                 if let errorAfterCommit = pending.errorAfterCommit {
                     pending.continuation.resume(throwing: errorAfterCommit)

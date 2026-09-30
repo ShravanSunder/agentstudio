@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 import GRDB
 
@@ -14,7 +15,15 @@ extension SessionsRepositoryStorage {
             origin: try decodeEnum(row["origin"], as: SessionsEvidenceOrigin.self),
             status: try decodeEnum(row["status"], as: SessionsBindingStatus.self),
             startedAt: Date(timeIntervalSince1970: row["started_at"]),
-            endedAt: decodeDate(row["ended_at"])
+            endedAt: decodeDate(row["ended_at"]),
+            providerEndReason: try (row["provider_end_reason"] as String?).map {
+                try decodeEnum($0, as: ProviderEndReason.self)
+            },
+            providerEndReasonText: row["provider_end_reason_text"],
+            providerEndedAt: try decodeProviderEndTimestamp(row["provider_ended_at"]),
+            startedFromHistoricalReport: (row["started_from_historical_report"] as Int) == 1,
+            evidenceUnordered: (row["evidence_unordered"] as Int) == 1,
+            unorderedFenceSequence: row["unordered_fence_sequence"]
         )
     }
 
@@ -139,6 +148,27 @@ extension SessionsRepositoryStorage {
 
     static func decodeDate(_ value: Double?) -> Date? {
         value.map(Date.init(timeIntervalSince1970:))
+    }
+
+    static func encodeProviderEndTimestamp(_ value: Date?) -> String? {
+        value.map { providerEndTimestampFormatter().string(from: $0) }
+    }
+
+    private static func decodeProviderEndTimestamp(_ value: String?) throws -> Date? {
+        guard let value else { return nil }
+        guard let date = providerEndTimestampFormatter().date(from: value) else {
+            throw SessionsRepositoryError.invalidStoredValue("provider_ended_at")
+        }
+        return date
+    }
+
+    /// Formatter instances stay local to each read/write; no mutable Foundation
+    /// formatter is shared across the repository's concurrent calls.
+    private static func providerEndTimestampFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
     }
 
     static func decodeEnum<StoredValue: RawRepresentable>(

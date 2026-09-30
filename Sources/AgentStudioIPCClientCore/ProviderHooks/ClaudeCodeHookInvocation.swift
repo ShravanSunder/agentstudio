@@ -72,7 +72,8 @@ package enum ClaudeCodeHookInvocation {
                 payload: payload,
                 providerVersion: providerVersion,
                 correlationIdentifier: inputs.identifierGenerator(),
-                freshOccurrenceIdentifier: inputs.identifierGenerator
+                freshOccurrenceIdentifier: inputs.identifierGenerator,
+                reportIdentifier: inputs.identifierGenerator()
             )
             guard case .projected(let params) = outcome else { return }
             try send(params: params, environment: inputs.environment)

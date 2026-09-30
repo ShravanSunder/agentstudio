@@ -96,6 +96,9 @@ extension IPCSessionEventIdentity: IPCSchemaProviding {
                 name: "occurrenceId",
                 description: "Provider occurrence UUID; equivalent reuse returns the retained outcome",
                 schema: IPCSchemaScalars.uuid),
+            .optional(
+                "endReason", description: "Display-only provider reason for a session end",
+                schema: .string()),
         ])
     }
 }

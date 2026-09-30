@@ -1,6 +1,7 @@
 import AgentStudioInfrastructure
 import Foundation
 import GRDB
+import Synchronization
 import Testing
 
 @testable import AgentStudioCore
@@ -147,6 +148,44 @@ struct SessionsProviderEndFactTests {
         #expect(binding.providerEndedAt == endedAt)
         #expect(binding.providerEndReason == .notGiven)
         #expect(binding.providerEndReasonText == nil)
+    }
+
+    @Test("the ingestion probe receives only the closed reason after a reported end commits")
+    func reasonProbeCarriesClosedCase() async throws {
+        let fixture = try SessionsDatabaseFixture()
+        let paneId = UUIDv7.generate()
+        let sourceGenerationId = UUIDv7.generate()
+        let reportedReasons = Mutex<[ProviderEndReason]>([])
+        let ingestion = SessionsIngestion(
+            repository: fixture.makeRepository(),
+            limits: SessionsIngestionLimits(maximumPendingPerPane: 32, maximumPendingGlobal: 128),
+            probe: { statistics in
+                if case .providerEndReported(let reason) = statistics.event {
+                    reportedReasons.withLock { $0.append(reason) }
+                }
+            }
+        )
+        try await withOwnedSessionsIngestion(ingestion) { owner in
+            _ = try await owner.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId, providerConversationId: "probe-end",
+                        sourceGenerationId: sourceGenerationId, reportedAt: 1
+                    ))
+            )
+            _ = try await owner.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .sourceEnded(
+                    SessionsSourceEndMutation(
+                        paneId: paneId, sourceGenerationId: sourceGenerationId,
+                        endedAt: Date(timeIntervalSince1970: 2),
+                        providerEndReason: .unrecognized,
+                        providerEndReasonText: "private provider reason that must never enter a probe"
+                    ))
+            )
+        }
+        #expect(reportedReasons.withLock { $0 } == [.unrecognized])
     }
 
     private func storedEndFact(

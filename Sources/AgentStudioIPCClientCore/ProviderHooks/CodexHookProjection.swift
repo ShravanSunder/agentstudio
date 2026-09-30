@@ -1,3 +1,4 @@
+import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -43,6 +44,7 @@ package struct CodexHookPayload: Decodable, Equatable, Sendable {
     package let toolName: String?
     package let toolUseId: String?
     package let agentId: String?
+    package let reason: String?
     /// Codex 0.154.0 does not report its own version in a hook payload. The
     /// field is decoded so a later Codex that does report one is honoured
     /// without another release of this package.
@@ -55,7 +57,8 @@ package struct CodexHookPayload: Decodable, Equatable, Sendable {
         toolName: String? = nil,
         toolUseId: String? = nil,
         agentId: String? = nil,
-        codexVersion: String? = nil
+        codexVersion: String? = nil,
+        reason: String? = nil
     ) {
         self.sessionId = sessionId
         self.turnId = turnId
@@ -64,6 +67,7 @@ package struct CodexHookPayload: Decodable, Equatable, Sendable {
         self.toolUseId = toolUseId
         self.agentId = agentId
         self.codexVersion = codexVersion
+        self.reason = reason
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -74,6 +78,7 @@ package struct CodexHookPayload: Decodable, Equatable, Sendable {
         case toolUseId = "tool_use_id"
         case agentId = "agent_id"
         case codexVersion = "codex_version"
+        case reason
     }
 }
 
@@ -109,10 +114,15 @@ package enum CodexHookProjection {
 
     package static func project(
         eventName: CodexHookEventName,
-        payload: CodexHookPayload
+        payload: CodexHookPayload,
+        reportIdentifier: UUID = UUIDv7.generate()
     ) -> CodexHookProjectedEvent? {
         guard let name = sessionEventName(for: eventName) else { return nil }
-        let derivedIdentity = derivedIdentifier(eventName: eventName, payload: payload)
+        let occurrenceIdentifier =
+            switch eventName {
+            case .sessionStart, .sessionEnd: reportIdentifier
+            default: derivedIdentifier(eventName: eventName, payload: payload)
+            }
         return CodexHookProjectedEvent(
             provider: IPCSessionProviderIdentity(
                 identifier: providerIdentifier,
@@ -123,15 +133,16 @@ package enum CodexHookProjection {
                 name: name,
                 conversationId: payload.sessionId,
                 turnId: payload.turnId,
-                requestId: requestId(eventName: eventName, derivedIdentity: derivedIdentity),
+                requestId: requestId(eventName: eventName, derivedIdentity: occurrenceIdentifier),
                 toolId: toolId(eventName: eventName, payload: payload),
                 subagentId: subagentId(eventName: eventName, payload: payload),
-                occurrenceId: derivedIdentity
+                occurrenceId: occurrenceIdentifier,
+                endReason: name == .sessionEnd ? payload.reason : nil
             )
         )
     }
 
-    /// `UUIDv5("codex|<session>|<turn>|<hook event>|<qualifier>…")`. Absent
+    /// Activity identity: `UUIDv5("codex|<session>|<turn>|<hook event>|<qualifier>…")`. Absent
     /// parts contribute an empty segment, so the field count is fixed per event
     /// and two payloads can never accidentally derive one identity by shifting.
     ///

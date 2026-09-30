@@ -146,6 +146,9 @@ package struct IPCSessionEventIdentity: Codable, Equatable, Sendable {
     package let subagentId: String?
     package let occurrenceId: UUID
 
+    /// Raw display-only provider reason, carried only by a session end.
+    package let endReason: String?
+
     package init(
         name: IPCSessionEventName,
         conversationId: String,
@@ -153,7 +156,8 @@ package struct IPCSessionEventIdentity: Codable, Equatable, Sendable {
         requestId: String?,
         toolId: String?,
         subagentId: String?,
-        occurrenceId: UUID
+        occurrenceId: UUID,
+        endReason: String? = nil
     ) {
         self.name = name
         self.conversationId = conversationId
@@ -162,6 +166,25 @@ package struct IPCSessionEventIdentity: Codable, Equatable, Sendable {
         self.toolId = toolId
         self.subagentId = subagentId
         self.occurrenceId = occurrenceId
+        self.endReason = name == .sessionEnd ? endReason : nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, conversationId, turnId, requestId, toolId, subagentId, occurrenceId, endReason
+    }
+
+    package init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decode(IPCSessionEventName.self, forKey: .name),
+            conversationId: try container.decode(String.self, forKey: .conversationId),
+            turnId: try container.decodeIfPresent(String.self, forKey: .turnId),
+            requestId: try container.decodeIfPresent(String.self, forKey: .requestId),
+            toolId: try container.decodeIfPresent(String.self, forKey: .toolId),
+            subagentId: try container.decodeIfPresent(String.self, forKey: .subagentId),
+            occurrenceId: try container.decode(UUID.self, forKey: .occurrenceId),
+            endReason: try container.decodeIfPresent(String.self, forKey: .endReason)
+        )
     }
 }
 
