@@ -806,6 +806,7 @@ large|SwiftLaneHangEvidenceTests|concurrent
 large|SwiftLaneIsolationListGateTests|concurrent
 large|SwiftLaneReceiptTests|concurrent
 large|SwiftLaneRunnerReportTests|concurrent
+large|SwiftPackageSandboxScriptTests|concurrent
 large|TerminalActivityAgentSettledHeuristicTests|process-global
 large|TitlePanePerformanceWorkloadScriptTests|concurrent
 large|TopologyEventPipelineIntegrationTests|process-global
@@ -1431,7 +1432,7 @@ prebuild_swift_tests() {
           run_swift_with_timeout \
             "prebuild test bundles" \
             "$PREBUILD_TIMEOUT_SECONDS" \
-            swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" \
+            swift build $(swift_package_sandbox_arguments) --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" \
             -Xswiftc -stats-output-dir -Xswiftc "$SWIFT_BUILD_STATS_DIR"
           return $?
         fi
@@ -1443,7 +1444,7 @@ prebuild_swift_tests() {
   run_swift_with_timeout \
     "prebuild test bundles" \
     "$PREBUILD_TIMEOUT_SECONDS" \
-    swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+    swift build $(swift_package_sandbox_arguments) --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
 }
 
 run_aggregate_serial_non_webkit_swift_tests() {
@@ -1707,7 +1708,7 @@ run_fast_non_webkit_swift_tests() {
   run_swift_with_timeout \
     "native-concurrent fast non-WebKit suites" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
     --skip "$fast_lane_skip_pattern" --build-path "$BUILD_PATH"
 
   run_aggregate_serial_non_webkit_swift_tests
@@ -1735,7 +1736,7 @@ run_large_non_webkit_swift_tests() {
     run_swift_with_timeout \
       "parallel large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --filter "$large_concurrent_filter_pattern" \
       --skip "$large_serial_filter_pattern|$large_process_global_filter_pattern" \
@@ -1744,14 +1745,14 @@ run_large_non_webkit_swift_tests() {
     run_swift_with_timeout \
       "serial large process suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$large_serial_filter_pattern" \
       --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$large_concurrent_filter_pattern|$large_serial_filter_pattern" \
       --skip "$large_process_global_filter_pattern" \
       --build-path "$BUILD_PATH"
@@ -2384,7 +2385,7 @@ run_webkit_suite() {
     # shellcheck disable=SC2086
     output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
-      swift test ${EXTRA_SWIFT_TEST_ARGS} --skip-build --filter "$filter" --build-path "$BUILD_PATH" \
+      swift test $(swift_package_sandbox_arguments) ${EXTRA_SWIFT_TEST_ARGS} --skip-build --filter "$filter" --build-path "$BUILD_PATH" \
       2>&1) || command_status=$?
   else
     output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \

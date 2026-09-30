@@ -4,6 +4,7 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repository_root"
 source "${repository_root}/scripts/swift-build-slot.sh"
+source "${repository_root}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire build "mise run lint"
 trap swift_build_slot_release EXIT
 
@@ -27,7 +28,7 @@ run_architecture_lint() {
   local build_path="${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint"
   local stage_started_ms
   stage_started_ms="$(now_ms)"
-  swift build -c release --package-path Tools/AgentStudioArchitectureLint \
+  swift build $(swift_package_sandbox_arguments) -c release --package-path Tools/AgentStudioArchitectureLint \
     --build-path "$build_path" \
     --product agentstudio-architecture-lint 2>&1 \
     || { echo "agentstudio architecture lint: build FAIL"; exit 1; }

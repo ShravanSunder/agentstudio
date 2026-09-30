@@ -16,6 +16,7 @@ case "$mode" in
 esac
 
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire test "$mode"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 # Defaults match what every gated path already sets (CI lane env and the
@@ -299,7 +300,7 @@ if [ "$#" -gt 0 ]; then
   run_swift_with_timeout \
     "requested swift test args: $*" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test --skip-build "${swift_test_args[@]}" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) --skip-build "${swift_test_args[@]}" \
     --build-path "$BUILD_PATH"
   exit $?
 fi
@@ -315,7 +316,7 @@ case "$mode" in
       run_swift_with_timeout \
         "E2ESerializedTests" \
         "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test --skip-build \
+        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) --skip-build \
         --filter "$(swift_test_lane_filter_pattern e2e)" \
         --skip "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH"
     else
