@@ -114,8 +114,8 @@ describe('Bridge comm worker Review product source projection', () => {
 		appliedCallCompletion.resolve();
 		await flushBridgeWorkerRuntimeContinuations();
 
-		// Assert: the installed completion follows C without a duplicate display.
-		expect(messageCount(postedMessages, 'reviewDisplayPatch')).toBe(initialDisplayCount);
+		// The installed completion re-exposes C with its certified display bank.
+		expect(messageCount(postedMessages, 'reviewDisplayPatch')).toBe(initialDisplayCount + 1);
 		const messageKinds = postedMessages.map(({ message }) => ({
 			kind: message.kind,
 			requestId: 'requestId' in message ? message.requestId : null,
@@ -179,8 +179,8 @@ describe('Bridge comm worker Review product source projection', () => {
 		dispatch.message(failedAdmission);
 		await flushBridgeWorkerRuntimeContinuations();
 
-		// Assert: the failed admission does not replay an already certified display.
-		expect(messageCount(postedMessages, 'reviewDisplayPatch')).toBe(displayCountBeforeFailure);
+		// The failed admission re-exposes the certified bank for Main's recovered slot.
+		expect(messageCount(postedMessages, 'reviewDisplayPatch')).toBe(displayCountBeforeFailure + 1);
 		const messageKinds = postedMessages.map(({ message }) => ({
 			kind: message.kind,
 			requestId: 'requestId' in message ? message.requestId : null,
@@ -195,7 +195,7 @@ describe('Bridge comm worker Review product source projection', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
-		expect(messageCount(postedMessages, 'reviewDisplayPatch')).toBe(displayCountBeforeFailure);
+		expect(messageCount(postedMessages, 'reviewDisplayPatch')).toBe(displayCountBeforeFailure + 1);
 	});
 
 	test('activates Review annotation projection from accepted metadata without a fabricated active source', async () => {
