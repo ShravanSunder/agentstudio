@@ -1,6 +1,6 @@
 # Enable pane agents: how it is built
 
-Date: 2026-09-30. **Revision 12** (plan re-anchor): the S12 binding row names GRDB and says which PR lands which CLI-store table (the fast CLI + store PR, R3, then this PR). **Revision 11** (advisor A6 check): unknown checks no longer hide a changes-requested review; the revision rule is stated as "summary or member row changed", matching Spec R32 rev 9. **Revision 10** (closeout A6): the pull-request summary moves here from Bridge (navigation R19). `PaneContextDetail.pullRequests`, a pure off-main fold over the pane's linked worktrees and Forge's cached facts; the counting rule awaits owner confirmation. **Revision 9** (owner, 2026-09-30): the CLI store has one writer, the CLI. The app reads it read-only; outbox rows carry no delivery state; the app's progress lives in `local.sqlite`, and the CLI purges only rows at or below the mark the app returns at login. Unread rows are never deleted. Date: 2026-09-27. **Revision 8** (round 6: a stale refusal is final for its payload). **Revision 7**, answering round 5 (R5-F1 permission
+Date: 2026-09-30. **Revision 13** (owner, 2026-09-30): the R32 counting rule is confirmed; `PaneContextPresentationAtom` is approved as a runtime cache, with its field renamed `gitSummary` → `pullRequests`; the main-actor rule is stated (drop unchanged values off-main, one batched assign-only apply). **Revision 12** (plan re-anchor): the S12 binding row names GRDB and says which PR lands which CLI-store table (the fast CLI + store PR, R3, then this PR). **Revision 11** (advisor A6 check): unknown checks no longer hide a changes-requested review; the revision rule is stated as "summary or member row changed", matching Spec R32 rev 9. **Revision 10** (closeout A6): the pull-request summary moves here from Bridge (navigation R19). `PaneContextDetail.pullRequests`, a pure off-main fold over the pane's linked worktrees and Forge's cached facts; the counting rule awaits owner confirmation. **Revision 9** (owner, 2026-09-30): the CLI store has one writer, the CLI. The app reads it read-only; outbox rows carry no delivery state; the app's progress lives in `local.sqlite`, and the CLI purges only rows at or below the mark the app returns at login. Unread rows are never deleted. Date: 2026-09-27. **Revision 8** (round 6: a stale refusal is final for its payload). **Revision 7**, answering round 5 (R5-F1 permission
 prompts resolve only at turn boundaries; R5-F2 epoch claims are a separate
 idempotent step). Revision 6 answered round 4 (R4-F1 to R4-F6). Revision 5 answered round 3 and the owner's simplified show;
 revision 4 answered round 2. This is the Program Design for PR B. It builds the
@@ -333,7 +333,7 @@ Rules this sets for the reducer:
 | S13 Provider prompt | Sessions | modified `SessionsEvidenceReducer` / `SessionStatusState` | `ProviderPrompt { key, reason: .approval \| .question, observedAt, summary }`, keyed by `ProviderPromptKey = .toolCall(id) \| .elicitation(id) \| .permission(sequence)` | existing `session.event` params gain the decoded tool name, tool call id and elicitation id | derived from stored evidence |
 | S11 Link (B2) | Bridge | Bridge contract PR types | `BridgeLinkContributor`, membership unions v3 | port `PaneLinkMembershipPort` (Bridge-defined) | persisted by Bridge |
 | S12 CLI store | `agentstudio` CLI (later agentd) | new target `AgentStudioCLIStore`. The fast CLI + CLI store PR lands the foundation: `cli_store_identity`, `cli_outbox` for today's notice kinds, the read-through and the purge. Session-restore R3 adds `cli_lifecycle_report`. This PR adds `cli_state` and the `pane.message.send` notice kind in the outbox | GRDB repository; rows parse into `CLIStateEntry` / `CLIOutboxEntry` unions | one SQLite file in the channel's per-user IPC data root; additive GRDB `DatabaseMigrator` migrations | persisted |
-| Display value | PaneContextService (computes) | new runtime atom `PaneContextPresentationAtom` | `PaneContextDisplay { revision, agentTitle?, agentLine?, openAskCount, unreadNoticeCount, newestOpenAskId?, gitSummary }` | UI: `AtomFamily<PaneId, …>` via a thin apply | derived, never stored |
+| Display value | PaneContextService (computes) | new runtime atom `PaneContextPresentationAtom` (owner-approved 2026-09-30: a runtime cache only, with as little main-actor work as possible) | `PaneContextDisplay { revision, agentTitle?, agentLine?, openAskCount, unreadNoticeCount, newestOpenAskId?, pullRequests }` | UI: `AtomFamily<PaneId, …>` via a thin apply | derived, never stored |
 
 ## Connections (shared IPC server change)
 
@@ -585,6 +585,10 @@ nothing is derived there). It is a port input, not a new bus event.
   into one `AsyncStream` (buffering newest per key) consumed by one MainActor
   apply task, so publication order is commit order. The atom methods only
   assign and equal-suppress.
+- **As little main-actor work as possible** (owner, 2026-09-30):
+  - **Off-main:** the service and Sessions compute, compare and drop unchanged values *before* sending, so only a changed `PaneContextDisplay` or `SessionStatus` ever reaches the stream. Nothing is sorted, filtered, counted or formatted on the main actor.
+  - **On the main actor:** the apply task drains every value already buffered and applies them in one main-actor turn: one hop per batch, not per pane. It does nothing but assign. The atom's own comparator is only a backstop.
+  - **Proof:** marker-scoped probes of `pane_context.presentation_apply` and `sessions.status_apply` show main-actor time per batch with 15–20 active panes.
 - **Deadlines are off-main.** `PaneContextService` owns one deadline
   scheduler on its injected `any Clock<Duration>`: the earliest Agent Line
   expiry and blocking-ask deadline across its panes. When it fires, the service
@@ -757,7 +761,7 @@ Rules the implementations keep:
   - The two axes are read separately. A pull request whose `checks == .unknown` gives no check evidence (it's not failed, running or passed), but its review still counts: `review == .changesRequested` makes it need attention. With unknown checks it can't make the state `allGood`, whatever its review.
 - **Where it runs:** inside `PaneContextService`'s off-main detail derivation, like the rest of `PaneContextDetail`. A Forge fact change for any member re-derives the summary. The pane's revision bumps only when the derived `PullRequestSummaryDetail` changed, which includes any member row, not only the state (Spec R4 and R32: publish on change). A fact the summary doesn't carry (mergeability, draft) re-derives an equal value and doesn't bump. This is the same rule as "Any detail change bumps the revision" above.
 - **Who keeps the facts fresh:** Forge's existing demand owner (`PullRequestDemandProjection`). PR C's visible chip registers a demand source there; PR B adds no poller. Two or more members are required; a single-worktree pane gets `.notApplicable` and keeps today's PR control (`PanePullRequestToolbarActionFactory`).
-- **Pending:** the counting rule is the orchestrator's default, awaiting owner confirmation (Spec R32).
+- **Confirmed by the owner, 2026-09-30:** changes requested counts as attention; review required doesn't; N counts worktrees, not checks; attention beats running.
 
 ## Bounds and retention
 
