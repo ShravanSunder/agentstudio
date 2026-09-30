@@ -291,7 +291,7 @@ struct DrawerPanelOverlay: View {
                 ownerPaneId: paneId,
                 tabId: tabId,
                 workspaceWindowId: workspaceWindowId,
-                zoomSourcePaneId: store.panePresentationAtom.zoomPresentation(forTab: tabId)?.sourcePaneId
+                zoomPresentation: store.panePresentationAtom.zoomPresentation(forTab: tabId)
             )
             VStack(spacing: 0) {
                 DrawerPanel(
@@ -452,14 +452,14 @@ struct DrawerPanelOverlay: View {
         ownerPaneId: UUID,
         tabId: UUID,
         workspaceWindowId: UUID?,
-        zoomSourcePaneId: UUID?
+        zoomPresentation: ZoomPresentation?
     ) -> MoveControlResolutionKey {
         MoveControlResolutionKey(
             command: command,
             ownerPaneId: ownerPaneId,
             tabId: tabId,
             workspaceWindowId: workspaceWindowId,
-            zoomSourcePaneId: zoomSourcePaneId
+            zoomSourcePaneId: zoomPresentation?.sourcePaneId
         )
     }
 

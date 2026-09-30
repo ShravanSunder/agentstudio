@@ -244,8 +244,7 @@ struct PaneTabViewControllerZoomDrawerSideCommandTests {
                             ownerPaneId: fixture.sourcePane.id,
                             tabId: fixture.tab.id,
                             workspaceWindowId: windowId,
-                            zoomSourcePaneId: store.panePresentationAtom.zoomPresentation(forTab: fixture.tab.id)?
-                                .sourcePaneId
+                            zoomPresentation: store.panePresentationAtom.zoomPresentation(forTab: fixture.tab.id)
                         )
                     }
                     @MainActor func resolveAction() -> TargetedCommandControlAction? {
@@ -302,7 +301,7 @@ struct PaneTabViewControllerZoomDrawerSideCommandTests {
                     ownerPaneId: fixture.sourcePane.id,
                     tabId: fixture.tab.id,
                     workspaceWindowId: nil,
-                    zoomSourcePaneId: store.panePresentationAtom.zoomPresentation(forTab: fixture.tab.id)?.sourcePaneId
+                    zoomPresentation: store.panePresentationAtom.zoomPresentation(forTab: fixture.tab.id)
                 )
             }
             let initialKey = resolutionKey()
