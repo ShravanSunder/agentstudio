@@ -40,48 +40,6 @@ final class InMemoryWorktreeAnnotationOutputFolderPreference: WorktreeAnnotation
     }
 }
 
-@MainActor
-private final class WorktreeAnnotationFolderPanelWait {
-    private var continuation: CheckedContinuation<WorktreeAnnotationOutputDestinationOutcome, Never>?
-    private let panel: any WorktreeAnnotationJSONFolderPanel
-
-    init(panel: any WorktreeAnnotationJSONFolderPanel) {
-        self.panel = panel
-    }
-
-    func install(_ continuation: CheckedContinuation<WorktreeAnnotationOutputDestinationOutcome, Never>) {
-        self.continuation = continuation
-        if Task.isCancelled {
-            cancel()
-            return
-        }
-        panel.begin { [self] response in
-            Task { @MainActor in
-                guard response == .OK else {
-                    settle(.cancelled)
-                    return
-                }
-                guard let folderURL = panel.url else {
-                    settle(.failed("The folder picker returned no folder."))
-                    return
-                }
-                settle(.selected(path: folderURL.path))
-            }
-        }
-    }
-
-    func cancel() {
-        panel.cancel(nil)
-        settle(.cancelled)
-    }
-
-    private func settle(_ outcome: WorktreeAnnotationOutputDestinationOutcome) {
-        guard let continuation else { return }
-        self.continuation = nil
-        continuation.resume(returning: outcome)
-    }
-}
-
 /// App-owned clipboard, folder selection, and file writer for Bridge output.
 @MainActor
 final class WorktreeAnnotationOutputEffects: WorktreeAnnotationOutputEffect {
@@ -92,47 +50,52 @@ final class WorktreeAnnotationOutputEffects: WorktreeAnnotationOutputEffect {
     private let makeFolderPanel: FolderPanelFactory
     private let folderPreference: any WorktreeAnnotationOutputFolderPreference
     private let writeJSONData: JSONDataWriter
+    private let didAdmitJSONWrite: @Sendable () -> Void
 
     init(
         pasteboard: any WorktreeAnnotationPasteboardWriting = NSPasteboard.general,
         makeFolderPanel: @escaping FolderPanelFactory = { NSOpenPanel() },
         folderPreference: any WorktreeAnnotationOutputFolderPreference =
             InMemoryWorktreeAnnotationOutputFolderPreference(),
-        writeJSONData: @escaping JSONDataWriter = WorktreeAnnotationOutputEffects.writeJSONData
+        writeJSONData: @escaping JSONDataWriter = WorktreeAnnotationOutputEffects.writeJSONData,
+        didAdmitJSONWrite: @escaping @Sendable () -> Void = {}
     ) {
         self.pasteboard = pasteboard
         self.makeFolderPanel = makeFolderPanel
         self.folderPreference = folderPreference
         self.writeJSONData = writeJSONData
+        self.didAdmitJSONWrite = didAdmitJSONWrite
     }
 
     func rememberedJSONFolder() -> String {
         folderPreference.folderURL.path
     }
 
-    func revealJSONFile(path: String) -> Bool {
+    func revealJSONFile(path: String, productAdmission: BridgeProductAdmissionContext) -> Bool {
         guard FileManager.default.fileExists(atPath: path) else { return false }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-        return true
+        return productAdmission.withValidAdmission {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            return true
+        } ?? false
     }
 
-    func chooseJSONDestination() async -> WorktreeAnnotationOutputDestinationOutcome {
+    func chooseJSONDestination(productAdmission: BridgeProductAdmissionContext) async
+        -> WorktreeAnnotationOutputDestinationOutcome
+    {
         do {
             let panel = try makeFolderPanel()
             panel.canChooseDirectories = true
             panel.canChooseFiles = false
             panel.allowsMultipleSelection = false
-            let panelWait = WorktreeAnnotationFolderPanelWait(panel: panel)
+            let panelWait = WorktreeAnnotationFolderPanelWait(
+                panel: panel, preference: folderPreference, productAdmission: productAdmission)
+            panelWait.observeClose()
             let outcome = await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in panelWait.install(continuation) }
             } onCancel: {
-                Task { @MainActor in panelWait.cancel() }
+                panelWait.latchCancellation()
             }
-            if case .selected(let path) = outcome, !Task.isCancelled {
-                folderPreference.folderURL = URL(fileURLWithPath: path, isDirectory: true)
-                return outcome
-            }
-            return Task.isCancelled ? .cancelled : outcome
+            return outcome
         } catch {
             return .failed("The JSON export folder could not be selected: \(error.localizedDescription)")
         }
@@ -143,19 +106,21 @@ final class WorktreeAnnotationOutputEffects: WorktreeAnnotationOutputEffect {
     ) async -> WorktreeAnnotationOutputEffectOutcome {
         switch request.outputKind {
         case .clipboardMarkdown:
-            guard !Task.isCancelled else { return .cancelled }
-            pasteboard.clearContents()
-            guard pasteboard.setData(request.exactBytes, forType: .string) else {
-                return .failed("The system pasteboard did not confirm the Markdown write.")
-            }
-            return .succeeded(destinationPath: nil)
+            return request.productAdmission.withValidAdmission {
+                guard !Task.isCancelled else { return WorktreeAnnotationOutputEffectOutcome.cancelled }
+                pasteboard.clearContents()
+                guard pasteboard.setData(request.exactBytes, forType: .string) else {
+                    return .failed("The system pasteboard did not confirm the Markdown write.")
+                }
+                return .succeeded(destinationPath: nil)
+            } ?? .cancelled
         case .jsonFile:
             guard let destinationPath = request.destinationPath, !destinationPath.isEmpty else {
                 return .failed("The prepared JSON output has no destination.")
             }
-            // This synchronous check is the write admission point. N2 session
-            // end revokes the operation task; after admission the write is App-owned.
-            guard !Task.isCancelled else { return .cancelled }
+            // Logical write admission competes atomically with both fences; I/O is App-owned afterward.
+            guard request.productAdmission.withValidAdmission({ !Task.isCancelled }) == true else { return .cancelled }
+            didAdmitJSONWrite()
             let writer = writeJSONData
             let exactBytes = request.exactBytes
             let filename = request.suggestedFilename

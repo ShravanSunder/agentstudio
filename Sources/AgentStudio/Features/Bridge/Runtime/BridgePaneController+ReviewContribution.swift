@@ -7,15 +7,16 @@ extension BridgePaneController {
         _ request: BridgeProductReviewComparisonUpdateRequest,
         productAdmission: BridgeProductAdmissionContext
     ) async -> Bool {
-        guard productAdmission.withValidAdmission({ true }) == true,
-            let contributionTargetCommit
+        guard productAdmission.withValidAdmission({ true }) == true else { return false }
+        guard let contributionTargetCommit
         else {
             reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
             refreshAdmissionCoordinator.close()
             return false
         }
-        let mutationResult = contributionTargetCommit(request.target)
+        guard let mutationResult = productAdmission.withValidAdmission({ contributionTargetCommit(request.target) })
+        else { return false }
         guard productAdmission.withValidAdmission({ true }) == true else { return false }
         let canonicalState: BridgePaneState
         let replacedLineage: Bool
@@ -41,17 +42,27 @@ extension BridgePaneController {
             return false
         }
 
-        bridgePaneState = canonicalState
-        reviewComparisonTargetProjection.update(state: canonicalState)
+        guard
+            productAdmission.withValidAdmission({
+                bridgePaneState = canonicalState
+                reviewComparisonTargetProjection.update(state: canonicalState)
+                return true
+            }) == true
+        else { return false }
         guard replacedLineage else { return true }
         reviewGitRefreshSeedHolder.retire()
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
         pendingComparisonReviewGeneration = reviewGeneration
-        refreshAdmissionCoordinator.beginReviewComparisonAttempt(
-            activeTarget: request.target,
-            reviewGeneration: reviewGeneration.rawValue
-        )
+        guard
+            productAdmission.withValidAdmission({
+                refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                    activeTarget: request.target,
+                    reviewGeneration: reviewGeneration.rawValue
+                )
+                return true
+            }) == true
+        else { return false }
         // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
         pendingReviewPackageBuildReasons.insert(.productResync)

@@ -106,7 +106,7 @@ func bridgeProductSchemeReplyWithRoutingTask(
     let (stream, replyContinuation) =
         AsyncThrowingStream<URLSchemeTaskResult, any Error>.makeStream()
     let routingTask = Task {
-        guard let productAdmission = adapter.productAdmissionGate.acquire() else {
+        guard let productAdmission = adapter.acquireAdmission() else {
             replyContinuation.finish(
                 throwing: BridgeProductSchemeAdapterTestSupportError.admissionClosed
             )

@@ -396,7 +396,20 @@ package final class BridgePaneController {
         BridgeReviewContentLoaderCache(provider: provider)
     }
 
-    private func configureReadyMessageHandler(_ readyMessageHandler: BridgeReadyMessageHandler) {
+    func configureReadyMessageHandler(_ readyMessageHandler: BridgeReadyMessageHandler) {
+        readyMessageHandler.prepareProductBootstrapEnd = { [weak self] reason in
+            guard let self else { return nil }
+            let snapshot = productSessionOwner.installationFenceProjection.snapshot
+            guard
+                hasPublishedProductSessionBootstrap || reason == .workerReplacement
+                    || snapshot.installation?.gate.diagnosticSnapshot.isOpen == false
+            else { return nil }
+            return productSessionOwner.closeActiveInstallation()
+        }
+        readyMessageHandler.onProductBootstrapRequest = { [weak self] requestId, reason, predecessor in
+            await self?.enqueueProductSessionBootstrapRequest(
+                requestId: requestId, reason: reason, predecessor: predecessor)
+        }
         readyMessageHandler.onBootstrapRequest = { [weak self] bootstrapMessage in
             guard let self else { return }
             switch bootstrapMessage {
@@ -512,6 +525,7 @@ package final class BridgePaneController {
     @discardableResult
     package func reloadWebView() -> Bool {
         guard canReloadWebView else { return false }
+        _ = productSessionOwner.closeActiveInstallation()
         _ = page.reload()
         return true
     }

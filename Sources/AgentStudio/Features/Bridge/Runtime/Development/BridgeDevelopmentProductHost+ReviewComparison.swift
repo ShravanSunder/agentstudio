@@ -49,10 +49,12 @@ extension BridgeDevelopmentProductHost {
                 guard !Task.isCancelled,
                     productAdmission.withValidAdmission({ true }) == true
                 else { return }
-                self.refreshAdmissionCoordinator.beginReviewComparisonAttempt(
-                    activeTarget: target,
-                    reviewGeneration: reviewGeneration.rawValue
-                )
+                _ = productAdmission.withValidAdmission {
+                    self.refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                        activeTarget: target,
+                        reviewGeneration: reviewGeneration.rawValue
+                    )
+                }
             }
             await self.publishCurrentPanePresentation()
             // Unlike bootstrap replay, this path must deliver to subscriptions
@@ -61,7 +63,7 @@ extension BridgeDevelopmentProductHost {
                 target: target,
                 reviewGeneration: reviewGeneration,
                 classifySameSourceRefresh: false,
-                productAdmission: productAdmission
+                productAdmission: self.productAdmission
             )
             await self.clearReviewComparisonTask(taskAttempt: taskAttempt)
         }
@@ -129,7 +131,12 @@ extension BridgeDevelopmentProductHost {
         productAdmission: BridgeProductAdmissionContext
     ) async {
         guard !isShutdown, productAdmission.withValidAdmission({ true }) == true else { return }
-        let mutationResult = await contributionTargetCommit(request.target)
+        let commit = contributionTargetCommit
+        guard
+            let mutationResult = await MainActor.run(body: {
+                productAdmission.withValidAdmission { commit(request.target) }
+            })
+        else { return }
         guard productAdmission.withValidAdmission({ true }) == true else { return }
         let canonicalState: BridgePaneState
         switch mutationResult {
@@ -145,9 +152,14 @@ extension BridgeDevelopmentProductHost {
             productAdmissionGate.close()
             return
         }
-        paneState = canonicalState
+        guard
+            productAdmission.withValidAdmission({
+                paneState = canonicalState
+                return true
+            }) == true
+        else { return }
         await MainActor.run {
-            reviewComparisonTargetProjection.update(state: canonicalState)
+            _ = productAdmission.withValidAdmission { reviewComparisonTargetProjection.update(state: canonicalState) }
         }
         guard case .applied = mutationResult else { return }
         let reviewGeneration = nextReviewGeneration.next()
@@ -155,10 +167,12 @@ extension BridgeDevelopmentProductHost {
         reviewGitRefreshSeedHolder.retire()
         retireActiveReviewComparisonTask()
         await MainActor.run {
-            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
-                activeTarget: request.target,
-                reviewGeneration: reviewGeneration.rawValue
-            )
+            _ = productAdmission.withValidAdmission {
+                refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                    activeTarget: request.target,
+                    reviewGeneration: reviewGeneration.rawValue
+                )
+            }
         }
         await publishCurrentPanePresentation()
         guard !isShutdown, productAdmission.withValidAdmission({ true }) == true else { return }
@@ -171,7 +185,7 @@ extension BridgeDevelopmentProductHost {
                 target: request.target,
                 reviewGeneration: reviewGeneration,
                 classifySameSourceRefresh: false,
-                productAdmission: productAdmission
+                productAdmission: self.productAdmission
             )
             await self.clearReviewComparisonTask(taskAttempt: taskAttempt)
         }

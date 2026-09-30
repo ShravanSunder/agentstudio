@@ -25,13 +25,16 @@ package actor BridgeDevelopmentWorktreeAnnotationOutputEffect:
         outputDirectory.path
     }
 
-    package func chooseJSONDestination() async -> WorktreeAnnotationOutputDestinationOutcome {
+    package func chooseJSONDestination(productAdmission: BridgeProductAdmissionContext) async
+        -> WorktreeAnnotationOutputDestinationOutcome
+    {
+        guard productAdmission.withValidAdmission({ !Task.isCancelled }) == true else { return .cancelled }
         do {
             try FileManager.default.createDirectory(
                 at: outputDirectory,
                 withIntermediateDirectories: true
             )
-            return .selected(path: outputDirectory.path)
+            return productAdmission.withValidAdmission { .selected(path: outputDirectory.path) } ?? .cancelled
         } catch {
             return .failed(
                 "The isolated development output directory could not be prepared: "
@@ -40,15 +43,17 @@ package actor BridgeDevelopmentWorktreeAnnotationOutputEffect:
         }
     }
 
-    package func revealJSONFile(path: String) async -> Bool {
+    package func revealJSONFile(path: String, productAdmission: BridgeProductAdmissionContext) async -> Bool {
         // Headless development does not claim Finder authority.
         _ = path
+        guard productAdmission.withValidAdmission({ true }) == true else { return false }
         return false
     }
 
     package func perform(
         _ request: WorktreeAnnotationOutputEffectRequest
     ) async -> WorktreeAnnotationOutputEffectOutcome {
+        guard request.productAdmission.withValidAdmission({ !Task.isCancelled }) == true else { return .cancelled }
         let destination: URL
         switch request.outputKind {
         case .clipboardMarkdown:

@@ -32,29 +32,19 @@ extension BridgePaneController {
     func activateReplacementProductSessionInstallation(
         requestId: String,
         reason: BridgeReadyMessageHandler.ProductSessionBootstrapReason,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        predecessor: BridgeProductInstallationFenceSnapshot?
     ) async -> BridgeProductSessionInstallation? {
         surfaceSelectionAuthority.invalidateCurrentBinding()
         do {
             let candidate = try await productSessionOwner.prepareCandidate(
                 productAdmission: productAdmission
             )
-            let retirementReason: BridgePaneProductSessionRetirementReason =
-                reason == .workerReplacement ? .workerReplacement : .pageReload
-            // One owner-serialized attempt. A failed retirement stays owned by the
-            // session owner's retirement retry; the page re-requests within its budget.
-            guard await productSessionOwner.retire(reason: retirementReason) == .retired else {
-                await answerProductSessionBootstrapFailure(
-                    requestId: requestId,
-                    reason: .retirementFailed,
-                    productAdmission: productAdmission
-                )
-                return nil
-            }
             guard
                 await productSessionOwner.activatePreparedCandidate(
                     candidate,
-                    productAdmission: productAdmission
+                    productAdmission: productAdmission,
+                    replacing: predecessor
                 ) == .activated
             else {
                 setProductBootstrapConnectionErrorIfAdmitted(productAdmission)

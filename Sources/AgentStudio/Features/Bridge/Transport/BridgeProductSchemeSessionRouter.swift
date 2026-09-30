@@ -93,7 +93,9 @@ actor BridgeProductSchemeSessionRouter {
         productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
         guard productAdmission.wasMinted(by: productAdmissionGate) else { return false }
-        return productAdmission.withValidAdmission {
+        guard let installationAdmission = productAdmission.withInstallation(installation.installationAdmissionGate)
+        else { return false }
+        return installationAdmission.withValidAdmission {
             precondition(installation.productAdmissionGate === productAdmissionGate)
             activeInstallation = installation
             latestCapabilityAuthenticator = installation.session.capabilityAuthenticator
@@ -102,11 +104,33 @@ actor BridgeProductSchemeSessionRouter {
     }
 
     func clear() {
+        activeInstallation?.installationFence.close()
         activeInstallation = nil
         let waiters = clearWaiters
         clearWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
         resumeAllStreamDrainWaiters()
+    }
+
+    /// Cleanup for A must never clear B after a suspended lifecycle transition.
+    func clear(installation expected: BridgeProductInstallationFence?) {
+        guard activeInstallation?.installationFence == expected else { return }
+        clear()
+    }
+
+    /// Authorization and close run in this actor turn, atomically relative to new metadata claims.
+    func closeTerminatedInstallation(
+        _ expected: BridgeProductInstallationFence,
+        authorization: BridgeDevelopmentBootstrapAuthorizationSnapshot,
+        projection: BridgeDevelopmentBootstrapAuthorizationProjection
+    ) -> Bool {
+        let currentAuthorization = projection.snapshot
+        guard !currentAuthorization.isShutdown, currentAuthorization == authorization,
+            activeInstallation?.installationFence == expected,
+            metadataStreamHasEnded(for: expected.workerInstanceId)
+        else { return false }
+        expected.close()
+        return true
     }
 
     func waitUntilCleared() async {
@@ -129,8 +153,8 @@ actor BridgeProductSchemeSessionRouter {
         guard latestCapabilityAuthenticator?.matches(presentedCapability) == true else {
             return .unauthorized
         }
-        guard let productAdmission = productAdmissionGate.acquire(),
-            let activeInstallation
+        guard let activeInstallation,
+            let productAdmission = activeInstallation.productAdapter.acquireAdmission()
         else {
             return .conflict
         }

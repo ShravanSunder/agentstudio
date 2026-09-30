@@ -253,7 +253,7 @@ final class WorktreeAnnotationTransportAdapter {
             guard let outputCoordinator else {
                 throw WorktreeAnnotationTransportAdapterError.outputUnavailable
             }
-            let result = await outputCoordinator.changeFolder()
+            let result = await outputCoordinator.changeFolder(productAdmission: productAdmission)
             switch result {
             case .selected:
                 return .init(sessionID: nil, status: .committed, receipt: nil)
@@ -263,7 +263,7 @@ final class WorktreeAnnotationTransportAdapter {
                 return .init(sessionID: nil, status: .output(.destinationSelectionFailed(error)), receipt: nil)
             }
         case .outputReveal(let attemptID):
-            try await revealOutputAttempt(attemptID: .init(rawValue: attemptID))
+            try await revealOutputAttempt(attemptID: .init(rawValue: attemptID), productAdmission: productAdmission)
             return .init(sessionID: nil, status: .committed, receipt: nil)
         case .outputHandledClear(let body):
             let detail = try await store.clearOutputHandled(
@@ -273,7 +273,8 @@ final class WorktreeAnnotationTransportAdapter {
             )
             return .init(sessionID: detail.session.id, status: .committed, receipt: nil)
         case .repeatOutput(let attemptID):
-            let output = try await executeOutputRepeat(attemptID: .init(rawValue: attemptID))
+            let output = try await executeOutputRepeat(
+                attemptID: .init(rawValue: attemptID), productAdmission: productAdmission)
             return .init(sessionID: output.summary?.sessionID, status: .output(output), receipt: nil)
         case .createRoot(let admission, let body, let editToken, let origin):
             let applied = try await createRoot(
@@ -766,7 +767,9 @@ final class WorktreeAnnotationTransportAdapter {
         }
     }
 
-    private func revealOutputAttempt(attemptID: WorktreeAnnotationOutputAttemptID) async throws {
+    private func revealOutputAttempt(
+        attemptID: WorktreeAnnotationOutputAttemptID, productAdmission: BridgeProductAdmissionContext
+    ) async throws {
         guard let outputCoordinator else {
             throw WorktreeAnnotationTransportAdapterError.outputUnavailable
         }
@@ -785,7 +788,7 @@ final class WorktreeAnnotationTransportAdapter {
         else {
             throw WorktreeAnnotationTransportAdapterError.outputAttemptUnavailable
         }
-        guard await outputCoordinator.revealSavedFile(path: path) else {
+        guard await outputCoordinator.revealSavedFile(path: path, productAdmission: productAdmission) else {
             throw WorktreeAnnotationTransportAdapterError.outputFileMissing
         }
     }

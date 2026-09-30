@@ -28,9 +28,12 @@ package actor BridgeDevelopmentProductHost {
     var retiringReviewComparisonTasks: [UInt64: Task<Void, Never>] = [:]
     var bootstrapTransitionTail: Task<Void, Never>?
     let gitReadScheduler: BridgeGitReadScheduler
-    private var navigationBindingRevision = 0
-    private var navigationIntent: BridgeDevelopmentProductBootstrapRequest.NavigationIntent?
-    private var owningTabId: String?
+    private var navigationBindingRevision = 0 { didSet { publishBootstrapAuthorization() } }
+    private var navigationIntent: BridgeDevelopmentProductBootstrapRequest.NavigationIntent? {
+        didSet { publishBootstrapAuthorization() }
+    }
+    private var owningTabId: String? { didSet { publishBootstrapAuthorization() } }
+    private let bootstrapAuthorizationProjection: BridgeDevelopmentBootstrapAuthorizationProjection
     private let paneSessionId: String
     let retirementDelay: AsyncDelay
     let productAdmission: BridgeProductAdmissionContext
@@ -50,7 +53,7 @@ package actor BridgeDevelopmentProductHost {
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     private let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     private let schemeHandler: BridgeSchemeHandler
-    var isShutdown = false
+    var isShutdown = false { didSet { publishBootstrapAuthorization() } }
     var shutdownCompletion: AsyncStream<BridgeDevelopmentProductHostShutdownResult>.Continuation?
     var shutdownDeadlineTask: Task<Void, Never>?
     var unfinishedShutdownDrains: Set<String> = []
@@ -157,6 +160,8 @@ package actor BridgeDevelopmentProductHost {
         self.committedCallTarget = productPreparation.committedCallTarget
         self.gitReadScheduler = gitReadScheduler
         self.paneSessionId = paneId.uuidString
+        self.bootstrapAuthorizationProjection = BridgeDevelopmentBootstrapAuthorizationProjection(
+            paneSessionId: paneId.uuidString)
         self.retirementDelay = retirementClock.map(AsyncDelay.clock) ?? .taskSleep
         self.productAdmission = productPreparation.productAdmission
         self.productAdmissionGate = productPreparation.productAdmissionGate
@@ -214,6 +219,13 @@ package actor BridgeDevelopmentProductHost {
         for request: BridgeDevelopmentProductBootstrapRequest
     ) async throws -> Data {
         guard !isShutdown else { throw BridgeDevelopmentProductHostError.shutdown }
+        let predecessor = productSessionOwner.installationFenceProjection.snapshot
+        let authorization = bootstrapAuthorizationProjection.snapshot
+        try await validateBootstrapTransition(request, predecessor: predecessor, authorization: authorization)
+        guard !isShutdown, bootstrapAuthorizationProjection.snapshot == authorization,
+            productSessionOwner.installationFenceProjection.snapshot == predecessor
+        else { throw BridgeDevelopmentProductHostError.sessionAlreadyOpen }
+        predecessor.close()
         let precedingTransition = bootstrapTransitionTail
         let transition = Task { [weak self] () throws -> Data in
             if let precedingTransition {
@@ -221,7 +233,7 @@ package actor BridgeDevelopmentProductHost {
             }
             try Task.checkCancellation()
             guard let self else { throw BridgeDevelopmentProductHostError.shutdown }
-            return try await self.performBootstrapTransition(for: request)
+            return try await self.performBootstrapTransition(for: request, predecessor: predecessor)
         }
         bootstrapTransitionTail = Task {
             _ = try? await transition.value
@@ -233,11 +245,17 @@ package actor BridgeDevelopmentProductHost {
         }
     }
 
+    private func publishBootstrapAuthorization() {
+        bootstrapAuthorizationProjection.publish(
+            tabId: owningTabId,
+            navigationBindingRevision: navigationBindingRevision, isShutdown: isShutdown)
+    }
+
     private func performBootstrapTransition(
-        for request: BridgeDevelopmentProductBootstrapRequest
+        for request: BridgeDevelopmentProductBootstrapRequest,
+        predecessor: BridgeProductInstallationFenceSnapshot
     ) async throws -> Data {
         guard !isShutdown else { throw BridgeDevelopmentProductHostError.shutdown }
-        try await validateBootstrapTransition(request)
         try Task.checkCancellation()
         guard !isShutdown else { throw BridgeDevelopmentProductHostError.shutdown }
         let candidate = try await productSessionOwner.prepareCandidate(
@@ -246,7 +264,8 @@ package actor BridgeDevelopmentProductHost {
         guard
             await productSessionOwner.activatePreparedCandidate(
                 candidate,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                replacing: predecessor
             ) == .activated
         else {
             throw BridgeDevelopmentProductHostError.sessionActivationFailed
@@ -832,7 +851,7 @@ final class BridgeDevelopmentProductCommittedCallTarget {
 
     func applyFileRefreshRetry(productAdmission: BridgeProductAdmissionContext) async {
         guard (productAdmission.withValidAdmission { true }) == true else { return }
-        await host?.retryUnavailableFileRefresh()
+        await host?.retryUnavailableFileRefresh(productAdmission: productAdmission)
     }
 
     func applyActiveViewerModeUpdate(
@@ -846,17 +865,18 @@ final class BridgeDevelopmentProductCommittedCallTarget {
 
 extension BridgeDevelopmentProductHost {
     private func validateBootstrapTransition(
-        _ request: BridgeDevelopmentProductBootstrapRequest
+        _ request: BridgeDevelopmentProductBootstrapRequest,
+        predecessor: BridgeProductInstallationFenceSnapshot,
+        authorization: BridgeDevelopmentBootstrapAuthorizationSnapshot
     ) async throws {
         switch request.reason {
         case .initial:
             if let owningTabId, owningTabId != request.tabId,
-                let activeBootstrap = await productSessionOwner.activeBootstrap()
+                let installation = predecessor.installation
             {
                 guard
-                    await productSessionOwner.schemeRouter.metadataStreamHasEnded(
-                        for: activeBootstrap.workerInstanceId
-                    )
+                    await productSessionOwner.schemeRouter.closeTerminatedInstallation(
+                        installation, authorization: authorization, projection: bootstrapAuthorizationProjection)
                 else {
                     throw BridgeDevelopmentProductHostError.sessionAlreadyOpen
                 }
@@ -874,10 +894,10 @@ extension BridgeDevelopmentProductHost {
         }
     }
 
-    func retryUnavailableFileRefresh() async {
+    func retryUnavailableFileRefresh(productAdmission: BridgeProductAdmissionContext) async {
         guard !isShutdown else { return }
         await MainActor.run {
-            worktreeRefreshDriver.retryUnavailableFileRefresh()
+            worktreeRefreshDriver.retryUnavailableFileRefresh(ifAdmittedBy: productAdmission)
         }
     }
 }

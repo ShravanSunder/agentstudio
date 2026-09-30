@@ -251,7 +251,14 @@ final class BridgePaneWorktreeRefreshDriver {
     }
 
     func retryUnavailableFileRefresh() {
-        guard !isClosed, coordinator.beginExplicitFileRefreshRetry() else { return }
+        guard let admission = acquireProductAdmission() else { return }
+        retryUnavailableFileRefresh(ifAdmittedBy: admission)
+    }
+
+    func retryUnavailableFileRefresh(ifAdmittedBy admission: BridgeProductAdmissionContext) {
+        guard !isClosed, admission.withValidAdmission({ coordinator.beginExplicitFileRefreshRetry() }) == true else {
+            return
+        }
         // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = schedulePresentationPublication()
         scheduleFileCatchUpIfPossible()

@@ -20,8 +20,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
 
         await #expect(throws: WorktreeAnnotationBatchProjectorError.invalidGeneratedContext) {
             try await fixture.coordinator.executeNew(
-                fixture.request(worktreeLabel: "/absolute-path-is-not-generated-context")
-            )
+                fixture.request(worktreeLabel: "/absolute-path-is-not-generated-context"),
+                productAdmission: try BridgeProductAdmissionTestContext.make().context)
         }
         #expect(await fixture.recorder.events.isEmpty)
     }
@@ -30,7 +30,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
     func preparePrecedesEffectAndFinalization() async throws {
         let fixture = makeCoordinatorFixture(effectOutcome: .succeeded(destinationPath: nil))
 
-        let result = try await fixture.coordinator.executeNew(fixture.request())
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(), productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .succeeded(let output) = result else {
             Issue.record("Expected successful output")
@@ -48,7 +49,9 @@ struct WorktreeAnnotationOutputCoordinatorTests {
             effectGate: effectGate
         )
         let operation = Task {
-            try await fixture.coordinator.executeNew(fixture.request(outputKind: .jsonFile))
+            try await fixture.coordinator.executeNew(
+                fixture.request(outputKind: .jsonFile),
+                productAdmission: try BridgeProductAdmissionTestContext.make().context)
         }
         try await effectGate.firstArrival()
 
@@ -71,8 +74,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         )
 
         let result = try await fixture.coordinator.executeNew(
-            fixture.request(outputKind: .jsonFile)
-        )
+            fixture.request(outputKind: .jsonFile),
+            productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .destinationCancelled = result else {
             Issue.record("Expected destination cancellation")
@@ -89,8 +92,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         )
 
         let result = try await fixture.coordinator.executeNew(
-            fixture.request(outputKind: .jsonFile)
-        )
+            fixture.request(outputKind: .jsonFile),
+            productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .succeeded(let output) = result else {
             Issue.record("Expected successful JSON export")
@@ -108,7 +111,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
     func knownEffectFailureCancelsPreparedAttempt() async throws {
         let fixture = makeCoordinatorFixture(effectOutcome: .failed("clipboard unavailable"))
 
-        let result = try await fixture.coordinator.executeNew(fixture.request())
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(), productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .effectFailed(let effectError, let effectCode, let output) = result else {
             Issue.record("Expected known effect failure")
@@ -126,7 +130,9 @@ struct WorktreeAnnotationOutputCoordinatorTests {
             effectOutcome: .fileFailure(code: .missingFolder, message: "Folder missing")
         )
 
-        let result = try await fixture.coordinator.executeNew(fixture.request(outputKind: .jsonFile))
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(outputKind: .jsonFile),
+            productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .effectFailed(let message, let code, let output) = result else {
             Issue.record("Expected typed export failure")
@@ -141,7 +147,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
     func cancellationFailureRetriesCleanupWithoutReplayingEffect() async throws {
         let fixture = makeCoordinatorFixture(effectOutcome: .failed("clipboard unavailable"))
         await fixture.store.setCancelFailureEnabled(true)
-        let result = try await fixture.coordinator.executeNew(fixture.request())
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(), productAdmission: try BridgeProductAdmissionTestContext.make().context)
         guard case .effectAndCleanupFailed(let output, let effectError, _, let cleanupError) = result else {
             Issue.record("Expected effect plus cleanup failure")
             return
@@ -166,7 +173,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         let fixture = makeCoordinatorFixture(effectOutcome: .succeeded(destinationPath: nil))
         await fixture.store.setFinalizeFailureEnabled(true)
 
-        let result = try await fixture.coordinator.executeNew(fixture.request())
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(), productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .partialSuccess(let output, let finalizationError) = result else {
             Issue.record("Expected partial success")
@@ -184,7 +192,9 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         )
         await fixture.store.setFinalizeFailureEnabled(true)
 
-        let result = try await fixture.coordinator.executeNew(fixture.request(outputKind: .jsonFile))
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(outputKind: .jsonFile),
+            productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .partialSuccess(let output, _) = result else {
             Issue.record("Expected known write with failed finalization")
@@ -199,7 +209,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
         let fixture = makeCoordinatorFixture(effectOutcome: .failed("clipboard unavailable"))
         await fixture.store.setCancelFailureEnabled(true)
 
-        let result = try await fixture.coordinator.executeNew(fixture.request())
+        let result = try await fixture.coordinator.executeNew(
+            fixture.request(), productAdmission: try BridgeProductAdmissionTestContext.make().context)
         guard case .effectAndCleanupFailed(let output, _, _, _) = result else {
             Issue.record("Expected retained prepared output")
             return
@@ -223,7 +234,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
             exactBytes: persistedBytes
         )
 
-        let result = try await fixture.coordinator.executeRepeat(sourceAttemptID: sourceAttemptID)
+        let result = try await fixture.coordinator.executeRepeat(
+            sourceAttemptID: sourceAttemptID, productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .succeeded = result else {
             Issue.record("Expected successful repetition")
@@ -246,7 +258,8 @@ struct WorktreeAnnotationOutputCoordinatorTests {
             destinationPath: "/tmp/first-export.json"
         )
 
-        let result = try await fixture.coordinator.executeRepeat(sourceAttemptID: sourceAttemptID)
+        let result = try await fixture.coordinator.executeRepeat(
+            sourceAttemptID: sourceAttemptID, productAdmission: try BridgeProductAdmissionTestContext.make().context)
 
         guard case .succeeded(let output) = result else {
             Issue.record("Expected successful JSON repetition")
@@ -670,12 +683,14 @@ private actor TestOutputEffect: WorktreeAnnotationOutputEffect {
         return "/tmp"
     }
 
-    func chooseJSONDestination() async -> WorktreeAnnotationOutputDestinationOutcome {
+    func chooseJSONDestination(productAdmission: BridgeProductAdmissionContext) async
+        -> WorktreeAnnotationOutputDestinationOutcome
+    {
         await recorder.append("choose-destination")
         return destinationOutcome
     }
 
-    func revealJSONFile(path: String) async -> Bool {
+    func revealJSONFile(path: String, productAdmission: BridgeProductAdmissionContext) async -> Bool {
         _ = path
         return true
     }

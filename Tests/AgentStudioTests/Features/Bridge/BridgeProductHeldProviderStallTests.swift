@@ -605,7 +605,7 @@ private struct HeldProviderSessionHarness {
             metadataStreamId: "metadata-s13-\(UUIDv7.generate().uuidString)",
             resumeFromStreamSequence: nil
         )
-        let productAdmission = try #require(adapter.productAdmissionGate.acquire())
+        let productAdmission = try #require(adapter.acquireAdmission())
         let registration = await session.registerMetadataProducer(
             request: request,
             productAdmission: productAdmission

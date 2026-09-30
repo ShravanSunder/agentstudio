@@ -270,7 +270,7 @@ extension BridgeDevelopmentProductHost {
                 )
             },
             isReviewPublicationCurrent: { publicationId, productAdmission in
-                dependencies.reviewPublicationCoordinator.isCurrentPublication(
+                dependencies.reviewPublicationCoordinator.isCurrentCanonicalPublication(
                     publicationId: publicationId,
                     productAdmission: productAdmission
                 )

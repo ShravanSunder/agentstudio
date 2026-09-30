@@ -24,6 +24,7 @@ struct BridgeDevelopmentAnnotationOutputEffectTests {
         // Act
         let clipboardOutcome = await effect.perform(
             WorktreeAnnotationOutputEffectRequest(
+                productAdmission: try #require(BridgeProductAdmissionGate().acquire()),
                 attemptID: attemptID,
                 outputKind: .clipboardMarkdown,
                 contentType: "text/markdown; charset=utf-8",
@@ -31,7 +32,8 @@ struct BridgeDevelopmentAnnotationOutputEffectTests {
                 destinationPath: nil
             )
         )
-        let destinationOutcome = await effect.chooseJSONDestination()
+        let destinationOutcome = await effect.chooseJSONDestination(
+            productAdmission: try #require(BridgeProductAdmissionGate().acquire()))
         let destinationPath: String
         switch destinationOutcome {
         case .selected(let path):
@@ -42,6 +44,7 @@ struct BridgeDevelopmentAnnotationOutputEffectTests {
         }
         let jsonOutcome = await effect.perform(
             WorktreeAnnotationOutputEffectRequest(
+                productAdmission: try #require(BridgeProductAdmissionGate().acquire()),
                 attemptID: attemptID,
                 outputKind: .jsonFile,
                 contentType: "application/json",
@@ -79,6 +82,7 @@ struct BridgeDevelopmentAnnotationOutputEffectTests {
         // Act
         let outcome = await effect.perform(
             WorktreeAnnotationOutputEffectRequest(
+                productAdmission: try #require(BridgeProductAdmissionGate().acquire()),
                 attemptID: attemptID,
                 outputKind: .jsonFile,
                 contentType: "application/json",

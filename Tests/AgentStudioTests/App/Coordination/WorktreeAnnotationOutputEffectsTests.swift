@@ -1,4 +1,3 @@
-import AgentStudioBridge
 import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import AppKit
@@ -6,6 +5,9 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite(.serialized)
@@ -56,7 +58,7 @@ struct WorktreeAnnotationOutputEffectsTests {
         let panel = TestJSONFolderPanel(response: .OK, selectedURL: destination)
         let effect = WorktreeAnnotationOutputEffects(makeFolderPanel: { panel })
 
-        let outcome = await effect.chooseJSONDestination()
+        let outcome = await effect.chooseJSONDestination(productAdmission: freshOutputAdmission())
 
         #expect(outcome == .selected(path: destination.path))
         #expect(panel.didBegin)
@@ -71,7 +73,7 @@ struct WorktreeAnnotationOutputEffectsTests {
         let panel = TestJSONFolderPanel(response: .cancel, selectedURL: nil)
         let effect = WorktreeAnnotationOutputEffects(makeFolderPanel: { panel })
 
-        let outcome = await effect.chooseJSONDestination()
+        let outcome = await effect.chooseJSONDestination(productAdmission: freshOutputAdmission())
 
         #expect(outcome == .cancelled)
     }
@@ -87,7 +89,7 @@ struct WorktreeAnnotationOutputEffectsTests {
             folderPreference: preference
         )
         var beginnings = panel.beginnings.makeAsyncIterator()
-        let choice = Task { await effect.chooseJSONDestination() }
+        let choice = Task { await effect.chooseJSONDestination(productAdmission: freshOutputAdmission()) }
         _ = await beginnings.next()
 
         let independentClipboard = await effect.perform(
@@ -117,7 +119,7 @@ struct WorktreeAnnotationOutputEffectsTests {
             }
         )
         let operation = Task {
-            _ = await effect.chooseJSONDestination()
+            _ = await effect.chooseJSONDestination(productAdmission: freshOutputAdmission())
             try? await gate.arrive(())
             return await effect.perform(
                 outputRequest(
@@ -171,7 +173,7 @@ struct WorktreeAnnotationOutputEffectsTests {
             throw TestOutputEffectFailure.forced
         })
 
-        let outcome = await effect.chooseJSONDestination()
+        let outcome = await effect.chooseJSONDestination(productAdmission: freshOutputAdmission())
 
         guard case .failed(let message) = outcome else {
             Issue.record("Expected a typed save-panel failure")
@@ -274,13 +276,15 @@ struct WorktreeAnnotationOutputEffectsTests {
         #expect(await writer.writeCount == 1)
     }
 
-    private func outputRequest(
+    func outputRequest(
         kind: WorktreeAnnotationOutputEffectKind,
         exactBytes: Data,
         destinationPath: String? = nil,
-        suggestedFilename: String? = nil
+        suggestedFilename: String? = nil,
+        productAdmission: BridgeProductAdmissionContext = freshOutputAdmission()
     ) -> WorktreeAnnotationOutputEffectRequest {
         .init(
+            productAdmission: productAdmission,
             attemptID: UUIDv7.generate(),
             outputKind: kind,
             contentType: kind == .clipboardMarkdown
@@ -291,103 +295,4 @@ struct WorktreeAnnotationOutputEffectsTests {
             suggestedFilename: suggestedFilename
         )
     }
-}
-
-@MainActor
-private final class RejectingAnnotationPasteboard: WorktreeAnnotationPasteboardWriting {
-    private(set) var didClearContents = false
-
-    func clearContents() -> Int {
-        didClearContents = true
-        return 1
-    }
-
-    func setData(_ data: Data?, forType dataType: NSPasteboard.PasteboardType) -> Bool {
-        _ = (data, dataType)
-        return false
-    }
-}
-
-@MainActor
-private final class TestJSONFolderPanel: WorktreeAnnotationJSONFolderPanel {
-    var canChooseDirectories = false
-    var canChooseFiles = true
-    var allowsMultipleSelection = true
-    private(set) var didBegin = false
-    let url: URL?
-
-    private let response: NSApplication.ModalResponse
-    init(
-        response: NSApplication.ModalResponse,
-        selectedURL: URL?
-    ) {
-        self.response = response
-        self.url = selectedURL
-    }
-
-    func begin(completionHandler: @escaping (NSApplication.ModalResponse) -> Void) {
-        didBegin = true
-        completionHandler(response)
-    }
-
-    func cancel(_ sender: Any?) {
-        _ = sender
-    }
-}
-
-@MainActor
-private final class HoldingJSONFolderPanel: WorktreeAnnotationJSONFolderPanel {
-    var canChooseDirectories = false
-    var canChooseFiles = true
-    var allowsMultipleSelection = true
-    let url: URL? = URL(filePath: "/tmp/late-selection", directoryHint: .isDirectory)
-    let beginnings: AsyncStream<Void>
-    private let beginningContinuation: AsyncStream<Void>.Continuation
-    private var completionHandler: ((NSApplication.ModalResponse) -> Void)?
-    private(set) var cancelCount = 0
-
-    init() {
-        let stream = AsyncStream.makeStream(of: Void.self)
-        beginnings = stream.stream
-        beginningContinuation = stream.continuation
-    }
-
-    func begin(completionHandler: @escaping (NSApplication.ModalResponse) -> Void) {
-        self.completionHandler = completionHandler
-        beginningContinuation.yield(())
-    }
-
-    func cancel(_ sender: Any?) {
-        _ = sender
-        cancelCount += 1
-        completionHandler?(.cancel)
-    }
-
-    func complete(_ response: NSApplication.ModalResponse) {
-        completionHandler?(response)
-    }
-}
-
-private actor RecordingFailingJSONWriter {
-    private(set) var writeCount = 0
-
-    func write(_ data: Data, to destination: URL) throws {
-        _ = (data, destination)
-        writeCount += 1
-        throw TestOutputEffectFailure.forced
-    }
-}
-
-private actor RecordingJSONWriter {
-    private(set) var writeCount = 0
-
-    func record(data: Data, destination: URL, filename: String?) -> URL {
-        _ = (data, filename)
-        writeCount += 1
-        return destination
-    }
-}
-
-private enum TestOutputEffectFailure: Error {
-    case forced
 }

@@ -41,18 +41,25 @@ struct BridgeProductSchemeAdapter: Sendable {
     let session: BridgeProductSession
     let provider: any BridgeProductSchemeProvider
     let productAdmissionGate: BridgeProductAdmissionGate
+    let installationAdmissionGate: BridgeProductAdmissionGate
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
     init(
         session: BridgeProductSession,
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
+        installationAdmissionGate: BridgeProductAdmissionGate = BridgeProductAdmissionGate(),
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) {
         self.session = session
         self.provider = provider
         self.productAdmissionGate = productAdmissionGate
+        self.installationAdmissionGate = installationAdmissionGate
         self.telemetryRecorder = telemetryRecorder
+    }
+
+    func acquireAdmission() -> BridgeProductAdmissionContext? {
+        productAdmissionGate.acquire()?.withInstallation(installationAdmissionGate)
     }
 
     func route(
@@ -84,7 +91,7 @@ struct BridgeProductSchemeAdapter: Sendable {
             continuation.finish(throwing: CancellationError())
             return
         }
-        guard productAdmission.wasMinted(by: productAdmissionGate) else {
+        guard productAdmission.wasMinted(by: productAdmissionGate, installationGate: installationAdmissionGate) else {
             sendTerminalFailure(
                 error: BridgeProductSchemeAdapterError.admissionInvalid,
                 request: request,

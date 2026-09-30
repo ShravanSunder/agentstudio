@@ -330,11 +330,13 @@ actor TransportTestOutputEffect: WorktreeAnnotationOutputEffect {
 
     func rememberedJSONFolder() -> String { "/tmp" }
 
-    func chooseJSONDestination() -> WorktreeAnnotationOutputDestinationOutcome {
+    func chooseJSONDestination(productAdmission: BridgeProductAdmissionContext)
+        -> WorktreeAnnotationOutputDestinationOutcome
+    {
         .selected(path: "/tmp")
     }
 
-    func revealJSONFile(path: String) -> Bool {
+    func revealJSONFile(path: String, productAdmission: BridgeProductAdmissionContext) -> Bool {
         _ = path
         return revealSucceeds
     }

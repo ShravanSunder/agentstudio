@@ -181,8 +181,10 @@ extension BridgeProductSession {
             let entry = operationTable.entriesById[operationId],
             entry.settlement == nil
         else { return false }
-        operationTable.markMutationDispatched(operationId: operationId)
-        return true
+        return entry.admission.productAdmission.withValidAdmission {
+            operationTable.markMutationDispatched(operationId: operationId)
+            return true
+        } ?? false
     }
 
     func beginEscapeEffect() -> UUID? {

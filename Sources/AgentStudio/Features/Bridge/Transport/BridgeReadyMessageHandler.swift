@@ -30,6 +30,13 @@ final class BridgeReadyMessageHandler: NSObject, WKScriptMessageHandler {
     }
 
     var onBootstrapRequest: (@MainActor @Sendable (BootstrapMessage) async -> Void)?
+    var prepareProductBootstrapEnd:
+        (@MainActor @Sendable (ProductSessionBootstrapReason) -> BridgeProductInstallationFenceSnapshot?)?
+    var onProductBootstrapRequest:
+        (
+            @MainActor @Sendable (String, ProductSessionBootstrapReason, BridgeProductInstallationFenceSnapshot?) async
+                -> Void
+        )?
 
     nonisolated static func extractReadyRequestId(from body: Any) -> String? {
         guard case .ready(let requestId) = decodeBootstrapMessage(from: body) else {
@@ -100,15 +107,29 @@ final class BridgeReadyMessageHandler: NSObject, WKScriptMessageHandler {
             return
         }
 
+        // WebKit ingress returns synchronously; bootstrap owns its reply and transition tail.
+        _ = receiveValidatedBootstrapMessage(bootstrapMessage)  // fire-and-forget: bootstrap owns reply/tail
+    }
+
+    @MainActor
+    func receiveValidatedBootstrapMessage(_ bootstrapMessage: BootstrapMessage) -> Task<Void, Never>? {
+
+        if case .productSessionBootstrap(let requestId, let reason) = bootstrapMessage,
+            let productCallback = onProductBootstrapRequest
+        {
+            // E1 ends at message ingress, before even scheduling the MainActor task.
+            let predecessor = prepareProductBootstrapEnd?(reason)
+            return Task { @MainActor in await productCallback(requestId, reason, predecessor) }
+        }
         guard let callback = onBootstrapRequest else {
             bridgeReadyMessageHandlerLogger.warning(
                 "[BridgeReadyMessageHandler] dropped bootstrap request because callback is not configured")
-            return
+            return nil
         }
         bridgeReadyMessageHandlerLogger.debug(
             "Received bootstrap request kind=\(String(describing: bootstrapMessage), privacy: .public)"
         )
-        Task { @MainActor in
+        return Task { @MainActor in
             await callback(bootstrapMessage)
         }
     }

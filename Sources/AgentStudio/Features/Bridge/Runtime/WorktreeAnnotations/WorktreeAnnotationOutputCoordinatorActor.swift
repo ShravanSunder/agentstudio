@@ -131,6 +131,7 @@ package enum WorktreeAnnotationOutputEffectKind: Equatable, Sendable {
 }
 
 package struct WorktreeAnnotationOutputEffectRequest: Equatable, Sendable {
+    package let productAdmission: BridgeProductAdmissionContext
     package let attemptID: UUID
     package let outputKind: WorktreeAnnotationOutputEffectKind
     package let contentType: String
@@ -139,6 +140,7 @@ package struct WorktreeAnnotationOutputEffectRequest: Equatable, Sendable {
     package let suggestedFilename: String?
 
     package init(
+        productAdmission: BridgeProductAdmissionContext,
         attemptID: UUID,
         outputKind: WorktreeAnnotationOutputEffectKind,
         contentType: String,
@@ -146,6 +148,7 @@ package struct WorktreeAnnotationOutputEffectRequest: Equatable, Sendable {
         destinationPath: String?,
         suggestedFilename: String? = nil
     ) {
+        self.productAdmission = productAdmission
         self.attemptID = attemptID
         self.outputKind = outputKind
         self.contentType = contentType
@@ -175,8 +178,9 @@ package enum WorktreeAnnotationOutputDestinationOutcome: Equatable, Sendable {
 
 package protocol WorktreeAnnotationOutputEffect: Sendable {
     func rememberedJSONFolder() async -> String
-    func chooseJSONDestination() async -> WorktreeAnnotationOutputDestinationOutcome
-    func revealJSONFile(path: String) async -> Bool
+    func chooseJSONDestination(productAdmission: BridgeProductAdmissionContext) async
+        -> WorktreeAnnotationOutputDestinationOutcome
+    func revealJSONFile(path: String, productAdmission: BridgeProductAdmissionContext) async -> Bool
 
     func perform(
         _ request: WorktreeAnnotationOutputEffectRequest
@@ -278,20 +282,24 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
         }
     }
 
-    func changeFolder() async -> WorktreeAnnotationOutputDestinationOutcome {
-        await effect.chooseJSONDestination()
+    func changeFolder(productAdmission: BridgeProductAdmissionContext) async
+        -> WorktreeAnnotationOutputDestinationOutcome
+    {
+        await effect.chooseJSONDestination(productAdmission: productAdmission)
     }
 
-    func revealSavedFile(path: String) async -> Bool {
-        await effect.revealJSONFile(path: path)
+    func revealSavedFile(path: String, productAdmission: BridgeProductAdmissionContext) async -> Bool {
+        await effect.revealJSONFile(path: path, productAdmission: productAdmission)
     }
 
     func executeNew(
-        _ request: WorktreeAnnotationOutputRequest
+        _ request: WorktreeAnnotationOutputRequest,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationOutputExecutionResult {
         let destinationResolution = await resolveDestination(
             outputKind: request.outputKind,
-            destination: request.destination
+            destination: request.destination,
+            productAdmission: productAdmission
         )
         let destinationPath: String?
         switch destinationResolution {
@@ -343,12 +351,14 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
         )
         return await performEffect(
             for: prepared,
+            productAdmission: productAdmission,
             suggestedFilename: request.outputKind == .jsonFile ? suggestedFilename : nil
         )
     }
 
     func executeRepeat(
-        sourceAttemptID: WorktreeAnnotationOutputAttemptID
+        sourceAttemptID: WorktreeAnnotationOutputAttemptID,
+        productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationOutputExecutionResult {
         let source = try await store.inspectOutputAttempt(attemptID: sourceAttemptID)
         // Repeat deliberately rewrites the recorded file, using its exact bytes.
@@ -359,7 +369,7 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
             destinationPath: destinationPath,
             now: now()
         )
-        return await performEffect(for: repeated)
+        return await performEffect(for: repeated, productAdmission: productAdmission)
     }
 
     func retryCancellationCleanup(
@@ -384,10 +394,12 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
 
     private func performEffect(
         for prepared: WorktreeAnnotationSQLiteRepository.PreparedOutput,
+        productAdmission: BridgeProductAdmissionContext,
         suggestedFilename: String? = nil
     ) async -> WorktreeAnnotationOutputExecutionResult {
         let outcome = await effect.perform(
             .init(
+                productAdmission: productAdmission,
                 attemptID: prepared.attempt.id.rawValue,
                 outputKind: prepared.attempt.outputKind == .clipboardMarkdown
                     ? .clipboardMarkdown
@@ -516,7 +528,8 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
 
     private func resolveDestination(
         outputKind: WorktreeAnnotationOutputKind,
-        destination: BridgeProductWorktreeAnnotationOperation.OutputDestination?
+        destination: BridgeProductWorktreeAnnotationOperation.OutputDestination?,
+        productAdmission: BridgeProductAdmissionContext
     ) async -> DestinationResolution {
         switch outputKind {
         case .clipboardMarkdown:
@@ -525,7 +538,7 @@ package actor WorktreeAnnotationOutputCoordinatorActor {
             let outcome: WorktreeAnnotationOutputDestinationOutcome =
                 switch destination {
                 case .remembered: .selected(path: await effect.rememberedJSONFolder())
-                case .choose: await effect.chooseJSONDestination()
+                case .choose: await effect.chooseJSONDestination(productAdmission: productAdmission)
                 case nil: .failed("JSON export has no destination selection.")
                 }
             switch outcome {
