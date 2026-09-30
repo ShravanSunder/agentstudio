@@ -30,7 +30,6 @@ const { class: className, staticMaterial = false, ...attributes } = Astro.props;
 <style>
   .scroll-material-surface {
     --scroll-material-progress: 0;
-    --scroll-material-lift: 0px;
     --scroll-material-border-color: rgb(137 180 250 / 0%);
     --scroll-material-primary-alpha: 0;
     --scroll-material-cyan-alpha: 0;
@@ -64,12 +63,10 @@ const { class: className, staticMaterial = false, ...attributes } = Astro.props;
       0 6px 16px rgb(10 11 17 / var(--scroll-material-secondary-shadow-alpha)),
       0 1px 0 rgb(137 180 250 / var(--scroll-material-primary-alpha)),
       inset 0 1px rgb(255 255 255 / var(--scroll-material-highlight-alpha));
-    transform: translate3d(0, var(--scroll-material-lift), 0);
     backdrop-filter: blur(var(--scroll-material-blur))
       saturate(var(--scroll-material-saturation));
     -webkit-backdrop-filter: blur(var(--scroll-material-blur))
       saturate(var(--scroll-material-saturation));
-    will-change: transform;
   }
 
   .scroll-material-surface--static {
@@ -85,8 +82,6 @@ const { class: className, staticMaterial = false, ...attributes } = Astro.props;
     --scroll-material-blur: 20px;
     --scroll-material-saturation: 120%;
     --scroll-material-radius: 20px;
-    transform: none;
-    will-change: auto;
   }
 
   :global(.scroll-material-pane) {
@@ -171,11 +166,6 @@ const { class: className, staticMaterial = false, ...attributes } = Astro.props;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .scroll-material-surface {
-      transform: none;
-      will-change: auto;
-    }
-
     :global(.scroll-material-selection-control)::before {
       transition: none;
     }

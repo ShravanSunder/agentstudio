@@ -231,8 +231,8 @@ extension TerminalPaneMountView {
             beginRestorePresentationIfNeeded()
         }
 
-        func simulateSurfaceCloseForTesting(processAlive: Bool) -> Task<Void, Never>? {
-            handleSurfaceClose(processAlive: processAlive)
+        func simulateSurfaceCloseForTesting(processExited: Bool) -> Task<Void, Never>? {
+            handleSurfaceClose(processExited: processExited)
         }
 
         func applyHealthUpdateForTesting(_ health: SurfaceHealth) {

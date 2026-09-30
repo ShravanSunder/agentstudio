@@ -458,24 +458,35 @@ struct FilesystemActorTests {
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .milliseconds(60),
+            maxFlushLatency: .seconds(1)
+        )
 
-        let sidebarOnlyWorktreeId = UUID()
-        let activeWorktreeId = UUID()
+        let basePath = "/tmp/activity-priority-\(UUIDv7.generate().uuidString)"
+        let sidebarOnlyWorktreeId = UUIDv7.generate()
+        let activeWorktreeId = UUIDv7.generate()
         await actor.register(
             worktreeId: sidebarOnlyWorktreeId, repoId: sidebarOnlyWorktreeId,
-            rootPath: URL(fileURLWithPath: "/tmp/sidebar"))
+            rootPath: URL(fileURLWithPath: basePath))
         await actor.register(
-            worktreeId: activeWorktreeId, repoId: activeWorktreeId, rootPath: URL(fileURLWithPath: "/tmp/active"))
+            worktreeId: activeWorktreeId,
+            repoId: activeWorktreeId,
+            rootPath: URL(fileURLWithPath: "\(basePath)/active"))
         await actor.setActivity(worktreeId: activeWorktreeId, isActiveInApp: true)
         await actor.setActivity(worktreeId: sidebarOnlyWorktreeId, isActiveInApp: false)
-        await actor.setActivePaneWorktree(worktreeId: activeWorktreeId)
 
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(worktreeId: sidebarOnlyWorktreeId, paths: ["README.md"])
         await actor.enqueueRawPaths(worktreeId: activeWorktreeId, paths: ["src/main.swift"])
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(60))
 
         let firstEnvelope = try #require(await iterator.next())
         let firstChangeset = try #require(filesChangedChangeset(from: firstEnvelope))

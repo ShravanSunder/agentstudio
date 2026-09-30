@@ -56,6 +56,16 @@ struct RepoExplorerTableMaterializerTests {
         #expect(scrolled.actualVisibleFingerprint == scrolled.expectedVisibleFingerprint)
     }
 
+    @Test("resume rebinds represented cells when layout returns after zero-size suspension")
+    func resumeRebindsRepresentedCellsAfterZeroSizeLayout() async throws {
+        try await verifyResumeRebindsAfterZeroSizeLayout()
+    }
+
+    @Test("resume at the existing size rebinds represented cells immediately")
+    func resumeAtExistingSizeRebindsRepresentedCellsImmediately() async throws {
+        try await verifyResumeRebindsAtExistingSize()
+    }
+
     @Test("represented By Repo settlement publishes exact receipt without moving its anchor")
     func representedByRepoSettlementPublishesExactReceiptWithoutMovingAnchor() async throws {
         let repoID = UUIDv7.generate()
@@ -492,6 +502,7 @@ extension RepoExplorerTableMaterializerTests {
         #expect(disposition == .accepted)
 
         materializer.scroll(to: .group(groupID: "C"), offset: 3)
+        let priorAnchor = try #require(materializer.currentTopVisibleAnchor)
         let nextCandidate = try tableCandidate(
             baseline: nativePlanBaseline(
                 snapshot: initialSnapshot,
@@ -506,8 +517,8 @@ extension RepoExplorerTableMaterializerTests {
 
         #expect(disposition == .accepted)
         #expect(materializer.numberOfRows == nextSnapshot.rows.count)
-        #expect(materializer.currentTopVisibleAnchor?.rowID == .group(groupID: "C"))
-        #expect(materializer.currentTopVisibleAnchor?.offset == 3)
+        #expect(materializer.currentTopVisibleAnchor?.rowID == priorAnchor.rowID)
+        #expect(materializer.currentTopVisibleAnchor?.offset == priorAnchor.offset)
         #expect(materializer.nativeTransactionApplyCount == 2)
     }
 
@@ -628,7 +639,7 @@ extension RepoExplorerTableMaterializerTests {
                 requestGeneration: 1
             )
         ) { _ in }
-        materializer.scroll(to: .group(groupID: "C"), offset: 2)
+        materializer.scroll(to: .group(groupID: "C"), offset: -2)
         var disposition: RepoExplorerMaterializationChildDisposition?
         materializer.apply(
             try tableCandidate(
@@ -644,10 +655,10 @@ extension RepoExplorerTableMaterializerTests {
 
         #expect(disposition == .accepted)
         #expect(materializer.currentTopVisibleAnchor?.rowID == .group(groupID: "E"))
-        #expect(materializer.currentTopVisibleAnchor?.offset == 2)
+        #expect(materializer.currentTopVisibleAnchor?.offset == -2)
     }
 
-    private func makeMaterializerWindow(
+    func makeMaterializerWindow(
         _ materializer: RepoExplorerTableMaterializer,
         height: CGFloat = 36
     ) -> NSWindow {
@@ -663,10 +674,11 @@ extension RepoExplorerTableMaterializerTests {
         return window
     }
 
-    private func tableCandidate(
+    func tableCandidate(
         baseline: RepoExplorerMaterializationBaseline,
         snapshot: RepoExplorerMaterializationSnapshot,
-        requestGeneration: UInt64
+        requestGeneration: UInt64,
+        selectedRowID: RepoExplorerRowID? = nil
     ) throws -> RepoExplorerMaterializationContentCandidate {
         let presentation = nativePlanContent(snapshot)
         let plan = try RepoExplorerNativeUpdatePlan.validating(
@@ -681,7 +693,7 @@ extension RepoExplorerTableMaterializerTests {
             visibleGeneration: requestGeneration,
             snapshot: snapshot,
             tableUpdatePlan: tablePlan,
-            selectedRowID: nil
+            selectedRowID: selectedRowID
         )
     }
 

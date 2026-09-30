@@ -60,7 +60,8 @@ package final class UIStateStore {
                     repoSubgroupMode: state.repoSubgroupMode,
                     paneSubgroupMode: state.paneSubgroupMode,
                     showsPinnedRepos: state.showsPinnedRepos,
-                    showsPinnedPanes: state.showsPinnedPanes
+                    showsPinnedPanes: state.showsPinnedPanes,
+                    showsDrawerPanes: state.showsDrawerPanes
                 )
             } else {
                 atom.clear()
@@ -101,6 +102,7 @@ package final class UIStateStore {
             _ = atom.paneSubgroupMode
             _ = atom.showsPinnedRepos
             _ = atom.showsPinnedPanes
+            _ = atom.showsDrawerPanes
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // WorkspaceSidebarState is @MainActor; this traps if that ownership changes.
@@ -160,7 +162,8 @@ package final class UIStateStore {
             repoSubgroupMode: atom.repoSubgroupMode,
             paneSubgroupMode: atom.paneSubgroupMode,
             showsPinnedRepos: atom.showsPinnedRepos,
-            showsPinnedPanes: atom.showsPinnedPanes
+            showsPinnedPanes: atom.showsPinnedPanes,
+            showsDrawerPanes: atom.showsDrawerPanes
         )
     }
 

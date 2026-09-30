@@ -17,6 +17,11 @@ package struct AppIPCSessionsError: Error, Equatable, Sendable {
     }
 }
 
+package enum IPCSessionEventProvenance: Sendable, Equatable {
+    case matchingPane
+    case other
+}
+
 /// Sessions ingestion and its one read, addressed by canonical pane UUID. The
 /// App composition owns the mapping to Sessions mutations; this boundary never
 /// sees a domain mutation or a SQLite row.
@@ -33,7 +38,8 @@ package protocol AppIPCSessionsPort: Sendable {
 
     func recordProviderEvent(
         paneId: UUID,
-        params: IPCSessionEventParams
+        params: IPCSessionEventParams,
+        provenance: IPCSessionEventProvenance
     ) async throws -> IPCSessionEventResult
 
     func readSessionState(
@@ -50,7 +56,7 @@ extension AppIPCBuiltInMethodRegistrations {
         let port = inputs.ports.sessionsPort
         return try [
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionReport,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.sessionReport),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -75,7 +81,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionMessage,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.sessionMessage),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -99,7 +105,7 @@ extension AppIPCBuiltInMethodRegistrations {
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionEvent,
+                descriptorRepresentations: try inputs.descriptorRepresentations(for: descriptors.sessionEvent),
                 correlation: .required(\.correlationId),
                 resolveTarget: { parameters, _, tools in
                     try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
@@ -116,34 +122,45 @@ extension AppIPCBuiltInMethodRegistrations {
                         }
                     )
                 },
-                connectionHandler: { parameters, _, target in
-                    try await port.recordProviderEvent(
-                        paneId: AppIPCSessionTargetSupport.paneId(from: target),
-                        params: parameters
+                connectionHandler: { parameters, context, target in
+                    let paneId = try AppIPCSessionTargetSupport.paneId(from: target)
+                    return try await port.recordProviderEvent(
+                        paneId: paneId,
+                        params: parameters,
+                        provenance: AppIPCSessionTargetSupport.provenance(
+                            principal: context.principal,
+                            paneId: paneId
+                        )
                     )
                 }
             ).erase(),
-            AppIPCTypedMethodRegistration(
-                descriptor: descriptors.sessionQuery,
-                correlation: .notRequired,
-                resolveTarget: { parameters, _, tools in
-                    try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
-                        parameters,
-                        rawHandle: parameters.handle,
-                        tools: tools,
-                        replacingHandle: { _, canonicalHandle in
-                            IPCSessionQueryParams(handle: canonicalHandle)
-                        }
-                    )
-                },
-                connectionHandler: { parameters, _, target in
-                    try await port.readSessionState(
-                        paneId: AppIPCSessionTargetSupport.paneId(from: target),
-                        params: parameters
-                    )
-                }
-            ).erase(),
+            sessionQueryRegistration(inputs: inputs),
         ]
+    }
+
+    private static func sessionQueryRegistration(
+        inputs: AppIPCBuiltInRegistrationInputs
+    ) throws -> AnyAppIPCMethodRegistration {
+        try AppIPCTypedMethodRegistration(
+            descriptorRepresentations: try inputs.descriptorRepresentations(for: inputs.catalog.sessions.sessionQuery),
+            correlation: .notRequired,
+            resolveTarget: { parameters, _, tools in
+                try await AppIPCBuiltInRegistrationSupport.canonicalPaneTarget(
+                    parameters,
+                    rawHandle: parameters.handle,
+                    tools: tools,
+                    replacingHandle: { _, canonicalHandle in
+                        IPCSessionQueryParams(handle: canonicalHandle)
+                    }
+                )
+            },
+            connectionHandler: { parameters, _, target in
+                try await inputs.ports.sessionsPort.readSessionState(
+                    paneId: AppIPCSessionTargetSupport.paneId(from: target),
+                    params: parameters
+                )
+            }
+        ).erase()
     }
 }
 
@@ -155,5 +172,13 @@ enum AppIPCSessionTargetSupport {
             throw AppIPCTypedMethodRegistrationError.targetKindNotAllowed
         }
         return paneId
+    }
+
+    static func provenance(principal: IPCPrincipal?, paneId: UUID) -> IPCSessionEventProvenance {
+        guard let principal,
+            case .spawnedPaneAgent(let boundPaneId, _) = principal.kind,
+            UUID(uuidString: boundPaneId) == paneId
+        else { return .other }
+        return .matchingPane
     }
 }

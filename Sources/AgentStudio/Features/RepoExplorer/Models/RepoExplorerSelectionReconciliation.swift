@@ -48,10 +48,15 @@ struct RepoExplorerSelectionReconciliation: Equatable, Sendable {
         if current.containsSelectableRow(priorRowID) {
             return priorRowID
         }
-        guard let destinationID = previous.destinationID(for: priorRowID) else {
-            return nil
+        if let destinationID = previous.destinationID(for: priorRowID),
+            let translatedRowID = current.firstRowID(for: destinationID)
+        {
+            return translatedRowID
         }
-        return current.firstRowID(for: destinationID)
+        if let ownerDestinationID = previous.drawerOwnerDestinationID(for: priorRowID) {
+            return current.firstRowID(for: ownerDestinationID)
+        }
+        return nil
     }
 
     private static func nearestSuccessors(

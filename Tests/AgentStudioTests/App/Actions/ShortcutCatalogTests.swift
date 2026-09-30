@@ -7,6 +7,15 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ShortcutCatalogTests {
+    @Test("D in the sidebar list toggles drawer rows without changing Command-D")
+    func sidebarDrawerRowsUseScopedD() {
+        let bareD = ShortcutTrigger(key: .character(.d), modifiers: [])
+        let commandD = ShortcutTrigger(key: .character(.d), modifiers: [.command])
+        #expect(ShortcutDecoder.shortcut(for: bareD, in: .sidebarList) == .togglePanesShowsDrawers)
+        #expect(ShortcutDecoder.shortcut(for: bareD, in: .global) == nil)
+        #expect(ShortcutDecoder.shortcut(for: commandD, in: .global) == .toggleDrawer)
+    }
+
     @Test("superseded quarter-step identities have no aliases")
     func obsoleteQuarterStepIdentitiesAreRemoved() {
         for identifier in ["scrollQuarterPageUp", "scrollQuarterPageDown"] {
@@ -48,6 +57,33 @@ struct ShortcutCatalogTests {
             let spec = shortcut.spec
             #expect(!spec.contexts.isEmpty)
         }
+    }
+
+    @Test("close commands have no shortcut and Undo Close keeps its canonical binding")
+    func closeCommandsAreClickOnlyAndUndoCloseKeepsIdentity() {
+        #expect(AppCommand.closeTab.definition.shortcut == nil)
+        #expect(AppCommand.closeWindow.definition.shortcut == nil)
+        #expect(AppCommand.closePane.definition.shortcut == nil)
+        #expect(AppCommand.closeDrawerPane.definition.shortcut == nil)
+        #expect(AppCommand.closeWindow.definition.surfacePolicy.exposes(.mainMenu))
+
+        #expect(AppCommand.undoCloseTab.rawValue == "undoCloseTab")
+        #expect(AppCommand.undoCloseTab.definition.shortcut == .undoCloseTab)
+        #expect(AppCommand.undoCloseTab.definition.label == "Undo Close")
+        #expect(AppCommand.undoCloseTab.definition.helpText == "Reopen the most recently closed pane or tab")
+
+        #expect(
+            ShortcutDecoder.shortcut(
+                for: .init(key: .character(.w), modifiers: [.command]),
+                in: .global
+            ) == nil
+        )
+        #expect(
+            ShortcutDecoder.shortcut(
+                for: .init(key: .character(.w), modifiers: [.command, .shift]),
+                in: .global
+            ) == nil
+        )
     }
 
     @Test

@@ -466,9 +466,12 @@ final class WorkspaceStoreArrangementTests {
 
     func test_renameArrangement_invalidId_noOp() {
         let (tab, _) = createTabWithPanes(2)
+        let arrangementsBefore = store.tab(tab.id)!.arrangements
 
         // Should not crash
         store.renameArrangement(UUID(), name: "Nope", inTab: tab.id)
+
+        #expect(store.tab(tab.id)!.arrangements == arrangementsBefore)
     }
 
     // MARK: - renameTab

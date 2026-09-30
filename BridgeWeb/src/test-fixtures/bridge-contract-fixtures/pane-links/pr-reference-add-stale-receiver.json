@@ -1,0 +1,6 @@
+{
+  "union": "BridgePullRequestReferenceAddResult",
+  "value": {
+    "kind": "staleReceiver"
+  }
+}

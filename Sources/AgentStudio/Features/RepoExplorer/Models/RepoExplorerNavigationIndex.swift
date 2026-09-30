@@ -28,18 +28,23 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
         let firstChildRowIDByGroupRowID: [RepoExplorerRowID: RepoExplorerRowID]
         let digitByRowID: [RepoExplorerRowID: Int]
         let destinationIDByRowID: [RepoExplorerRowID: RepoExplorerNavigationDestinationID]
+        let drawerOwnerDestinationIDByRowID: [RepoExplorerRowID: RepoExplorerNavigationDestinationID]
     }
 
     let selectableRowIDs: [RepoExplorerRowID]
     let initialSelectionRowID: RepoExplorerRowID?
+    let destinationRowIDs: [RepoExplorerRowID]
     let numberedDestinationRowIDs: [RepoExplorerRowID]
     let fingerprint: RepoExplorerNavigationFingerprint
 
     private let selectablePositionByRowID: [RepoExplorerRowID: Int]
+    private let previousDestinationByRowID: [RepoExplorerRowID: RepoExplorerRowID]
+    private let nextDestinationByRowID: [RepoExplorerRowID: RepoExplorerRowID]
     private let parentRowIDByChildRowID: [RepoExplorerRowID: RepoExplorerRowID]
     private let firstChildRowIDByGroupRowID: [RepoExplorerRowID: RepoExplorerRowID]
     private let digitByRowID: [RepoExplorerRowID: Int]
     private let destinationIDByRowID: [RepoExplorerRowID: RepoExplorerNavigationDestinationID]
+    private let drawerOwnerDestinationIDByRowID: [RepoExplorerRowID: RepoExplorerNavigationDestinationID]
     private let rowIDsByDestinationID: [RepoExplorerNavigationDestinationID: [RepoExplorerRowID]]
 
     init(rows: [RepoExplorerMaterializedRow]) {
@@ -56,6 +61,7 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
         var parentRowIDByChildRowID: [RepoExplorerRowID: RepoExplorerRowID] = [:]
         var firstChildRowIDByGroupRowID: [RepoExplorerRowID: RepoExplorerRowID] = [:]
         var destinationIDByRowID: [RepoExplorerRowID: RepoExplorerNavigationDestinationID] = [:]
+        var drawerOwnerDestinationIDByRowID: [RepoExplorerRowID: RepoExplorerNavigationDestinationID] = [:]
         var rowIDsByDestinationID: [RepoExplorerNavigationDestinationID: [RepoExplorerRowID]] = [:]
         var firstGroupRowID: RepoExplorerRowID?
         var firstDestinationRowID: RepoExplorerRowID?
@@ -67,6 +73,12 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
         for row in rows {
             let classification = Self.classify(row.presentation)
             guard classification.isSelectable else { continue }
+
+            if case .pane(let pane) = row.presentation,
+                let ownerPaneID = pane.drawerOwnerPaneID
+            {
+                drawerOwnerDestinationIDByRowID[row.id] = .pane(ownerPaneID)
+            }
 
             selectablePositionByRowID[row.id] = selectableRowIDs.count
             selectableRowIDs.append(row.id)
@@ -88,11 +100,22 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
             }
         }
 
+        let destinationRowIDs = selectableRowIDs.filter { destinationIDByRowID[$0] != nil }
         let orderedNumberedDestinationRowIDs = Array(
-            selectableRowIDs.lazy
-                .filter { destinationIDByRowID[$0] != nil }
-                .prefix(AppPolicies.SidebarNavigation.maximumNumberedDestinations)
+            destinationRowIDs.prefix(AppPolicies.SidebarNavigation.maximumNumberedDestinations)
         )
+        var previousDestinationByRowID: [RepoExplorerRowID: RepoExplorerRowID] = [:]
+        var nextDestinationByRowID: [RepoExplorerRowID: RepoExplorerRowID] = [:]
+        var previousDestination: RepoExplorerRowID?
+        for rowID in selectableRowIDs {
+            if let previousDestination { previousDestinationByRowID[rowID] = previousDestination }
+            if destinationIDByRowID[rowID] != nil { previousDestination = rowID }
+        }
+        var nextDestination: RepoExplorerRowID?
+        for rowID in selectableRowIDs.reversed() {
+            if let nextDestination { nextDestinationByRowID[rowID] = nextDestination }
+            if destinationIDByRowID[rowID] != nil { nextDestination = rowID }
+        }
         var digitByRowID: [RepoExplorerRowID: Int] = [:]
         digitByRowID.reserveCapacity(orderedNumberedDestinationRowIDs.count)
         for (index, rowID) in orderedNumberedDestinationRowIDs.enumerated() {
@@ -102,6 +125,7 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
         let initialSelectionRowID = firstDestinationRowID ?? firstGroupRowID
         self.selectableRowIDs = selectableRowIDs
         self.initialSelectionRowID = initialSelectionRowID
+        self.destinationRowIDs = destinationRowIDs
         self.numberedDestinationRowIDs = orderedNumberedDestinationRowIDs
         fingerprint = Self.makeFingerprint(
             FingerprintInput(
@@ -111,14 +135,18 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
                 parentRowIDByChildRowID: parentRowIDByChildRowID,
                 firstChildRowIDByGroupRowID: firstChildRowIDByGroupRowID,
                 digitByRowID: digitByRowID,
-                destinationIDByRowID: destinationIDByRowID
+                destinationIDByRowID: destinationIDByRowID,
+                drawerOwnerDestinationIDByRowID: drawerOwnerDestinationIDByRowID
             )
         )
         self.selectablePositionByRowID = selectablePositionByRowID
+        self.previousDestinationByRowID = previousDestinationByRowID
+        self.nextDestinationByRowID = nextDestinationByRowID
         self.parentRowIDByChildRowID = parentRowIDByChildRowID
         self.firstChildRowIDByGroupRowID = firstChildRowIDByGroupRowID
         self.digitByRowID = digitByRowID
         self.destinationIDByRowID = destinationIDByRowID
+        self.drawerOwnerDestinationIDByRowID = drawerOwnerDestinationIDByRowID
         self.rowIDsByDestinationID = rowIDsByDestinationID
     }
 
@@ -144,6 +172,14 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
             guard let candidatePosition = selectablePositionByRowID[$0] else { return false }
             return candidatePosition < position
         }
+    }
+
+    func previousDestinationRowID(before rowID: RepoExplorerRowID) -> RepoExplorerRowID? {
+        previousDestinationByRowID[rowID]
+    }
+
+    func nextDestinationRowID(after rowID: RepoExplorerRowID) -> RepoExplorerRowID? {
+        nextDestinationByRowID[rowID]
     }
 
     func nextNumberedDestinationRowID(after rowID: RepoExplorerRowID) -> RepoExplorerRowID? {
@@ -176,6 +212,10 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
         destinationIDByRowID[rowID]
     }
 
+    func drawerOwnerDestinationID(for rowID: RepoExplorerRowID) -> RepoExplorerNavigationDestinationID? {
+        drawerOwnerDestinationIDByRowID[rowID]
+    }
+
     func firstRowID(for destinationID: RepoExplorerNavigationDestinationID) -> RepoExplorerRowID? {
         rowIDsByDestinationID[destinationID]?.first
     }
@@ -192,6 +232,7 @@ struct RepoExplorerNavigationIndex: Equatable, Sendable {
         for rowID in input.selectableRowIDs {
             hasher.combine(rowID)
             hasher.combine(input.destinationIDByRowID[rowID])
+            hasher.combine(input.drawerOwnerDestinationIDByRowID[rowID])
             hasher.combine(input.parentRowIDByChildRowID[rowID])
             hasher.combine(input.firstChildRowIDByGroupRowID[rowID])
             hasher.combine(input.digitByRowID[rowID])

@@ -2,8 +2,8 @@
 # Fails when a debt ledger raises a count or adds a row compared with the same
 # ledger at the merge base of HEAD and the given base ref (default origin/main).
 # The lint runs cannot see history, so this check owns the only-decrease rule
-# for both ledgers: the Swift architecture lint's and BridgeWeb's. They share
-# one format, so the architecture lint tool compares both.
+# for every Swift architecture and BridgeWeb debt ledger. They share one
+# format, so the architecture lint tool compares each ledger.
 #
 # A merge base that has no copy of a ledger passes for that ledger: the change
 # that introduces it records its initial baseline. A merge base that cannot be computed
@@ -18,6 +18,8 @@ cd "$repository_root"
 base_ref="${1:-origin/main}"
 ledger_paths=(
   "Tools/AgentStudioArchitectureLint/architecture-debt-ledger.tsv"
+  "Tools/AgentStudioArchitectureLint/forbidden-test-wait-ledger.tsv"
+  "Tools/AgentStudioArchitectureLint/adhoc-continuation-wait-ledger.tsv"
   "BridgeWeb/architecture-debt-ledger.tsv"
 )
 
@@ -28,6 +30,8 @@ fi
 echo "check-ledger-ratchet: comparing ${ledger_paths[*]} with merge base ${merge_base} (${base_ref})"
 
 source "${repository_root}/scripts/swift-build-slot.sh"
+swift_build_slot_acquire build "debt ledger ratchet"
+trap swift_build_slot_release EXIT
 build_path="${repository_root}/${SWIFT_BUILD_DIR}/architecture-lint"
 swift build -c release --package-path Tools/AgentStudioArchitectureLint \
   --build-path "$build_path" \

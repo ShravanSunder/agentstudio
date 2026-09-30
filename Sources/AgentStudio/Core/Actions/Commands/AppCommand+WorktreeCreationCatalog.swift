@@ -22,6 +22,16 @@ extension AppCommand {
         )
     }
 
+    func newWorktreeFromBranchDefinition() -> AppCommandSpec {
+        worktreeDefinition(
+            label: "From Branch",
+            icon: .octicon(.gitBranch),
+            helpText: "Create a new worktree from a selected local branch",
+            surfacePolicy: .exposed([.commandBar]),
+            targetTypes: [.repo]
+        )
+    }
+
     func forkWorktreeDefinition() -> AppCommandSpec {
         worktreeDefinition(
             label: "Fork…",

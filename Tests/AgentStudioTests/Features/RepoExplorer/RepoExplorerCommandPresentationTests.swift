@@ -30,7 +30,7 @@ struct RepoExplorerCommandPresentationTests {
         #expect(!RepoExplorerRepositoryUpdatePresentation.isLoading(settled))
     }
 
-    @Test("surface-specific presentation requests keep grouping and sort choices distinct")
+    @Test("repository grouping and sort presentation requests stay distinct")
     func surfaceSpecificPresentationRequestsKeepChoicesDistinct() {
         let groupingRepo = RepoExplorerCommandPresentationRequest(
             command: .setReposGroupingRepo,
@@ -41,13 +41,6 @@ struct RepoExplorerCommandPresentationTests {
         )
         let groupingActivity = RepoExplorerCommandPresentationRequest(
             command: .setReposGroupingActivity,
-            surface: .inlineControl,
-            target: nil,
-            targetType: nil,
-            arguments: .noArguments
-        )
-        let groupingPane = RepoExplorerCommandPresentationRequest(
-            command: .setPanesGroupingRepo,
             surface: .inlineControl,
             target: nil,
             targetType: nil,
@@ -68,7 +61,7 @@ struct RepoExplorerCommandPresentationTests {
             arguments: .noArguments
         )
 
-        #expect(Set([groupingRepo, groupingActivity, groupingPane, sortName, sortRecent]).count == 5)
+        #expect(Set([groupingRepo, groupingActivity, sortName, sortRecent]).count == 4)
     }
 
     @Test("one visible worktree row produces one bounded request set")

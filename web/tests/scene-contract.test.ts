@@ -51,6 +51,6 @@ describe("scene contract", () => {
   it("accepts only the closed scene id set", () => {
     // Arrange / Act / Assert
     expect(sceneIds.every((sceneId) => isSceneId(sceneId))).toBe(true);
-    expect(isSceneId("chapter-review")).toBe(false);
+    expect(isSceneId("chapter-not-found")).toBe(false);
   });
 });

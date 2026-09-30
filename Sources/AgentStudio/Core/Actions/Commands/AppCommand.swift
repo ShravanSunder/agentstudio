@@ -58,6 +58,8 @@ package enum AppCommand: String, CaseIterable {
     case detachDrawerPane
     case addDrawerPane
     case toggleDrawer
+    case moveZoomDrawerToTerminal
+    case moveZoomDrawerToBridge
     case navigateDrawerPane
     case closeDrawerPane
     case openPaneLocationInBookmarkedEditor
@@ -74,6 +76,7 @@ package enum AppCommand: String, CaseIterable {
     case openWorktreeInPane
     case newWorktree
     case newWorktreeFromDefault
+    case newWorktreeFromBranch
     case forkWorktree
     // Management layer
     case toggleManagementLayer
@@ -98,11 +101,6 @@ package enum AppCommand: String, CaseIterable {
     case showPanesSidebar
     case setReposGroupingRepo
     case setReposGroupingActivity
-    case setPanesGroupingRepo
-    case setPanesGroupingTab
-    case setPanesGroupingActivity
-    case setPanesSubgroupNone
-    case setPanesSubgroupActivity
     case setReposSortFieldName
     case setReposSortFieldActivity
     case setPanesSortFieldName
@@ -111,6 +109,7 @@ package enum AppCommand: String, CaseIterable {
     case togglePanesSortDirection
     case toggleReposShowsPinned
     case togglePanesShowsPinned
+    case togglePanesShowsDrawers
     case setInboxGroupingTab
     case setInboxGroupingRepo
     case setInboxGroupingPane

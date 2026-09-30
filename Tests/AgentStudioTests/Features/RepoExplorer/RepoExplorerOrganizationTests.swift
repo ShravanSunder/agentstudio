@@ -5,7 +5,23 @@ import Testing
 
 @testable import AgentStudioRepoExplorer
 
+private let organizationReferenceDate = Date(timeIntervalSince1970: 1_788_804_000)
+private let organizationReferenceInstant = ContinuousClock.now
+
 extension RepoExplorerReadModelTests {
+    @MainActor
+    @Test("drawer visibility forwards to the sidebar memory owner")
+    func drawerVisibilityForwardsToSidebarMemory() {
+        let sidebarState = WorkspaceSidebarState()
+        let preferences = RepoExplorerSidebarPrefsAtom(sidebarState: sidebarState)
+        #expect(preferences.showsDrawerPanes)
+
+        preferences.setShowsDrawerPanes(false)
+
+        #expect(!preferences.showsDrawerPanes)
+        #expect(!sidebarState.showsDrawerPanes)
+    }
+
     @MainActor
     @Test("fixed Panes policy orders both pinned and ordinary panes by newest activity")
     func fixedPanesPolicyOrdersBothSectionsByNewestActivity() throws {
@@ -33,6 +49,7 @@ extension RepoExplorerReadModelTests {
                 sortField: preferences.sortField(for: .panes),
                 showsPinned: true,
                 referenceDate: now,
+                referenceInstant: organizationReferenceInstant,
                 calendar: organizationCalendar,
                 sortOrder: preferences.sortDirection(for: .panes),
                 query: "",
@@ -247,8 +264,8 @@ extension RepoExplorerReadModelTests {
         #expect(Set(paneIDs(in: panesMerged.sections[0], projection: panesMerged)) == [pinnedPaneID, ordinaryPaneID])
     }
 
-    @Test("Panes grouping changes placement while preserving every canonical tab-owned destination")
-    func paneGroupingMatrixPreservesDestinationsAndTabOwnership() throws {
+    @Test("legacy grouping inputs leave fixed Activity and canonical tab ownership intact")
+    func legacyGroupingInputsPreserveFixedActivityAndTabOwnership() throws {
         let now = Date(timeIntervalSince1970: 1_788_804_000)
         let repoID = UUIDv7.generate()
         let worktree = worktree(repoId: repoID, name: "main")
@@ -264,6 +281,7 @@ extension RepoExplorerReadModelTests {
                 surface: .panes,
                 groupingMode: groupingMode,
                 referenceDate: now,
+                referenceInstant: organizationReferenceInstant,
                 calendar: organizationCalendar,
                 query: "",
                 paneLocationsByWorktreeId: [
@@ -288,25 +306,14 @@ extension RepoExplorerReadModelTests {
             #expect(rows.allSatisfy { $0.membershipOwner == .tab })
         }
 
-        #expect(
-            projections[0].resolvedGroups.map(\.id)
-                == [
-                    "panes:panes:repo:unassociated",
-                    "panes:panes:repo:\(repoID.uuidString)",
-                ]
-        )
-        #expect(
-            projections[1].resolvedGroups.map(\.id)
-                == [
-                    "panes:panes:tab:\(earlierTabID.uuidString)",
-                    "panes:panes:tab:\(laterTabID.uuidString)",
-                ]
-        )
-        #expect(projections[2].resolvedGroups.map(\.repoTitle) == ["Active", "No activity"])
+        for projection in projections {
+            #expect(projection.resolvedGroups.map(\.repoTitle) == ["Active", "No activity"])
+            #expect(projection.sections.map(\.kind) == [.panes])
+        }
     }
 
-    @Test("activity subgroup rows are scoped to their group and main activity grouping suppresses them")
-    func activitySubgroupRowsAreScopedAndSuppressedForMainActivityGrouping() throws {
+    @Test("fixed Activity emits bucket headers without nested subgroup rows")
+    func fixedActivityUsesBucketHeadersWithoutSubgroups() throws {
         let now = Date(timeIntervalSince1970: 1_788_804_000)
         let repoID = UUIDv7.generate()
         let worktree = worktree(repoId: repoID, name: "main")
@@ -321,6 +328,7 @@ extension RepoExplorerReadModelTests {
             groupingMode: .repo,
             subgroupMode: .activity,
             referenceDate: now,
+            referenceInstant: organizationReferenceInstant,
             calendar: organizationCalendar,
             query: "",
             paneLocationsByWorktreeId: [
@@ -335,78 +343,34 @@ extension RepoExplorerReadModelTests {
             quietPaneID: paneFacts(title: "Quiet"),
         ]
 
-        let subgroupProjection = RepoExplorerProjection.project(base, paneRowFactsByPaneId: facts)
-        let subgroupIndex = RepoExplorerRowIndex(
-            projection: subgroupProjection,
-            collapsedGroupIds: [],
-            isFiltering: false
-        )
-        let groupID = try #require(subgroupProjection.resolvedGroups.first?.id)
-        #expect(
-            subgroupIndex.entries.compactMap { entry -> RepoExplorerRowID? in
-                if case .activitySubgroup = entry { return entry.id }
-                return nil
-            } == [
-                .activitySubgroup(groupID: groupID, bucket: .active),
-                .activitySubgroup(groupID: groupID, bucket: .noActivity),
-            ]
-        )
-
-        let materialization = RepoExplorerMaterializationSnapshot.build(
-            rowIndex: subgroupIndex,
-            inputs: RepoExplorerMaterializationInputs(
-                snapshot: base, projection: subgroupProjection,
-                branchStatusByWorktreeID: [:], branchNameByWorktreeID: [:],
-                bridgeCommandResolutionByWorktreeID: [:], paneRowFactsByPaneID: facts
-            )
-        )
-        let subgroupRows = materialization.rows.filter {
-            if case .activitySubgroup = $0.presentation { return true }
-            return false
-        }
-        let firstSubgroup = try #require(subgroupRows.first)
-        let laterSubgroup = try #require(subgroupRows.last)
-        let headerBottomPadding =
-            AppStyles.Shell.Sidebar.groupRowVerticalPadding
-            + AppStyles.Shell.Sidebar.nativeGroupHeaderBottomPadding
-        let subgroupBottomPadding =
-            AppStyles.Shell.Sidebar.nativeItemSpacing
-            - AppStyles.Shell.Sidebar.nativeRowVerticalInset
-        #expect(
-            firstSubgroup.layout.metrics.fallbackHeight
-                == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
-                + AppStyles.Shell.Sidebar.nativeItemSpacing - headerBottomPadding
-                + subgroupBottomPadding + AppStyles.General.Spacing.tight
-        )
-        #expect(
-            laterSubgroup.layout.metrics.fallbackHeight
-                == AppStyles.Shell.Sidebar.nativePrimaryTextLineHeight
-                + AppStyles.Shell.Sidebar.nativeGroupSpacing - AppStyles.Shell.Sidebar.nativeRowVerticalInset
-                + subgroupBottomPadding + AppStyles.General.Spacing.tight
-        )
-        for row in materialization.rows where row.layout.rowClass == .pane {
-            #expect(row.layout.metrics.primaryLineHeight >= AppStyles.General.Button.compact)
-        }
-
-        let mainActivityProjection = RepoExplorerProjection.project(
-            base.replacing(groupingMode: .activity),
-            paneRowFactsByPaneId: facts
-        )
-        let mainActivityIndex = RepoExplorerRowIndex(
-            projection: mainActivityProjection,
+        let projection = RepoExplorerProjection.project(base, paneRowFactsByPaneId: facts)
+        #expect(projection.resolvedGroups.map(\.repoTitle) == ["Active", "No activity"])
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
             collapsedGroupIds: [],
             isFiltering: false
         )
         #expect(
-            mainActivityIndex.entries.allSatisfy { entry in
+            rowIndex.entries.allSatisfy { entry in
                 if case .activitySubgroup = entry { return false }
                 return true
             }
         )
+        let materialization = RepoExplorerMaterializationSnapshot.build(
+            rowIndex: rowIndex,
+            inputs: RepoExplorerMaterializationInputs(
+                snapshot: base, projection: projection,
+                branchStatusByWorktreeID: [:], branchNameByWorktreeID: [:],
+                bridgeCommandResolutionByWorktreeID: [:], paneRowFactsByPaneID: facts
+            )
+        )
+        for row in materialization.rows where row.layout.rowClass == .pane {
+            #expect(row.layout.metrics.primaryLineHeight >= AppStyles.General.Button.compact)
+        }
     }
 
-    @Test("sort field and direction reorder leaves only and keep unknown activity last")
-    func sortMatrixReordersLeavesOnlyAndKeepsUnknownActivityLast() throws {
+    @Test("legacy sort inputs leave fixed Activity bucket and leaf order unchanged")
+    func sortInputsDoNotReorderFixedActivity() {
         let now = Date(timeIntervalSince1970: 1_788_804_000)
         let repoID = UUIDv7.generate()
         let worktree = worktree(repoId: repoID, name: "main")
@@ -421,6 +385,7 @@ extension RepoExplorerReadModelTests {
             surface: .panes,
             groupingMode: .tab,
             referenceDate: now,
+            referenceInstant: organizationReferenceInstant,
             calendar: organizationCalendar,
             query: "",
             paneLocationsByWorktreeId: [
@@ -436,27 +401,23 @@ extension RepoExplorerReadModelTests {
             newerPaneID: paneFacts(title: "Beta", activityAt: now.addingTimeInterval(-300)),
             unknownPaneID: paneFacts(title: "Gamma"),
         ]
-        let cases: [(SidebarSortField, RepoExplorerSortOrder, [UUID])] = [
-            (.name, .ascending, [olderPaneID, newerPaneID, unknownPaneID]),
-            (.name, .descending, [unknownPaneID, newerPaneID, olderPaneID]),
-            (.activity, .ascending, [olderPaneID, newerPaneID, unknownPaneID]),
-            (.activity, .descending, [newerPaneID, olderPaneID, unknownPaneID]),
+        let cases: [(SidebarSortField, RepoExplorerSortOrder)] = [
+            (.name, .ascending),
+            (.name, .descending),
+            (.activity, .ascending),
+            (.activity, .descending),
         ]
 
-        var expectedGroupIDs: [String]?
-        for (sortField, sortOrder, expectedPaneIDs) in cases {
+        for (sortField, sortOrder) in cases {
             let projection = RepoExplorerProjection.project(
                 base.replacing(sortField: sortField, sortOrder: sortOrder),
                 paneRowFactsByPaneId: facts
             )
-            let groupIDs = projection.resolvedGroups.map(\.id)
-            if let expectedGroupIDs {
-                #expect(groupIDs == expectedGroupIDs)
-            } else {
-                expectedGroupIDs = groupIDs
+            #expect(projection.resolvedGroups.map(\.repoTitle) == ["Just Now", "Last hour", "No activity"])
+            let paneIDs = projection.resolvedGroups.flatMap { group in
+                projection.paneRowsByGroupId[group.id, default: []].map(\.destination.paneId)
             }
-            let groupID = try #require(groupIDs.first)
-            #expect(projection.paneRowsByGroupId[groupID]?.map { $0.destination.paneId } == expectedPaneIDs)
+            #expect(paneIDs == [newerPaneID, olderPaneID, unknownPaneID])
         }
     }
 
@@ -506,10 +467,10 @@ extension RepoExplorerReadModelTests {
     }
 
     @Test(
-        "activity headings require multiple non-empty buckets within a parent after filtering",
+        "Panes uses bucket groups while Repos has no nested activity headings",
         arguments: [SidebarSurface.repos, .panes], [false, true]
     )
-    func activityHeadingsRequireMultipleBuckets(surface: SidebarSurface, hasDifferentActivity: Bool) throws {
+    func activityBucketsStayAtSectionLevel(surface: SidebarSurface, hasDifferentActivity: Bool) throws {
         let now = Date(timeIntervalSince1970: 1_788_804_000)
         let repoID = UUIDv7.generate()
         let firstWorktree = worktree(repoId: repoID, name: "uniquealpha")
@@ -532,7 +493,9 @@ extension RepoExplorerReadModelTests {
                         repos: [repository],
                         repoEnrichmentByRepoId: [repoID: resolvedRemote(repoId: repoID, displayName: repository.name)],
                         surface: surface, groupingMode: groupingMode, subgroupMode: .activity,
-                        referenceDate: now, calendar: organizationCalendar, query: query,
+                        referenceDate: now,
+                        referenceInstant: surface == .panes ? organizationReferenceInstant : nil,
+                        calendar: organizationCalendar, query: query,
                         paneLocationsByWorktreeId: [
                             firstWorktree.id: [paneLocation(paneID: firstPaneID, tabID: tabID, paneIndex: 0)],
                             secondWorktree.id: [paneLocation(paneID: secondPaneID, tabID: tabID, paneIndex: 1)],
@@ -547,9 +510,13 @@ extension RepoExplorerReadModelTests {
                     if case .activitySubgroup(_, let bucket) = entry { return bucket }
                     return nil
                 }
-                let expected: [RepoExplorerActivityBucket] =
-                    surface == .panes && hasDifferentActivity && query.isEmpty ? [.active, .noActivity] : []
-                #expect(headings == expected)
+                #expect(headings.isEmpty)
+                if surface == .panes {
+                    let expectedTitles =
+                        hasDifferentActivity && query.isEmpty
+                        ? ["Active", "No activity"] : ["Active"]
+                    #expect(projection.resolvedGroups.map(\.repoTitle) == expectedTitles)
+                }
                 let leafCount = index.entries.filter { entry in
                     switch entry {
                     case .resolvedPaneRow, .resolvedWorktreeRow: true
@@ -585,6 +552,15 @@ extension RepoExplorerReadModelTests {
         RepoExplorerPaneRowFacts(
             terminalTitle: title,
             activityAt: activityAt,
+            paneActivityTime: activityAt.map {
+                PaneActivityTime(
+                    orderingInstant: organizationReferenceInstant.advanced(
+                        by: .seconds(Int($0.timeIntervalSince(organizationReferenceDate)))
+                    ),
+                    wallTime: $0,
+                    source: .terminal
+                )
+            },
             isPinned: isPinned,
             latestMessageText: nil,
             recencyReferenceDate: recencyReferenceDate,
