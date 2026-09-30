@@ -1,6 +1,6 @@
 # Enable pane agents: how it is built
 
-Date: 2026-09-30. **Revision 14** (owner: "as little work on the main actor as possible"): "MainActor and atom boundaries" is redesigned from the repo's owning docs:
+Date: 2026-09-30. **Revision 15** (provider traces, gap 1 closed): the provider table is re-based on Claude Code 2.1.286 and Codex 0.159.2. A PermissionRequest for AskUserQuestion opens no approval prompt. Elicitation has no `elicitation_id`, so correlation by server and order is the normal path. The StopFailure summary is its `error`. **Revision 14** (owner: "as little work on the main actor as possible"): "MainActor and atom boundaries" is redesigned from the repo's owning docs:
 - a complete list of main-actor work;
 - a what-runs-where table;
 - one publication lane (off-main equal-check, a latest-value mailbox, one awaited sink call per batch, following `PaneActivityClock`);
@@ -288,16 +288,16 @@ projections. **Installed** means Agent Studio wires it today; **PR B** means
 PR B adds it. A row counts as supported only after a recorded trace from the
 installed provider version (Spec R6).
 
-| Status input | Claude Code 2.1.283 | Codex CLI 0.157.1 |
+| Status input | Claude Code 2.1.286 (traced 2026-09-30) | Codex CLI 0.159.2 |
 | --- | --- | --- |
 | working(active) | `UserPromptSubmit`, `PreToolUse`, `SubagentStart/Stop` (installed) | `PreToolUse`, `SubagentStart/Stop` (installed) |
 | idle(done) | `Stop` (installed). It does **not** run when the person interrupts. | `Stop` (installed) |
 | idle(interrupted) | no hook reports it; see the silent-case rule below | `Interrupt` → turnAbort (installed) |
 | idle(ended) | `SessionEnd` (installed) | `SessionEnd` (installed) |
-| failed(summary) | **`StopFailure`** (PR B), with its documented error category as the summary | not in hooks (app-server only), so it stays unknown |
+| failed(summary) | **`StopFailure`** (PR B). The summary is its `error` category; the trace shows `"error":"authentication_failed"` | not in hooks (app-server only), so it stays unknown |
 | provider prompt, approval (S13) | `PermissionRequest` (installed; report-only) opens it. It carries `tool_name`/`tool_input` but no `tool_use_id`, so no completion can be proved to be its own. It resolves at the turn boundary (`Stop`, `StopFailure`, `UserPromptSubmit`) or session end, whether you allowed or denied it in the terminal | `PermissionRequest` (installed; report-only) opens it. The same rule: it resolves at a turn boundary (`Stop`, `UserPromptSubmit`) or session end |
 | provider prompt, question (S13) | **`PreToolUse` with `tool_name == "AskUserQuestion"`** (PR B decodes `tool_name`, `tool_use_id`, question and choices) opens it; that tool's `PostToolUse` resolves it | not in hooks (app-server `requestUserInput` only) |
-| provider prompt, MCP form (S13) | **`Elicitation`** opens it; **`ElicitationResult`** resolves it, correlated by `elicitation_id` when present, otherwise by server name and order (PR B; payload re-checked against a recorded trace before wiring) | none |
+| provider prompt, MCP form (S13) | **`Elicitation`** opens it (`mcp_server_name`, `message`, `mode`, `requested_schema`), and **`ElicitationResult`** resolves it (`action`, `content`). The 2.1.286 trace carries **no `elicitation_id`** on either event, so it's correlated by MCP server name and order: the oldest open elicitation from the same server. That's the normal path, not a fallback | none |
 | `Notification` | not a status input. Its `agent_needs_input` type covers only background agent-view sessions and one setup question, not a foreground blocked agent. | none |
 | agent ask | the session's own open `ask` from `agentstudio` (PR B) | same |
 
@@ -548,7 +548,7 @@ struct SessionStatusState: Sendable, Equatable {
 | sessionStart | new state `.bound(g)`; the replaced session gets `.replaced`, its prompts end | recomputed for both |
 | UserPromptSubmit | `turn = .working`; a turn boundary: resolves every open prompt | WORKING unless NEEDS YOU |
 | PreToolUse, SubagentStart/Stop | `turn = .working`; resolves **no** prompt (a parallel tool is not an answer) | WORKING unless NEEDS YOU |
-| PermissionRequest | opens an approval prompt, keyed `permission(sequence)`. It has no `tool_use_id`, and no reliable causal link to one call exists, so it is never tied to a tool call. It resolves only at a turn boundary or session end. | NEEDS YOU(approval) |
+| PermissionRequest | if `tool_name == "AskUserQuestion"`, it opens **no** prompt: the question prompt from that tool's `PreToolUse` already covers the same interaction. The 2.1.286 trace shows a PermissionRequest for AskUserQuestion, which would otherwise leave NEEDS YOU(approval) standing after the question was answered, until the turn ended. Otherwise it opens an approval prompt, keyed `permission(sequence)`. It has no `tool_use_id`, and no reliable causal link to one call exists, so it is never tied to a tool call. It resolves only at a turn boundary or session end. | NEEDS YOU(approval) |
 | AskUserQuestion `PreToolUse`, Elicitation | opens a question prompt keyed by `toolCall(id)` or `elicitation(id)` | NEEDS YOU(question) |
 | PostToolUse / PostToolUseFailure | resolves the `toolCall(tool_use_id)` prompt (an AskUserQuestion) with this id, if open. It never resolves a permission prompt. | recomputed |
 | ElicitationResult | resolves `elicitation(elicitation_id)`; with no id, the oldest open elicitation from the same MCP server | recomputed |
@@ -1059,7 +1059,11 @@ GRDB migrations, additive, never a rebuild):
 
 ## Gaps and open items
 
-1. **Provider signals:** settled in "Provider signals for the status tree". Before wiring, a recorded trace from each installed provider version confirms: the `Elicitation`/`ElicitationResult` payload and `elicitation_id`; that `PermissionRequest` follows its `PreToolUse`; that `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID` reach commands the model runs; and whether either provider re-invokes a hook on its own ("Writers and write numbers"). If a variable is missing, that provider's writes are accepted as writer `pane`, and asks from it are refused `bindingRequired` until it is qualified.
+1. **Provider signals: traced 2026-09-30** (`tmp/workspace-control/prb-provider-traces/2026-09-30-report.md`, with S0 and S0b raw payloads).
+   - **Claude Code 2.1.286:** every row in the provider table was traced: SessionStart, UserPromptSubmit, PreToolUse (including AskUserQuestion's `questions[]`), PostToolUse (with the same `tool_use_id` and `answers`), PostToolUseFailure, PermissionRequest (after its PreToolUse, with no `tool_use_id`), Stop, StopFailure, SessionEnd, Elicitation and ElicitationResult (no `elicitation_id`).
+   - `CLAUDE_CODE_SESSION_ID` reaches commands the model runs.
+   - **Codex CLI 0.159.2:** `CODEX_THREAD_ID` reaches commands. Hook payloads weren't re-traced: project hooks are gated by directory trust in the owner's config, and we don't touch that. PR B adds no Codex hooks, and Codex occurrence ids are derived deterministically, so a re-invoked hook replays safely.
+   - Re-invocation by either provider wasn't observed.
 2. **The shared IPC-server change** (one waiter beside the reader, writes off
    the cooperative pool, bounded output; "Connections") touches every
    connection. It needs its own focused test set, and a note
