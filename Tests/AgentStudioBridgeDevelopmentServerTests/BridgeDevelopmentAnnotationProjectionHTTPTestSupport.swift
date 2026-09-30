@@ -181,7 +181,8 @@ private func openHTTPAnnotationProjectionContent(
                 client: client,
                 connection: connection,
                 request: strictRequest,
-                receivedThroughContentSequence: frame.header.contentSequence
+                receivedThroughContentSequence: frame.header.contentSequence,
+                dataFrameRecorder: nil
             )
         case .data:
             pageData.append(frame.payload)
@@ -189,7 +190,8 @@ private func openHTTPAnnotationProjectionContent(
                 client: client,
                 connection: connection,
                 request: strictRequest,
-                receivedThroughContentSequence: frame.header.contentSequence
+                receivedThroughContentSequence: frame.header.contentSequence,
+                dataFrameRecorder: recorder
             )
         case .end(let end):
             guard end.endOfSource,
@@ -212,7 +214,8 @@ private func acknowledgeHTTPContentThrough(
     client: some TestClientProtocol,
     connection: HTTPProductConnection,
     request: BridgeProductAnnotationProjectionContentRequest,
-    receivedThroughContentSequence: Int
+    receivedThroughContentSequence: Int,
+    dataFrameRecorder: HTTPContentFrameRecorder?
 ) async throws {
     let capabilityHeader = try #require(
         HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
@@ -238,6 +241,23 @@ private func acknowledgeHTTPContentThrough(
         ],
         body: ByteBuffer(data: body)
     )
+    if response.status.code == 404,
+        let dataFrameRecorder,
+        await dataFrameRecorder.hasReceivedTerminalFrame(),
+        let refusal = try? BridgeProductStrictJSON.decode(
+            BridgeProductContentAcknowledgementRefusedResponse.self,
+            from: Data(response.body.readableBytesView)
+        ),
+        refusal.reason == .unknownRead,
+        refusal.contentRequestId == request.contentRequestID,
+        refusal.leaseId == request.leaseID,
+        refusal.paneSessionId == request.paneSessionID,
+        refusal.receivedThroughContentSequence == receivedThroughContentSequence,
+        refusal.wireVersion == request.wireVersion,
+        refusal.workerInstanceId == request.workerInstanceID
+    {
+        return
+    }
     guard response.status == .noContent else {
         throw unexpectedHTTPAnnotationResponse(
             response,
@@ -324,6 +344,15 @@ actor HTTPContentFrameRecorder: ResponseBodyWriter {
             }
             await withCheckedContinuation { continuation in
                 nextFrameWaiters.append(continuation)
+            }
+        }
+    }
+
+    func hasReceivedTerminalFrame() -> Bool {
+        frames.contains { frame in
+            switch frame.header {
+            case .end, .error, .reset: true
+            case .accepted, .data: false
             }
         }
     }
