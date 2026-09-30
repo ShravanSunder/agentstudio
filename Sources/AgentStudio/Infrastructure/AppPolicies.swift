@@ -311,6 +311,13 @@ package enum AppPolicies {
         /// once. Matches this file's other small per-turn bounds (compare
         /// `NonterminalContentMount.maximumMountsPerMainActorTurn`).
         package static let maximumConcurrentIdentityObservations: Int = 4
+        /// `ColdStartSlotGate`'s capacity (Program Design item 4): how many
+        /// cold starts may be in flight at once, from the moment a cold
+        /// pane's surface mounts until its startup window settles. Bounds
+        /// actual in-flight starts, not just native mounts — a large
+        /// restored session never spawns unbounded shells at once. Further
+        /// cold panes wait in the existing activation order.
+        package static let maximumConcurrentColdStarts: Int = 4
     }
 
     package enum TerminalNavigation {
