@@ -68,6 +68,47 @@ struct TerminalRestoreRuntimeTests {
         #expect(runtime.zmxAttachDiagnostics(for: pane) == nil)
     }
 
+    @Test("warm, unverified and no computed kind all reuse today's plain attach command")
+    func warmUnverifiedAndNoKindReuseTodaysAttachCommand() throws {
+        let storedText = "as-warm-unverified-passthrough"
+        let storedSessionID = try makeRestoredZmxSessionID(storedText)
+        let pane = makeTerminalPane(sessionID: storedSessionID)
+        let runtime = TerminalRestoreRuntime(sessionConfiguration: enabledConfiguration)
+        let plainAttachCommand = try #require(runtime.zmxAttachCommand(for: pane))
+
+        #expect(runtime.startupCommand(for: pane, kind: nil) == plainAttachCommand)
+        #expect(
+            runtime.startupCommand(for: pane, kind: .warm(identity: Data([1, 2, 3])))
+                == plainAttachCommand
+        )
+        #expect(
+            runtime.startupCommand(for: pane, kind: .unverified(.sessionUnresponsive))
+                == plainAttachCommand
+        )
+    }
+
+    @Test("a cold kind builds the cold-restore command, not the plain attach command")
+    func coldKindBuildsColdRestoreCommand() throws {
+        let storedText = "as-cold-startup-command"
+        let storedSessionID = try makeRestoredZmxSessionID(storedText)
+        let pane = makeTerminalPane(sessionID: storedSessionID)
+        let runtime = TerminalRestoreRuntime(sessionConfiguration: enabledConfiguration)
+        let plan = TerminalColdRestorePlanBuilder.buildPlan(
+            pane: pane,
+            sessionID: storedSessionID,
+            zmxExecutablePath: try #require(enabledConfiguration.zmxPath),
+            zmxDirectoryPath: enabledConfiguration.zmxDir,
+            loginShellPath: "/bin/zsh",
+            repositoryMainFolder: nil
+        )
+
+        let coldCommand = try #require(runtime.startupCommand(for: pane, kind: .cold(plan)))
+
+        #expect(coldCommand == ZmxBackend.buildColdRestoreCommand(plan))
+        #expect(coldCommand.contains(storedText))
+        #expect(coldCommand != runtime.zmxAttachCommand(for: pane))
+    }
+
     @Test("disabled session restoration does not build an attach command")
     func disabledSessionRestorationDoesNotBuildAttachCommand() {
         let pane = makeTerminalPane(sessionID: .generateUUIDv7())

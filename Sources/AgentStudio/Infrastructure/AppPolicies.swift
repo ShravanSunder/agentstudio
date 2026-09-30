@@ -295,6 +295,17 @@ package enum AppPolicies {
         package static let restoreMaximumConcurrentAdmissions: Int = 1
     }
 
+    /// Session-restore-after-reboot policy (R1: SR1-SR6b). S3's start-slot and
+    /// observer deadlines are added by that slice, alongside these.
+    package enum Restore {
+        /// Bounds the one `zmx list` inventory probe `mount()` runs, off-main,
+        /// before the terminal lane activates (SR1, SR4; Program Design item
+        /// 1). The probe never retries: a probe that exceeds this becomes
+        /// `.unavailable(.timedOut)`, which makes every pane `.unverified`
+        /// rather than delaying the first window.
+        package static let inventoryProbeDeadline: Duration = .seconds(2)
+    }
+
     package enum TerminalNavigation {
         package static let pageFraction: Double = 0.9
         package static let smallStepFraction: Double = 0.33

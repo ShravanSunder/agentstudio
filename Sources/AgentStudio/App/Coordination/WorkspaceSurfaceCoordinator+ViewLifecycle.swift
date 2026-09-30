@@ -133,7 +133,8 @@ extension WorkspaceSurfaceCoordinator {
         worktree: Worktree,
         repo: Repo,
         initialFrame: NSRect? = nil,
-        treatAsRestoredSessionStart: Bool = false
+        treatAsRestoredSessionStart: Bool = false,
+        restoreKind: TerminalRestoreKind? = nil
     ) -> TerminalPaneMountView? {
         guard isCurrentTerminalPane(pane) else { return nil }
         if let existing = viewRegistry.terminalView(for: pane.id), existing.surfaceId != nil { return existing }
@@ -155,7 +156,8 @@ extension WorkspaceSurfaceCoordinator {
                 for: pane,
                 shellCommand: shellCommand,
                 treatAsRestoredSessionStart: treatAsRestoredSessionStart,
-                context: .worktree
+                context: .worktree,
+                restoreKind: restoreKind
             )
         else { return nil }
 
@@ -249,7 +251,8 @@ extension WorkspaceSurfaceCoordinator {
         for pane: Pane,
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false,
-        authority: TerminalSurfaceCreationAuthority
+        authority: TerminalSurfaceCreationAuthority,
+        restoreKind: TerminalRestoreKind? = nil
     ) -> TopologyIndependentTerminalMountResult {
         guard isCurrentTerminalPane(pane) else { return .failed(.startupPreparationFailed) }
         if let existing = viewRegistry.terminalView(for: pane.id), let surfaceID = existing.surfaceId {
@@ -273,7 +276,8 @@ extension WorkspaceSurfaceCoordinator {
                 for: pane,
                 shellCommand: shellCommand,
                 treatAsRestoredSessionStart: treatAsRestoredSessionStart,
-                context: .floating(launchDirectory: launchDirectory)
+                context: .floating(launchDirectory: launchDirectory),
+                restoreKind: restoreKind
             )
         else { return .failed(.startupPreparationFailed) }
 
@@ -395,7 +399,8 @@ extension WorkspaceSurfaceCoordinator {
         for pane: Pane,
         shellCommand: String,
         treatAsRestoredSessionStart: Bool,
-        context: TerminalSurfaceStartupContext
+        context: TerminalSurfaceStartupContext,
+        restoreKind: TerminalRestoreKind? = nil
     ) -> TerminalSurfaceStartupPreparation? {
         let paneIPCEnvironment = ipcLifecycle.environment(pane.id, store.identityAtom.workspaceId)
         switch pane.provider {
@@ -406,7 +411,7 @@ extension WorkspaceSurfaceCoordinator {
                     "\(context.diagnosticsTracePrefix) zmxDiagnostics pane=\(diagnostics.paneId) session=\(diagnostics.sessionId) socketPathLen=\(diagnostics.socketPathLength) socketPathHeadroom=\(diagnostics.socketPathHeadroom) maxSocketPathLen=\(diagnostics.maxSocketPathLength)"
                 )
             }
-            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane) {
+            if let attachCommand = terminalRestoreRuntime.startupCommand(for: pane, kind: restoreKind) {
                 traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
                 // Prevent nested Agent Studio launches from inheriting an outer zmx session.
                 var environmentVariables = paneIPCEnvironment

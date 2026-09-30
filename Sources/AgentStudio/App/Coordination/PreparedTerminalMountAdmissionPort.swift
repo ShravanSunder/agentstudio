@@ -53,6 +53,7 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
     private var currentVisibleQueuedSnapshot: TerminalVisibleQueuedSnapshot
     private var claimTrackingByPaneID: [PaneId: PaneClaimTracking] = [:]
     private var issuedClaimIDs: Set<UUID> = []
+    private var restoreKindsByPaneID: [PaneId: TerminalRestoreKind] = [:]
 
     init(
         generation: WorkspaceContentMountGeneration,
@@ -161,6 +162,10 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
     }
 
     // MARK: - TerminalActivationAdmissionPort
+
+    func installRestoreKinds(_ restoreKindsByPaneID: [PaneId: TerminalRestoreKind]) {
+        self.restoreKindsByPaneID = restoreKindsByPaneID
+    }
 
     @discardableResult
     func recordCurrentVisibleQueuedTerminals(
@@ -277,7 +282,12 @@ final class PreparedTerminalMountAdmissionPort: TerminalActivationAdmissionPort 
         frame: NSRect?,
         proposal: TerminalAdmissionProposal
     ) -> TerminalAdmissionClaimOutcome {
-        let admission = TerminalActivationAdmission(generation: generation, descriptor: descriptor, attempt: attempt)
+        let admission = TerminalActivationAdmission(
+            generation: generation,
+            descriptor: descriptor,
+            attempt: attempt,
+            restoreKind: restoreKindsByPaneID[descriptor.paneID]
+        )
         let claimID = UUIDv7.generate()
         issuedClaimIDs.insert(claimID)
         claimTrackingByPaneID[proposal.paneID] = .claimed(claimID: claimID, admission: admission, frame: frame)

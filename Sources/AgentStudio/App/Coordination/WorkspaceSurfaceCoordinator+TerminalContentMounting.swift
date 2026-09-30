@@ -116,7 +116,8 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             for: pane,
             initialFrame: initialFrame,
             treatAsRestoredSessionStart: true,
-            authority: authority
+            authority: authority,
+            restoreKind: admission.restoreKind
         ) {
         case .mounted(let mountedContent):
             return .ready(surfaceID: mountedContent.surfaceID)

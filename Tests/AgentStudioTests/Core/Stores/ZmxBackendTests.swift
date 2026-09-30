@@ -576,6 +576,171 @@ final class ZmxBackendTests {
         #expect(call.environment?["ZMX_DIR"] == "/tmp/zmx-test")
     }
 
+    // MARK: - discoverSessionInventory (SR1, SR2; Program Design item 1)
+
+    func test_discoverSessionInventory_parsesSuccessfulOutput() async {
+        // Arrange
+        let sessionID = restoredSessionID("as-inventory-success")
+        executor.enqueueSuccess("name=\(sessionID.rawValue)\tpid=100\tclients=1\tcreated=1\n")
+
+        // Act
+        let inventory = await backend.discoverSessionInventory()
+
+        // Assert
+        #expect(inventory == .complete([sessionID: .alive(wrapperPid: 100)]))
+    }
+
+    func test_discoverSessionInventory_nonzeroExitBecomesUnavailable() async {
+        // Arrange
+        executor.enqueueFailure("boom")
+
+        // Act
+        let inventory = await backend.discoverSessionInventory()
+
+        // Assert
+        #expect(inventory == .unavailable(.exitedNonZero(1)))
+    }
+
+    func test_discoverSessionInventory_timeoutIsDistinguishedFromEveryOtherFailure() async {
+        // Arrange — ProcessError is the production timeout signal
+        // (DefaultProcessExecutor.execute), never a generic thrown error.
+        executor.enqueueThrow(ProcessError.timedOut(command: "zmx", seconds: 2))
+
+        // Act
+        let inventory = await backend.discoverSessionInventory()
+
+        // Assert
+        #expect(inventory == .unavailable(.timedOut))
+    }
+
+    func test_discoverSessionInventory_neverRetries() async {
+        // Arrange — a single queued failure; a retrying implementation would
+        // exhaust the queue and record MockExecutorError.noResponseQueued.
+        executor.enqueueFailure("boom")
+
+        // Act
+        _ = await backend.discoverSessionInventory()
+
+        // Assert — exactly one zmx list call, no retry attempts
+        #expect(executor.calls.count == 1)
+    }
+
+    // MARK: - buildColdRestoreCommand (SR3, SR6a, SR10, SR11; Program Design item 2)
+
+    func test_buildColdRestoreCommand_quotesEachArgumentAsOneWord() {
+        // Arrange — a non-default zmx and shell path, and a folder
+        // containing both a space and a single quote, so a naive
+        // concatenation would break. `shellEscape` is independently proven
+        // correct above (test_shellEscape_*); this asserts
+        // `buildColdRestoreCommand` applies it once to each field, using
+        // that same function as the oracle rather than re-deriving
+        // quoting rules in this test.
+        let folderWithSpaceAndQuote = "/Users/test user/it's a repo"
+        let plan = makeColdRestorePlan(
+            zmxExecutablePath: "/opt/homebrew/bin/zmx",
+            sessionIDText: "as-cold-quoting-test",
+            loginShellPath: "/opt/homebrew/bin/zsh",
+            folderCandidates: [URL(fileURLWithPath: folderWithSpaceAndQuote)],
+            noticeLines: ["Restored after restart"]
+        )
+
+        // Act
+        let command = ZmxBackend.buildColdRestoreCommand(plan)
+
+        // Assert — the outer wrapper: zmx attach <id> /bin/sh -c '<script>'
+        let expectedPrefix =
+            "\(ZmxBackend.shellEscape("/opt/homebrew/bin/zmx")) attach "
+            + "\(ZmxBackend.shellEscape("as-cold-quoting-test")) /bin/sh -c "
+        #expect(command.hasPrefix(expectedPrefix))
+        // The folder, quoted as one `cd` argument inside the script.
+        let script = String(command.dropFirst(expectedPrefix.count))
+        #expect(script.contains("cd \(ZmxBackend.shellEscape(folderWithSpaceAndQuote)) 2>/dev/null"))
+        // The non-default login shell, quoted as one argument to `exec`.
+        #expect(script.contains("exec \(ZmxBackend.shellEscape("/opt/homebrew/bin/zsh")) -i -l"))
+    }
+
+    func test_buildColdRestoreCommand_fallsBackThroughFolderCandidatesInOrder() {
+        // Arrange
+        let plan = makeColdRestorePlan(
+            folderCandidates: [
+                URL(fileURLWithPath: "/tmp/saved"),
+                URL(fileURLWithPath: "/tmp/repo-main"),
+                URL(fileURLWithPath: "/tmp/home"),
+            ],
+            noticeLines: [
+                "Restored after restart",
+                "Restored after restart (saved folder missing; using the repository's main folder)",
+                "Restored after restart (saved and repository folders missing; using the home folder)",
+            ]
+        )
+
+        // Act
+        let script = ZmxBackend.buildColdRestoreCommand(plan)
+
+        // Assert — saved first (if), then repo main (elif), then home is the
+        // unconditional fallback (else), each printing its own notice line.
+        #expect(script.contains("if cd '/tmp/saved' 2>/dev/null; then"))
+        #expect(script.contains("elif cd '/tmp/repo-main' 2>/dev/null; then"))
+        #expect(script.contains("elif cd '/tmp/home' 2>/dev/null; then"))
+        #expect(script.contains("else"))
+        #expect(script.contains("Restored after restart (saved folder missing"))
+        #expect(script.contains("Restored after restart (saved and repository folders missing"))
+    }
+
+    func test_buildColdRestoreCommand_exportsTheMarkerBeforeTheFinalExec() {
+        // Arrange
+        let plan = makeColdRestorePlan(
+            attemptID: ColdRestoreAttemptID(rawValue: "0198f000-attempt-marker-test")
+        )
+
+        // Act
+        let script = ZmxBackend.buildColdRestoreCommand(plan)
+        let markerRange = script.range(of: "export AGENTSTUDIO_RESTORE_ATTEMPT=")
+        let execRange = script.range(of: "exec ")
+
+        // Assert — the marker is exported, and it precedes the final exec
+        // (R1 never resumes, so this is always the plain interactive shell).
+        #expect(script.contains("export AGENTSTUDIO_RESTORE_ATTEMPT='0198f000-attempt-marker-test'"))
+        #expect(script.contains("exec '/bin/zsh' -i -l"))
+        if let markerRange, let execRange {
+            #expect(markerRange.lowerBound < execRange.lowerBound)
+        }
+    }
+
+    func test_buildColdRestoreCommand_unsetsInheritedClaudeCodeMarkers() {
+        // Arrange
+        let plan = makeColdRestorePlan()
+
+        // Act
+        let script = ZmxBackend.buildColdRestoreCommand(plan)
+
+        // Assert
+        #expect(script.contains("CLAUDE_CODE_"))
+        #expect(script.contains("unset"))
+    }
+
+    private func makeColdRestorePlan(
+        zmxExecutablePath: String = "/usr/local/bin/zmx",
+        zmxDirectoryPath: String = "/tmp/zmx-cold-test",
+        sessionIDText: String = "as-cold-restore-test",
+        loginShellPath: String = "/bin/zsh",
+        folderCandidates: [URL] = [URL(fileURLWithPath: "/tmp/home")],
+        noticeLines: [String] = ["Restored after restart"],
+        attemptID: ColdRestoreAttemptID = .generate()
+    ) -> TerminalColdRestorePlan {
+        TerminalColdRestorePlan(
+            zmxExecutable: URL(fileURLWithPath: zmxExecutablePath),
+            zmxDirectory: URL(fileURLWithPath: zmxDirectoryPath),
+            sessionID: restoredSessionID(sessionIDText),
+            loginShell: URL(fileURLWithPath: loginShellPath),
+            folderCandidates: folderCandidates,
+            notice: ColdRestoreNotice(linesByCandidateIndex: noticeLines),
+            replayFile: nil,
+            resume: nil,
+            attemptID: attemptID
+        )
+    }
+
     private func makePaneSessionHandle(id: String) -> PaneSessionHandle {
         PaneSessionHandle(id: restoredSessionID(id))
     }
