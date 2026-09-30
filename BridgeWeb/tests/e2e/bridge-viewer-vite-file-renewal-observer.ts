@@ -9,10 +9,19 @@ export interface FileRenewalWireEvent {
 	readonly streamSequence: number;
 }
 
+export interface FileSubscriptionLifecycleEvent {
+	readonly atEpochMilliseconds: number;
+	readonly eventKind: string;
+	readonly reason: string | null;
+	readonly streamSequence: number;
+	readonly subscriptionId: string;
+}
+
 // Diagnostic only: decode observed copies of real frames, never modify forwarding.
 export class BridgeFileRenewalWireObserver {
 	readonly #decoder = new BridgeProductMetadataFrameDecoder();
 	readonly #events: FileRenewalWireEvent[] = [];
+	readonly #lifecycleEvents: FileSubscriptionLifecycleEvent[] = [];
 	readonly #pendingBatches = new Map<
 		string,
 		{
@@ -69,6 +78,14 @@ export class BridgeFileRenewalWireObserver {
 					case 'subscription.cancelled':
 					case 'subscription.end':
 					case 'subscription.reset':
+						this.#lifecycleEvents.push({
+							atEpochMilliseconds: Date.now(),
+							eventKind: frame.kind,
+							reason: 'reason' in frame ? String(frame.reason) : null,
+							streamSequence: frame.streamSequence,
+							subscriptionId: frame.subscriptionId,
+						});
+						if (this.#lifecycleEvents.length > 128) this.#lifecycleEvents.shift();
 						break;
 				}
 			}
@@ -79,8 +96,13 @@ export class BridgeFileRenewalWireObserver {
 
 	snapshot(): {
 		readonly events: readonly FileRenewalWireEvent[];
+		readonly lifecycleEvents: readonly FileSubscriptionLifecycleEvent[];
 		readonly decodeFailureCount: number;
 	} {
-		return { events: [...this.#events], decodeFailureCount: this.#decodeFailureCount };
+		return {
+			events: [...this.#events],
+			lifecycleEvents: [...this.#lifecycleEvents],
+			decodeFailureCount: this.#decodeFailureCount,
+		};
 	}
 }

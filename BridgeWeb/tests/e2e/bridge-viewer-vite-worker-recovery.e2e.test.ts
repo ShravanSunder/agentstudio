@@ -193,8 +193,32 @@ test.each(['proxy502', 'abortedDelivery'] as const)(
 				activePage === undefined
 					? null
 					: await readBrowserDiagnosticWithinDeadline(readReviewRenderObservation(activePage));
+			const selectionObservation =
+				activePage === undefined
+					? null
+					: await readBrowserDiagnosticWithinDeadline(
+							activePage.evaluate(() => {
+								const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+								const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+								const attributes = (element: Element | null): Record<string, string> =>
+									Object.fromEntries(
+										[...(element?.attributes ?? [])]
+											.filter((attribute) => attribute.name.startsWith('data-'))
+											.map((attribute) => [attribute.name, attribute.value]),
+									);
+								return {
+									panel: attributes(panel),
+									panelText: panel?.textContent?.slice(0, 300) ?? null,
+									shell: attributes(shell),
+									workerSession: Reflect.get(
+										window,
+										'__bridgeReviewSelectionDiagnostic',
+									) as unknown,
+								};
+							}),
+						);
 			throw new Error(
-				`Installed-receipt recovery failed at ${phase}. Rejected: ${rejectedReceiptCount}. Render: ${JSON.stringify(renderObservation)}. Browser: ${await diagnostics?.describe()}. Backend: ${server?.diagnostics() ?? 'not started'}`,
+				`Installed-receipt recovery failed at ${phase}. Rejected: ${rejectedReceiptCount}. Render: ${JSON.stringify(renderObservation)}. Selection: ${JSON.stringify(selectionObservation)}. Browser: ${await diagnostics?.describe()}. Backend: ${server?.diagnostics() ?? 'not started'}`,
 				{ cause: error },
 			);
 		} finally {
