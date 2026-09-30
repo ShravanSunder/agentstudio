@@ -18,7 +18,7 @@ flowchart TD
     M4 -->|no| M5[save seed: build path + manifest + provenance]
     M4 -->|yes| M7[skip save]
     M5 --> M6[prune job: confirm new key, delete strictly older owned seeds]
-    M5 --> M8[all Swift test lanes run; their results do not gate the seed]
+    M5 --> M8[job ends: no test lanes on push; the full suite runs nightly]
     M7 --> M8
   end
   subgraph pr["pull request: never saves"]
@@ -93,7 +93,7 @@ After restore, before any compilation:
 ## Main publication and pruning (O1, O4, O5)
 
 - The main job inventories inputs before the cold build and verifies them again right after the prebuild, before any test lane starts. If anything changed, or the prebuild failed, it doesn't publish.
-- Test results don't gate publication. A build cache is valid for its verified inputs whatever the tests say, and a red main must not stop the seed from following main. Gating on green used to leave PRs on a seed hours old, recompiling main's changes. Every Swift test lane still runs on main.
+- Test results don't gate publication. A build cache is valid for its verified inputs whatever the tests say, and a red main must not stop the seed from following main. Gating on green used to leave PRs on a seed hours old, recompiling main's changes. A main push runs no test lanes (owner decision 2026-09-30): each PR already tested its merge onto main, the cold prebuild still catches a compile break between two back-to-back merges, and the nightly full run on main catches a behavioral one.
 - The prune job runs with `always()`, so a later failing lane can't suppress it. It still acts only on a `saved` or `skipped-budget` disposition.
 - Each PR run reports its restored seed commit, the merge tree it tested, and how many Swift inputs differ between them. A warm run that still rebuilt a lot therefore explains itself.
 - Skip-if-newer: list owned main-ref entries (paginated, run numbers parsed as integers, across all compatibility families). Skip saving if any has a higher run number.
