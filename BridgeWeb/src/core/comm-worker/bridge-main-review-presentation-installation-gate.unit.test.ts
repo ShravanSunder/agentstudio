@@ -400,6 +400,116 @@ describe('Bridge main Review presentation installation gate', () => {
 		expect(store.presentation.candidate).toBeNull();
 	});
 
+	test('a rejected predecessor admission cannot leave a ready successor held without a displayed bank', async () => {
+		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		store.presentation = { ...store.presentation, activeIdentity: null };
+		const port = new ImmediateInstallationPort(['rejected', 'admitted']);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			store,
+		});
+		await gate.handleCandidateReady(candidateReady(CANDIDATE, 'ordinary', []), attention([]));
+		expect(port.requests.map(({ candidatePublicationId }) => candidatePublicationId)).toEqual([
+			CANDIDATE.publicationId,
+		]);
+		store.replaceCandidate(
+			SUCCESSOR,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-c']),
+		);
+		await gate.handleCandidateReady(
+			candidateReady(SUCCESSOR, 'promoted', ['file-c']),
+			attention(['file-c']),
+		);
+		expect(port.requests.map(({ candidatePublicationId }) => candidatePublicationId)).toEqual([
+			CANDIDATE.publicationId,
+			SUCCESSOR.publicationId,
+		]);
+		expect(store.promotions).toEqual([SUCCESSOR.publicationId]);
+		expect(port.receipts).toEqual([SUCCESSOR.publicationId]);
+	});
+	test('a displayed Review bank still holds an attention-affecting promoted successor', async () => {
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			SUCCESSOR,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-c']),
+		);
+		const port = new ImmediateInstallationPort(['admitted']);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			store,
+		});
+
+		await gate.handleCandidateReady(
+			candidateReady(SUCCESSOR, 'promoted', ['file-c']),
+			attention(['file-c']),
+		);
+		expect(port.requests).toEqual([]);
+		expect(store.presentation.activeIdentity).toEqual(ACTIVE);
+		expect(store.presentation.candidate?.role).toBe('updateReady');
+	});
+
+	test('a retained active identity without confirmed display cannot hold the successor', async () => {
+		const store = new FakeCandidateStore(
+			ACTIVE,
+			SUCCESSOR,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-c']),
+		);
+		store.presentation = { ...store.presentation, activeIdentity: null };
+		const port = new ImmediateInstallationPort(['admitted']);
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			store,
+		});
+		store.presentation = { ...store.presentation, activeIdentity: ACTIVE };
+
+		await gate.handleCandidateReady(
+			candidateReady(SUCCESSOR, 'promoted', ['file-c']),
+			attention(['file-c']),
+		);
+		expect(port.requests.map(({ candidatePublicationId }) => candidatePublicationId)).toEqual([
+			SUCCESSOR.publicationId,
+		]);
+		expect(store.promotions).toEqual([SUCCESSOR.publicationId]);
+	});
+	test('a rejected successor after a rejected predecessor reaches an install terminal', async () => {
+		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		store.presentation = { ...store.presentation, activeIdentity: null };
+		const port = new ImmediateInstallationPort(['rejected', 'rejected']);
+		const events: BridgeMainReviewRefreshLifecycleEvent[] = [];
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			onLifecycleEvent: (event): void => {
+				events.push(event);
+			},
+			store,
+		});
+		await gate.handleCandidateReady(candidateReady(CANDIDATE, 'ordinary', []), attention([]));
+		store.replaceCandidate(
+			SUCCESSOR,
+			sameSourceStart({ kind: 'promoted', reason: 'files' }, ['file-c']),
+		);
+
+		await gate.handleCandidateReady(
+			candidateReady(SUCCESSOR, 'promoted', ['file-c']),
+			attention(['file-c']),
+		);
+		expect(port.requests.map(({ candidatePublicationId }) => candidatePublicationId)).toEqual([
+			CANDIDATE.publicationId,
+			SUCCESSOR.publicationId,
+		]);
+		expect(events).toContainEqual({
+			affectedStableFileCount: 1,
+			generation: SUCCESSOR.generation,
+			phase: 'installTerminal',
+			presentationClass: { kind: 'promoted', reason: 'files' },
+			result: 'stale',
+			resultReason: 'admissionRejected',
+			trigger: 'automatic',
+		});
+		expect(store.presentation.candidate).toBeNull();
+		expect(port.receipts).toEqual([]);
+	});
+
 	test('pins an admitted identity until it promotes despite successor arrival', async () => {
 		// Arrange
 		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);

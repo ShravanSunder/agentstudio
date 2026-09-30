@@ -444,7 +444,13 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 	const evaluateReadyCandidate = async (): Promise<void> => {
 		const candidate = readyCandidate;
 		if (candidate === null || !candidateMatchesStore(candidate)) return;
-		if (candidate.presentationClass.kind === 'promoted' && candidateAffectsAttention(candidate)) {
+		const presentation = props.store.getReviewRefreshPresentation();
+		if (
+			presentation.activeIdentity !== null &&
+			confirmedDisplayedPublicationId !== null &&
+			candidate.presentationClass.kind === 'promoted' &&
+			candidateAffectsAttention(candidate)
+		) {
 			const previousRole = props.store.getReviewRefreshPresentation().candidate?.role;
 			const held = props.store.markReviewCandidateReady({
 				identity: candidate.identity,

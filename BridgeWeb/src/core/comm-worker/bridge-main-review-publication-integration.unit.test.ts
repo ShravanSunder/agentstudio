@@ -693,7 +693,7 @@ describe('Bridge main Review publication integration', () => {
 		harness.dispose();
 	});
 
-	test('fences same-publication ready and failure to the restarted worker epoch', async () => {
+	test('fences stale ready and failure after the restarted worker installs its publication', async () => {
 		const harness = createHarness();
 		await installPublication(harness, ACTIVE, 'item-a');
 		harness.receive({ ...candidateStarted(CANDIDATE, 'promoted', ['file-b']), epoch: 1 });
@@ -713,19 +713,28 @@ describe('Bridge main Review publication integration', () => {
 		});
 
 		harness.receive(candidateReady(CANDIDATE, 'promoted', ['file-b']));
+		const admission = await harness.nextCommand('reviewPublicationInstallAdmit');
+		harness.admit(admission, CANDIDATE, 'admitted');
+		const installed = await harness.nextCommand('reviewPublicationInstalled');
+		harness.ack(installed);
 		await harness.integration.whenSettled();
-		expect(harness.store.getReviewRefreshPresentation().candidate?.role).toBe('updateReady');
+		expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+			mainIdentity(CANDIDATE),
+		);
+		expect(harness.store.getReviewRefreshPresentation().candidate).toBeNull();
 
 		harness.receive({ ...candidateFailed(CANDIDATE, true), epoch: 1 });
-		expect(harness.store.getReviewRefreshPresentation().candidate?.role).toBe('updateReady');
+		expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+			mainIdentity(CANDIDATE),
+		);
 		expect(harness.store.getReviewRefreshPresentation().failure).toBeNull();
 
 		harness.receive(candidateFailed(CANDIDATE, true));
 		expect(harness.store.getReviewRefreshPresentation().candidate).toBeNull();
-		expect(harness.store.getReviewRefreshPresentation().failure).toMatchObject({
-			identity: mainIdentity(CANDIDATE),
-			retryable: true,
-		});
+		expect(harness.store.getReviewRefreshPresentation().activeIdentity).toEqual(
+			mainIdentity(CANDIDATE),
+		);
+		expect(harness.store.getReviewRefreshPresentation().failure).toBeNull();
 		harness.dispose();
 	});
 });
