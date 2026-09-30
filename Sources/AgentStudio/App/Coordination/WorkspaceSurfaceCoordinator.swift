@@ -578,7 +578,10 @@ final class WorkspaceSurfaceCoordinator {
                 ])
             )
             for await envelope in subscription {
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    // Skip cancelled envelopes but keep iterating so termination can await subscriber removal.
+                    continue
+                }
                 self.runtimeEventReducer.submit(envelope)
             }
         }
