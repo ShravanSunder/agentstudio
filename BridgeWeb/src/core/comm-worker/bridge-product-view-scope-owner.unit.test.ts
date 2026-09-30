@@ -61,6 +61,42 @@ class ControlledReplacementBeginClock implements BridgeProductDeadlineClock {
 }
 
 describe('W2 desired view scope owner', () => {
+	test.each([
+		'file.metadata',
+		'review.metadata',
+		'file.annotations',
+		'review.annotations',
+	] as const)(
+		'a fresh %s scope stays recovering until certified installation',
+		async (subscriptionKind) => {
+			const scope =
+				subscriptionKind === 'file.metadata'
+					? emptyFileScope
+					: subscriptionKind === 'review.metadata'
+						? ({ kind: 'review', interests: [] } as const)
+						: ({ kind: 'comment', sessionIds: [], worktreeId: 'worktree-1' } as const);
+			const owner = createTestViewScopeOwner({
+				controlMux: {
+					setViewScope: async (props) => acceptedScope(props),
+					resnapshotView: async (props) => acceptedResnapshot(props),
+				},
+				createIdentifier: (): string => 'fresh-view',
+				maximumConsecutiveResnapshots: 2,
+			});
+			owner.register({ scope, subscriptionId: 'fresh-subscription', subscriptionKind });
+			await owner.setScope({ scope, subscriptionId: 'fresh-subscription' });
+			expect(owner.recoveryState('fresh-subscription')?.status).toBe('recovering');
+			owner.recordCertifiedInstall({
+				handle: 'fresh-view',
+				incarnation: 'fresh-view',
+				scopeRevision: 1,
+				subscriptionId: 'fresh-subscription',
+			});
+			expect(owner.recoveryState('fresh-subscription')?.status).toBe('ready');
+			owner.retire('fresh-subscription');
+		},
+	);
+
 	test('initial accepted scope with no first begin exhausts its bounded recovery and offers Retry', async () => {
 		const clock = new ControlledReplacementBeginClock();
 		const requests: ViewResnapshotAdmissionProps[] = [];
@@ -245,7 +281,7 @@ describe('W2 desired view scope owner', () => {
 		});
 		owner.failViewsOfKind('review.metadata');
 		expect(owner.recoveryState('review-1')?.status).toBe('failedRetryable');
-		expect(owner.recoveryState('file-1')?.status).toBe('ready');
+		expect(owner.recoveryState('file-1')?.status).toBe('recovering');
 		expect(statuses).toContain('review-1:failedRetryable');
 		expect(requests).toHaveLength(0);
 		await owner.retryView('review-1');
@@ -294,7 +330,10 @@ describe('W2 desired view scope owner', () => {
 			consecutiveResnapshots: 2,
 			status: 'failedRetryable',
 		});
-		expect(owner.recoveryState('review-1')).toEqual({ consecutiveResnapshots: 0, status: 'ready' });
+		expect(owner.recoveryState('review-1')).toEqual({
+			consecutiveResnapshots: 0,
+			status: 'recovering',
+		});
 		expect(statuses).toContain('file-1:failedRetryable');
 		await owner.retryView('file-1');
 		expect(requests).toHaveLength(3);
@@ -447,7 +486,6 @@ describe('W2 desired view scope owner', () => {
 			(status): boolean => status.view.subscriptionId === 'file-subscription-1',
 		);
 		expect(fileStatuses).toEqual([
-			{ view: { kind: 'file.metadata', subscriptionId: 'file-subscription-1' }, status: 'ready' },
 			{
 				view: { kind: 'file.metadata', subscriptionId: 'file-subscription-1' },
 				status: 'recovering',
@@ -464,14 +502,14 @@ describe('W2 desired view scope owner', () => {
 		]);
 		expect(owner.recoveryState('comment-subscription-1')).toEqual({
 			consecutiveResnapshots: 0,
-			status: 'ready',
+			status: 'recovering',
 		});
 		expect(
 			statuses.filter((status) => status.view.subscriptionId === 'comment-subscription-1'),
 		).toEqual([
 			{
 				view: { kind: 'file.annotations', subscriptionId: 'comment-subscription-1' },
-				status: 'ready',
+				status: 'recovering',
 			},
 		]);
 	});
@@ -566,7 +604,7 @@ describe('W2 desired view scope owner', () => {
 		await Promise.all([first, second]);
 		expect(owner.recoveryState('file-subscription-1')).toEqual({
 			consecutiveResnapshots: 0,
-			status: 'ready',
+			status: 'recovering',
 		});
 	});
 

@@ -239,6 +239,9 @@ export class BridgeCommWorkerProductController {
 	}
 
 	retryAnnotationProjection(surface: 'file' | 'review'): void {
+		// The source join may still be unavailable, but its notification E3 must
+		// reopen now so a later installed catalog can restart the gated query.
+		this.#annotationProjectionBySurface[surface].ensureSubscription();
 		this.#annotationProjectionBySurface[surface].retry();
 	}
 

@@ -127,6 +127,10 @@ export interface CreateBridgeProductTransportProps {
 	readonly frameAcknowledgementTimeoutMilliseconds?: number;
 }
 
+type ViewRecoveryStatus = Parameters<
+	NonNullable<CreateBridgeProductTransportProps['onViewRecoveryStatus']>
+>[0];
+
 export interface BridgeProductTransportSession extends BridgeProductTransport {
 	setViewScopeForSubscription?(props: {
 		readonly scope: BridgeProductViewScopeRequest['scope'];
@@ -262,6 +266,8 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	readonly #subscriptions = new Map<string, BridgeProductSubscriptionFrameSink>();
 	readonly #batchFrameRouter: BridgeProductBatchFrameRouter;
 	readonly #viewScopeOwner: BridgeProductViewScopeOwner;
+	readonly #onViewRecoveryStatus: CreateBridgeProductTransportProps['onViewRecoveryStatus'];
+	readonly #viewRecoveryStatusByKind = new Map<string, ViewRecoveryStatus>();
 	#panePresentationFrameSink: (frame: BridgeProductPanePresentationFrame) => void =
 		ignoreBridgeProductPanePresentationFrame;
 	#paneSurfaceSelectionFrameSink: (frame: BridgeProductPaneSurfaceSelectionFrame) => void =
@@ -273,6 +279,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#createIdentifier =
 			props.createIdentifier ?? ((purpose): string => `${purpose}-${uuidv7()}`);
 		this.#deadlineClock = props.deadlineClock ?? defaultBridgeProductDeadlineClock;
+		this.#onViewRecoveryStatus = props.onViewRecoveryStatus;
 		this.#viewScopeOwner = new BridgeProductViewScopeOwner({
 			controlMux: props.controlMux,
 			createIdentifier: (): string => this.#createIdentifier('subscription'),
@@ -281,9 +288,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				props.authority.bootstrap.policy.viewMaximumConsecutiveResnapshots,
 			progressDeadlineMilliseconds:
 				props.authority.bootstrap.policy.viewBatchProgressDeadlineMilliseconds,
-			...(props.onViewRecoveryStatus === undefined
-				? {}
-				: { onViewRecoveryStatus: props.onViewRecoveryStatus }),
+			onViewRecoveryStatus: (status): void => this.#publishViewRecoveryStatus(status),
 		});
 		this.#executeProductRequest = props.executeProductRequest;
 		this.#batchFrameRouter = new BridgeProductBatchFrameRouter({
@@ -365,7 +370,22 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}
 
 	retryView(subscriptionId: string): Promise<void> {
+		if (this.#viewScopeOwner.recoveryState(subscriptionId) === null) {
+			const previous = [...this.#viewRecoveryStatusByKind.values()].find(
+				(status) => status.view.subscriptionId === subscriptionId,
+			);
+			if (previous !== undefined) {
+				// The E3 ended, but its surface still owns a user-visible recovery attempt.
+				this.#publishViewRecoveryStatus({ ...previous, status: 'recovering' });
+			}
+			return Promise.resolve();
+		}
 		return this.#viewScopeOwner.retryView(subscriptionId);
+	}
+
+	#publishViewRecoveryStatus(status: ViewRecoveryStatus): void {
+		this.#viewRecoveryStatusByKind.set(status.view.kind, status);
+		this.#onViewRecoveryStatus?.(status);
 	}
 
 	failReviewRender(): void {
@@ -455,6 +475,15 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#metadataApplicationRegistry.requireProtocol(protocol);
 		const state = this.#createSubscriptionState(protocol, options);
 		this.#subscriptions.set(state.subscriptionId, state);
+		const recovery = this.#viewRecoveryStatusByKind.get(protocol.kind);
+		if (recovery !== undefined && recovery.status !== 'ready') {
+			// Bind the surviving surface recovery to this fresh E3 before async
+			// initialization, including failures that precede W2 registration.
+			this.#publishViewRecoveryStatus({
+				status: 'recovering',
+				view: { kind: recovery.view.kind, subscriptionId: state.subscriptionId },
+			});
+		}
 		state.start();
 		return state.publicSubscription;
 	}
@@ -474,6 +503,16 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			initialOptions: options,
 			...(onOpened === undefined ? {} : { onOpened }),
 			onTerminal: (subscriptionId, error, drainUntilNativeTerminal): void => {
+				const recovery = this.#viewRecoveryStatusByKind.get(protocol.kind);
+				if (
+					error !== undefined &&
+					recovery?.status === 'recovering' &&
+					recovery.view.subscriptionId === subscriptionId
+				) {
+					// A user reopen can fail before onOpened registers its fresh W2 view.
+					// Keep the previous kind actionable instead of waiting for bootstrap.
+					this.#publishViewRecoveryStatus({ ...recovery, status: 'failedRetryable' });
+				}
 				this.#viewScopeOwner.retire(subscriptionId);
 				if (
 					error !== undefined &&
@@ -911,6 +950,17 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}
 
 	#poisonMetadataSession(error: unknown): void {
+		// EOF can race a resync's scope settlements. A resolved readiness promise
+		// for that ended physical stream must not admit a user reopen onto it.
+		this.#metadataReady = null;
+		for (const kind of [
+			'file.metadata',
+			'review.metadata',
+			'file.annotations',
+			'review.annotations',
+		] as const) {
+			this.#viewScopeOwner.failViewsOfKind(kind);
+		}
 		for (const subscription of this.#subscriptions.values()) {
 			subscription.fail(error);
 		}
