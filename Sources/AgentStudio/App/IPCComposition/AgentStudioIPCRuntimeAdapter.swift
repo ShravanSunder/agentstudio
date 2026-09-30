@@ -215,7 +215,15 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             guard start.duration(to: ContinuousClock.now) <= timeout else {
                 throw AppIPCRuntimeError(reason: .timeout)
             }
-            try? await Task.sleep(nanoseconds: Duration.milliseconds(100).nanosecondsForTaskSleep)
+            do {
+                try await Task.sleep(nanoseconds: Duration.milliseconds(100).nanosecondsForTaskSleep)
+            } catch {
+                // A cancelled poll must not spin back through this loop: with
+                // no wait remaining, that would busy-loop the executor until
+                // the real-clock guard above finally elapses. Resolve it the
+                // same way a real timeout does.
+                throw AppIPCRuntimeError(reason: .timeout)
+            }
         }
     }
 

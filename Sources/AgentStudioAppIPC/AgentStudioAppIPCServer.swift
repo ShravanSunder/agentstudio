@@ -59,6 +59,13 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private var isRunning = false
     private var activeConnections: [ObjectIdentifier: UnixSocketConnection] = [:]
     private var activeConnectionContexts: [ObjectIdentifier: AgentStudioIPCAuthenticatedContext] = [:]
+    /// One entry per connection handler `Task`, from acceptance until the
+    /// handler itself finishes. `stopListenerAndConnections()` closes sockets
+    /// but never clears this map — a stopped listener doesn't mean an
+    /// in-flight handler has actually returned. Only the handler's own
+    /// completion (in `unregisterConnection`) removes its entry, so
+    /// `joinConnectionHandlers()` can prove every handler has drained.
+    private var connectionHandlerTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     package init(
         service: AgentStudioAppIPCService,
@@ -115,12 +122,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         setRunning(true)
         do {
             try listener.start { [self] connection in
-                guard self.registerConnection(connection) else {
+                guard self.registerConnectionAndTrackHandler(connection) else {
                     connection.close()
                     return
-                }
-                Task {
-                    await self.handleRegisteredConnection(connection)
                 }
             }
             try secureSocketFile()
@@ -485,12 +489,19 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func registerConnection(_ connection: UnixSocketConnection) -> Bool {
+    /// Registers the connection and spawns its handler `Task` in the same
+    /// locked section that records it, so a handler that finishes
+    /// immediately can never remove an entry before this call inserted it.
+    private func registerConnectionAndTrackHandler(_ connection: UnixSocketConnection) -> Bool {
         lifecycleLock.withLock {
             guard isRunning else {
                 return false
             }
-            activeConnections[ObjectIdentifier(connection)] = connection
+            let connectionIdentifier = ObjectIdentifier(connection)
+            activeConnections[connectionIdentifier] = connection
+            connectionHandlerTasks[connectionIdentifier] = Task { [self] in
+                await handleRegisteredConnection(connection)
+            }
             return true
         }
     }
@@ -498,6 +509,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private func unregisterConnection(_ connection: UnixSocketConnection) {
         let releasedContext: AgentStudioIPCAuthenticatedContext? = lifecycleLock.withLock {
             let connectionIdentifier = ObjectIdentifier(connection)
+            // Always removes its own handler entry, even after a stop has
+            // already cleared `activeConnections` below — completion is the
+            // only thing `joinConnectionHandlers()` waits for.
+            connectionHandlerTasks.removeValue(forKey: connectionIdentifier)
             guard activeConnections[connectionIdentifier] === connection else { return nil }
             _ = activeConnections.removeValue(forKey: connectionIdentifier)
             return activeConnectionContexts.removeValue(forKey: connectionIdentifier)
@@ -505,6 +520,29 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         if let releasedContext {
             principalRegistry.releaseLease(releasedContext)
         }
+    }
+
+    /// Cancels every tracked connection handler and awaits its completion.
+    /// Callers close connections first (`stopAcceptingConnections()`/`stop()`),
+    /// which is what actually unblocks a handler waiting on the socket;
+    /// cancellation only reaches handlers suspended on cancellation-aware
+    /// work. No timeout here — the caller's own termination deadline bounds
+    /// this call.
+    package func joinConnectionHandlers() async {
+        let tasks = lifecycleLock.withLock { Array(connectionHandlerTasks.values) }
+        for task in tasks {
+            task.cancel()
+        }
+        for task in tasks {
+            await task.value
+        }
+    }
+
+    /// Test-observable count of connection handlers still tracked, so
+    /// `joinConnectionHandlers()`'s postcondition — an empty tracked set —
+    /// can be asserted without polling or timing.
+    package var trackedConnectionHandlerCount: Int {
+        lifecycleLock.withLock { connectionHandlerTasks.count }
     }
 
     private func receiveFrameData(from connection: UnixSocketConnection) async throws -> Data {

@@ -411,8 +411,32 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(surfaceCoordinatorIndex < undoRecoveryIndex)
         #expect(ipcBootSource.contains("prepareOptionalApplicationLocalSchema()"))
         #expect(ipcBootSource.contains("waitUntilFirstInteractiveFramePublished()"))
-        #expect(ipcBootSource.contains("appIPCInitializationTask?.cancel()"))
+        #expect(ipcBootSource.contains("let initializationTask = appIPCInitializationTask"))
+        #expect(ipcBootSource.contains("initializationTask?.cancel()"))
         #expect(ipcBootSource.contains("await initializationTask?.value"))
+        #expect(ipcBootSource.contains("await finishAppIPCSessionsIngestion()"))
+        #expect(!ipcBootSource.contains("func stopAppIPCServer()"))
+
+        // Connection handlers are joined in the durable drain, before the
+        // credential drain runs, and never in the ingress-only stop — a
+        // handler mid-request can still enqueue persistence work, so the
+        // credential drain must not start until every handler has quiesced.
+        let stopAcceptingRange = try #require(
+            ipcBootSource.range(of: "func stopAcceptingAppIPCConnections() async {"))
+        // Ends at drainAppIPCCredentialPersistence()'s own doc comment, not its
+        // func line: that comment (legitimately) names joinConnectionHandlers
+        // in prose, and a range ending at the func line would sweep it into
+        // stopAcceptingBody.
+        let drainDocCommentRange = try #require(
+            ipcBootSource.range(of: "/// The durable half,"))
+        let stopAcceptingBody = ipcBootSource[stopAcceptingRange.lowerBound..<drainDocCommentRange.lowerBound]
+        #expect(!stopAcceptingBody.contains("joinConnectionHandlers"))
+        #expect(ipcBootSource.contains("await server.joinConnectionHandlers()"))
+        let credentialDrainCallIndex = try #require(
+            ipcBootSource.range(of: "await server.drainCredentialPersistence()")?.lowerBound)
+        let joinConnectionHandlersIndex = try #require(
+            ipcBootSource.range(of: "await server.joinConnectionHandlers()")?.lowerBound)
+        #expect(joinConnectionHandlersIndex < credentialDrainCallIndex)
         #expect(ipcBootSource.contains("let paneIPCIdentityOwner = paneIPCIdentityOwner!"))
         #expect(!ipcBootSource.contains("self.appIPCInitializationTask = nil"))
         #expect(

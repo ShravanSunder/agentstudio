@@ -101,7 +101,8 @@ struct AppIPCStartOutcomeTraceTests {
 
         #expect(try await trace.ipcStartRecords() == [.init(outcome: "unavailable", reason: "first_frame_timeout")])
         #expect(appDelegate.appIPCServer == nil)
-        appDelegate.stopAppIPCServer()
+        await appDelegate.stopAcceptingAppIPCConnections()
+        await appDelegate.drainAppIPCCredentialPersistence()
     }
 
     @Test("starting without local SQLite records local_store_unavailable")

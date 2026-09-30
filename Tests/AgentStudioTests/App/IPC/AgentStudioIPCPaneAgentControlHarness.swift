@@ -30,70 +30,92 @@ struct PaneAgentControlHarness {
     static func make(channel: AgentStudioIPCChannel) async throws -> Self {
         let workspaceWindowId = UUIDv7.generate()
         let commandHarness = makeHarness(workspaceWindowId: workspaceWindowId)
-        let store = commandHarness.store
-        let mainPane = store.createPane(title: "Agent terminal")
-        let otherPane = store.createPane(title: "Other terminal")
-        let mainTab = Tab(paneId: mainPane.id)
-        store.appendTab(mainTab)
-        store.appendTab(Tab(paneId: otherPane.id))
-        store.setActiveTab(mainTab.id)
-        let drawerChild = try #require(store.addDrawerPane(to: mainPane.id))
-        commandHarness.windowLifecycleStore.recordWindowRegistered(workspaceWindowId)
-
-        var runtimesByPaneId: [UUID: RecordingCommandPaneRuntime] = [:]
-        for paneId in [mainPane.id, drawerChild.id, otherPane.id] {
-            let runtime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: paneId))
-            _ = commandHarness.runtimeRegistry.register(runtime)
-            runtimesByPaneId[paneId] = runtime
-        }
-
-        let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: store.identityAtom.workspaceId)
-        let datastore = try preparedWorkspaceSQLiteDatastore(from: sqliteFixture.backend)
-        guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else {
-            throw PaneAgentControlHarnessError.optionalSchemaUnavailable
-        }
         let appDelegate = AppDelegate()
-        appDelegate.store = store
-        appDelegate.workspaceSQLiteDatastore = datastore
-        appDelegate.windowLifecycleStore = commandHarness.windowLifecycleStore
-        appDelegate.atomStore = commandHarness.atomRegistry
-        appDelegate.viewRegistry = commandHarness.viewRegistry
-        appDelegate.workspaceSurfaceCoordinator = commandHarness.coordinator
-        appDelegate.executor = commandHarness.executor
-        let mainWindowController = SessionsVerticalMainWindowController(window: nil)
-        mainWindowController.registeredWorkspaceWindowId = workspaceWindowId
-        appDelegate.mainWindowController = mainWindowController
-        appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
-        appDelegate.appIPCServerChannel = channel
+        var createdRootDirectory: URL?
+        do {
+            let store = commandHarness.store
+            let mainPane = store.createPane(title: "Agent terminal")
+            let otherPane = store.createPane(title: "Other terminal")
+            let mainTab = Tab(paneId: mainPane.id)
+            store.appendTab(mainTab)
+            store.appendTab(Tab(paneId: otherPane.id))
+            store.setActiveTab(mainTab.id)
+            let drawerChild = try #require(store.addDrawerPane(to: mainPane.id))
+            commandHarness.windowLifecycleStore.recordWindowRegistered(workspaceWindowId)
 
-        // The random tail keeps concurrent harness roots apart while the socket
-        // path stays inside `sockaddr_un.sun_path`.
-        let rootDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "as-pa-\(UUIDv7.generate().uuidString.suffix(12))")
-        try FileManager.default.createDirectory(
-            at: rootDirectory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        let paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootDirectory)
-        appDelegate.appIPCPaths = paths
-        await appDelegate.startAppIPCServer()
-        guard appDelegate.appIPCServer?.channel == channel else {
-            throw PaneAgentControlHarnessError.serverUnavailable
+            var runtimesByPaneId: [UUID: RecordingCommandPaneRuntime] = [:]
+            for paneId in [mainPane.id, drawerChild.id, otherPane.id] {
+                let runtime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: paneId))
+                _ = commandHarness.runtimeRegistry.register(runtime)
+                runtimesByPaneId[paneId] = runtime
+            }
+
+            let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: store.identityAtom.workspaceId)
+            let datastore = try preparedWorkspaceSQLiteDatastore(from: sqliteFixture.backend)
+            guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else {
+                throw PaneAgentControlHarnessError.optionalSchemaUnavailable
+            }
+            appDelegate.store = store
+            appDelegate.workspaceSQLiteDatastore = datastore
+            appDelegate.windowLifecycleStore = commandHarness.windowLifecycleStore
+            appDelegate.atomStore = commandHarness.atomRegistry
+            appDelegate.viewRegistry = commandHarness.viewRegistry
+            appDelegate.workspaceSurfaceCoordinator = commandHarness.coordinator
+            appDelegate.executor = commandHarness.executor
+            let mainWindowController = SessionsVerticalMainWindowController(window: nil)
+            mainWindowController.registeredWorkspaceWindowId = workspaceWindowId
+            appDelegate.mainWindowController = mainWindowController
+            appDelegate.installAppIPCIdentityAuthority(datastore: datastore)
+            appDelegate.appIPCServerChannel = channel
+
+            // The random tail keeps concurrent harness roots apart while the socket
+            // path stays inside `sockaddr_un.sun_path`.
+            let rootDirectory = FileManager.default.temporaryDirectory
+                .appending(path: "as-pa-\(UUIDv7.generate().uuidString.suffix(12))")
+            try FileManager.default.createDirectory(
+                at: rootDirectory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            createdRootDirectory = rootDirectory
+            let paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootDirectory)
+            appDelegate.appIPCPaths = paths
+            await appDelegate.startAppIPCServer()
+            guard appDelegate.appIPCServer?.channel == channel else {
+                throw PaneAgentControlHarnessError.serverUnavailable
+            }
+
+            return Self(
+                appDelegate: appDelegate,
+                commandHarness: commandHarness,
+                rootDirectory: rootDirectory,
+                socketPath: paths.socketURL.path,
+                workspaceWindowId: workspaceWindowId,
+                mainPaneId: mainPane.id,
+                drawerChildPaneId: drawerChild.id,
+                otherPaneId: otherPane.id,
+                runtimesByPaneId: runtimesByPaneId
+            )
+        } catch {
+            // Unwind whatever this partial construction reached, in the same
+            // shape `tearDown()` uses.
+            await appDelegate.stopAcceptingAppIPCConnections()
+            await appDelegate.drainAppIPCCredentialPersistence()
+            await commandHarness.executor.stopAcceptingCommandsAndDrain()
+            await commandHarness.coordinator.shutdown()
+            if let createdRootDirectory {
+                try? FileManager.default.removeItem(at: createdRootDirectory)
+            }
+            throw error
         }
-
-        return Self(
-            appDelegate: appDelegate,
-            commandHarness: commandHarness,
-            rootDirectory: rootDirectory,
-            socketPath: paths.socketURL.path,
-            workspaceWindowId: workspaceWindowId,
-            mainPaneId: mainPane.id,
-            drawerChildPaneId: drawerChild.id,
-            otherPaneId: otherPane.id,
-            runtimesByPaneId: runtimesByPaneId
-        )
     }
 
-    func tearDown() {
-        appDelegate.stopAppIPCServer()
+    /// Ingress closes first — including joining every in-flight connection
+    /// handler — then the durable drain, then the command harness drains and
+    /// shuts down, the same shape `SessionsVerticalHarness.tearDown()` and
+    /// `withWorkspaceCommandHarness` use for this harness type.
+    func tearDown() async {
+        await appDelegate.stopAcceptingAppIPCConnections()
+        await appDelegate.drainAppIPCCredentialPersistence()
+        await commandHarness.executor.stopAcceptingCommandsAndDrain()
+        await commandHarness.coordinator.shutdown()
         try? FileManager.default.removeItem(at: rootDirectory)
     }
 
@@ -168,6 +190,55 @@ struct PaneAgentControlHarness {
     private func send(connection: UnixSocketConnection, request: JSONRPCClientRequest) throws {
         try connection.send(
             try NDJSONFrameEncoder.encode(JSONRPCCodec.encodeRequest(request), maxFrameBytes: 65_536))
+    }
+}
+
+/// The stable catalog cases only observe named refusals; one pane-agent server
+/// serves all parameterized cases without changing their workspace facts.
+struct PaneAgentHarnessTrait: SuiteTrait, TestScoping {
+    var isRecursive: Bool { false }
+
+    func provideScope(
+        for _: Test,
+        testCase _: Test.Case?,
+        performing function: @Sendable () async throws -> Void
+    ) async throws {
+        try await PaneAgentHarnessBox.withScope(performing: function)
+    }
+}
+
+enum PaneAgentHarnessContext {
+    @TaskLocal static var current: PaneAgentHarnessBox?
+}
+
+@MainActor
+final class PaneAgentHarnessBox {
+    let harness: PaneAgentControlHarness
+
+    private init(harness: PaneAgentControlHarness) {
+        self.harness = harness
+    }
+
+    static func make() async throws -> Self {
+        installTestCoreAtomsIfNeeded()
+        return Self(harness: try await PaneAgentControlHarness.make(channel: .stable))
+    }
+
+    static func withScope(performing function: @Sendable () async throws -> Void) async throws {
+        let fixture = try await make()
+        do {
+            try await PaneAgentHarnessContext.$current.withValue(fixture) {
+                try await function()
+            }
+        } catch {
+            await fixture.tearDown()
+            throw error
+        }
+        await fixture.tearDown()
+    }
+
+    func tearDown() async {
+        await harness.tearDown()
     }
 }
 
