@@ -42,6 +42,7 @@ import {
 import { verifySiteHeaderScrollStability } from "./tests/site-header-browser-command.ts";
 import { verifyFinaleBookend, verifyTopologyEnd } from "./tests/topology-end-browser-command.ts";
 import { verifyTopologyNodeVocabulary } from "./tests/topology-node-vocabulary-browser-command.ts";
+import { verifySkipToContent } from "./tests/website-access-browser-command.ts";
 import {
   verifyDeferredProofVideo,
   verifyHeroProofImage,
@@ -80,6 +81,7 @@ export default defineConfig({
           include: ["tests/**/*.browser.test.ts"],
           browser: {
             commands: {
+              verifySkipToContent,
               verifyDeferredProofVideo,
               verifyHeroProofImage,
               verifyCaptureDelivery,

@@ -127,6 +127,7 @@ export const marketingCopy = {
     systemRequirement: "Requires macOS 26 or later.",
   },
   navigation: {
+    skipToContent: "Skip to content",
     homeLabel: "Agent Studio home",
     primaryLabel: "Primary navigation",
     githubAction: "GitHub",
