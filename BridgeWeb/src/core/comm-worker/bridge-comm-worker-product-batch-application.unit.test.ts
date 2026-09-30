@@ -54,6 +54,73 @@ function batchBegin(
 }
 
 describe('Bridge comm worker product batch application owner', () => {
+	test('re-exposes a successor complete display bank between its started and ready facts after predecessor rejection', async () => {
+		const publications: Array<
+			| { readonly kind: 'started' | 'ready'; readonly publicationId: string }
+			| {
+					readonly kind: 'display';
+					readonly publicationId: string | null;
+					readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+			  }
+		> = [];
+		let sequence = 0;
+		const application = new BridgeCommWorkerProductBatchApplication({
+			applyComment: (): void => {},
+			applyFile: (): void => {},
+			applyReview: (): void => {},
+			createSequence: (): number => ++sequence,
+			publishMessage: (message): void => {
+				if (message.kind === 'reviewCandidateStarted')
+					publications.push({ kind: 'started', publicationId: message.publicationId });
+				if (message.kind === 'reviewCandidateReady')
+					publications.push({ kind: 'ready', publicationId: message.publicationId });
+			},
+			publishReviewDisplay: ({ patches, reviewPublicationIdentity }): void => {
+				publications.push({
+					kind: 'display',
+					publicationId: reviewPublicationIdentity?.publicationId ?? null,
+					patches,
+				});
+			},
+			requestResnapshot: (): void => {},
+			requestResnapshotLatest: (): void => {},
+			workerDerivationEpoch: (): number => 2,
+		});
+		const predecessor = reviewImpactInstallation({
+			item: reviewImpactItem('review-item-old', 'a'),
+			revision: 12,
+		});
+		const successor = reviewImpactInstallation({
+			item: reviewImpactItem('review-item-new', 'b'),
+			revision: 13,
+		});
+		await application.sinks().install(predecessor);
+		await application.sinks().install(successor);
+		publications.length = 0;
+
+		expect(
+			application.handleSuccessorReExposureSettlement(
+				{
+					candidatePublicationId: predecessor.begin.publicationId ?? '',
+					kind: 'admissionRejected',
+				},
+				2,
+			),
+		).toBe(true);
+		expect(publications.map(({ kind }) => kind)).toEqual(['started', 'display', 'ready']);
+		expect(publications[1]).toMatchObject({
+			kind: 'display',
+			publicationId: successor.begin.publicationId,
+			patches: expect.arrayContaining([
+				expect.objectContaining({
+					slice: 'reviewSource',
+					payload: expect.objectContaining({ status: 'ready' }),
+				}),
+				expect.objectContaining({ slice: 'reviewItem' }),
+			]),
+		});
+	});
+
 	test('routes certified File, Review and Comment banks to their typed owners', async () => {
 		const installedKinds: string[] = [];
 		const application = new BridgeCommWorkerProductBatchApplication({

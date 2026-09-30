@@ -285,8 +285,11 @@ export class BridgeCommWorkerProductBatchApplication {
 			return;
 		}
 		this.#publishCandidateStarted(readyFacts, workerDerivationEpoch);
-		// The certified W4 display bank was already published with this candidate.
-		// A settlement can re-expose its lifecycle identity, but cannot replay that bank.
+		this.#props.publishReviewDisplay({
+			patches: bridgeCommWorkerReviewDisplayPatchesFromBatch(presentation),
+			reviewPublicationIdentity: reviewPublicationIdentity(readyFacts.identity),
+			workerDerivationEpoch,
+		});
 		this.#publishCandidateReady(readyFacts, workerDerivationEpoch);
 	}
 
