@@ -530,7 +530,8 @@ extension AppDelegate {
             searchService: searchService,
             performanceTraceRecorder: performanceTraceRecorder,
             worktreeForkEligibility: SDKWorktreeForkEligibilityChecker(),
-            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver()
+            defaultStartPointResolver: SDKWorktreeDefaultStartPointResolver(),
+            branchListing: WorktreeBranchListingCache()
         )
     }
 

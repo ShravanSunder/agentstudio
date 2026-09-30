@@ -19,6 +19,7 @@ struct CommandBarRepositoryAvailabilityTests {
             let projected = CommandBarDataSource.availableRepository(repo, store: store)
             let level = CommandBarDataSource.buildRepoLevel(
                 repo: repo, store: store,
+                repoCache: RepoCacheAtom(),
                 presenceByWorktreeId: [:], dispatcher: FakeAppCommandDispatcher())
 
             #expect(projected == nil)

@@ -24,7 +24,7 @@ package final class CommandBarPanelController {
 
     let store: WorkspaceStore
     private let octiconLoader: OcticonLoader
-    private let repoCache: RepoCacheAtom
+    let repoCache: RepoCacheAtom
     let dispatcher: any AppCommandDispatching
     private let targetedSpecResolver: CommandBarTargetedSpecResolver
     private let quickOpenDirectoryHandler: @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void
@@ -36,8 +36,10 @@ package final class CommandBarPanelController {
     private let animatePanelDismissal: Bool
     let worktreeForkEligibility: (any WorktreeForkEligibilityChecking)?
     let defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)?
+    let branchListing: (any WorktreeBranchListing)?
     var forkEligibilityQueriesBySourceWorktreeId: [UUID: InFlightForkEligibilityQuery] = [:]
     var defaultStartPointQueriesByRepositoryId: [UUID: InFlightDefaultStartPointQuery] = [:]
+    var branchListingQueriesByRepositoryId: [UUID: InFlightBranchListingQuery] = [:]
     let resultSession: CommandBarResultSession
     let searchService: any SearchServicing
     var searchSequence: UInt64 = 0
@@ -95,7 +97,8 @@ package final class CommandBarPanelController {
         animatePanelDismissal: Bool = true,
         recentsDefaults: UserDefaults = .standard,
         worktreeForkEligibility: (any WorktreeForkEligibilityChecking)? = nil,
-        defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)? = nil
+        defaultStartPointResolver: (any WorktreeDefaultStartPointResolving)? = nil,
+        branchListing: (any WorktreeBranchListing)? = nil
     ) {
         self.state = CommandBarState(defaults: recentsDefaults)
         self.store = store
@@ -117,6 +120,7 @@ package final class CommandBarPanelController {
         self.animatePanelDismissal = animatePanelDismissal
         self.worktreeForkEligibility = worktreeForkEligibility
         self.defaultStartPointResolver = defaultStartPointResolver
+        self.branchListing = branchListing
         self.resultSession = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
@@ -435,6 +439,7 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )
@@ -496,6 +501,7 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )
@@ -644,6 +650,7 @@ package final class CommandBarPanelController {
                 CommandBarDataSource.buildRepoLevel(
                     repo: repository,
                     store: store,
+                    repoCache: repoCache,
                     dispatcher: dispatcher
                 )
             )

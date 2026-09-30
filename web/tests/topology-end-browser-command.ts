@@ -3,7 +3,9 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
 /** The final branch, lane closures and rendered path extent in page coordinates. */
 export interface TopologyEndObservation {
   readonly width: number;
+  readonly captionToFinaleGap: number;
   readonly pillLeft: number;
+  readonly lastGlassLeft: number;
   readonly stageLeft: number;
   readonly titleLeft: number;
   readonly stageRight: number;
@@ -25,19 +27,51 @@ export interface TopologyEndObservation {
   readonly coreFill: string;
   readonly branchStroke: string;
   readonly branchStartY: number;
+  readonly branchStartX: number;
+  readonly bendDotCount: number;
+  readonly bendDotOffset: number;
+  readonly bendDotPlain: boolean;
+  readonly innermostLaneX: number;
+  readonly mainlineEndY: number;
   readonly branchViewportMaxFraction: number;
   readonly minimumTitleClearance: number;
   readonly lastGlassBottomY: number;
   readonly laneMergeYs: readonly number[];
+  readonly laneStopYs: readonly number[];
+  readonly duplicateRowDotCount: number;
   readonly lowestRailY: number;
   readonly laneCount: number;
   readonly terminalNodeCount: number;
   readonly terminalRouteCount: number;
   readonly branchColumnSpan: number;
+  readonly branchBendCount: number;
+  readonly mainlineBendCount: number;
+  readonly branchMonotonicX: boolean;
+  readonly branchPathData: string;
+  readonly mainlinePathData: string;
   readonly pathData: readonly { readonly kind: "rail" | "step"; readonly d: string }[];
 }
 
 export interface FinaleBookendObservation {
+  readonly readyOutlineAt03: boolean;
+  readonly traceOpacityAt03: number;
+  readonly readyOutlineAt08: boolean;
+  readonly traceOpacityAt08: number;
+  readonly traceDashFractionAt08: number;
+  readonly readyOutlineAfterReverseSeek: boolean;
+  readonly traceOpacityAfterReverseSeek: number;
+  readonly resizedTraceWidthDelta: number;
+  readonly resizedViewBoxWidthDelta: number;
+  readonly settledDashCleared: boolean;
+  readonly pillWidth: number;
+  readonly pillHeight: number;
+  readonly tracePathData: string;
+  readonly pillBorderColor: string;
+  readonly pillBorderWidth: string;
+  readonly pillOverflowX: string;
+  readonly starLeftOffset: number;
+  readonly copyRightRadius: string;
+  readonly terminalHaloDisplay: string;
   readonly transitionalFanAngles: readonly number[];
   readonly transitionalPlaneBorderWidths: readonly number[];
   readonly eventCount: number;
@@ -272,10 +306,23 @@ export const verifyFinaleBookend = defineBrowserCommand(
           );
         const starText = button.textContent?.trim() ?? "";
         const copyText = copy.textContent?.trim() ?? "";
+        const pill = copy.closest<HTMLElement>("[data-finale-split-pill]");
+        if (pill === null) throw new Error("Finale split pill is missing");
+        proofWindow.finaleControl.seek(0.3);
+        const readyOutlineAt03 = getComputedStyle(pill).boxShadow.includes("inset");
+        const traceOpacityAt03 = Number(getComputedStyle(trace).opacity);
         proofWindow.finaleControl.seek(0.35);
         const railArrivalFraction =
           Number.parseFloat(railPath.style.strokeDashoffset) / railPath.getTotalLength();
         const nodeArrivalOpacity = getComputedStyle(endNode).opacity;
+        proofWindow.finaleControl.seek(0.8);
+        const readyOutlineAt08 = getComputedStyle(pill).boxShadow.includes("inset");
+        const traceOpacityAt08 = Number(getComputedStyle(trace).opacity);
+        const traceDashFractionAt08 =
+          Number.parseFloat(trace.style.strokeDashoffset) / trace.getTotalLength();
+        proofWindow.finaleControl.seek(0.3);
+        const readyOutlineAfterReverseSeek = getComputedStyle(pill).boxShadow.includes("inset");
+        const traceOpacityAfterReverseSeek = Number(getComputedStyle(trace).opacity);
         proofWindow.finaleControl.seek(0.8);
         const midTraceShift = sampleShift();
         proofWindow.finaleControl.seek(1.8);
@@ -285,7 +332,38 @@ export const verifyFinaleBookend = defineBrowserCommand(
         copy.click();
         await Promise.resolve();
         return {
+          readyOutlineAt03,
+          traceOpacityAt03,
+          readyOutlineAt08,
+          traceOpacityAt08,
+          traceDashFractionAt08,
+          readyOutlineAfterReverseSeek,
+          traceOpacityAfterReverseSeek,
           eventCount: proofWindow.topologyEndEventCount ?? 0,
+          pillWidth:
+            copy.closest<HTMLElement>("[data-finale-split-pill]")?.getBoundingClientRect().width ??
+            0,
+          pillHeight:
+            copy.closest<HTMLElement>("[data-finale-split-pill]")?.getBoundingClientRect().height ??
+            0,
+          tracePathData: trace.getAttribute("d") ?? "",
+          pillBorderColor: getComputedStyle(
+            copy.closest<HTMLElement>("[data-finale-split-pill]") ?? root,
+          ).borderTopColor,
+          pillBorderWidth: getComputedStyle(
+            copy.closest<HTMLElement>("[data-finale-split-pill]") ?? root,
+          ).borderTopWidth,
+          pillOverflowX: getComputedStyle(
+            copy.closest<HTMLElement>("[data-finale-split-pill]") ?? root,
+          ).overflowX,
+          starLeftOffset:
+            button.getBoundingClientRect().left -
+            (copy.closest<HTMLElement>("[data-finale-split-pill]")?.getBoundingClientRect().left ??
+              0),
+          copyRightRadius: getComputedStyle(copy).borderTopRightRadius,
+          terminalHaloDisplay: getComputedStyle(
+            endNode.querySelector<SVGCircleElement>(".node-terminal-halo") ?? endNode,
+          ).display,
           transitionalFanAngles,
           transitionalPlaneBorderWidths,
           href: button.href,
@@ -310,6 +388,39 @@ export const verifyFinaleBookend = defineBrowserCommand(
             [...copy.querySelectorAll<HTMLElement>("[data-install-copy-feedback]")].find(
               (label) => getComputedStyle(label).display !== "none",
             )?.textContent ?? "",
+        };
+      });
+      const resizedTrace = await applicationPage.evaluate(async () => {
+        const pill = document.querySelector<HTMLElement>("[data-finale-split-pill]");
+        const trace = pill?.querySelector<SVGPathElement>("[data-finale-border-trace]");
+        const svg = trace?.closest("svg");
+        if (
+          pill === null ||
+          trace === null ||
+          trace === undefined ||
+          svg === null ||
+          svg === undefined
+        )
+          throw new Error("Settled finale outline is missing");
+        const originalWidth = pill.getBoundingClientRect().width;
+        const resized = new Promise<void>((resolve) => {
+          const observer = new ResizeObserver(() => {
+            if (Math.abs(pill.getBoundingClientRect().width - originalWidth) < 2) return;
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(pill);
+        });
+        pill.style.width = `${String(originalWidth - 80)}px`;
+        await resized;
+        await Promise.resolve();
+        const width = pill.getBoundingClientRect().width;
+        const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/u)[2]);
+        return {
+          resizedTraceWidthDelta: Math.abs(trace.getBBox().width - (width - 1)),
+          resizedViewBoxWidthDelta: Math.abs(viewBoxWidth - width),
+          settledDashCleared:
+            trace.style.strokeDasharray === "" && trace.style.strokeDashoffset === "",
         };
       });
 
@@ -377,7 +488,14 @@ export const verifyFinaleBookend = defineBrowserCommand(
           narrowHeadingOverflow: heading.getBoundingClientRect().right - window.innerWidth,
         };
       });
-      return { ...normal, ...reduced, ...narrow, pointerSkipState, resizeSettleState };
+      return {
+        ...normal,
+        ...resizedTrace,
+        ...reduced,
+        ...narrow,
+        pointerSkipState,
+        resizeSettleState,
+      };
     } finally {
       await Promise.all([applicationPage.close(), reducedMotionPage.close(), skipPage.close()]);
     }
@@ -387,13 +505,18 @@ export const verifyFinaleBookend = defineBrowserCommand(
 function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"> {
   const artwork = document.querySelector<SVGSVGElement>("[data-full-page-topology]");
   const lastGlass = document.querySelector('[data-rail-surface-target="come-back"]');
+  const lastCaption = document.querySelector<HTMLElement>(
+    '[data-chapter="come-back"] [data-chapter-caption]',
+  );
   const button = document.querySelector<HTMLElement>("[data-final-star-button]");
   const pill = button?.closest<HTMLElement>("[data-finale-split-pill]");
   const finaleRoot = button?.closest<HTMLElement>("[data-finale-root]");
   const stage = finaleRoot?.querySelector<HTMLElement>(".finale-stage");
+  const heading = finaleRoot?.querySelector<HTMLElement>("[data-finale-heading]");
   const note = finaleRoot?.querySelector<HTMLElement>("p");
   const finalRoute = artwork?.querySelector<SVGGElement>("[data-topology-terminal-route]");
   const finalPath = finalRoute?.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+  const mainline = artwork?.querySelector<SVGPathElement>("[data-mainline]");
   const terminalNode = finalRoute?.querySelector<SVGGElement>("[data-topology-terminal-node]");
   const ring = terminalNode?.querySelector<SVGCircleElement>(".node-merge-ring");
   const core = terminalNode?.querySelector<SVGCircleElement>(".node-merge-core");
@@ -401,11 +524,14 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   if (
     artwork === null ||
     lastGlass === null ||
+    lastCaption === null ||
     button === null ||
     pill === null ||
     pill === undefined ||
     finalPath === null ||
     finalPath === undefined ||
+    mainline === null ||
+    mainline === undefined ||
     ring === null ||
     ring === undefined ||
     core === null ||
@@ -431,11 +557,55 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   const matrix = finalPath.getScreenCTM();
   if (matrix === null) throw new Error("Terminal route has no screen transform");
   const routeLength = finalPath.getTotalLength();
+  const mainlineLength = mainline.getTotalLength();
+  const mainlineStart = mainline.getPointAtLength(0);
+  const mainlineEnd = mainline.getPointAtLength(mainlineLength);
   const start = finalPath.getPointAtLength(0).matrixTransform(matrix);
+  const bendStart = finalPath.getPointAtLength(0);
+  const bendDots = [
+    ...artwork.querySelectorAll<SVGGElement>("[data-node][data-resolved-row]"),
+  ].filter((node) => {
+    const circle = node.querySelector<SVGCircleElement>("circle");
+    return (
+      circle !== null &&
+      Math.hypot(
+        Number(circle.getAttribute("cx")) - bendStart.x,
+        Number(circle.getAttribute("cy")) - bendStart.y,
+      ) <= 0.5
+    );
+  });
+  const bendDot = bendDots[0];
+  const bendCircle = bendDot?.querySelector<SVGCircleElement>(".node-commit");
   const end = finalPath.getPointAtLength(routeLength).matrixTransform(matrix);
   const mergeYs = [...artwork.querySelectorAll<SVGGElement>('[data-node-kind="merge"]')]
     .filter((node) => !node.hasAttribute("data-topology-terminal-node"))
     .map((node) => Number(node.querySelector("circle")?.getAttribute("cy")) + artworkTop);
+  const rowNodes = [...artwork.querySelectorAll<SVGGElement>("[data-node][data-resolved-row]")];
+  const worktreeGroups = [
+    ...artwork.querySelectorAll<SVGGElement>(
+      '[data-topology-route-group][data-route-kind="worktree"]',
+    ),
+  ].toSorted(
+    (left, right) => Number(left.dataset["routeColumn"]) - Number(right.dataset["routeColumn"]),
+  );
+  const laneStopYs = worktreeGroups.slice(0, -1).flatMap((group) => {
+    const route = group.querySelector<SVGPathElement>('[data-topology-path-role="core"]');
+    if (route === null) return [];
+    const endpoint = route.getPointAtLength(route.getTotalLength());
+    const stopDot = rowNodes.find((node) => {
+      if (node.dataset["nodeKind"] !== "commit" || node.hasAttribute("data-topology-suppressed"))
+        return false;
+      const circle = node.querySelector<SVGCircleElement>(".node-commit");
+      return (
+        circle !== null &&
+        Math.hypot(
+          Number(circle.getAttribute("cx")) - endpoint.x,
+          Number(circle.getAttribute("cy")) - endpoint.y,
+        ) <= 0.5
+      );
+    });
+    return stopDot === undefined ? [] : [endpoint.y + artworkTop];
+  });
   const ctaTitle = button.closest("section")?.querySelector<HTMLElement>("#final-cta-title");
   const titleBox = ctaTitle?.getBoundingClientRect();
   if (
@@ -444,6 +614,8 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     titleBox === undefined ||
     stage === null ||
     stage === undefined ||
+    heading === null ||
+    heading === undefined ||
     note === null ||
     note === undefined
   )
@@ -460,7 +632,10 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
   );
   return {
     width,
+    captionToFinaleGap:
+      heading.getBoundingClientRect().top - lastCaption.getBoundingClientRect().bottom,
     pillLeft: buttonBox.left,
+    lastGlassLeft: glassBox.left,
     stageLeft: stageBox.left,
     titleLeft: titleBox.left,
     stageRight: stageBox.right,
@@ -481,15 +656,43 @@ function observeEnd(width: number): Omit<TopologyEndObservation, "artworkStates"
     coreFill: getComputedStyle(core).fill,
     branchStroke: getComputedStyle(finalPath).stroke,
     branchStartY: start.y + window.scrollY,
+    branchStartX: start.x,
+    bendDotCount: bendDots.length,
+    bendDotOffset:
+      bendCircle === null || bendCircle === undefined
+        ? Number.POSITIVE_INFINITY
+        : Math.hypot(
+            Number(bendCircle.getAttribute("cx")) - bendStart.x,
+            Number(bendCircle.getAttribute("cy")) - bendStart.y,
+          ),
+    bendDotPlain:
+      bendDot?.dataset["nodeKind"] === "commit" &&
+      !bendDot.hasAttribute("data-topology-suppressed") &&
+      bendDot.querySelector(".node-terminal, .node-terminal-halo, .node-merge-ring") === null,
+    innermostLaneX:
+      mainlineStart.matrixTransform(mainline.getScreenCTM() ?? matrix).x +
+      Number(artwork.dataset["laneCount"]) * Number(artwork.dataset["columnUnit"]),
+    mainlineEndY: mainlineEnd.matrixTransform(mainline.getScreenCTM() ?? matrix).y + window.scrollY,
     branchViewportMaxFraction: Math.max(start.y, end.y) / window.innerHeight,
     minimumTitleClearance,
     lastGlassBottomY: glassBox.bottom + window.scrollY,
     laneMergeYs: mergeYs,
+    laneStopYs,
+    duplicateRowDotCount:
+      rowNodes.length - new Set(rowNodes.map((node) => node.dataset["resolvedRow"])).size,
     lowestRailY: Math.max(...points),
     laneCount: Number(artwork.dataset["laneCount"]),
     terminalNodeCount: artwork.querySelectorAll("[data-topology-terminal]").length,
     terminalRouteCount: artwork.querySelectorAll("[data-topology-terminal-route]").length,
     branchColumnSpan: (end.x - start.x) / Number(artwork.dataset["columnUnit"]),
+    branchBendCount: (finalPath.getAttribute("d")?.match(/\bC\b/gu) ?? []).length,
+    mainlineBendCount: (mainline.getAttribute("d")?.match(/\bC\b/gu) ?? []).length,
+    branchMonotonicX: Array.from(
+      { length: 101 },
+      (_, index) => finalPath.getPointAtLength((routeLength * index) / 100).x,
+    ).every((x, index, xs) => index === 0 || x >= (xs[index - 1] ?? x) - 0.01),
+    branchPathData: finalPath.getAttribute("d") ?? "",
+    mainlinePathData: mainline.getAttribute("d") ?? "",
     pathData: [
       ...[...artwork.querySelectorAll<SVGPathElement>("path[d]")].map((path) => ({
         kind: "rail" as const,

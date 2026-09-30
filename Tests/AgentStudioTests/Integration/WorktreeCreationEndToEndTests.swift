@@ -44,6 +44,34 @@ struct WorktreeCreationEndToEndTests {
         }
     }
 
+    @Test("From Branch dispatches through the shell and creates at the selected local reference")
+    func selectedLocalBranchReachesTopology() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let fixture = try await EndToEndFixture.make(destinationFolderName: "repo.feat-from-branch")
+            defer { fixture.remove() }
+            try await fixture.seedOriginDefaultAndAdvanceLocalMain()
+            _ = try await git(fixture.repositoryPath, "branch", "feature/source", "refs/remotes/origin/main")
+            let system = EndToEndSystem.make(repoCache: atoms.repoCache)
+            do {
+                let result = try await createThroughDispatcher(
+                    kind: .fromBranch(referenceName: "refs/heads/feature/source"),
+                    branch: "feat/from-branch", fixture: fixture, system: system)
+
+                #expect(result.accepted)
+                #expect(
+                    system.store.repositoryTopologyAtom.repo(containing: result.created.id)?.id == result.sourceRepoId)
+                #expect(try await git(fixture.destination, "rev-parse", "--abbrev-ref", "HEAD") == "feat/from-branch")
+                #expect(
+                    try await git(fixture.destination, "rev-parse", "HEAD")
+                        == git(fixture.repositoryPath, "rev-parse", "refs/heads/feature/source"))
+            } catch {
+                await system.shutdown()
+                throw error
+            }
+            await system.shutdown()
+        }
+    }
+
     @Test("a worktree created under a symlinked watched folder is accepted and published")
     func symlinkedWatchedFolderPublishesCreatedWorktree() async throws {
         try await withAsyncTestCoreAtoms { atoms in

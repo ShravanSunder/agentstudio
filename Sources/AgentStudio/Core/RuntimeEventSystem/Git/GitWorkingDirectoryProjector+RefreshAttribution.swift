@@ -373,7 +373,7 @@ extension GitWorkingDirectoryProjector {
         }
         guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
         guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
-        pendingByWorktreeId[worktreeId] = Self.mergeChangesets(
+        pendingByWorktreeId[worktreeId] = mergeTrackedChangesets(
             pendingByWorktreeId[worktreeId],
             with: changeset
         )

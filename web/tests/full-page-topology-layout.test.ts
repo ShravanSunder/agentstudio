@@ -88,13 +88,7 @@ function homePageAt(viewportWidth: number): TopologyPageFixture {
   const lastAnchor = anchors.at(-1);
   const lastGlassBottom =
     lastAnchor?.surface === undefined ? 0 : lastAnchor.surface.top + lastAnchor.surface.height;
-  const finalRailAlignmentShift = clamp((viewportWidth - 1600) * 0.3, 0, 192);
-  const starButton = rect(
-    contentLeft - finalRailAlignmentShift,
-    lastGlassBottom + 490,
-    phone ? 200 : 440,
-    48,
-  );
+  const starButton = rect(contentLeft, lastGlassBottom + 490, phone ? 200 : 440, 48);
   anchors.push({
     id: "final-cta",
     rect: starButton,
@@ -374,7 +368,7 @@ describe("gutter columns", () => {
 
       // Assert
       const merges = composition.rows.filter((dot) => dot.kind === "merge");
-      expect(merges).toHaveLength(composition.laneXs.length);
+      expect(merges).toHaveLength(composition.laneXs.length - 1);
       const columnXs = [composition.mainlineX, ...composition.laneXs];
       for (const merge of merges) {
         expect(merge.incomingAccent).toBeDefined();
@@ -438,6 +432,20 @@ describe("gutter columns", () => {
 });
 
 describe("composed topology", () => {
+  it("never substitutes a chapter glass attach for a missing step-line marker", () => {
+    const fixture = homePageAt(1280);
+    const missingStepLine = fixture.page.anchors[1];
+    if (missingStepLine === undefined) throw new Error("Chapter fixture missing");
+    const composition = composeFullPageTopology({
+      ...fixture.page,
+      anchors: fixture.page.anchors.map((anchor) =>
+        anchor.id === missingStepLine.id
+          ? { ...anchor, chapter: true, stepLine: undefined }
+          : anchor,
+      ),
+    });
+    expect(composition?.routes.some((route) => route.anchorId === missingStepLine.id)).toBe(false);
+  });
   for (const width of viewportWidths) {
     describe(`at ${width}px`, () => {
       const fixture = homePageAt(width);
@@ -485,9 +493,10 @@ describe("composed topology", () => {
             const end = commands.at(-1)?.points.at(-1);
             expect(start).toBeDefined();
             expect(end).toBeDefined();
-            expect((end?.x ?? 0) - (start?.x ?? 0)).toBeLessThanOrEqual(composition.columnUnit * 2);
+            // Owner #55 permits three physical columns for the final branch only.
+            expect((end?.x ?? 0) - (start?.x ?? 0)).toBeLessThanOrEqual(composition.columnUnit * 3);
             expect(commands.map((command) => command.command)).toEqual(["M", "C"]);
-            expect(route.column).toBeLessThanOrEqual(route.parentColumn + 2);
+            expect(route.column).toBeLessThanOrEqual(route.parentColumn + 3);
             continue;
           }
           expect(route.column).toBe(route.parentColumn + 1);
@@ -619,16 +628,20 @@ describe("composed topology", () => {
       });
       expect(composition.rowYs.at(-1)).toBe(button.top + button.height / 2);
       expect(
-        (button.left - 6 - composition.mainlineX) / composition.columnUnit,
+        (button.left - 6 - (composition.laneXs.at(-1) ?? composition.mainlineX)) /
+          composition.columnUnit,
       ).toBeLessThanOrEqual(2);
       expect(endDot?.y).toBeLessThan(button.top + button.height / 2);
-      expect(endDot?.kind).toBe("fork");
+      expect(endDot?.kind).toBe("commit");
       const lastChapterRoute = composition.routes.find((route) => route.anchorId === "chapter-5");
-      for (const lane of composition.routes.filter((route) => route.kind === "worktree")) {
+      const worktreeRoutes = composition.routes.filter((route) => route.kind === "worktree");
+      for (const lane of worktreeRoutes) {
         expect(lane.endY).toBeGreaterThan(lastGlass.top + lastGlass.height);
-        expect(lane.endY).toBeLessThan(endDot?.y ?? Number.NaN);
+        if (lane === worktreeRoutes.at(-1)) expect(lane.endY).toBe(endDot?.y);
+        else expect(lane.endY).toBeLessThan(endDot?.y ?? Number.NaN);
         expect(lane.endY).not.toBe(lastChapterRoute?.startY);
         for (const branch of composition.routes.filter((route) => route.kind === "attach")) {
+          if (lane === worktreeRoutes.at(-1) && branch.terminal) continue;
           expect(lane.endY, `${width}: merge and ${branch.anchorId} fork share a row`).not.toBe(
             branch.startY,
           );
@@ -643,6 +656,111 @@ describe("composed topology", () => {
       );
       expect(lowestPoint).toBeLessThanOrEqual(button.top + button.height / 2 + 0.01);
     }
+  });
+
+  it("continues the innermost lane to one-bend finale while the trunk ends after other merges", () => {
+    for (const width of [390, 1280, 1920]) {
+      const fixture = homePageAt(width);
+      const glassLeft = fixture.page.anchors.at(-2)?.surface?.left;
+      if (glassLeft === undefined) throw new Error("Last chapter glass missing");
+      const alignedAnchors = fixture.page.anchors.map((anchor) =>
+        anchor.terminalTarget && anchor.surface !== undefined
+          ? {
+              ...anchor,
+              rect: { ...anchor.rect, left: glassLeft },
+              surface: { ...anchor.surface, left: glassLeft },
+            }
+          : anchor,
+      );
+      const composition = composeFullPageTopology({
+        ...fixture.page,
+        anchors: alignedAnchors,
+      });
+      if (composition === undefined) throw new Error("Finale composition missing");
+      const route = composition.routes.find((candidate) => candidate.terminal);
+      const lane = composition.routes.filter((candidate) => candidate.kind === "worktree").at(-1);
+      if (route === undefined) throw new Error("Finale branch missing");
+      expect(composition.mainlinePath).not.toContain(" C ");
+      if (lane === undefined) {
+        expect(composition.mainlinePath).toContain(`L ${composition.mainlineX} ${route.startY}`);
+        expect(route.parentColumn).toBe(0);
+      } else {
+        expect(composition.mainlinePath).not.toContain(
+          `L ${composition.mainlineX} ${route.startY}`,
+        );
+        expect(route.parentColumn).toBe(lane.column);
+        expect(lane.endY).toBe(route.startY);
+      }
+      expect(pathCommands(route.pathData).map((command) => command.command)).toEqual(["M", "C"]);
+      expect(
+        (route.targetPoint?.x ?? 0) - (composition.laneXs.at(-1) ?? composition.mainlineX),
+      ).toBeLessThanOrEqual(composition.columnUnit * 2);
+    }
+  });
+
+  it("starts the finale bend at a plain commit dot on its source lane", () => {
+    for (const width of [390, 1280, 1920, 2560]) {
+      const composition = composed(homePageAt(width));
+      const route = composition.routes.find((candidate) => candidate.terminal);
+      const sourceDot = composition.rows.find((dot) => dot.y === route?.startY);
+      expect(route, `${width}px finale route`).toBeDefined();
+      expect(sourceDot?.kind, `${width}px bend dot`).toBe("commit");
+      expect(sourceDot?.suppressPaint, `${width}px bend dot paint`).toBe(false);
+      expect(sourceDot?.x, `${width}px bend dot x`).toBeCloseTo(
+        composition.laneXs.at(-1) ?? composition.mainlineX,
+        6,
+      );
+    }
+  });
+
+  it("pairs outer side lanes, stops the receiving lane, then merges L1 into the trunk", () => {
+    const fixture = homePageAt(2560);
+    const lower = (box: TopologyRect | undefined): TopologyRect | undefined =>
+      box === undefined ? undefined : { ...box, top: box.top + 600 };
+    const composition = composeFullPageTopology({
+      ...fixture.page,
+      height: fixture.page.height + 600,
+      anchors: fixture.page.anchors.map((anchor, index) => ({
+        ...anchor,
+        rect: index === 0 ? anchor.rect : (lower(anchor.rect) ?? anchor.rect),
+        surface: lower(anchor.surface),
+        media: lower(anchor.media),
+        copyBlock: index === 0 ? anchor.copyBlock : lower(anchor.copyBlock),
+        stepLine: lower(anchor.stepLine),
+      })),
+    });
+    if (composition === undefined) throw new Error("The wide fixture did not compose");
+    const lanes = composition.routes.filter((route) => route.kind === "worktree");
+    expect(lanes).toHaveLength(4);
+    const [first, second, third, finale] = lanes;
+    if (first === undefined || second === undefined || third === undefined || finale === undefined)
+      throw new Error("The four-lane fixture is incomplete");
+    const endDot = (
+      route: (typeof lanes)[number],
+    ): TopologyComposition["rows"][number] | undefined =>
+      composition.rows.find((dot) => dot.y === route.endY);
+    expect(endDot(third)?.kind).toBe("merge");
+    expect(endDot(third)?.x).toBeCloseTo(composition.laneXs[1] ?? Number.NaN, 6);
+    expect(endDot(second)?.kind).toBe("commit");
+    expect(endDot(second)?.x).toBeCloseTo(composition.laneXs[1] ?? Number.NaN, 6);
+    expect(endDot(second)?.accent).toBe("cyan");
+    expect(endDot(first)?.kind).toBe("merge");
+    expect(endDot(first)?.x).toBeCloseTo(composition.mainlineX, 6);
+    expect(third.endY).toBeLessThan(second.endY);
+    expect(second.endY).toBeLessThan(first.endY);
+    expect(first.endY).toBeLessThan(finale.endY);
+    const stopEnd = pathCommands(second.pathData).at(-1)?.points.at(-1);
+    expect(stopEnd).toEqual({ x: composition.laneXs[1], y: second.endY });
+    expect(Math.max(...samplePoints(second.pathData).map((point) => point.y))).toBeLessThanOrEqual(
+      second.endY,
+    );
+    for (const lane of [first, second, third])
+      expect(composition.rows.filter((dot) => dot.y === lane.endY)).toHaveLength(1);
+
+    const oneSideLane = composed(homePageAt(1920));
+    const side = oneSideLane.routes.filter((route) => route.kind === "worktree")[0];
+    if (side === undefined) throw new Error("The one-side-lane fixture is incomplete");
+    expect(oneSideLane.rows.find((dot) => dot.y === side.endY)?.kind).toBe("merge");
   });
 
   it("falls back to one row above page end when no glass is measured", () => {

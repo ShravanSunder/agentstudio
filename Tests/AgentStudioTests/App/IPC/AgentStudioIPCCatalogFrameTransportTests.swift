@@ -102,6 +102,6 @@ struct AgentStudioIPCCatalogFrameTransportTests {
             Issue.record("command.list result did not carry a commands array")
             return
         }
-        #expect(commands.count == 151)
+        #expect(commands.count == 152)
     }
 }

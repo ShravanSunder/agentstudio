@@ -61,6 +61,7 @@ interface AttachRoutePlanProps {
   readonly anchorRows: readonly number[];
   readonly reserved: Map<number, Omit<TopologyRowDot, "row" | "y">>;
   readonly mainlineX: number;
+  readonly terminalLane: WorktreeLane | undefined;
   readonly outermostLane: WorktreeLane | undefined;
   readonly columnUnit: number;
   readonly finalMainlineRow: number;
@@ -75,6 +76,7 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
     anchorRows,
     reserved,
     mainlineX,
+    terminalLane,
     outermostLane,
     columnUnit,
     finalMainlineRow,
@@ -108,15 +110,15 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
         id: `attach-${anchor.id}`,
         kind: "attach",
         accent: "port",
-        pathData: localDropTurnPath(mainlineX, nodeX, forkY, centerY).join(" "),
-        parentColumn: 0,
-        column: Math.max(1, Math.min(2, Math.round((nodeX - mainlineX) / columnUnit))),
+        pathData: localDropTurnPath(terminalLane?.x ?? mainlineX, nodeX, forkY, centerY).join(" "),
+        parentColumn: terminalLane?.column ?? 0,
+        column: Math.max(0, Math.min(3, Math.round((nodeX - mainlineX) / columnUnit))),
         startY: forkY,
         endY: centerY,
         anchorId: anchor.id,
         targetEdge: "left",
         targetPoint: { x: nodeX, y: centerY },
-        sourceAccent: "main",
+        sourceAccent: terminalLane?.accent ?? "main",
         terminal: true,
       });
       continue;
@@ -125,13 +127,20 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
     if (anchor.stepLine !== undefined) {
       const centerY = anchor.stepLine.top + anchor.stepLine.height / 2;
       const attachRow = rowYs.findIndex((rowY) => Math.abs(rowY - centerY) <= 0.5);
-      const forkRow = attachRow - 1;
+      const forkRow = stacked ? attachRow - 1 : anchorRow;
       const forkY = rowYs[forkRow];
       if (forkY === undefined) continue;
       const source = sourceAt(forkRow);
-      // In G7 the title precedes the pill, so its chapter row can also be
-      // the row above the pill. Keep that chapter marker when the branch forks.
-      if (!reserved.has(forkRow)) {
+      if (!stacked) {
+        // The desktop branch leaves the chapter's one title-row node.
+        reserved.set(forkRow, {
+          x: source.x,
+          ownerId: source.id,
+          accent: source.accent,
+          kind: "chapter",
+          anchorId: anchor.id,
+        });
+      } else if (!reserved.has(forkRow)) {
         reserved.set(forkRow, {
           x: source.x,
           ownerId: source.id,
@@ -156,6 +165,9 @@ export function planAttachRoutes(props: AttachRoutePlanProps): TopologyRoute[] {
       });
       continue;
     }
+
+    // A chapter without its declared step line must not silently attach to glass.
+    if (anchor.chapter) continue;
 
     if (stacked || anchor.targetEdge === "top") {
       const copyClearance = stacked

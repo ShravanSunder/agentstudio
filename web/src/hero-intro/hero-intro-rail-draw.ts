@@ -1,7 +1,7 @@
 import type { SceneTimeline } from "../motion-scenes/scene-contract";
 import { layoutFullPageTopology } from "../topology-lab/full-page-topology-layout";
 
-const railDrawStart = 5.95;
+const defaultRailDrawStart = 5.95;
 const maximumDrawDuration = 1.6;
 const preferredHopDuration = 0.1;
 const preferredHoldDuration = 0.09;
@@ -26,7 +26,10 @@ export interface HeroRailDrawTiming {
   readonly end: number;
 }
 
-export function planHeroRailStaircase(hopCount: number): RailHopSchedule {
+export function planHeroRailStaircase(
+  hopCount: number,
+  railDrawStart = defaultRailDrawStart,
+): RailHopSchedule {
   if (!Number.isInteger(hopCount) || hopCount < 2)
     throw new Error("Hero rail staircase requires at least two hops");
   const holdCount = hopCount - 1;
@@ -50,6 +53,7 @@ export function planHeroRailStaircase(hopCount: number): RailHopSchedule {
 interface RailDrawOptions {
   readonly timeline: SceneTimeline;
   readonly artwork: SVGSVGElement;
+  readonly start?: number;
 }
 
 function requiredPath(artwork: SVGSVGElement, selector: string): SVGPathElement {
@@ -62,6 +66,13 @@ function requiredPath(artwork: SVGSVGElement, selector: string): SVGPathElement 
 
 function rowY(node: SVGGElement): number {
   return Number(node.querySelector("circle")?.getAttribute("cy"));
+}
+
+function nodeCircleOrigin(node: SVGGElement): string {
+  // Topology can relayout after scene construction; resolve at tween render time.
+  const circle = node.querySelector<SVGCircleElement>("circle");
+  if (circle === null) throw new Error("Hero rail node circle is missing");
+  return `${Number(circle.getAttribute("cx"))} ${Number(circle.getAttribute("cy"))}`;
 }
 
 function clipAtY(artwork: SVGSVGElement, y: number): string {
@@ -82,7 +93,11 @@ function paintPathFromStart(
 }
 
 /** Reveal existing rail geometry a row at a time; the hero attach is the last hop. */
-export function addHeroRailStaircase({ timeline, artwork }: RailDrawOptions): HeroRailDrawTiming {
+export function addHeroRailStaircase({
+  timeline,
+  artwork,
+  start = defaultRailDrawStart,
+}: RailDrawOptions): HeroRailDrawTiming {
   if (!layoutFullPageTopology(artwork)) {
     throw new Error("Hero rail draw could not lay out the topology");
   }
@@ -106,28 +121,53 @@ export function addHeroRailStaircase({ timeline, artwork }: RailDrawOptions): He
     if (lastRow !== undefined && Math.abs(lastRow.y - y) <= 0.5) lastRow.nodes.push(node);
     else rows.push({ y, nodes: [node] });
     node.setAttribute("data-hero-intro-rail-node", "");
-    timeline.set(node, { opacity: 0, scale: 0.4, transformOrigin: "50% 50%" }, 0);
+    timeline.set(node, { opacity: 0, scale: 0.4, svgOrigin: () => nodeCircleOrigin(node) }, 0);
   }
   if (rows.length < 2) throw new Error("Hero rail staircase needs distinct rows");
 
-  const schedule = planHeroRailStaircase(rows.length);
-  timeline.addLabel("rail:start", railDrawStart);
+  const schedule = planHeroRailStaircase(rows.length, start);
+  timeline.addLabel("rail:start", start);
   timeline.addLabel("rail:end", schedule.end);
   timeline.set(artwork, { clipPath: "inset(0 0 100% 0)" }, 0);
-  timeline.set(artwork, { clipPath: clipAtY(artwork, rows[0]?.y ?? heroY) }, railDrawStart);
+  timeline.set(artwork, { clipPath: clipAtY(artwork, rows[0]?.y ?? heroY) }, start);
 
   for (const [rowIndex, row] of rows.entries()) {
     const hop = schedule.hops[rowIndex];
     if (hop === undefined) throw new Error("Hero rail staircase hop is missing");
-    const popStart =
-      rowIndex === 0 ? railDrawStart : (schedule.hops[rowIndex - 1]?.arrival ?? railDrawStart);
-    timeline.fromTo(
-      row.nodes,
-      { opacity: 0, scale: 0.4 },
-      { opacity: 1, scale: 1.15, duration: 0.12, ease: "back.out(2.4)" },
-      popStart,
+    const popStart = rowIndex === 0 ? start : (schedule.hops[rowIndex - 1]?.arrival ?? start);
+    for (const node of row.nodes) {
+      timeline.fromTo(
+        node,
+        { opacity: 0, scale: 0.4, svgOrigin: () => nodeCircleOrigin(node) },
+        {
+          opacity: 1,
+          scale: 1.15,
+          svgOrigin: () => nodeCircleOrigin(node),
+          duration: 0.12,
+          ease: "back.out(2.4)",
+        },
+        popStart,
+      );
+      timeline.to(
+        node,
+        { scale: 1, svgOrigin: () => nodeCircleOrigin(node), duration: 0.06, ease: "power2.out" },
+        popStart + 0.12,
+      );
+    }
+    timeline.set(row.nodes, { clearProps: "transform" }, popStart + 0.2);
+    // GSAP also writes SVG transform/origin attributes. A direct seek must leave
+    // the finished node at its exact lane coordinate, even after relayout.
+    timeline.call(
+      () => {
+        for (const node of row.nodes) {
+          node.style.removeProperty("transform");
+          node.removeAttribute("transform");
+          node.removeAttribute("data-svg-origin");
+        }
+      },
+      [],
+      popStart + 0.2,
     );
-    timeline.to(row.nodes, { scale: 1, duration: 0.06, ease: "power2.out" }, popStart + 0.12);
     if (rowIndex + 1 < rows.length) {
       const nextY = rows[rowIndex + 1]?.y;
       if (nextY === undefined) throw new Error("Hero rail staircase row is missing");
@@ -187,6 +227,7 @@ export function clearHeroRailStaircase(artwork: SVGSVGElement): void {
     node.style.removeProperty("opacity");
     node.style.removeProperty("transform");
     node.removeAttribute("transform");
+    node.removeAttribute("data-svg-origin");
     node.removeAttribute("data-hero-intro-rail-node");
   }
 }

@@ -90,6 +90,7 @@ extension GitWorkingDirectoryProjector {
             )
         }
 
+        var branchChanged = false
         if let previousSnapshot,
             let nextBranch = currentStatusSnapshot.branch,
             previousSnapshot.branch != nextBranch
@@ -104,7 +105,26 @@ extension GitWorkingDirectoryProjector {
                     to: nextBranch
                 )
             )
+            branchChanged = true
         }
+        closeCompletedRefreshFact(
+            worktreeId: changeset.worktreeId,
+            snapshotChanged: snapshotChanged,
+            branchChanged: branchChanged
+        )
+    }
+
+    private func closeCompletedRefreshFact(
+        worktreeId: UUID,
+        snapshotChanged: Bool,
+        branchChanged: Bool
+    ) {
+        closeRefreshFact(
+            worktreeId: worktreeId,
+            outcome: snapshotChanged || branchChanged
+                ? .completed(snapshotChanged: snapshotChanged, branchChanged: branchChanged)
+                : .equal
+        )
     }
 
     private func emitCompletedStatusOutcome(for changeset: FileChangeset) async {
