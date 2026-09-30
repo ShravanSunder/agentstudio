@@ -1,6 +1,16 @@
 # Enable pane agents: how it is built
 
-Date: 2026-09-30. **Revision 12** (plan re-anchor): the S12 binding row names GRDB and says which PR lands which CLI-store table (the fast CLI + store PR, R3, then this PR). **Revision 11** (advisor A6 check): unknown checks no longer hide a changes-requested review; the revision rule is stated as "summary or member row changed", matching Spec R32 rev 9. **Revision 10** (closeout A6): the pull-request summary moves here from Bridge (navigation R19). `PaneContextDetail.pullRequests`, a pure off-main fold over the pane's linked worktrees and Forge's cached facts; the counting rule awaits owner confirmation. **Revision 9** (owner, 2026-09-30): the CLI store has one writer, the CLI. The app reads it read-only; outbox rows carry no delivery state; the app's progress lives in `local.sqlite`, and the CLI purges only rows at or below the mark the app returns at login. Unread rows are never deleted. Date: 2026-09-27. **Revision 8** (round 6: a stale refusal is final for its payload). **Revision 7**, answering round 5 (R5-F1 permission
+Date: 2026-09-30. **Revision 14** (owner: "as little work on the main actor as possible"): "MainActor and atom boundaries" is redesigned from the repo's owning docs:
+- a complete list of main-actor work;
+- a what-runs-where table;
+- one publication lane (off-main equal-check, a latest-value mailbox, one awaited sink call per batch, following `PaneActivityClock`);
+- Update Rule rows for both atoms;
+- `SessionStatusAtom` keyed by pane (no join on the main actor);
+- pane viewed as one non-awaiting mailbox submit where focus lands (the `.activePaneChanged` case exists but nothing posts it);
+- `pane.*` targets resolved off-main;
+- the `often` lane proof.
+
+**Revision 13** (owner, 2026-09-30): the R32 counting rule is confirmed; `PaneContextPresentationAtom` is approved as a runtime cache, with its field renamed `gitSummary` → `pullRequests`; the main-actor rule is stated (drop unchanged values off-main, one batched assign-only apply). **Revision 12** (plan re-anchor): the S12 binding row names GRDB and says which PR lands which CLI-store table (the fast CLI + store PR, R3, then this PR). **Revision 11** (advisor A6 check): unknown checks no longer hide a changes-requested review; the revision rule is stated as "summary or member row changed", matching Spec R32 rev 9. **Revision 10** (closeout A6): the pull-request summary moves here from Bridge (navigation R19). `PaneContextDetail.pullRequests`, a pure off-main fold over the pane's linked worktrees and Forge's cached facts; the counting rule awaits owner confirmation. **Revision 9** (owner, 2026-09-30): the CLI store has one writer, the CLI. The app reads it read-only; outbox rows carry no delivery state; the app's progress lives in `local.sqlite`, and the CLI purges only rows at or below the mark the app returns at login. Unread rows are never deleted. Date: 2026-09-27. **Revision 8** (round 6: a stale refusal is final for its payload). **Revision 7**, answering round 5 (R5-F1 permission
 prompts resolve only at turn boundaries; R5-F2 epoch claims are a separate
 idempotent step). Revision 6 answered round 4 (R4-F1 to R4-F6). Revision 5 answered round 3 and the owner's simplified show;
 revision 4 answered round 2. This is the Program Design for PR B. It builds the
@@ -323,7 +333,7 @@ Rules this sets for the reducer:
 | Entity | Semantic owner | Home (new / modified / existing) | Type home | Shape at boundaries | Kind |
 | --- | --- | --- | --- | --- | --- |
 | S1 Agent session | Sessions | modified `Features/Sessions` binding + resume info | `SessionsBindingRecord` gains `resumeHint`, `ownerPaneId` | existing `session.event` sessionStart params gain an optional resume hint | persisted (Sessions tables) |
-| S2 Session status | Sessions reducer | modified `SessionsEvidenceReducer`; new keyed atom `SessionStatusAtom` (owner-approved) | `SessionStatus = .needsYou(reason) \| .failed(summary) \| .working(active \| monitoring) \| .idle(done \| ready \| interrupted \| ended) \| .unknown` | UI: `AtomFamily<SessionId, SessionStatus>` via a thin apply; IPC: in `pane.context.get` | derived |
+| S2 Session status | Sessions reducer | modified `SessionsEvidenceReducer`; new keyed atom `SessionStatusAtom` (owner-approved) | `SessionStatus = .needsYou(reason) \| .failed(summary) \| .working(active \| monitoring) \| .idle(done \| ready \| interrupted \| ended) \| .unknown` | UI: `AtomFamily<PaneId, SessionStatus>` (the status of the pane's current binding) via the batched publication lane; IPC: in `pane.context.get` | derived |
 | S3–S5 AgentMessage | PaneContextService | new `Core/PaneContext/` | `AgentMessageDetail` and its unions ("Contracts PR C consumes") | wire: `IPCPaneMessageSendParams { handle, messageId, writer?, sourceOccurredAt?, importance, body, why?, actions, shape }`, where an ask shape carries its `reason` → `.created(id) \| .existing(id)`; `pane.message.ask` → `AskOutcome = .answered(value) \| .handedBack \| .expired \| .withdrawn \| .stale` (a repeat of a settled ask returns its outcome) | persisted |
 | S6 Message action | PaneContextService (record); owner of each effect | new | `MessageAction = .openFile(path, line?) (B2) \| .openPullRequest(ForgePullRequestIdentity) \| .goToPane(PaneId)` | embedded in S3 | value |
 | S7 Answer position | CLI store + PaneContextService | new | `AnswerPosition(UInt64)` per (session, pane) | wire: `pane.message.changes { handle, writer, after }` → `{ entries, nextPosition, more }`; reporting `after` confirms receipt of answers at or before it | persisted (both sides) |
@@ -333,7 +343,7 @@ Rules this sets for the reducer:
 | S13 Provider prompt | Sessions | modified `SessionsEvidenceReducer` / `SessionStatusState` | `ProviderPrompt { key, reason: .approval \| .question, observedAt, summary }`, keyed by `ProviderPromptKey = .toolCall(id) \| .elicitation(id) \| .permission(sequence)` | existing `session.event` params gain the decoded tool name, tool call id and elicitation id | derived from stored evidence |
 | S11 Link (B2) | Bridge | Bridge contract PR types | `BridgeLinkContributor`, membership unions v3 | port `PaneLinkMembershipPort` (Bridge-defined) | persisted by Bridge |
 | S12 CLI store | `agentstudio` CLI (later agentd) | new target `AgentStudioCLIStore`. The fast CLI + CLI store PR lands the foundation: `cli_store_identity`, `cli_outbox` for today's notice kinds, the read-through and the purge. Session-restore R3 adds `cli_lifecycle_report`. This PR adds `cli_state` and the `pane.message.send` notice kind in the outbox | GRDB repository; rows parse into `CLIStateEntry` / `CLIOutboxEntry` unions | one SQLite file in the channel's per-user IPC data root; additive GRDB `DatabaseMigrator` migrations | persisted |
-| Display value | PaneContextService (computes) | new runtime atom `PaneContextPresentationAtom` | `PaneContextDisplay { revision, agentTitle?, agentLine?, openAskCount, unreadNoticeCount, newestOpenAskId?, gitSummary }` | UI: `AtomFamily<PaneId, …>` via a thin apply | derived, never stored |
+| Display value | PaneContextService (computes) | new runtime atom `PaneContextPresentationAtom` (owner-approved 2026-09-30: a runtime cache only, with as little main-actor work as possible) | `PaneContextDisplay { revision, agentTitle?, agentLine?, openAskCount, unreadNoticeCount, newestOpenAskId?, pullRequests }` | UI: `AtomFamily<PaneId, …>` via a thin apply | derived, never stored |
 
 ## Connections (shared IPC server change)
 
@@ -575,16 +585,15 @@ delayed older summary can't republish NEEDS YOU after the ask resolved. On
 Sessions' lazy open it asks once for `openAskSummaries()` (each with its
 sequence) and joins them the same way.
 
-**Pane viewed** comes from the existing active-pane change on MainActor as a
-fire-and-forget port call into Sessions (the value is captured on MainActor;
-nothing is derived there). It is a port input, not a new bus event.
+**Pane viewed** comes from where focus lands on a terminal pane,
+`PaneFocusExecutor.syncTerminalRuntimeFocus(for:)`. That site makes one
+`nonisolated` mailbox submit into Sessions, a lock and a dictionary write, and
+Sessions decides done → ready off-main (rev 14; see "MainActor and atom boundaries").
 
 ## Keeping displayed values current
 
-- **One publisher per actor, in order.** Each actor pushes changed values
-  into one `AsyncStream` (buffering newest per key) consumed by one MainActor
-  apply task, so publication order is commit order. The atom methods only
-  assign and equal-suppress.
+- **Publication:** one batched, awaited main-actor sink per owner, after an off-main
+  equal-check. See "MainActor and atom boundaries", "The publication lane".
 - **Deadlines are off-main.** `PaneContextService` owns one deadline
   scheduler on its injected `any Clock<Duration>`: the earliest Agent Line
   expiry and blocking-ask deadline across its panes. When it fires, the service
@@ -757,7 +766,7 @@ Rules the implementations keep:
   - The two axes are read separately. A pull request whose `checks == .unknown` gives no check evidence (it's not failed, running or passed), but its review still counts: `review == .changesRequested` makes it need attention. With unknown checks it can't make the state `allGood`, whatever its review.
 - **Where it runs:** inside `PaneContextService`'s off-main detail derivation, like the rest of `PaneContextDetail`. A Forge fact change for any member re-derives the summary. The pane's revision bumps only when the derived `PullRequestSummaryDetail` changed, which includes any member row, not only the state (Spec R4 and R32: publish on change). A fact the summary doesn't carry (mergeability, draft) re-derives an equal value and doesn't bump. This is the same rule as "Any detail change bumps the revision" above.
 - **Who keeps the facts fresh:** Forge's existing demand owner (`PullRequestDemandProjection`). PR C's visible chip registers a demand source there; PR B adds no poller. Two or more members are required; a single-worktree pane gets `.notApplicable` and keeps today's PR control (`PanePullRequestToolbarActionFactory`).
-- **Pending:** the counting rule is the orchestrator's default, awaiting owner confirmation (Spec R32).
+- **Confirmed by the owner, 2026-09-30:** changes requested counts as attention; review required doesn't; N counts worktrees, not checks; attention beats running.
 
 ## Bounds and retention
 
@@ -840,25 +849,76 @@ Dependency rules:
 
 ## MainActor and atom boundaries
 
-| Lane | Input class | Runs where | MainActor touch |
+**The rule (owner, 2026-09-30): as little work on the main actor as possible.** This section follows the repo's owning docs:
+- `atom_persistence_boundaries.md` ("Need An Atom?", "Which primitive", "Update Rule");
+- `demand_driven_derived_state_refresh.md` ("Selection Rule", "Per-Stage Outcome Telemetry");
+- `pane_runtime_eventbus_design.md` ("Admission And Hop Shape");
+- the MainActor And Atom Boundaries skill.
+
+### Everything the main actor does in PR B
+
+1. **Apply display values.** One sink call per batch assigns already-decided `PaneContextDisplay` values into `PaneContextPresentationAtom`.
+2. **Apply status values.** One sink call per batch assigns already-decided `SessionStatus` values into `SessionStatusAtom`.
+3. **Finish a person action (PR C).** The popover's await on `PaneContextPersonActing` resumes, and the popover assigns its own local view state.
+4. **Render.** Views read keyed values with `value(for:)`. `PaneDisplayTitleDerived` composes the pane's own title with the agent title as it's read: two strings, no copy onto another atom.
+5. **Pane viewed.** One `nonisolated` mailbox submit where terminal focus lands: a lock and a dictionary write, with no await.
+6. **Retirement.** `retirePanesPermanently` makes one `nonisolated retire(_:)` call beside the existing `paneActivityClock?.retire`: a mailbox append, with no await.
+
+That's the whole list. No IPC handler, hook, write, read, deadline or drawer move runs on the main actor, and none of them waits for it.
+
+### What runs where
+
+| Work | Input class (Selection Rule) | Runs on | Mechanism |
 | --- | --- | --- | --- |
-| IPC writes | ordered fact per writer | service actor; SQL on the datastore actor | none |
-| Hook facts → status | ordered fact, then latest-state per session | Sessions ingestion and reducer (off-main) | one coalesced apply of changed statuses |
-| Display values | latest-state per pane | the service computes them | one coalesced, equal-suppressed apply |
-| Blocking ask waits | future deadline + cancellation | service actor, injected clock | none |
-| Person actions | intent with a typed result | a popover controller awaits the seam | the await resumes, then a local assign |
-| Pane viewed | latest-state per pane | captured on MainActor from the existing active-pane change, sent as a port call; Sessions decides done → ready off-main | a capture only |
-| Deadlines (Agent Line expiry, ask deadline) | future deadline | one scheduler in the service on its injected clock | none |
-| Outbox drain | batch | app actor after startup | none |
-| CLI | own process | no MainActor | — |
+| `pane.*` writes: send, ask, withdraw, line, title, claimEpoch | ordered fact, per writer | `PaneContextService` actor; SQL on `WorkspaceSQLiteDatastoreActor` | Ordered and never coalesced. The target is always the credential's own pane (`handle: "self"`), resolved off-main by the principal registry. There's no main-actor target resolution, unlike `command.execute`'s `@MainActor` resolver |
+| `session.event` hooks | ordered fact | Sessions ingestion actor, the existing path (`AgentStudioIPCSessionsAdapter`: "nothing here touches MainActor") | ordered |
+| Pane existence and drawer ownership | ordered topology fact | an index the service keeps itself, fed by an off-main subscriber on `PaneRuntimeEventBus` topology facts | subscription; the service never reads a main-actor atom |
+| Pane viewed | latest-state, per pane | `PaneFocusExecutor.syncTerminalRuntimeFocus(for:)` (`PaneFocusExecutor.swift:335`), where focus lands on a terminal pane, calls one injected `nonisolated` submit, `SessionsPaneViewedMailbox.noteViewed(paneId)`. That's a `Mutex` dictionary write: no await, no `Task`, no bus post. Sessions drains it off-main and decides done → ready. `FocusChangeEvent.activePaneChanged` exists in `RuntimeEnvelopeCore.swift:158`, but nothing posts it today, so it isn't used | one O(1) call on the main actor (with retirement, one of PR B's two new main-actor calls) |
+| Ask deadlines and Agent Line expiry | future eligibility deadline | one reschedulable next-deadline task in the service, on its injected clock | no fleet-wide timer |
+| Retirement | ordered fact | `retirePanesPermanently` calls the service's `nonisolated retire(_:)`, which appends to a `Mutex` mailbox without awaiting, as `PaneActivityClock.retire` already does | no await on the main actor |
+| Per-pane display (title, line, counts, newest ask, PR summary) | latest-state projection | computed by the service after each commit | the publication lane below |
+| Per-pane session status | latest-state projection | computed by the Sessions reducer after each input | the publication lane below |
+| Pull-request summary | latest-state projection | `PullRequestSummaryFold` in the service, on a Forge fact change | a pure fold; an equal result publishes nothing |
+| `readDetail` and `pane.context.get` | query | service actor | returns a value; nothing is kept in an atom |
+| Person actions | intent with a typed result | service actor | the caller awaits; the main actor only resumes |
 
-The two atoms follow the atom rules:
-- Both are runtime-only, and a restart refills them from rows.
-- Both are keyed `AtomFamily`s with content comparators.
-- Their methods only assign.
+### The publication lane (one shape, used twice)
 
-Probes record `pane_context.presentation_apply`, `sessions.status_apply` and the
-CLI's `cli.call_total_ms`.
+It follows the shipped `PaneActivityClock` shape: "orders both activity sources before one thin, acknowledged MainActor publication" (`PaneActivityClock.swift`).
+
+1. **Distinct-until-changed, off-main.** After a commit, the owner actor (the service, or Sessions) computes the new value for each affected pane and compares it with the last value it published. An equal value is counted as suppressed, and nothing is sent.
+2. **Latest-value coalescing.** Changed values go into a `Mutex`-guarded mailbox keyed by pane, and the newest value wins.
+3. **One awaited main-actor call per batch.** One drain task takes the whole mailbox and awaits one `@MainActor` sink call with the batch. The sink applies every key inside one `AtomMutationContext` (one aggregate revision bump) and returns.
+   - While that call is in flight, new changes coalesce in the mailbox. So a busy main actor gets fewer wakes, never more.
+   - Publication order is commit order per pane.
+4. **Backstop only.** The atom's `isContentEqual` comparator never does the suppression work; the actor already did it.
+
+Two shapes are deliberately not used:
+- a `for await` over a per-pane stream on the main actor: that's a hop per element (a red flag in the boundaries skill; lint `agentstudio_mainactor_hop_per_element`);
+- `BackgroundFactApplyGovernor`: it runs one `MainActor.run` per fact. The batch sink takes one call per batch.
+
+### The two atoms (Update Rule steps 0–8)
+
+| Step | `PaneContextPresentationAtom` | `SessionStatusAtom` |
+| --- | --- | --- |
+| Owner approval | 2026-09-30, as a runtime cache | recorded earlier |
+| Who observes (step 0) | pane title layer, NEEDS YOU and unread badges, PR C's shared PR chip | pane chrome and PR C's status line |
+| Lane / role | runtime/presentation; write-owner of a runtime cache of the service's output | same |
+| Primitive | `AtomFamily<PaneId, PaneContextDisplay>`; hot reads use `value(for:)` | `AtomFamily<PaneId, SessionStatus>`, **keyed by pane** (see below) |
+| Comparator | content equality of the small struct | enum equality |
+| Methods | `apply(_ batch:)` and `remove(_ paneIds:)`, assign only | same |
+| Persistence | never written to SQLite; a restart refills it from rows | same |
+| Home | `Core/State/MainActor/Atoms/`; `PaneContextDisplay` lives in `Core/PaneContext/` | `Features/Sessions/State/MainActor/Atoms/`, injected (a Feature atom) |
+
+**Why status is keyed by pane (rev 14).** Views are per pane. An atom keyed by session would make each view find its pane's current session first, which is a join on the main actor. Sessions already knows every pane's current binding off-main, so it publishes the status of that binding keyed by the pane. A drawer child is a pane, so it gets its own key. A session that's been replaced or has ended leaves the atom; its record remains readable through `readDetail`.
+
+**Never in an atom:** message bodies, asks, answers, change entries, or any list. Those are read on demand through `readDetail`, which is paged and bounded to 1 MiB.
+
+### Lane class and proof
+
+- **Class `often`:** a busy agent can write its Agent Line or cross status transitions more than 10 times a minute. Hook traffic itself is higher, but step 1 turns it into rare publications.
+- **Telemetry (Per-Stage Outcome Telemetry)** for `pane_context.presentation_apply` and `sessions.status_apply`: the computed count, the equal-suppressed count, the coalesced count, the batch size, and main-actor held time (total and max per batch).
+- **Proof:** a marker-scoped trace with 15–20 active panes (agents writing lines and asks, hooks flowing). It must show main-actor held time per batch under 1 ms, the `heavy` threshold, and zero main-actor time on the IPC, hook and deadline paths, and only the O(1) submit on the pane-viewed path. The CLI's `cli.call_total_ms` is measured separately.
 
 ## Call paths
 
