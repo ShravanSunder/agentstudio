@@ -500,6 +500,14 @@ struct ColdStartObserverTests {
     /// The other half: a leader that exits before ever calling `setsid`
     /// (or at least before `observe` ever succeeds) settles failed, never
     /// unobservable -- `NOTE_EXIT` fires with no intervening `NOTE_EXEC`.
+    ///
+    /// Amended 2026-09-30: replaced a `sleep 0.05; exit 1` real-process
+    /// ordering with the sibling test's own FIFO hold point. The real
+    /// process cannot reach its own `exit 1` until this test confirms --
+    /// via `ScriptedSyscalls`' own call-count event, never a poll or a
+    /// sleep -- that `beginSetsidWatch`'s `DispatchSource` has already
+    /// registered, so the `NOTE_EXIT` this test asserts on is always a live
+    /// fire against an armed watch, not a race against an arbitrary delay.
     @Test("a leader that exits before setsid ever succeeds settles failed")
     func pendingSetsidExitBeforeAnySuccessSettlesFailed() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
@@ -509,9 +517,12 @@ struct ColdStartObserverTests {
         let socketPath = temporaryDirectory.appending(path: "session").path
         FileManager.default.createFile(atPath: socketPath, contents: nil)
 
+        let holdFIFOPath = try makeFIFOPath()
+        defer { try? FileManager.default.removeItem(atPath: holdFIFOPath) }
+
         let controlledProcess = Process()
         controlledProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
-        controlledProcess.arguments = ["-c", "sleep 0.05; exit 1"]
+        controlledProcess.arguments = ["-c", "read _ < '\(holdFIFOPath)'; exit 1"]
         controlledProcess.standardOutput = FileHandle.nullDevice
         controlledProcess.standardError = FileHandle.nullDevice
         try controlledProcess.run()
@@ -526,16 +537,31 @@ struct ColdStartObserverTests {
         // See the sibling test's comment: absorb any extra redundant
         // directory-watch-triggered call without spuriously settling.
         syscalls.observeSessionFallback = .pendingSetsid(terminalPID: terminalPID)
+        let observeSessionCallSource = LocalFactSource(vocabulary: ScriptedSyscalls.observeSessionCallFactVocabulary())
+        let observeSessionCallRecorder = try observeSessionCallSource.attach()
+        syscalls.observeSessionCallFactSink = observeSessionCallSource.sink
         let observer = ColdStartObserver(syscalls: syscalls)
 
-        let outcome = await observer.observeColdStart(
+        async let outcome = observer.observeColdStart(
             zmxDirectory: temporaryDirectory,
             socketPath: socketPath,
             bootID: "test-boot-id",
             attemptID: ColdRestoreAttemptID.generate()
         )
 
-        #expect(outcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+        // Release only once the observer's own immediate post-registration
+        // check has genuinely happened -- an event ScriptedSyscalls itself
+        // reports, never a poll or a sleep. Two sequential expectNext calls
+        // (call 1: the initial discovery check; call 2: the immediate
+        // post-registration check) prove both happened in order before
+        // releasing the hold.
+        try await observeSessionCallRecorder.expectNext(in: ScriptedSyscalls.observeSessionScope, 1)
+        try await observeSessionCallRecorder.expectNext(in: ScriptedSyscalls.observeSessionScope, 2)
+        let fifoWriteDescriptor = try await openFIFOForWriting(atPath: holdFIFOPath)
+        try await closeFIFOWriteDescriptor(fifoWriteDescriptor)
+
+        let settledOutcome = await outcome
+        #expect(settledOutcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
     }
 
     /// Event-driven wait for a real process's own `NOTE_EXIT`, so a test can
