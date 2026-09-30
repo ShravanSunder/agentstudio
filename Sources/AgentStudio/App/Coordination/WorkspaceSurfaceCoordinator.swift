@@ -688,7 +688,7 @@ final class WorkspaceSurfaceCoordinator {
             break
         }
 
-        guard store.tabLayoutAtom.tabContaining(paneId: sourcePaneUUID) != nil else {
+        guard store.tabLayoutAtom.tabID(containingPane: sourcePaneUUID) != nil else {
             Self.logger.warning(
                 "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
             )
