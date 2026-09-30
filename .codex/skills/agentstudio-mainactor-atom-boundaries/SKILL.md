@@ -144,7 +144,7 @@ them, and do not cite them as precedent.
 | `for await` on MainActor with a per-element hop and no stored-value guard | MainActor wakes per element, not per changed outcome | Contract off-main; guard `element != stored` before applying | `Features/Terminal/Routing/TerminalActivityRouter.swift:163-167` |
 | Sort, reduce, or grouping in `@MainActor` types | Unbounded collection work on MainActor | Off-main worker or eager seam | `Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift:257-279` (10 ledger sites) |
 | `canDispatch`, sort, or filter in a SwiftUI `body` | Derivation in view evaluation | Prepared read model or deferred closure | `App/Panes/TabBar/ShellTabBarControls.swift:92` (`body` builds a presentation whose init calls `canDispatch` at `:48`; 15 ledger files) |
-| `await Task.yield()` loops in tests | Verdict depends on machine speed; starves a 3-core CI runner | `expectNext` the owner's typed fact or the observed change; use `TestPushClock` for time | `Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift:357` (20 ledger sites) |
+| `await Task.yield()` loops in tests | Verdict depends on machine speed; starves a 3-core CI runner | Use `expectNext` for the owner's typed fact, or await an observed state change; use `TestPushClock` for time | `Tests/AgentStudioTests/Core/PaneRuntime/Sources/GitWorkingDirectoryProjectorTests.swift:357` (20 ledger sites) |
 
 Paths above are relative to `Sources/AgentStudio/` except the test row.
 
