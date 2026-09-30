@@ -150,6 +150,7 @@ struct DrawerPanelOverlay: View {
         let ownerPaneId: UUID
         let tabId: UUID
         let workspaceWindowId: UUID?
+        let zoomSourcePaneId: UUID?
     }
 
     private struct ResolvedMoveControlAction {
@@ -289,7 +290,8 @@ struct DrawerPanelOverlay: View {
                 ),
                 ownerPaneId: paneId,
                 tabId: tabId,
-                workspaceWindowId: workspaceWindowId
+                workspaceWindowId: workspaceWindowId,
+                zoomSourcePaneId: store.panePresentationAtom.zoomPresentation(forTab: tabId)?.sourcePaneId
             )
             VStack(spacing: 0) {
                 DrawerPanel(
@@ -450,13 +452,14 @@ struct DrawerPanelOverlay: View {
         ownerPaneId: UUID,
         tabId: UUID,
         workspaceWindowId: UUID?,
-        zoomSourcePaneId _: UUID? = nil
+        zoomSourcePaneId: UUID?
     ) -> MoveControlResolutionKey {
         MoveControlResolutionKey(
             command: command,
             ownerPaneId: ownerPaneId,
             tabId: tabId,
-            workspaceWindowId: workspaceWindowId
+            workspaceWindowId: workspaceWindowId,
+            zoomSourcePaneId: zoomSourcePaneId
         )
     }
 
