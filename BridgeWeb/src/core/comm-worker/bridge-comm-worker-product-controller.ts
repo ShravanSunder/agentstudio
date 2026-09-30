@@ -98,10 +98,6 @@ export class BridgeCommWorkerProductController {
 	};
 	#reviewAnnotationPublicationIdentity: BridgeProductReviewAnnotationPublicationIdentity | null =
 		null;
-	readonly #annotationSourceReconciliationBySurface: Record<
-		'file' | 'review',
-		Promise<void> | null
-	> = { file: null, review: null };
 	readonly #callCurrentFileSource: () => Promise<FileSourceDiscoveryResult>;
 	readonly #subscribeFile: (
 		options: BridgeProductMetadataApplicationOptions<FileMetadataProtocol>,
@@ -223,7 +219,9 @@ export class BridgeCommWorkerProductController {
 		sourceGeneration: number | null,
 	): void {
 		this.#annotationSurfaceActive[surface] = active;
-		this.#annotationSourceGeneration[surface] = sourceGeneration;
+		// Main reports mode, while the certified W4 File installation owns the
+		// source generation used by E4. A delayed Main update cannot move it.
+		if (surface === 'review') this.#annotationSourceGeneration.review = sourceGeneration;
 		this.#publishAnnotationProjectionDemand(surface);
 	}
 
@@ -244,6 +242,10 @@ export class BridgeCommWorkerProductController {
 		this.#annotationProjectionBySurface[surface].retry();
 	}
 
+	async waitForAnnotationProjectionIdle(surface: 'file' | 'review'): Promise<void> {
+		await this.#annotationProjectionBySurface[surface].waitForIdle();
+	}
+
 	setAnnotationProjectionSourceUnavailable(surface: 'file' | 'review', error: unknown): void {
 		this.#annotationProjectionBySurface[surface].sourceUnavailable(error);
 	}
@@ -258,23 +260,16 @@ export class BridgeCommWorkerProductController {
 			);
 			return Promise.resolve();
 		}
-		const existingReconciliation =
-			this.#annotationSourceReconciliationBySurface[publication.surface];
-		if (existingReconciliation !== null) return existingReconciliation;
-		const reconciliation = this.#reopenAnnotationProjectionSourceAuthority(
-			publication.surface,
-		).catch((error: unknown): void => {
-			this.setAnnotationProjectionSourceUnavailable(publication.surface, error);
-		});
-		const trackedReconciliation = reconciliation.finally((): void => {
-			if (
-				this.#annotationSourceReconciliationBySurface[publication.surface] === trackedReconciliation
-			) {
-				this.#annotationSourceReconciliationBySurface[publication.surface] = null;
-			}
-		});
-		this.#annotationSourceReconciliationBySurface[publication.surface] = trackedReconciliation;
-		return trackedReconciliation;
+		// E4 projection currentness never owns the File or Review E3 lifetime. If W4 has
+		// already installed the newer source, retry against it; otherwise setDemand
+		// reissues the query when that installation reaches this controller.
+		if (
+			(this.#annotationSourceGeneration[publication.surface] ?? -1) >=
+			publication.currentSourceGeneration
+		) {
+			this.#annotationProjectionBySurface[publication.surface].retry();
+		}
+		return Promise.resolve();
 	}
 
 	async disposeAnnotationProjections(): Promise<void> {
@@ -282,43 +277,6 @@ export class BridgeCommWorkerProductController {
 			this.#annotationProjectionBySurface.file.dispose(),
 			this.#annotationProjectionBySurface.review.dispose(),
 		]);
-	}
-
-	async #reopenAnnotationProjectionSourceAuthority(surface: 'file' | 'review'): Promise<void> {
-		if (surface === 'file') {
-			const subscription = this.#fileSubscription;
-			this.#fileSubscription = null;
-			this.#fileSource = null;
-			this.#fileSourceEnsure = null;
-			this.#fileDesiredInterestSignature = null;
-			this.#hasPublishedFileMetadataInterests = false;
-			this.#fileInterestRevision += 1;
-			this.#fileInterestUpdate = Promise.resolve();
-			this.#fileInterestUpdateFailed = false;
-			if (subscription !== null) {
-				try {
-					await subscription.cancel();
-				} catch {
-					// The replacement source authority supersedes the retired subscription locally.
-				}
-			}
-			await this.ensureFileSource();
-			return;
-		}
-		const subscription = this.#reviewSubscription;
-		if (subscription !== null) this.#onReviewWorkerDerivationEpochChanged(null);
-		this.#reviewSubscription = null;
-		this.#reviewInterestItemIdsByLane.clear();
-		this.#reviewDesiredInterestSignature = null;
-		this.#reviewInterestUpdate = Promise.resolve();
-		if (subscription !== null) {
-			try {
-				await subscription.cancel();
-			} catch {
-				// The replacement source authority supersedes the retired subscription locally.
-			}
-		}
-		this.ensureReviewMetadata();
 	}
 
 	ensureFileSource(): Promise<void> {
@@ -346,6 +304,8 @@ export class BridgeCommWorkerProductController {
 			return;
 		}
 		this.#fileSource = props.source;
+		this.#annotationSourceGeneration.file = props.source.subscriptionGeneration;
+		this.#publishAnnotationProjectionDemand('file');
 		this.#fileResetRecoveryAttempted = false;
 		this.#scheduleFileMetadataInterestPublication();
 	}

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 import {
 	createTransportHarness,
 	disposeTransportHarnesses,
@@ -19,15 +20,18 @@ afterEach(async (): Promise<void> => {
 
 describe('Bridge product source retirement through the real transport', () => {
 	test.each(['file', 'review'] as const)(
-		'reopens %s source authority on the cancel acknowledgement while native withholds its terminal',
+		'reopens %s after a worker-epoch retirement cancel acknowledgement without waiting for native terminal',
 		async (surface): Promise<void> => {
 			// Arrange: the real controller consumes one accepted subscription.
 			const harness = createTransportHarness();
+			const retired = createBridgeProductDeferred<void>();
 			const controller = new BridgeCommWorkerProductController({
 				callCurrentFileSource: async () => ({
 					source: fileSourceConfiguration(),
 					status: 'available',
 				}),
+				onFileMetadataFailure: (): void => retired.resolve(),
+				onReviewMetadataFailure: (): void => retired.resolve(),
 				productTransport: harness.transport,
 			});
 			if (surface === 'file') await controller.ensureFileSource();
@@ -48,12 +52,12 @@ describe('Bridge product source retirement through the real transport', () => {
 				}),
 			);
 
-			// Act: native acknowledges the cancel but never delivers the cancelled frame.
-			await controller.reconcileAnnotationProjectionSourceAuthority({
-				currentSourceGeneration: 2,
-				requestedSourceGeneration: 1,
-				surface,
-			});
+			// Act: the worker explicitly rotates this surface. Native acknowledges
+			// the cancel but withholds the cancelled frame.
+			harness.transport.advanceWorkerDerivationEpoch(surface);
+			await retired.promise;
+			if (surface === 'file') await controller.ensureFileSource();
+			else controller.ensureReviewMetadata();
 
 			// Assert: the replacement opened at the next epoch without that frame.
 			await harness.server.waitForControlKind('subscription.open', 2);
@@ -67,7 +71,7 @@ describe('Bridge product source retirement through the real transport', () => {
 				'subscription.open:1',
 				'subscription.setScope',
 				'subscription.cancel:1',
-				'subscription.open:2',
+				'subscription.open:3',
 				'subscription.setScope',
 			]);
 		},
