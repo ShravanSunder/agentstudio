@@ -45,8 +45,11 @@ extension ArchitectureLintContext {
     fileprivate var isRepositoryTestSourceOutsideHarness: Bool {
         let path = workspaceRelativePath ?? normalizedPath
         let testPath = "/\(path)"
-        return testPath.hasSuffix(".swift")
-            && testPath.contains("/Tests/")
+        let isUnderRepositoryTests =
+            workspaceRelativePath.map { $0.hasPrefix("Tests/") }
+            ?? testPath.contains("/Tests/")
+        return isUnderRepositoryTests
+            && testPath.hasSuffix(".swift")
             && !testPath.contains("/Tests/AgentStudioTestHarness/")
     }
 }
