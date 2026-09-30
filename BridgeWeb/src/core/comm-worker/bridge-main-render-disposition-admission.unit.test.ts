@@ -5,11 +5,37 @@ import {
 	createBridgeMainRenderDispositionAdmission,
 	type BridgeMainRenderDispositionAdmission,
 } from './bridge-main-render-disposition-admission.js';
-import type { BridgeWorkerRenderDispositionReceipt } from './bridge-worker-render-fulfillment.js';
+import type {
+	BridgeWorkerRenderAdmissionReceipt,
+	BridgeWorkerRenderDispositionReceipt,
+} from './bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from './bridge-worker-render-fulfillment.test-support.js';
 import { createBridgeWorkerRpcLifecycleStore } from './bridge-worker-rpc-lifecycle-store.js';
 
 describe('Bridge main render disposition admission', () => {
+	test('delivers paint release after painted disposition through the same acknowledged batch path', () => {
+		const harness = createAdmissionHarness({ maximumBatchSize: 2 });
+		const painted = { ...makeQueuedReceipt(1), disposition: 'painted' as const };
+		const release = {
+			...makeBridgeWorkerRenderReceiptIdentity({
+				itemId: 'item-1',
+				publicationSequence: 1,
+				surface: 'review',
+				workerDerivationEpoch: 1,
+			}),
+			kind: 'paint.released' as const,
+			receivedAtMilliseconds: 2,
+		};
+		harness.admission.enqueue(painted);
+		harness.admission.enqueue(release);
+		expect(harness.dispatched).toHaveLength(1);
+		harness.ack('batch-1');
+		expect(
+			harness.dispatched.map(({ receipts }) => receipts.map((receipt) => receipt.kind)),
+		).toEqual([['render.disposition'], ['paint.released']]);
+		harness.ack('batch-2');
+		expect(harness.admission.snapshot().pendingReceiptCount).toBe(0);
+	});
 	test('holds the next batch until the in-flight request is acknowledged', () => {
 		const harness = createAdmissionHarness({ maximumBatchSize: 2 });
 		harness.admission.enqueue(makeQueuedReceipt(1));
@@ -235,7 +261,7 @@ function createAdmissionHarness(options: {
 	readonly ack: (requestId: string) => void;
 	readonly admission: BridgeMainRenderDispositionAdmission;
 	readonly dispatched: Array<{
-		readonly receipts: readonly BridgeWorkerRenderDispositionReceipt[];
+		readonly receipts: readonly BridgeWorkerRenderAdmissionReceipt[];
 		readonly requestId: string;
 	}>;
 	readonly fail: (requestId: string) => void;
@@ -243,7 +269,7 @@ function createAdmissionHarness(options: {
 } {
 	const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
 	const dispatched: Array<{
-		readonly receipts: readonly BridgeWorkerRenderDispositionReceipt[];
+		readonly receipts: readonly BridgeWorkerRenderAdmissionReceipt[];
 		readonly requestId: string;
 	}> = [];
 	let nextBatchSequence = 0;

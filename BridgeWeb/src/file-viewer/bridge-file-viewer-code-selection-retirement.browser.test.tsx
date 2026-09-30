@@ -356,7 +356,10 @@ function hasQueuedRenderReceipt(
 		(message): boolean =>
 			message.command === 'renderDisposition' &&
 			message.receipts.some(
-				(receipt): boolean => receipt.itemId === itemId && receipt.disposition === 'queued',
+				(receipt): boolean =>
+					receipt.kind === 'render.disposition' &&
+					receipt.itemId === itemId &&
+					receipt.disposition === 'queued',
 			),
 	);
 }
@@ -373,6 +376,7 @@ function hasTerminalRenderReceipt(
 			message.command === 'renderDisposition' &&
 			message.receipts.some(
 				(receipt): boolean =>
+					receipt.kind === 'render.disposition' &&
 					receipt.itemId === expected.itemId &&
 					receipt.disposition === expected.disposition &&
 					receipt.reason === 'stale_submission',

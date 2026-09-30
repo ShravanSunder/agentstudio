@@ -9,6 +9,7 @@ import {
 	type BridgeWorkerRenderDispositionReceipt,
 	type BridgeWorkerRenderFulfillmentState,
 	type BridgeWorkerRenderReceiptIdentity,
+	type BridgeWorkerPaintReleasedReceipt,
 } from './bridge-worker-render-fulfillment.js';
 
 export interface BridgeWorkerRenderFulfillmentRegistryContext {
@@ -213,6 +214,40 @@ export class BridgeWorkerRenderFulfillmentRegistry {
 		} else {
 			this.#fulfillmentByItemId.set(receipt.itemId, nextState);
 		}
+		return Object.freeze({ state: nextState, status: 'accepted' });
+	}
+
+	applyPaintRelease(
+		receipt: BridgeWorkerPaintReleasedReceipt,
+	): ApplyBridgeWorkerRenderDispositionResult {
+		const currentState = this.#fulfillmentByItemId.get(receipt.itemId) ?? null;
+		if (currentState === null) {
+			return Object.freeze({ reason: 'stale_submission', state: null, status: 'rejected' });
+		}
+		if (
+			currentState.submissionId !== receipt.submissionId ||
+			currentState.publicationId !== receipt.publicationId ||
+			currentState.workerDerivationEpoch !== receipt.workerDerivationEpoch ||
+			(currentState.activeAttempt !== null &&
+				currentState.activeAttempt.attemptId !== receipt.attemptId)
+		) {
+			return Object.freeze({ reason: 'stale_submission', state: currentState, status: 'rejected' });
+		}
+		if (currentState.stage !== 'painted') {
+			return Object.freeze({ reason: 'already_terminal', state: currentState, status: 'rejected' });
+		}
+		if (currentState.paintedResidency?.attemptId !== receipt.attemptId) {
+			return Object.freeze({ reason: 'stale_submission', state: currentState, status: 'rejected' });
+		}
+		let nextState: BridgeWorkerRenderFulfillmentState;
+		try {
+			nextState = reduceBridgeWorkerRenderFulfillment(currentState, receipt);
+		} catch (error) {
+			if (!isBridgeWorkerRenderReceiptRejectionError(error)) throw error;
+			return Object.freeze({ reason: 'stale_submission', state: currentState, status: 'rejected' });
+		}
+		this.#sourceRevalidationItemIds.delete(receipt.itemId);
+		this.#fulfillmentByItemId.set(receipt.itemId, nextState);
 		return Object.freeze({ state: nextState, status: 'accepted' });
 	}
 

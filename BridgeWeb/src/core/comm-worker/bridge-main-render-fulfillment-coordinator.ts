@@ -5,6 +5,8 @@ import type {
 } from './bridge-worker-contracts.js';
 import {
 	bridgeWorkerRenderDispositionReceiptSchema,
+	bridgeWorkerPaintReleasedSchema,
+	type BridgeWorkerPaintReleasedReceipt,
 	type BridgeWorkerRenderDispositionReceipt,
 	type BridgeWorkerRenderReceiptIdentity,
 	type BridgeWorkerRenderRejectionReason,
@@ -67,6 +69,7 @@ export interface BridgeMainRenderFulfillmentCoordinator {
 	readonly readBoundFinalItem: (itemId: string) => BridgeMainRenderPublicationItem | undefined;
 	readonly markPublicationQueued: (publication: BridgeMainRenderPublication) => void;
 	readonly retireWorkerInstance: () => void;
+	readonly releasePaintedCopy: (itemId: string) => boolean;
 	readonly observePostRender: (
 		props: BridgeMainRenderReadback & {
 			readonly contextItem: BridgeMainRenderPublicationItem;
@@ -91,6 +94,7 @@ export interface CreateBridgeMainRenderFulfillmentCoordinatorProps {
 	readonly nowMilliseconds?: () => number;
 	readonly requestAnimationFrame?: (callback: FrameRequestCallback) => number;
 	readonly sendDisposition: (receipt: BridgeWorkerRenderDispositionReceipt) => void;
+	readonly sendPaintRelease?: (receipt: BridgeWorkerPaintReleasedReceipt) => void;
 }
 
 interface BridgeMainPendingRenderPublication {
@@ -131,6 +135,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 		number
 	>();
 	const terminalPublicationIdentityKeys = new Set<string>();
+	const paintedReceiptByLogicalItemId = new Map<string, BridgeWorkerRenderReceiptIdentity>();
 	let isDisposed = false;
 
 	const scheduleRetainedPaintValidation = (
@@ -249,6 +254,10 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 				return;
 			}
 			sendPositiveDisposition(entry, 'painted');
+			paintedReceiptByLogicalItemId.set(
+				entry.logicalItemId,
+				entry.publication.renderReceiptIdentity,
+			);
 			pendingByPierreItemId.delete(entry.pierreItemId);
 			pendingByPublicationItem.delete(entry.publicationItem);
 			terminalPublicationIdentityKeys.add(entry.identityKey);
@@ -357,6 +366,7 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			}
 			retainedPaintValidationFramesByFinalItem.clear();
 			retainedPaintedEvidenceByFinalItem = new WeakMap();
+			paintedReceiptByLogicalItemId.clear();
 			terminalPublicationIdentityKeys.clear();
 		},
 		isBoundFinalItem: (item): boolean => {
@@ -397,7 +407,25 @@ export function createBridgeMainRenderFulfillmentCoordinator(
 			}
 			retainedPaintValidationFramesByFinalItem.clear();
 			retainedPaintedEvidenceByFinalItem = new WeakMap();
+			paintedReceiptByLogicalItemId.clear();
 			terminalPublicationIdentityKeys.clear();
+		},
+		releasePaintedCopy: (itemId): boolean => {
+			if (isDisposed) return false;
+			const identity = paintedReceiptByLogicalItemId.get(itemId);
+			if (identity === undefined) return false;
+			paintedReceiptByLogicalItemId.delete(itemId);
+			if (props.sendPaintRelease === undefined) {
+				throw new Error('Bridge painted-copy release requires a receipt admission owner.');
+			}
+			props.sendPaintRelease(
+				bridgeWorkerPaintReleasedSchema.parse({
+					...identity,
+					kind: 'paint.released',
+					receivedAtMilliseconds: nowMilliseconds(),
+				}),
+			);
+			return true;
 		},
 		observePostRender: (observeProps): void => {
 			if (isDisposed || observeProps.phase === 'unmount') return;

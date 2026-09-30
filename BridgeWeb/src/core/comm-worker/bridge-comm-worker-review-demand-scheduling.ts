@@ -65,6 +65,7 @@ interface CreateBridgeCommWorkerReviewDemandSchedulingProps {
 
 export interface BridgeCommWorkerReviewDemandScheduling {
 	readonly applyPublishedDisposition: (receipt: BridgeWorkerRenderDispositionReceipt) => boolean;
+	readonly readmitPaintRelease: (itemId: string) => void;
 	readonly releaseExpiredPublication: (itemId: string) => boolean;
 	readonly publishCurrentMetadataInterests: () => Promise<void>;
 	readonly resume: () => void;
@@ -642,6 +643,13 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 
 	return {
 		applyPublishedDisposition: (receipt): boolean => reviewDemandLedger.releasePublished(receipt),
+		readmitPaintRelease: (itemId): void => {
+			reviewDemandLedger.invalidate(itemId);
+			if (latestSchedulingStore === null || latestSchedulingEpoch === null) return;
+			const state = latestSchedulingStore.getState();
+			if (state.selectedId !== itemId && !state.visibleIds.includes(itemId)) return;
+			reconcileCurrentReviewDemand(latestSchedulingStore, latestSchedulingEpoch, new Set([itemId]));
+		},
 		releaseExpiredPublication: (itemId): boolean =>
 			reviewDemandLedger.releaseExpiredPublication(itemId),
 		publishCurrentMetadataInterests,

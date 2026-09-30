@@ -10,6 +10,7 @@ import {
 	BridgeWorkerRenderFulfillmentRegistry,
 	type BridgeWorkerRenderFulfillmentRegistryContext,
 } from './bridge-worker-render-fulfillment-registry.js';
+import { bridgeWorkerRenderReceiptTransitionSchema } from './bridge-worker-render-fulfillment.js';
 import type {
 	BridgeWorkerRenderDisposition,
 	BridgeWorkerRenderDispositionReceipt,
@@ -23,6 +24,42 @@ const reviewContext: BridgeWorkerRenderFulfillmentRegistryContext = {
 };
 
 describe('Bridge worker render fulfillment registry', () => {
+	test('releases only the current painted receipt back to desired', () => {
+		const registry = createRegistry(reviewContext);
+		const publication = registry.beginPublication({
+			job: makeRenderJob('review-item-1'),
+			publicationSequence: 8,
+			workerDerivationEpoch: 3,
+		});
+		for (const [index, stage] of (['queued', 'applied', 'painted'] as const).entries()) {
+			registry.applyDisposition(disposition(publication.receiptIdentity, stage, index + 1));
+		}
+		const release = {
+			...publication.receiptIdentity,
+			kind: 'paint.released',
+			receivedAtMilliseconds: 4,
+		} as const;
+		expect(bridgeWorkerRenderReceiptTransitionSchema.safeParse(release).success).toBe(true);
+		expect(registry.applyPaintRelease(release)).toMatchObject({ status: 'accepted' });
+		expect(registry.getItemState('review-item-1')).toMatchObject({
+			stage: 'desired',
+			paintedResidency: null,
+		});
+		expect(registry.applyPaintRelease(release)).toMatchObject({
+			status: 'rejected',
+			reason: 'already_terminal',
+		});
+		const replacement = registry.beginPublication({
+			job: makeRenderJob('review-item-1'),
+			publicationSequence: 9,
+			workerDerivationEpoch: 3,
+		});
+		expect(replacement.shouldPublish).toBe(true);
+		expect(registry.applyPaintRelease(release)).toMatchObject({
+			status: 'rejected',
+			reason: 'stale_submission',
+		});
+	});
 	test('requires a strictly positive receipt lease before publication can become reachable', () => {
 		expect(
 			() =>

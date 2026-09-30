@@ -419,7 +419,13 @@ describe('Bridge main render snapshot store', () => {
 
 	test('retains hydrated Review render copies while a query projection hides and restores an item', () => {
 		// Arrange
-		const store = createBridgeMainRenderSnapshotStore();
+		const releasedPaintItemIds: string[] = [];
+		const store = createBridgeMainRenderSnapshotStore({
+			onReviewPaintedCopyReleased: (itemId): boolean => {
+				releasedPaintItemIds.push(itemId);
+				return true;
+			},
+		});
 		const initialEvent = makeReviewDisplayPatchEvent();
 		const initialSourcePatch = initialEvent.patches[0];
 		const initialItemPatch = initialEvent.patches[1];
@@ -574,6 +580,7 @@ describe('Bridge main render snapshot store', () => {
 		expect(store.getSnapshot().reviewItemById['item-1']).toBeUndefined();
 		expect(store.getSnapshot().codeViewItemsById['item-1']).toBe(codeViewItem);
 		expect(store.getSnapshot().contentAvailabilityById['item-1']).toEqual({ state: 'ready' });
+		expect(releasedPaintItemIds).toEqual([]);
 		store.applyReviewDisplayPatchEvent({
 			...initialEvent,
 			patches: [initialSourcePatch, populatedItemPatch, initialTreePatch],
@@ -622,6 +629,8 @@ describe('Bridge main render snapshot store', () => {
 		expect(sameEpochSourceSnapshot.codeViewItemsById['item-1']).toBeUndefined();
 		expect(sameEpochSourceSnapshot.contentAvailabilityById['item-1']).toBeUndefined();
 		expect(sameEpochSourceSnapshot.rowPaintById['item-1']).toBeUndefined();
+		expect(releasedPaintItemIds).toEqual(['item-1']);
+		expect(store.hasPendingReviewPaintRelease('item-1')).toBe(true);
 
 		// Arrange: an off-catalog retained copy must also be purged by an epoch replacement.
 		store.applySnapshotUpdate({
@@ -641,6 +650,7 @@ describe('Bridge main render snapshot store', () => {
 				},
 			],
 		});
+		expect(store.hasPendingReviewPaintRelease('item-1')).toBe(false);
 
 		// Act
 		store.applyReviewDisplayPatchEvent({

@@ -643,6 +643,7 @@ function displayStore(props: {
 			readonly resetRequired: boolean;
 		} => ({ changes: [], resetRequired: false }),
 		reviewCatalogContainsItem: (itemId): boolean => itemsById.has(itemId),
+		hasPendingReviewPaintRelease: (): boolean => false,
 		subscribeReviewItem: (): (() => void) => (): void => {},
 		subscribeReviewCodeViewItem: (): (() => void) => (): void => {},
 		subscribeReviewTreeRow: (): (() => void) => (): void => {},
@@ -794,6 +795,7 @@ function instrumentedDisplayStore(props: {
 			resetRequired: false,
 		}),
 		reviewCatalogContainsItem: (itemId: string): boolean => itemForId(itemId) !== undefined,
+		hasPendingReviewPaintRelease: (): boolean => false,
 		subscribeReviewItem: (): (() => void) => (): void => {},
 		subscribeReviewCodeViewItem: (): (() => void) => (): void => {},
 		subscribeReviewTreeRow: (): (() => void) => (): void => {},

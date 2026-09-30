@@ -10,7 +10,6 @@ import type {
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { encodeBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
-import type { BridgeMainFileDisplayPatchApplierProps } from './bridge-main-file-display-patch-applier.js';
 import {
 	createBridgeMainRenderDispositionAdmission,
 	type BridgeMainRenderDispositionAdmission,
@@ -24,6 +23,7 @@ import {
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshotStore,
+	type BridgeMainRenderSnapshotStoreProps,
 } from './bridge-main-render-snapshot-store.js';
 import {
 	BridgePaneCommWorkerSession,
@@ -109,7 +109,7 @@ export interface CreateBridgePaneRuntimeProps {
 	readonly lifecycleStoreFactory?: () => BridgeWorkerRpcLifecycleStore;
 	readonly recordDiagnosticSnapshot?: (snapshot: BridgePaneRuntimeDiagnosticSnapshot) => void;
 	readonly renderStoreFactory?: (
-		fileDisplayApplierProps?: BridgeMainFileDisplayPatchApplierProps,
+		storeProps?: BridgeMainRenderSnapshotStoreProps,
 	) => BridgeMainRenderSnapshotStore;
 	readonly sessionFactory?: () => BridgePaneSessionPort;
 	readonly sessionProps?: BridgePaneCommWorkerSessionProps;
@@ -286,6 +286,7 @@ export function createBridgePaneRuntime(
 	};
 
 	for (const surface of ['fileView', 'review'] as const) {
+		let renderFulfillmentCoordinatorForStore: BridgeMainRenderFulfillmentCoordinator | null = null;
 		const renderStore = renderStoreFactory(
 			surface === 'fileView'
 				? {
@@ -301,7 +302,11 @@ export function createBridgePaneRuntime(
 							});
 						},
 					}
-				: undefined,
+				: {
+						onReviewPaintedCopyReleased: (itemId): boolean => {
+							return renderFulfillmentCoordinatorForStore?.releasePaintedCopy(itemId) ?? false;
+						},
+					},
 		);
 		renderStores.add(renderStore);
 		const rpcClient = createBridgeWorkerRpcClient({
@@ -345,7 +350,9 @@ export function createBridgePaneRuntime(
 		});
 		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
 			sendDisposition: (receipt): void => renderDispositionAdmission.enqueue(receipt),
+			sendPaintRelease: (receipt): void => renderDispositionAdmission.enqueue(receipt),
 		});
+		renderFulfillmentCoordinatorForStore = renderFulfillmentCoordinator;
 		renderDispositionAdmissions.add(renderDispositionAdmission);
 		renderFulfillmentCoordinators.add(renderFulfillmentCoordinator);
 		const sendSurfaceCommand = (command: BridgeWorkerRpcCommandInput): string => {

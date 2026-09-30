@@ -4,6 +4,7 @@ import {
 	type BridgeMainFileDisplayState,
 	type BridgeMainFileTreePatchStream,
 } from './bridge-main-file-display-patch-applier.js';
+import { BridgeMainKeyedListenerRegistry } from './bridge-main-keyed-listener-registry.js';
 import { reduceBridgeMainRenderSnapshotUpdate as buildSnapshotFromUpdate } from './bridge-main-render-snapshot-update-reducer.js';
 import {
 	BridgeMainReviewCandidateBankOwner,
@@ -215,6 +216,7 @@ export interface BridgeMainRenderSnapshotStore extends BridgeMainReviewCandidate
 	readonly getReviewTreeRowAtIndex: (
 		treeRowIndex: number,
 	) => BridgeMainReviewTreeDisplayRow | null | undefined;
+	readonly hasPendingReviewPaintRelease: (itemId: string) => boolean;
 	readonly prepareForWorkerReplacement: () => void;
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly subscribeReviewAvailability: (itemId: string, listener: () => void) => () => void;
@@ -246,12 +248,17 @@ export interface BridgeMainRenderSnapshotStore extends BridgeMainReviewCandidate
 
 export interface BridgeMainRenderSnapshotStoreProps extends BridgeMainFileDisplayPatchApplierProps {
 	readonly onFileQueryTransactionPublished?: (transactionId: string) => void;
+	readonly onReviewPaintedCopyReleased?: (itemId: string) => boolean;
 }
 
 export function createBridgeMainRenderSnapshotStore(
 	storeProps: BridgeMainRenderSnapshotStoreProps = {},
 ): BridgeMainRenderSnapshotStore {
-	const { onFileQueryTransactionPublished, ...fileDisplayApplierProps } = storeProps;
+	const {
+		onFileQueryTransactionPublished,
+		onReviewPaintedCopyReleased,
+		...fileDisplayApplierProps
+	} = storeProps;
 	const fileDisplayPatchApplier = new BridgeMainFileDisplayPatchApplier(fileDisplayApplierProps);
 	let snapshot = emptyBridgeMainRenderSnapshot(fileDisplayPatchApplier.state);
 	const listeners = new Set<() => void>();
@@ -263,6 +270,12 @@ export function createBridgeMainRenderSnapshotStore(
 	const reviewAvailabilityListeners = new BridgeMainKeyedListenerRegistry<string>();
 	const reviewCatalogListeners = new Set<() => void>();
 	const reviewCodeViewItemListeners = new BridgeMainKeyedListenerRegistry<string>();
+	const pendingReviewPaintReleaseItemIds = new Set<string>();
+	const releasePaintedCopy = (itemId: string): void => {
+		if (onReviewPaintedCopyReleased?.(itemId) === true) {
+			pendingReviewPaintReleaseItemIds.add(itemId);
+		}
+	};
 	const reviewItemIndexById = new Map<string, number>();
 	const reviewItemListeners = new BridgeMainKeyedListenerRegistry<string>();
 	const reviewSelectionListeners = new Set<() => void>();
@@ -346,6 +359,13 @@ export function createBridgeMainRenderSnapshotStore(
 			activeSnapshot: previousSnapshot,
 			candidateSnapshot: candidate.snapshot,
 		});
+		for (const itemId of previousItemIds) {
+			if (
+				previousSnapshot.codeViewItemsById[itemId] !== undefined &&
+				snapshot.codeViewItemsById[itemId] === undefined
+			)
+				releasePaintedCopy(itemId);
+		}
 		const selectionChanged = previousSnapshot.selectionSlice !== snapshot.selectionSlice;
 		const availabilityItemIds = publishesKeyedSameSourceChange
 			? changedRecordItemIds(
@@ -446,10 +466,12 @@ export function createBridgeMainRenderSnapshotStore(
 			reviewCatalogChanges.length = 0;
 			reviewCatalogChangeCursor = 0;
 			reviewCandidateBankOwner.dispose();
+			pendingReviewPaintReleaseItemIds.clear();
 			snapshot = emptyBridgeMainRenderSnapshot(new BridgeMainFileDisplayPatchApplier().state);
 			reviewCatalogSnapshot = emptyBridgeMainReviewCatalogSnapshot();
 		},
 		getSnapshot: (): BridgeMainRenderSnapshot => snapshot,
+		hasPendingReviewPaintRelease: (itemId): boolean => pendingReviewPaintReleaseItemIds.has(itemId),
 		getServerSnapshot: (): BridgeMainRenderSnapshot => snapshot,
 		getViewRecoveryStatus: (kind): BridgeMainViewRecoveryStatus | null =>
 			viewRecoveryStatusByKind.get(kind) ?? null,
@@ -558,6 +580,7 @@ export function createBridgeMainRenderSnapshotStore(
 		},
 		setWorkerCodeViewItem: (props): void => {
 			if (isDisposed) return;
+			pendingReviewPaintReleaseItemIds.delete(props.itemId);
 			publish(
 				buildSnapshotFromUpdate(snapshot, {
 					codeViewItemPatches: [
@@ -648,6 +671,13 @@ export function createBridgeMainRenderSnapshotStore(
 			isDisposed ? false : discardReviewCandidate(identity),
 		applyWorkerPatch: (patch: BridgeWorkerSlicePatch): void => {
 			if (isDisposed) return;
+			if (
+				patch.slice === 'contentAvailability' &&
+				patch.operation === 'upsert' &&
+				(patch.payload.state === 'failed' || patch.payload.state === 'unavailable')
+			)
+				pendingReviewPaintReleaseItemIds.delete(patch.itemId);
+			const previousSnapshot = snapshot;
 			const availabilityItemIdsBeforeReset =
 				patch.slice === 'contentAvailability' && patch.operation === 'reset'
 					? Object.keys(snapshot.contentAvailabilityById)
@@ -661,6 +691,13 @@ export function createBridgeMainRenderSnapshotStore(
 					workerPatches: [patch],
 				}),
 			);
+			if (
+				patch.slice === 'rowPaint' &&
+				patch.operation === 'delete' &&
+				previousSnapshot.codeViewItemsById[patch.itemId] !== undefined &&
+				snapshot.codeViewItemsById[patch.itemId] === undefined
+			)
+				releasePaintedCopy(patch.itemId);
 			publishReviewWorkerPatchListeners({
 				availabilityItemIdsBeforeReset,
 				patch,
@@ -675,6 +712,10 @@ export function createBridgeMainRenderSnapshotStore(
 		},
 		applySnapshotUpdate: (update: BridgeMainRenderSnapshotUpdate): void => {
 			if (isDisposed) return;
+			for (const patch of update.codeViewItemPatches ?? []) {
+				if (patch.operation === 'upsert') pendingReviewPaintReleaseItemIds.delete(patch.itemId);
+			}
+			const previousCodeViewItems = snapshot.codeViewItemsById;
 			const availabilityItemIdsBeforeReset = update.workerPatches?.some(
 				(patch): boolean => patch.slice === 'contentAvailability' && patch.operation === 'reset',
 			)
@@ -689,6 +730,11 @@ export function createBridgeMainRenderSnapshotStore(
 					? Object.keys(snapshot.codeViewItemsById)
 					: [];
 			publish(buildSnapshotFromUpdate(snapshot, update));
+			for (const itemId of Object.keys(previousCodeViewItems)) {
+				if (snapshot.codeViewItemsById[itemId] === undefined) {
+					releasePaintedCopy(itemId);
+				}
+			}
 			publishReviewCodeViewItemPatchListeners({
 				codeViewItemIdsBeforeUpdate,
 				patches: update.codeViewItemPatches ?? [],
@@ -752,6 +798,9 @@ export function createBridgeMainRenderSnapshotStore(
 				selectionItemIds: [...effect.itemIds],
 				snapshot,
 			});
+			for (const itemId of renderCopyInvalidation.codeViewItemIds) {
+				releasePaintedCopy(itemId);
+			}
 			const renderCopyMetadataReconciliation = reconcileBridgeMainReviewRenderCopyMetadata({
 				currentItemsById: snapshot.reviewItemById,
 				previousItemsById: effect.previousItemsById,
@@ -838,28 +887,6 @@ function emptyBridgeMainRenderSnapshot(
 		codeViewItemsById: {},
 		panelChromeSlice: {},
 	};
-}
-
-class BridgeMainKeyedListenerRegistry<TKey> {
-	readonly #listenersByKey = new Map<TKey, Set<() => void>>();
-
-	subscribe(key: TKey, listener: () => void): () => void {
-		const listeners = this.#listenersByKey.get(key) ?? new Set<() => void>();
-		listeners.add(listener);
-		this.#listenersByKey.set(key, listeners);
-		return (): void => {
-			listeners.delete(listener);
-			if (listeners.size === 0) this.#listenersByKey.delete(key);
-		};
-	}
-
-	publish(key: TKey): void {
-		for (const listener of this.#listenersByKey.get(key) ?? []) listener();
-	}
-
-	clear(): void {
-		this.#listenersByKey.clear();
-	}
 }
 
 function subscribeBridgeMainListener(listeners: Set<() => void>, listener: () => void): () => void {

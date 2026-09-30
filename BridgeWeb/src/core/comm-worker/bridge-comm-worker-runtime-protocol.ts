@@ -952,6 +952,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}
 				},
 				releaseReviewPosition: reviewDemandScheduling.applyPublishedDisposition,
+				readmitReviewPaintRelease: (receipt): void =>
+					reviewDemandScheduling.readmitPaintRelease(receipt.itemId),
 				receiptResults: renderDispositionApplication.receiptResults,
 				settleFileDisposition: (receipt) =>
 					settleAcceptedSelectedFileRenderDisposition({

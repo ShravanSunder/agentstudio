@@ -68,6 +68,7 @@ export interface BridgeReviewDirectDisplayStore extends Pick<
 	| 'getReviewItemIdAtIndex'
 	| 'getReviewCodeViewItemSnapshot'
 	| 'getReviewItemSnapshot'
+	| 'hasPendingReviewPaintRelease'
 	| 'getReviewTreeRowAtIndex'
 	| 'getReviewTreeRowSnapshot'
 	| 'readReviewCatalogChangesAfter'
@@ -199,10 +200,33 @@ export function useBridgeReviewRenderSnapshotController(
 		itemId: selectedItemId,
 		subscribe: displayStore.subscribeReviewAvailability,
 	});
-	const selectedContentAvailability =
-		rawSelectedContentAvailability?.state === 'ready' && selectedCodeViewItem === null
-			? ({ state: 'loading' } as const)
-			: (rawSelectedContentAvailability ?? null);
+	const selectedReadyCopyMissing =
+		selectedItemId !== null &&
+		rawSelectedContentAvailability?.state === 'ready' &&
+		selectedCodeViewItem === null;
+	const selectedPaintReleasePending =
+		selectedItemId !== null &&
+		selectedReadyCopyMissing &&
+		displayStore.hasPendingReviewPaintRelease(selectedItemId);
+	const reportedMissingReadyCopies = useRef<Set<string>>(new Set());
+	useEffect((): void => {
+		if (selectedItemId === null) return;
+		if (!selectedReadyCopyMissing || selectedPaintReleasePending) {
+			reportedMissingReadyCopies.current.delete(selectedItemId);
+			return;
+		}
+		if (reportedMissingReadyCopies.current.has(selectedItemId)) return;
+		reportedMissingReadyCopies.current.add(selectedItemId);
+		console.error('Bridge Review render-copy invariant breach', {
+			kind: 'review_selected_ready_without_render_copy',
+			itemId: selectedItemId,
+		});
+	}, [selectedItemId, selectedPaintReleasePending, selectedReadyCopyMissing]);
+	const selectedContentAvailability = resolveSelectedReviewContentAvailability({
+		hasCodeViewItem: selectedCodeViewItem !== null,
+		paintReleasePending: selectedPaintReleasePending,
+		rawAvailability: rawSelectedContentAvailability ?? null,
+	});
 	const [codeViewRenderedItemIds, setCodeViewRenderedItemIds] = useState<readonly string[]>([]);
 	const [comparisonTargetsQueryState, setComparisonTargetsQueryState] =
 		useState<BridgeReviewComparisonTargetsQueryState>({
@@ -563,6 +587,17 @@ export function useBridgeReviewRenderSnapshotController(
 		updateReviewDisplayProjection,
 		visibleCodeViewItems,
 	};
+}
+
+export function resolveSelectedReviewContentAvailability(props: {
+	readonly hasCodeViewItem: boolean;
+	readonly paintReleasePending: boolean;
+	readonly rawAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
+}): BridgeWorkerContentAvailabilityPatchPayload | null {
+	if (props.rawAvailability?.state !== 'ready' || props.hasCodeViewItem) {
+		return props.rawAvailability;
+	}
+	return { state: props.paintReleasePending ? 'loading' : 'failed' };
 }
 
 function useVisibleReviewCodeViewItems(props: {

@@ -7,7 +7,7 @@ import {
 } from './bridge-render-disposition-telemetry.js';
 import {
 	bridgeWorkerRenderDispositionBatchMaximumReceiptCount,
-	type BridgeWorkerRenderDispositionReceipt,
+	type BridgeWorkerRenderAdmissionReceipt,
 } from './bridge-worker-render-fulfillment.js';
 import type { BridgePaneSurface } from './bridge-worker-rpc-client.js';
 import type { BridgeWorkerRpcLifecycleStore } from './bridge-worker-rpc-lifecycle-store.js';
@@ -31,7 +31,7 @@ export interface BridgeMainRenderDispositionAdmissionSnapshot {
 
 export interface BridgeMainRenderDispositionAdmission {
 	readonly dispose: () => void;
-	readonly enqueue: (receipt: BridgeWorkerRenderDispositionReceipt) => void;
+	readonly enqueue: (receipt: BridgeWorkerRenderAdmissionReceipt) => void;
 	readonly prepareForWorkerReplacement: () => void;
 	readonly resumeAfterWorkerReplacement: () => void;
 	readonly resumeAfterViewRecovery: () => void;
@@ -39,7 +39,7 @@ export interface BridgeMainRenderDispositionAdmission {
 }
 
 export interface CreateBridgeMainRenderDispositionAdmissionProps {
-	readonly dispatchBatch: (receipts: readonly BridgeWorkerRenderDispositionReceipt[]) => string;
+	readonly dispatchBatch: (receipts: readonly BridgeWorkerRenderAdmissionReceipt[]) => string;
 	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
 	readonly maximumBatchSize?: number;
 	readonly maximumPendingReceiptCount?: number;
@@ -57,7 +57,7 @@ export interface CreateBridgeMainRenderDispositionAdmissionProps {
 interface PendingReceipt {
 	readonly enqueuedAtMilliseconds: number;
 	readonly key: string;
-	readonly receipt: BridgeWorkerRenderDispositionReceipt;
+	readonly receipt: BridgeWorkerRenderAdmissionReceipt;
 }
 
 interface InFlightBatch {
@@ -65,7 +65,7 @@ interface InFlightBatch {
 	readonly duplicateReceiptCountAtDispatch: number;
 	readonly kind: 'ordinary' | 'probe';
 	readonly receiptKeys: readonly string[];
-	readonly receipts: readonly BridgeWorkerRenderDispositionReceipt[];
+	readonly receipts: readonly BridgeWorkerRenderAdmissionReceipt[];
 	readonly receiptCount: number;
 	readonly requestId: string;
 }
@@ -290,7 +290,8 @@ export function createBridgeMainRenderDispositionAdmission(
 				hasPaintedReceipt: false,
 			};
 			publication.count += 1;
-			publication.hasPaintedReceipt ||= receipt.disposition === 'painted';
+			publication.hasPaintedReceipt ||=
+				receipt.kind === 'render.disposition' && receipt.disposition === 'painted';
 			pendingPublicationReceipts.set(receipt.publicationId, publication);
 			pendingReceipts.push({ enqueuedAtMilliseconds: now(), key, receipt });
 			pendingReceiptHighWaterMark = Math.max(pendingReceiptHighWaterMark, retainedReceiptCount());
@@ -321,9 +322,7 @@ export function createBridgeMainRenderDispositionAdmission(
 	};
 }
 
-function bridgeRenderDispositionAdmissionKey(
-	receipt: BridgeWorkerRenderDispositionReceipt,
-): string {
+function bridgeRenderDispositionAdmissionKey(receipt: BridgeWorkerRenderAdmissionReceipt): string {
 	return JSON.stringify([
 		receipt.paneSessionId,
 		receipt.workerInstanceId,
@@ -336,7 +335,7 @@ function bridgeRenderDispositionAdmissionKey(
 		receipt.workerDerivationEpoch,
 		receipt.windowKey,
 		receipt.operationCorrelationId,
-		receipt.disposition,
+		receipt.kind === 'paint.released' ? receipt.kind : receipt.disposition,
 		'reason' in receipt ? receipt.reason : null,
 	]);
 }

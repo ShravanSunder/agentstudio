@@ -216,7 +216,9 @@ async function arrangePinnedFileAnnotationScenario(scenarioOptions: {
 				return {
 					dispatch: (message: BridgeWorkerMainToServerMessage): void => {
 						if (message.command !== 'renderDisposition') return;
-						renderReceipts.push(...message.receipts);
+						renderReceipts.push(
+							...message.receipts.filter((receipt) => receipt.kind === 'render.disposition'),
+						);
 						queueMicrotask((): void => {
 							publishRuntimeMessages([
 								{
