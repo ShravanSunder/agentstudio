@@ -53,6 +53,8 @@ export interface ScenePlaybackProps {
   readonly resolveModule?: SceneModuleResolver;
   readonly sceneRoot: HTMLElement;
   readonly surface: HTMLElement;
+  /** The page controller owns the single playing slot across chapter surfaces. */
+  readonly onManualPlay?: (() => void) | undefined;
 }
 
 interface ScenePlaybackState {
@@ -382,6 +384,7 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
     state.suspendedWhileHidden = false;
     state.awaitingReplay = false;
     state.intent = "manual-play";
+    props.onManualPlay?.();
     startTimeline(timeline);
   };
 
@@ -539,6 +542,23 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
   renderPhase("settled", "instant");
 
   return {
+    restart: (): void => {
+      clearReplayTimer();
+      state.timeline?.pause(0);
+      state.awaitingReplay = false;
+      state.intent = "auto";
+      state.lastReportedStepId = undefined;
+      state.suspendedWhileHidden = false;
+      renderPhase("paused", "instant");
+    },
+    deactivate: (): void => {
+      clearReplayTimer();
+      state.intent = "auto";
+      if (state.phase === "playing" || state.phase === "awaiting-replay") {
+        state.timeline?.pause();
+        renderPhase("paused");
+      }
+    },
     dispose: (): void => {
       lifecycle.abort();
       activeStepPreview?.remove();
@@ -591,11 +611,14 @@ export function createScenePlayback(props: ScenePlaybackProps): SurfacePlayback 
 }
 
 /** One scene playback per `data-scene-root` inside the surface. */
-export function createSurfaceScenePlayback(surface: HTMLElement): SurfacePlayback {
+export function createSurfaceScenePlayback(
+  surface: HTMLElement,
+  onManualPlay?: () => void,
+): SurfacePlayback {
   return combineSurfacePlaybacks(
     Array.from(
       surface.querySelectorAll<HTMLElement>(`[${sceneRootAttribute}]`),
-      (sceneRoot): SurfacePlayback => createScenePlayback({ sceneRoot, surface }),
+      (sceneRoot): SurfacePlayback => createScenePlayback({ sceneRoot, surface, onManualPlay }),
     ),
   );
 }

@@ -2,6 +2,7 @@ import { describe, expect, inject, it } from "vitest";
 import { commands } from "vitest/browser";
 
 import type {
+  CaptionTextObservation,
   ChapterStepRowObservation,
   ChapterTitleAnchorObservation,
   SingleStepChapterObservation,
@@ -25,12 +26,32 @@ declare module "vitest/browser" {
       readonly height: number;
       readonly chapterId: string;
     }): Promise<SingleStepChapterObservation>;
+    verifyCaptionTextLayout(
+      pageUrl: string,
+      widths: readonly number[],
+    ): Promise<CaptionTextObservation[]>;
   }
 }
 
 const chapterWithSteps = "many-agents";
 
 describe("chapter surfaces on the home page", () => {
+  it("keeps caption copy balanced without an orphan last word", async () => {
+    const observations = await commands.verifyCaptionTextLayout(
+      inject("siteHeaderBrowserTestUrl"),
+      [1280, 1600, 1920],
+    );
+    for (const observation of observations) {
+      expect(observation.captions).toHaveLength(6);
+      for (const caption of observation.captions) {
+        expect(caption.textWrap).toBe("pretty");
+        expect(caption.lineCount === 1 || caption.lastLineWordCount > 1).toBe(true);
+        expect(caption.lineCount === 1 || caption.paragraphWidth >= caption.innerWidth * 0.6).toBe(
+          true,
+        );
+      }
+    }
+  });
   it("ignores the retired step-control query and keeps the bare line", async () => {
     const pageUrl = new URL(inject("siteHeaderBrowserTestUrl"));
     pageUrl.searchParams.set("steps", ["cap", "sule"].join(""));
@@ -43,20 +64,20 @@ describe("chapter surfaces on the home page", () => {
     expect(observation.glassLayout.stepLineBackdrop).toBe("none");
   });
   for (const width of [390, 1600]) {
-    it(`keeps a single-step chapter aligned without a pill at ${width}px`, async () => {
+    it(`keeps a single-step chapter aligned with its step line at ${width}px`, async () => {
       const chapter = await commands.verifySingleStepChapter({
         pageUrl: inject("siteHeaderBrowserTestUrl"),
         width,
         height: width === 390 ? 844 : 1000,
         chapterId: "review",
       });
-      expect(chapter.pillCount).toBe(0);
+      expect(chapter.pillCount).toBe(1);
       expect(chapter.descriptionCount).toBe(1);
       expect(chapter.titleBottom).toBeLessThan(chapter.glassTop);
       expect(chapter.glassBottom).toBeLessThan(chapter.captionTop);
       expect(Math.abs(chapter.titleLeft - chapter.glassLeft)).toBeLessThanOrEqual(1);
       expect(Math.abs(chapter.captionLeft - chapter.glassLeft)).toBeLessThanOrEqual(1);
-      expect(chapter.targetEdge).toBe(width < 1024 ? "top" : "left");
+      expect(chapter.targetEdge).toBe("left");
     });
   }
   it("anchors each chapter on its title, with no eyebrow, and levels the rail node with the title's first line", async () => {

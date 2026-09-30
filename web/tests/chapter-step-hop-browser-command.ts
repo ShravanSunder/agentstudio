@@ -14,6 +14,8 @@ export interface StepHopObservation {
   readonly branchDrawEnd: number;
   readonly labelUnfoldEnd: number;
   readonly newLabelOpacityAtStart: string;
+  readonly outgoingLabelOpacity: Readonly<Record<"30" | "60" | "100", number>>;
+  readonly outgoingBranchVisibleAt130: number;
   readonly travelDelta: number;
   readonly wrapDelta: number;
   readonly layoutShift: number;
@@ -146,6 +148,38 @@ export const verifyChapterStepHop = defineBrowserCommand(
         const label = root.querySelector<HTMLElement>("[data-chapter-step-active-label]");
         const branchAnimation = branch?.getAnimations()[0];
         const labelAnimation = label?.getAnimations()[0];
+        const outgoingLabel = root.querySelector<HTMLElement>(
+          ".chapter-step-active-label:not([data-chapter-step-active-label])",
+        );
+        const outgoingBranch = root.querySelector<SVGPathElement>(
+          ".chapter-step-active-branch:not([data-chapter-step-branch])",
+        );
+        const outgoingLabelAnimation = outgoingLabel?.getAnimations()[0];
+        const outgoingBranchAnimation = outgoingBranch?.getAnimations()[0];
+        if (
+          outgoingLabel === null ||
+          outgoingBranch === null ||
+          outgoingLabelAnimation === undefined ||
+          outgoingBranchAnimation === undefined
+        )
+          throw new Error("Outgoing hop animations missing");
+        outgoingLabelAnimation.pause();
+        outgoingBranchAnimation.pause();
+        const opacityAt = (time: number): number => {
+          outgoingLabelAnimation.currentTime = time;
+          return Number(getComputedStyle(outgoingLabel).opacity);
+        };
+        const outgoingLabelOpacity = {
+          "30": opacityAt(30),
+          "60": opacityAt(60),
+          "100": opacityAt(100),
+        };
+        outgoingBranchAnimation.currentTime = 130;
+        const outgoingBranchVisibleAt130 = Math.max(
+          0,
+          outgoingBranch.getTotalLength() -
+            Number.parseFloat(getComputedStyle(outgoingBranch).strokeDashoffset),
+        );
         const branchTiming = branchAnimation?.effect?.getTiming();
         const labelTiming = labelAnimation?.effect?.getTiming();
         if (labelAnimation === undefined) throw new Error("Commit-hop label animation missing");
@@ -194,6 +228,8 @@ export const verifyChapterStepHop = defineBrowserCommand(
           branchDrawEnd,
           labelUnfoldEnd,
           newLabelOpacityAtStart,
+          outgoingLabelOpacity,
+          outgoingBranchVisibleAt130,
           travelDelta,
           wrapDelta,
           layoutShift,
