@@ -9,6 +9,7 @@ package enum WorkspaceLocalMigrations {
         registerReviewedSubjectMigrations(in: &migrator)
         registerPerScreenSidebarOrganizationMigration(in: &migrator)
         registerPanesDrawerVisibilityMigration(in: &migrator)
+        registerDrawerPresentationSchema(in: &migrator)
         return migrator
     }
 
