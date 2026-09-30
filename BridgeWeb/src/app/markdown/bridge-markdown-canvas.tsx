@@ -23,8 +23,12 @@ import {
 	useWorktreeAnnotationPrepareActiveEditorsForInstallation,
 	useWorktreeAnnotationProjection,
 } from '../../worktree-annotations/worktree-annotation-surface-provider.js';
+import type { BridgeRegionSurfaceStatus } from '../bridge-region-presentation-state.js';
+import { BridgeRegionPresentation } from '../bridge-region-presentation.js';
 import { BridgeViewerFileChangedAlert } from '../bridge-viewer-file-changed-alert.js';
+import { BridgeViewerRecoveryRetryButton } from '../bridge-viewer-recovery-retry-button.js';
 import { BridgeMarkdownAnnotationLayer } from './bridge-markdown-annotation-layer.js';
+import { bridgeMarkdownRegionPresentation } from './bridge-markdown-region-presentation.js';
 import {
 	type BridgeMarkdownRenderBinding,
 	type BridgeMarkdownRenderedArticle,
@@ -57,28 +61,27 @@ export interface BridgeMarkdownCanvasProps {
 		| undefined;
 	readonly isActive: boolean;
 	readonly presentationState: BridgeMarkdownPresentationState;
+	readonly surfaceStatus?: BridgeRegionSurfaceStatus | undefined;
 	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 	readonly retry: () => void;
 	readonly mermaidRenderer?: BridgeMermaidRenderer;
 }
 
 export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactElement {
-	if (props.presentationState.status === 'idle') {
-		return <BridgeMarkdownStatus label="Select a Markdown file" />;
-	}
-	if (props.presentationState.status === 'loading') {
-		return <BridgeMarkdownStatus label="Rendering Markdown" />;
-	}
-	if (props.presentationState.status === 'failed') {
+	if (props.presentationState.status !== 'ready') {
+		const state = props.presentationState;
 		return (
-			<div className="flex h-full items-center justify-center" role="alert">
-				<div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
-					<span>Markdown could not be rendered.</span>
-					<Button onClick={props.retry} type="button" variant="outline">
-						Retry
-					</Button>
-				</div>
-			</div>
+			<BridgeRegionPresentation
+				region="markdown"
+				shape="markdown"
+				emptyCopy={{ noSelection: 'Select a Markdown file', certified: 'Document is empty' }}
+				retry={<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />}
+				state={bridgeMarkdownRegionPresentation({
+					presentation: state,
+					isActive: props.isActive,
+					surface: props.surfaceStatus,
+				})}
+			/>
 		);
 	}
 
@@ -88,6 +91,7 @@ export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactEle
 			annotationSource={props.annotationSource}
 			isActive={props.isActive}
 			mermaidRenderer={props.mermaidRenderer}
+			surfaceStatus={props.surfaceStatus}
 			presentation={props.presentationState}
 			{...(props.renderFulfillment === undefined
 				? {}
@@ -104,6 +108,7 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 	readonly isActive: boolean;
 	readonly mermaidRenderer: BridgeMermaidRenderer | undefined;
 	readonly presentation: Extract<BridgeMarkdownPresentationState, { readonly status: 'ready' }>;
+	readonly surfaceStatus?: BridgeRegionSurfaceStatus | undefined;
 	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 }): ReactElement {
 	const [presentation, setPresentation] = useState(props.presentation);
@@ -282,63 +287,71 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 	}, [diagramRetryRevision, props.isActive, props.mermaidRenderer, presentation]);
 
 	return (
-		<div
-			className="bridge-scrollbar relative h-full min-h-0 overflow-auto bg-background"
-			data-markdown-scroll-viewport
+		<BridgeRegionPresentation
+			region="markdown"
+			shape="markdown"
+			state={bridgeMarkdownRegionPresentation({
+				presentation: props.presentation,
+				displayed: presentation,
+				isActive: props.isActive,
+				surface: props.surfaceStatus,
+				held:
+					installationFailure ||
+					(presentation.identity.requestId !== props.presentation.identity.requestId &&
+						(editTokens.size > 0 || keepsConfirmedSource)),
+			})}
+			retry={<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />}
 		>
-			{installationFailure ||
-			(presentation.sourcePath === props.presentation.sourcePath &&
-				presentation.identity.requestId !== props.presentation.identity.requestId &&
-				(editTokens.size > 0 || keepsConfirmedSource)) ? (
-				<div className="pointer-events-none sticky top-2 z-20 ml-auto h-0 w-fit pr-2">
-					<BridgeViewerFileChangedAlert
-						installationFailed={explicitInstallationFailure}
-						installationPending={installationPending}
-						onUpdate={(): void => {
-							void installLatestCandidate();
-						}}
-						updateActionLabel="Update Markdown file"
-					/>
-				</div>
-			) : null}
-			{props.presentation.refresh.kind === 'failed' ? (
-				<div role="status" className="flex items-center gap-2 p-2 text-sm text-muted-foreground">
-					Markdown refresh failed. Showing the previous document.
-					<Button variant="outline" size="sm" onClick={props.retry}>
-						Retry
-					</Button>
-				</div>
-			) : null}
-			<div className="bridge-markdown-document-frame">
-				<BridgeMarkdownArticle
-					articleRef={articleRef}
-					presentation={presentation}
-					annotated={props.annotationSource !== undefined}
-				/>
-				{props.annotationSource === undefined ? null : (
-					<BridgeMarkdownAnnotationLayer
-						key={`${presentation.identity.sourceIdentity.fileId}:${presentation.sourcePath}`}
+			<div
+				className="bridge-scrollbar relative h-full min-h-0 overflow-auto bg-background"
+				data-markdown-scroll-viewport
+			>
+				{installationFailure ||
+				(presentation.sourcePath === props.presentation.sourcePath &&
+					presentation.identity.requestId !== props.presentation.identity.requestId &&
+					(editTokens.size > 0 || keepsConfirmedSource)) ? (
+					<div className="pointer-events-none sticky top-2 z-20 ml-auto h-0 w-fit pr-2">
+						<BridgeViewerFileChangedAlert
+							installationFailed={explicitInstallationFailure}
+							installationPending={installationPending}
+							onUpdate={(): void => {
+								void installLatestCandidate();
+							}}
+							updateActionLabel="Update Markdown file"
+						/>
+					</div>
+				) : null}
+				<div className="bridge-markdown-document-frame">
+					<BridgeMarkdownArticle
 						articleRef={articleRef}
-						targets={presentation.renderResult.annotationTargets}
-						displayedSource={displayedSourceRef.current}
-						canAnnotate={canAnnotate}
+						presentation={presentation}
+						annotated={props.annotationSource !== undefined}
 					/>
-				)}
+					{props.annotationSource === undefined ? null : (
+						<BridgeMarkdownAnnotationLayer
+							key={`${presentation.identity.sourceIdentity.fileId}:${presentation.sourcePath}`}
+							articleRef={articleRef}
+							targets={presentation.renderResult.annotationTargets}
+							displayedSource={displayedSourceRef.current}
+							canAnnotate={canAnnotate}
+						/>
+					)}
+				</div>
+				{diagramFailureTargets
+					.filter(
+						(failureTarget): boolean =>
+							failureTarget.placeholder.isConnected &&
+							articleRef.current?.contains(failureTarget.placeholder) === true,
+					)
+					.map((failureTarget) =>
+						createPortal(
+							<BridgeMermaidFailure onRetry={retryMermaidDiagrams} />,
+							failureTarget.placeholder,
+							failureTarget.diagramId,
+						),
+					)}
 			</div>
-			{diagramFailureTargets
-				.filter(
-					(failureTarget): boolean =>
-						failureTarget.placeholder.isConnected &&
-						articleRef.current?.contains(failureTarget.placeholder) === true,
-				)
-				.map((failureTarget) =>
-					createPortal(
-						<BridgeMermaidFailure onRetry={retryMermaidDiagrams} />,
-						failureTarget.placeholder,
-						failureTarget.diagramId,
-					),
-				)}
-		</div>
+		</BridgeRegionPresentation>
 	);
 });
 
@@ -527,18 +540,6 @@ export function sanitizeBridgeMarkdownDocumentHtml(htmlCandidate: string): strin
 		}
 	}
 	return template.innerHTML;
-}
-
-function BridgeMarkdownStatus(props: { readonly label: string }): ReactElement {
-	return (
-		<div
-			className="flex h-full items-center justify-center text-sm text-muted-foreground"
-			data-testid="bridge-markdown-status"
-			role="status"
-		>
-			{props.label}
-		</div>
-	);
 }
 
 function safeBridgeMarkdownStyle(style: string): string {

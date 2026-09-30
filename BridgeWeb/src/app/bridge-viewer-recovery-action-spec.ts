@@ -1,4 +1,4 @@
-export type BridgeViewerRecoverySurface = 'comments' | 'file' | 'review';
+export type BridgeViewerRecoverySurface = 'comments' | 'file' | 'review' | 'markdown';
 
 export interface BridgeViewerRecoveryActionDisplaySpec {
 	readonly accessibleName: 'Retry';
@@ -7,6 +7,7 @@ export interface BridgeViewerRecoveryActionDisplaySpec {
 }
 
 const bridgeViewerRecoveryActionDisplaySpecs = {
+	markdown: { accessibleName: 'Retry', label: 'Retry', tooltip: 'Retry Markdown rendering' },
 	comments: {
 		accessibleName: 'Retry',
 		label: 'Retry',

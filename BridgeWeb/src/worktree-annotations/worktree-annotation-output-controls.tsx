@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Drawer } from '@/components/ui/drawer.js';
 
 import { BridgeViewerContextPanel } from '../app/bridge-viewer-context-panel.js';
+import { BridgeViewerRecoveryRetryButton } from '../app/bridge-viewer-recovery-retry-button.js';
 import {
 	useWorktreeAnnotationNavigation,
 	type WorktreeAnnotationDestination,
@@ -15,6 +16,7 @@ import {
 	useWorktreeAnnotationOutputPendingController,
 } from './worktree-annotation-output-pending-controller.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
+import { worktreeAnnotationSurfacePresentationStatus } from './worktree-annotation-region-presentation.js';
 import {
 	WorktreeAnnotationShareModeRow,
 	WorktreeAnnotationShareTrigger,
@@ -138,6 +140,16 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 	const client = useWorktreeAnnotationSurfaceClient();
 	const interaction = useWorktreeAnnotationInteraction();
 	const projection = useWorktreeAnnotationProjection();
+	const commentsSurface = worktreeAnnotationSurfacePresentationStatus(projection.readStatus);
+	const commentsRetry = (
+		<BridgeViewerRecoveryRetryButton
+			surface="comments"
+			onClick={(): void => {
+				client.retryViewRecovery();
+				client.retryProjection();
+			}}
+		/>
+	);
 	const selection = useWorktreeAnnotationSessionSelection();
 	const viewedController = useWorktreeAnnotationViewedController();
 	const navigation = useWorktreeAnnotationNavigation();
@@ -205,6 +217,9 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 				scope={displayedScope}
 			>
 				<WorktreeAnnotationSharePreview
+					surfaceStatus={commentsSurface}
+					retryControl={commentsRetry}
+					hasSelection={!selection.requiresExplicitSelection}
 					scope={displayedScope}
 					inlineThreads={[]}
 					otherThreads={[]}
@@ -390,6 +405,8 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 			scope={displayedScope}
 		>
 			<WorktreeAnnotationSharePreview
+				surfaceStatus={commentsSurface}
+				retryControl={commentsRetry}
 				scope={displayedScope}
 				{...(navigation === null
 					? {}

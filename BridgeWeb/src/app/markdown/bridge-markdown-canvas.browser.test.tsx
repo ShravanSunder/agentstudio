@@ -12,6 +12,21 @@ import {
 import type { BridgeMarkdownPresentationState } from './use-bridge-markdown-presentation.js';
 
 describe('BridgeMarkdownCanvas Browser Mode', () => {
+	test.each(['idle', 'loading'] as const)('projects Markdown %s through W6', async (status) => {
+		await render(
+			<BridgeMarkdownCanvas
+				isActive={true}
+				presentationState={status === 'idle' ? { status } : { status, sourcePath: 'docs/a.md' }}
+				retry={() => undefined}
+			/>,
+		);
+		expect(
+			document
+				.querySelector('[data-bridge-region="markdown"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe(status === 'idle' ? 'empty' : 'loading');
+		expect(document.querySelector('[data-slot="skeleton"]') !== null).toBe(status === 'loading');
+	});
 	afterEach(async () => {
 		await cleanup();
 		document.body.replaceChildren();
@@ -32,7 +47,13 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 				(button): boolean => button.textContent === 'Retry',
 			) ?? null,
 		);
-		expect(retryButton.dataset['slot']).toBe('button');
+		expect(retryButton.tagName).toBe('BUTTON');
+		expect(retryButton.dataset['slot']).toBe('tooltip-trigger');
+		expect(
+			document
+				.querySelector('[data-bridge-region="markdown"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('failed');
 		retryButton.click();
 		expect(retry).toHaveBeenCalledOnce();
 	});
