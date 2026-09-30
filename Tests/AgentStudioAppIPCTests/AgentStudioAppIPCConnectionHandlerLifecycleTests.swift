@@ -2,6 +2,7 @@ import AgentStudioAppIPC
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -20,15 +21,18 @@ struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
             panes: [makePaneSummary(id: paneId, ordinal: 1)],
             runtimePort: port
         )
-        var heldRequest: Task<JSONRPCResponseMessage, Error>?
         do {
             try await withLiveServer(
                 makeFixture: { fixture },
                 body: { fixture in
                     try fixture.server.start()
-                    heldRequest = Task {
-                        try await sendRequestWithoutBlockingCooperativePool(
-                            socketPath: fixture.paths.socketURL.path,
+                    let connection = try await valueFromDedicatedThread {
+                        try UnixSocketClient.connect(endpoint: .init(path: fixture.paths.socketURL.path))
+                    }
+                    defer { connection.close() }
+                    try await valueFromDedicatedThread {
+                        try sendRequest(
+                            connection: connection,
                             request: JSONRPCClientRequest(
                                 id: .number(1), method: "terminal.wait",
                                 params: .object([
@@ -52,7 +56,6 @@ struct AgentStudioAppIPCConnectionHandlerLifecycleTests {
         // Red-proof rescue only: capture the bad postcondition before unblocking
         // the old cleanup's leaked handler. Removed with the fixture fix.
         await fixture.server.joinConnectionHandlers()
-        _ = try? await heldRequest?.value
 
         #expect(handlerCountAtScopeReturn == 0)
         #expect(observedCancellationAtScopeReturn)
