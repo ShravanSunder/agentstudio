@@ -707,6 +707,7 @@ large|CIFastLaneWorkflowTests|concurrent
 large|CIFirstAttemptGateWorkflowTests|concurrent
 large|CISwiftBuildCachePublishScriptTests|concurrent
 large|CISwiftBuildInputsScriptTests|concurrent
+large|BridgeDevelopmentServerBuildScriptTests|concurrent
 benchmark|CommandBarSearchBenchmarkTests|process-global
 large|CursorPackageInstallerTests|concurrent
 large|DarwinCompositeFSEventContinuityTests|process-global
