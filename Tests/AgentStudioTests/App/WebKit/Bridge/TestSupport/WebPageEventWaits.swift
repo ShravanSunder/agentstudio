@@ -6,9 +6,8 @@ import WebKit
 
 /// Event-driven waits for the WebKit lane.
 ///
-/// Every one of these replaces a `ContinuousClock` deadline poll. They are
-/// unbounded by default. A named diagnostic hang bound may report a stalled
-/// milestone before the lane watchdog; it does not change the success predicate.
+/// Every one of these replaces a `ContinuousClock` deadline poll. Named waits
+/// appear in the runner's HeldStep ledger if its process hang bound fires.
 enum WebPageEventWaits {
     /// Suspends until the page stops loading.
     ///
@@ -56,50 +55,41 @@ enum WebPageEventWaits {
         reader readerBody: String,
         arguments: [String: Any] = [:],
         milestone: String? = nil,
-        hangBoundMilliseconds: Int = 0,
         lastObservation diagnosticBody: String = "return null;"
     ) async throws -> Any? {
-        let result = try await page.callJavaScript(
-            """
-            const readDocumentValue = () => { \(readerBody) };
-            const readDiagnostic = () => { \(diagnosticBody) };
-            return await new Promise((resolve) => {
-              let observer = null;
-              const deadline = hangBoundMilliseconds > 0
-                ? setTimeout(() => {
-                    observer?.disconnect();
-                    resolve({ bridgeWebKitMilestoneHang: true, lastObservation: readDiagnostic() });
-                  }, hangBoundMilliseconds)
-                : null;
-              const attempt = () => {
-                const value = readDocumentValue();
-                if (value === null || value === undefined) { return false; }
-                if (deadline !== null) clearTimeout(deadline);
-                observer?.disconnect();
-                resolve(value);
-                return true;
-              };
-              if (attempt()) { return; }
-              observer = new MutationObserver(attempt);
-              observer.observe(document.documentElement, {
-                attributes: true,
-                characterData: true,
-                childList: true,
-                subtree: true
-              });
-            });
-            """,
-            arguments: arguments.merging(["hangBoundMilliseconds": hangBoundMilliseconds]) { current, _ in current }
+        let pendingName = await namedPageMilestone(
+            page, milestone: milestone, diagnosticBody: diagnosticBody, arguments: arguments
         )
-        if let outcome = result as? [String: Any],
-            outcome["bridgeWebKitMilestoneHang"] as? Bool == true
-        {
-            throw BridgeWebKitMilestoneHang(
-                milestone: milestone ?? "document value",
-                lastObservation: String(describing: outcome["lastObservation"] ?? "missing")
+        let observe: @MainActor () async throws -> Any? = {
+            try await page.callJavaScript(
+                """
+                const readDocumentValue = () => { \(readerBody) };
+                return await new Promise((resolve) => {
+                  let observer = null;
+                  const attempt = () => {
+                    const value = readDocumentValue();
+                    if (value === null || value === undefined) { return false; }
+                    observer?.disconnect();
+                    resolve(value);
+                    return true;
+                  };
+                  if (attempt()) { return; }
+                  observer = new MutationObserver(attempt);
+                  observer.observe(document.documentElement, {
+                    attributes: true,
+                    characterData: true,
+                    childList: true,
+                    subtree: true
+                  });
+                });
+                """,
+                arguments: arguments
             )
         }
-        return result
+        if let pendingName {
+            return try await awaitBridgeWebKitMilestone(pendingName, operation: observe)
+        }
+        return try await observe()
     }
 
     /// Observes the document and every open shadow root. Pierre places File
@@ -110,72 +100,63 @@ enum WebPageEventWaits {
         reader readerBody: String,
         arguments: [String: Any] = [:],
         milestone: String? = nil,
-        hangBoundMilliseconds: Int = 0,
         lastObservation diagnosticBody: String = "return null;"
     ) async throws -> Any? {
-        let result = try await page.callJavaScript(
-            """
-            const findInOpenShadowRoots = (root, selector) => {
-              const direct = root.querySelector(selector);
-              if (direct !== null) return direct;
-              for (const element of root.querySelectorAll('*')) {
-                if (element.shadowRoot === null) continue;
-                const nested = findInOpenShadowRoots(element.shadowRoot, selector);
-                if (nested !== null) return nested;
-              }
-              return null;
-            };
-            const readOpenShadowRootText = root => {
-              let text = root.textContent ?? '';
-              for (const element of root.querySelectorAll('*')) {
-                if (element.shadowRoot !== null) text += readOpenShadowRootText(element.shadowRoot);
-              }
-              return text;
-            };
-            const readValue = () => { \(readerBody) };
-            const readDiagnostic = () => { \(diagnosticBody) };
-            return await new Promise(resolve => {
-              const observers = new Map();
-              const deadline = hangBoundMilliseconds > 0
-                ? setTimeout(() => {
-                    for (const observer of observers.values()) observer.disconnect();
-                    resolve({ bridgeWebKitMilestoneHang: true, lastObservation: readDiagnostic() });
-                  }, hangBoundMilliseconds)
-                : null;
-              const observeRoot = root => {
-                if (!observers.has(root)) {
-                  const observer = new MutationObserver(attempt);
-                  observer.observe(root, {
-                    attributes: true, characterData: true, childList: true, subtree: true
-                  });
-                  observers.set(root, observer);
-                }
-                for (const element of root.querySelectorAll('*')) {
-                  if (element.shadowRoot !== null) observeRoot(element.shadowRoot);
-                }
-              };
-              const attempt = () => {
-                observeRoot(document.documentElement);
-                const value = readValue();
-                if (value === null || value === undefined) return;
-                if (deadline !== null) clearTimeout(deadline);
-                for (const observer of observers.values()) observer.disconnect();
-                resolve(value);
-              };
-              attempt();
-            });
-            """,
-            arguments: arguments.merging(["hangBoundMilliseconds": hangBoundMilliseconds]) { current, _ in current }
+        let pendingName = await namedPageMilestone(
+            page, milestone: milestone, diagnosticBody: diagnosticBody, arguments: arguments
         )
-        if let outcome = result as? [String: Any],
-            outcome["bridgeWebKitMilestoneHang"] as? Bool == true
-        {
-            throw BridgeWebKitMilestoneHang(
-                milestone: milestone ?? "shadow-root value",
-                lastObservation: String(describing: outcome["lastObservation"] ?? "missing")
+        let observe: @MainActor () async throws -> Any? = {
+            try await page.callJavaScript(
+                """
+                const findInOpenShadowRoots = (root, selector) => {
+                  const direct = root.querySelector(selector);
+                  if (direct !== null) return direct;
+                  for (const element of root.querySelectorAll('*')) {
+                    if (element.shadowRoot === null) continue;
+                    const nested = findInOpenShadowRoots(element.shadowRoot, selector);
+                    if (nested !== null) return nested;
+                  }
+                  return null;
+                };
+                const readOpenShadowRootText = root => {
+                  let text = root.textContent ?? '';
+                  for (const element of root.querySelectorAll('*')) {
+                    if (element.shadowRoot !== null) text += readOpenShadowRootText(element.shadowRoot);
+                  }
+                  return text;
+                };
+                const readValue = () => { \(readerBody) };
+                return await new Promise(resolve => {
+                  const observers = new Map();
+                  const observeRoot = root => {
+                    if (!observers.has(root)) {
+                      const observer = new MutationObserver(attempt);
+                      observer.observe(root, {
+                        attributes: true, characterData: true, childList: true, subtree: true
+                      });
+                      observers.set(root, observer);
+                    }
+                    for (const element of root.querySelectorAll('*')) {
+                      if (element.shadowRoot !== null) observeRoot(element.shadowRoot);
+                    }
+                  };
+                  const attempt = () => {
+                    observeRoot(document.documentElement);
+                    const value = readValue();
+                    if (value === null || value === undefined) return;
+                    for (const observer of observers.values()) observer.disconnect();
+                    resolve(value);
+                  };
+                  attempt();
+                });
+                """,
+                arguments: arguments
             )
         }
-        return result
+        if let pendingName {
+            return try await awaitBridgeWebKitMilestone(pendingName, operation: observe)
+        }
+        return try await observe()
     }
 
     /// Suspends until `document.querySelector(selector)` is non-null.
@@ -203,6 +184,20 @@ enum WebPageEventWaits {
                 }
             }
         }
+    }
+
+    @MainActor
+    private static func namedPageMilestone(
+        _ page: WebPage,
+        milestone: String?,
+        diagnosticBody: String,
+        arguments: [String: Any]
+    ) async -> String? {
+        guard let milestone else { return nil }
+        let readback =
+            (try? await page.callJavaScript(diagnosticBody, arguments: arguments))
+            .map { String(describing: $0) } ?? "unavailable"
+        return "\(milestone); last=\(readback)"
     }
 
     /// Parks on the page's own observation until `condition` holds.

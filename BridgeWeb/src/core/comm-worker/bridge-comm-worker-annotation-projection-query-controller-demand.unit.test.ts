@@ -5,6 +5,8 @@ import { describe, expect, test } from 'vitest';
 import { deriveWorktreeAnnotationShareProjection } from '../../worktree-annotations/worktree-annotation-share-projection.js';
 import { bridgeWorkerAnnotationProjectionHeaderSchema } from './bridge-comm-worker-annotation-projection-decoder.js';
 import { installBridgeProductCommentBatch } from './bridge-product-comment-batch-installer.js';
+import type { BridgeProductDeadlineClock } from './bridge-product-deadline-clock.js';
+import { createTestViewScopeOwner } from './bridge-product-view-scope-owner.test-support.js';
 import {
 	createHarness,
 	deferred,
@@ -17,6 +19,95 @@ import {
 } from './test-fixtures/bridge-comm-worker-annotation-projection.test-support.js';
 
 describe('Bridge annotation projection session demand', () => {
+	test('installed Comment catalog demand-only scope update finishes content without a catalog resnapshot', async () => {
+		const deadlines: Array<{ active: boolean; fire: () => void }> = [];
+		const clock: BridgeProductDeadlineClock = {
+			schedule: (_delayMilliseconds, onDeadline): (() => void) => {
+				const deadline = {
+					active: true,
+					fire: (): void => {
+						if (!deadline.active) return;
+						deadline.active = false;
+						onDeadline();
+					},
+				};
+				deadlines.push(deadline);
+				return (): void => {
+					deadline.active = false;
+				};
+			},
+		};
+		const resnapshotRequests: string[] = [];
+		const owner = createTestViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => ({
+					...props,
+					kind: 'subscription.scopeAccepted' as const,
+					paneSessionId: 'pane-session-1',
+					requestId: 'comment-scope-accepted',
+					requestSequence: props.scopeRevision,
+					wireVersion: 2 as const,
+					workerInstanceId: 'worker-instance-1',
+				}),
+				resnapshotView: async (props) => {
+					resnapshotRequests.push(props.subscriptionId);
+					return {
+						...props,
+						kind: 'subscription.resnapshotAccepted' as const,
+						paneSessionId: 'pane-session-1',
+						requestId: 'comment-resnapshot-accepted',
+						requestSequence: 3,
+						wireVersion: 2 as const,
+						workerInstanceId: 'worker-instance-1',
+					};
+				},
+			},
+			createIdentifier: (): string => 'comment-view-identity',
+			deadlineClock: clock,
+			maximumConsecutiveResnapshots: 2,
+		});
+		const harness = await createHarness({
+			pages: await makeProjectionPages(1, 8),
+			scopeUpdateOverride: async (scope): Promise<void> => {
+				await owner.setScope({
+					scope: { kind: 'comment', sessionIds: scope.sessionIds, worktreeId: scope.worktreeId },
+					subscriptionId: scope.subscriptionId,
+				});
+			},
+		});
+		const subscriptionId = harness.notifications.subscription.subscriptionId;
+		owner.register({
+			scope: { kind: 'comment', sessionIds: [], worktreeId },
+			subscriptionId,
+			subscriptionKind: 'file.annotations',
+		});
+		try {
+			await owner.setScope({
+				scope: { kind: 'comment', sessionIds: [], worktreeId },
+				subscriptionId,
+			});
+			owner.recordCertifiedInstall({
+				handle: 'comment-view-identity',
+				incarnation: 'comment-view-identity',
+				scopeRevision: 1,
+				subscriptionId,
+			});
+			harness.controller.setDemand({ active: true, sessionIds: [], sourceGeneration: 8 });
+			harness.controller.ensureSubscription();
+			harness.notifications.installCatalog(8);
+			await harness.controller.waitForIdle();
+			harness.controller.setDemand({ active: true, sessionIds: [sessionId], sourceGeneration: 8 });
+			await harness.controller.waitForIdle();
+			expect(harness.publications.at(-1)?.contentSessionIds).toEqual([sessionId]);
+			expect(harness.scopeUpdates.at(-1)?.sessionIds).toEqual([sessionId]);
+			for (const deadline of deadlines.filter((candidate) => candidate.active)) deadline.fire();
+			expect(resnapshotRequests).toEqual([]);
+		} finally {
+			await harness.controller.dispose();
+			owner.retire(subscriptionId);
+		}
+	});
+
 	test.each([false, true])(
 		'held A then B preserves only current demand (A released: %s)',
 		async (releaseSessionA: boolean): Promise<void> => {

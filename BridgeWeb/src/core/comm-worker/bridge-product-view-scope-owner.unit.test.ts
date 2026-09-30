@@ -137,6 +137,50 @@ describe('W2 desired view scope owner', () => {
 		});
 	});
 
+	test('Comment initial opening and pending resnapshot retain their begin obligation across demand', async () => {
+		const clock = new ControlledReplacementBeginClock();
+		const requests: ViewResnapshotAdmissionProps[] = [];
+		const owner = createTestViewScopeOwner({
+			controlMux: {
+				setViewScope: async (props) => acceptedScope(props),
+				resnapshotView: async (props) => {
+					requests.push(props);
+					return acceptedResnapshot(props);
+				},
+			},
+			createIdentifier: (): string => 'comment-view',
+			deadlineClock: clock,
+			maximumConsecutiveResnapshots: 2,
+		});
+		const initialScope = { kind: 'comment', sessionIds: [], worktreeId: 'worktree-1' } as const;
+		owner.register({
+			scope: initialScope,
+			subscriptionId: 'comment-subscription',
+			subscriptionKind: 'file.annotations',
+		});
+		await owner.setScope({ scope: initialScope, subscriptionId: 'comment-subscription' });
+		expect(clock.activeDeadline().active).toBe(true);
+		owner.recordCertifiedInstall({
+			handle: 'comment-view',
+			incarnation: 'comment-view',
+			scopeRevision: 1,
+			subscriptionId: 'comment-subscription',
+		});
+		await owner.resnapshot('comment-subscription');
+		await owner.setScope({
+			scope: { ...initialScope, sessionIds: ['session-1'] },
+			subscriptionId: 'comment-subscription',
+		});
+		clock.activeDeadline().fire();
+		await clock.waitForScheduleCount(4);
+		expect(requests.map((request) => request.scopeRevision)).toEqual([1, 2]);
+		clock.activeDeadline().fire();
+		expect(owner.recoveryState('comment-subscription')).toEqual({
+			consecutiveResnapshots: 2,
+			status: 'failedRetryable',
+		});
+	});
+
 	test('a replacement begin observed before scope acceptance does not arm a stale deadline', async () => {
 		const clock = new ControlledReplacementBeginClock();
 		let releaseAdmission = (): void => {};

@@ -120,13 +120,18 @@ export class BridgeProductViewScopeOwner {
 		if (!scopeMatchesKind(view.subscriptionKind, props.scope.kind)) {
 			throw new Error('Metadata view scope differs from its registered kind.');
 		}
+		const commentView =
+			view.subscriptionKind === 'file.annotations' ||
+			view.subscriptionKind === 'review.annotations';
+		const requiresBatchBegin =
+			!commentView || view.scopeRevision === 0 || view.awaitingBegin || view.resnapshotRequested;
 		view.currentAdmission?.abort();
 		view.scopeRevision += 1;
 		view.desiredScope = props.scope;
 		view.resnapshotInFlight = null;
 		view.resnapshotRequested = false;
 		this.#clearReplacementBeginDeadline(view);
-		view.awaitingBegin = true;
+		view.awaitingBegin = requiresBatchBegin;
 		const scopeRevision = view.scopeRevision;
 		const admission = new AbortController();
 		view.currentAdmission = admission;
