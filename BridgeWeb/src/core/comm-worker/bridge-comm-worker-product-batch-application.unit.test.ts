@@ -145,6 +145,7 @@ describe('Bridge comm worker product batch application owner', () => {
 			workerDerivationEpoch: (): number => 2,
 		});
 		const fileInstallation: BridgeProductViewInstallation = {
+			certified: true,
 			begin: batchBegin('file.metadata'),
 			domain: 'default',
 			records: [
@@ -162,6 +163,7 @@ describe('Bridge comm worker product batch application owner', () => {
 		if (emptyPublication.record.revision === undefined)
 			throw new Error('Review publication fixture has no revision.');
 		const reviewInstallation: BridgeProductViewInstallation = {
+			certified: true,
 			begin: batchBegin('review.metadata'),
 			domain: 'default',
 			records: [
@@ -173,6 +175,7 @@ describe('Bridge comm worker product batch application owner', () => {
 			],
 		};
 		const commentInstallation: BridgeProductViewInstallation = {
+			certified: true,
 			begin: batchBegin('file.annotations'),
 			domain: 'default',
 			records: [
@@ -216,6 +219,7 @@ describe('Bridge comm worker product batch application owner', () => {
 			targetRevision,
 		};
 		const installation: BridgeProductViewInstallation = {
+			certified: true,
 			begin,
 			domain: 'default',
 			records: [
@@ -332,6 +336,7 @@ describe('Bridge comm worker product batch application owner', () => {
 			targetRevision: publicationRecord.revision,
 		};
 		const installation: BridgeProductViewInstallation = {
+			certified: true,
 			begin,
 			domain: 'default',
 			records: [
@@ -524,6 +529,7 @@ function reviewImpactInstallation(props: {
 		revision: props.revision,
 	});
 	return {
+		certified: true,
 		begin: {
 			...batchBegin('review.metadata'),
 			publicationId,

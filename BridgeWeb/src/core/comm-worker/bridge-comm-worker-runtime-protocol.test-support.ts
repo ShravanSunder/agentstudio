@@ -543,6 +543,7 @@ function reviewProductBatchFromRuntimeSource(
 	});
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Review batch begin missing.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [

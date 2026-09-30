@@ -23,6 +23,7 @@ function fixtureInstallation(): BridgeProductViewInstallation {
 	if (begin.kind !== 'subscription.batchBegin')
 		throw new Error('File batch begin fixture missing.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [

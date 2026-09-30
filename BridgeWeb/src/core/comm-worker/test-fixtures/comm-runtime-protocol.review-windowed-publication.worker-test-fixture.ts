@@ -69,7 +69,12 @@ function installWindowedReviewRuntime(controlPort: MessagePort): void {
 				if (part.final) {
 					if (begin === null || batchSinks === null)
 						throw new Error('Review batch sink was unavailable.');
-					await batchSinks.install({ begin, domain: 'default', records: stagedRecords });
+					await batchSinks.install({
+						certified: true,
+						begin,
+						domain: 'default',
+						records: stagedRecords,
+					});
 				}
 				controlPort.postMessage({
 					kind: 'windowedReview.batchPart.processed',
