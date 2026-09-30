@@ -182,8 +182,36 @@ test('profiles repeated mode switches, Open in Files, Markdown and Mermaid throu
 		completed = true;
 	} catch (error: unknown) {
 		failure = String(error);
+		const pageState =
+			profilePage !== null && !profilePage.isClosed()
+				? await profilePage.evaluate((): unknown => {
+						const fileHost = document.querySelector<HTMLElement>(
+							'[data-testid="bridge-viewer-mode-host-file"]',
+						);
+						const reviewHost = document.querySelector<HTMLElement>(
+							'[data-testid="bridge-viewer-mode-host-review"]',
+						);
+						const fileCanvas = fileHost?.querySelector(
+							'[data-testid="bridge-file-viewer-code-canvas"]',
+						);
+						const markdown = fileHost?.querySelector('[data-testid="bridge-markdown-canvas"]');
+						const mermaid = markdown?.querySelector('[data-bridge-mermaid-state]');
+						return {
+							fileHostActive: fileHost?.getAttribute('data-bridge-viewer-mode-active') ?? null,
+							fileHostInert: fileHost?.inert ?? null,
+							fileOpenPath: fileCanvas?.getAttribute('data-worktree-open-file-path') ?? null,
+							fileOpenState: fileCanvas?.getAttribute('data-worktree-open-file-state') ?? null,
+							markdownSourcePath:
+								markdown?.getAttribute('data-bridge-markdown-source-path') ?? null,
+							markdownText: markdown?.textContent?.slice(0, 160) ?? null,
+							mermaidState: mermaid?.getAttribute('data-bridge-mermaid-state') ?? null,
+							reviewHostActive: reviewHost?.getAttribute('data-bridge-viewer-mode-active') ?? null,
+							url: location.href,
+						};
+					})
+				: { kind: 'page-unavailable' };
 		throw new Error(
-			`Interaction profile failed after ${samples.length} samples. Browser: ${await diagnostics?.describe()}. Backend: ${server?.diagnostics() ?? 'not started'}`,
+			`Interaction profile failed after ${samples.length} samples. Page: ${JSON.stringify(pageState)}. Browser: ${await diagnostics?.describe()}. Backend: ${server?.diagnostics() ?? 'not started'}`,
 			{ cause: error },
 		);
 	} finally {
