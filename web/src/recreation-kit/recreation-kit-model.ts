@@ -11,7 +11,6 @@ export type KitSettledPresence = "shown" | "collapsed";
 
 /** How a kit element behaves in the phone layout's focused crop. */
 export type KitPhoneRole = "shown" | "hidden";
-export type KitVisibilityRole = "shown" | "hidden";
 
 export type KitBadge =
   | { readonly kind: "diff"; readonly added: number; readonly removed: number }

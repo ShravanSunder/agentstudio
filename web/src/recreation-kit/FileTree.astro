@@ -2,18 +2,17 @@
 import KitIcon from "./KitIcon.astro";
 import type { KitIconName } from "./kit-icon-names";
 import { scenePartAttributes } from "./recreation-kit-dom";
-import type { KitFileKind, KitFileTreeRow, KitPhoneRole, KitVisibilityRole } from "./recreation-kit-model";
+import type { KitFileKind, KitFileTreeRow, KitPhoneRole } from "./recreation-kit-model";
 
 interface Props {
   readonly rows: readonly KitFileTreeRow[];
   /** Which tab of the Files | Review switcher is current. */
   readonly currentView: "files" | "review";
   readonly phoneRole: KitPhoneRole;
-  readonly visibilityRole?: KitVisibilityRole;
   readonly scenePart?: string | undefined;
 }
 
-const { rows, currentView, phoneRole, visibilityRole = "shown", scenePart } = Astro.props;
+const { rows, currentView, phoneRole, scenePart } = Astro.props;
 
 const fileKindIcons: Readonly<Record<KitFileKind, KitIconName>> = {
   folder: "chevron-down",
@@ -27,7 +26,6 @@ const fileKindIcons: Readonly<Record<KitFileKind, KitIconName>> = {
 <div
   class="kit-file-tree"
   data-kit-phone={phoneRole === "hidden" ? "hidden" : undefined}
-  data-kit-visibility={visibilityRole === "hidden" ? "hidden" : undefined}
   {...scenePartAttributes(scenePart)}
 >
   <div class="kit-file-tree__header">

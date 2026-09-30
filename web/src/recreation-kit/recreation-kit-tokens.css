@@ -95,10 +95,6 @@
   -webkit-font-smoothing: antialiased;
 }
 
-.recreation-kit.recreation-kit [data-kit-visibility="hidden"] {
-  display: none;
-}
-
 /* Collapsed elements are absent from the settled frame; scenes reveal them earlier. */
 .recreation-kit [data-kit-presence="collapsed"] {
   opacity: 0;

@@ -409,7 +409,7 @@ describe("scene bundles for HyperFrames", () => {
   );
 
   it.each([600, 1280])(
-    "renders the Review thread inline after line 49 without a file tree at %ipx",
+    "renders the Review thread inline after line 49 with responsive file tree at %ipx",
     (stageWidth) => {
       const bundle = requireBundle("chapter-review");
       mountStyle(bundle.sceneCss);
@@ -436,7 +436,9 @@ describe("scene bundles for HyperFrames", () => {
       expect(thread).not.toBeNull();
       expect(threadSlot).not.toBeNull();
       expect(fileTree).not.toBeNull();
-      expect(getComputedStyle(fileTree as HTMLElement).display).toBe("none");
+      expect(getComputedStyle(fileTree as HTMLElement).display).toBe(
+        stageWidth === 600 ? "none" : "flex",
+      );
 
       timeline.time(1.0);
       expect((threadSlot as HTMLElement).getBoundingClientRect().height).toBeLessThan(1);
