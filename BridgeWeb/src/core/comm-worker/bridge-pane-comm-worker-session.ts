@@ -57,9 +57,9 @@ interface BridgePaneCommWorkerClient {
 }
 
 const defaultWorkerScriptUrl = 'agentstudio://app/assets/bridge-comm-worker.js';
-// Re-requests after native answers a replacement bootstrap with a typed failure. Each
-// re-request is paced by native's answer to the previous one, so no clock is needed.
-const maximumReplacementBootstrapReRequestCount = 3;
+// One initial replacement and three further attempts may fail before a ready worker
+// renews the budget. Native replies and worker failures both consume this count.
+const maximumReplacementBootstrapRequestCount = 4;
 
 export class BridgePaneCommWorkerSession {
 	readonly #clients = new Set<BridgePaneCommWorkerClient>();
@@ -86,7 +86,7 @@ export class BridgePaneCommWorkerSession {
 	#mainPort: MessagePort | null = null;
 	#nativeBootstrap: BridgePaneCommWorkerNativeBootstrap | null = null;
 	#nativeBootstrapInstallCount = 0;
-	#replacementBootstrapReRequestCount = 0;
+	#replacementAttemptsSinceReady = 0;
 	#replacementRequestCount = 0;
 	#state: BridgePaneCommWorkerSessionDiagnosticState = 'awaiting_bootstrap';
 	#telemetryProducerInstall: BridgePaneCommWorkerTelemetryProducerInstall | null = null;
@@ -121,7 +121,6 @@ export class BridgePaneCommWorkerSession {
 		this.#nativeBootstrap = nativeBootstrap;
 		this.#nativeBootstrapInstallCount += 1;
 		this.#isRestartRequested = false;
-		this.#replacementBootstrapReRequestCount = 0;
 		this.#state = 'bootstrapping';
 		this.#failureReason = null;
 		this.#publishDiagnosticSnapshot();
@@ -134,21 +133,8 @@ export class BridgePaneCommWorkerSession {
 	 */
 	handleNativeBootstrapFailure(): void {
 		if (this.#isDisposed || this.#state !== 'replacement_requested') return;
-		if (this.#replacementBootstrapReRequestCount >= maximumReplacementBootstrapReRequestCount) {
-			this.#isRestartRequested = false;
-			this.#state = 'failed';
-			this.#failureReason = 'bootstrapBudgetExhausted';
-			for (const command of this.#queuedCommands.splice(0)) {
-				this.#publishWorkerMessages([this.#workerUnavailableReply(command.requestId)]);
-			}
-			this.#publishDiagnosticSnapshot();
-			this.#onReplacementBootstrapExhausted();
-			return;
-		}
-		this.#replacementBootstrapReRequestCount += 1;
-		this.#replacementRequestCount += 1;
-		this.#publishDiagnosticSnapshot();
-		this.#requestNativeBootstrap('workerReplacement');
+		this.#isRestartRequested = false;
+		this.#requestWorkerReplacementBootstrap();
 	}
 
 	setNativeBootstrapRequester(requestNativeBootstrap: (reason: 'workerReplacement') => void): void {
@@ -205,7 +191,10 @@ export class BridgePaneCommWorkerSession {
 					message.command === 'viewRecoveryRetry' &&
 					(this.#state === 'failed' || this.#state === 'replacement_requested')
 				) {
-					if (this.#state === 'failed') this.#requestWorkerReplacementBootstrap();
+					if (this.#state === 'failed') {
+						this.#replacementAttemptsSinceReady = 0;
+						this.#requestWorkerReplacementBootstrap();
+					}
 					this.#publishWorkerMessages([
 						{
 							direction: 'serverWorkerToMain',
@@ -317,6 +306,7 @@ export class BridgePaneCommWorkerSession {
 					) {
 						this.#isRuntimeReady = true;
 						this.#state = 'ready';
+						this.#replacementAttemptsSinceReady = 0;
 						this.#clearBootstrapTimeout();
 						this.#flushQueuedCommands();
 						this.#publishDiagnosticSnapshot();
@@ -429,13 +419,28 @@ export class BridgePaneCommWorkerSession {
 		if (this.#isDisposed || this.#isRestartRequested) {
 			return;
 		}
+		if (this.#replacementAttemptsSinceReady >= maximumReplacementBootstrapRequestCount) {
+			this.#failReplacementBudget();
+			return;
+		}
 		this.#isRestartRequested = true;
-		this.#replacementBootstrapReRequestCount = 0;
+		this.#replacementAttemptsSinceReady += 1;
 		this.#failureReason = null;
 		this.#replacementRequestCount += 1;
 		this.#state = 'replacement_requested';
 		this.#publishDiagnosticSnapshot();
 		this.#requestNativeBootstrap('workerReplacement');
+	}
+
+	#failReplacementBudget(): void {
+		this.#isRestartRequested = false;
+		this.#state = 'failed';
+		this.#failureReason = 'bootstrapBudgetExhausted';
+		for (const command of this.#queuedCommands.splice(0)) {
+			this.#publishWorkerMessages([this.#workerUnavailableReply(command.requestId)]);
+		}
+		this.#publishDiagnosticSnapshot();
+		this.#onReplacementBootstrapExhausted();
 	}
 
 	#retireCurrentWorker(): void {
