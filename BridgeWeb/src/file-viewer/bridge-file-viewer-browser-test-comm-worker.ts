@@ -366,6 +366,7 @@ export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 			};
 		},
 		dispose: (): void => {},
+		setNativeBootstrapRequester: (): void => {},
 		installNativeBootstrap: (_bootstrap: BridgePaneCommWorkerNativeBootstrap): void => {},
 	});
 	const renderStoreFactory: NonNullable<CreateBridgePaneRuntimeProps['renderStoreFactory']> = (
