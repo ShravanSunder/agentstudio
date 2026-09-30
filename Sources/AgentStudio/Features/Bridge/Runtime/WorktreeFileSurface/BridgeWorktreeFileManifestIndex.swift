@@ -63,7 +63,7 @@ actor BridgeWorktreeFileManifestIndex {
     private var orderedPaths: [String] = []
     private var rowsByPath: [String: BridgeWorktreeTreeRowMetadata] = [:]
     private var memberStatus: BridgeProductFileMemberStatusRecord
-    private var memberStatusRevision = 1
+    private var memberStatusRevision: Int
     private var canonicalLocationByPath: [String: String] = [:]
     private var revisionByPath: [String: Int] = [:]
     private var newestDescriptorOutcomeByKey: [String: BridgeProductFileDescriptorReadyPayload] = [:]
@@ -79,7 +79,7 @@ actor BridgeWorktreeFileManifestIndex {
     private let maximumFormerDescriptorEncodedBytes: Int
     private let memberIncarnation: String
     private var tombstoneRevisionByKey: [String: Int] = [:]
-    private var nextRevision = 1
+    private var nextRevision: Int
     private var absenceFloorRevisionByRange: [String: Int] = [:]
     private(set) var enumerationCount = 0
     private(set) var isEnumerationComplete = false
@@ -89,15 +89,19 @@ actor BridgeWorktreeFileManifestIndex {
         rootURL: URL,
         productAdmission: BridgeProductAdmissionContext,
         source: BridgeProductFileSourceIdentity,
+        initialRevision: Int = 1,
         memberIncarnation: String = "default",
         maximumFormerDescriptorCount: Int = AppPolicies.Bridge.fileRetainedDescriptorMaximumCount,
         maximumFormerDescriptorEncodedBytes: Int = AppPolicies.Bridge.fileRetainedDescriptorMaximumEncodedBytes
     ) {
         precondition(maximumFormerDescriptorCount > 0 && maximumFormerDescriptorEncodedBytes > 0)
+        precondition(initialRevision > 0 && initialRevision < BridgeProductWireContract.maximumSafeInteger)
         self.generation = generation
         self.canonicalRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
         self.owningProductAdmission = productAdmission
         self.memberStatus = BridgeProductFileMemberStatusRecord(source: source)
+        self.memberStatusRevision = initialRevision
+        self.nextRevision = initialRevision
         self.memberIncarnation = memberIncarnation
         self.maximumFormerDescriptorCount = maximumFormerDescriptorCount
         self.maximumFormerDescriptorEncodedBytes = maximumFormerDescriptorEncodedBytes

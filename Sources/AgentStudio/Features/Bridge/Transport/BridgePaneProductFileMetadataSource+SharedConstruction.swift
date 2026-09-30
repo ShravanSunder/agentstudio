@@ -14,6 +14,8 @@ extension BridgePaneProductFileMetadataSource {
 
     func cancel(subscriptionId: String) async {
         guard let context = contextBySubscriptionId.removeValue(forKey: subscriptionId) else { return }
+        let retiredRevision = await context.manifestIndex.captureKeyedSnapshot().targetRevision
+        lastIssuedFileViewRevision = max(lastIssuedFileViewRevision, retiredRevision)
         await context.manifestIndex.revokeRetainedDescriptors()
         if let constructionLease = context.constructionLease {
             await sharedConstructionBinder.release(constructionLease)
