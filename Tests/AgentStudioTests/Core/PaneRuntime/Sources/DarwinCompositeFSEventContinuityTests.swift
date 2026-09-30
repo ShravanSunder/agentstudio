@@ -191,7 +191,7 @@ struct DarwinCompositeFSEventContinuityTests {
     @Test("pre-prepare ancestor ambiguity is superseded by the exact scan")
     func prePrepareAncestorAmbiguityIsSuperseded() async throws {
         let fixture = try CompositeContinuityFixture()
-        _ = try #require(await fixture.prepare())
+        _ = try await fixture.requirePreparedBarrier()
         fixture.streamFactory.send(path: fixture.ancestorEventPath, eventId: 290)
         // Without a committed baseline, the ancestor recheck must first fall back
         // to an exact scan. Await that event before starting the replacement scan.
@@ -209,7 +209,7 @@ struct DarwinCompositeFSEventContinuityTests {
         let fixture = try CompositeContinuityFixture(
             regularFileOpened: fingerprintGate.regularFileOpened
         )
-        let barrier = try #require(await fixture.prepare())
+        let barrier = try await fixture.requirePreparedBarrier()
         fingerprintGate.blockNextRead()
         let commitTask = Task { await fixture.client.commit(barrier) }
 
@@ -235,10 +235,10 @@ struct DarwinCompositeFSEventContinuityTests {
         switch window {
         case .prepare:
             operationTask = Task {
-                await fixture.prepare() == nil
+                await fixture.prepare() == .unavailable(.barrierChangedDuringFlush)
             }
         case .commitBeforeFingerprint, .commitAfterFingerprint:
-            let barrier = try #require(await fixture.prepare())
+            let barrier = try await fixture.requirePreparedBarrier()
             operationTask = Task {
                 (await fixture.client.commit(barrier)).requiresExact
             }
@@ -263,7 +263,7 @@ struct DarwinCompositeFSEventContinuityTests {
     func sharedGenerationReplacementAfterRetainRejectsCommit() async throws {
         let fixture = try CompositeContinuityFixture(blockedFlushNumber: 2)
         defer { fixture.streamFactory.allowBlockedFlush(result: true) }
-        let barrier = try #require(await fixture.prepare())
+        let barrier = try await fixture.requirePreparedBarrier()
         let commitTask = Task { await fixture.client.commit(barrier) }
 
         await fixture.streamFactory.waitUntilBlockedFlushBegins()
@@ -281,7 +281,7 @@ struct DarwinCompositeFSEventContinuityTests {
     func unregisterDuringRetainedCompositeFlushRejectsCommit() async throws {
         let fixture = try CompositeContinuityFixture(blockedFlushNumber: 2)
         defer { fixture.streamFactory.allowBlockedFlush(result: true) }
-        let barrier = try #require(await fixture.prepare())
+        let barrier = try await fixture.requirePreparedBarrier()
         let commitTask = Task { await fixture.client.commit(barrier) }
 
         await fixture.streamFactory.waitUntilBlockedFlushBegins()
@@ -301,7 +301,7 @@ struct DarwinCompositeFSEventContinuityTests {
         await fixture.streamFactory.waitUntilBlockedFlushBegins()
         fixture.streamFactory.allowBlockedFlush(result: false)
 
-        #expect(await prepareTask.value == nil)
+        #expect(await prepareTask.value == .unavailable(.streamFlushFailed))
     }
 }
 
@@ -457,7 +457,7 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         try? FileManager.default.removeItem(at: fixtureRoot)
     }
 
-    func prepare() async -> GitCleanContinuityBarrier? {
+    func prepare() async -> GitCleanContinuityPrepareOutcome {
         await client.prepare(
             worktreeId: worktreeId,
             rootPath: worktreeRoot,
@@ -465,8 +465,17 @@ private final class CompositeContinuityFixture: @unchecked Sendable {
         )
     }
 
+    func requirePreparedBarrier() async throws -> GitCleanContinuityBarrier {
+        let outcome = await prepare()
+        return try #require(outcome.barrier, Comment(rawValue: "preparation: \(outcome)"))
+    }
+
     func prepareAuthority() async -> GitCleanContinuityAuthority? {
-        guard let barrier = await prepare() else { return nil }
+        let outcome = await prepare()
+        guard let barrier = outcome.barrier else {
+            Issue.record(Comment(rawValue: "authority preparation: \(outcome)"))
+            return nil
+        }
         return await client.commit(barrier).authority
     }
 

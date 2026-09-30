@@ -783,25 +783,7 @@ extension DarwinFSEventStreamClientTests {
         let worktreeId = UUIDv7.generate()
         let repositoryId = UUIDv7.generate()
         _ = client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
-        let readinessSentinelPath = fixtureRoot.appending(path: "native-stream-ready.sentinel")
-        let canonicalReadinessSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(
-            readinessSentinelPath
-        ).path
-        let readinessBatchTask = Task<FSEventBatch?, Never> {
-            for await ingressItem in client.events() {
-                guard case .batch(let batch) = ingressItem else { continue }
-                if batch.worktreeId == worktreeId,
-                    batch.paths.contains(canonicalReadinessSentinelPath)
-                {
-                    return batch
-                }
-            }
-            return nil
-        }
-        try Data("ready".utf8).write(to: readinessSentinelPath)
-        _ = try #require(
-            await readinessBatchTask.value
-        )
+        try await requireNativeStreamReadiness(client: client, worktreeId: worktreeId, rootPath: fixtureRoot)
         let observationPlan = AgentStudioGit.GitStatusObservationPlan(
             identity: AgentStudioGit.GitStatusObservationIdentity(rawValue: "local-root-change"),
             scopes: [
@@ -809,12 +791,14 @@ extension DarwinFSEventStreamClientTests {
             ],
             support: .supported
         )
+        let originalPrepareOutcome = await client.prepare(
+            worktreeId: worktreeId,
+            rootPath: fixtureRoot,
+            observationPlan: observationPlan
+        )
         let originalBarrier = try #require(
-            await client.prepare(
-                worktreeId: worktreeId,
-                rootPath: fixtureRoot,
-                observationPlan: observationPlan
-            )
+            originalPrepareOutcome.barrier,
+            Comment(rawValue: "original preparation: \(originalPrepareOutcome)")
         )
         let eventTask = Task<FSEventBatch?, Never> {
             for await ingressItem in client.events() {
@@ -860,17 +844,46 @@ extension DarwinFSEventStreamClientTests {
                 worktreeId: worktreeId,
                 rootPath: fixtureRoot,
                 observationPlan: observationPlan
-            ) == nil
+            ) == .unavailable(.registrationMissing)
         )
 
         _ = client.register(worktreeId: worktreeId, repoId: repositoryId, rootPath: fixtureRoot)
-        let replacementBarrier = await client.prepare(
+        let replacementPrepareOutcome = await client.prepare(
             worktreeId: worktreeId,
             rootPath: fixtureRoot,
             observationPlan: observationPlan
         )
-        #expect(replacementBarrier != nil)
-        #expect(replacementBarrier?.registrationGeneration != originalBarrier.registrationGeneration)
+        let replacementBarrier = try #require(
+            replacementPrepareOutcome.barrier,
+            Comment(rawValue: "replacement preparation: \(replacementPrepareOutcome)")
+        )
+        #expect(replacementBarrier.registrationGeneration != originalBarrier.registrationGeneration)
+    }
+
+    private func requireNativeStreamReadiness(
+        client: DarwinFSEventStreamClient,
+        worktreeId: UUID,
+        rootPath: URL
+    ) async throws {
+        let readinessSentinelPath = rootPath.appending(path: "native-stream-ready.sentinel")
+        let canonicalReadinessSentinelPath = DarwinFSEventPathCanonicalizer.canonicalURL(
+            readinessSentinelPath
+        ).path
+        let readinessBatchTask = Task<FSEventBatch?, Never> {
+            for await ingressItem in client.events() {
+                guard case .batch(let batch) = ingressItem else { continue }
+                if batch.worktreeId == worktreeId,
+                    batch.paths.contains(canonicalReadinessSentinelPath)
+                {
+                    return batch
+                }
+            }
+            return nil
+        }
+        try Data("ready".utf8).write(to: readinessSentinelPath)
+        _ = try #require(
+            await readinessBatchTask.value
+        )
     }
 
     @Test("shutdown is idempotent and blocks future registration")
