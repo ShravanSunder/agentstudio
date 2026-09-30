@@ -3,7 +3,7 @@ import Foundation
 /// Correlation identities for projector-local transition facts. Each scope
 /// names one operation, so a closing fact cannot close later work accidentally.
 package enum GitProjectorScope: Hashable, Sendable {
-    case intake(worktreeId: UUID, batchSeq: UInt64)
+    case intake(worktreeId: UUID, registration: UInt64, batchSeq: UInt64)
     case refresh(worktreeId: UUID, requestSequence: UInt64)
     case deadline(worktreeId: UUID, kind: GitProjectorDeadlineKind, generation: UInt64)
     case capacity(worktreeId: UUID, episode: UInt64)
@@ -145,16 +145,59 @@ extension GitWorkingDirectoryProjector {
         factSink?(scope, .refreshClosed(outcome))
     }
 
+    func closeRefreshFact(
+        worktreeId: UUID, ifCurrent scope: GitProjectorScope?, outcome: GitProjectorRefreshOutcome
+    ) {
+        guard let scope, openRefreshFactScopeByWorktreeId[worktreeId] == scope else { return }
+        closeRefreshFact(worktreeId: worktreeId, outcome: outcome)
+    }
+
+    func beginIntakeFactRegistration(worktreeId: UUID) {
+        guard factSink != nil else { return }
+        retireIntakeFactRegistration(worktreeId: worktreeId)
+        let registration = nextIntakeFactRegistrationByWorktreeId[worktreeId, default: 0] + 1
+        nextIntakeFactRegistrationByWorktreeId[worktreeId] = registration
+        intakeFactRegistrationByWorktreeId[worktreeId] = registration
+    }
+
+    func retireIntakeFactRegistration(worktreeId: UUID) {
+        guard let factSink else { return }
+        intakeFactRegistrationByWorktreeId.removeValue(forKey: worktreeId)
+        let openScopes = observedIntakeFactScopes.filter { scope in
+            if case .intake(let scopedWorktreeId, _, _) = scope { return scopedWorktreeId == worktreeId }
+            return false
+        }
+        for scope in openScopes {
+            factSink(scope, .changesetDropped(.superseded))
+        }
+        observedIntakeFactScopes = observedIntakeFactScopes.filter { scope in
+            if case .intake(let scopedWorktreeId, _, _) = scope { return scopedWorktreeId != worktreeId }
+            return true
+        }
+        closedIntakeFactScopes = closedIntakeFactScopes.filter { scope in
+            if case .intake(let scopedWorktreeId, _, _) = scope { return scopedWorktreeId != worktreeId }
+            return true
+        }
+    }
+
+    private func intakeFactScope(worktreeId: UUID, batchSeq: UInt64) -> GitProjectorScope {
+        .intake(
+            worktreeId: worktreeId,
+            registration: intakeFactRegistrationByWorktreeId[worktreeId] ?? 0,
+            batchSeq: batchSeq
+        )
+    }
+
     func observeIntakeFact(worktreeId: UUID, batchSeq: UInt64) {
         guard factSink != nil else { return }
-        let scope = GitProjectorScope.intake(worktreeId: worktreeId, batchSeq: batchSeq)
+        let scope = intakeFactScope(worktreeId: worktreeId, batchSeq: batchSeq)
         guard !closedIntakeFactScopes.contains(scope) else { return }
         observedIntakeFactScopes.insert(scope)
     }
 
     func closeIntakeFactOnce(worktreeId: UUID, batchSeq: UInt64, fact: GitProjectorFact) {
         guard let factSink else { return }
-        let scope = GitProjectorScope.intake(worktreeId: worktreeId, batchSeq: batchSeq)
+        let scope = intakeFactScope(worktreeId: worktreeId, batchSeq: batchSeq)
         guard observedIntakeFactScopes.remove(scope) != nil else { return }
         guard closedIntakeFactScopes.insert(scope).inserted else { return }
         factSink(scope, fact)

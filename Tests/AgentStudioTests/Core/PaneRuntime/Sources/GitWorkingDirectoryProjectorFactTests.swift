@@ -162,12 +162,14 @@ struct GitWorkingDirectoryProjectorFactTests {
         _ = await bus.post(fileChangedEnvelope(worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
 
         try await facts.expectNext(
-            in: .intake(worktreeId: worktreeId, batchSeq: 2),
+            in: .intake(worktreeId: worktreeId, registration: 0, batchSeq: 2),
             .changesetCoalesced(into: 3)
         )
         #expect(await projector.pendingByWorktreeId[worktreeId]?.batchSeq == 3)
         firstReadGate.release()
-        try await facts.expectNext(in: .intake(worktreeId: worktreeId, batchSeq: 3), .changesetAccepted)
+        try await facts.expectNext(
+            in: .intake(worktreeId: worktreeId, registration: 0, batchSeq: 3), .changesetAccepted
+        )
         var publishedSnapshot: GitWorkingTreeSnapshot?
         while let event = await outputIterator.next() {
             guard case .worktree(let worktreeEnvelope) = event,
@@ -224,7 +226,9 @@ struct GitWorkingDirectoryProjectorFactTests {
                     source: .system(.builtin(.filesystemWatcher)), seq: 1
                 )))
 
-        try await facts.expectNext(in: .intake(worktreeId: worktreeId, batchSeq: 1), .changesetDropped(.equal))
+        try await facts.expectNext(
+            in: .intake(worktreeId: worktreeId, registration: 0, batchSeq: 1), .changesetDropped(.equal)
+        )
         #expect(calls.withLock { $0 } == 0)
         await projector.shutdown()
         try await facts.finish()
@@ -492,7 +496,9 @@ struct GitWorkingDirectoryProjectorFactTests {
         await projector.shutdown()
         source.end()
 
-        try await facts.expectNext(in: .intake(worktreeId: worktreeId, batchSeq: 1), .changesetAccepted)
+        try await facts.expectNext(
+            in: .intake(worktreeId: worktreeId, registration: 0, batchSeq: 1), .changesetAccepted
+        )
         let refresh = GitProjectorScope.refresh(worktreeId: worktreeId, requestSequence: 1)
         try await facts.expectNext(in: refresh, .refreshAdmitted)
         try await facts.expectNext(in: refresh, .refreshStarted)

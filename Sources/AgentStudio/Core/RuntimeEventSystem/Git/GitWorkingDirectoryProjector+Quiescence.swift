@@ -23,6 +23,11 @@ extension GitWorkingDirectoryProjector {
         disposition: GitProjectorEnvelopeDisposition
     ) {
         guard lifetime == subscriptionLifetime else { return }
+        emitUnreportedDroppedEnvelopeFacts(lifetime: lifetime)
+        factSink?(.lifetime(lifetime), .envelopeHandled(seq: seq, disposition: disposition))
+    }
+
+    func emitUnreportedDroppedEnvelopeFacts(lifetime: UInt64) {
         if let subscriptionHandle {
             let droppedCount = subscriptionHandle.deliveryCheckpoint().droppedCount
             if droppedCount > lastEmittedDroppedEnvelopeCount {
@@ -31,7 +36,6 @@ extension GitWorkingDirectoryProjector {
                 factSink?(.lifetime(lifetime), .envelopesDropped(count: delta))
             }
         }
-        factSink?(.lifetime(lifetime), .envelopeHandled(seq: seq, disposition: disposition))
     }
 
     func subscriptionStreamDidEnd(lifetime: UInt64) {

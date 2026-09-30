@@ -68,6 +68,8 @@ package actor GitWorkingDirectoryProjector {
     var pendingByWorktreeId: [UUID: FileChangeset] = [:]
     var observedIntakeFactScopes: Set<GitProjectorScope> = []
     var closedIntakeFactScopes: Set<GitProjectorScope> = []
+    var intakeFactRegistrationByWorktreeId: [UUID: UInt64] = [:]
+    var nextIntakeFactRegistrationByWorktreeId: [UUID: UInt64] = [:]
     var refreshAttribution = GitRefreshAttributionState()
     var capacityRetryWorktreeIds: Set<UUID> = []
     var capacityRetryReasonByWorktreeId: [UUID: GitWorkingTreeStatusUnavailableReason] = [:]
@@ -303,6 +305,7 @@ package actor GitWorkingDirectoryProjector {
         lastAcceptedStatusAtByWorktreeId.removeAll(keepingCapacity: false)
         consecutiveStatusFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         nextPeriodicBatchSeqByWorktreeId.removeAll(keepingCapacity: false)
+        emitUnreportedDroppedEnvelopeFacts(lifetime: subscriptionLifetime)
         subscriptionHandle = nil
         shutdownInProgress = false
         if let factSink, lastClosedFactLifetime != subscriptionLifetime {
@@ -480,10 +483,14 @@ package actor GitWorkingDirectoryProjector {
         let taskGeneration = nextWorktreeTaskGeneration
         worktreeTaskGenerationByWorktreeId[worktreeId] = taskGeneration
         let lifetime = observationLifetimesByWorktreeID[worktreeId]
+        let refreshFactScope = openRefreshFactScopeByWorktreeId[worktreeId]
         let task = Task { [weak self] in
             guard let self else { return }
             await RepositoryObservationRequestContext.$worktree.withValue(lifetime) {
-                await self.drainWorktree(worktreeId: worktreeId, taskGeneration: taskGeneration)
+                await self.drainWorktree(
+                    worktreeId: worktreeId, taskGeneration: taskGeneration,
+                    refreshFactScope: refreshFactScope
+                )
             }
         }
         worktreeTasks[worktreeId] = task
@@ -571,6 +578,7 @@ package actor GitWorkingDirectoryProjector {
         }
 
         removeSuppressedWorktree(worktreeId)
+        beginIntakeFactRegistration(worktreeId: worktreeId)
         repoIdByWorktreeId[worktreeId] = context.repoId
         rootPathByWorktreeId[worktreeId] = context.rootPath
         nextPeriodicBatchSeqByWorktreeId[worktreeId] = nextPeriodicBatchSeqByWorktreeId[worktreeId] ?? 0
@@ -583,6 +591,7 @@ package actor GitWorkingDirectoryProjector {
             timestamp: timestamp,
             batchSeq: 0
         )
+        observeIntakeFact(worktreeId: worktreeId, batchSeq: registrationChangeset.batchSeq)
         if isAutomaticEligible(worktreeId: worktreeId) {
             pendingByWorktreeId[worktreeId] = registrationChangeset
             refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .registration
@@ -652,6 +661,7 @@ package actor GitWorkingDirectoryProjector {
         resetAdaptiveCadence(worktreeId: worktreeId)
         clearRequiredIntent(worktreeId: worktreeId)
         nextPeriodicBatchSeqByWorktreeId.removeValue(forKey: worktreeId)
+        retireIntakeFactRegistration(worktreeId: worktreeId)
         if !repoIdByWorktreeId.values.contains(repoId) {
             lastKnownOriginByRepoId.removeValue(forKey: repoId)
             originResolutionByRepoId.removeValue(forKey: repoId)
@@ -688,12 +698,14 @@ package actor GitWorkingDirectoryProjector {
         explicitRefreshWorktreeIds.remove(worktreeId)
     }
 
-    private func drainWorktree(worktreeId: UUID, taskGeneration: UInt64) async {
+    private func drainWorktree(
+        worktreeId: UUID, taskGeneration: UInt64, refreshFactScope: GitProjectorScope?
+    ) async {
         defer {
             if !capacityRetryWorktreeIds.contains(worktreeId) {
                 let outcome: GitProjectorRefreshOutcome =
                     isShuttingDown ? .shutdown : Task.isCancelled ? .cancelled : .superseded
-                closeRefreshFact(worktreeId: worktreeId, outcome: outcome)
+                closeRefreshFact(worktreeId: worktreeId, ifCurrent: refreshFactScope, outcome: outcome)
             }
             if worktreeTaskGenerationByWorktreeId[worktreeId] == taskGeneration {
                 worktreeTasks.removeValue(forKey: worktreeId)

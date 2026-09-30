@@ -9,9 +9,9 @@ extension FactVocabulary<GitProjectorScope, GitProjectorFact> {
         describeFact: { String(describing: $0) },
         isClosing: { scope, fact in
             switch (scope, fact) {
-            case (.intake(_, _), .changesetAccepted),
-                (.intake(_, _), .changesetCoalesced(_)),
-                (.intake(_, _), .changesetDropped(_)),
+            case (.intake(_, _, _), .changesetAccepted),
+                (.intake(_, _, _), .changesetCoalesced(_)),
+                (.intake(_, _, _), .changesetDropped(_)),
                 (.refresh(_, _), .refreshClosed(_)),
                 (.deadline(_, _, _), .deadlineDisposition(_)),
                 (.capacity(_, _), .capacityRetryClosed(_)),

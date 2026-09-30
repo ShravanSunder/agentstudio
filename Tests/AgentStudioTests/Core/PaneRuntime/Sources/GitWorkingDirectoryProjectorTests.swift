@@ -634,7 +634,7 @@ struct GitWorkingDirectoryProjectorTests {
         )
 
         try await facts.expectNext(
-            in: .intake(worktreeId: worktreeId, batchSeq: 1), .changesetDropped(.equal)
+            in: .intake(worktreeId: worktreeId, registration: 0, batchSeq: 1), .changesetDropped(.equal)
         )
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
         #expect(await calls.value() == 0)
@@ -3982,7 +3982,7 @@ struct GitWorkingDirectoryProjectorTests {
         }
 
         try await facts.expectNext(
-            in: .intake(worktreeId: worktreeId, batchSeq: 4), .changesetDropped(.stale)
+            in: .intake(worktreeId: worktreeId, registration: 1, batchSeq: 4), .changesetDropped(.stale)
         )
         #expect(await observed.waitUntilCaughtUp() == .caughtUp(droppedEnvelopes: 0))
 

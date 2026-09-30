@@ -2,6 +2,7 @@ import AgentStudioGit
 import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AgentStudioCore
@@ -9,6 +10,36 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector quiescence")
 struct GitWorkingDirectoryProjectorQuiescenceTests {
+    @Test("registration batch zero closes again after unregister and re-register")
+    func registrationBatchZeroHasTwoIntakeOperations() async throws {
+        let source = LocalFactSource(vocabulary: FactVocabulary<GitProjectorScope, GitProjectorFact>.gitProjector)
+        let facts = try source.attach()
+        let bus = EventBus<RuntimeEnvelope>()
+        let projector = makeProjector(bus: bus, factSink: source.sink)
+        await projector.start()
+        let worktreeID = UUIDv7.generate()
+        await projector.setActivePaneWorktree(worktreeId: worktreeID)
+        _ = await bus.post(registeredEnvelope(seq: 1, worktreeID: worktreeID))
+        #expect(try await facts.expectHandledEnvelope(seq: 1) == .routed)
+        let firstRefresh = try await facts.expectNextRefreshStarted(worktreeId: worktreeID)
+        _ = try await facts.expectRefreshClosed(worktreeId: worktreeID, requestSequence: firstRefresh)
+        _ = await bus.post(unregisteredEnvelope(seq: 2, worktreeID: worktreeID))
+        #expect(try await facts.expectHandledEnvelope(seq: 2) == .routed)
+        await projector.setActivePaneWorktree(worktreeId: worktreeID)
+        _ = await bus.post(registeredEnvelope(seq: 3, worktreeID: worktreeID))
+        #expect(try await facts.expectHandledEnvelope(seq: 3) == .routed)
+        let secondRefresh = try await facts.expectNextRefreshStarted(worktreeId: worktreeID)
+        _ = try await facts.expectRefreshClosed(worktreeId: worktreeID, requestSequence: secondRefresh)
+        await projector.shutdown()
+        source.end()
+
+        let firstIntake = GitProjectorScope.intake(worktreeId: worktreeID, registration: 1, batchSeq: 0)
+        let secondIntake = GitProjectorScope.intake(worktreeId: worktreeID, registration: 2, batchSeq: 0)
+        try await facts.expectNext(in: firstIntake, .changesetAccepted)
+        try await facts.expectNext(in: secondIntake, .changesetAccepted)
+        try await facts.finish()
+    }
+
     @Test("before start, shutdown, and restart have distinct subscription lifetimes")
     func lifecycleAndIgnoredEnvelope() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -138,6 +169,81 @@ struct GitWorkingDirectoryProjectorQuiescenceTests {
         await projector.shutdown()
         #expect(try await facts.expectShutdownCompleted() == 0)
         #expect(await projector.outstandingDrainTasks.isEmpty)
+    }
+
+    @Test("retired drain cannot close a replacement refresh")
+    func retiredDrainKeepsReplacementRefreshOpen() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let bus = EventBus<RuntimeEnvelope>()
+        let firstStep = HeldStep<Void>("retired first read", cancellation: .holdThroughCancellation)
+        let secondStep = HeldStep<Void>("replacement read", cancellation: .holdThroughCancellation)
+        let calls = Mutex(0)
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            let attempt = calls.withLock { count -> Int in
+                count += 1
+                return count
+            }
+            if attempt == 1 { try? await firstStep.arrive(()) }
+            if attempt == 2 { try? await secondStep.arrive(()) }
+            return cleanStatus()
+        }
+        let projector = GitWorkingDirectoryProjector(
+            bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero,
+            factSink: source.sink
+        )
+        await projector.start()
+        let worktreeID = UUIDv7.generate()
+        await projector.setActivity(worktreeId: worktreeID, isActiveInApp: true)
+        _ = await bus.post(filesChangedEnvelope(seq: 1, worktreeID: worktreeID))
+        _ = try await firstStep.firstArrival()
+        let firstSequence = try await facts.expectNextRefreshStarted(worktreeId: worktreeID)
+
+        _ = await bus.post(unregisteredEnvelope(seq: 2, worktreeID: worktreeID))
+        try await firstStep.cancellationObserved()
+        _ = await bus.post(registeredEnvelope(seq: 3, worktreeID: worktreeID))
+        await projector.setActivity(worktreeId: worktreeID, isActiveInApp: true)
+        _ = await bus.post(filesChangedEnvelope(seq: 4, worktreeID: worktreeID))
+        _ = try await secondStep.firstArrival()
+        let secondSequence = try await facts.expectNextRefreshStarted(worktreeId: worktreeID)
+        #expect(secondSequence > firstSequence)
+
+        firstStep.release()
+        let firstOutcome = try await facts.expectRefreshClosed(
+            worktreeId: worktreeID, requestSequence: firstSequence)
+        #expect(firstOutcome == .superseded || firstOutcome == .cancelled)
+        let secondScope = GitProjectorScope.refresh(worktreeId: worktreeID, requestSequence: secondSequence)
+        secondStep.release()
+        let secondClose = try await facts.expectNext(
+            in: secondScope,
+            where: {
+                if case .refreshClosed = $0 { return true }
+                return false
+            }, "replacement refresh closes after its provider exits")
+        #expect(secondClose == .refreshClosed(.completed(snapshotChanged: true, branchChanged: false)))
+        await projector.shutdown()
+        try await facts.finish()
+    }
+
+    @Test("shutdown reports buffered drops without another handled envelope")
+    func shutdownReportsFinalBufferedDrops() async throws {
+        let source = GitProjectorFactSource()
+        let facts = try source.attach()
+        let bus = EventBus<RuntimeEnvelope>(
+            replayConfiguration: .init(capacityPerSource: 4, sourceKey: { $0.source.description })
+        )
+        let projector = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in cleanStatus() },
+            coalescingWindow: .zero, subscriptionBufferLimit: 0,
+            factSink: source.sink
+        )
+        _ = await bus.post(contentsOf: (1...4).map { ignoredTopologyEnvelope(seq: UInt64($0)) })
+        await projector.start()
+        await projector.shutdown()
+        try await facts.expectNext(in: .lifetime(1), .envelopesDropped(count: 4))
+        try await facts.expectNext(in: .lifetime(1), .shutdownCompleted)
+        try await facts.finish()
     }
 
     @Test("shutdown joins a cancelled provider before closing the subscription lifetime")
