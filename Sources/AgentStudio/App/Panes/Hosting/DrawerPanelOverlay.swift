@@ -145,7 +145,7 @@ struct DrawerPanelOverlay: View {
     static let outlineAccessibilityIdentifier = "drawerPanel.outline"
     static let moveControlAccessibilityIdentifier = "drawerPanel.moveZoomSide"
 
-    private struct MoveControlResolutionKey: Equatable {
+    struct MoveControlResolutionKey: Equatable {
         let command: AppCommand?
         let ownerPaneId: UUID
         let tabId: UUID
@@ -282,7 +282,7 @@ struct DrawerPanelOverlay: View {
             let panelFraction = outlineFrame.height > 0 ? panelHeight / outlineFrame.height : 1
 
             let paneId = info.paneId
-            let moveControlResolutionKey = MoveControlResolutionKey(
+            let moveControlResolutionKey = Self.makeMoveControlResolutionKey(
                 command: Self.moveControlCommand(
                     mode: geometry.mode,
                     isManagementLayerActive: atom(\.managementLayer).isActive
@@ -443,6 +443,21 @@ struct DrawerPanelOverlay: View {
     ) -> AppCommand? {
         guard isManagementLayerActive, case .zoom(let effectiveSide) = mode else { return nil }
         return AppCommand.moveZoomDrawerCommand(awayFrom: effectiveSide)
+    }
+
+    static func makeMoveControlResolutionKey(
+        command: AppCommand?,
+        ownerPaneId: UUID,
+        tabId: UUID,
+        workspaceWindowId: UUID?,
+        zoomSourcePaneId _: UUID? = nil
+    ) -> MoveControlResolutionKey {
+        MoveControlResolutionKey(
+            command: command,
+            ownerPaneId: ownerPaneId,
+            tabId: tabId,
+            workspaceWindowId: workspaceWindowId
+        )
     }
 
     /// The move tab stacks directly above the bottom-trailing child's detach
