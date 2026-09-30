@@ -2359,12 +2359,10 @@ struct GitWorkingDirectoryProjectorTests {
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
 
-        let observedBranchChange = (try await observed.expectBranchEvents(for: worktreeId, through: 1)).count >= 1
-        #expect(observedBranchChange)
-
-        let branchEvent = await observed.latestBranchEvent(for: worktreeId)
-        #expect(branchEvent?.0 == "main")
-        #expect(branchEvent?.1 == "feature/split")
+        let branchEvents = try await observed.expectBranchEvents(for: worktreeId, through: 1)
+        let branchEvent = try #require(branchEvents.last)
+        #expect(branchEvent.0 == "main")
+        #expect(branchEvent.1 == "feature/split")
 
         await actor.shutdown()
         try await collectionTask.finish()
@@ -2402,12 +2400,10 @@ struct GitWorkingDirectoryProjectorTests {
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
 
-        let observedBranchChange = (try await observed.expectBranchEvents(for: worktreeId, through: 1)).count >= 1
-        #expect(observedBranchChange)
-
-        let branchEvent = await observed.latestBranchEvent(for: worktreeId)
-        #expect(branchEvent?.0.isEmpty == true)
-        #expect(branchEvent?.1 == "main")
+        let branchEvents = try await observed.expectBranchEvents(for: worktreeId, through: 1)
+        let branchEvent = try #require(branchEvents.last)
+        #expect(branchEvent.0.isEmpty)
+        #expect(branchEvent.1 == "main")
 
         await actor.shutdown()
         try await collectionTask.finish()
