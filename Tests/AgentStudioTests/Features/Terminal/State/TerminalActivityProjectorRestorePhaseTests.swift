@@ -97,4 +97,34 @@ struct TerminalActivityProjectorRestorePhaseTests {
 
         #expect(await projector.restorePhaseGenerationsByPane[paneID] == nil)
     }
+
+    @Test("a plain surface close, as fired on replacement, keeps the pane's restore phase")
+    func plainSurfaceCloseKeepsTheRestorePhase() async {
+        let projector = TerminalActivityProjector()
+        let surfaceID = UUID()
+        let paneID = UUID()
+        let generation = RestoreGeneration(rawValue: 3)
+        await projector.armRestorePhase(paneID: paneID, generation: generation)
+
+        await projector.applyOrderedControl(
+            surfaceID: surfaceID,
+            paneID: paneID,
+            precedingAggregate: nil,
+            control: .surfaceClosed
+        )
+
+        #expect(await projector.restorePhaseGenerationsByPane[paneID] == generation)
+    }
+
+    @Test("permanent pane retirement clears the restore phase, unlike a plain surface close")
+    func permanentRetirementClearsTheRestorePhase() async {
+        let projector = TerminalActivityProjector()
+        let paneID = UUID()
+        let generation = RestoreGeneration(rawValue: 4)
+        await projector.armRestorePhase(paneID: paneID, generation: generation)
+
+        await projector.retirePanePermanently(paneID: paneID)
+
+        #expect(await projector.restorePhaseGenerationsByPane[paneID] == nil)
+    }
 }

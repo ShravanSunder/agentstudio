@@ -65,6 +65,15 @@ enum TerminalActivitySourceInput: Sendable, Equatable {
     /// Always unused in R1, which never auto-resumes; the case exists now so
     /// the vocabulary is complete ahead of R3.
     case restorePhaseEnded(paneID: UUID, restoreGeneration: RestoreGeneration)
+    /// SR6b: permanent pane retirement — `WorkspaceSurfaceCoordinator
+    /// .retirePanesPermanently`, "the shared final-retirement edge for undo
+    /// expiry and committed direct discards" — is pane-keyed and distinct
+    /// from `.surfaceClosed`, which also fires on ordinary surface
+    /// replacement (`consumeAggregateState`'s `replacedSurfaceID` branch).
+    /// Only this input clears `restorePhaseByPane`; a replaced surface keeps
+    /// the pane's restore phase (Panes' consumer, requested via Main
+    /// 2026-09-30).
+    case paneRetiredPermanently(paneID: UUID)
 }
 
 /// Owns terminal activity derivation and quiet timers off MainActor.
@@ -151,9 +160,12 @@ package actor TerminalActivityProjector {
     private var paneStates: [UUID: PaneState] = [:]
     /// SR6b (Program Design item 13, choice 13, step 3). Separate from
     /// `paneStates`/`PaneState` so surface replacement mid-phase does not
-    /// clear it. R1 owns arm/end recording; the gating this state drives
-    /// inside `consumeAggregateState` (suppressing unseen/activity windows
-    /// and the agent candidate while armed) is Panes' consumer.
+    /// clear it: only `endRestorePhase` (person input reaching the surface)
+    /// and `retirePanePermanently` (permanent close) clear an entry; a plain
+    /// `.surfaceClosed` never does. R1 owns arm/end recording; the gating
+    /// this state drives inside `consumeAggregateState` (suppressing
+    /// unseen/activity windows and the agent candidate while armed) is
+    /// Panes' consumer.
     private var restorePhaseByPane: [UUID: RestoreGeneration] = [:]
     private var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
     private var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
@@ -462,6 +474,18 @@ package actor TerminalActivityProjector {
     /// Test-only observation of the recording boundary above; production
     /// code never reads this (Panes' consumer holds its own gating state).
     var restorePhaseGenerationsByPane: [UUID: RestoreGeneration] { restorePhaseByPane }
+
+    /// SR6b: the only path that clears `restorePhaseByPane` on a PERMANENT
+    /// close. A plain `.surfaceClosed` — replacement or ordinary teardown —
+    /// never reaches here and never touches this map (see the property's own
+    /// doc comment above). Also tears down any live pane state, mirroring
+    /// `closeSurfaceState`, since a permanently retired pane will never emit
+    /// an ordinary `.surfaceClosed` for this projector to observe.
+    func retirePanePermanently(paneID: UUID) {
+        cancelTimers(for: paneID)
+        paneStates.removeValue(forKey: paneID)
+        restorePhaseByPane.removeValue(forKey: paneID)
+    }
 
     func markObserved(surfaceID: UUID, paneID: UUID) {
         guard var state = paneStates[paneID], state.surfaceID == surfaceID else { return }

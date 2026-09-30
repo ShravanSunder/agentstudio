@@ -235,6 +235,8 @@ package final class TerminalActivityRouter {
             await projector.armRestorePhase(paneID: paneID, generation: restoreGeneration)
         case .restorePhaseEnded(let paneID, let restoreGeneration):
             await projector.endRestorePhase(paneID: paneID, generation: restoreGeneration)
+        case .paneRetiredPermanently(let paneID):
+            await projector.retirePanePermanently(paneID: paneID)
         }
     }
 

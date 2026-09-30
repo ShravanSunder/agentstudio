@@ -449,8 +449,21 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     /// Shared final-retirement edge for undo expiry and committed direct discards.
+    ///
+    /// Also the sole source of the projector's permanent-close signal (SR6b): a
+    /// discarded pane never reaches an ordinary `.surfaceClosed` here, so
+    /// without this, an armed-but-never-typed-into pane's restore phase would
+    /// leak in `TerminalActivityProjector.restorePhaseByPane` forever. Fired
+    /// as a submitted input, matching `TerminalActivityRouter
+    /// .markUnseenActivityObserved`'s existing fire-and-forget pattern for
+    /// posting a terminal-activity fact from a synchronous call site.
     func retirePanesPermanently(_ paneIDs: Set<UUID>) {
         paneActivityClock?.retire(Array(paneIDs))
+        for paneID in paneIDs {
+            Task { @MainActor in
+                await Ghostty.ActionRouter.retirePanePermanently(paneID: paneID)
+            }
+        }
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {

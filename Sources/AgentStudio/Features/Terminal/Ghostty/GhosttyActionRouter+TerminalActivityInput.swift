@@ -115,4 +115,18 @@ extension Ghostty.ActionRouter {
         await sink(.restorePhaseArmed(paneID: paneID, restoreGeneration: restoreGeneration))
         return .armed
     }
+
+    /// SR6b: permanent pane retirement (`WorkspaceSurfaceCoordinator
+    /// .retirePanesPermanently`) submits this fact so the projector clears
+    /// `restorePhaseByPane` for the pane — the ingress half of the
+    /// "permanent close vs. surface replacement" distinction Panes' consumer
+    /// depends on. Unlike `armRestorePhase`, this never waits for the router
+    /// to bind: a pane can only be retired after having existed, so the
+    /// router was already bound at some point in this launch; if it is
+    /// unbound now (router stopped), the fact is dropped, matching every
+    /// other fire-and-forget submission through this binding.
+    @MainActor
+    package static func retirePanePermanently(paneID: UUID) async {
+        await ghosttyTerminalActivityInputBinding.sink?(.paneRetiredPermanently(paneID: paneID))
+    }
 }
