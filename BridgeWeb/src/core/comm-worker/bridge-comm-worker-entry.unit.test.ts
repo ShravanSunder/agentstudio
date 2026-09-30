@@ -36,7 +36,8 @@ import { bridgeProductControlRequestSchema } from './bridge-product-session-cont
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
-	bridgeWorkerServerToMainMessageSchema,
+	bridgeWorkerServerToMainWireMessageSchema,
+	type BridgeWorkerServerToMainWireMessage,
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerViewRecoveryStatusEvent,
 } from './bridge-worker-contracts.js';
@@ -733,21 +734,21 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept a target origin.
 class BridgeWorkerMessagePortRecorder {
-	readonly #messages: BridgeWorkerServerToMainMessage[] = [];
+	readonly #messages: BridgeWorkerServerToMainWireMessage[] = [];
 	readonly #port: MessagePort;
 	readonly #messageWaiters: Array<{
-		readonly matches: (message: BridgeWorkerServerToMainMessage) => boolean;
-		readonly resolve: (message: BridgeWorkerServerToMainMessage) => void;
+		readonly matches: (message: BridgeWorkerServerToMainWireMessage) => boolean;
+		readonly resolve: (message: BridgeWorkerServerToMainWireMessage) => void;
 	}> = [];
 	readonly #waiters: Array<{
 		readonly count: number;
-		readonly resolve: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
+		readonly resolve: (messages: readonly BridgeWorkerServerToMainWireMessage[]) => void;
 	}> = [];
 
 	constructor(port: MessagePort) {
 		this.#port = port;
 		this.#port.addEventListener('message', (event: MessageEvent<unknown>): void => {
-			const message = bridgeWorkerServerToMainMessageSchema.parse(event.data);
+			const message = bridgeWorkerServerToMainWireMessageSchema.parse(event.data);
 			this.#messages.push(message);
 			for (const waiter of this.#messageWaiters.filter((candidate) => candidate.matches(message))) {
 				waiter.resolve(message);
@@ -766,7 +767,7 @@ class BridgeWorkerMessagePortRecorder {
 		this.#port.postMessage(message);
 	}
 
-	waitForCount(count: number): Promise<readonly BridgeWorkerServerToMainMessage[]> {
+	waitForCount(count: number): Promise<readonly BridgeWorkerServerToMainWireMessage[]> {
 		if (this.#messages.length >= count) return Promise.resolve([...this.#messages]);
 		return new Promise((resolve): void => {
 			this.#waiters.push({ count, resolve });
@@ -776,7 +777,7 @@ class BridgeWorkerMessagePortRecorder {
 	waitForViewRecoveryStatus(
 		status: BridgeWorkerViewRecoveryStatusEvent['status'],
 	): Promise<BridgeWorkerViewRecoveryStatusEvent> {
-		const matches = (message: BridgeWorkerServerToMainMessage): boolean =>
+		const matches = (message: BridgeWorkerServerToMainWireMessage): boolean =>
 			message.kind === 'viewRecoveryStatus' && message.status === status;
 		const existing = this.#messages.find(matches);
 		if (existing?.kind === 'viewRecoveryStatus') return Promise.resolve(existing);
