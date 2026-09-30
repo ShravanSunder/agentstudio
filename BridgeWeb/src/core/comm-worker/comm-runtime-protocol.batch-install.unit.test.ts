@@ -118,7 +118,8 @@ describe('live worker typed batch sink', () => {
 		if (
 			emptyPublication === undefined ||
 			completePublication?.recordKind !== 'publication' ||
-			completePublication.displayed === null
+			completePublication.displayed === null ||
+			completePublication.displayed === undefined
 		)
 			throw new Error('Complete empty Review fixture missing.');
 		const publication = {

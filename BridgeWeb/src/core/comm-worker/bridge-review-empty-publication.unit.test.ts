@@ -165,6 +165,7 @@ function publicationInstallation(
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Review begin fixture is missing.');
 	return {
 		begin,
+		certified: true,
 		domain: 'default',
 		records: [
 			...(hasItem ? [{ key: item.itemId, revision, value: item }] : []),

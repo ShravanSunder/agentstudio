@@ -604,9 +604,10 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}
 				}
 			},
-			didInstallFile: (view, begin): void => {
+			didInstallFile: (view, begin, certified): void => {
 				const workerDerivationEpoch = productTransport.workerDerivationEpoch('file');
 				productController?.acceptInstalledFileBatch({
+					certified,
 					source: view.memberStatus.source,
 					subscriptionId: begin.subscriptionId,
 					workerDerivationEpoch,
