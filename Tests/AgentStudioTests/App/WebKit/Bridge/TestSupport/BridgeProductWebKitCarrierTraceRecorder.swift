@@ -20,12 +20,18 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
     }
 
     private var samples: [BridgeTelemetrySample] = []
+    private let firstApplication: BridgeProductWebKitFirstApplicationRecorder?
     private let traces = FactRecorder<String, BridgeProductWebKitCarrierTrace>(
         vocabulary: .init(describeScope: { $0 }, describeFact: { String(describing: $0) }, isClosing: { _, _ in false })
     )
 
+    init(firstApplication: BridgeProductWebKitFirstApplicationRecorder? = nil) {
+        self.firstApplication = firstApplication
+    }
+
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano _: UInt64) {
         samples.append(sample)
+        firstApplication?.observe(sample)
         let trace = scrubbedTrace()
         for condition in [TraceCondition.reviewPublication, .canonicalSubscriptionsAndReviewPublication] {
             if condition.isSatisfied(by: trace) { traces.append(scope: String(describing: condition), fact: trace) }
