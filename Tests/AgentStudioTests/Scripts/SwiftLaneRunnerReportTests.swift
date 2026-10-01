@@ -145,6 +145,7 @@ struct SwiftLaneRunnerReportTests {
                 // The nested-sandbox flag has its own suite; pin it empty here so
                 // this claim holds inside an agent sandbox too.
                 + "swift_package_sandbox_arguments() { :; }; "
+                + "CI_SWIFT_SANDBOX_POLICY_PATH=/dev/null; "
                 + "unset SWIFT_BUILD_STATS_DIR; prebuild_swift_tests; echo ENABLED; "
                 + "export SWIFT_BUILD_STATS_DIR='\(statisticsDirectory)'; prebuild_swift_tests"
         )

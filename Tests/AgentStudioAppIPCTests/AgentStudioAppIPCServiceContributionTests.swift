@@ -13,14 +13,15 @@ struct AgentStudioAppIPCServiceContributionTests {
             makeFixture: { try LiveServerFixture() },
             body: { fixture in
                 try fixture.server.start()
-                let client = try authenticatedPaneClient(fixture: fixture)
+                let client = try await authenticatedPaneClient(fixture: fixture)
                 defer { client.connection.close() }
 
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: client.connection,
                     request: JSONRPCClientRequest(id: .number(79), method: "system.capabilities", params: .object([:]))
                 )
-                let response = try client.reader.receiveResponse(connection: client.connection)
+                let response = try await client.reader.receiveResponseWithoutBlockingMainActor(
+                    connection: client.connection)
                 let result = try decodeResponseResult(IPCMethodCatalogResult.self, from: response)
                 let paneSnapshot = result.methods.first { $0.name == "pane.snapshot" }
 
@@ -40,10 +41,10 @@ struct AgentStudioAppIPCServiceContributionTests {
             makeFixture: { try LiveServerFixture(panes: queryPort.panes, queryPort: queryPort) },
             body: { fixture in
                 try fixture.server.start()
-                let client = try authenticatedDiagnosticClient(fixture: fixture)
+                let client = try await authenticatedDiagnosticClient(fixture: fixture)
                 defer { client.connection.close() }
 
-                let response = try sendPaneSnapshot(client: client, handle: "pane:1")
+                let response = try await sendPaneSnapshot(client: client, handle: "pane:1")
                 let result = try decodeResponseResult(IPCPaneSnapshotResult.self, from: response)
 
                 #expect(response.error == nil)
@@ -64,11 +65,11 @@ struct AgentStudioAppIPCServiceContributionTests {
             makeFixture: { try LiveServerFixture(channel: .stable, panes: queryPort.panes, queryPort: queryPort) },
             body: { fixture in
                 try fixture.server.start()
-                let client = try authenticatedPaneClient(fixture: fixture, boundPaneId: ownPaneId)
+                let client = try await authenticatedPaneClient(fixture: fixture, boundPaneId: ownPaneId)
                 defer { client.connection.close() }
 
-                let own = try sendPaneSnapshot(client: client, handle: "pane:1")
-                let other = try sendPaneSnapshot(client: client, handle: "pane:2")
+                let own = try await sendPaneSnapshot(client: client, handle: "pane:1")
+                let other = try await sendPaneSnapshot(client: client, handle: "pane:2")
 
                 #expect(own.error == nil)
                 #expect(try decodeResponseResult(IPCPaneSnapshotResult.self, from: own).pane.id == ownPaneId)
@@ -84,14 +85,15 @@ struct AgentStudioAppIPCServiceContributionTests {
     func typedPaneSnapshotRejectsMalformedParameters() async throws {
         try await withSnapshotScenario(body: { scenario in
             try scenario.fixture.server.start()
-            let client = try authenticatedDiagnosticClient(fixture: scenario.fixture)
+            let client = try await authenticatedDiagnosticClient(fixture: scenario.fixture)
             defer { client.connection.close() }
 
-            try sendRequest(
+            try await sendRequestWithoutBlockingCooperativePool(
                 connection: client.connection,
                 request: JSONRPCClientRequest(id: .number(85), method: "pane.snapshot", params: .object([:]))
             )
-            let response = try client.reader.receiveResponse(connection: client.connection)
+            let response = try await client.reader.receiveResponseWithoutBlockingMainActor(
+                connection: client.connection)
 
             #expect(response.error?.code == -32_602)
             #expect(response.error?.message == "invalid params")
@@ -104,7 +106,7 @@ struct AgentStudioAppIPCServiceContributionTests {
             #expect(correction["expected"] != nil)
 
             let privateValue = "fixture-private-value"
-            try sendRequest(
+            try await sendRequestWithoutBlockingCooperativePool(
                 connection: client.connection,
                 request: JSONRPCClientRequest(
                     id: .number(86),
@@ -115,7 +117,8 @@ struct AgentStudioAppIPCServiceContributionTests {
                     ])
                 )
             )
-            let privateResponse = try client.reader.receiveResponse(connection: client.connection)
+            let privateResponse = try await client.reader.receiveResponseWithoutBlockingMainActor(
+                connection: client.connection)
             let encodedCorrection = try JSONEncoder().encode(privateResponse.error?.data)
             let correctionText = try #require(String(data: encodedCorrection, encoding: .utf8))
             #expect(privateResponse.error?.code == -32_602)
@@ -129,10 +132,10 @@ struct AgentStudioAppIPCServiceContributionTests {
     func typedPaneSnapshotRejectsWrongTargetKind() async throws {
         try await withSnapshotScenario(body: { scenario in
             try scenario.fixture.server.start()
-            let client = try authenticatedDiagnosticClient(fixture: scenario.fixture)
+            let client = try await authenticatedDiagnosticClient(fixture: scenario.fixture)
             defer { client.connection.close() }
 
-            let response = try sendPaneSnapshot(
+            let response = try await sendPaneSnapshot(
                 client: client,
                 handle: "workspace:\(UUIDv7.generate().uuidString)"
             )
@@ -154,7 +157,7 @@ struct AgentStudioAppIPCServiceContributionTests {
         try await withSnapshotScenario(body: { scenario in
             try scenario.fixture.server.start()
 
-            let response = try sendRequest(
+            let response = try await sendRequestWithoutBlockingCooperativePool(
                 socketPath: scenario.fixture.paths.socketURL.path,
                 request: JSONRPCClientRequest(
                     id: .number(84), method: "pane.snapshot", params: .object(["handle": .string("pane:1")]))
@@ -229,7 +232,7 @@ private func withSnapshotScenario<Result>(body: (TypedPaneSnapshotScenario) asyn
 private func authenticatedPaneClient(
     fixture: LiveServerFixture,
     boundPaneId: UUID? = nil
-) throws -> TypedPaneSnapshotClient {
+) async throws -> TypedPaneSnapshotClient {
     let token = try fixture.issueTestCredential(
         for: .pane(
             paneId: boundPaneId ?? fixture.boundPaneId,
@@ -237,32 +240,32 @@ private func authenticatedPaneClient(
             status: .registered
         )
     )
-    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+    let connection = try await connectWithoutBlockingCooperativePool(socketPath: fixture.paths.socketURL.path)
     let client = TypedPaneSnapshotClient(connection: connection)
-    try login(connection: connection, token: token, requestId: 80, reader: &client.reader)
+    try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 80, reader: &client.reader)
     return client
 }
 
 private func authenticatedDiagnosticClient(
     fixture: LiveServerFixture
-) throws -> TypedPaneSnapshotClient {
+) async throws -> TypedPaneSnapshotClient {
     let token = fixture.installDebugCredential()
-    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+    let connection = try await connectWithoutBlockingCooperativePool(socketPath: fixture.paths.socketURL.path)
     let client = TypedPaneSnapshotClient(connection: connection)
-    try login(connection: connection, token: token, requestId: 80, reader: &client.reader)
+    try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 80, reader: &client.reader)
     return client
 }
 
 private func sendPaneSnapshot(
     client: TypedPaneSnapshotClient,
     handle: String
-) throws -> JSONRPCResponseMessage {
-    try sendRequest(
+) async throws -> JSONRPCResponseMessage {
+    try await sendRequestWithoutBlockingCooperativePool(
         connection: client.connection,
         request: JSONRPCClientRequest(
             id: .number(81), method: "pane.snapshot", params: .object(["handle": .string(handle)]))
     )
-    return try client.reader.receiveResponse(connection: client.connection)
+    return try await client.reader.receiveResponseWithoutBlockingMainActor(connection: client.connection)
 }
 
 private struct TypedPaneSnapshotAuthorizationDenied: Error {}

@@ -1439,27 +1439,12 @@ run_fast_serial_process_swift_tests() {
 }
 
 prebuild_swift_tests() {
-  if [ -n "${SWIFT_BUILD_STATS_DIR:-}" ]; then
-    case "$SWIFT_BUILD_STATS_DIR" in
-      /*)
-        if mkdir -p "$SWIFT_BUILD_STATS_DIR" 2>/dev/null; then
-          # shellcheck disable=SC2086
-          run_swift_with_timeout \
-            "prebuild test bundles" \
-            "$PREBUILD_TIMEOUT_SECONDS" \
-            swift build $(swift_package_sandbox_arguments) --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" \
-            -Xswiftc -stats-output-dir -Xswiftc "$SWIFT_BUILD_STATS_DIR"
-          return $?
-        fi
-        ;;
-    esac
-    echo "[$LOG_PREFIX] warning: compiler statistics disabled (directory must be writable and absolute)" >&2
-  fi
-  # shellcheck disable=SC2086
+  source "${CI_SWIFT_COMPILATION_POLICY_PATH:-$(dirname "${BASH_SOURCE[0]}")/swift-compilation-policy.sh}" || return $?
+  swift_compilation_policy_build_arguments test-bundles "$BUILD_PATH" || return $?
   run_swift_with_timeout \
     "prebuild test bundles" \
     "$PREBUILD_TIMEOUT_SECONDS" \
-    swift build $(swift_package_sandbox_arguments) --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+    "${SWIFT_COMPILATION_COMMAND[@]}"
 }
 
 run_aggregate_serial_non_webkit_swift_tests() {
