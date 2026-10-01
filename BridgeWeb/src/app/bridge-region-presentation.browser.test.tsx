@@ -143,6 +143,19 @@ test.each(['held', 'hidden'] as const)(
 );
 
 test('failed pane start keeps retained content readable and marked stale', async () => {
+	let reloadRequestCount = 0;
+	const paneReloadPort = {
+		command: 'reloadBridgeWebView',
+		display: {
+			accessibleName: 'Retry',
+			label: 'Retry',
+			helpText: 'Native command display stand-in',
+			icon: null,
+		},
+		requestPaneReload: (): void => {
+			reloadRequestCount += 1;
+		},
+	} satisfies BridgePaneReloadPort;
 	const rendered = await render(
 		<BridgeRegionPresentation
 			region="retained"
@@ -154,13 +167,15 @@ test('failed pane start keeps retained content readable and marked stale', async
 					failure: { kind: 'retryable', scope: 'pane', message: 'Bridge failed to start' },
 				},
 			})}
-			retry={<BridgeViewerRecoveryRetryButton surface="file" onClick={() => undefined} />}
+			paneReloadPort={paneReloadPort}
 		>
 			Retained code
 		</BridgeRegionPresentation>,
 	);
 	await expect.element(rendered.getByText('Retained code')).toBeVisible();
 	await expect.element(rendered.getByRole('button', { name: 'Retry' })).toBeVisible();
+	await rendered.getByRole('button', { name: 'Retry' }).click();
+	expect(reloadRequestCount).toBe(1);
 	expect(
 		document.querySelector('[data-bridge-region="retained"]')?.getAttribute('data-content-current'),
 	).toBe('false');
@@ -203,3 +218,36 @@ test('pane failure uses only the supplied native command projection and reload p
 	await expect.element(rendered.getByText('Retained document')).toBeVisible();
 	await page.screenshot({ path: '../../../tmp/g1-w6-pane-reload-stand-in.png' });
 });
+
+test.each(['primary', 'summary'] as const)(
+	'an unwired pane failure has no actionable control in its %s presentation',
+	async (failureControl): Promise<void> => {
+		const rendered = await render(
+			<BridgeRegionPresentation
+				region="unwired-pane"
+				shape="code"
+				failureControl={failureControl}
+				state={projectBridgeRegionPresentation({
+					...settledInput,
+					surface: {
+						kind: 'failed',
+						failure: { kind: 'retryable', scope: 'pane', message: 'Bridge failed to start' },
+					},
+				})}
+				retry={
+					<BridgeViewerRecoveryRetryButton
+						surface="file"
+						onClick={(): void => {
+							throw new Error('A File Retry cannot reload a pane.');
+						}}
+					/>
+				}
+			>
+				Retained pane content
+			</BridgeRegionPresentation>,
+		);
+		await expect.element(rendered.getByText('Retained pane content')).toBeVisible();
+		expect(document.querySelector('[data-bridge-region="unwired-pane"] button')).toBeNull();
+		expect(document.querySelector('[data-slot="skeleton"], .animate-spin')).toBeNull();
+	},
+);

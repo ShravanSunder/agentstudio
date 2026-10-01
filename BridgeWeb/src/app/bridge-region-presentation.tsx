@@ -27,10 +27,10 @@ export interface BridgeRegionPresentationProps {
 export function BridgeRegionPresentation(props: BridgeRegionPresentationProps): ReactElement {
 	const { state } = props;
 	const retryControl =
-		state.kind === 'failed' &&
-		state.failure.scope === 'pane' &&
-		props.paneReloadPort !== undefined ? (
-			<BridgePaneReloadControl port={props.paneReloadPort} />
+		state.kind === 'failed' && state.failure.scope === 'pane' ? (
+			props.paneReloadPort === undefined ? undefined : (
+				<BridgePaneReloadControl port={props.paneReloadPort} />
+			)
 		) : (
 			props.retry
 		);
