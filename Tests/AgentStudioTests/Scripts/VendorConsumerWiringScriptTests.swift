@@ -290,7 +290,8 @@ struct VendorConsumerWiringScriptTests {
             "scripts/verify-bridge-headless-manifest.sh",
         ]
         let sourcedOnlyHelpers: Set<String> = [
-            "scripts/swift-test-helpers.sh"
+            "scripts/swift-test-helpers.sh",
+            "scripts/swift-package-sandbox.sh",
         ]
         // Scripts whose Swift commands build only the standalone architecture
         // lint package, which consumes no vendored framework.
