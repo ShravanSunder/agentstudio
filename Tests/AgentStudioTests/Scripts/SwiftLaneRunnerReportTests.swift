@@ -106,7 +106,8 @@ struct SwiftLaneRunnerReportTests {
         let evidenceDirectory = NSTemporaryDirectory() + "agentstudio-timing-sidecar-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: evidenceDirectory) }
         let output = try await runBash(
-            "LOG_PREFIX=timing; export LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' "
+            "LOG_PREFIX=timing; BUILD_PATH='\(evidenceDirectory)/build'; "
+                + "export BUILD_PATH LANE_EVENT_STREAM_DIR='\(evidenceDirectory)' "
                 + "LANE_TIMING_FILTER=FixtureSuite LANE_TIMING_BATCH=2 LANE_TIMING_SLOT=3 "
                 + "LANE_TIMING_CONCURRENCY=4; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
@@ -457,65 +458,41 @@ struct SwiftLaneRunnerReportTests {
         #expect(result.output.contains("FAIL_CHILD_STATUS=7"))
     }
 
-    @Test("concurrent child streams keep long multibyte output lines intact")
-    func concurrentChildStreamsKeepMultibyteLinesIntact() async throws {
-        let fixtureDirectory = NSTemporaryDirectory() + "agentstudio-concurrent-lane-output-\(UUIDv7.generate())"
-        defer { try? FileManager.default.removeItem(atPath: fixtureDirectory) }
+    @Test("lane stdout sources use one persistent line relay per stream")
+    func laneStdoutSourcesUseOnePersistentLineRelayPerStream() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let laneTaskScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let outputRelayScript = try String(contentsOfFile: "scripts/swift-test-output-relay.pl", encoding: .utf8)
+        let outputRelayBegin = try shellFunction(named: "swift_test_output_relay_begin_command", in: helperScript)
+        let outputRelayFinish = try shellFunction(named: "swift_test_output_relay_finish_command", in: helperScript)
+        let commandWrapper = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
+        let commandBody = try shellFunction(named: "swift_test_run_with_timeout_body", in: helperScript)
+        let pipelineChild = try shellFunction(named: "swift_test_run_pipeline_child", in: helperScript)
+        let isolatedDispatcher = try shellFunction(named: "dispatch_isolated_suites", in: helperScript)
 
-        let command = #"""
-            set -euo pipefail
-            source scripts/swift-test-helpers.sh
-            LOG_PREFIX=writer-probe
-            TIMEOUT_SECONDS=60
-            BUILD_PATH='\#(fixtureDirectory)/build'
-            LANE_EVENT_STREAM_DIR='\#(fixtureDirectory)/events'
-            _XCB_BYPASS=1
-            export BUILD_PATH LANE_EVENT_STREAM_DIR _XCB_BYPASS
-            mkdir -p "$BUILD_PATH" "$LANE_EVENT_STREAM_DIR"
-
-            run_swift_with_timeout 'writer A' 60 /usr/bin/perl -e \
-              'my $glyph = "\xE2\x82\xAC"; my $body = $glyph x 65536; print "WRITER_A_START$body:WRITER_A_END\n";' build &
-            writer_a_pid=$!
-            run_swift_with_timeout 'writer B' 60 /usr/bin/perl -e \
-              'my $glyph = "\xE2\x82\xAC"; my $body = $glyph x 65536; print "WRITER_B_START$body:WRITER_B_END\n";' build &
-            writer_b_pid=$!
-
-            writer_a_status=0
-            wait "$writer_a_pid" || writer_a_status=$?
-            writer_b_status=0
-            wait "$writer_b_pid" || writer_b_status=$?
-            [ "$writer_a_status" -eq 0 ] && [ "$writer_b_status" -eq 0 ]
-            printf 'WRITER_TEST_COMPLETE\n'
-            """#
-
-        // Mise consumes the lane through a pipe. A regular-file capture shares
-        // one file offset across forked writers and can hide pipe interleaving.
-        let (exitCode, outputData) = try await withoutBlockingCooperativePool {
-            let outputPipe = Pipe()
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", command]
-            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            process.standardOutput = outputPipe
-            process.standardError = outputPipe
-            try process.run()
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return (process.terminationStatus, outputData)
+        let beginRange = commandWrapper.range(of: "swift_test_output_relay_begin_command")
+        let bodyRange = commandWrapper.range(of: "swift_test_run_with_timeout_body")
+        let finishRange = commandWrapper.range(of: "swift_test_output_relay_finish_command")
+        #expect(beginRange != nil)
+        #expect(bodyRange != nil)
+        #expect(finishRange != nil)
+        if let beginRange, let bodyRange, let finishRange {
+            #expect(beginRange.lowerBound < bodyRange.lowerBound)
+            #expect(bodyRange.lowerBound < finishRange.lowerBound)
         }
-        let output = String(data: outputData, encoding: .utf8)
-        #expect(exitCode == 0)
-        #expect(output != nil)
-        guard let output else { return }
 
-        let outputLines = output.split(separator: "\n")
-        let writerALines = outputLines.filter { $0.hasPrefix("WRITER_A_START") && $0.hasSuffix(":WRITER_A_END") }
-        let writerBLines = outputLines.filter { $0.hasPrefix("WRITER_B_START") && $0.hasSuffix(":WRITER_B_END") }
-        #expect(writerALines.count == 1)
-        #expect(writerBLines.count == 1)
-        #expect(writerALines.first?.filter { $0 == "€" }.count == 65_536)
-        #expect(writerBLines.first?.filter { $0 == "€" }.count == 65_536)
-        #expect(output.contains("WRITER_TEST_COMPLETE"))
+        #expect(commandBody.contains("still running ("))
+        #expect(pipelineChild.contains("| $xcb_pipe 94>&- 99>&- |"))
+        #expect(pipelineChild.contains("$SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH"))
+        #expect(pipelineChild.contains("stream 94>&- 1>&99"))
+        #expect(isolatedDispatcher.contains("swift_test_output_message"))
+        #expect(laneTaskScript.contains("swift_test_output_relay_begin_dispatcher"))
+        #expect(laneTaskScript.contains("swift_test_output_relay_finish_dispatcher"))
+        #expect(outputRelayBegin.contains("exec 1>\"$relay_fifo\""))
+        #expect(outputRelayFinish.contains("exec 1>&99"))
+        #expect(outputRelayScript.contains("flock($lock_file, LOCK_EX)"))
+        #expect(outputRelayScript.contains("substr($line, $offset, 512)"))
+        #expect(outputRelayScript.contains("syswrite(STDOUT, $chunk)"))
     }
 
     @Test("signal names are resolved only for signalled exits")
@@ -688,7 +665,7 @@ struct SwiftLaneRunnerReportTests {
     @Test("the inactivity timeout names the test cases that were still running")
     func inactivityTimeoutNamesTheTestCasesThatWereStillRunning() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
-        let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
+        let timeoutRunner = try shellFunction(named: "swift_test_run_with_timeout_body", in: helperScript)
         // Case 1 of alpha ends; case 2 and beta do not, and the truncated final
         // line a killed writer leaves behind must not derail the parse.
         let streamRecords = [
@@ -833,7 +810,7 @@ struct SwiftLaneRunnerReportTests {
     @Test("event-stream flags reach every test invocation but not the prebuild")
     func eventStreamFlagsReachEveryTestInvocationButNotThePrebuild() async throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
-        let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
+        let timeoutRunner = try shellFunction(named: "swift_test_run_with_timeout_body", in: helperScript)
         let acceptsEventStream = try shellFunction(
             named: "swift_test_command_accepts_event_stream",
             in: helperScript
