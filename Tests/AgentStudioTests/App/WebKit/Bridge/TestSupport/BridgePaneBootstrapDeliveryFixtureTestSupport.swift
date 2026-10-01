@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -377,4 +378,79 @@ func consumeBootstrapReviewPublication(
             throw BootstrapReviewReplayError.expectedReviewBatchPublication
         }
     }
+}
+
+struct BootstrapColdReviewIntakeFixture {
+    let controller: BridgePaneController
+    let sourceProvider: BridgeReviewSourceProviderFake
+    let productAdmission: BridgeProductAdmissionContext
+}
+
+@MainActor
+func makeBootstrapColdReviewIntakeFixture(
+    telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+) async throws -> BootstrapColdReviewIntakeFixture {
+    let paneId = UUIDv7.generate()
+    let reviewFixture = makeBootstrapCommittedReviewFixture()
+    let controller = BridgePaneController(
+        paneId: paneId,
+        state: BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(rootPath: "Sources", baseline: .unstaged)
+        ),
+        appRootURL: testBridgeAppRootURL(),
+        metadata: PaneMetadata(
+            paneId: PaneId(existingUUID: paneId),
+            contentType: .diff,
+            launchDirectory: URL(fileURLWithPath: "Sources"),
+            title: "Cold Review Intake",
+            facets: PaneContextFacets(
+                repoId: reviewFixture.headEndpoint.repoId,
+                worktreeId: reviewFixture.headEndpoint.worktreeId,
+                worktreeName: "cold-review-intake",
+                cwd: URL(fileURLWithPath: "Sources")
+            )
+        ),
+        telemetryRecorder: telemetryRecorder,
+        reviewSourceProvider: reviewFixture.sourceProvider,
+        initialPaneActivity: .foreground
+    )
+    let installation = try #require(await controller.productSessionOwner.activeInstallation)
+    let productAdmission = try #require(installation.productAdapter.acquireAdmission())
+    _ = try await installRefreshAdmissionMetadataProducer(
+        installation: installation,
+        productProvider: try #require(controller.productSchemeProvider),
+        productAdmission: productAdmission
+    )
+    return BootstrapColdReviewIntakeFixture(
+        controller: controller, sourceProvider: reviewFixture.sourceProvider, productAdmission: productAdmission
+    )
+}
+
+struct BootstrapReviewIntakeTelemetryRecorder: BridgePerformanceTraceRecording {
+    private let droppedIntakes = FactRecorder<String, Bool>(
+        vocabulary: .init(describeScope: { $0 }, describeFact: { String($0) }, isClosing: { _, _ in false })
+    )
+
+    func record(sample: BridgeTelemetrySample, receivedAtUnixNano _: UInt64) async {
+        guard sample.name == "performance.bridge.webkit.review_intake_ready",
+            sample.stringAttributes["agentstudio.bridge.phase"] == "dropped"
+        else { return }
+        droppedIntakes.append(scope: "stale Review intake", fact: true)
+    }
+
+    func recordDrop(
+        reason _: BridgeTelemetryDropReason, droppedCount _: Int,
+        firstRejectedEventName _: String?, receivedAtUnixNano _: UInt64
+    ) async {}
+
+    func drain() async throws {}
+
+    func waitForDroppedIntake() async throws -> Bool {
+        try await droppedIntakes.expectNext(
+            in: "stale Review intake", where: { $0 }, "existing production dropped-intake telemetry"
+        )
+    }
+
+    func finish() async throws { try await droppedIntakes.finish() }
 }

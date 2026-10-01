@@ -527,103 +527,104 @@ extension WebKitSerializedTests {
             #expect(await controller.beginTeardown().value)
         }
 
-        @Test(
-            "explicit cold Review intake admits nil or current stream and rejects stale stream",
-            arguments: ["background-warmup", "sequence_gap"]
-        )
-        func coldReviewIntakeAdmitsNilOrCurrentStreamAndRejectsStaleStream(reason: String) async throws {
-            // Arrange
-            let nilStreamController = makeColdReviewIntakeController()
-            let currentStreamController = makeColdReviewIntakeController()
-            let staleStreamController = makeColdReviewIntakeController()
+        @Test("hidden Review intake never builds", arguments: ["background-warmup", "sequence_gap"])
+        func hiddenReviewIntakeKeepsListenerReadinessAndExplicitRequestsInert(reason: String) async throws {
+            let nilStream = try await makeBootstrapColdReviewIntakeFixture()
+            let currentStream = try await makeBootstrapColdReviewIntakeFixture()
+            let staleStream = try await makeBootstrapColdReviewIntakeFixture()
+            let fixtures = [nilStream, currentStream, staleStream]
             defer {
-                // fire-and-forget: defer cannot await; cleanup only
-                _ = nilStreamController.beginTeardown()
-                // fire-and-forget: defer cannot await; cleanup only
-                _ = currentStreamController.beginTeardown()
-                // fire-and-forget: defer cannot await; cleanup only
-                _ = staleStreamController.beginTeardown()
+                for fixture in fixtures {
+                    // fire-and-forget: defer cannot await; cleanup only
+                    _ = fixture.controller.beginTeardown()
+                }
             }
-            let nilStreamAdmission = try #require(nilStreamController.productAdmissionGate.acquire())
-            let currentStreamAdmission = try #require(
-                currentStreamController.productAdmissionGate.acquire()
-            )
-            let staleStreamAdmission = try #require(
-                staleStreamController.productAdmissionGate.acquire()
-            )
-
-            // Listener readiness alone must not start initial Review construction.
+            // G2 takes visibility from page mode; File mode keeps all Review intake hidden.
+            for fixture in fixtures {
+                await sendPageActiveViewerMode(
+                    .file, controller: fixture.controller, productAdmission: fixture.productAdmission, sequence: 1
+                )
+            }
+            let nilStreamController = nilStream.controller
             await nilStreamController.handleCommittedProductReviewIntakeReady(
                 BridgeProductReviewIntakeReadyRequest(reason: nil, streamId: nil),
-                productAdmission: nilStreamAdmission
+                productAdmission: nilStream.productAdmission
             )
             #expect(nilStreamController.activeReviewRefreshTask == nil)
             #expect(nilStreamController.paneState.diff.packageMetadata == nil)
 
-            // Act
             await nilStreamController.handleCommittedProductReviewIntakeReady(
                 BridgeProductReviewIntakeReadyRequest(reason: reason, streamId: nil),
-                productAdmission: nilStreamAdmission
+                productAdmission: nilStream.productAdmission
             )
-            await currentStreamController.handleCommittedProductReviewIntakeReady(
+            await currentStream.controller.handleCommittedProductReviewIntakeReady(
                 BridgeProductReviewIntakeReadyRequest(
-                    reason: reason,
-                    streamId: currentStreamController.reviewProtocolStreamId()
-                ),
-                productAdmission: currentStreamAdmission
+                    reason: reason, streamId: currentStream.controller.reviewProtocolStreamId()
+                ), productAdmission: currentStream.productAdmission
             )
-            await staleStreamController.handleCommittedProductReviewIntakeReady(
-                BridgeProductReviewIntakeReadyRequest(
-                    reason: reason,
-                    streamId: "review:stale-stream"
-                ),
-                productAdmission: staleStreamAdmission
+            await staleStream.controller.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(reason: reason, streamId: "review:stale-stream"),
+                productAdmission: staleStream.productAdmission
             )
-
-            // Assert
-            let nilStreamLoadTask = nilStreamController.activeReviewRefreshTask
-            let currentStreamLoadTask = currentStreamController.activeReviewRefreshTask
-            #expect(staleStreamController.activeReviewRefreshTask == nil)
-            #expect(staleStreamController.paneState.diff.packageMetadata == nil)
-            // A fast admitted load may already be complete; its published result is the contract.
-            await nilStreamLoadTask?.value
-            await currentStreamLoadTask?.value
-            #expect(nilStreamController.paneState.diff.status == .ready)
-            #expect(nilStreamController.paneState.diff.packageMetadata != nil)
-            #expect(currentStreamController.paneState.diff.status == .ready)
-            #expect(currentStreamController.paneState.diff.packageMetadata != nil)
-            #expect(await nilStreamController.beginTeardown().value)
-            #expect(await currentStreamController.beginTeardown().value)
-            #expect(await staleStreamController.beginTeardown().value)
+            for fixture in fixtures {
+                #expect(fixture.controller.activeReviewRefreshTask == nil)
+                #expect(fixture.controller.paneState.diff.packageMetadata == nil)
+                #expect(await fixture.sourceProvider.recordedComparisonRequestsCount() == 0)
+                #expect(await fixture.controller.beginTeardown().value)
+            }
         }
 
-        private func makeColdReviewIntakeController() -> BridgePaneController {
-            let paneId = UUIDv7.generate()
-            let reviewFixture = makeBootstrapCommittedReviewFixture()
-            return BridgePaneController(
-                paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "Sources",
-                        baseline: .unstaged)
-                ),
-                appRootURL: testBridgeAppRootURL(),
-                metadata: PaneMetadata(
-                    paneId: PaneId(existingUUID: paneId),
-                    contentType: .diff,
-                    launchDirectory: URL(fileURLWithPath: "Sources"),
-                    title: "Cold Review Intake",
-                    facets: PaneContextFacets(
-                        repoId: reviewFixture.headEndpoint.repoId,
-                        worktreeId: reviewFixture.headEndpoint.worktreeId,
-                        worktreeName: "cold-review-intake",
-                        cwd: URL(fileURLWithPath: "Sources")
-                    )
-                ),
-                reviewSourceProvider: reviewFixture.sourceProvider,
-                initialPaneActivity: .foreground
+        @Test(
+            "shown Review accepts nil or current intake and drops stale intake without another build",
+            arguments: ["background-warmup", "sequence_gap"]
+        )
+        func coldReviewIntakeAdmitsNilOrCurrentStreamAndRejectsStaleStream(reason: String) async throws {
+            let droppedIntake = BootstrapReviewIntakeTelemetryRecorder()
+            let nilStream = try await makeBootstrapColdReviewIntakeFixture()
+            let currentStream = try await makeBootstrapColdReviewIntakeFixture()
+            let staleStream = try await makeBootstrapColdReviewIntakeFixture(telemetryRecorder: droppedIntake)
+            let fixtures = [nilStream, currentStream, staleStream]
+            defer {
+                for fixture in fixtures {
+                    // fire-and-forget: defer cannot await; cleanup only
+                    _ = fixture.controller.beginTeardown()
+                }
+            }
+            // G2's accepted Review mode starts the one initial build before intake.
+            for fixture in fixtures {
+                await sendPageActiveViewerMode(
+                    .review, controller: fixture.controller, productAdmission: fixture.productAdmission, sequence: 1
+                )
+                await fixture.controller.activeReviewRefreshTask?.value
+                #expect(await fixture.sourceProvider.recordedComparisonRequestsCount() == 1)
+            }
+            let stalePackage = try #require(staleStream.controller.paneState.diff.packageMetadata)
+            await nilStream.controller.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(reason: reason, streamId: nil),
+                productAdmission: nilStream.productAdmission
             )
+            await currentStream.controller.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(
+                    reason: reason, streamId: currentStream.controller.reviewProtocolStreamId()
+                ), productAdmission: currentStream.productAdmission
+            )
+            await staleStream.controller.handleCommittedProductReviewIntakeReady(
+                BridgeProductReviewIntakeReadyRequest(reason: reason, streamId: "review:stale-stream"),
+                productAdmission: staleStream.productAdmission
+            )
+            let staleIntakeWasDropped = try await droppedIntake.waitForDroppedIntake()
+            #expect(staleIntakeWasDropped)
+            #expect(staleStream.controller.activeReviewRefreshTask == nil)
+            #expect(await staleStream.sourceProvider.recordedComparisonRequestsCount() == 1)
+            #expect(staleStream.controller.paneState.diff.packageMetadata == stalePackage)
+            await nilStream.controller.activeReviewRefreshTask?.value
+            await currentStream.controller.activeReviewRefreshTask?.value
+            #expect(nilStream.controller.paneState.diff.status == .ready)
+            #expect(nilStream.controller.paneState.diff.packageMetadata != nil)
+            #expect(currentStream.controller.paneState.diff.status == .ready)
+            #expect(currentStream.controller.paneState.diff.packageMetadata != nil)
+            for fixture in fixtures { #expect(await fixture.controller.beginTeardown().value) }
+            try await droppedIntake.finish()
         }
     }
 }
