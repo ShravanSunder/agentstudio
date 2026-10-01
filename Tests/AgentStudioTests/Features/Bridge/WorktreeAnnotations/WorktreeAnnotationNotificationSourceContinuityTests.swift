@@ -38,6 +38,7 @@ struct WorktreeAnnotationCommentContinuityTests {
         )
         let firstProducer = Task {
             try await harness.source.openBatch(handle: handle, producerID: firstProducerID) { batch, mode in
+                await recordCommentBatchSeal(batch, in: harness.source, producerID: firstProducerID)
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -91,21 +92,18 @@ struct WorktreeAnnotationCommentContinuityTests {
         let successorProducerID = UUIDv7.generate()
         let successor = Task {
             try await harness.source.openBatch(handle: handle, producerID: successorProducerID) { batch, mode in
+                await recordCommentBatchSeal(batch, in: harness.source, producerID: successorProducerID)
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
         let resumed = try #require(await iterator.next())
-        let deletedKeys: Set<WorktreeAnnotationCatalogKey> = [
-            .thread(deletedThreadDetail.thread.id),
-            .message(deletedMessage.id),
-        ]
         try expectResumedBatchContinuesView(
             resumed,
             handle: handle,
             previousCursor: previousCursor,
             previousSessionRevision: previousSessionRevision,
             changedSessionKey: changedSessionKey,
-            deletedKeys: deletedKeys
+            deletedKeys: [.thread(deletedThreadDetail.thread.id), .message(deletedMessage.id)]
         )
 
         successor.cancel()
@@ -159,6 +157,7 @@ struct WorktreeAnnotationCommentContinuityTests {
         let firstProducerID = UUIDv7.generate()
         let firstProducer = Task {
             try await source.openBatch(handle: handle, producerID: firstProducerID) { batch, mode in
+                await recordCommentBatchSeal(batch, in: source, producerID: firstProducerID)
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -231,6 +230,7 @@ struct WorktreeAnnotationCommentContinuityTests {
         let successor = Task {
             do {
                 try await source.openBatch(handle: handle, producerID: successorProducerID) { batch, mode in
+                    await recordCommentBatchSeal(batch, in: source, producerID: successorProducerID)
                     let delivery = RecordedCommentBatchDelivery(
                         batch: batch,
                         mode: mode,
@@ -411,6 +411,7 @@ struct WorktreeAnnotationCommentContinuityTests {
         )
         let endedProducer = Task {
             try await harness.source.openBatch(handle: handle, producerID: endedProducerID) { batch, mode in
+                await recordCommentBatchSeal(batch, in: harness.source, producerID: endedProducerID)
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -498,4 +499,14 @@ private func expectResumedBatchContinuesView(
 
     #expect(Set(delivery.batch.deletes.map(\.key)) == deletedKeys)
     #expect(delivery.batch.deletes.allSatisfy { $0.revision > previousCursor })
+}
+
+private func recordCommentBatchSeal(
+    _ batch: BridgeProductCommentCatalogBatch,
+    in source: BridgePaneAnnotationNotificationSource,
+    producerID: UUID
+) async {
+    await source.recordSealedCommentCatalogBatch(
+        handle: batch.handle, producerID: producerID, batch: batch
+    )
 }
