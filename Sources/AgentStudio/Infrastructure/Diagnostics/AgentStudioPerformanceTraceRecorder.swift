@@ -189,6 +189,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     }
 
     package enum Event: String, Sendable {
+        case sessionsStatusApply = "sessions.status_apply"
         case atomDerived = "performance.atom.derived"
         case atomMutation = "performance.atom.mutation"
         case atomRead = "performance.atom.read"

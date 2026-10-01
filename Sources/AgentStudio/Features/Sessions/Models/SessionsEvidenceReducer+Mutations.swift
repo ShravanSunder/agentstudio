@@ -41,7 +41,9 @@ extension SessionsEvidenceReducer {
             origin: admittedOrigin,
             status: .active,
             startedAt: mutation.reportedAt,
-            endedAt: nil
+            endedAt: nil,
+            resumeHint: mutation.resumeHint,
+            ownerPaneId: mutation.ownerPaneId
         )
         let newSource = SessionsSourceRecord(
             id: UUIDv7.generate(),
@@ -61,19 +63,7 @@ extension SessionsEvidenceReducer {
         var sourceChanges = [newSource]
         let outcome: SessionsMutationOutcome
         if let currentBinding = context.currentBinding, currentBinding.status == .active {
-            let endedBinding = SessionsBindingRecord(
-                bindingGenerationId: currentBinding.bindingGenerationId,
-                paneId: currentBinding.paneId,
-                conversationId: currentBinding.conversationId,
-                providerIdentifier: currentBinding.providerIdentifier,
-                providerConversationId: currentBinding.providerConversationId,
-                sourceGenerationId: currentBinding.sourceGenerationId,
-                transitionOccurrenceId: currentBinding.transitionOccurrenceId,
-                origin: currentBinding.origin,
-                status: .ended,
-                startedAt: currentBinding.startedAt,
-                endedAt: mutation.reportedAt
-            )
+            let endedBinding = replacing(currentBinding, status: .ended, endedAt: mutation.reportedAt)
             bindingChanges.insert(endedBinding, at: 0)
             sourceChanges.insert(
                 contentsOf: context.sources.filter { $0.bindingGenerationId == currentBinding.bindingGenerationId }
@@ -202,7 +192,9 @@ extension SessionsEvidenceReducer {
             kind: mutation.kind,
             origin: mutation.origin,
             freshness: freshness,
-            occurredAt: mutation.occurredAt
+            occurredAt: mutation.occurredAt,
+            sourceOccurredAt: SessionsMutation.recordEvidence(mutation).boundedSourceOccurredAt,
+            providerSignal: mutation.providerSignal
         )
         let sourceChanges =
             source.flatMap { source in

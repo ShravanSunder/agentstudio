@@ -231,6 +231,7 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
             () -> (
                 [AgentStudioIPCIssuedPaneCredential], Set<UUID>
             ) in
+            guard !isShutdown else { return ([], []) }
             isShutdown = true
             lifetimeEpoch &+= 1
             let principalIDs = Set(activeLeases.values.joined())

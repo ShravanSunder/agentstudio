@@ -41,9 +41,13 @@ package enum IPCSessionEventName: String, Codable, CaseIterable, Equatable, Send
     case turnStart
     case turnDone
     case turnAbort
+    case turnFailed
     case permission
     case question
     case elicitation
+    case elicitationResult
+    case toolCompleted
+    case toolFailed
     case toolActivity
     case subagentActivity
 }
@@ -145,6 +149,13 @@ package struct IPCSessionEventIdentity: Codable, Equatable, Sendable {
     package let toolId: String?
     package let subagentId: String?
     package let occurrenceId: UUID
+    package let providerFields: IPCSessionProviderEventFields
+
+    package var toolName: String? { providerFields.toolName }
+    package var questions: [IPCSessionQuestion]? { providerFields.questions }
+    package var failureSummary: String? { providerFields.failureSummary }
+    package var elicitationId: String? { providerFields.elicitationId }
+    package var sourceOccurredAt: Date? { providerFields.sourceOccurredAt }
 
     package init(
         name: IPCSessionEventName,
@@ -153,7 +164,8 @@ package struct IPCSessionEventIdentity: Codable, Equatable, Sendable {
         requestId: String?,
         toolId: String?,
         subagentId: String?,
-        occurrenceId: UUID
+        occurrenceId: UUID,
+        providerFields: IPCSessionProviderEventFields = .init()
     ) {
         self.name = name
         self.conversationId = conversationId
@@ -162,7 +174,62 @@ package struct IPCSessionEventIdentity: Codable, Equatable, Sendable {
         self.toolId = toolId
         self.subagentId = subagentId
         self.occurrenceId = occurrenceId
+        self.providerFields = providerFields
     }
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case name, conversationId, turnId, requestId, toolId, subagentId, occurrenceId
+        case toolName, questions, failureSummary, elicitationId, message
+        case sourceOccurredAt, resumeHint
+    }
+
+    package init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        name = try fields.decode(IPCSessionEventName.self, forKey: .name)
+        conversationId = try fields.decode(String.self, forKey: .conversationId)
+        turnId = try fields.decodeIfPresent(String.self, forKey: .turnId)
+        requestId = try fields.decodeIfPresent(String.self, forKey: .requestId)
+        toolId = try fields.decodeIfPresent(String.self, forKey: .toolId)
+        subagentId = try fields.decodeIfPresent(String.self, forKey: .subagentId)
+        occurrenceId = try fields.decode(UUID.self, forKey: .occurrenceId)
+        providerFields = try IPCSessionProviderEventFields(from: decoder)
+    }
+
+    package func encode(to encoder: Encoder) throws {
+        var fields = encoder.container(keyedBy: CodingKeys.self)
+        try fields.encode(name, forKey: .name)
+        try fields.encode(conversationId, forKey: .conversationId)
+        try fields.encodeIfPresent(turnId, forKey: .turnId)
+        try fields.encodeIfPresent(requestId, forKey: .requestId)
+        try fields.encodeIfPresent(toolId, forKey: .toolId)
+        try fields.encodeIfPresent(subagentId, forKey: .subagentId)
+        try fields.encode(occurrenceId, forKey: .occurrenceId)
+        try providerFields.encode(to: encoder)
+    }
+}
+
+package struct IPCSessionProviderEventFields: Codable, Equatable, Sendable {
+    package var toolName: String?
+    package var questions: [IPCSessionQuestion]?
+    package var failureSummary: String?
+    package var elicitationId: String?
+    package var message: String?
+    package var sourceOccurredAt: Date?
+    package var resumeHint: String?
+
+    package init() {}
+}
+
+package struct IPCSessionQuestion: Codable, Equatable, Sendable {
+    package let question: String
+    package let header: String
+    package let options: [IPCSessionQuestionOption]
+    package let multiSelect: Bool
+}
+
+package struct IPCSessionQuestionOption: Codable, Equatable, Sendable {
+    package let label: String
+    package let description: String
 }
 
 package struct IPCSessionEventParams: Codable, Equatable, Sendable {

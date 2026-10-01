@@ -1,6 +1,7 @@
 import AgentStudioBridge
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioSessions
 import AgentStudioTerminal
 import AppKit
 import Foundation
@@ -59,6 +60,7 @@ final class WorkspaceSurfaceCoordinator {
 
     let store: WorkspaceStore
     var paneActivityClock: PaneActivityClock?
+    var sessionsPaneViewedMailbox: SessionsPaneViewedMailbox?
     let undoClock: @Sendable () async throws -> WorkspaceUndoJournalTime
     let undoDelay: AsyncDelay
     let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -451,7 +453,9 @@ final class WorkspaceSurfaceCoordinator {
 
     /// Shared final-retirement edge for undo expiry and committed direct discards.
     func retirePanesPermanently(_ paneIDs: Set<UUID>) {
-        paneActivityClock?.retire(Array(paneIDs))
+        let retiredPaneIDs = Array(paneIDs)
+        paneActivityClock?.retire(retiredPaneIDs)
+        sessionsPaneViewedMailbox?.retire(retiredPaneIDs)
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {

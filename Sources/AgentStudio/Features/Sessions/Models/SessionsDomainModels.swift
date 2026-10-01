@@ -85,6 +85,9 @@ package struct SessionsEvidenceRecord: Sendable, Codable, Equatable {
     package let origin: SessionsEvidenceOrigin
     package let freshness: SessionsEvidenceFreshness
     package let occurredAt: Date
+    package var admissionSequence: Int64?
+    package var sourceOccurredAt: Date?
+    package var providerSignal: SessionProviderSignal?
 
 }
 
@@ -210,6 +213,10 @@ package struct SessionsBindMutation: Sendable, Codable, Equatable {
     package let transition: SessionsBindTransition
     package let freshness: SessionsEvidenceFreshness
     package let reportedAt: Date
+    package var resumeHint: String?
+    package var ownerPaneId: UUID?
+    package var providerIntentFingerprint: String?
+    package var sourceOccurredAt: Date?
 
     package static func explicitModelBind(
         _ input: SessionsExplicitModelBindInput
@@ -271,6 +278,9 @@ package struct SessionsEvidenceMutation: Sendable, Codable, Equatable {
     package let freshness: SessionsEvidenceFreshness
     package let occurredAt: Date
     package let sourceCursor: String?
+    package var sourceOccurredAt: Date?
+    package var providerSignal: SessionProviderSignal?
+    package var providerIntentFingerprint: String?
 
     init(
         context: SessionsReportContext,
@@ -373,6 +383,9 @@ package struct SessionsSourceEndMutation: Sendable, Codable, Equatable {
     package let paneId: UUID
     package let sourceGenerationId: UUID
     package let endedAt: Date
+    package var occurrenceId: UUID?
+    package var providerIntentFingerprint: String?
+    package var sourceOccurredAt: Date?
 
     package init(paneId: UUID, sourceGenerationId: UUID, endedAt: Date) {
         self.paneId = paneId
@@ -433,6 +446,8 @@ package struct SessionsBindingRecord: Sendable, Codable, Equatable {
     package let status: SessionsBindingStatus
     package let startedAt: Date
     package let endedAt: Date?
+    package var resumeHint: String?
+    package var ownerPaneId: UUID?
 }
 
 package enum SessionsBindingOutcome: Sendable, Codable, Equatable {
@@ -502,10 +517,13 @@ package enum SessionsCommitDisposition: Sendable, Equatable {
 package struct SessionsSubmissionResult: Sendable, Equatable {
     package let outcome: SessionsMutationOutcome
     package let disposition: SessionsCommitDisposition
+    package let commitRevision: Int64?
 
-    package init(outcome: SessionsMutationOutcome, disposition: SessionsCommitDisposition) {
+    package init(outcome: SessionsMutationOutcome, disposition: SessionsCommitDisposition, commitRevision: Int64? = nil)
+    {
         self.outcome = outcome
         self.disposition = disposition
+        self.commitRevision = commitRevision
     }
 }
 

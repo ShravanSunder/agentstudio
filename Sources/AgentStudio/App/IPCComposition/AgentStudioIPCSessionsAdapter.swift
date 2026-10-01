@@ -40,6 +40,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     private let now: @Sendable () -> Date
     private let continuousNow: @Sendable () -> ContinuousClock.Instant
     private let activityClock: PaneActivityClock?
+    private let ownerPaneLookup: @Sendable (PaneId) -> PaneId?
 
     /// The live IPC server admits messages as `.live`. The offline spool drainer
     /// composes a second adapter over the same ingestion with `.late`, so one
@@ -50,7 +51,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         admissionFreshness: SessionsEvidenceFreshness = .live,
         now: @escaping @Sendable () -> Date = { Date() },
         continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
-        activityClock: PaneActivityClock? = nil
+        activityClock: PaneActivityClock? = nil,
+        ownerPaneLookup: @escaping @Sendable (PaneId) -> PaneId? = { _ in nil }
     ) {
         self.ingestion = ingestion
         self.providerRegistry = providerRegistry
@@ -58,6 +60,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         self.now = now
         self.continuousNow = continuousNow
         self.activityClock = activityClock
+        self.ownerPaneLookup = ownerPaneLookup
     }
 
     func recordDeliberateReport(
@@ -261,24 +264,12 @@ extension AgentStudioIPCSessionsAdapter {
         guard case .qualified = qualification else {
             return .rejected(Self.rejectedDisposition(qualification))
         }
-        let occurredAt = now()
+        let occurredAt = Date(timeIntervalSince1970: now().timeIntervalSince1970)
+        let providerIntentFingerprint = try Self.providerIntentFingerprint(params)
         guard params.event.name != .sessionStart else {
-            let admission = SessionsQualifiedSessionStartAdmission(
-                provider: provider,
-                source: SessionsBindingSourceIdentity(
-                    paneId: paneId,
-                    providerConversationId: params.event.conversationId,
-                    sourceId: params.event.conversationId,
-                    sourceGenerationId: UUIDv7.generate(),
-                    occurrenceId: params.event.occurrenceId
-                ),
-                freshness: .live,
-                reportedAt: occurredAt
-            )
-            guard let bind = providerRegistry.qualifiedSessionStartBind(admission) else {
-                return .rejected(.unqualified)
-            }
-            return .admitted(.bind(bind))
+            return sessionStartAdmission(
+                paneId: paneId, params: params, provider: provider, snapshot: snapshot, admittedAt: occurredAt,
+                fingerprint: providerIntentFingerprint)
         }
         let generation = try await eventGeneration(
             paneId: paneId,
@@ -299,13 +290,9 @@ extension AgentStudioIPCSessionsAdapter {
             case .live(let binding), .retired(let binding):
                 return .admitted(
                     .sourceEnded(
-                        SessionsSourceEndMutation(
-                            paneId: paneId,
-                            sourceGenerationId: binding.sourceGenerationId,
-                            endedAt: occurredAt
-                        )
-                    )
-                )
+                        Self.sourceEndMutation(
+                            binding: binding, params: params, admittedAt: occurredAt,
+                            fingerprint: providerIntentFingerprint)))
             }
         }
         let binding: SessionsBindingRecord
@@ -340,19 +327,51 @@ extension AgentStudioIPCSessionsAdapter {
         else {
             return .rejected(.unqualified)
         }
-        return .admitted(
-            .recordEvidence(
-                SessionsEvidenceMutation(
-                    admittedContext: admitted,
-                    occurrenceId: params.event.occurrenceId,
-                    turnId: params.event.turnId,
-                    subject: Self.subject(for: params.event),
-                    kind: try Self.evidenceKind(for: params.event),
-                    occurredAt: occurredAt,
-                    sourceCursor: nil
-                )
-            )
+        var evidence = SessionsEvidenceMutation(
+            admittedContext: admitted,
+            occurrenceId: params.event.occurrenceId,
+            turnId: params.event.turnId,
+            subject: Self.subject(for: params.event),
+            kind: try Self.evidenceKind(for: params.event),
+            occurredAt: occurredAt,
+            sourceCursor: nil
         )
+        evidence.sourceOccurredAt = params.event.sourceOccurredAt
+        evidence.providerSignal = try Self.providerSignal(for: params.event)
+        evidence.providerIntentFingerprint = providerIntentFingerprint
+        return .admitted(.recordEvidence(evidence))
+    }
+
+    private func sessionStartAdmission(
+        paneId: UUID, params: IPCSessionEventParams, provider: SessionsProviderIdentity,
+        snapshot: SessionsSnapshot, admittedAt: Date, fingerprint: String
+    ) -> SessionsProviderEventAdmissionOutcome {
+        let matchingActiveBinding = snapshot.currentBinding.flatMap { binding in
+            binding.status == .active && binding.providerIdentifier == provider.providerIdentifier
+                && binding.providerConversationId == params.event.conversationId ? binding : nil
+        }
+        let admission = SessionsQualifiedSessionStartAdmission(
+            provider: provider,
+            source: SessionsBindingSourceIdentity(
+                paneId: paneId,
+                providerConversationId: params.event.conversationId,
+                sourceId: params.event.conversationId,
+                sourceGenerationId: matchingActiveBinding?.sourceGenerationId ?? UUIDv7.generate(),
+                occurrenceId: params.event.occurrenceId
+            ),
+            freshness: admissionFreshness,
+            reportedAt: admittedAt
+        )
+        guard var bind = providerRegistry.qualifiedSessionStartBind(admission) else {
+            return .rejected(.unqualified)
+        }
+        bind.resumeHint =
+            params.event.providerFields.resumeHint
+            ?? Self.resumeHint(provider: params.provider.identifier, conversationId: params.event.conversationId)
+        bind.ownerPaneId = ownerPaneLookup(.init(existingUUID: paneId))?.uuid
+        bind.providerIntentFingerprint = fingerprint
+        bind.sourceOccurredAt = params.event.sourceOccurredAt
+        return .admitted(.bind(bind))
     }
 
     /// Resolves the generation an event belongs to from the conversation it
@@ -408,9 +427,13 @@ extension AgentStudioIPCSessionsAdapter {
         case .turnStart: .turnStart
         case .turnDone: .turnDone
         case .turnAbort: .turnAbort
+        case .turnFailed: .turnFailed
         case .permission: .permission
         case .question: .question
         case .elicitation: .elicitation
+        case .elicitationResult: .elicitationResult
+        case .toolCompleted: .toolCompleted
+        case .toolFailed: .toolFailed
         case .toolActivity: .toolActivity
         case .subagentActivity: .subagentActivity
         }
@@ -426,16 +449,14 @@ extension AgentStudioIPCSessionsAdapter {
         for event: IPCSessionEventIdentity
     ) throws -> SessionsEvidenceKind {
         switch event.name {
-        case .turnStart, .toolActivity, .subagentActivity:
+        case .turnStart, .toolActivity, .subagentActivity, .toolCompleted, .toolFailed, .elicitationResult:
             return .activityStarted
         case .turnDone:
             return .completed
-        case .turnAbort:
+        case .turnAbort, .turnFailed:
             return .aborted
         case .permission, .question, .elicitation:
-            guard let requestId = event.requestId else {
-                throw AppIPCSessionsError(reason: .validationRejected)
-            }
+            let requestId = event.requestId ?? event.toolId ?? event.elicitationId ?? event.occurrenceId.uuidString
             return .needsYouOpened(requestId: requestId, explanation: nil)
         case .sessionStart, .sessionEnd:
             // Neither is evidence: one opens a source generation and the other

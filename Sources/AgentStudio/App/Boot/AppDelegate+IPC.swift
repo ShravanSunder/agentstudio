@@ -140,7 +140,7 @@ extension AppDelegate {
             let unavailability = await AppIPCDeferredInitialization.run(
                 windowLifecycleStore: windowLifecycleStore
             ) { [weak self] in
-                await self?.startAppIPCServer()
+                _ = await self?.startAppIPCServer()
             }
             if let unavailability {
                 self?.recordAppIPCStart(unavailable: unavailability)
@@ -163,39 +163,52 @@ extension AppDelegate {
         )
     }
 
-    func startAppIPCServer() async {
-        guard appIPCServer == nil else { return }
+    @discardableResult
+    func startAppIPCServer() async -> AppIPCStartUnavailability? {
+        guard appIPCServer == nil else { return nil }
         guard let workspaceSQLiteDatastore else {
             appLogger.warning("App IPC server skipped: local SQLite is unavailable")
             recordAppIPCStart(unavailable: .localStoreUnavailable)
-            return
+            return .localStoreUnavailable
         }
         guard await AppIPCDeferredInitialization.prepareOptionalSchema(using: workspaceSQLiteDatastore) else {
             appLogger.warning("App IPC server skipped: optional local schema is unavailable")
             // A cancelled attempt is a shutdown, not an unavailable store.
-            if !Task.isCancelled { recordAppIPCStart(unavailable: .optionalSchemaUnavailable) }
-            return
+            if !Task.isCancelled {
+                recordAppIPCStart(unavailable: .optionalSchemaUnavailable)
+                return .optionalSchemaUnavailable
+            }
+            return .initializationCancelled
         }
-        guard appIPCServer == nil else { return }
+        guard appIPCServer == nil else { return nil }
         guard let sessionsIngestion = await prepareAppIPCSessionsIngestion(datastore: workspaceSQLiteDatastore) else {
-            if !Task.isCancelled { recordAppIPCStart(unavailable: .sessionsIngestionFailed) }
-            return
+            if !Task.isCancelled {
+                recordAppIPCStart(unavailable: .sessionsIngestionFailed)
+                return .sessionsIngestionFailed
+            }
+            return .initializationCancelled
         }
 
         do {
-            guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else { return }
+            guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else {
+                return Task.isCancelled ? .initializationCancelled : nil
+            }
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
             startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
             recordAppIPCStart()
+            return nil
         } catch {
             appLogger.warning(
                 "App IPC server failed to start: \(error.localizedDescription, privacy: .private)")
             if !Task.isCancelled {
-                recordAppIPCStart(unavailable: AppIPCStartUnavailability(serverStartError: error))
+                let reason = AppIPCStartUnavailability(serverStartError: error)
+                recordAppIPCStart(unavailable: reason)
+                return reason
             }
+            return .initializationCancelled
         }
     }
 
@@ -293,6 +306,11 @@ extension AppDelegate {
         datastore: WorkspaceSQLiteDatastoreActor
     ) async -> SessionsIngestion? {
         if let existing = appIPCSessionsIngestion { return existing }
+        let statusAtom = atomStore.sessionStatus
+        let viewedMailbox = atomStore.sessionsPaneViewedMailbox
+        let applyMeasurement = SessionStatusApplyMeasurement()
+        let traceRecorder = performanceTraceRecorder
+        workspaceSurfaceCoordinator?.sessionsPaneViewedMailbox = viewedMailbox
         let ingestion = SessionsIngestion(
             repository: SessionsRepository(
                 sqliteAccess: WorkspaceSessionsSQLiteAccess(datastore: datastore)
@@ -303,11 +321,33 @@ extension AppDelegate {
             ),
             // Ingestion statistics carry a raw pane UUID, which the OTLP scrub
             // rules exclude. Counts reach no sink until a scrubbed probe exists.
-            probe: { _ in }
+            probe: { _ in },
+            paneViewedMailbox: viewedMailbox,
+            statusSink: { batch in
+                let began = ContinuousClock.now
+                statusAtom.apply(batch)
+                applyMeasurement.recordHeldDuration(began.duration(to: ContinuousClock.now))
+            },
+            statusApplyMeasurement: applyMeasurement,
+            statusApplyProbe: { snapshot in
+                traceRecorder?.recordDuration(
+                    .sessionsStatusApply, duration: snapshot.heldDuration,
+                    attributes: [
+                        "agentstudio.sessions.computed_count": .int(snapshot.counts.computed),
+                        "agentstudio.sessions.equal_suppressed_count": .int(snapshot.counts.suppressed),
+                        "agentstudio.sessions.coalesced_count": .int(snapshot.counts.coalesced),
+                        "agentstudio.sessions.batch_size": .int(snapshot.batchSize),
+                        "agentstudio.sessions.main_actor_total_ms": .double(
+                            AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.totalHeldDuration)),
+                        "agentstudio.sessions.main_actor_max_ms": .double(
+                            AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.maximumHeldDuration)),
+                    ])
+            }
         )
         do {
             _ = try await ingestion.prepareForLaunch(at: Date())
         } catch {
+            await ingestion.finish()
             appLogger.warning(
                 """
                 Sessions ingestion skipped: launch preparation failed: \
@@ -316,7 +356,10 @@ extension AppDelegate {
             )
             return nil
         }
-        guard !Task.isCancelled else { return nil }
+        guard !Task.isCancelled else {
+            await ingestion.finish()
+            return nil
+        }
         appIPCSessionsIngestion = ingestion
         return ingestion
     }

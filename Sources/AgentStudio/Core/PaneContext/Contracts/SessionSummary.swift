@@ -7,6 +7,7 @@ package struct SessionSummary: Sendable, Equatable {
     package let bindingGeneration: UUID
     package let status: AgentSessionStatus
     package let providerPrompts: [SessionProviderPromptSummary]
+    package let omittedPromptCount: Int
 
     package init(
         id: UUID,
@@ -14,7 +15,8 @@ package struct SessionSummary: Sendable, Equatable {
         sessionRef: BridgeAgentSessionRef,
         bindingGeneration: UUID,
         status: AgentSessionStatus,
-        providerPrompts: [SessionProviderPromptSummary]
+        providerPrompts: [SessionProviderPromptSummary],
+        omittedPromptCount: Int = 0
     ) {
         self.id = id
         self.provider = provider
@@ -22,6 +24,7 @@ package struct SessionSummary: Sendable, Equatable {
         self.bindingGeneration = bindingGeneration
         self.status = status
         self.providerPrompts = providerPrompts
+        self.omittedPromptCount = omittedPromptCount
     }
 }
 

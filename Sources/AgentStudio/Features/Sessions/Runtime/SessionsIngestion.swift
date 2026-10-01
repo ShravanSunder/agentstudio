@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
@@ -33,10 +34,11 @@ package actor SessionsIngestion {
         let mutation: SessionsMutation
         let paneId: UUID?
         let errorAfterCommit: SessionsRepositoryError?
+        let admittedAt: ContinuousClock.Instant
         let continuation: CheckedContinuation<SessionsSubmissionResult, any Error>
     }
 
-    private let repository: SessionsRepository
+    let repository: SessionsRepository
     private let limits: SessionsIngestionLimits
     private let probe: SessionsIngestionProbe
     private var acceptsSubmissions = true
@@ -44,15 +46,39 @@ package actor SessionsIngestion {
     private var pendingCountByPane: [UUID: Int] = [:]
     private var outstandingCount = 0
     private var consumerTask: Task<Void, Never>?
+    package nonisolated let paneViewedMailbox: SessionsPaneViewedMailbox
+    let statusPublicationMailbox: SessionStatusPublicationMailbox
+    let statusPublicationLane: SessionStatusPublicationLane?
+    let openAskSource: any SessionOpenAskReading
+    let sessionEnded: @Sendable (UUID) async -> Void
+    var statusRuntime = SessionsStatusRuntime()
+    var statusIngressTask: Task<Void, Never>?
+    var didLoadOpenAsks = false
+    var isStatusClosed = false
 
     package init(
         repository: SessionsRepository,
         limits: SessionsIngestionLimits,
-        probe: @escaping SessionsIngestionProbe
+        probe: @escaping SessionsIngestionProbe,
+        paneViewedMailbox: SessionsPaneViewedMailbox = .init(),
+        statusSink: (@MainActor @Sendable ([PaneId: SessionStatusPublication]) async -> Void)? = nil,
+        openAskSource: any SessionOpenAskReading = EmptySessionOpenAskSource(),
+        sessionEnded: @escaping @Sendable (UUID) async -> Void = { _ in },
+        statusApplyMeasurement: SessionStatusApplyMeasurement = .init(),
+        statusApplyProbe: @escaping @Sendable (SessionStatusApplySnapshot) -> Void = { _ in }
     ) {
         self.repository = repository
         self.limits = limits
         self.probe = probe
+        self.paneViewedMailbox = paneViewedMailbox
+        let mailbox = SessionStatusPublicationMailbox()
+        statusPublicationMailbox = mailbox
+        statusPublicationLane = statusSink.map {
+            SessionStatusPublicationLane(
+                mailbox: mailbox, sink: $0, measurement: statusApplyMeasurement, probe: statusApplyProbe)
+        }
+        self.openAskSource = openAskSource
+        self.sessionEnded = sessionEnded
     }
 
     package func submit(
@@ -110,6 +136,7 @@ package actor SessionsIngestion {
                     mutation: mutation,
                     paneId: paneId,
                     errorAfterCommit: errorAfterCommit,
+                    admittedAt: ContinuousClock.now,
                     continuation: continuation
                 )
             )
@@ -169,6 +196,13 @@ package actor SessionsIngestion {
         emitStatistics(for: nil, event: .finishing)
         let task = consumerTask
         await task?.value
+        isStatusClosed = true
+        paneViewedMailbox.close()
+        statusIngressTask?.cancel()
+        await statusIngressTask?.value
+        statusIngressTask = nil
+        await statusPublicationLane?.shutdown()
+        statusPublicationMailbox.close()
     }
 }
 
@@ -182,12 +216,17 @@ extension SessionsIngestion {
         while !pendingMutations.isEmpty {
             let pending = pendingMutations.removeFirst()
             do {
+                if let paneId = pending.paneId { try await restoreStatusIfNeeded(paneId: paneId) }
                 let operation = try makeRepositoryOperation(
                     correlationId: pending.correlationId,
                     mutation: pending.mutation
                 )
                 let outcome = try await repository.apply(operation: operation) { context in
                     try SessionsEvidenceReducer.reduce(mutation: pending.mutation, against: context)
+                }
+                if outcome.disposition == .inserted {
+                    try await applyCommittedStatus(
+                        mutation: pending.mutation, result: outcome, admittedAt: pending.admittedAt)
                 }
                 if let errorAfterCommit = pending.errorAfterCommit {
                     pending.continuation.resume(throwing: errorAfterCommit)
@@ -222,7 +261,8 @@ extension SessionsIngestion {
             semanticFingerprint: try mutation.semanticFingerprint(),
             providerOccurrence: mutation.providerOccurrence,
             contextQuery: mutation.contextQuery,
-            createdAt: mutation.occurredAt
+            createdAt: mutation.occurredAt,
+            sourceOccurredAt: mutation.boundedSourceOccurredAt
         )
     }
 
@@ -239,7 +279,7 @@ extension SessionsIngestion {
 }
 
 extension SessionsMutation {
-    fileprivate var paneId: UUID? {
+    var paneId: UUID? {
         switch self {
         case .bind(let mutation): mutation.paneId
         case .message(let mutation): mutation.context.paneId
@@ -318,9 +358,30 @@ extension SessionsMutation {
             return SessionsProviderOccurrenceIdentity(kind: .bind, occurrenceId: occurrenceId)
         case .recordEvidence(let mutation):
             return SessionsProviderOccurrenceIdentity(kind: .evidence, occurrenceId: mutation.occurrenceId)
+        case .sourceEnded(let mutation):
+            return mutation.occurrenceId.map {
+                SessionsProviderOccurrenceIdentity(kind: .sourceEnded, occurrenceId: $0)
+            }
         case .message, .deliberateNeedsYou, .clearDeliberateNeedsYou, .deliberateDone,
-            .sourceEnded, .acknowledgeMessage, .recordLiveLoss, .prepareForLaunch:
+            .acknowledgeMessage, .recordLiveLoss, .prepareForLaunch:
             return nil
+        }
+    }
+
+    /// Source time is display evidence only. The mutation owns both time facts
+    /// and validates them before either operation or evidence persistence.
+    var boundedSourceOccurredAt: Date? {
+        sourceOccurredAt.flatMap {
+            $0 <= occurredAt.addingTimeInterval(AppPolicies.Sessions.maximumSourceFutureSkew) ? $0 : nil
+        }
+    }
+
+    private var sourceOccurredAt: Date? {
+        switch self {
+        case .bind(let mutation): mutation.sourceOccurredAt
+        case .recordEvidence(let mutation): mutation.sourceOccurredAt
+        case .sourceEnded(let mutation): mutation.sourceOccurredAt
+        default: nil
         }
     }
 
@@ -349,46 +410,54 @@ extension SessionsMutation {
 
     private var semanticIntent: SessionsMutationSemanticIntent {
         switch self {
-        case .bind(let mutation): .bind(mutation)
+        case .bind(let mutation):
+            if let digest = mutation.providerIntentFingerprint { return .providerIntent(digest) }
+            return .bind(SessionsBindSemanticIntent(mutation))
         case .message(let mutation):
-            .message(
+            return .message(
                 SessionsMessageSemanticIntent(
                     context: mutation.context,
-                    text: mutation.text,
-                    freshness: mutation.freshness
+                    text: mutation.text
                 )
             )
-        case .recordEvidence(let mutation): .providerEvidence(mutation)
+        case .recordEvidence(let mutation):
+            if let digest = mutation.providerIntentFingerprint { return .providerIntent(digest) }
+            return .providerEvidence(SessionsProviderEvidenceSemanticIntent(mutation))
         case .deliberateNeedsYou(let mutation):
-            .deliberateNeedsYou(
+            return .deliberateNeedsYou(
                 SessionsNeedsYouSemanticIntent(
                     paneId: mutation.paneId,
                     explanation: mutation.explanation
                 )
             )
         case .clearDeliberateNeedsYou(let mutation):
-            .clearDeliberateNeedsYou(SessionsPaneSemanticIntent(paneId: mutation.paneId))
+            return .clearDeliberateNeedsYou(SessionsPaneSemanticIntent(paneId: mutation.paneId))
         case .deliberateDone(let mutation):
-            .deliberateDone(SessionsPaneSemanticIntent(paneId: mutation.paneId))
-        case .sourceEnded(let mutation): .sourceEnded(mutation)
+            return .deliberateDone(SessionsPaneSemanticIntent(paneId: mutation.paneId))
+        case .sourceEnded(let mutation):
+            if let digest = mutation.providerIntentFingerprint { return .providerIntent(digest) }
+            return .sourceEnded(
+                SessionsSourceEndSemanticIntent(
+                    paneId: mutation.paneId, sourceGenerationId: mutation.sourceGenerationId))
         case .acknowledgeMessage(let mutation):
-            .acknowledgeMessage(
+            return .acknowledgeMessage(
                 SessionsAcknowledgmentSemanticIntent(occurrenceId: mutation.occurrenceId)
             )
-        case .recordLiveLoss(let mutation): .recordLiveLoss(mutation)
-        case .prepareForLaunch: .prepareForLaunch
+        case .recordLiveLoss(let mutation): return .recordLiveLoss(mutation)
+        case .prepareForLaunch: return .prepareForLaunch
         }
     }
 }
 
 private enum SessionsMutationSemanticIntent: Encodable {
-    case bind(SessionsBindMutation)
+    case providerIntent(String)
+    case bind(SessionsBindSemanticIntent)
     case message(SessionsMessageSemanticIntent)
-    case providerEvidence(SessionsEvidenceMutation)
+    case providerEvidence(SessionsProviderEvidenceSemanticIntent)
     case deliberateNeedsYou(SessionsNeedsYouSemanticIntent)
     case clearDeliberateNeedsYou(SessionsPaneSemanticIntent)
     case deliberateDone(SessionsPaneSemanticIntent)
-    case sourceEnded(SessionsSourceEndMutation)
+    case sourceEnded(SessionsSourceEndSemanticIntent)
     case acknowledgeMessage(SessionsAcknowledgmentSemanticIntent)
     case recordLiveLoss(SessionsLiveLossMutation)
     case prepareForLaunch
@@ -397,7 +466,11 @@ private enum SessionsMutationSemanticIntent: Encodable {
 private struct SessionsMessageSemanticIntent: Encodable {
     let context: SessionsReportContext
     let text: String
-    let freshness: SessionsEvidenceFreshness
+}
+
+private struct SessionsSourceEndSemanticIntent: Encodable {
+    let paneId: UUID
+    let sourceGenerationId: UUID
 }
 
 private struct SessionsNeedsYouSemanticIntent: Encodable {

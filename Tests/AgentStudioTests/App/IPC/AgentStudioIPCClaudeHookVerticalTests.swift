@@ -121,8 +121,8 @@ struct AgentStudioIPCClaudeHookVerticalTests {
         #expect(afterSessionEnd.sourceHealth == .ended)
     }
 
-    @Test("A replayed tool-use hook is refused, not counted twice")
-    func replayedToolHookIsRefused() async throws {
+    @Test("A replayed tool-use hook returns the recorded outcome without a second effect")
+    func replayedToolHookReturnsRecordedOutcome() async throws {
         // Arrange: the hook derives one occurrence identity per tool invocation
         // but mints a fresh correlation per process, so a Claude Code retry of
         // the same hook arrives as the same occurrence under a new correlation.
@@ -143,13 +143,11 @@ struct AgentStudioIPCClaudeHookVerticalTests {
 
         // Assert
         #expect(first.disposition == .admitted)
-        #expect(
-            replay.error?.data
-                == .object([
-                    "reason": .string("correlationConflict"),
-                    "fieldPath": .string("$.correlationId"),
-                ])
-        )
+        #expect(replay.error == nil)
+        let replayResult = try #require(replay.result)
+        let decodedReplay = try JSONDecoder().decode(
+            IPCSessionEventResult.self, from: JSONEncoder().encode(replayResult))
+        #expect(decodedReplay.disposition == .admitted)
         #expect(try await harness.sessionQuery(paneId: paneId).state == .running)
     }
 

@@ -2,6 +2,11 @@ import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
+package enum AppIPCMethodExecution: Equatable, Sendable {
+    case inline
+    case waitsBesideReader
+}
+
 package enum AppIPCTypedMethodRegistrationError: Error, Equatable, Sendable {
     case authenticationRequired
     case methodNotExposed
@@ -101,6 +106,7 @@ package struct AppIPCTypedMethodRegistration<
 >: Sendable {
     private let descriptor: IPCMethodDescriptor<Parameters, Result>
     private let validatedErasedDescriptor: IPCAnyMethodDescriptor
+    private let execution: AppIPCMethodExecution
     private let correlation: AppIPCCorrelation<Parameters>
     private let resolveTarget:
         @Sendable (
@@ -126,7 +132,8 @@ package struct AppIPCTypedMethodRegistration<
                 AppIPCConnectionContext,
                 IPCTargetScope
             ) async throws -> Result,
-        cachedTransportResult: AppIPCCachedTransportResult? = nil
+        cachedTransportResult: AppIPCCachedTransportResult? = nil,
+        execution: AppIPCMethodExecution = .inline
     ) {
         descriptor = descriptorRepresentations.typedDescriptor
         validatedErasedDescriptor = descriptorRepresentations.erasedDescriptor
@@ -134,6 +141,7 @@ package struct AppIPCTypedMethodRegistration<
         self.resolveTarget = resolveTarget
         self.connectionHandler = connectionHandler
         self.cachedTransportResult = cachedTransportResult
+        self.execution = execution
     }
 
     /// Set only for a method whose answer is fixed for the runtime.
@@ -145,6 +153,7 @@ package struct AppIPCTypedMethodRegistration<
 
         return AnyAppIPCMethodRegistration(
             descriptor: erasedDescriptor,
+            execution: execution,
             invocation: { parameters, connectionContext, tools, authorization in
                 try validateConnectionAccess(connectionContext)
 
@@ -294,6 +303,7 @@ package struct AppIPCTypedMethodRegistration<
 
 package struct AnyAppIPCMethodRegistration: Sendable {
     package let descriptor: IPCAnyMethodDescriptor
+    package let execution: AppIPCMethodExecution
     private let invocation:
         @Sendable (
             JSONValue,
@@ -304,6 +314,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
 
     fileprivate init(
         descriptor: IPCAnyMethodDescriptor,
+        execution: AppIPCMethodExecution,
         invocation:
             @escaping @Sendable (
                 JSONValue,
@@ -313,6 +324,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
             ) async throws -> JSONValue
     ) {
         self.descriptor = descriptor
+        self.execution = execution
         self.invocation = invocation
     }
 

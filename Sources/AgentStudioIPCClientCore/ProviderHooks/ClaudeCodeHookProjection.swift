@@ -9,10 +9,15 @@ package enum ClaudeCodeHookEvent: String, CaseIterable, Equatable, Sendable {
     case sessionStart = "SessionStart"
     case userPromptSubmit = "UserPromptSubmit"
     case preToolUse = "PreToolUse"
+    case postToolUse = "PostToolUse"
+    case postToolUseFailure = "PostToolUseFailure"
     case permissionRequest = "PermissionRequest"
     case subagentStart = "SubagentStart"
     case subagentStop = "SubagentStop"
     case stop = "Stop"
+    case stopFailure = "StopFailure"
+    case elicitation = "Elicitation"
+    case elicitationResult = "ElicitationResult"
     case sessionEnd = "SessionEnd"
 
     /// The Sessions lifecycle capability this hook event reports.
@@ -21,9 +26,14 @@ package enum ClaudeCodeHookEvent: String, CaseIterable, Equatable, Sendable {
         case .sessionStart: .sessionStart
         case .userPromptSubmit: .turnStart
         case .preToolUse: .toolActivity
+        case .postToolUse: .toolCompleted
+        case .postToolUseFailure: .toolFailed
         case .permissionRequest: .permission
         case .subagentStart, .subagentStop: .subagentActivity
         case .stop: .turnDone
+        case .stopFailure: .turnFailed
+        case .elicitation: .elicitation
+        case .elicitationResult: .elicitationResult
         case .sessionEnd: .sessionEnd
         }
     }
@@ -38,6 +48,11 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
     package let promptId: String?
     package let toolUseId: String?
     package let agentId: String?
+    package let toolName: String?
+    package let toolInput: ClaudeCodeToolInput?
+    package let error: String?
+    package let elicitationId: String?
+    package let message: String?
 
     package init(
         sessionId: String,
@@ -51,6 +66,11 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
         self.promptId = promptId
         self.toolUseId = toolUseId
         self.agentId = agentId
+        toolName = nil
+        toolInput = nil
+        error = nil
+        elicitationId = nil
+        message = nil
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -59,6 +79,11 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
         case promptId = "prompt_id"
         case toolUseId = "tool_use_id"
         case agentId = "agent_id"
+        case toolName = "tool_name"
+        case toolInput = "tool_input"
+        case error
+        case elicitationId = "elicitation_id"
+        case message
     }
 }
 
@@ -68,7 +93,6 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
 package enum ClaudeCodeHookProjectionRefusal: Equatable, Sendable {
     case unprojectedEvent(String)
     case announcedEventMismatch(announced: String, reported: String)
-    case missingRequestIdentifier
 }
 
 package enum ClaudeCodeHookProjectionOutcome: Equatable, Sendable {
@@ -103,11 +127,15 @@ package enum ClaudeCodeHookProjection {
         guard let event = ClaudeCodeHookEvent(rawValue: payload.hookEventName) else {
             return .refused(.unprojectedEvent(payload.hookEventName))
         }
-        let name = event.projectedEventName
+        let name: IPCSessionEventName =
+            event == .preToolUse && payload.toolName == "AskUserQuestion" ? .question : event.projectedEventName
         let requestIdentifier = name == .permission ? payload.toolUseId : nil
-        if name == .permission, requestIdentifier == nil {
-            return .refused(.missingRequestIdentifier)
-        }
+        var providerFields = IPCSessionProviderEventFields()
+        providerFields.toolName = payload.toolName
+        providerFields.questions = payload.toolInput?.questions
+        providerFields.failureSummary = event == .stopFailure ? payload.error : nil
+        providerFields.elicitationId = payload.elicitationId
+        providerFields.message = payload.message
         return .projected(
             IPCSessionEventParams(
                 handle: "self",
@@ -126,19 +154,25 @@ package enum ClaudeCodeHookProjection {
                     // makes turn-done land at all.
                     turnId: payload.promptId,
                     requestId: requestIdentifier,
-                    toolId: name == .toolActivity ? payload.toolUseId : nil,
+                    toolId: [.toolActivity, .question, .toolCompleted, .toolFailed].contains(name)
+                        ? payload.toolUseId : nil,
                     subagentId: name == .subagentActivity ? payload.agentId : nil,
                     occurrenceId: ClaudeCodeHookOccurrenceIdentity.occurrenceIdentifier(
                         sessionId: payload.sessionId,
                         hookEventName: payload.hookEventName,
                         toolUseId: payload.toolUseId,
                         freshIdentifier: freshOccurrenceIdentifier
-                    )
+                    ),
+                    providerFields: providerFields
                 ),
                 correlationId: correlationIdentifier
             )
         )
     }
+}
+
+package struct ClaudeCodeToolInput: Decodable, Equatable, Sendable {
+    package let questions: [IPCSessionQuestion]?
 }
 
 /// Derives the occurrence identity for one projected Claude Code hook event.

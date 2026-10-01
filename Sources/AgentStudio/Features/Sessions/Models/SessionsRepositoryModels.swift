@@ -11,6 +11,7 @@ package enum SessionsRepositoryContextQuery: Sendable, Equatable {
 package enum SessionsProviderOccurrenceKind: String, Sendable, Equatable {
     case bind
     case evidence
+    case sourceEnded
 }
 
 package struct SessionsProviderOccurrenceIdentity: Sendable, Equatable {
@@ -26,6 +27,7 @@ package struct SessionsRepositoryOperation: Sendable, Equatable {
     package let providerOccurrence: SessionsProviderOccurrenceIdentity?
     package let contextQuery: SessionsRepositoryContextQuery
     package let createdAt: Date
+    package var sourceOccurredAt: Date?
 }
 
 package struct SessionsConversationRecord: Sendable, Equatable {

@@ -28,11 +28,17 @@ package struct LiveMessageCursor: Sendable, Equatable {
 
 package struct DetailTruncation: Sendable, Equatable {
     package let omitted: [OmittedLiveMessages]
+    package let remainingLiveSources: Int
+    package let nextSourcesAfter: PaneId?
 
     package init(
-        omitted: [OmittedLiveMessages]
+        omitted: [OmittedLiveMessages],
+        remainingLiveSources: Int,
+        nextSourcesAfter: PaneId?
     ) {
         self.omitted = omitted
+        self.remainingLiveSources = remainingLiveSources
+        self.nextSourcesAfter = nextSourcesAfter
     }
 }
 
@@ -111,6 +117,7 @@ package protocol PaneContextDetailReading: Sendable {
 package enum PaneContextReadPage: Sendable, Equatable {
     case first
     case more(source: PaneId, after: LiveMessageCursor)
+    case moreSources(after: PaneId)
 }
 package enum PaneContextReadResult: Sendable, Equatable {
     case detail(PaneContextDetail)

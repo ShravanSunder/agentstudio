@@ -103,8 +103,8 @@ extension SessionsRepositoryStorage {
                 INSERT INTO sessions_pane_binding(
                     binding_generation_id, pane_id, conversation_id, source_generation_id,
                     origin, status, transition_occurrence_id, started_at, ended_at,
-                    committed_revision
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    committed_revision, resume_hint, owner_pane_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(binding_generation_id) DO UPDATE SET
                     status = excluded.status,
                     ended_at = excluded.ended_at,
@@ -121,6 +121,8 @@ extension SessionsRepositoryStorage {
                 binding.startedAt.timeIntervalSince1970,
                 binding.endedAt?.timeIntervalSince1970,
                 commitRevision,
+                binding.resumeHint,
+                binding.ownerPaneId?.uuidString,
             ]
         )
     }
@@ -279,8 +281,10 @@ extension SessionsRepositoryStorage {
                     occurrence_id, conversation_id, binding_generation_id, source_id,
                     source_generation_id, turn_id, subject_kind, subject_identifier,
                     evidence_kind, attention_id, origin, freshness, occurred_at,
-                    committed_revision
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    committed_revision, admission_sequence, source_occurred_at,
+                    provider_event, tool_name, tool_call_id, failure_summary,
+                    elicitation_id, prompt_summary, has_questions
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(occurrence_id) DO NOTHING
                 """,
             arguments: [
@@ -298,8 +302,18 @@ extension SessionsRepositoryStorage {
                 evidence.freshness.rawValue,
                 evidence.occurredAt.timeIntervalSince1970,
                 commitRevision,
+                commitRevision,
+                evidence.sourceOccurredAt?.timeIntervalSince1970,
+                evidence.providerSignal?.name.rawValue,
+                evidence.providerSignal?.toolName,
+                evidence.providerSignal?.toolCallId,
+                evidence.providerSignal?.failureSummary,
+                evidence.providerSignal?.elicitationId,
+                evidence.providerSignal?.summary,
+                evidence.providerSignal?.questions == nil ? 0 : 1,
             ]
         )
+        try writeProviderQuestions(evidence: evidence, database: database)
     }
 
     fileprivate static func write(

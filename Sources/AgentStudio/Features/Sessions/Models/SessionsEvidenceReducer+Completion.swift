@@ -393,7 +393,9 @@ extension SessionsEvidenceReducer {
             origin: binding.origin,
             status: status,
             startedAt: binding.startedAt,
-            endedAt: endedAt
+            endedAt: endedAt,
+            resumeHint: binding.resumeHint,
+            ownerPaneId: binding.ownerPaneId
         )
     }
 

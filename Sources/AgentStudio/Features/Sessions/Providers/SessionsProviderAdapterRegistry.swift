@@ -6,9 +6,13 @@ package enum SessionsProviderCapability: String, Sendable, Codable, Equatable, H
     case turnStart
     case turnDone
     case turnAbort
+    case turnFailed
     case permission
     case question
     case elicitation
+    case elicitationResult
+    case toolCompleted
+    case toolFailed
     case toolActivity
     case subagentActivity
 }
