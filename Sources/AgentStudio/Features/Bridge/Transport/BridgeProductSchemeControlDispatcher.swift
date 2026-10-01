@@ -33,7 +33,8 @@ struct BridgeProductSchemeControlDispatcher: Sendable {
         let admission = await session.beginControl(
             exactRequestBytes: exactRequestBytes,
             presentedCapability: presentedCapability,
-            productAdmission: productAdmission
+            productAdmission: productAdmission,
+            reviewIntentAdmissionSource: provider.reviewIntentAdmissionSource
         )
         let floorRetiredSubscriptions = await session.takeFloorRetiredSubscriptions()
         switch admission {

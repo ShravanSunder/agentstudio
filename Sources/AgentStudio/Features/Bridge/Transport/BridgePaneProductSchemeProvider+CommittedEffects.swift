@@ -166,7 +166,11 @@ extension BridgePaneProductSchemeProvider {
                     productAdmission
                 )
             case .reviewComparisonUpdate(let updateRequest):
-                await applyReviewComparisonUpdate(updateRequest, productAdmission)
+                await applyReviewComparisonUpdate(
+                    updateRequest,
+                    callRequest.workerDerivationEpoch,
+                    productAdmission
+                )
             case .reviewComparisonTargetsQuery:
                 break
             case .reviewMarkFileViewed(let markRequest):

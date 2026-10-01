@@ -23,7 +23,7 @@ struct BridgeProductReviewComparisonContractTests {
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
             markReviewItemViewed: { _, _ in },
-            applyReviewComparisonUpdate: { request, _ in
+            applyReviewComparisonUpdate: { request, _, _ in
                 recorder.record(request.target)
             },
             refreshWorkAdmissionSource: refreshWorkAdmission.source
@@ -88,7 +88,7 @@ struct BridgeProductReviewComparisonContractTests {
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
             markReviewItemViewed: { _, _ in },
-            applyReviewComparisonUpdate: { _, _ in
+            applyReviewComparisonUpdate: { _, _, _ in
                 productAdmissionGate.close()
             },
             refreshWorkAdmissionSource: refreshWorkAdmission.source

@@ -1,23 +1,46 @@
 import AgentStudioCore
 import Foundation
 
+private enum BridgePaneReviewComparisonTargetAdmission {
+    case superseded
+    case committed(BridgePaneStateMutationResult)
+}
+
 @MainActor
 extension BridgePaneController {
     func handleCommittedProductReviewComparisonUpdate(
         _ request: BridgeProductReviewComparisonUpdateRequest,
+        workerDerivationEpoch: Int,
         productAdmission: BridgeProductAdmissionContext
-    ) async -> Bool {
-        guard productAdmission.withValidAdmission({ true }) == true else { return false }
+    ) async -> BridgePaneReviewComparisonEffectDisposition {
+        guard productAdmission.withValidAdmission({ true }) == true else { return .rejected }
         guard let contributionTargetCommit
         else {
             reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
             refreshAdmissionCoordinator.close()
-            return false
+            return .rejected
         }
-        guard let mutationResult = productAdmission.withValidAdmission({ contributionTargetCommit(request.target) })
-        else { return false }
-        guard productAdmission.withValidAdmission({ true }) == true else { return false }
+        guard
+            let targetAdmission = productAdmission.withValidAdmission({
+                refreshAdmissionCoordinator.workAdmissionSource.withCurrentReviewComparisonIntent(
+                    workerDerivationEpoch: workerDerivationEpoch,
+                    productAdmission: productAdmission
+                ) {
+                    BridgePaneReviewComparisonTargetAdmission.committed(
+                        contributionTargetCommit(request.target)
+                    )
+                } ?? .superseded
+            })
+        else { return .rejected }
+        let mutationResult: BridgePaneStateMutationResult
+        switch targetAdmission {
+        case .superseded:
+            return .superseded
+        case .committed(let committedResult):
+            mutationResult = committedResult
+        }
+        guard productAdmission.withValidAdmission({ true }) == true else { return .rejected }
         let canonicalState: BridgePaneState
         let replacedLineage: Bool
         switch mutationResult {
@@ -31,7 +54,7 @@ extension BridgePaneController {
             reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
             refreshAdmissionCoordinator.close()
-            return false
+            return .rejected
         }
         guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
             canonicalBaseline?.contributionTarget == request.target
@@ -39,7 +62,7 @@ extension BridgePaneController {
             reviewGitRefreshSeedHolder.retire()
             productAdmissionGate.close()
             refreshAdmissionCoordinator.close()
-            return false
+            return .rejected
         }
 
         guard
@@ -48,8 +71,8 @@ extension BridgePaneController {
                 reviewComparisonTargetProjection.update(state: canonicalState)
                 return true
             }) == true
-        else { return false }
-        guard replacedLineage else { return true }
+        else { return .rejected }
+        guard replacedLineage else { return .applied }
         reviewGitRefreshSeedHolder.retire()
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
@@ -62,14 +85,14 @@ extension BridgePaneController {
                 )
                 return true
             }) == true
-        else { return false }
+        else { return .rejected }
         // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
         pendingReviewPackageBuildReasons.insert(.productResync)
         refreshAdmissionCoordinator.advanceAuthority(for: .review)
         retireActiveReviewRefreshTask()
-        scheduleRetainedReviewPackageBuildIfPossible()
-        return true
+        scheduleRetainedReviewPackageBuildIfPossible(admissionInput: .explicitTarget)
+        return .applied
     }
 
     func adoptInitialContributionTargetIfEligible(

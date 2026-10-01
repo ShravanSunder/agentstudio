@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -37,14 +38,20 @@ extension WebKitSerializedTests {
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            admitReviewComparisonIntent(
+                workerDerivationEpoch: 1,
+                controller: controller,
+                productAdmission: productAdmission
+            )
 
             let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
                 BridgeProductReviewComparisonUpdateRequest(target: target),
+                workerDerivationEpoch: 1,
                 productAdmission: productAdmission
             )
 
             #expect(controller.bridgePaneState == canonicalState)
-            #expect(didAdopt)
+            #expect(didAdopt == .applied)
             #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
         }
 
@@ -73,14 +80,173 @@ extension WebKitSerializedTests {
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
 
-            let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
-                BridgeProductReviewComparisonUpdateRequest(target: .branch(name: "stack/base")),
+            admitReviewComparisonIntent(
+                workerDerivationEpoch: 1,
+                controller: controller,
                 productAdmission: productAdmission
             )
 
-            #expect(!didAdopt)
+            let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
+                BridgeProductReviewComparisonUpdateRequest(target: .branch(name: "stack/base")),
+                workerDerivationEpoch: 1,
+                productAdmission: productAdmission
+            )
+
+            #expect(didAdopt == .rejected)
             #expect(!controller.productAdmissionGate.diagnosticSnapshot.isOpen)
             #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .closed)
+        }
+
+        @Test("late completed comparison effect cannot overwrite the latest Review target")
+        func lateCompletedComparisonEffectCannotOverwriteLatestTarget() async throws {
+            let targetA = WorkspaceReviewContributionTarget.branch(name: "review-a")
+            let targetB = WorkspaceReviewContributionTarget.branch(name: "review-b")
+            let mainTarget = WorkspaceReviewContributionTarget.branch(name: "main")
+            let stateA = paneState(for: targetA)
+            let stateB = paneState(for: targetB)
+            let mainState = paneState(for: mainTarget)
+            let comparison = makeComparison()
+            let sourceProvider = makeContributionProvider(comparison: comparison)
+            let controller = makeController(
+                target: targetA,
+                comparison: comparison,
+                provider: sourceProvider,
+                contributionTargetCommit: { target in
+                    if target == targetA { return .applied(stateA) }
+                    if target == targetB { return .applied(stateB) }
+                    if target == mainTarget { return .applied(mainState) }
+                    return .unchanged(mainState)
+                }
+            )
+            let fixture = try await makeBridgeReviewComparisonControlFixture(
+                controller: controller,
+                heldRequestSequences: [2]
+            )
+            defer {
+                fixture.releaseHeldEffect(for: 2)
+                _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
+            }
+            try await fixture.openWorkerSession()
+
+            let effectADispatch = try await fixture.dispatchComparisonUpdate(
+                target: targetA,
+                requestSequence: 2,
+                workerDerivationEpoch: 2
+            )
+            let heldEffect = try await fixture.firstHeldEffect(for: 2)
+            guard case .productCall(.reviewComparisonUpdate(let update)) = heldEffect.effect else {
+                Issue.record("Expected the held completion effect for Review target A")
+                return
+            }
+            #expect(update.target == targetA)
+            #expect(heldEffect.request.correlation.requestSequence == 2)
+            #expect(heldEffect.request.workerDerivationEpoch == 2)
+
+            let effectBDispatch = try await fixture.dispatchComparisonUpdate(
+                target: targetB,
+                requestSequence: 3,
+                workerDerivationEpoch: 3
+            )
+            let effectBResult = try await fixture.readOperationResult(for: effectBDispatch)
+            let mainDispatch = try await fixture.dispatchComparisonUpdate(
+                target: mainTarget,
+                requestSequence: 4,
+                workerDerivationEpoch: 4
+            )
+            let mainResult = try await fixture.readOperationResult(for: mainDispatch)
+            #expect(effectBResult.outcome == .succeeded)
+            #expect(mainResult.outcome == .succeeded)
+            #expect(controller.bridgePaneState == mainState)
+
+            fixture.releaseHeldEffect(for: 2)
+            guard case .response(let effectAAdmissionBytes) = effectADispatch else {
+                Issue.record("Expected the held A operation admission")
+                return
+            }
+            let effectAAdmission = try BridgeProductStrictJSON.decode(
+                BridgeProductOperationAdmittedResponse.self,
+                from: effectAAdmissionBytes
+            )
+            await fixture.session.waitForOperationExecution(operationId: effectAAdmission.operationId)
+            #expect(controller.bridgePaneState == mainState)
+            await fixture.finish()
+        }
+
+        @Test("a newer admitted Review intent fences an older effect while its effect is pending")
+        func newerAdmittedReviewIntentFencesOlderEffectWhilePending() async throws {
+            let lastGoodTarget = WorkspaceReviewContributionTarget.branch(name: "main")
+            let targetA = WorkspaceReviewContributionTarget.branch(name: "review-a")
+            let targetB = WorkspaceReviewContributionTarget.branch(name: "review-b")
+            let mismatchedTarget = WorkspaceReviewContributionTarget.branch(name: "unexpected")
+            let lastGoodState = paneState(for: lastGoodTarget)
+            let stateA = paneState(for: targetA)
+            let mismatchedState = paneState(for: mismatchedTarget)
+            let comparison = makeComparison()
+            let sourceProvider = makeContributionProvider(comparison: comparison)
+            let controller = makeController(
+                target: lastGoodTarget,
+                comparison: comparison,
+                provider: sourceProvider,
+                contributionTargetCommit: { target in
+                    if target == targetA { return .applied(stateA) }
+                    if target == targetB { return .unchanged(mismatchedState) }
+                    return .unchanged(lastGoodState)
+                }
+            )
+            _ = controller.surfaceSelectionAuthority.retainIntent(surface: .review)
+            let fixture = try await makeBridgeReviewComparisonControlFixture(
+                controller: controller,
+                heldRequestSequences: [2, 3]
+            )
+            defer {
+                fixture.releaseAllHeldEffects()
+                _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
+            }
+            try await fixture.openWorkerSession()
+
+            let initialLoadResult = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            guard case .success = initialLoadResult
+            else {
+                Issue.record(
+                    "Expected the last-good Review package before newer intents; got \(String(describing: initialLoadResult))"
+                )
+                return
+            }
+            let lastGoodPackageId = try #require(controller.paneState.diff.packageMetadata?.packageId)
+
+            let effectADispatch = try await fixture.dispatchComparisonUpdate(
+                target: targetA,
+                requestSequence: 2,
+                workerDerivationEpoch: 2
+            )
+            _ = try await fixture.firstHeldEffect(for: 2)
+            let effectBDispatch = try await fixture.dispatchComparisonUpdate(
+                target: targetB,
+                requestSequence: 3,
+                workerDerivationEpoch: 3
+            )
+            let heldEffectB = try await fixture.firstHeldEffect(for: 3)
+            #expect(heldEffectB.request.workerDerivationEpoch == 3)
+
+            fixture.releaseHeldEffect(for: 2)
+            let effectAResult = try await fixture.readOperationResult(for: effectADispatch)
+            #expect(effectAResult.outcome == .succeeded)
+            #expect(controller.bridgePaneState == lastGoodState)
+            #expect(controller.paneState.diff.packageMetadata?.packageId == lastGoodPackageId)
+
+            fixture.releaseHeldEffect(for: 3)
+            guard case .response(let effectBAdmissionBytes) = effectBDispatch else {
+                Issue.record("Expected the held B operation admission")
+                return
+            }
+            let effectBAdmission = try BridgeProductStrictJSON.decode(
+                BridgeProductOperationAdmittedResponse.self,
+                from: effectBAdmissionBytes
+            )
+            await fixture.session.waitForOperationExecution(operationId: effectBAdmission.operationId)
+            #expect(controller.bridgePaneState == lastGoodState)
+            #expect(controller.paneState.diff.packageMetadata?.packageId == lastGoodPackageId)
+            await fixture.finish()
         }
 
         @Test("contribution load publishes pending then exact settled snapshot identity")
@@ -162,16 +328,22 @@ extension WebKitSerializedTests {
                 )
             )
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            admitReviewComparisonIntent(
+                workerDerivationEpoch: 1,
+                controller: controller,
+                productAdmission: productAdmission
+            )
 
             let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
                 BridgeProductReviewComparisonUpdateRequest(target: successorTarget),
+                workerDerivationEpoch: 1,
                 productAdmission: productAdmission
             )
             let pendingPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
             await waitForActiveReviewRefreshTaskToFinish(controller)
             let settledPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
-            #expect(didAdopt)
+            #expect(didAdopt == .applied)
             #expect(controller.nextReviewGeneration == predecessorPackage.reviewGeneration.next())
             #expect(!controller.reviewGitRefreshSeedHolder.hasActiveSeed)
             #expect(pendingPresentation.reviewComparison?.activeTarget == successorTarget)
@@ -208,10 +380,16 @@ extension WebKitSerializedTests {
             _ = try await fixture.consumeQueuedMetadataFrames()
             let contributionCaptureGate = BridgeContributionCaptureGate()
             await fixture.reviewProvider.setContributionCaptureGate(contributionCaptureGate)
+            admitReviewComparisonIntent(
+                workerDerivationEpoch: 1,
+                controller: fixture.controller,
+                productAdmission: fixture.productAdmission
+            )
 
             // Act
             let didAdopt = await fixture.controller.handleCommittedProductReviewComparisonUpdate(
                 BridgeProductReviewComparisonUpdateRequest(target: successorTarget),
+                workerDerivationEpoch: 1,
                 productAdmission: fixture.productAdmission
             )
             await contributionCaptureGate.waitForStart()
@@ -231,7 +409,7 @@ extension WebKitSerializedTests {
                 guard case .panePresentation(let presentation) = frame else { return nil }
                 return presentation
             }
-            #expect(didAdopt)
+            #expect(didAdopt == .applied)
             #expect(
                 pendingPresentations.last?.reviewComparison?.attempt
                     == .pending(reviewGeneration: 2)
@@ -324,10 +502,16 @@ extension WebKitSerializedTests {
             await provider.setRepositoryDefaultTarget(successorDefaultTarget)
             await provider.setDefaultTargetGate(defaultTargetGate)
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            admitReviewComparisonIntent(
+                workerDerivationEpoch: 1,
+                controller: controller,
+                productAdmission: productAdmission
+            )
 
             // Act
             let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
                 BridgeProductReviewComparisonUpdateRequest(target: successorTarget),
+                workerDerivationEpoch: 1,
                 productAdmission: productAdmission
             )
             await defaultTargetGate.waitForStart()
@@ -339,7 +523,7 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
             // Assert
-            #expect(didAdopt)
+            #expect(didAdopt == .applied)
             #expect(
                 pendingPresentation.reviewComparison?.repositoryDefaultTarget
                     == initialDefaultTarget
@@ -404,5 +588,29 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: contributionTargetCommit
             )
         }
+
+        private func paneState(for target: WorkspaceReviewContributionTarget) -> BridgePaneState {
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: "/tmp/worktree",
+                    baseline: WorkspaceBaseline(contributionTarget: target)
+                )
+            )
+        }
+    }
+}
+
+@MainActor
+private func admitReviewComparisonIntent(
+    workerDerivationEpoch: Int,
+    controller: BridgePaneController,
+    productAdmission: BridgeProductAdmissionContext
+) {
+    _ = productAdmission.withValidAdmission {
+        controller.refreshAdmissionCoordinator.workAdmissionSource.admitReviewComparisonIntent(
+            workerDerivationEpoch: workerDerivationEpoch,
+            productAdmission: productAdmission
+        )
     }
 }
