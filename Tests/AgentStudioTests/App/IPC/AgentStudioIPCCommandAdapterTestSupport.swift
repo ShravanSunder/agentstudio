@@ -173,7 +173,7 @@ let retiredPanesOrganizationCommands: [AppCommand] = [
 /// Gives raw-wire adapter tests the existing isolated dispatcher ownership.
 @MainActor
 func withRawCommandAdapterDispatcher<Result>(
-    harness: CommandAdapterHarness, body: () async throws -> Result
+    harness: CommandAdapterHarness, body: @MainActor () async throws -> Result
 ) async throws -> Result {
     try await withIsolatedCommandDispatcher(
         configure: {
