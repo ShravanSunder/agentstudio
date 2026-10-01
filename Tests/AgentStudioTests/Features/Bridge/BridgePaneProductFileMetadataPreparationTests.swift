@@ -17,7 +17,7 @@ struct BridgePaneProductFileMetadataPreparationTests {
             await preparationGate.waitUntilReleased()
             return .empty
         })
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         // Act
         let openTask = Task {
@@ -25,7 +25,7 @@ struct BridgePaneProductFileMetadataPreparationTests {
                 subscription: fixture.openSnapshot(),
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
             }
         }
         await preparationGate.waitUntilStarted()
@@ -52,14 +52,14 @@ struct BridgePaneProductFileMetadataPreparationTests {
             await preparationGate.waitUntilReleased()
             return .empty
         })
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         let openSnapshot = try fixture.openSnapshot()
         let openTask = Task {
             try await source.open(
                 subscription: openSnapshot,
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
             }
         }
         await preparationGate.waitUntilStarted()
@@ -71,7 +71,7 @@ struct BridgePaneProductFileMetadataPreparationTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
         await preparationGate.release()
         try await openTask.value
@@ -97,7 +97,7 @@ struct BridgePaneProductFileMetadataPreparationTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: true
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
             if case .descriptorReady = event,
                 let enrichment = await source.captureKeyedSnapshot(
                     subscriptionId: openSnapshot.subscriptionId, demand: demand,

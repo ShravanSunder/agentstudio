@@ -111,7 +111,7 @@ extension BridgePaneProductFileMetadataSource {
 
     func publishCurrentStatus(
         _ statusResult: GitWorkingTreeStatusResult,
-        emit: BridgePaneProductFileMetadataEventSink,
+        emit: BridgePaneProductFileSourceFactSink,
         productAdmission: BridgeProductAdmissionContext,
         productSource: BridgeProductFileSourceIdentity,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -139,10 +139,7 @@ extension BridgePaneProductFileMetadataSource {
                 )
             else { return }
             try await emit(
-                BridgePaneProductFileMetadataEncoding.statusEvent(
-                    status,
-                    source: productSource
-                )
+                .statusChanged(productSource)
             )
         case .unavailable:
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -161,7 +158,7 @@ extension BridgePaneProductFileMetadataSource {
                 )
             else { return }
             try await emit(
-                .statusPatch(.init(patch: .invalidated, source: productSource))
+                .statusChanged(productSource)
             )
         }
     }

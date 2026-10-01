@@ -44,7 +44,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         openStartCount += 1
         for waiter in startWaiters { waiter.resume(returning: openStartCount) }
@@ -57,8 +57,8 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         guard case .sourceAccepted(let accepted) = sourceEvent else {
             throw CoordinatorFileTestError.unexpectedSourceAcceptedEvent
         }
-        acceptedSource = accepted.source
-        for waiter in acceptanceWaiters { waiter.resume(returning: accepted.source) }
+        acceptedSource = accepted
+        for waiter in acceptanceWaiters { waiter.resume(returning: accepted) }
         acceptanceWaiters.removeAll(keepingCapacity: false)
         if !isOpenReleased {
             try await openCompletionStep.arrive(())
@@ -75,7 +75,7 @@ actor CoordinatorGatedFileMetadataSource: BridgePaneProductFileMetadataProducing
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         updateObservedOpenFinished = didFinishOpen
         updateObservedSourceAccepted = acceptedSource != nil
@@ -187,7 +187,7 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         openCount += 1
         let waiters = openWaiters
@@ -195,17 +195,14 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
         for waiter in waiters { waiter.resume(returning: openCount) }
         try await emit(
             .sourceAccepted(
-                .init(
-                    source: try .init(
-                        repoId: "00000000-0000-4000-8000-000000000001",
-                        rootRevisionToken: "root-token-1",
-                        sourceCursor: "source-cursor-1",
-                        sourceId: "file-source-1",
-                        subscriptionGeneration: 1,
-                        worktreeId: "00000000-0000-4000-8000-000000000002"
-                    )
-                )
-            )
+                try .init(
+                    repoId: "00000000-0000-4000-8000-000000000001",
+                    rootRevisionToken: "root-token-1",
+                    sourceCursor: "source-cursor-1",
+                    sourceId: "file-source-1",
+                    subscriptionGeneration: 1,
+                    worktreeId: "00000000-0000-4000-8000-000000000002"
+                ))
         )
     }
 
@@ -222,7 +219,7 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {}
 
     func cancel(subscriptionId: String) {

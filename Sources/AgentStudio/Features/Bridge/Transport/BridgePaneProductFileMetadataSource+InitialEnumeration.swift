@@ -13,7 +13,7 @@ extension BridgePaneProductFileMetadataSource {
         guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true,
             (request.productAdmission.withValidAdmission { true }) == true
         else { return false }
-        try await request.emit(.sourceAccepted(.init(source: productSource)))
+        try await request.emit(.sourceAccepted(productSource))
         await sourceAcceptedObserver(productSource)
         let constructionLease = try await sharedConstructionBinder.acquire(
             openedSource: request.context.openedSource
@@ -165,15 +165,11 @@ extension BridgePaneProductFileMetadataSource {
         else { return false }
         // The callback recaptures the complete inventory before post-open enrichment.
         try await request.emit(
-            .treeWindow(
-                try .init(
+            .inventoryProgress(
+                .init(
                     finalWindow: true,
-                    lineage: .init(lane: .foreground, loadedBy: .startupWindow),
-                    pathScope: request.pathScope,
-                    rows: [],
-                    source: request.productSource,
-                    startIndex: inventory.records.count,
-                    totalRowCount: inventory.records.count
+                    updatedPaths: [],
+                    source: request.productSource
                 )
             )
         )
@@ -192,21 +188,16 @@ extension BridgePaneProductFileMetadataSource {
                 (request.productAdmission.withValidAdmission { true }) == true
             else { return false }
             try await request.emit(
-                .treeWindow(
-                    try .init(
+                .inventoryProgress(
+                    .init(
                         finalWindow: true,
-                        lineage: .init(lane: .foreground, loadedBy: .startupWindow),
-                        pathScope: request.pathScope,
-                        rows: [],
-                        source: request.productSource,
-                        startIndex: batch.startIndex,
-                        totalRowCount: batch.discoveredRowCount
+                        updatedPaths: [],
+                        source: request.productSource
                     )
                 )
             )
             return true
         }
-        var emittedRowCount = 0
         for (chunkIndex, rows) in rowChunks.enumerated() {
             let isLastChunk = chunkIndex + 1 == rowChunks.count
             guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true,
@@ -215,21 +206,14 @@ extension BridgePaneProductFileMetadataSource {
                 return false
             }
             try await request.emit(
-                .treeWindow(
-                    try .init(
+                .inventoryProgress(
+                    .init(
                         finalWindow: batch.isFinalWindow && isLastChunk,
-                        lineage: .init(lane: .foreground, loadedBy: .startupWindow),
-                        pathScope: request.pathScope,
-                        rows: rows,
-                        source: request.productSource,
-                        startIndex: batch.startIndex + emittedRowCount,
-                        totalRowCount: batch.isFinalWindow && isLastChunk
-                            ? batch.discoveredRowCount
-                            : nil
+                        updatedPaths: Set(rows.map(\.path)),
+                        source: request.productSource
                     )
                 )
             )
-            emittedRowCount += rows.count
         }
         return true
     }

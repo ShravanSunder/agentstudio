@@ -54,7 +54,7 @@ struct BridgePaneProductFileSharedConstructionTests {
             constructionCoordinator: coordinator,
             snapshotPreparationLoader: preparationProbe.load
         )
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         let subscription = try fixture.openSnapshot()
 
         // Act
@@ -62,7 +62,7 @@ struct BridgePaneProductFileSharedConstructionTests {
             subscription: subscription,
             productAdmission: fixture.productAdmission.context
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         // Assert
@@ -70,7 +70,7 @@ struct BridgePaneProductFileSharedConstructionTests {
         #expect(windows.count == 1)
         #expect(windows[0].finalWindow)
         #expect(windows[0].rows.isEmpty)
-        #expect(windows[0].totalRowCount == 0)
+        #expect(windows[0].inventoryRowCount == 0)
         await source.cancel(subscriptionId: subscription.subscriptionId)
         await assertSharedFileConstructionDrained(coordinator)
     }
@@ -92,8 +92,8 @@ struct BridgePaneProductFileSharedConstructionTests {
             constructionCoordinator: coordinator,
             snapshotPreparationLoader: preparationProbe.load
         )
-        let firstCollector = ProductFileMetadataEventCollector()
-        let secondCollector = ProductFileMetadataEventCollector()
+        let firstCollector = ProductFileSourceFactCollector()
+        let secondCollector = ProductFileSourceFactCollector()
         let subscription = try fixture.openSnapshot()
 
         // Act
@@ -101,13 +101,13 @@ struct BridgePaneProductFileSharedConstructionTests {
             subscription: subscription,
             productAdmission: fixture.productAdmission.context
         ) { event in
-            await firstCollector.append(event)
+            await firstCollector.append(event, source: firstSource)
         }
         async let secondOpen: Void = secondSource.open(
             subscription: subscription,
             productAdmission: fixture.productAdmission.context
         ) { event in
-            await secondCollector.append(event)
+            await secondCollector.append(event, source: secondSource)
         }
         _ = try await (firstOpen, secondOpen)
 
@@ -151,14 +151,14 @@ struct BridgePaneProductFileSharedConstructionTests {
             snapshotPreparationLoader: preparationProbe.load,
             sharedSnapshotBuilder: buildGate.build
         )
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         let openSnapshot = try fixture.openSnapshot()
         let openTask = Task {
             try await source.open(
                 subscription: openSnapshot,
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
                 if case .descriptorReady = event {
                     await descriptorReadyGate.markStarted()
                 }
@@ -171,7 +171,7 @@ struct BridgePaneProductFileSharedConstructionTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         // Act
@@ -196,7 +196,7 @@ struct BridgePaneProductFileSharedConstructionTests {
         )
         #expect(
             eventsBeforeFinalWindow.contains {
-                if case .statusPatch = $0 { true } else { false }
+                if case .statusChanged = $0 { true } else { false }
             }
         )
         #expect(completedBuildsBeforeFinalWindow == 0)
@@ -204,10 +204,10 @@ struct BridgePaneProductFileSharedConstructionTests {
         let completedTreeWindows = completedEvents.fileTreeWindows
         #expect(completedTreeWindows.count == 2)
         #expect(completedTreeWindows.last?.finalWindow == true)
-        #expect(completedTreeWindows.last?.totalRowCount == 300)
+        #expect(completedTreeWindows.last?.inventoryRowCount == 300)
         #expect(
             completedEvents.filter {
-                if case .statusPatch = $0 { true } else { false }
+                if case .statusChanged = $0 { true } else { false }
             }.count == 1
         )
         await source.cancel(subscriptionId: openSnapshot.subscriptionId)
@@ -235,15 +235,15 @@ struct BridgePaneProductFileSharedConstructionTests {
             snapshotPreparationLoader: preparationProbe.load,
             sharedSnapshotBuilder: buildGate.build
         )
-        let firstCollector = ProductFileMetadataEventCollector()
-        let lateCollector = ProductFileMetadataEventCollector()
+        let firstCollector = ProductFileSourceFactCollector()
+        let lateCollector = ProductFileSourceFactCollector()
         let subscription = try fixture.openSnapshot()
         let firstOpen = Task {
             try await firstSource.open(
                 subscription: subscription,
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                await firstCollector.append(event)
+                await firstCollector.append(event, source: firstSource)
             }
         }
         await buildGate.waitUntilFirstWindowPublished()
@@ -255,10 +255,10 @@ struct BridgePaneProductFileSharedConstructionTests {
                 subscription: subscription,
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                if case .treeWindow = event {
+                if case .inventoryProgress = event {
                     await lateDeliveryGate.pauseFirstWindowDelivery()
                 }
-                await lateCollector.append(event)
+                await lateCollector.append(event, source: lateSource)
             }
         }
         await lateDeliveryGate.waitUntilPaused()
@@ -426,18 +426,18 @@ private actor SharedFilePaneDeliveryGate {
     }
 }
 
-extension Array where Element == BridgeProductFileMetadataEvent {
+extension Array where Element == ProductFileSourceObservation {
     fileprivate var firstFileSourceIdentity: BridgeProductFileSourceIdentity? {
         compactMap(\.sourceForTest).first
     }
 
     fileprivate var fileTreePaths: [String] {
-        flatMap(\.treeWindowRowsForTest).map(\.path)
+        flatMap(\.inventoryProgressRowsForTest).map(\.path)
     }
 
-    fileprivate var fileTreeWindows: [BridgeProductFileTreeWindowEvent] {
+    fileprivate var fileTreeWindows: [ProductFileInventoryObservation] {
         compactMap { event in
-            guard case .treeWindow(let window) = event else { return nil }
+            guard case .inventoryProgress(let window) = event else { return nil }
             return window
         }
     }

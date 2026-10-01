@@ -11,7 +11,7 @@ struct BridgePaneProductFileSourceAuthority: Sendable {
 }
 
 struct BridgePaneProductFileMetadataEmission: Sendable {
-    let event: BridgeProductFileMetadataEvent
+    let fact: BridgePaneProductFileSourceFact
     let subscriptionId: String
 }
 
@@ -22,8 +22,8 @@ struct BridgePaneProductFileViewDemand: Equatable, Sendable {
     let state: BridgeProductFileMetadataInterestState
 }
 
-typealias BridgePaneProductFileMetadataEventSink =
-    @Sendable (BridgeProductFileMetadataEvent) async throws -> Void
+typealias BridgePaneProductFileSourceFactSink =
+    @Sendable (BridgePaneProductFileSourceFact) async throws -> Void
 
 typealias BridgePaneProductFileSourceAcceptedObserver =
     @Sendable (BridgeProductFileSourceIdentity) async -> Void
@@ -62,7 +62,7 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws
     func applyViewDemand(
         subscriptionId: String,
@@ -70,7 +70,7 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         forceRecapture: Bool,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws
     func cancel(subscriptionId: String) async
     func publish(
@@ -160,7 +160,7 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         throw BridgePaneProductFileMetadataSourceError.unavailableAuthority
     }
@@ -171,7 +171,7 @@ actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetad
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         throw BridgePaneProductFileMetadataSourceError.unavailableAuthority
     }

@@ -21,7 +21,7 @@ extension BridgePaneProductFileMetadataSourceTests {
             subscription: openSnapshot,
             productAdmission: fixture.productAdmission.context
         ) { _ in }
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         let updateTask = Task {
             try await source.applyViewDemand(
                 subscriptionId: openSnapshot.subscriptionId,
@@ -29,7 +29,7 @@ extension BridgePaneProductFileMetadataSourceTests {
                 productAdmission: fixture.productAdmission.context,
                 forceRecapture: false
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
             }
         }
         await materializationGate.waitUntilStarted()
@@ -68,14 +68,14 @@ extension BridgePaneProductFileMetadataSourceTests {
             subscription: openSnapshot,
             productAdmission: fixture.productAdmission.context
         ) { _ in }
-        let descriptorCollector = ProductFileMetadataEventCollector()
+        let descriptorCollector = ProductFileSourceFactCollector()
         try await source.applyViewDemand(
             subscriptionId: openSnapshot.subscriptionId,
             demand: fixture.viewDemand(),
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await descriptorCollector.append(event)
+            await descriptorCollector.append(event, source: source)
         }
         let baselineSnapshot = await source.diagnosticSnapshot()
         let addedPath = "Added.swift"

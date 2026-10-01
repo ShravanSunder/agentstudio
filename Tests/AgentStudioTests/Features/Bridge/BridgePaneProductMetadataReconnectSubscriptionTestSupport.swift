@@ -124,7 +124,7 @@ actor ReconnectFileMetadataSource: BridgePaneProductFileMetadataProducing {
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         openCallCount += 1
         activeSubscriptionIds.insert(subscription.subscriptionId)
@@ -140,7 +140,7 @@ actor ReconnectFileMetadataSource: BridgePaneProductFileMetadataProducing {
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         guard activeSubscriptionIds.contains(subscriptionId) else { return }
         acceptedViewHandle = demand.handle
@@ -170,7 +170,7 @@ actor ReconnectFileMetadataSource: BridgePaneProductFileMetadataProducing {
         publicationCallCount += 1
         return try activeSubscriptionIds.sorted().map { subscriptionId in
             BridgePaneProductFileMetadataEmission(
-                event: try reconnectFileSourceAcceptedEvent(cursor: "post-reconnect"),
+                fact: try reconnectFileSourceAcceptedEvent(cursor: "post-reconnect"),
                 subscriptionId: subscriptionId
             )
         }
@@ -437,19 +437,16 @@ func reconnectResyncRequest(
 
 func reconnectFileSourceAcceptedEvent(
     cursor: String
-) throws -> BridgeProductFileMetadataEvent {
+) throws -> BridgePaneProductFileSourceFact {
     .sourceAccepted(
-        .init(
-            source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
-                rootRevisionToken: "root-token-reconnect",
-                sourceCursor: "source-cursor-\(cursor)",
-                sourceId: "file-source-reconnect",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
-            )
-        )
-    )
+        try .init(
+            repoId: "00000000-0000-4000-8000-000000000001",
+            rootRevisionToken: "root-token-reconnect",
+            sourceCursor: "source-cursor-\(cursor)",
+            sourceId: "file-source-reconnect",
+            subscriptionGeneration: 1,
+            worktreeId: "00000000-0000-4000-8000-000000000002"
+        ))
 }
 
 func reconnectFileChangeset() throws -> FileChangeset {

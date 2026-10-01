@@ -386,7 +386,7 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         await metadataProducerGate?.holdIgnoringCancellation()
     }
@@ -397,7 +397,7 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {}
 
     func cancel(subscriptionId _: String) {}
@@ -853,19 +853,16 @@ private func refreshAdmissionReviewSubscriptionOpenRequest(
     ])
 }
 
-func refreshAdmissionFileSourceAcceptedEvent() throws -> BridgeProductFileMetadataEvent {
+func refreshAdmissionFileSourceAcceptedEvent() throws -> BridgePaneProductFileSourceFact {
     .sourceAccepted(
-        .init(
-            source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
-                rootRevisionToken: "root-token-refresh-admission",
-                sourceCursor: "source-cursor-refresh-admission",
-                sourceId: "file-source-refresh-admission",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
-            )
-        )
-    )
+        try .init(
+            repoId: "00000000-0000-4000-8000-000000000001",
+            rootRevisionToken: "root-token-refresh-admission",
+            sourceCursor: "source-cursor-refresh-admission",
+            sourceId: "file-source-refresh-admission",
+            subscriptionGeneration: 1,
+            worktreeId: "00000000-0000-4000-8000-000000000002"
+        ))
 }
 
 func waitForRefreshAdmissionQueuedMetadataFrame(

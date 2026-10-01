@@ -21,7 +21,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     }
 
     struct DescriptorReconciliationRequest: Sendable {
-        let emit: BridgePaneProductFileMetadataEventSink
+        let emit: BridgePaneProductFileSourceFactSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
         let productAdmission: BridgeProductAdmissionContext
         let productSource: BridgeProductFileSourceIdentity
@@ -33,7 +33,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
 
     struct InstalledContextBootstrapRequest: Sendable {
         let context: SubscriptionContext
-        let emit: BridgePaneProductFileMetadataEventSink
+        let emit: BridgePaneProductFileSourceFactSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
         let pathScope: [String]
         let productAdmission: BridgeProductAdmissionContext
@@ -43,7 +43,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     }
 
     struct InitialTreeEnumerationRequest: Sendable {
-        let emit: BridgePaneProductFileMetadataEventSink
+        let emit: BridgePaneProductFileSourceFactSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
         let manifestIndex: BridgeWorktreeFileManifestIndex
         let openedSource: BridgeWorktreeFileOpenedSource
@@ -55,7 +55,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
 
     struct RefreshedTreeDeltaRequest: Sendable {
         let demandedPaths: [String: BridgeProductDemandLane]
-        let emit: BridgePaneProductFileMetadataEventSink
+        let emit: BridgePaneProductFileSourceFactSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
         let productAdmission: BridgeProductAdmissionContext
         let productSource: BridgeProductFileSourceIdentity
@@ -66,7 +66,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     }
 
     struct DescriptorUnavailablePathInvalidationRequest: Sendable {
-        let emit: BridgePaneProductFileMetadataEventSink
+        let emit: BridgePaneProductFileSourceFactSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
         let paths: Set<String>
         let productAdmission: BridgeProductAdmissionContext
@@ -226,7 +226,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         try Task.checkCancellation()
         guard let sourceSpec = subscription.subscription.fileMetadataSource else {
@@ -306,10 +306,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             else { continue }
             emissions.append(
                 .init(
-                    event: BridgePaneProductFileMetadataEncoding.statusEvent(
-                        status,
-                        source: context.productSource
-                    ),
+                    fact: .statusChanged(context.productSource),
                     subscriptionId: subscriptionId
                 )
             )
@@ -493,7 +490,7 @@ extension BridgePaneProductFileMetadataSource {
             return false
         }
         do {
-            try await request.emit(.descriptorReady(.init(payload: materialized.payload)))
+            try await request.emit(.descriptorReady(materialized.payload))
         } catch {
             rollbackDescriptorInterest(commit, for: row, request: request)
             throw error

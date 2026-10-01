@@ -172,7 +172,7 @@ extension BridgePaneProductFileMetadataSource {
         guard request.foregroundWorkAdmission.withValidAdmission({ true }) == true,
             (request.productAdmission.withValidAdmission { true }) == true
         else { return nil }
-        var emissions = try BridgePaneProductFileMetadataEncoding.treeDeltaEmissions(
+        var emissions = try BridgePaneProductFileMetadataEncoding.inventoryChangeEmissions(
             refreshed: request.refreshed,
             removedRows: request.removedRows,
             source: request.productSource,
@@ -212,7 +212,7 @@ extension BridgePaneProductFileMetadataSource {
                 }
                 // Tree deltas cover unmaterialized paths; a null ID would reset every descriptor.
                 return .init(
-                    event: .invalidated(
+                    fact: .invalidated(
                         try .init(
                             fileId: previousDescriptor.fileId,
                             path: path,
@@ -226,22 +226,11 @@ extension BridgePaneProductFileMetadataSource {
             }
         guard (request.productAdmission.withValidAdmission { true }) == true else { return nil }
         emissions.append(contentsOf: invalidationEmissions)
-        if let gitStatusResult = request.gitStatusResult {
-            let statusEvent: BridgeProductFileMetadataEvent
-            switch gitStatusResult {
-            case .available(let status):
-                statusEvent = BridgePaneProductFileMetadataEncoding.statusEvent(
-                    status,
-                    source: request.productSource
-                )
-            case .unavailable:
-                statusEvent = .statusPatch(
-                    .init(patch: .invalidated, source: request.productSource)
-                )
-            }
+        if request.gitStatusResult != nil {
+            let statusEvent = BridgePaneProductFileSourceFact.statusChanged(request.productSource)
             emissions.append(
                 .init(
-                    event: statusEvent,
+                    fact: statusEvent,
                     subscriptionId: request.subscriptionId
                 )
             )
