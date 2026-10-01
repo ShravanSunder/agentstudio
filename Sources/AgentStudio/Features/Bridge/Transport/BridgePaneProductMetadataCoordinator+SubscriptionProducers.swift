@@ -234,10 +234,27 @@ extension BridgePaneProductMetadataCoordinator {
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission
         ) { _ in
-            _ = try? await self.publishFileViewSnapshot(
+            _ = try await self.publishFileViewCapture(
                 subscriptionId: subscription.subscriptionId,
                 productAdmission: productAdmission
             )
+            guard
+                let view = await activeStream.session.acceptedViewScope(
+                    subscriptionId: subscription.subscriptionId),
+                let demand = try? BridgeProductViewScopeContract.fileDemand(from: view.scope),
+                let capture = await self.fileMetadataSource.captureKeyedSnapshot(
+                    subscriptionId: subscription.subscriptionId,
+                    demand: .init(
+                        admissionSequence: view.admissionSequence, handle: view.handle,
+                        scopeRevision: view.revision, state: demand),
+                    productAdmission: productAdmission), capture.isEnumerationComplete
+            else { return }
+            switch await activeStream.session.awaitViewEmissionCompletion(for: view.viewDomain, handle: view.handle) {
+            case .completed:
+                return
+            case .resnapshotRequired, .retired:
+                throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
+            }
         }
     }
 

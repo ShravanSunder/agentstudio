@@ -106,6 +106,14 @@ describe('Bridge viewer typed product File worktree data', () => {
 			join(bridgeDevelopmentServerWorktreeRootPath, 'fixture.txt'),
 			'bounded fixture content\n',
 		);
+		// A coverage window and its certificate must cross credit boundaries;
+		// a tiny inventory can arrive together and hide early coverage settlement.
+		const fixtureRoot = bridgeDevelopmentServerWorktreeRootPath;
+		await Promise.all(
+			Array.from({ length: 300 }, (_, index) =>
+				writeFile(join(fixtureRoot, `window-${index}.txt`), 'progressive inventory\n'),
+			),
+		);
 		await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, ['init', '--initial-branch=main']);
 		await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
 			'config',

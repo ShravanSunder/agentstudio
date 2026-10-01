@@ -565,9 +565,10 @@ private func sealDeadlineTestBatch(
         absenceFloorRevisionByRange: [:]
     )
     #expect(
-        try await harness.session.sealFileSnapshot(
+        try await harness.session.sealFileCapture(
             subscriptionId: view.subscriptionId,
             snapshot: snapshot,
+            scope: try #require(await harness.session.acceptedViewScope(subscriptionId: view.subscriptionId)),
             productAdmission: harness.productAdmission.context
         )
     )

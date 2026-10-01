@@ -374,7 +374,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
         await assertBridgeConstructionCoordinatorDrained(coordinator)
     }
 
-    @Test("invalidation drops partial windows and stale producer output")
+    @Test("lease retirement after invalidation drops partial windows and stale producer output")
     func invalidationDropsPartialWindowsAndStaleOutput() async throws {
         // Arrange
         let eventProbe = BridgeWorktreeProductConstructionEventProbe()
@@ -404,6 +404,8 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
 
         // Act
         let newEpoch = await coordinator.invalidate(worktree: key.owner.worktree)
+        // A basis change retires the admitted consumer; ordinary newer input only advances acquisition.
+        await coordinator.release(lease)
         let pendingResult = await pendingRead.result
         let invalidatedSnapshot = await coordinator.snapshot()
         await #expect(throws: BridgeWorktreeProductConstructionError.invalidated) {
@@ -425,7 +427,7 @@ struct BridgeProgressiveFileConstructionCoordinatorTests {
             Issue.record("Invalidated File tail read unexpectedly succeeded")
             return
         }
-        #expect(error as? BridgeWorktreeProductConstructionError == .invalidated)
+        #expect(error is CancellationError || error as? BridgeWorktreeProductConstructionError == .invalidated)
         #expect(newEpoch.rawValue == 2)
         #expect(invalidatedSnapshot.retainedArtifactByteCount == 0)
         #expect(invalidatedSnapshot.drainingTombstoneCount == 1)

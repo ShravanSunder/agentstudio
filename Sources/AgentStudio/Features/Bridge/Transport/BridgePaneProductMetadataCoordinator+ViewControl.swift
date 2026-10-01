@@ -15,7 +15,7 @@ extension BridgePaneProductMetadataCoordinator {
         }
     }
 
-    func publishFileViewSnapshot(
+    func publishFileViewCapture(
         subscriptionId: String,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> Bool {
@@ -38,9 +38,10 @@ extension BridgePaneProductMetadataCoordinator {
             await stream.session.acceptedViewScope(subscriptionId: subscriptionId)?.revision == acceptedScope.revision,
             activeStream?.lease == stream.lease
         else { return false }
-        return try await stream.session.sealFileSnapshot(
+        return try await stream.session.sealFileCapture(
             subscriptionId: subscriptionId,
             snapshot: snapshot,
+            scope: acceptedScope,
             productAdmission: productAdmission
         )
     }
@@ -162,12 +163,12 @@ extension BridgePaneProductMetadataCoordinator {
             foregroundWorkAdmission: foregroundWorkAdmission,
             forceRecapture: forceRecapture
         ) { _ in
-            _ = try await self.publishFileViewSnapshot(
+            _ = try await self.publishFileViewCapture(
                 subscriptionId: subscriptionId,
                 productAdmission: productAdmission
             )
         }
-        _ = try? await publishFileViewSnapshot(
+        _ = try? await publishFileViewCapture(
             subscriptionId: subscriptionId,
             productAdmission: productAdmission
         )

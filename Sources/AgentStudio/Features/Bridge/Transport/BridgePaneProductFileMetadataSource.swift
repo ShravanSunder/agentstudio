@@ -15,6 +15,9 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         var viewDemand: BridgePaneProductFileViewDemand?
         var canonicalPathScope: [String]
         var demandGeneration: Int
+        var initialEnumerationInFlight = true
+        var deferredChangedPaths: Set<String> = []
+        var deferredStatusResult: GitWorkingTreeStatusResult?
     }
 
     struct DescriptorReconciliationRequest: Sendable {
@@ -278,6 +281,12 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     ) async -> [BridgePaneProductFileMetadataEmission] {
         var emissions: [BridgePaneProductFileMetadataEmission] = []
         for subscriptionId in contextBySubscriptionId.keys.sorted() {
+            if deferFileChanges(
+                subscriptionId: subscriptionId, changedPaths: [], statusResult: .available(status),
+                productAdmission: productAdmission, foregroundWorkAdmission: foregroundWorkAdmission)
+            {
+                continue
+            }
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 productAdmission.withValidAdmission({ true }) == true,
                 let context = contextBySubscriptionId[subscriptionId],
