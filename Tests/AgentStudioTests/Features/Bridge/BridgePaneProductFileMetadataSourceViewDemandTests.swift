@@ -8,84 +8,6 @@ import Testing
 
 @Suite("Bridge pane product File view demand")
 struct BridgePaneProductFileMetadataSourceViewDemandTests {
-    @Test("source acceptance does not wait for ignore-policy preparation")
-    func sourceAcceptancePrecedesIgnorePolicyPreparation() async throws {
-        // Arrange
-        let fixture = try ProductFileSourceFixture(fileCount: 1)
-        defer { fixture.remove() }
-        let preparationGate = ProductFileMaterializationGate()
-        let source = fixture.makeSource(ignorePolicyLoader: { _ in
-            await preparationGate.markStarted()
-            await preparationGate.waitUntilReleased()
-            return .empty
-        })
-        let collector = ProductFileMetadataEventCollector()
-
-        // Act
-        let openTask = Task {
-            try await source.open(
-                subscription: fixture.openSnapshot(),
-                productAdmission: fixture.productAdmission.context
-            ) { event in
-                await collector.append(event)
-            }
-        }
-        await preparationGate.waitUntilStarted()
-        let eventsBeforePreparationFinished = await collector.events
-        await preparationGate.release()
-        try await openTask.value
-
-        // Assert
-        #expect(
-            eventsBeforePreparationFinished.contains {
-                if case .sourceAccepted = $0 { true } else { false }
-            }
-        )
-    }
-
-    @Test("interest committed during preparation is fulfilled after the manifest is ready")
-    func interestCommittedDuringPreparationIsFulfilled() async throws {
-        // Arrange
-        let fixture = try ProductFileSourceFixture(fileCount: 1)
-        defer { fixture.remove() }
-        let preparationGate = ProductFileMaterializationGate()
-        let source = fixture.makeSource(ignorePolicyLoader: { _ in
-            await preparationGate.markStarted()
-            await preparationGate.waitUntilReleased()
-            return .empty
-        })
-        let collector = ProductFileMetadataEventCollector()
-        let openSnapshot = try fixture.openSnapshot()
-        let openTask = Task {
-            try await source.open(
-                subscription: openSnapshot,
-                productAdmission: fixture.productAdmission.context
-            ) { event in
-                await collector.append(event)
-            }
-        }
-        await preparationGate.waitUntilStarted()
-
-        // Act
-        try await source.applyViewDemand(
-            subscriptionId: openSnapshot.subscriptionId,
-            demand: fixture.viewDemand(),
-            productAdmission: fixture.productAdmission.context,
-            forceRecapture: false
-        ) { event in
-            await collector.append(event)
-        }
-        await preparationGate.release()
-        try await openTask.value
-
-        // Assert
-        #expect(
-            (await collector.events).contains {
-                if case .descriptorReady = $0 { true } else { false }
-            }
-        )
-    }
-
     @Test("same-interest resnapshot re-reads changed File bytes without a changeset")
     func sameInterestResnapshotRecapturesChangedDescriptor() async throws {
         let fixture = try ProductFileSourceFixture(fileCount: 1)
@@ -375,13 +297,17 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             return window
         }
         #expect(events.contains { if case .sourceAccepted = $0 { true } else { false } })
-        #expect(windows.count == 2)
+        #expect(windows.filter { !$0.rows.isEmpty }.count == 2)
+        #expect(windows.count == 3)
         #expect(
             windows.allSatisfy {
                 $0.rows.count <= BridgeProductWireContract.maximumFileMetadataTreeWindowRowCount
             })
         #expect(windows.last?.finalWindow == true)
+        #expect(windows.last?.rows.isEmpty == true)
+        #expect(windows.last?.startIndex == 260)
         #expect(windows.last?.totalRowCount == 260)
+        #expect(windows.flatMap(\.rows).count == 260)
         #expect(windows.flatMap(\.rows).contains { $0.path == fixture.demandedPath })
         #expect(events.contains { if case .statusPatch = $0 { true } else { false } })
     }

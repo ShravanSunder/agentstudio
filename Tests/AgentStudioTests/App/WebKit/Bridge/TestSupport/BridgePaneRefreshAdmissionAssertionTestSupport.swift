@@ -181,6 +181,7 @@ func sealRefreshAdmissionFileProofBatch(
         throw RefreshAdmissionIntegrationError.expectedMetadataFrame
     }
     let snapshot = BridgeWorktreeFileKeyedSnapshot(
+        isEnumerationComplete: true,
         memberStatus: .init(
             record: BridgeProductFileMemberStatusRecord(source: accepted.source),
             revision: 1

@@ -177,6 +177,7 @@ export function makeReviewTestBatch(props: {
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Review batch begin missing.');
 	return {
 		certified: true,
+		staleRecords: [],
 		begin,
 		domain: 'default',
 		records: [

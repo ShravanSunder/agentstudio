@@ -9,7 +9,7 @@ struct BridgeProductFileViewSnapshotInput: Sendable {
     let snapshot: BridgeWorktreeFileKeyedSnapshot
 }
 
-/// Freezes the index's canonical keys and revisions into one certified File snapshot.
+/// Freezes known keys as coverage until enumeration can certify the complete inventory.
 enum BridgeProductFileViewBatchFactory {
     static func sealSnapshot(_ input: BridgeProductFileViewSnapshotInput) throws -> BridgeProductSealedViewBatch {
         var parts: [BridgeProductBatchPart] = []
@@ -42,7 +42,7 @@ enum BridgeProductFileViewBatchFactory {
             scopeRevision: input.scopeRevision,
             baseRevision: 0,
             targetRevision: input.snapshot.targetRevision,
-            mode: .snapshot,
+            mode: input.snapshot.isEnumerationComplete ? .snapshot : .coverage,
             scope: input.scope,
             coveredScope: input.scope,
             requiresCollection: nil,
