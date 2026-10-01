@@ -202,7 +202,7 @@ package final class SurfaceManager {
     /// trace. Extracted as a pure function so its redaction is a behavioral
     /// unit-test assertion, not a source-text match that a differently
     /// spelled regression could still pass.
-    static func createSurfaceTraceMessage(metadata: SurfaceMetadata) -> String {
+    nonisolated static func createSurfaceTraceMessage(metadata: SurfaceMetadata) -> String {
         "SurfaceManager.createSurface begin pane=\(metadata.paneId?.uuidString ?? "nil") title=\(metadata.title) cwd=\(metadata.cwd?.path ?? "nil") cmdPresent=\(metadata.command != nil) cmdLength=\(metadata.command?.count ?? 0)"
     }
 
