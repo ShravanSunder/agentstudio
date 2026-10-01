@@ -32,6 +32,7 @@ package enum ScrollbackSnapshotDisposition: Equatable, Sendable {
 }
 
 package enum ScrollbackSnapshotterFact: Equatable, Sendable {
+    case firstFrameGateWaiting
     case firstFrameGatePassed
     case scheduled
     case passStarted(ScrollbackPassReason)

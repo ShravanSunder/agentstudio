@@ -70,6 +70,8 @@ final class WorkspaceSurfaceCoordinator {
 
     let store: WorkspaceStore
     var paneActivityClock: PaneActivityClock?
+    /// S3 compile-only reference; retirement forwarding is not wired yet.
+    var scrollbackSnapshotter: ScrollbackSnapshotter?
     let undoClock: @Sendable () async throws -> WorkspaceUndoJournalTime
     let undoDelay: AsyncDelay
     let undoDeadlineWakeups = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

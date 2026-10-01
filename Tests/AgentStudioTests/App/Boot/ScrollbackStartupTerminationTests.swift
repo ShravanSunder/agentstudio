@@ -26,6 +26,7 @@ struct ScrollbackStartupTerminationTests {
             paneBindings: { [] }, capture: { _ in .empty }, factSink: source.sink)
         try await withSnapshotter(snapshotter, recorder: recorder, root: root) {
             async let startup = startScrollbackAfterFirstFrame(windowLifecycleStore: window, snapshotter: snapshotter)
+            try await recorder.expectNext(in: .scheduler, .firstFrameGateWaiting)
             await frameClock.waitForPendingSleepCount(atLeast: 1)
             captureClock.advance(by: AppPolicies.Restore.captureInterval)
             window.recordFirstInteractiveFramePublished(source: .presented)
