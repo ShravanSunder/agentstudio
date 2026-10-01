@@ -153,20 +153,47 @@ print_closing_lane_report() {
 # these, bash runs the EXIT trap after a fatal signal with `$?` still holding the
 # last completed command's status, and a SIGTERMed lane printed
 # `exit_status=0 verdict=pass`.
+# These handlers also run in receipt fixtures that do not source the process-group
+# helpers, so group forwarding is optional and every cleanup must leave slot release reachable.
 trap_lane_termination_signals() {
-  trap 'swift_test_signal_active_command_groups HUP; swift_test_terminate_active_isolated_suites; exit 129' HUP
-  trap 'swift_test_signal_active_command_groups INT; swift_test_terminate_active_isolated_suites; exit 130' INT
-  trap 'swift_test_signal_active_command_groups TERM; swift_test_terminate_active_isolated_suites; exit 143' TERM
+  trap '
+    if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+      swift_test_signal_active_command_groups HUP || true
+    fi
+    swift_test_terminate_active_isolated_suites || true
+    exit 129
+  ' HUP
+  trap '
+    if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+      swift_test_signal_active_command_groups INT || true
+    fi
+    swift_test_terminate_active_isolated_suites || true
+    exit 130
+  ' INT
+  trap '
+    if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+      swift_test_signal_active_command_groups TERM || true
+    fi
+    swift_test_terminate_active_isolated_suites || true
+    exit 143
+  ' TERM
 }
 
 # The invocation's single EXIT handler owns the lane receipt and slot release.
 finish_lane_invocation() {
   local exit_status=$?
-  swift_test_signal_active_command_groups TERM
-  swift_test_terminate_active_isolated_suites
-  swift_test_signal_active_command_groups KILL
+  # Optional group helpers and cleanup failures must never prevent the slot release.
+  if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+    swift_test_signal_active_command_groups TERM || true
+  fi
+  swift_test_terminate_active_isolated_suites || true
+  if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+    swift_test_signal_active_command_groups KILL || true
+  fi
   print_closing_lane_report "$exit_status" || true
-  swift_test_cleanup_active_command_groups_directory
+  if declare -F swift_test_cleanup_active_command_groups_directory >/dev/null 2>&1; then
+    swift_test_cleanup_active_command_groups_directory || true
+  fi
   swift_build_slot_release || true
   return "$exit_status"
 }
