@@ -21,10 +21,13 @@ struct SwiftLaneReapingTests {
             #!/bin/bash
             set -eu
             trap '' TERM
+            printf 'CHILD_ARGS=<%s>|<%s>|<%s>|<%s>\n' "${1-}" "${2-}" "${3-}" "${4-}"
+            release_path="${4-}"
+            if [ -e "$release_path" ]; then echo CHILD_RELEASE_EXISTS=yes; else echo CHILD_RELEASE_EXISTS=no; fi
+            if [ -p "$release_path" ]; then echo CHILD_RELEASE_IS_FIFO=yes; else echo CHILD_RELEASE_IS_FIFO=no; fi
             child_pid_file="$1"
             lock_path="$2"
             arm_path="$3"
-            release_path="$4"
             printf '%s\n' "$$" >"$child_pid_file"
             exec /usr/bin/perl -MFcntl=:flock -e '
               $| = 1;
@@ -34,6 +37,9 @@ struct SwiftLaneReapingTests {
               print "LOCK_HELD\n";
               open(my $arm, ">", $arm_path) or die $!;
               close($arm) or die $!;
+              my $release_exists = -e $release_path ? "yes" : "no";
+              my $release_is_fifo = -p $release_path ? "yes" : "no";
+              print "PERL_RELEASE_PATH=<$release_path> EXISTS=$release_exists FIFO=$release_is_fifo\n";
               open(my $release, "<", $release_path) or die $!;
               <$release>;
               # The shell's inherited ignored disposition protects this blocked handler setup.
@@ -47,7 +53,10 @@ struct SwiftLaneReapingTests {
                 + "printf '#!/bin/sh\\nexit 126\\n' >'\(workDirectory)/bin/ps'; "
                 + "printf '#!/bin/sh\\nexit 3\\n' >'\(workDirectory)/bin/pgrep'; "
                 + "chmod +x '\(workDirectory)/bin/ps' '\(workDirectory)/bin/pgrep'; "
-                + "mkfifo '\(childReleasePath)'; "
+                + "mkfifo '\(childReleasePath)'; mkfifo_status=$?; "
+                + "echo MKFIFO_STATUS=$mkfifo_status; "
+                + "if [ -p '\(childReleasePath)' ]; then echo RELEASE_IS_FIFO_BEFORE=yes; "
+                + "else echo RELEASE_IS_FIFO_BEFORE=no; fi; "
                 + "PATH='\(workDirectory)/bin':\"$PATH\"; export PATH; "
                 + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
                 + "LANE_WATCHDOG_ARM_PATH='\(watchdogArmPath)'; export LANE_WATCHDOG_ARM_PATH; "
@@ -55,7 +64,10 @@ struct SwiftLaneReapingTests {
                 + "source scripts/swift-test-helpers.sh; set +e; "
                 + "run_swift_with_timeout 'reap probe' 2 /bin/bash '\(childFixturePath)' "
                 + "'\(childPIDPath)' '\(childLockPath)' '\(watchdogArmPath)' '\(childReleasePath)' "
-                + "|| returned=$?; echo \"RETURNED=${returned:-0}\"; "
+                + "|| returned=$?; "
+                + "if [ -p '\(childReleasePath)' ]; then echo RELEASE_IS_FIFO_AFTER=yes; "
+                + "else echo RELEASE_IS_FIFO_AFTER=no; fi; "
+                + "echo \"RETURNED=${returned:-0}\"; "
                 + "child_pid=$(cat '\(childPIDPath)' 2>/dev/null || echo 0); "
                 + "echo \"CHILD_PID=${child_pid:-0}\"; "
                 + "if [ \"$child_pid\" -gt 0 ] && kill -0 \"$child_pid\" 2>/dev/null; then "
