@@ -157,11 +157,9 @@ struct ClaudeCodeHookProjectionTests {
     @Test("Unprojected Claude Code events produce no call")
     func unprojectedEventsAreRefused() throws {
         // Arrange / Act
-        let postToolUse = try project("PostToolUse")
         let notification = try project("Notification")
 
         // Assert
-        #expect(postToolUse == .refused(.unprojectedEvent("PostToolUse")))
         #expect(notification == .refused(.unprojectedEvent("Notification")))
     }
 
@@ -183,8 +181,8 @@ struct ClaudeCodeHookProjectionTests {
         #expect(outcome == .refused(.announcedEventMismatch(announced: "SessionEnd", reported: "Stop")))
     }
 
-    @Test("A permission event without a tool invocation identifier is refused")
-    func permissionWithoutRequestIdentifierIsRefused() {
+    @Test("A report-only permission without a call id still projects conservatively")
+    func permissionWithoutRequestIdentifierIsReported() {
         // Arrange
         let payload = ClaudeCodeHookPayload(
             sessionId: "session-1",
@@ -204,7 +202,12 @@ struct ClaudeCodeHookProjectionTests {
         )
 
         // Assert
-        #expect(outcome == .refused(.missingRequestIdentifier))
+        guard case .projected(let params) = outcome else {
+            Issue.record("Keyless PermissionRequest must be reported")
+            return
+        }
+        #expect(params.event.name == .permission)
+        #expect(params.event.requestId == nil)
     }
 }
 

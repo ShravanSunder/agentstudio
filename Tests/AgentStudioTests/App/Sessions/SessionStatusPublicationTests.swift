@@ -58,6 +58,7 @@ struct SessionStatusPublicationTests {
         #expect(!mailbox.offer(.idle(.ended), for: firstPane))
         await lane.publishPending()
         #expect(recorded.withLock { $0.count } == 1)
+        await lane.shutdown()
     }
 
     @Test("a burst while the sink is held coalesces behind exactly one awaited batch")
@@ -75,7 +76,16 @@ struct SessionStatusPublicationTests {
         let paneId = PaneId.generateUUIDv7()
         mailbox.offer(.working(.active), for: paneId)
         let firstDrain = Task { await lane.publishPending() }
-        let arrival = try await heldSink.firstArrival()
+        let arrival: [PaneId: SessionStatusPublication]
+        do {
+            arrival = try await heldSink.firstArrival()
+        } catch {
+            heldSink.retire()
+            firstDrain.cancel()
+            await firstDrain.value
+            await lane.shutdown()
+            throw error
+        }
         #expect(arrival == [paneId: .set(.working(.active))])
         mailbox.offer(.needsYou(.approval), for: paneId)
         mailbox.offer(.idle(.done), for: paneId)
@@ -85,5 +95,6 @@ struct SessionStatusPublicationTests {
         await firstDrain.value
         await lane.publishPending()
         #expect(recorded.withLock { $0 } == [[paneId: .set(.working(.active))], [paneId: .set(.working(.monitoring))]])
+        await lane.shutdown()
     }
 }

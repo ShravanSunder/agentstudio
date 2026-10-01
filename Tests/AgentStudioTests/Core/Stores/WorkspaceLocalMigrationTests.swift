@@ -99,7 +99,7 @@ struct WorkspaceLocalMigrationTests {
                 )
             )
         }
-        let expectedTableNames: Set<String> = [
+        let expectedTableNames = Set([
             "local_workspace_cursor",
             "local_tab_cursor",
             "local_arrangement_cursor",
@@ -138,7 +138,7 @@ struct WorkspaceLocalMigrationTests {
             "sessions_loss",
             "local_ipc_credential",
             "local_drawer_presentation",
-        ]
+        ]).union(["sessions_provider_question", "sessions_provider_question_option"])
 
         #expect(tableNames == expectedTableNames)
         #expect(!tableNames.contains("local_persistence_lane_marker"))
@@ -792,7 +792,7 @@ private let expectedBootRequiredLocalMigrationIdentifiers = [
 private let expectedFullLocalMigrationIdentifiers =
     expectedBootRequiredLocalMigrationIdentifiers
     + [
-        "011_create_sessions_ingestion_schema",
+        "011_create_sessions_ingestion_schema", "020_sessions_status_and_replay",
         "012_create_ipc_credential_schema",
         "013_create_opaque_pane_credential_records",
         "014_ipc_credentials_pane_only",

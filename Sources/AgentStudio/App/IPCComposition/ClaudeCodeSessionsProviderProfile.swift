@@ -5,8 +5,7 @@ import Foundation
 extension SessionsProviderProfile {
     /// The Claude Code release whose hook events this repository has verified
     /// end to end. Capabilities are listed only where a projected hook event
-    /// exists: turn abort, question and elicitation stay unqualified because
-    /// Claude Code 2.1.274 reports no event this package projects onto them.
+    /// exists in the recorded 2.1.286 payloads. Silent interrupts stay unqualified.
     package static let claudeCodeCommandLine = Self(
         providerIdentifier: ClaudeCodeProviderIdentity.identifier,
         exactVersion: ClaudeCodeProviderIdentity.supportedExactVersion,
@@ -16,9 +15,15 @@ extension SessionsProviderProfile {
             .sessionEnd,
             .turnStart,
             .turnDone,
+            .turnFailed,
             .permission,
             .toolActivity,
             .subagentActivity,
+            .question,
+            .elicitation,
+            .elicitationResult,
+            .toolCompleted,
+            .toolFailed,
         ]
     )
 }

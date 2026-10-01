@@ -14,7 +14,9 @@ extension SessionsRepositoryStorage {
             origin: try decodeEnum(row["origin"], as: SessionsEvidenceOrigin.self),
             status: try decodeEnum(row["status"], as: SessionsBindingStatus.self),
             startedAt: Date(timeIntervalSince1970: row["started_at"]),
-            endedAt: decodeDate(row["ended_at"])
+            endedAt: decodeDate(row["ended_at"]),
+            resumeHint: row["resume_hint"],
+            ownerPaneId: try decodeOptionalUuid(row["owner_pane_id"])
         )
     }
 
@@ -35,7 +37,7 @@ extension SessionsRepositoryStorage {
         )
     }
 
-    static func decodeEvidence(_ row: Row) throws -> SessionsEvidenceRecord {
+    static func decodeEvidence(_ row: Row, database: Database) throws -> SessionsEvidenceRecord {
         let evidenceKind: String = row["evidence_kind"]
         let requestId: String? = row["evidence_request_id"]
         let explanation: String? = row["evidence_explanation_text"]
@@ -63,7 +65,10 @@ extension SessionsRepositoryStorage {
             kind: kind,
             origin: try decodeEnum(row["origin"], as: SessionsEvidenceOrigin.self),
             freshness: try decodeEnum(row["freshness"], as: SessionsEvidenceFreshness.self),
-            occurredAt: Date(timeIntervalSince1970: row["occurred_at"])
+            occurredAt: Date(timeIntervalSince1970: row["occurred_at"]),
+            admissionSequence: row["admission_sequence"],
+            sourceOccurredAt: decodeDate(row["source_occurred_at"]),
+            providerSignal: try decodeProviderSignal(row, database: database)
         )
     }
 

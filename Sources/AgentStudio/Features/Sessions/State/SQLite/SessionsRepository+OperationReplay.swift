@@ -19,7 +19,8 @@ extension SessionsRepositoryStorage {
             return nil
         }
         let storedFingerprint: String = row["semantic_fingerprint"]
-        guard storedFingerprint == operation.semanticFingerprint else {
+        let version: Int? = row["fingerprint_version"]
+        guard version == nil || storedFingerprint == operation.semanticFingerprint else {
             throw SessionsRepositoryError.correlationConflict(operation.correlationId)
         }
         return try decodeOperationOutcome(database: database, row: row)
@@ -44,6 +45,8 @@ extension SessionsRepositoryStorage {
         else {
             return nil
         }
+        let version: Int? = row["fingerprint_version"]
+        if version == nil { return try decodeOperationOutcome(database: database, row: row) }
         let storedScope: String = row["operation_scope"]
         let storedKind: String = row["operation_kind"]
         guard storedScope == operation.operationScope,
@@ -76,8 +79,8 @@ extension SessionsRepositoryStorage {
                 INSERT INTO sessions_operation(
                     operation_scope, correlation_id, operation_kind, semantic_fingerprint,
                     outcome_kind, outcome_entity_id, outcome_occurrence_id,
-                    binding_generation_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    binding_generation_id, created_at, source_occurred_at, fingerprint_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 """,
             arguments: [
                 operation.operationScope,
@@ -89,6 +92,7 @@ extension SessionsRepositoryStorage {
                 storage.occurrenceId,
                 storage.bindingGenerationId,
                 operation.createdAt.timeIntervalSince1970,
+                operation.sourceOccurredAt?.timeIntervalSince1970,
             ]
         )
         return database.lastInsertedRowID
@@ -108,8 +112,8 @@ extension SessionsRepositoryStorage {
                 INSERT INTO sessions_operation(
                     operation_scope, correlation_id, operation_kind, semantic_fingerprint,
                     outcome_kind, outcome_entity_id, outcome_occurrence_id,
-                    binding_generation_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    binding_generation_id, created_at, source_occurred_at, fingerprint_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 """,
             arguments: [
                 operation.operationScope,
@@ -121,6 +125,7 @@ extension SessionsRepositoryStorage {
                 outcomeOccurrenceId,
                 bindingGenerationId,
                 operation.createdAt.timeIntervalSince1970,
+                operation.sourceOccurredAt?.timeIntervalSince1970,
             ]
         )
     }
@@ -346,7 +351,9 @@ extension SessionsRepositoryStorage {
             origin: binding.origin,
             status: .active,
             startedAt: binding.startedAt,
-            endedAt: nil
+            endedAt: nil,
+            resumeHint: binding.resumeHint,
+            ownerPaneId: binding.ownerPaneId
         )
     }
 
@@ -365,7 +372,9 @@ extension SessionsRepositoryStorage {
             origin: binding.origin,
             status: .ended,
             startedAt: binding.startedAt,
-            endedAt: endedAt
+            endedAt: endedAt,
+            resumeHint: binding.resumeHint,
+            ownerPaneId: binding.ownerPaneId
         )
     }
 }

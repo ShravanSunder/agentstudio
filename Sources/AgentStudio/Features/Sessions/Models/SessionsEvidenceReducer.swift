@@ -143,7 +143,15 @@ extension SessionsEvidenceReducer {
         var stale: [SessionsAttentionProjection]
     }
 
-    fileprivate static func evidenceOrder(_ left: SessionsEvidenceRecord, _ right: SessionsEvidenceRecord) -> Bool {
+    static func evidenceOrder(_ left: SessionsEvidenceRecord, _ right: SessionsEvidenceRecord) -> Bool {
+        switch (left.admissionSequence, right.admissionSequence) {
+        case (.none, .some): return true
+        case (.some, .none): return false
+        case (.some(let leftSequence), .some(let rightSequence)):
+            if leftSequence != rightSequence { return leftSequence < rightSequence }
+            return left.occurrenceId.uuidString < right.occurrenceId.uuidString
+        case (.none, .none): break
+        }
         if left.occurredAt != right.occurredAt { return left.occurredAt < right.occurredAt }
         return left.occurrenceId.uuidString < right.occurrenceId.uuidString
     }
@@ -246,11 +254,22 @@ extension SessionsEvidenceReducer {
         in records: [SessionsEvidenceRecord]
     ) -> Bool {
         records.contains { candidate in
-            candidate.occurredAt >= evidence.occurredAt
+            isSameOrLaterAdmission(candidate, than: evidence)
                 && candidate.sourceGenerationId == evidence.sourceGenerationId
                 && candidate.turnId == evidence.turnId
                 && candidate.subject == evidence.subject
                 && candidate.kind == .aborted
+        }
+    }
+
+    private static func isSameOrLaterAdmission(
+        _ candidate: SessionsEvidenceRecord, than evidence: SessionsEvidenceRecord
+    ) -> Bool {
+        switch (candidate.admissionSequence, evidence.admissionSequence) {
+        case (.some(let candidateSequence), .some(let evidenceSequence)): candidateSequence >= evidenceSequence
+        case (.some, .none): true
+        case (.none, .some): false
+        case (.none, .none): candidate.occurredAt >= evidence.occurredAt
         }
     }
 

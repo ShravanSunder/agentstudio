@@ -184,7 +184,7 @@ extension SessionsRepositoryStorage {
                 JOIN sessions_conversation AS conversation ON conversation.id = binding.conversation_id
                 WHERE binding.pane_id = ?
                 ORDER BY CASE binding.status WHEN 'active' THEN 0 ELSE 1 END,
-                         binding.started_at DESC,
+                         binding.committed_revision DESC,
                          binding.binding_generation_id ASC
                 """,
             arguments: [paneId.uuidString]
@@ -214,7 +214,7 @@ extension SessionsRepositoryStorage {
                   AND conversation.provider_identifier = ?
                   AND conversation.provider_conversation_id = ?
                 ORDER BY CASE binding.status WHEN 'active' THEN 0 ELSE 1 END,
-                         binding.started_at DESC,
+                         binding.committed_revision DESC,
                          binding.binding_generation_id ASC
                 LIMIT 1
                 """,
@@ -269,10 +269,12 @@ extension SessionsRepositoryStorage {
                   ON binding.binding_generation_id = evidence.binding_generation_id
                 LEFT JOIN sessions_attention AS attention ON attention.id = evidence.attention_id
                 WHERE binding.pane_id = ?
-                ORDER BY evidence.occurred_at, evidence.occurrence_id
+                ORDER BY evidence.admission_sequence IS NOT NULL,
+                         evidence.admission_sequence,
+                         evidence.occurred_at, evidence.occurrence_id
                 """,
             arguments: [paneId.uuidString]
-        ).map(decodeEvidence)
+        ).map { try decodeEvidence($0, database: database) }
     }
 
     fileprivate struct LoadedMessagePage {

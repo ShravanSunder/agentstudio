@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 package struct SessionsRepository: Sendable {
-    private let sqliteAccess: any SessionsSQLiteAccess
+    let sqliteAccess: any SessionsSQLiteAccess
 
     package init(sqliteAccess: any SessionsSQLiteAccess) {
         self.sqliteAccess = sqliteAccess
@@ -40,7 +40,8 @@ package struct SessionsRepository: Sendable {
                 commitRevision: commitRevision,
                 database: database
             )
-            return SessionsSubmissionResult(outcome: reduction.outcome, disposition: .inserted)
+            return SessionsSubmissionResult(
+                outcome: reduction.outcome, disposition: .inserted, commitRevision: commitRevision)
         }
     }
 
@@ -69,4 +70,4 @@ package struct SessionsRepository: Sendable {
     }
 }
 
-enum SessionsRepositoryStorage {}
+package enum SessionsRepositoryStorage {}

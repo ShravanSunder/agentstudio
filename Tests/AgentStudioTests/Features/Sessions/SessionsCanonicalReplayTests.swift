@@ -8,6 +8,63 @@ import Testing
 
 @Suite("Sessions canonical replay")
 struct SessionsCanonicalReplayTests {
+    @Test("lifecycle source times are retained on the operation and future end time is absent")
+    func lifecycleSourceTimeUsesOperationRow() async throws {
+        let fixture = try CanonicalReplayFixture()
+        defer { fixture.files.removeFiles() }
+        try await withSessionsIngestion(repository: fixture.repository) { ingestion in
+            let paneId = UUIDv7.generate()
+            let sourceId = UUIDv7.generate()
+            let startCorrelation = UUIDv7.generate()
+            var start = makeQualifiedBindMutation(
+                paneId: paneId, providerConversationId: "lifecycle", sourceGenerationId: sourceId, reportedAt: 1000)
+            start.sourceOccurredAt = Date(timeIntervalSince1970: 900)
+            _ = try await ingestion.submit(correlationId: startCorrelation, mutation: .bind(start))
+            let endCorrelation = UUIDv7.generate()
+            var end = SessionsSourceEndMutation(
+                paneId: paneId, sourceGenerationId: sourceId, endedAt: Date(timeIntervalSince1970: 1100))
+            end.sourceOccurredAt = Date(timeIntervalSince1970: 1401)
+            _ = try await ingestion.submit(correlationId: endCorrelation, mutation: .sourceEnded(end))
+            let times = try await fixture.access.read { database in
+                try [startCorrelation, endCorrelation].map { correlation in
+                    try Double.fetchOne(
+                        database, sql: "SELECT source_occurred_at FROM sessions_operation WHERE correlation_id = ?",
+                        arguments: [correlation.uuidString])
+                }
+            }
+            #expect(times == [900, nil])
+        }
+    }
+
+    @Test("the latest ended binding remains current after the wall clock steps backward")
+    func endedBindingUsesCommitOrder() async throws {
+        let fixture = try CanonicalReplayFixture()
+        defer { fixture.files.removeFiles() }
+        try await withSessionsIngestion(repository: fixture.repository) { ingestion in
+            let paneId = UUIDv7.generate()
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId, providerConversationId: "older", sourceGenerationId: UUIDv7.generate(),
+                        reportedAt: 200)))
+            let newerSource = UUIDv7.generate()
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId, providerConversationId: "newer", sourceGenerationId: newerSource,
+                        reportedAt: 100)))
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .sourceEnded(
+                    .init(paneId: paneId, sourceGenerationId: newerSource, endedAt: Date(timeIntervalSince1970: 50))))
+            #expect(
+                try await ingestion.snapshot(makeSessionsSnapshotQuery(paneId: paneId)).currentBinding?
+                    .providerConversationId == "newer")
+        }
+    }
+
     @Test("bind replay ignores later admission time and freshness after reopening SQLite")
     func bindReplayUsesCanonicalProviderIntent() async throws {
         let fixture = try CanonicalReplayFixture()

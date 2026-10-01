@@ -293,6 +293,11 @@ extension AppDelegate {
         datastore: WorkspaceSQLiteDatastoreActor
     ) async -> SessionsIngestion? {
         if let existing = appIPCSessionsIngestion { return existing }
+        let statusAtom = atomStore.sessionStatus
+        let viewedMailbox = atomStore.sessionsPaneViewedMailbox
+        let applyMeasurement = SessionStatusApplyMeasurement()
+        let traceRecorder = performanceTraceRecorder
+        workspaceSurfaceCoordinator?.sessionsPaneViewedMailbox = viewedMailbox
         let ingestion = SessionsIngestion(
             repository: SessionsRepository(
                 sqliteAccess: WorkspaceSessionsSQLiteAccess(datastore: datastore)
@@ -303,11 +308,33 @@ extension AppDelegate {
             ),
             // Ingestion statistics carry a raw pane UUID, which the OTLP scrub
             // rules exclude. Counts reach no sink until a scrubbed probe exists.
-            probe: { _ in }
+            probe: { _ in },
+            paneViewedMailbox: viewedMailbox,
+            statusSink: { batch in
+                let began = ContinuousClock.now
+                statusAtom.apply(batch)
+                applyMeasurement.recordHeldDuration(began.duration(to: ContinuousClock.now))
+            },
+            statusApplyMeasurement: applyMeasurement,
+            statusApplyProbe: { snapshot in
+                traceRecorder?.recordDuration(
+                    .sessionsStatusApply, duration: snapshot.heldDuration,
+                    attributes: [
+                        "agentstudio.sessions.computed_count": .int(snapshot.counts.computed),
+                        "agentstudio.sessions.equal_suppressed_count": .int(snapshot.counts.suppressed),
+                        "agentstudio.sessions.coalesced_count": .int(snapshot.counts.coalesced),
+                        "agentstudio.sessions.batch_size": .int(snapshot.batchSize),
+                        "agentstudio.sessions.main_actor_total_ms": .double(
+                            AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.totalHeldDuration)),
+                        "agentstudio.sessions.main_actor_max_ms": .double(
+                            AgentStudioPerformanceTraceRecorder.milliseconds(from: snapshot.maximumHeldDuration)),
+                    ])
+            }
         )
         do {
             _ = try await ingestion.prepareForLaunch(at: Date())
         } catch {
+            await ingestion.finish()
             appLogger.warning(
                 """
                 Sessions ingestion skipped: launch preparation failed: \
@@ -316,7 +343,10 @@ extension AppDelegate {
             )
             return nil
         }
-        guard !Task.isCancelled else { return nil }
+        guard !Task.isCancelled else {
+            await ingestion.finish()
+            return nil
+        }
         appIPCSessionsIngestion = ingestion
         return ingestion
     }
