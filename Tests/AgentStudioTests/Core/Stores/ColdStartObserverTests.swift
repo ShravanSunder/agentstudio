@@ -734,7 +734,7 @@ struct ColdStartObserverTests {
         // Free the queue, then wait for it to actually drain the cancel
         // handler -- a serial queue's own FIFO guarantee, not a sleep.
         testQueue.resume()
-        try await withoutBlockingCooperativePool {
+        await withoutBlockingCooperativePool {
             testQueue.sync {}
         }
 
