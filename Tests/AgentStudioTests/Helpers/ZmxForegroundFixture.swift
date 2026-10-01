@@ -116,7 +116,7 @@ struct ZmxForegroundFixture: Sendable {
         let registered = try await facts.expectNext(
             in: look, where: { if case .watchRegistered = $0 { true } else { false } }, "real agent watch")
         try await facts.expectNext(in: look, .closed(.looked))
-        guard case .watchRegistered(let watchId) = registered else { throw ForegroundImplementationMissing.s2 }
+        guard case .watchRegistered(let watchId) = registered else { throw POSIXError(.EPROTO) }
         return watchId
     }
 

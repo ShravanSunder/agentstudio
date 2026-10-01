@@ -293,11 +293,10 @@ struct WorkspaceLocalMigrationTests {
 
     @Test("migration 005 copies the existing grouping selection into the main window row before drop")
     func migrationCopiesExistingGroupingModeIntoMainWindowRow() throws {
-        // F4: a real pre-005 on-disk database owns the grouping selection on
-        // local_repo_explorer_preferences.grouping_mode; local_window_state does not yet have
-        // repo_grouping_mode. Simulate that exact shape by migrating only through 004, then
-        // manually reproducing the legacy column and a seeded All Panes / By Tab selection, so the
-        // upgrade path is proven to preserve it rather than silently reset every existing user to By Repo.
+        // F4: the pre-005 grouping selection lives in local_repo_explorer_preferences.grouping_mode.
+        // local_window_state lacks repo_grouping_mode. Migrate only through 004, then recreate
+        // the legacy column and seed All Panes / By Tab to prove upgrading preserves it
+        // instead of resetting existing users to By Repo.
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrator.migrate(
             databaseQueue,
@@ -796,6 +795,7 @@ private let expectedFullLocalMigrationIdentifiers =
         "013_create_opaque_pane_credential_records",
         "014_ipc_credentials_pane_only",
         "016_add_binding_provider_end_fact",
+        "017_create_terminal_pane_foreground_observation",
     ]
 
 private struct Migration007Scenario: Sendable {

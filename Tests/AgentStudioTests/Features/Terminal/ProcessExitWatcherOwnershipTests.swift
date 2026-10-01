@@ -41,6 +41,9 @@ struct ProcessExitWatcherOwnershipTests {
             try await fixture.recorder.expectNext(in: identifier, .sourceCancelled)
             try await fixture.recorder.expectNext(in: identifier, .settled(.alreadyGone(watchId: identifier)))
             watch.cancel()
+            let replay = fixture.watcher.watchExit(of: foregroundTestProcess(pid: 4200), watchId: identifier)
+            replay.cancel()
+            #expect(fixture.maker.sources().count == 1)
             #expect(fixture.maker.ledger.snapshot().filter { $0 == .cancelled(0) }.count == 1)
         }
     }
@@ -166,6 +169,7 @@ struct ProcessExitWatcherOwnershipTests {
                 #expect(native.reader.calls().isEmpty)
                 try await fixture.close()
             } catch {
+                held.retire()
                 try? await fixture.close()
                 throw error
             }

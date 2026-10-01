@@ -95,7 +95,7 @@ private struct ForegroundTestSessionControl: ZmxSessionControlling {
     let identities: [ZmxSessionID: Data]
     func observeSessionIdentity(_ sessionID: ZmxSessionID) -> Data? { identities[sessionID] }
     func retireVerifiedSession(_ sessionID: ZmxSessionID, expectedIdentity: Data) throws -> ZmxSessionCleanupStatus {
-        throw ForegroundImplementationMissing.s2
+        throw ZmxSessionControlFailure.unavailable
     }
 }
 

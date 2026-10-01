@@ -20,6 +20,7 @@ package enum WorkspaceLocalMigrations {
         registerOpaquePaneCredentialRecords(in: &migrator)
         registerPaneOnlyCredentialRecords(in: &migrator)
         registerBindingProviderEndFact(in: &migrator)
+        registerPaneForegroundObservation(in: &migrator)
         return migrator
     }
 

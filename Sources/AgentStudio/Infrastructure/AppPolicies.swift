@@ -298,6 +298,9 @@ package enum AppPolicies {
     /// Session-restore-after-reboot policy (R1: SR1-SR6b). S3's observer
     /// deadlines are added by that slice, alongside these.
     package enum Restore {
+        package static let lookSettleDelay: Duration = .seconds(5)
+        package static let lookMaxDelay: Duration = .seconds(60)
+        package static let quitLookDeadline: Duration = .seconds(1)
         /// Bounds the one `zmx list` inventory probe `mount()` runs, off-main,
         /// before the terminal lane activates (SR1, SR4; Program Design item
         /// 1). The probe never retries: a probe that exceeds this becomes

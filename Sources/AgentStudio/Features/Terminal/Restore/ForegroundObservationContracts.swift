@@ -44,6 +44,14 @@ package struct ForegroundObserverPolicy: Sendable {
     package let lookSettleDelay: Duration
     package let lookMaxDelay: Duration
     package let quitLookDeadline: Duration
+
+    package init(
+        lookSettleDelay: Duration, lookMaxDelay: Duration, quitLookDeadline: Duration
+    ) {
+        self.lookSettleDelay = lookSettleDelay
+        self.lookMaxDelay = lookMaxDelay
+        self.quitLookDeadline = quitLookDeadline
+    }
 }
 
 package struct ForegroundObserverFactScope: Hashable, Sendable {
@@ -62,11 +70,7 @@ package enum ForegroundObserverFact: Equatable, Sendable {
 }
 
 package enum ForegroundObserverClose: Equatable, Sendable {
-    case scheduled, looked, retired, quit, quitDeadline, implementationMissing
+    case scheduled, looked, retired, quit, quitDeadline
 }
 
 package typealias ForegroundObserverFactSink = @Sendable (ForegroundObserverFactScope, ForegroundObserverFact) -> Void
-
-package enum ForegroundImplementationMissing: Error {
-    case s2
-}

@@ -11,6 +11,8 @@ actor ForegroundMemoryRepository: PaneForegroundObservationRepository {
     var bindings: [ForegroundPaneBinding]
     private var observations: [UUID: PaneForegroundObservation] = [:]
     private var retiredPanes: Set<UUID> = []
+    private var writeCount = 0
+    func observationWriteCount() -> Int { writeCount }
 
     init(binding: ForegroundPaneBinding) { bindings = [binding] }
     func eligiblePanes() -> [ForegroundPaneBinding] { bindings.filter { !retiredPanes.contains($0.paneId) } }
@@ -35,6 +37,7 @@ actor ForegroundMemoryRepository: PaneForegroundObservationRepository {
             return .olderLook
         }
         observations[observation.paneId] = observation
+        writeCount += 1
         return .admitted
     }
 }
@@ -63,14 +66,17 @@ final class ForegroundScriptedExitWatcher: ProcessExitWatching, Sendable {
     }
     private let state = Mutex(State())
     func setFailures(_ failures: [ProcessExitWatchFailure]) { state.withLock { $0.failures = failures } }
-    func holdNextExit(_ step: HeldStep<ProcessExitWatchEvent>) { state.withLock { $0.nextHeldEvent = step } }
+    func holdNextEvent(_ step: HeldStep<ProcessExitWatchEvent>) { state.withLock { $0.nextHeldEvent = step } }
     func watchExit(of process: ProcessIncarnation, watchId: UUID) -> ProcessExitWatch {
         let held = state.withLock { state -> HeldStep<ProcessExitWatchEvent>? in
             defer { state.nextHeldEvent = nil }
             return state.nextHeldEvent
         }
         if let held {
-            let delivery = HeldForegroundExitDelivery(event: .exited(watchId: watchId), step: held)
+            let failure = state.withLock { state in state.failures.isEmpty ? nil : state.failures.removeFirst() }
+            let event: ProcessExitWatchEvent =
+                failure.map { .unavailable(watchId: watchId, $0) } ?? .exited(watchId: watchId)
+            let delivery = HeldForegroundExitDelivery(event: event, step: held)
             return ProcessExitWatch(
                 events: AsyncStream(unfolding: { await delivery.next() }),
                 cancel: { [self] in state.withLock { $0.cancelled.append(watchId) } })
@@ -186,14 +192,17 @@ struct ForegroundObserverFixture: Sendable {
     {
         try await recorder.expectNext(in: scope, .observation(.admitted))
         var watchId: UUID?
-        if let failure {
-            try await recorder.expectNext(in: scope, .watchUnavailable(failure))
-        } else if agent {
+        if agent || failure != nil {
             let fact = try await recorder.expectNext(
                 in: scope, where: { if case .watchRegistered = $0 { true } else { false } }, "current watch registered")
             if case .watchRegistered(let identifier) = fact { watchId = identifier }
         }
         try await recorder.expectNext(in: scope, .closed(.looked))
+        if let failure, let watchId {
+            let eventScope = ForegroundObserverFactScope(paneId: paneId, operationId: watchId)
+            try await recorder.expectNext(in: eventScope, .watchUnavailable(failure))
+            try await recorder.expectNext(in: eventScope, .closed(.looked))
+        }
         return watchId
     }
 

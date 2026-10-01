@@ -122,7 +122,7 @@ struct PaneForegroundObserverTests {
             let held = HeldStep<ProcessExitWatchEvent>(
                 "old exit before actor admission", cancellation: .holdThroughCancellation)
             defer { held.retire() }
-            fixture.watcher.holdNextExit(held)
+            fixture.watcher.holdNextEvent(held)
             await fixture.observer.note(.bindingChanged, pane: fixture.paneId)
             try await fixture.expectScheduled()
             let first = try await fixture.expectLookStarted(sequence: 1)
@@ -152,21 +152,39 @@ struct PaneForegroundObserverTests {
     func unavailableWatchRetriesOnControlledClock() async throws {
         try await withForegroundObserverFixture { fixture in
             fixture.watcher.setFailures([.permissionDenied, .resourceExhausted])
-            await fixture.observer.note(.bindingChanged, pane: fixture.paneId)
-            try await fixture.expectScheduled()
-            let first = try await fixture.expectLookStarted(sequence: 1)
-            _ = try await fixture.finishLook(scope: first, agent: false, failure: .permissionDenied)
-            #expect(await fixture.observer.currentWatch(paneId: fixture.paneId) == nil)
-            await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-            fixture.clock.advance(by: .seconds(60))
-            let second = try await fixture.expectLookStarted(sequence: 2)
-            _ = try await fixture.finishLook(scope: second, agent: false, failure: .resourceExhausted)
-            await fixture.clock.waitForPendingSleepCount(atLeast: 1)
-            fixture.clock.advance(by: .seconds(60))
+            for (offset, failure) in [ProcessExitWatchFailure.permissionDenied, .resourceExhausted].enumerated() {
+                let held = HeldStep<ProcessExitWatchEvent>("unavailable event after sampled look")
+                defer { held.retire() }
+                fixture.watcher.holdNextEvent(held)
+                if offset == 0 {
+                    await fixture.observer.note(.bindingChanged, pane: fixture.paneId)
+                    try await fixture.expectScheduled()
+                }
+                let look = try await fixture.expectLookStarted(sequence: UInt64(offset + 1))
+                let watchId = try #require(try await fixture.finishLook(scope: look, agent: true))
+                let sampled = try #require(await fixture.repository.load(paneId: fixture.paneId))
+                let writesBeforeFailure = await fixture.repository.observationWriteCount()
+                #expect(sampled.sequence == UInt64(offset + 1))
+                #expect(try await held.firstArrival() == .unavailable(watchId: watchId, failure))
+                let eventScope = ForegroundObserverFactScope(paneId: fixture.paneId, operationId: watchId)
+                let opening = await fixture.recorder.mark(eventScope)
+                held.release()
+                try await fixture.recorder.expectNext(in: eventScope, .watchUnavailable(failure))
+                try await fixture.recorder.expectNone(
+                    of: { if case .observation = $0 { true } else { false } },
+                    "observation written from unavailable event", from: opening,
+                    closedBy: { $0 == .closed(.looked) })
+                #expect(await fixture.repository.load(paneId: fixture.paneId) == sampled)
+                #expect(await fixture.repository.observationWriteCount() == writesBeforeFailure)
+                #expect(await fixture.observer.currentWatch(paneId: fixture.paneId) == nil)
+                await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+                fixture.clock.advance(by: .seconds(60))
+            }
             let third = try await fixture.expectLookStarted(sequence: 3)
             let watchId = try #require(try await fixture.finishLook(scope: third, agent: true))
             #expect(await fixture.observer.currentWatch(paneId: fixture.paneId)?.watchId == watchId)
             #expect(await fixture.repository.load(paneId: fixture.paneId)?.program == .claudeCode)
+            #expect(await fixture.repository.load(paneId: fixture.paneId)?.sequence == 3)
         }
     }
 
