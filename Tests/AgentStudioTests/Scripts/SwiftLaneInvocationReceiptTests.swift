@@ -293,6 +293,7 @@ private struct InvocationReceiptFixture {
         for name in [
             "swift-test-helpers.sh", "xcb-helpers.sh", "swift-package-sandbox.sh",
             "filter-known-linker-warnings.sh", "swift-compilation-policy.sh",
+            "swift-test-output-relay.pl",
             "swift-test-invocation-receipts.sh", "swift-test-invocation-receipts.pl",
         ] where name != missingHelper {
             try FileManager.default.copyItem(
@@ -330,6 +331,9 @@ private struct InvocationReceiptFixture {
             arguments: [
                 "-c",
                 "LOG_PREFIX=f2; export LANE_EVENT_STREAM_DIR='\(root.path)/evidence'; "
+                    + (helper == nil
+                        ? ""
+                        : "unset SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH; ")
                     + "source '\(helper?.path ?? "scripts/swift-test-helpers.sh")'; "
                     + (eventStream ? "swift_test_command_accepts_event_stream() { return 0; }; " : "")
                     + setup

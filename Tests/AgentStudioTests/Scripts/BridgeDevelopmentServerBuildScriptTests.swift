@@ -12,6 +12,10 @@ struct BridgeDevelopmentServerBuildScriptTests {
             "CI": "true", "SWIFT_BUILD_DIR": ".build-ci", "SWIFT_BUILD_STATS_DIR": statisticsPath,
             "EXTRA_SWIFT_TEST_ARGS": "-Xswiftc -DSEED_PROOF",
             "_XCB_BYPASS": "1",
+            // Exercise this fixture's copied helper closure, not the outer
+            // lane's inherited relay paths.
+            "SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH": "",
+            "SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH": "",
         ]
         let producer = try await fixture.buildSlot.run(
             """
@@ -123,6 +127,7 @@ private struct BridgeDevelopmentBuildFixture {
         )
         for helperName in [
             "swift-test-helpers.sh", "xcb-helpers.sh", "filter-known-linker-warnings.sh",
+            "swift-test-output-relay.pl",
             "swift-test-invocation-receipts.sh", "swift-test-invocation-receipts.pl",
         ] {
             try FileManager.default.copyItem(
