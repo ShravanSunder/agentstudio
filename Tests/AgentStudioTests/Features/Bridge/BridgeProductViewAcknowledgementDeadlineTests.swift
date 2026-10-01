@@ -372,7 +372,7 @@ private actor DeadlineFileMetadataSource: BridgePaneProductFileMetadataProducing
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         openCount += 1
         activeSubscriptionIds.insert(subscription.subscriptionId)
@@ -386,7 +386,7 @@ private actor DeadlineFileMetadataSource: BridgePaneProductFileMetadataProducing
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         guard activeSubscriptionIds.contains(subscriptionId) else { return }
         demandCount += 1

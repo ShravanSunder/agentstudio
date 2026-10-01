@@ -17,7 +17,7 @@ struct BridgePaneProductFileMetadataPreparationTests {
             await preparationGate.waitUntilReleased()
             return .empty
         })
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         // Act
         let openTask = Task {
@@ -25,7 +25,7 @@ struct BridgePaneProductFileMetadataPreparationTests {
                 subscription: fixture.openSnapshot(),
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
             }
         }
         await preparationGate.waitUntilStarted()
@@ -44,7 +44,9 @@ struct BridgePaneProductFileMetadataPreparationTests {
     @Test("interest committed during preparation is fulfilled after the manifest is ready")
     func interestCommittedDuringPreparationIsFulfilled() async throws {
         // Arrange
-        let fixture = try ProductFileSourceFixture(fileCount: 1)
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let delivery = try await FileChangeDeliveryFixture.open(harness: harness)
+        let fixture = try ProductFileSourceFixture(fileCount: 1, productAdmission: harness.productAdmission)
         defer { fixture.remove() }
         let preparationGate = ProductFileMaterializationGate()
         let source = fixture.makeSource(ignorePolicyLoader: { _ in
@@ -52,14 +54,14 @@ struct BridgePaneProductFileMetadataPreparationTests {
             await preparationGate.waitUntilReleased()
             return .empty
         })
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         let openSnapshot = try fixture.openSnapshot()
         let openTask = Task {
             try await source.open(
                 subscription: openSnapshot,
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
             }
         }
         await preparationGate.waitUntilStarted()
@@ -71,48 +73,42 @@ struct BridgePaneProductFileMetadataPreparationTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
         await preparationGate.release()
         try await openTask.value
 
         #expect((await collector.events).compactMap(\.availableDescriptorForTest).isEmpty)
         let demand = try fixture.viewDemand()
-        let capture = try #require(
-            await source.captureKeyedSnapshot(
-                subscriptionId: openSnapshot.subscriptionId, demand: demand,
-                productAdmission: fixture.productAdmission.context))
-        let certificate = try sealProductFileSourceCapture(capture, demand: demand)
-        #expect(certificate.mode == .snapshot)
-        #expect(productFileBatchDescriptorCount(certificate) == 0)
-        let batchFacts = LocalFactSource<String, BridgeProductSealedViewBatch>(
+        let recording = ProductFileDescriptorDeliveryContext(
+            source: source, subscription: openSnapshot, demand: demand,
+            admission: fixture.productAdmission.context, delivery: delivery)
+        let certificate = try await recording.captureAndDeliver()
+        let batchFacts = LocalFactSource<String, ProductFileDescriptorBatchObservation>(
             vocabulary: .init(
-                describeScope: { $0 }, describeFact: { "\($0.mode.rawValue):\($0.targetRevision)" },
+                describeScope: { $0 }, describeFact: { "\($0.begin.mode.rawValue):\($0.begin.targetRevision)" },
                 isClosing: { _, _ in false }))
         let recorder = try batchFacts.attach()
         let emitBatch = batchFacts.sink
         try await source.applyViewDemand(
             subscriptionId: openSnapshot.subscriptionId,
-            demand: fixture.viewDemand(),
+            demand: demand,
             productAdmission: fixture.productAdmission.context,
             forceRecapture: true
         ) { event in
-            await collector.append(event)
-            if case .descriptorReady = event,
-                let enrichment = await source.captureKeyedSnapshot(
-                    subscriptionId: openSnapshot.subscriptionId, demand: demand,
-                    productAdmission: fixture.productAdmission.context)
-            {
-                emitBatch("File", try sealProductFileSourceCapture(enrichment, demand: demand))
+            await collector.append(event, source: source)
+            if case .descriptorReady = event {
+                emitBatch("File", try await recording.captureAndDeliver())
             }
         }
         let enrichment = try await recorder.expectNext(
-            in: "File", where: { productFileBatchDescriptorCount($0) == 1 }, "the demanded File descriptor batch")
-        #expect(enrichment.mode == .snapshot)
-        #expect(enrichment.targetRevision > certificate.targetRevision)
+            in: "File", where: { $0.begin.mode == .change }, "the demanded File descriptor change batch")
+        try assertProductFileDescriptorChange(
+            enrichment, certificate: certificate, demandedPath: fixture.demandedPath)
         batchFacts.end()
         try await recorder.finish()
         await source.cancel(subscriptionId: openSnapshot.subscriptionId)
+        try await harness.closeProducer(delivery.lease)
 
         // Assert
         #expect(

@@ -25,7 +25,7 @@ extension BridgePaneProductFileMetadataSourceTests {
             subscription: openSnapshot,
             productAdmission: fixture.productAdmission.context
         ) { _ in }
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         let activity = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
         let originalForegroundWork = try #require(activity.acquireForegroundWork())
         let staleUpdateTask = Task {
@@ -163,7 +163,7 @@ private func updateFileMetadata(
     demand: BridgePaneProductFileViewDemand,
     productAdmission: BridgeProductAdmissionContext,
     foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-    collector: ProductFileMetadataEventCollector
+    collector: ProductFileSourceFactCollector
 ) async throws {
     guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
         throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
@@ -178,14 +178,14 @@ private func updateFileMetadata(
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
             throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
         }
-        await collector.append(event)
+        await collector.append(event, source: source)
     }
     guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
         throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
     }
 }
 
-extension ProductFileMetadataEventCollector {
+extension ProductFileSourceFactCollector {
     fileprivate var descriptorReadyCount: Int {
         events.count { event in
             if case .descriptorReady = event { true } else { false }

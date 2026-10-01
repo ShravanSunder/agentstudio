@@ -155,7 +155,7 @@ actor PanePublicationFileSource: BridgePaneProductFileMetadataProducing {
     }
     func open(
         subscription: BridgeProductSubscriptionSnapshot, productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission, emit: @escaping BridgePaneProductFileMetadataEventSink
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission, emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         try await source.open(
             subscription: subscription, productAdmission: productAdmission,
@@ -165,7 +165,7 @@ actor PanePublicationFileSource: BridgePaneProductFileMetadataProducing {
         subscriptionId: String, demand: BridgePaneProductFileViewDemand,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission, forceRecapture: Bool,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         try await source.applyViewDemand(
             subscriptionId: subscriptionId, demand: demand, productAdmission: productAdmission,
