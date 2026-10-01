@@ -187,8 +187,11 @@ actor BridgePaneAnnotationNotificationSource {
         handle: String,
         producerID: UUID,
         batch: BridgeProductCommentCatalogBatch
-    ) {
-        guard batch.handle == handle else { return }
+    ) async {
+        guard batch.handle == handle, let owner = batchPublisherByHandle[handle],
+            owner.producerID == producerID,
+            await owner.publisher.recordSealedBatch(batch)
+        else { return }
         publishProducerObservation(.sealed(handle: handle, producerID: producerID, batch: batch))
     }
 

@@ -7,6 +7,49 @@ import Testing
 
 @Suite("Bridge comment N10 current-row publisher")
 struct BridgeProductCommentCatalogPublisherTests {
+    @Test("restart uses sealed membership without reusing minted revisions", arguments: [false, true])
+    func restartRetainsSealedCursorAndDeletionCoverage(deletionWasSealed: Bool) async throws {
+        let sessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())
+        let key = WorktreeAnnotationCatalogKey.session(sessionID)
+        let entry = WorktreeAnnotationCatalogEntry.session(
+            try .init(sessionID: sessionID, semanticRevision: 0)
+        )
+        let rows = CommentCurrentRowsGate([key: entry])
+        let publisher = BridgeProductCommentCatalogPublisher(
+            handle: "retained-comment-view",
+            scopeRevision: 1,
+            readCurrent: { range in try await rows.read(range) }
+        )
+        let initial = try #require(await publisher.captureSnapshot())
+        #expect(await publisher.recordSealedBatch(initial))
+        await rows.removeAll()
+        await publisher.invalidate(.session(sessionID))
+        let deletion = try #require(await publisher.captureDirty())
+        if deletionWasSealed {
+            #expect(await publisher.recordSealedBatch(deletion))
+        }
+        let continuity = await publisher.retireAndCaptureContinuity()
+        let sealedCursor = deletionWasSealed ? deletion.targetRevision : initial.targetRevision
+        #expect(continuity.lastIssuedRevision == deletion.targetRevision)
+        #expect(continuity.lastSealedRevision == sealedCursor)
+        let successor = BridgeProductCommentCatalogPublisher(
+            handle: "retained-comment-view",
+            scopeRevision: 1,
+            continuity: continuity,
+            readCurrent: { range in try await rows.read(range) }
+        )
+        let resumed = try #require(await successor.captureSnapshot())
+        #expect(resumed.baseRevision == sealedCursor)
+        #expect(resumed.targetRevision > deletion.targetRevision)
+        #expect(resumed.puts.isEmpty)
+        #expect(
+            resumed.deletes == (deletionWasSealed ? [] : [.init(key: key, revision: resumed.targetRevision)])
+        )
+        #expect(await successor.recordSealedBatch(resumed))
+        #expect(!(await successor.recordSealedBatch(initial)))
+        #expect(!(await successor.recordSealedBatch(resumed)))
+    }
+
     @Test("empty body demand still publishes every worktree catalog key")
     func emptyBodyDemandKeepsCatalogInventory() async throws {
         let firstSessionID = WorktreeAnnotationSessionID(rawValue: UUIDv7.generate())

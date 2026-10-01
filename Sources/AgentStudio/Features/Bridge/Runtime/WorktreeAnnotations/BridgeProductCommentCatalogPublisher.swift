@@ -22,15 +22,18 @@ enum WorktreeAnnotationCatalogRange: Hashable, Sendable {
 
 struct BridgeProductCommentCatalogPublisherContinuity: Sendable {
     let lastIssuedRevision: Int
+    let lastSealedRevision: Int
     let publishedKeys: Set<WorktreeAnnotationCatalogKey>
     let sessionIDByPublishedKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID]
 
     init(
         lastIssuedRevision: Int = 0,
+        lastSealedRevision: Int = 0,
         publishedKeys: Set<WorktreeAnnotationCatalogKey> = [],
         sessionIDByPublishedKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] = [:]
     ) {
         self.lastIssuedRevision = lastIssuedRevision
+        self.lastSealedRevision = lastSealedRevision
         self.publishedKeys = publishedKeys
         self.sessionIDByPublishedKey = sessionIDByPublishedKey
     }
@@ -50,6 +53,8 @@ actor BridgeProductCommentCatalogPublisher {
     private var installedKeys: Set<WorktreeAnnotationCatalogKey>
     private var installedSessionByKey: [WorktreeAnnotationCatalogKey: WorktreeAnnotationSessionID] = [:]
     private var nextWireRevision = 0
+    private var lastCapturedRevision: Int
+    private var sealedContinuity: BridgeProductCommentCatalogPublisherContinuity
     private var activeCaptureID: UUID?
     private var isRetired = false
 
@@ -61,6 +66,8 @@ actor BridgeProductCommentCatalogPublisher {
     ) {
         precondition(!handle.isEmpty)
         precondition(continuity.lastIssuedRevision >= 0)
+        precondition(continuity.lastSealedRevision >= 0)
+        precondition(continuity.lastSealedRevision <= continuity.lastIssuedRevision)
         precondition(continuity.lastIssuedRevision < BridgeProductWireContract.maximumSafeInteger)
         self.handle = handle
         self.scopeRevision = scopeRevision
@@ -68,6 +75,8 @@ actor BridgeProductCommentCatalogPublisher {
         self.installedKeys = continuity.publishedKeys
         self.installedSessionByKey = continuity.sessionIDByPublishedKey
         self.nextWireRevision = continuity.lastIssuedRevision
+        self.lastCapturedRevision = continuity.lastSealedRevision
+        self.sealedContinuity = continuity
     }
 
     func acceptScope(revision: Int) -> Bool {
@@ -80,9 +89,26 @@ actor BridgeProductCommentCatalogPublisher {
         isRetired = true
         return .init(
             lastIssuedRevision: nextWireRevision,
+            lastSealedRevision: sealedContinuity.lastSealedRevision,
+            publishedKeys: sealedContinuity.publishedKeys,
+            sessionIDByPublishedKey: sealedContinuity.sessionIDByPublishedKey
+        )
+    }
+
+    /// A minted capture is not a receiver cursor. Only N3's successful seal
+    /// commits the membership from which the next producer must resume.
+    func recordSealedBatch(_ batch: BridgeProductCommentCatalogBatch) -> Bool {
+        guard !isRetired, batch.handle == handle,
+            batch.targetRevision == lastCapturedRevision,
+            batch.targetRevision > sealedContinuity.lastSealedRevision
+        else { return false }
+        sealedContinuity = .init(
+            lastIssuedRevision: nextWireRevision,
+            lastSealedRevision: batch.targetRevision,
             publishedKeys: installedKeys,
             sessionIDByPublishedKey: installedSessionByKey
         )
+        return true
     }
 
     func replaceHandle(_ newHandle: String) {
@@ -90,6 +116,8 @@ actor BridgeProductCommentCatalogPublisher {
         guard newHandle != handle else { return }
         handle = newHandle
         nextWireRevision = 0
+        lastCapturedRevision = 0
+        sealedContinuity = .init()
         dirtyRanges.removeAll()
         installedKeys.removeAll()
         installedSessionByKey.removeAll()
@@ -170,8 +198,8 @@ actor BridgeProductCommentCatalogPublisher {
         guard nextWireRevision < BridgeProductWireContract.maximumSafeInteger else {
             throw WorktreeAnnotationServiceError.unavailable
         }
-        let baseRevision = nextWireRevision
-        let revision = baseRevision + 1
+        let baseRevision = lastCapturedRevision
+        let revision = nextWireRevision + 1
         let membership = try sessionMembership(for: rows)
         if case .session(let sessionID) = range,
             membership.values.contains(where: { $0 != sessionID })
@@ -205,6 +233,7 @@ actor BridgeProductCommentCatalogPublisher {
             installedSessionByKey[key] = membership[key]
         }
         nextWireRevision = revision
+        lastCapturedRevision = revision
         return .init(
             handle: handle,
             scopeRevision: scopeRevision,
