@@ -34,10 +34,12 @@ import {
 	type BridgeProductIdentifierPurpose,
 } from '../bridge-product-transport.js';
 import { bridgeProductViewAcknowledgementRequestSchema } from '../bridge-product-view-control-wire-contracts.js';
+import { BridgeProductTestFactRecorder } from './bridge-product-test-fact-recorder.js';
 
 export interface TransportHarness {
 	readonly server: TestProductServer;
 	readonly transport: ReturnType<typeof createBridgeProductTransport>;
+	readonly whenSubscriptionsEnded: () => Promise<void>;
 }
 
 const activeHarnesses = new Set<TransportHarness>();
@@ -46,13 +48,7 @@ export async function disposeTransportHarnesses(): Promise<void> {
 	const harnesses = [...activeHarnesses];
 	try {
 		for (const harness of harnesses) harness.server.shutdown();
-		await Promise.all(
-			harnesses.map((harness) =>
-				waitForCondition(
-					() => harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount === 0,
-				),
-			),
-		);
+		await Promise.all(harnesses.map((harness) => harness.whenSubscriptionsEnded()));
 	} finally {
 		activeHarnesses.clear();
 	}
@@ -80,6 +76,7 @@ export function createTransportHarness(
 				maximumMetadataFrameBytes: 128 * 1024,
 				maximumQueuedStreamBytes: 4 * 1024 * 1024,
 				admissionRetryCount: 2,
+				contentAcknowledgementDeadlineMilliseconds: 5_000,
 				contentProgressDeadlineMilliseconds: 5_000,
 				viewBatchProgressDeadlineMilliseconds: 5_000,
 				streamKeepaliveIntervalMilliseconds: 350,
@@ -112,8 +109,15 @@ export function createTransportHarness(
 			? {}
 			: { onSessionSuspect: options.onSessionSuspect }),
 	});
+	const subscriptionTerminals = new Set<Promise<void>>();
+	const whenSubscriptionsEnded = async (): Promise<void> => {
+		if (subscriptionTerminals.size === 0) return;
+		await Promise.all(subscriptionTerminals);
+		await whenSubscriptionsEnded();
+	};
 	const harness: TransportHarness = {
 		server,
+		whenSubscriptionsEnded,
 		transport: createBridgeProductTransport({
 			authority,
 			controlMux,
@@ -130,11 +134,29 @@ export function createTransportHarness(
 				: { onViewRecoveryStatus: options.onViewRecoveryStatus }),
 		}),
 	};
+	const subscribe = harness.transport.subscribe.bind(harness.transport);
+	harness.transport.subscribe = (protocol, options) => {
+		const subscription = subscribe(protocol, options);
+		// Application subscriptions carry terminal-only events; observation cannot steal a frame.
+		const terminal = subscription.events[Symbol.asyncIterator]()
+			.next()
+			.then(
+				(): void => {},
+				(): void => {},
+			)
+			.finally((): void => {
+				subscriptionTerminals.delete(terminal);
+			});
+		subscriptionTerminals.add(terminal);
+		return subscription;
+	};
 	activeHarnesses.add(harness);
 	return harness;
 }
 
 export class TestProductServer {
+	readonly #frameAcknowledgementFacts =
+		new BridgeProductTestFactRecorder<BridgeProductFrameAcknowledgementRequest>();
 	#closed = false;
 	readonly #shutdownSignal = createBridgeProductDeferred<never>();
 	readonly #metadataOpenWaiters: {
@@ -214,6 +236,7 @@ export class TestProductServer {
 	async #acknowledgeFrame(body: unknown): Promise<Response> {
 		const request = bridgeProductFrameAcknowledgementRequestSchema.parse(body);
 		this.frameAcknowledgements.push(request);
+		this.#frameAcknowledgementFacts.record(request);
 		const handler = this.nextAcknowledgementHandler;
 		this.nextAcknowledgementHandler = null;
 		if (handler !== null) return handler(request);
@@ -276,23 +299,28 @@ export class TestProductServer {
 		return request;
 	}
 
-	async waitForControlKind(kind: BridgeProductControlRequest['kind'], count = 1): Promise<void> {
-		await waitForCondition(
-			() => this.controlRequests.filter((request) => request.kind === kind).length >= count,
-		);
+	waitForControlKind(
+		kind: BridgeProductControlRequest['kind'],
+		count = 1,
+	): Promise<BridgeProductControlRequest> {
+		return this.waitForControlRequest(kind, count);
 	}
 
-	async waitForFrameAcknowledgementCount(count: number): Promise<void> {
-		await waitForCondition(() => this.frameAcknowledgements.length >= count);
+	waitForFrameAcknowledgementCount(
+		count: number,
+	): Promise<BridgeProductFrameAcknowledgementRequest> {
+		return this.#frameAcknowledgementFacts.waitFor((): boolean => true, count);
 	}
 
-	async waitForMetadataStream(count = 1): Promise<void> {
-		await waitForCondition(() => this.#metadataRequests.length >= count);
+	waitForMetadataStream(count = 1): Promise<BridgeProductMetadataStreamRequest> {
+		return this.waitForMetadataStreamOpened(count);
 	}
 
 	waitForMetadataStreamOpened(count = 1): Promise<BridgeProductMetadataStreamRequest> {
 		const existing = this.#metadataRequests[count - 1];
 		if (existing !== undefined) return Promise.resolve(existing);
+		if (this.#closed)
+			return Promise.reject(new Error('Test metadata server shut down before stream opened.'));
 		return new Promise((resolve, reject) => {
 			this.#metadataOpenWaiters.push({ count, resolve, reject });
 		});
@@ -304,6 +332,8 @@ export class TestProductServer {
 	): Promise<BridgeProductControlRequest> {
 		const existing = this.controlRequests.filter((request) => request.kind === kind)[count - 1];
 		if (existing !== undefined) return Promise.resolve(existing);
+		if (this.#closed)
+			return Promise.reject(new Error('Test metadata server shut down before control arrived.'));
 		return new Promise((resolve, reject) => {
 			this.#controlRequestWaiters.push({ kind, count, resolve, reject });
 		});
@@ -314,6 +344,10 @@ export class TestProductServer {
 	): Promise<BridgeProductControlRequest> {
 		const existing = this.controlRequests.find(matches);
 		if (existing !== undefined) return Promise.resolve(existing);
+		if (this.#closed)
+			return Promise.reject(
+				new Error('Test metadata server shut down before matching control arrived.'),
+			);
 		return new Promise((resolve, reject) => {
 			this.#matchingControlRequestWaiters.push({ matches, resolve, reject });
 		});
@@ -322,6 +356,9 @@ export class TestProductServer {
 	shutdown(): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		this.#frameAcknowledgementFacts.close(
+			new Error('Test metadata server shut down before acknowledgement arrived.'),
+		);
 		for (const waiter of this.#metadataOpenWaiters.splice(0)) {
 			waiter.reject(new Error('Test metadata server shut down before stream opened.'));
 		}
@@ -686,18 +723,6 @@ export function fileSourceIdentity(sourceGeneration = 1): BridgeProductFileSourc
 		subscriptionGeneration: sourceGeneration,
 		worktreeId: '00000000-0000-4000-8000-000000000002',
 	} as const;
-}
-
-export async function waitForCondition(predicate: () => boolean): Promise<void> {
-	const deadlineMilliseconds = performance.now() + 2000;
-	while (performance.now() < deadlineMilliseconds) {
-		if (predicate()) return;
-		// eslint-disable-next-line no-await-in-loop -- Yield to actual protocol/crypto work; the deadline bounds failure, not success latency.
-		await new Promise<void>((resolve): void => {
-			setImmediate(resolve);
-		});
-	}
-	throw new Error('Timed out waiting for the bounded protocol condition.');
 }
 
 function metadataIdentity(

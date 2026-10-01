@@ -68,6 +68,7 @@ extension BridgeProductSession {
             viewAcknowledgementReplayByDomain.removeValue(forKey: prior)
             nextViewDeliverySequenceByDomain.removeValue(forKey: prior)
             pendingFileSnapshotByViewDomain.removeValue(forKey: prior)
+            lastSealedFileTargetByViewDomain.removeValue(forKey: prior)
             pendingReviewSnapshotByViewDomain.removeValue(forKey: prior)
         }
         viewSenderState.open(viewDomain, handle: handle, scanGeneration: 0)
@@ -77,35 +78,6 @@ extension BridgeProductSession {
         )
         nextViewDeliverySequenceByDomain[viewDomain] = 1
         return .init(handle: handle, scope: scope, viewDomain: viewDomain)
-    }
-
-    func sealFileSnapshot(
-        subscriptionId: String,
-        snapshot: BridgeWorktreeFileKeyedSnapshot,
-        productAdmission: BridgeProductAdmissionContext
-    ) throws -> Bool {
-        guard
-            let viewDomain = viewScopeByDomain.keys.first(where: {
-                $0.viewId == subscriptionId && $0.domain == .singleDomain
-            }), let current = viewScopeByDomain[viewDomain]
-        else { return false }
-        if viewSenderState.hasActiveEmission(for: viewDomain) {
-            if snapshot.targetRevision >= (pendingFileSnapshotByViewDomain[viewDomain]?.targetRevision ?? 0) {
-                pendingFileSnapshotByViewDomain[viewDomain] = snapshot
-            }
-            return true
-        }
-        let batch = try BridgeProductFileViewBatchFactory.sealSnapshot(
-            .init(
-                viewDomain: viewDomain,
-                handle: current.handle,
-                scopeRevision: current.revision,
-                scope: current.scope,
-                firstDeliverySequence: nextViewDeliverySequenceByDomain[viewDomain] ?? 1,
-                snapshot: snapshot
-            )
-        )
-        return try sealViewBatch(batch, productAdmission: productAdmission)
     }
 
     func sealReviewSnapshot(
@@ -179,7 +151,10 @@ extension BridgeProductSession {
         guard lifecycle == .active,
             viewScopeByDomain[viewDomain]?.handle == handle
         else { return .retired }
-        guard viewSenderState.hasActiveEmission(for: viewDomain) else { return .completed }
+        guard
+            viewSenderState.hasActiveEmission(for: viewDomain)
+                || pendingFileSnapshotByViewDomain[viewDomain] != nil
+        else { return .completed }
         let waiterID = UUIDv7.generate()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -225,7 +200,9 @@ extension BridgeProductSession {
 
     private func finishReadyViewEmissionWaiters() {
         for viewDomain in Array(viewEmissionWaiterByDomain.keys)
-        where !viewSenderState.hasActiveEmission(for: viewDomain) {
+        where !viewSenderState.hasActiveEmission(for: viewDomain)
+            && pendingFileSnapshotByViewDomain[viewDomain] == nil
+        {
             finishViewEmissionWaiter(for: viewDomain, outcome: .completed)
         }
     }
@@ -265,6 +242,7 @@ extension BridgeProductSession {
         }
         viewSenderState.resnapshot(oldest.viewDomain)
         pendingFileSnapshotByViewDomain.removeValue(forKey: oldest.viewDomain)
+        lastSealedFileTargetByViewDomain.removeValue(forKey: oldest.viewDomain)
         pendingReviewSnapshotByViewDomain.removeValue(forKey: oldest.viewDomain)
         finishViewEmissionWaiter(for: oldest.viewDomain, outcome: .resnapshotRequired)
         rescheduleViewAcknowledgementDeadline()
@@ -365,27 +343,6 @@ extension BridgeProductSession {
         }
     }
 
-    private func sealPendingFileSnapshotIfReady() throws {
-        for (viewDomain, snapshot) in pendingFileSnapshotByViewDomain {
-            guard !viewSenderState.hasActiveEmission(for: viewDomain),
-                let current = viewScopeByDomain[viewDomain]
-            else { continue }
-            let batch = try BridgeProductFileViewBatchFactory.sealSnapshot(
-                .init(
-                    viewDomain: viewDomain,
-                    handle: current.handle,
-                    scopeRevision: current.revision,
-                    scope: current.scope,
-                    firstDeliverySequence: nextViewDeliverySequenceByDomain[viewDomain] ?? 1,
-                    snapshot: snapshot
-                )
-            )
-            try viewSenderState.seal(batch)
-            nextViewDeliverySequenceByDomain[viewDomain] = batch.firstDeliverySequence + batch.parts.count
-            pendingFileSnapshotByViewDomain.removeValue(forKey: viewDomain)
-        }
-    }
-
     private func sealPendingReviewSnapshotIfReady() throws {
         for (viewDomain, snapshot) in pendingReviewSnapshotByViewDomain {
             guard !viewSenderState.hasActiveEmission(for: viewDomain),
@@ -418,6 +375,7 @@ extension BridgeProductSession {
             viewAcknowledgementReplayByDomain.removeValue(forKey: viewDomain)
             nextViewDeliverySequenceByDomain.removeValue(forKey: viewDomain)
             pendingFileSnapshotByViewDomain.removeValue(forKey: viewDomain)
+            lastSealedFileTargetByViewDomain.removeValue(forKey: viewDomain)
             pendingReviewSnapshotByViewDomain.removeValue(forKey: viewDomain)
         }
         rescheduleViewAcknowledgementDeadline()
@@ -524,6 +482,7 @@ extension BridgeProductSession {
             viewAcknowledgementReplayByDomain.removeValue(forKey: prior)
             nextViewDeliverySequenceByDomain.removeValue(forKey: prior)
             pendingFileSnapshotByViewDomain.removeValue(forKey: prior)
+            lastSealedFileTargetByViewDomain.removeValue(forKey: prior)
             pendingReviewSnapshotByViewDomain.removeValue(forKey: prior)
         }
         viewSenderState.open(
@@ -566,6 +525,7 @@ extension BridgeProductSession {
         rescheduleViewAcknowledgementDeadline()
         finishViewEmissionWaiter(for: viewDomain, outcome: .resnapshotRequired)
         pendingFileSnapshotByViewDomain.removeValue(forKey: viewDomain)
+        lastSealedFileTargetByViewDomain.removeValue(forKey: viewDomain)
         pendingReviewSnapshotByViewDomain.removeValue(forKey: viewDomain)
         return nil
     }

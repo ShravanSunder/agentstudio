@@ -1,8 +1,24 @@
 import type { CodeViewLineSelection, CodeViewOptions, SelectedLineRange } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+	useCallback,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ReactElement,
+	type ReactNode,
+} from 'react';
 
-import { BridgeViewerFileChangedAlert } from '../app/bridge-viewer-file-changed-alert.js';
+import type { BridgeRegionPresentationState } from '../app/bridge-region-presentation-state.js';
+import {
+	BridgeRegionPresentation,
+	BridgeRegionUpdatingIndicator,
+	type BridgeRegionPresentationRenderSlot,
+} from '../app/bridge-region-presentation.js';
+import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
+import { bridgeViewerRegionApplyActionSpec } from '../app/bridge-viewer-region-apply-action-spec.js';
+import { BridgeViewerRegionApplyAction } from '../app/bridge-viewer-region-apply-action.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { codeViewSelectionScrollRetryFrameBudget } from '../review-viewer/code-view/bridge-code-view-panel-types.js';
 import {
@@ -39,6 +55,7 @@ import {
 	WorktreeAnnotationNewMessageComposer,
 	WorktreeAnnotationThread,
 } from '../worktree-annotations/worktree-annotation-thread.js';
+import { bridgeFileContentPresentation } from './bridge-file-region-presentation.js';
 import {
 	bridgeFileViewerCodeViewItemsForPanelState,
 	type BridgeFileViewerCodePanelState,
@@ -49,6 +66,8 @@ import { bridgeFileViewerCodeViewOptions } from './bridge-file-viewer-code-view-
 export type { BridgeFileViewerCodePanelState, BridgeFileViewerSelectedCodeViewItem };
 
 export interface BridgeFileViewerCodePanelProps {
+	readonly presentationState?: BridgeRegionPresentationState;
+	readonly retryControl?: ReactNode;
 	readonly codeViewOptions?: Readonly<CodeViewOptions<undefined>>;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
@@ -59,7 +78,7 @@ export interface BridgeFileViewerCodePanelProps {
 	>;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly totalHeightPixels: number | null;
-	readonly staleNotice?: ReactElement | null;
+	readonly renderRegion?: BridgeRegionPresentationRenderSlot | undefined;
 }
 
 interface FileAnnotationAdmissionIdentity {
@@ -229,7 +248,36 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		props.openFileState,
 		displayedCodeViewItem,
 	]);
-	const shouldRenderContentState = props.openFileState.status !== 'ready';
+	const basePresentationState =
+		props.presentationState ??
+		bridgeFileContentPresentation({
+			openFileState: props.openFileState,
+			displayedFileId: displayedCodeViewItem?.bridgeMetadata.itemId ?? null,
+			surface: { kind: 'current' },
+		});
+	const presentationState: BridgeRegionPresentationState =
+		retainsAnnotationSource && basePresentationState.kind !== 'failed'
+			? { kind: 'updating', rest: 'held' }
+			: basePresentationState;
+	const applyDisplay = bridgeViewerRegionApplyActionSpec(
+		'file',
+		sourcePinRelease.failedSourceDescriptorId === previousSourceId,
+	);
+	const held =
+		retainsAnnotationSource && previousSourceId !== undefined
+			? {
+					label: applyDisplay.statusLabel,
+					action: (
+						<BridgeViewerRegionApplyAction
+							display={applyDisplay}
+							pending={sourcePinRelease.pendingSourceDescriptorId === previousSourceId}
+							onApply={(): void => {
+								sourcePinRelease.release(previousSourceId);
+							}}
+						/>
+					),
+				}
+			: undefined;
 	useLayoutEffect((): void => {
 		if (displayedCodeViewItem === null) return;
 		reconcileBridgeCodeViewRenderFulfillment({
@@ -487,7 +535,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			scrollOwner?.removeEventListener('pointerdown', cancelByUser);
 		};
 	}, [displayedCodeViewItem, navigation, navigationTarget, navigationPaintRevision]);
-	return (
+	const body = (
 		<section
 			aria-label="Selected file"
 			className="relative h-full min-h-0 min-w-0 overflow-hidden bg-background"
@@ -516,99 +564,103 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				? {}
 				: { 'data-worktree-open-file-total-size': String(props.totalHeightPixels) })}
 		>
-			<BridgePierreWorkerPoolProvider
-				{...(props.codeViewWorkerPoolEnabled === undefined
-					? {}
-					: { enabled: props.codeViewWorkerPoolEnabled })}
-				{...(props.codeViewWorkerFactory === undefined
-					? {}
-					: { workerFactory: props.codeViewWorkerFactory })}
+			<BridgeRegionPresentation
+				keepContentMounted
+				region="file-content"
+				shape="code"
+				state={presentationState}
+				retry={props.retryControl}
+				emptyCopy={{ noSelection: 'Select a file', certified: 'File is empty' }}
 			>
-				<div
-					className={`h-full min-h-0 min-w-0 ${codeViewItems.length > 0 ? '' : 'invisible'}`}
-					data-testid="bridge-file-viewer-code-view"
+				<BridgePierreWorkerPoolProvider
+					{...(props.codeViewWorkerPoolEnabled === undefined
+						? {}
+						: { enabled: props.codeViewWorkerPoolEnabled })}
+					{...(props.codeViewWorkerFactory === undefined
+						? {}
+						: { workerFactory: props.codeViewWorkerFactory })}
 				>
-					<CodeView
-						className="bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
-						items={codeViewItems}
-						options={codeViewOptions}
-						onSelectedLinesChange={handleSelectedAnnotationLinesChange}
-						renderAnnotation={(annotation, item) => {
-							if (item.type !== 'file') return null;
-							const metadata = worktreeAnnotationMetadataForPierreAnnotation(annotation);
-							if (
-								metadata?.kind === 'composer' &&
-								pendingAnnotationComposer?.editToken === metadata.editToken
-							) {
-								return (
-									<WorktreeAnnotationNewMessageComposer
-										createOperation={(body, editToken, admission) => ({
-											admission: admission ?? annotationSessionSelection.rootAdmission,
-											body,
-											editToken,
-											kind: 'root.create',
-											origin: pendingAnnotationComposer.origin,
-										})}
-										editToken={metadata.editToken}
-										editSurfaceRegistrationOwner="parent"
-										onCancel={() => admitSelectedRange(null, '')}
-										onCommitted={() =>
-											setPendingAnnotationComposer((currentComposer) =>
-												currentComposer?.editToken === metadata.editToken
-													? { ...currentComposer, committed: true }
-													: currentComposer,
-											)
-										}
-										onSaved={(savedMessage) => {
-											const savedThreadIdentity = {
-												itemId: item.id,
-												range: metadata.range,
-												threadId: savedMessage.threadId,
-											};
-											admitSelectedRange(null, '');
-											annotationInteraction.activateSavedThread(savedThreadIdentity);
-										}}
-										placeholder="Write an annotation in Markdown"
+					<div
+						className={`h-full min-h-0 min-w-0 ${codeViewItems.length > 0 ? '' : 'invisible'}`}
+						data-testid="bridge-file-viewer-code-view"
+					>
+						<CodeView
+							className="bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
+							items={codeViewItems}
+							options={codeViewOptions}
+							onSelectedLinesChange={handleSelectedAnnotationLinesChange}
+							renderAnnotation={(annotation, item) => {
+								if (item.type !== 'file') return null;
+								const metadata = worktreeAnnotationMetadataForPierreAnnotation(annotation);
+								if (
+									metadata?.kind === 'composer' &&
+									pendingAnnotationComposer?.editToken === metadata.editToken
+								) {
+									return (
+										<WorktreeAnnotationNewMessageComposer
+											createOperation={(body, editToken, admission) => ({
+												admission: admission ?? annotationSessionSelection.rootAdmission,
+												body,
+												editToken,
+												kind: 'root.create',
+												origin: pendingAnnotationComposer.origin,
+											})}
+											editToken={metadata.editToken}
+											editSurfaceRegistrationOwner="parent"
+											onCancel={() => admitSelectedRange(null, '')}
+											onCommitted={() =>
+												setPendingAnnotationComposer((currentComposer) =>
+													currentComposer?.editToken === metadata.editToken
+														? { ...currentComposer, committed: true }
+														: currentComposer,
+												)
+											}
+											onSaved={(savedMessage) => {
+												const savedThreadIdentity = {
+													itemId: item.id,
+													range: metadata.range,
+													threadId: savedMessage.threadId,
+												};
+												admitSelectedRange(null, '');
+												annotationInteraction.activateSavedThread(savedThreadIdentity);
+											}}
+											placeholder="Write an annotation in Markdown"
+										/>
+									);
+								}
+								if (metadata?.kind !== 'thread') return null;
+								const thread = threadForPierreAnnotation({
+									annotation,
+									threads: activeAnnotationThreads,
+								});
+								return thread === null ? null : (
+									<WorktreeAnnotationThread
+										rangeIdentity={{ itemId: item.id, range: metadata.range }}
+										thread={thread}
 									/>
 								);
-							}
-							if (metadata?.kind !== 'thread') return null;
-							const thread = threadForPierreAnnotation({
-								annotation,
-								threads: activeAnnotationThreads,
-							});
-							return thread === null ? null : (
-								<WorktreeAnnotationThread
-									rangeIdentity={{ itemId: item.id, range: metadata.range }}
-									thread={thread}
-								/>
-							);
-						}}
-						ref={codeViewHandleRef}
-						selectedLines={selectedAnnotationLines}
-						style={{ height: '100%' }}
-					/>
-				</div>
-				{shouldRenderContentState ? (
-					<div className="pointer-events-none absolute inset-0">
-						<BridgeFileViewerContentState state={props.openFileState} />
-					</div>
-				) : null}
-			</BridgePierreWorkerPoolProvider>
-			{props.staleNotice ??
-				(retainsAnnotationSource && previousSourceId !== undefined ? (
-					<div className="pointer-events-none absolute right-2 bottom-2">
-						<BridgeViewerFileChangedAlert
-							installationFailed={sourcePinRelease.failedSourceDescriptorId === previousSourceId}
-							installationPending={sourcePinRelease.pendingSourceDescriptorId === previousSourceId}
-							onUpdate={(): void => {
-								sourcePinRelease.release(previousSourceId);
 							}}
-							updateActionLabel="Update file"
+							ref={codeViewHandleRef}
+							selectedLines={selectedAnnotationLines}
+							style={{ height: '100%' }}
 						/>
 					</div>
-				) : null)}
+				</BridgePierreWorkerPoolProvider>
+			</BridgeRegionPresentation>
 		</section>
+	);
+	return (
+		props.renderRegion?.({ body, state: presentationState, held }) ?? (
+			<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
+				<BridgeViewerContentHeader
+					mode="file"
+					statusText={null}
+					title={displayedCodeViewItem?.bridgeMetadata.displayPath ?? ''}
+					regionIndicator={<BridgeRegionUpdatingIndicator state={presentationState} held={held} />}
+				/>
+				{body}
+			</section>
+		)
 	);
 }
 
@@ -706,24 +758,4 @@ function annotationPresentationVersion(
 			? Math.floor(contentVersion / 1_000_000)
 			: (contentVersion ?? 0);
 	return baseContentVersion * 1_000_000 + (projectionRevision ?? 0) + composerRevision;
-}
-
-function BridgeFileViewerContentState(props: {
-	readonly state: BridgeFileViewerCodePanelState;
-}): ReactElement {
-	const label =
-		props.state.status === 'idle'
-			? 'Select a file'
-			: props.state.status === 'loading' || props.state.status === 'stale'
-				? 'Loading file'
-				: 'Content unavailable';
-	return (
-		<div
-			className="relative flex min-h-full items-start justify-center text-sm text-muted-foreground"
-			data-testid="bridge-file-viewer-content-state"
-			role="status"
-		>
-			<div className="sticky top-0 flex min-h-screen items-center justify-center">{label}</div>
-		</div>
-	);
 }

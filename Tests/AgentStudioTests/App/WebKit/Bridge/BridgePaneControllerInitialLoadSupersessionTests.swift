@@ -11,6 +11,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         // Arrange
         let comparisonGate = BridgeComparisonGate()
         let fixture = try await makeRefreshAdmissionIntegrationFixture(comparisonGate: comparisonGate)
+        await fixture.reviewProvider.throwCancellationWhenComparisonTaskIsCancelled()
         // fire-and-forget: the test asserts admission state; the presentation transition handle is not its claim
         _ = fixture.controller.applyBridgePaneActivity(.foreground)
         await comparisonGate.waitForStartedComparisonCount(1)
@@ -30,9 +31,15 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await comparisonGate.waitForStartedComparisonCount(2)
         let retirementTasks = Array(fixture.controller.retiringReviewRefreshTaskById.values)
         #expect(!retirementTasks.isEmpty)
-        await comparisonGate.releaseAll()
+        await comparisonGate.releaseFirst()
         for task in retirementTasks { await task.value }
         #expect(fixture.controller.retiringReviewRefreshTaskById.isEmpty)
+        #expect(fixture.controller.paneState.diff.status == .loading)
+        #expect(
+            fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?
+                .attempt != .unavailable(failureKind: "loadFailed:package:cancelled", retryable: true)
+        )
+        await comparisonGate.releaseAll()
         await fixture.controller.activeReviewRefreshTask?.value
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
 

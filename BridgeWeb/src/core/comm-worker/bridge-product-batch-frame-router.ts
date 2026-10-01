@@ -7,6 +7,7 @@ import {
 import type { BridgeProductViewAcknowledgementRequest } from './bridge-product-view-control-wire-contracts.js';
 
 export interface BridgeProductBatchFrameSinks {
+	readonly subscriptionRetired?: (subscriptionId: string) => void;
 	readonly verify?: (installation: BridgeProductViewInstallation) => void;
 	readonly install: (installation: BridgeProductViewInstallation) => Promise<void> | void;
 	readonly certifiedInstallCompleted?: (
@@ -219,12 +220,15 @@ export class BridgeProductBatchFrameRouter {
 	}
 
 	retireSubscription(subscriptionId: string): void {
+		this.#sinks?.subscriptionRetired?.(subscriptionId);
 		this.#clearProgress(subscriptionId);
 		this.#acceptedScopeBySubscriptionId.delete(subscriptionId);
 		this.#receiversBySubscriptionId.delete(subscriptionId);
 	}
 
 	clear(): void {
+		for (const subscriptionId of this.#receiversBySubscriptionId.keys())
+			this.#sinks?.subscriptionRetired?.(subscriptionId);
 		for (const subscriptionId of this.#progressBySubscriptionId.keys())
 			this.#clearProgress(subscriptionId);
 		this.#acceptedScopeBySubscriptionId.clear();

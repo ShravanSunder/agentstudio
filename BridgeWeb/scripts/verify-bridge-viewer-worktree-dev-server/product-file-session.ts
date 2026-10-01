@@ -267,7 +267,7 @@ export class BridgeVerifierProductFileSession {
 		predicate: (view: BridgeProductInstalledFileView) => boolean,
 	): Promise<BridgeProductInstalledFileView> {
 		for (;;) {
-			// oxlint-disable-next-line no-await-in-loop -- Each complete batch is the next certified File state.
+			// oxlint-disable-next-line no-await-in-loop -- Coverage progresses rows; the certificate alone settles the initial inventory.
 			await this.#requireMetadataStream().frames.waitFor(
 				(frame) =>
 					frame.kind === 'subscription.batchComplete' &&
@@ -279,7 +279,7 @@ export class BridgeVerifierProductFileSession {
 				const installed = installBridgeProductFileBatch(installation, this.#installedFileView);
 				this.#installedFileView = installed;
 				this.#installations.push(installation);
-				if (predicate(installed)) matchedView = installed;
+				if (installation.certified && predicate(installed)) matchedView = installed;
 			}
 			if (matchedView !== null) return matchedView;
 		}
@@ -591,6 +591,8 @@ export class BridgeVerifierProductFileSession {
 	}
 
 	async #acceptFileBatchFrame(frame: BridgeProductBatchFrame): Promise<void> {
+		// Retirement is local before cancel: buffered parts no longer owe credits.
+		if (this.#state === 'closing' || this.#state === 'closed') return;
 		const acceptance = this.#requireBatchReceiver().accept(frame);
 		if (acceptance.kind === 'resnapshot') {
 			throw new Error(

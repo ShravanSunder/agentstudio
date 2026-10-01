@@ -87,7 +87,6 @@ extension WebKitSerializedTests {
 
         private enum TransactionalPublicationTestError: Error {
             case initialPublicationDidNotApply
-            case metadataSubscriptionsDidNotOpen
             case publicationFailureDidNotReopenReview
             case replayDidNotApply
         }
@@ -225,8 +224,9 @@ extension WebKitSerializedTests {
             let paneId = UUIDv7.generate()
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
-            let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
             let controllerTarget = BridgeProductWebKitCarrierControllerTarget()
+            let traceRecorder = BridgeProductWebKitCarrierTraceRecorder(
+                firstApplication: controllerTarget.firstApplication)
             let fileMetadataSource = makeTrackingFileMetadataSource(
                 paneId: paneId,
                 repoId: repoId,
@@ -320,7 +320,7 @@ extension WebKitSerializedTests {
                     controllerTarget.committedPublication(productAdmission: productAdmission)
                 },
                 isReviewPublicationCurrent: { publicationId, productAdmission in
-                    controllerTarget.isCurrentPublication(
+                    controllerTarget.isCurrentCanonicalPublication(
                         publicationId,
                         productAdmission: productAdmission
                     )
@@ -399,7 +399,7 @@ extension WebKitSerializedTests {
                 ),
                 gitReadContext: gitReadContext,
                 telemetryRuntimePolicy: .live,
-                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
+                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
                 telemetryRecorder: input.traceRecorder,
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -424,7 +424,11 @@ extension WebKitSerializedTests {
                 harness.controller
             ) { controller in
                 controller.loadApp()
-                let openedSubscriptions = try await waitForMetadataSubscriptions(harness)
+                let openedSubscriptions = try await BridgeProductWebKitReplayStartup.prepare(
+                    .init(
+                        controller: controller, controllerTarget: harness.controllerTarget,
+                        fileSource: harness.fileMetadataSource, reviewSource: harness.reviewMetadataSource,
+                        traceRecorder: harness.traceRecorder))
                 #expect(!openedSubscriptions.file.subscriptionId.isEmpty)
                 #expect(!openedSubscriptions.review.subscriptionId.isEmpty)
                 let firstCheckpoint = try await prepareFirstPublicationCheckpoint(
@@ -440,25 +444,12 @@ extension WebKitSerializedTests {
             }
         }
 
-        private func waitForMetadataSubscriptions(
-            _ harness: TransactionalPublicationHarness
-        ) async throws -> (
-            file: BridgeProductWebKitCarrierSubscriptionIdentity,
-            review: BridgeProductWebKitCarrierSubscriptionIdentity
-        ) {
-            async let fileOpen = harness.fileMetadataSource.waitForFirstOpen()
-            async let reviewOpen = harness.reviewMetadataSource.waitForFirstOpen()
-            guard let file = await fileOpen, let review = await reviewOpen else {
-                throw TransactionalPublicationTestError.metadataSubscriptionsDidNotOpen
-            }
-            return (file, review)
-        }
-
         private func prepareFirstPublicationCheckpoint(
             controller: BridgePaneController,
             harness: TransactionalPublicationHarness
         ) async throws -> FirstPublicationCheckpoint {
-            guard let firstReceipt = await harness.controllerTarget.waitForFirstApplicationReceipt(),
+            guard
+                let firstReceipt = harness.controllerTarget.applicationReceipts.first,
                 firstReceipt.accepted,
                 harness.controllerTarget.applicationReceipts.count == 1,
                 let publication = harness.controllerTarget.committedPublication(

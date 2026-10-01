@@ -19,7 +19,6 @@ import {
 	subscriptionAccepted,
 	subscriptionCancelled,
 	subscriptionReset,
-	waitForCondition,
 } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
 afterEach(async () => {
@@ -400,8 +399,11 @@ describe('Bridge product transport', () => {
 
 	test('batch begin and complete advance without legacy frame observation acknowledgements', async () => {
 		const harness = createTransportHarness();
+		const installed = createBridgeProductDeferred<void>();
 		harness.transport.setBatchFrameSinks?.({
-			install: (): void => {},
+			install: (): void => {
+				installed.resolve();
+			},
 			receipt: (): void => {},
 			resnapshot: (): void => {},
 			resnapshotLatest: (): void => {},
@@ -458,10 +460,9 @@ describe('Bridge product transport', () => {
 				streamSequence: 3,
 			}),
 		);
-		await waitForCondition(
-			() =>
-				harness.transport.metadataStreamDiagnostics?.().lastRoutedFrameKind ===
-				'subscription.batchComplete',
+		await installed.promise;
+		expect(harness.transport.metadataStreamDiagnostics?.().lastRoutedFrameKind).toBe(
+			'subscription.batchComplete',
 		);
 		expect(harness.server.frameAcknowledgements).toHaveLength(0);
 	});
@@ -578,7 +579,7 @@ describe('Bridge product transport', () => {
 			bridgeProductReviewMetadataApplicationProtocol,
 			{},
 		);
-		await waitForCondition(() => harness.server.metadataFetchCount === 2);
+		await harness.server.waitForMetadataStream(2);
 		const secondRequest = harness.server.requiredMetadataRequest();
 		expect(secondRequest.metadataStreamId).not.toBe(firstRequest.metadataStreamId);
 		harness.server.emitMetadata(metadataAccepted(secondRequest, 0));
@@ -647,9 +648,7 @@ describe('Bridge product transport', () => {
 				subscriptionId: subscription.subscriptionId,
 			}),
 		);
-		await waitForCondition(
-			() => harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount === 0,
-		);
+		await subscription.events[Symbol.asyncIterator]().next();
 		expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
 			activeSubscriptionCount: 0,
 			failureStage: null,
@@ -677,6 +676,7 @@ describe('Bridge product transport', () => {
 		harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {});
 		harness.server.releaseHeldSubscriptionOpen();
 		await harness.server.waitForControlKind('subscription.open', 2);
+		await harness.server.waitForControlKind('subscription.setScope');
 
 		// Assert: native sees the epoch-1 cancel before the first epoch-2 request, and the
 		// sibling's consumer learns it was retired for the new epoch.
@@ -754,8 +754,10 @@ describe('Bridge product transport', () => {
 				subscriptionId: metadata.subscriptionId,
 			}),
 		);
-		await waitForCondition(
-			() => harness.transport.metadataStreamDiagnostics?.().activeSubscriptionCount === 1,
+		await harness.server.waitForControlRequestWhere(
+			(control): boolean =>
+				control.kind === 'subscription.setScope' &&
+				control.subscriptionId === metadata.subscriptionId,
 		);
 		// Assert: the refused sibling's terminal drains instead of poisoning the shared
 		// stream, and the replacement subscription remains active.
@@ -789,6 +791,7 @@ describe('Bridge product transport', () => {
 			}),
 		);
 		await harness.server.waitForControlKind('subscription.open');
+		await harness.server.waitForControlKind('subscription.setScope');
 		await subscription.cancel();
 
 		// Act

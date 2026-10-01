@@ -188,7 +188,11 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 			expect(originalCanvas.parentElement).toBe(markdownScrollOwner);
 			expect(originalCanvas.querySelector('svg')).toBe(originalSvg);
 			expect(originalCanvas.querySelector('[data-bridge-mermaid-state="ready"]')).not.toBeNull();
-			expect(document.querySelector('[data-testid="bridge-markdown-status"]')).toBeNull();
+			expect(
+				document.querySelector(
+					'[data-bridge-region="markdown"][data-presentation-state="loading"]',
+				),
+			).toBeNull();
 		} finally {
 			markdownWorkerClient.dispose();
 		}
@@ -223,7 +227,9 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 		try {
 			const rendered = await render(activeApp);
 			await waitForMarkdownOpenFileState('ready');
-			await waitForMarkdownSelector('[data-testid="bridge-markdown-status"]');
+			await waitForMarkdownSelector(
+				'[data-bridge-region="markdown"][data-presentation-state="loading"]',
+			);
 			expect(sendRenderRequest).toHaveBeenCalledOnce();
 
 			await rendered.rerender(

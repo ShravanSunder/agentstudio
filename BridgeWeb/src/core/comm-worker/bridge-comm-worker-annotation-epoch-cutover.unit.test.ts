@@ -18,7 +18,6 @@ import {
 	subscriptionAccepted,
 	requestErrorResponse,
 	subscriptionCancelled,
-	waitForCondition,
 } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
 
 afterEach(async (): Promise<void> => {
@@ -116,12 +115,8 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			}),
 		);
 		await harness.server.waitForControlKind('subscription.cancel');
-		await waitForCondition(() =>
-			hasReplacementOpen(
-				harness.server.controlRequests,
-				'file.metadata',
-				initialFileMetadata.subscriptionId,
-			),
+		await harness.server.waitForControlRequestWhere((request): boolean =>
+			hasReplacementOpen([request], 'file.metadata', initialFileMetadata.subscriptionId),
 		);
 		let nextStreamSequence = 6;
 
@@ -142,12 +137,8 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 		);
 		expect(siblingCancellationIndex).toBeLessThan(controlRequests.indexOf(replacementFileMetadata));
 
-		await waitForCondition(() =>
-			hasReplacementOpen(
-				harness.server.controlRequests,
-				'file.annotations',
-				initialFileAnnotation.subscriptionId,
-			),
+		await harness.server.waitForControlRequestWhere((request): boolean =>
+			hasReplacementOpen([request], 'file.annotations', initialFileAnnotation.subscriptionId),
 		);
 		const replacementFileAnnotation = requiredReplacementOpen(
 			harness.server.controlRequests,
@@ -238,12 +229,8 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				subscriptionId: annotationCancellation.subscriptionId,
 			}),
 		);
-		await waitForCondition(() =>
-			hasReplacementOpen(
-				scenario.harness.server.controlRequests,
-				'file.annotations',
-				initialFileAnnotation.subscriptionId,
-			),
+		await scenario.harness.server.waitForControlRequestWhere((request): boolean =>
+			hasReplacementOpen([request], 'file.annotations', initialFileAnnotation.subscriptionId),
 		);
 
 		// Assert: the reset retired the sibling as completely as a cancellation, so
@@ -318,10 +305,10 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				subscriptionId: initialReviewMetadata.subscriptionId,
 			}),
 		);
-		await waitForCondition(() =>
-			cancellationRequests(scenario.harness.server.controlRequests).some(
-				(request) => request.subscriptionId === initialReviewAnnotation.subscriptionId,
-			),
+		await scenario.harness.server.waitForControlRequestWhere(
+			(request): boolean =>
+				request.kind === 'subscription.cancel' &&
+				request.subscriptionId === initialReviewAnnotation.subscriptionId,
 		);
 		scenario.harness.server.emitMetadata(
 			subscriptionResetFrame({
@@ -333,12 +320,8 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 				subscriptionId: initialReviewAnnotation.subscriptionId,
 			}),
 		);
-		await waitForCondition(() =>
-			hasReplacementOpen(
-				scenario.harness.server.controlRequests,
-				'review.annotations',
-				initialReviewAnnotation.subscriptionId,
-			),
+		await scenario.harness.server.waitForControlRequestWhere((request): boolean =>
+			hasReplacementOpen([request], 'review.annotations', initialReviewAnnotation.subscriptionId),
 		);
 
 		// Assert: the drawer refreshes with retired catalog authority and never reports
@@ -379,12 +362,8 @@ describe('Bridge annotation subscription worker-epoch cutover', () => {
 			}),
 		);
 		await scenario.harness.server.waitForControlKind('subscription.cancel');
-		await waitForCondition(() =>
-			hasReplacementOpen(
-				scenario.harness.server.controlRequests,
-				'file.annotations',
-				initialFileAnnotation.subscriptionId,
-			),
+		await scenario.harness.server.waitForControlRequestWhere((request): boolean =>
+			hasReplacementOpen([request], 'file.annotations', initialFileAnnotation.subscriptionId),
 		);
 
 		// Act: the runtime requests annotations again, then the retired sibling drains.

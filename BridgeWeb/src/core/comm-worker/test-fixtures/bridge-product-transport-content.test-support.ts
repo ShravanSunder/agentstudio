@@ -1,5 +1,3 @@
-import { performance } from 'node:perf_hooks';
-
 import { vi } from 'vitest';
 
 import { executeAgentStudioBridgeProductRequest } from '../bridge-product-agent-studio-request-executor.js';
@@ -41,6 +39,7 @@ import {
 	createBridgeProductTransport,
 	type BridgeProductIdentifierPurpose,
 } from '../bridge-product-transport.js';
+import { BridgeProductTestFactRecorder } from './bridge-product-test-fact-recorder.js';
 
 const abcSha256 = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
@@ -59,6 +58,8 @@ export function createContentTransportHarness(
 			kind: 'productSession.bootstrap',
 			paneSessionId: 'pane-session-1',
 			policy: {
+				contentAcknowledgementDeadlineMilliseconds:
+					frameAcknowledgementTimeoutMilliseconds ?? 5_000,
 				maximumContentBytes: 2 * 1024 * 1024,
 				maximumMetadataFrameBytes: 256 * 1024,
 				maximumQueuedStreamBytes: 4 * 1024 * 1024,
@@ -103,14 +104,19 @@ export function createContentTransportHarness(
 			...(maximumConcurrentContentResponses === undefined
 				? {}
 				: { maximumConcurrentContentResponses }),
-			...(frameAcknowledgementTimeoutMilliseconds === undefined
-				? {}
-				: { frameAcknowledgementTimeoutMilliseconds }),
 		}),
 	};
 }
 
 export class TestContentProductServer {
+	readonly #heldContentReadFacts = new BridgeProductTestFactRecorder<string>();
+	readonly #contentRequestFacts = new BridgeProductTestFactRecorder<BridgeProductContentRequest>();
+	readonly #contentInvocationFacts = new BridgeProductTestFactRecorder<number>();
+	readonly #frameAcknowledgementFacts =
+		new BridgeProductTestFactRecorder<BridgeProductFrameAcknowledgementRequest>();
+	readonly #metadataOpeningFacts =
+		new BridgeProductTestFactRecorder<BridgeProductMetadataStreamRequest>();
+	readonly #controlRequestFacts = new BridgeProductTestFactRecorder<BridgeProductControlRequest>();
 	readonly contentRequestHeaders: {
 		readonly capability: string | null;
 		readonly contentType: string | null;
@@ -156,6 +162,7 @@ export class TestContentProductServer {
 		this.requestRoutes.push(url);
 		if (url === 'agentstudio://rpc/content') {
 			this.contentRequestInvocationCount += 1;
+			this.#contentInvocationFacts.record(this.contentRequestInvocationCount);
 			if (this.holdNextContentRequestBeforeResponse) {
 				this.holdNextContentRequestBeforeResponse = false;
 				await new Promise<void>((resolve): void => {
@@ -219,25 +226,38 @@ export class TestContentProductServer {
 		return this.#metadataRequest;
 	}
 
-	async waitForContentRequestCount(count: number): Promise<void> {
-		await waitForCondition(() => this.contentRequests.length >= count);
+	waitForContentRequestCount(count: number): Promise<BridgeProductContentRequest> {
+		return this.#contentRequestFacts.waitFor((): boolean => true, count);
 	}
 
-	async waitForContentRequestInvocationCount(count: number): Promise<void> {
-		await waitForCondition(() => this.contentRequestInvocationCount >= count);
+	waitForContentRequestInvocationCount(count: number): Promise<number> {
+		return this.#contentInvocationFacts.waitFor((invocations): boolean => invocations >= count);
 	}
 
-	async waitForFrameAcknowledgementCount(count: number): Promise<void> {
-		await waitForCondition(() => this.frameAcknowledgements.length >= count);
+	waitForHeldContentReadStarted(contentRequestId: string): Promise<string> {
+		return this.#heldContentReadFacts.waitFor((observed): boolean => observed === contentRequestId);
 	}
 
-	async waitForMetadataStream(): Promise<void> {
-		await waitForCondition(() => this.#metadataRequest !== null);
+	waitForFrameAcknowledgementCount(
+		count: number,
+	): Promise<BridgeProductFrameAcknowledgementRequest> {
+		return this.#frameAcknowledgementFacts.waitFor((): boolean => true, count);
+	}
+
+	waitForMetadataStream(): Promise<BridgeProductMetadataStreamRequest> {
+		return this.#metadataOpeningFacts.waitFor();
+	}
+
+	waitForControlRequestWhere(
+		matches: (request: BridgeProductControlRequest) => boolean,
+	): Promise<BridgeProductControlRequest> {
+		return this.#controlRequestFacts.waitFor(matches);
 	}
 
 	async #acknowledgeFrame(body: unknown): Promise<Response> {
 		const request = bridgeProductFrameAcknowledgementRequestSchema.parse(body);
 		this.frameAcknowledgements.push(request);
+		this.#frameAcknowledgementFacts.record(request);
 		if (
 			request.contentRequestId === this.#heldContentRequestId &&
 			(this.#heldContentSequence === null ||
@@ -310,6 +330,7 @@ export class TestContentProductServer {
 		}
 		const request = bridgeProductControlRequestSchema.parse(body);
 		this.controlRequests.push(request);
+		this.#controlRequestFacts.record(request);
 		if (request.kind === 'workerSession.resync' && this.resyncFailure !== null) {
 			throw this.resyncFailure;
 		}
@@ -378,6 +399,7 @@ export class TestContentProductServer {
 		});
 		const request = bridgeProductContentRequestSchema.parse(parseBody(init));
 		this.contentRequests.push(request);
+		this.#contentRequestFacts.record(request);
 		const responseKind = this.nextContentResponseKind;
 		this.nextContentResponseKind = 'ordinary';
 		if (responseKind === 'unexpected-eof') {
@@ -393,13 +415,15 @@ export class TestContentProductServer {
 			);
 		}
 		if (this.holdContentResponses) {
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					cancel: (): void => {
-						this.contentReaderCancelCount += 1;
-					},
-				}),
-			);
+			const responseStream = new ReadableStream<Uint8Array>({
+				pull: (): void => {
+					if (responseStream.locked) this.#heldContentReadFacts.record(request.contentRequestId);
+				},
+				cancel: (): void => {
+					this.contentReaderCancelCount += 1;
+				},
+			});
+			return new Response(responseStream);
 		}
 		const acceptedBody = {
 			contentRequestId: request.contentRequestId,
@@ -503,6 +527,7 @@ export class TestContentProductServer {
 
 	#openMetadataStream(init?: RequestInit): Response {
 		this.#metadataRequest = bridgeProductMetadataStreamRequestSchema.parse(parseBody(init));
+		this.#metadataOpeningFacts.record(this.#metadataRequest);
 		return new Response(
 			new ReadableStream<Uint8Array>({
 				cancel: (): void => {
@@ -577,16 +602,4 @@ function purposeIdentifier(): (purpose: BridgeProductIdentifierPurpose) => strin
 function sequenceIdentifier(prefix: string): () => string {
 	let sequence = 0;
 	return (): string => `${prefix}-${(sequence += 1)}`;
-}
-
-export async function waitForCondition(predicate: () => boolean): Promise<void> {
-	const deadline = performance.now() + 2_000;
-	while (performance.now() < deadline) {
-		if (predicate()) return;
-		// oxlint-disable-next-line eslint/no-await-in-loop -- Advances one bounded stream event turn.
-		await new Promise<void>((resolve): void => {
-			setImmediate(resolve);
-		});
-	}
-	throw new Error('Timed out waiting for the bounded protocol condition.');
 }

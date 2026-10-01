@@ -13,6 +13,7 @@ import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
 } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import { decodeBridgePageConfigurationHandshake } from './bridge-page-configuration.js';
 
 const bridgeBootstrapAcknowledgementIdSchema = z.union([z.string(), z.number()]);
 const bridgeBootstrapAcknowledgementErrorSchema = z
@@ -60,11 +61,13 @@ export interface BridgePageHandshakeSession {
 	readonly uninstall: () => void;
 }
 
-export interface BridgePageReadyError {
-	readonly kind: 'ack_error' | 'ack_timeout';
-	readonly message: string;
-	readonly requestId: string;
-}
+export type BridgePageReadyError =
+	| {
+			readonly kind: 'ack_error' | 'ack_timeout';
+			readonly message: string;
+			readonly requestId: string;
+	  }
+	| { readonly kind: 'configuration_error'; readonly message: string; readonly requestId: null };
 
 type BridgePageReadyRequestState = 'awaiting' | 'failed' | 'ready' | 'timed_out';
 
@@ -141,8 +144,6 @@ export function installBridgePageHandshakeSession(
 	let readyRequestId: string | null = null;
 	let readyRequestState: BridgePageReadyRequestState = 'awaiting';
 	let readyAcknowledgementTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
-	const readyAcknowledgementTimeoutMilliseconds =
-		props.readyAcknowledgementTimeoutMilliseconds ?? 5000;
 
 	const clearReadyAcknowledgementTimeout = (): void => {
 		if (readyAcknowledgementTimeout === null) {
@@ -192,6 +193,7 @@ export function installBridgePageHandshakeSession(
 	};
 
 	const handleHandshake = (event: Event): void => {
+		if (readyRequestState === 'failed') return;
 		if (telemetryConfig === null) {
 			const nextTelemetryConfig = extractTelemetryConfig(event);
 			if (nextTelemetryConfig !== null) {
@@ -200,6 +202,17 @@ export function installBridgePageHandshakeSession(
 			}
 		}
 		if (didSendReady) {
+			return;
+		}
+		const readyAcknowledgementTimeoutMilliseconds =
+			props.readyAcknowledgementTimeoutMilliseconds ??
+			decodeBridgePageConfigurationHandshake(event)?.readyAcknowledgementDeadlineMilliseconds;
+		if (readyAcknowledgementTimeoutMilliseconds === undefined) {
+			failReadyRequest({
+				kind: 'configuration_error',
+				message: 'Bridge page configuration is missing or invalid.',
+				requestId: null,
+			});
 			return;
 		}
 

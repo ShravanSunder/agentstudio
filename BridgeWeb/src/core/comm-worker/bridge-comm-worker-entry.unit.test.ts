@@ -37,7 +37,8 @@ import type { BridgeProductTransportSession } from './bridge-product-transport.j
 import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
-	bridgeWorkerServerToMainMessageSchema,
+	bridgeWorkerServerToMainWireMessageSchema,
+	type BridgeWorkerServerToMainWireMessage,
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerViewRecoveryStatusEvent,
 } from './bridge-worker-contracts.js';
@@ -168,20 +169,24 @@ describe('Bridge comm worker entry', () => {
 				selectedSource: 'user',
 			}),
 		);
-		const postedMessages = await harness.productPort.waitForCount(4);
+		await harness.productPort.waitFor(
+			(message) => message.kind === 'health' && message.requestId === 'request-after-bootstrap',
+		);
+		const postedMessages = harness.productPort.getSnapshotMessages();
 
 		try {
 			expect(harness.globalStarted()).toBe(true);
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
 				readyHealth('bootstrap-request-1'),
+				noFileSourceDisplay(1),
 				readyHealth('request-file-mode-entry-bootstrap'),
 				{
 					wireVersion: 1,
 					direction: 'serverWorkerToMain',
 					kind: 'slicePatch',
 					epoch: 2,
-					sequence: 1,
+					sequence: 2,
 					transferDescriptors: [],
 					patches: [
 						{
@@ -481,14 +486,11 @@ describe('Bridge comm worker entry', () => {
 				requestId: 'mark-viewed-product-chain',
 			}),
 		);
-		await flushBridgeWorkerRuntimeContinuations();
-		const messages = await productPort.waitForCount(5);
+		const markViewedHealth = await productPort.waitFor(
+			(message) => message.kind === 'health' && message.requestId === 'mark-viewed-product-chain',
+		);
 		// Assert
-		expect(
-			messages.find(
-				(message) => message.kind === 'health' && message.requestId === 'mark-viewed-product-chain',
-			),
-		).toMatchObject({
+		expect(markViewedHealth).toMatchObject({
 			kind: 'health',
 			requestId: 'mark-viewed-product-chain',
 			status: 'ready',
@@ -553,7 +555,13 @@ describe('Bridge comm worker entry', () => {
 		);
 		await harness.productPort.waitForCount(2);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
-		const postedMessages = await harness.productPort.waitForCount(6);
+		await harness.productPort.waitFor(
+			(message) =>
+				message.kind === 'health' &&
+				message.requestId === 'request-file-mode-before-bootstrap' &&
+				message.status === 'ready',
+		);
+		const postedMessages = harness.productPort.getSnapshotMessages();
 
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
@@ -603,6 +611,7 @@ describe('Bridge comm worker entry', () => {
 					],
 				},
 				readyHealth('request-before-bootstrap'),
+				noFileSourceDisplay(2),
 				readyHealth('request-file-mode-before-bootstrap'),
 			]);
 		} finally {
@@ -616,14 +625,21 @@ describe('Bridge comm worker entry', () => {
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-1'));
 		await harness.productPort.waitForCount(1);
 		harness.productPort.postMessage(fileActiveViewerModeUpdate('duplicate-bootstrap', 1));
-		await harness.productPort.waitForCount(2);
+		await harness.productPort.waitFor(
+			(message) =>
+				message.kind === 'health' && message.requestId === 'request-file-mode-duplicate-bootstrap',
+		);
 		harness.productPort.postMessage(makeBootstrapRequest('bootstrap-request-2'));
-		const postedMessages = await harness.productPort.waitForCount(3);
+		await harness.productPort.waitFor(
+			(message) => message.kind === 'health' && message.requestId === 'bootstrap-request-2',
+		);
+		const postedMessages = harness.productPort.getSnapshotMessages();
 
 		try {
 			expect(harness.globalPostedMessages).toEqual([]);
 			expect(postedMessages).toEqual([
 				readyHealth('bootstrap-request-1'),
+				noFileSourceDisplay(1),
 				readyHealth('request-file-mode-duplicate-bootstrap'),
 				{
 					wireVersion: 1,
@@ -640,6 +656,20 @@ describe('Bridge comm worker entry', () => {
 		}
 	});
 });
+
+function noFileSourceDisplay(sequence: number): BridgeWorkerServerToMainWireMessage {
+	return {
+		wireVersion: 1,
+		direction: 'serverWorkerToMain',
+		kind: 'fileDisplayPatch',
+		epoch: 0,
+		surface: 'fileView',
+		sequence,
+		projectionRevision: 1,
+		transferDescriptors: [],
+		patches: [{ operation: 'upsert', slice: 'fileStatus', payload: { state: 'noSource' } }],
+	};
+}
 
 function createInstalledBridgeCommWorkerEntryHarness(
 	productTransport: BridgeProductTransportSession = makeUnavailableFileProductTransport(),
@@ -735,21 +765,21 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept a target origin.
 class BridgeWorkerMessagePortRecorder {
-	readonly #messages: BridgeWorkerServerToMainMessage[] = [];
+	readonly #messages: BridgeWorkerServerToMainWireMessage[] = [];
 	readonly #port: MessagePort;
 	readonly #messageWaiters: Array<{
-		readonly matches: (message: BridgeWorkerServerToMainMessage) => boolean;
-		readonly resolve: (message: BridgeWorkerServerToMainMessage) => void;
+		readonly matches: (message: BridgeWorkerServerToMainWireMessage) => boolean;
+		readonly resolve: (message: BridgeWorkerServerToMainWireMessage) => void;
 	}> = [];
 	readonly #waiters: Array<{
 		readonly count: number;
-		readonly resolve: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
+		readonly resolve: (messages: readonly BridgeWorkerServerToMainWireMessage[]) => void;
 	}> = [];
 
 	constructor(port: MessagePort) {
 		this.#port = port;
 		this.#port.addEventListener('message', (event: MessageEvent<unknown>): void => {
-			const message = bridgeWorkerServerToMainMessageSchema.parse(event.data);
+			const message = bridgeWorkerServerToMainWireMessageSchema.parse(event.data);
 			this.#messages.push(message);
 			for (const waiter of this.#messageWaiters.filter((candidate) => candidate.matches(message))) {
 				waiter.resolve(message);
@@ -768,17 +798,31 @@ class BridgeWorkerMessagePortRecorder {
 		this.#port.postMessage(message);
 	}
 
-	waitForCount(count: number): Promise<readonly BridgeWorkerServerToMainMessage[]> {
+	getSnapshotMessages(): readonly BridgeWorkerServerToMainWireMessage[] {
+		return [...this.#messages];
+	}
+
+	waitForCount(count: number): Promise<readonly BridgeWorkerServerToMainWireMessage[]> {
 		if (this.#messages.length >= count) return Promise.resolve([...this.#messages]);
 		return new Promise((resolve): void => {
 			this.#waiters.push({ count, resolve });
 		});
 	}
 
+	waitFor(
+		matches: (message: BridgeWorkerServerToMainWireMessage) => boolean,
+	): Promise<BridgeWorkerServerToMainWireMessage> {
+		const existing = this.#messages.find(matches);
+		if (existing !== undefined) return Promise.resolve(existing);
+		return new Promise((resolve): void => {
+			this.#messageWaiters.push({ matches, resolve });
+		});
+	}
+
 	waitForViewRecoveryStatus(
 		status: BridgeWorkerViewRecoveryStatusEvent['status'],
 	): Promise<BridgeWorkerViewRecoveryStatusEvent> {
-		const matches = (message: BridgeWorkerServerToMainMessage): boolean =>
+		const matches = (message: BridgeWorkerServerToMainWireMessage): boolean =>
 			message.kind === 'viewRecoveryStatus' && message.status === status;
 		const existing = this.#messages.find(matches);
 		if (existing?.kind === 'viewRecoveryStatus') return Promise.resolve(existing);

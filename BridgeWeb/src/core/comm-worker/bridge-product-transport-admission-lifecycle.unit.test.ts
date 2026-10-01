@@ -3,7 +3,6 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
 	createContentTransportHarness,
 	fileContentDescriptor,
-	waitForCondition,
 } from './test-fixtures/bridge-product-transport-content.test-support.js';
 
 afterEach((): void => {
@@ -73,7 +72,7 @@ describe('Bridge product content response admission lifecycle', () => {
 		let replacementStartedBeforeFetchSettlement = false;
 		try {
 			obsoleteAbortController.abort(new DOMException('superseded content request', 'AbortError'));
-			await waitForCondition(() => harness.server.contentRequestInvocationCount === 2);
+			await harness.server.waitForContentRequestInvocationCount(2);
 			replacementStartedBeforeFetchSettlement = true;
 		} finally {
 			harness.server.releaseHeldContentRequestBeforeResponse();

@@ -533,11 +533,7 @@ final class BridgeReviewPublicationCoordinator {
                     productAdmission: productAdmission
                 ),
                 admittedDisplayInstallation == nil
-                    || admittedDisplayInstallation
-                        == DisplayInstallationAdmission(
-                            workerInstanceId: workerInstanceId,
-                            publicationId: candidatePublicationId
-                        )
+                    || admittedDisplayInstallation?.workerInstanceId == workerInstanceId
             else {
                 return BridgeReviewDisplayInstallAdmissionResult.rejected
             }
@@ -545,6 +541,8 @@ final class BridgeReviewPublicationCoordinator {
                 workerInstanceId: workerInstanceId,
                 publicationId: candidatePublicationId
             )
+            // The displayed fence attests that the prior pin was never applied by this worker.
+            releaseSupersededUnprotectedRetiringPublications()
             return .admitted
         } ?? .rejected
     }

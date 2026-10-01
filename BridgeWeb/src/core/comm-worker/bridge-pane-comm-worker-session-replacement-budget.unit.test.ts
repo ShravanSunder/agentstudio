@@ -2,6 +2,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgePaneCommWorkerSessionDiagnosticSnapshot } from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import pageConfigurationFixture from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import { BridgePaneCommWorkerSession } from './bridge-pane-comm-worker-session.js';
 import {
 	RecordingPaneCommWorker,
@@ -28,6 +29,7 @@ describe('Bridge pane comm worker replacement budget', () => {
 			throw new Error('worker script failed to load');
 		});
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			recordDiagnosticSnapshot: (snapshot): void => {
 				snapshots.push(snapshot);
 				if (snapshot.state === 'failed') failed.resolve();
@@ -148,6 +150,7 @@ describe('Bridge pane comm worker replacement budget', () => {
 		const snapshots: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
 		const client = new RecordingPaneCommWorkerClient();
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			recordDiagnosticSnapshot: (snapshot): void => {
 				snapshots.push(snapshot);
 			},

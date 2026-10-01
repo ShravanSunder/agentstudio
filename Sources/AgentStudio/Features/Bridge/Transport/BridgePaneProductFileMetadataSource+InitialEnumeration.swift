@@ -177,7 +177,7 @@ extension BridgePaneProductFileMetadataSource {
                 )
             )
         )
-        return true
+        return try await drainDeferredFileChanges(request)
     }
 
     private func emitInitialTreeWindowBatch(

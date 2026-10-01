@@ -402,6 +402,19 @@ export function createBridgeMainReviewPresentationInstallationGate(props: {
 			return;
 		}
 		if (!reinstallsRetainedPublication && !props.store.promoteReviewCandidate(candidate.identity)) {
+			if (!candidateMatchesStore(candidate)) {
+				stopAwaitingCandidateSource();
+				if (
+					readyCandidate !== null &&
+					identitiesAreExact(readyCandidate.identity, candidate.identity)
+				) {
+					readyCandidate = null;
+				}
+				props.onLifecycleEvent?.({
+					...candidateTelemetryFacts(candidate),
+					phase: 'candidateSuperseded',
+				});
+			}
 			props.onLifecycleEvent?.({
 				...candidateTelemetryFacts(candidate),
 				phase: 'installTerminal',

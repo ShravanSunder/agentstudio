@@ -29,6 +29,7 @@ export async function establishFileSubscription(
 			subscriptionId: subscription.subscriptionId,
 		}),
 	);
+	await harness.server.waitForControlKind('subscription.setScope');
 	return { subscription, events };
 }
 

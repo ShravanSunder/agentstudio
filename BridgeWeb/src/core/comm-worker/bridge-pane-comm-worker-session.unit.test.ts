@@ -2,6 +2,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeWorkerReplacementReason } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
+import pageConfigurationFixture from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
 import { encodeBridgeWorkerViewRecoveryRetryCommand } from './bridge-comm-worker-protocol.js';
 import {
@@ -64,6 +65,7 @@ interface ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot {
 describe('Bridge pane comm worker session', () => {
 	test('accepts exactly one host-owned shared session', () => {
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			workerFactory: (): Worker => new RecordingPaneCommWorker(),
 		});
 
@@ -74,6 +76,8 @@ describe('Bridge pane comm worker session', () => {
 			expect(() =>
 				installBridgePaneCommWorkerSessionForHost(
 					new BridgePaneCommWorkerSession({
+						bootstrapTimeoutMilliseconds:
+							pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 						workerFactory: (): Worker => new RecordingPaneCommWorker(),
 					}),
 				),
@@ -88,6 +92,7 @@ describe('Bridge pane comm worker session', () => {
 		const workerFactory = vi.fn((): Worker => worker);
 		let nowMilliseconds = 100;
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			now: (): number => nowMilliseconds++,
 			workerFactory,
 		});
@@ -209,7 +214,10 @@ describe('Bridge pane comm worker session', () => {
 
 	test('forwards strict File display patches through the authoritative server parser', async () => {
 		const worker = new RecordingPaneCommWorker();
-		const session = new BridgePaneCommWorkerSession({ workerFactory: (): Worker => worker });
+		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
+			workerFactory: (): Worker => worker,
+		});
 		const client = new RecordingPaneCommWorkerClient();
 		const runtimeBootstrap = makeRuntimeBootstrapRequest('file-display-bootstrap');
 		const dispatcher = session.createDispatcher({
@@ -264,6 +272,7 @@ describe('Bridge pane comm worker session', () => {
 		});
 		const diagnosticSnapshots: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			recordDiagnosticSnapshot: (
 				snapshot: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot,
 			): void => {
@@ -414,6 +423,7 @@ describe('Bridge pane comm worker session', () => {
 		// Act / Assert: diagnostic failure cannot prevent session construction.
 		expect((): void => {
 			session = new BridgePaneCommWorkerSession({
+				bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 				recordDiagnosticSnapshot: (): never => {
 					throw new Error('diagnostic recorder failed');
 				},
@@ -491,6 +501,7 @@ describe('Bridge pane comm worker session', () => {
 			const restartReasons: string[] = [];
 			const replacementFacts: BridgeWorkerReplacementReason[] = [];
 			const session = new BridgePaneCommWorkerSession({
+				bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 				recordDiagnosticSnapshot: (snapshot): void => {
 					if (
 						snapshot.state === 'replacement_requested' &&
@@ -569,7 +580,10 @@ describe('Bridge pane comm worker session', () => {
 
 	test('prepares runtime replacement state before retiring the failed worker', async () => {
 		const worker = new RecordingPaneCommWorker();
-		const session = new BridgePaneCommWorkerSession({ workerFactory: (): Worker => worker });
+		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
+			workerFactory: (): Worker => worker,
+		});
 		const prepareWorkerReplacement = vi.fn((): void => {
 			expect(worker.terminateCount).toBe(0);
 		});
@@ -591,6 +605,54 @@ describe('Bridge pane comm worker session', () => {
 		}
 	});
 
+	test('initial bootstrap failures exhaust the bounded budget and end in failed start', () => {
+		const snapshots: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
+		const nativeBootstrapRequests: string[] = [];
+		const workerFactory = vi.fn<() => Worker>(() => new RecordingPaneCommWorker());
+		const client = new RecordingPaneCommWorkerClient();
+		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
+			workerFactory,
+			recordDiagnosticSnapshot: (snapshot): void => {
+				snapshots.push(snapshot);
+			},
+			requestNativeBootstrap: (reason): void => {
+				nativeBootstrapRequests.push(reason);
+			},
+		});
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: makeRuntimeBootstrapRequest('initial-failed-start'),
+			publishWorkerMessages: client.publish,
+		});
+		try {
+			dispatcher.dispatch(makeSelectCommand('before-initial-failure', 1, 'item-1', 'review'));
+			session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toEqual(['workerReplacement']);
+			for (let failureReply = 0; failureReply < 4; failureReply += 1)
+				session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toHaveLength(4);
+			expect(snapshots.at(-1)).toMatchObject({
+				state: 'failed',
+				failureReason: 'bootstrapBudgetExhausted',
+				nativeBootstrapInstallCount: 0,
+				queuedCommandCount: 0,
+			});
+			expect(workerFactory).not.toHaveBeenCalled();
+			expect(client.messages).toContainEqual(
+				expect.objectContaining({
+					requestId: 'before-initial-failure',
+					errorKind: 'workerUnavailable',
+				}),
+			);
+			session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toHaveLength(4);
+			expect(snapshots.at(-1)?.state).toBe('failed');
+		} finally {
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
 	test('re-requests native bootstrap after a failure reply within a bounded budget per replacement', async () => {
 		// Arrange
 		const firstWorker = new RecordingPaneCommWorker();
@@ -601,6 +663,7 @@ describe('Bridge pane comm worker session', () => {
 			.mockReturnValueOnce(secondWorker);
 		const nativeBootstrapRequests: string[] = [];
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			requestNativeBootstrap: (reason): void => {
 				nativeBootstrapRequests.push(reason);
 			},
@@ -611,9 +674,6 @@ describe('Bridge pane comm worker session', () => {
 			publishWorkerMessages: (): void => {},
 		});
 		try {
-			// A failure reply with no replacement pending is not a request to retry.
-			session.handleNativeBootstrapFailure();
-			expect(nativeBootstrapRequests).toEqual([]);
 			session.installNativeBootstrap(makeNativeBootstrap('bounded-first-worker'));
 			await flushMicrotasks();
 			firstWorker.dispatchEvent(new Event('error'));
@@ -651,6 +711,7 @@ describe('Bridge pane comm worker session', () => {
 		const nativeBootstrapRequests: string[] = [];
 		const client = new RecordingPaneCommWorkerClient();
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			recordDiagnosticSnapshot: (snapshot): void => {
 				snapshots.push(snapshot);
 			},
@@ -693,6 +754,7 @@ describe('Bridge pane comm worker session', () => {
 		const nativeBootstrapRequests: string[] = [];
 		const client = new RecordingPaneCommWorkerClient();
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			recordDiagnosticSnapshot: (snapshot): void => {
 				snapshots.push(snapshot);
 			},
@@ -785,6 +847,7 @@ describe('Bridge pane comm worker session', () => {
 		const restartReasons: string[] = [];
 		const replacementRequest = createDeferredVoid();
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			requestNativeBootstrap: (reason): void => {
 				restartReasons.push(reason);
 				replacementRequest.resolve();
