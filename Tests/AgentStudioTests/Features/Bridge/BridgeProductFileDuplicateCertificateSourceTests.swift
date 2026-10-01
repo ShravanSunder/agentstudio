@@ -28,6 +28,12 @@ struct BridgeProductFileDuplicateCertificateSourceTests {
             try await source.open(
                 subscription: subscription, productAdmission: fixture.productAdmission.context
             ) { event in
+                if case .sourceAccepted = event {
+                    try await source.applyViewDemand(
+                        subscriptionId: subscription.subscriptionId, demand: inventoryDemand,
+                        productAdmission: fixture.productAdmission.context, forceRecapture: false
+                    ) { _ in }
+                }
                 guard case .inventoryProgress = event,
                     let capture = await source.captureKeyedSnapshot(
                         subscriptionId: subscription.subscriptionId, demand: inventoryDemand,
