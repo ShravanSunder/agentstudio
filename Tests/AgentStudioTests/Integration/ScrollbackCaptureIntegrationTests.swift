@@ -121,7 +121,8 @@ extension E2ESerializedTests {
                 try await recorder.expectNext(in: "capture", .held)
                 await clock.waitForPendingSleepCount(atLeast: 1)
                 clock.advance(by: .seconds(2))
-                #expect(await capture == .deadlineExceeded)
+                let captureResult = await capture
+                #expect(captureResult == .deadlineExceeded)
                 try await recorder.finish()
                 #expect(clock.pendingSleepCount == 0)
             }
