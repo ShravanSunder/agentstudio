@@ -28,7 +28,16 @@ import Testing
 /// 1. arms the phase through the real `Ghostty.ActionRouter.armRestorePhase`
 ///    and the real `createTopologyIndependentTerminalView(...,
 ///    armedRestoreGeneration:)` -- the same call `mountPreparedTerminalContent`
-///    makes for every cold pane (confirmed by reading it directly);
+///    makes for every cold pane, with the same `restoreKind: .cold(plan)`
+///    a real cold pane's `admission.restoreKind` carries:
+///    `mountPreparedTerminalContent` (WorkspaceSurfaceCoordinator
+///    +TerminalContentMounting.swift:169) passes that admission's
+///    `restoreKind` straight through, unchanged (confirmed by reading it
+///    directly). Not `nil` -- only a steady-state new pane or a mid-session
+///    repair reaches `nil`, and `nil` forces `prepareTerminalSurfaceStartup`'s
+///    `.zmx` case through `zmxAttachCommand`'s `sessionConfiguration.isOperational`
+///    check, which resolves the real machine's own zmx binary with no test
+///    seam (`WorkspaceSurfaceCoordinator.sessionConfig` is a plain `lazy var`);
 /// 2. replaces the surface through the real
 ///    `WorkspaceSurfaceCoordinator.executeRepair(.recreateSurface)` ->
 ///    `createViewForRepair`, never setting the latch or calling
@@ -177,6 +186,30 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         return pane
     }
 
+    /// Lead 2026-10-01 (CI fix): the same shape as
+    /// `WorkspaceSurfaceCoordinatorPostAttachRealMountFirstOutputTests
+    /// .makeFallbackPlan` in this directory -- `zmxExecutable` is `/usr/bin/true`,
+    /// a binary every machine has, because `ZmxBackend.buildColdRestoreCommand(plan)`
+    /// only interpolates this path into a command *string*
+    /// (`TerminalRestoreRuntime.startupCommand(for:kind:)`'s `.cold` arm); this
+    /// suite's `SucceedingRestoreSurfaceManager` never executes it. No shared
+    /// helper exists yet for this shape (every file in this directory that
+    /// needs one writes its own), so this mirrors rather than imports the
+    /// sibling's.
+    private func makeFallbackPlan(sessionID: ZmxSessionID) -> TerminalColdRestorePlan {
+        TerminalColdRestorePlan(
+            zmxExecutable: URL(fileURLWithPath: "/usr/bin/true"),
+            zmxDirectory: URL(fileURLWithPath: "/tmp"),
+            sessionID: sessionID,
+            loginShell: URL(fileURLWithPath: "/bin/zsh"),
+            folderCandidates: [URL(fileURLWithPath: "/tmp")],
+            notice: ColdRestoreNotice(linesByCandidateIndex: ["Restored after restart"]),
+            replayFile: nil,
+            resume: nil,
+            attemptID: .generate()
+        )
+    }
+
     /// Binds a real `TerminalActivityProjector` to `Ghostty.ActionRouter`'s
     /// singleton, matching `GhosttyActionRouterRestorePhaseArmingTests` and
     /// `WorkspaceSurfaceCoordinatorColdRestoreRestorePhaseIntersectionTests`.
@@ -316,14 +349,26 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         // Set the latch on the initial surface -- the same call
         // `mountPreparedTerminalContent` makes right after that arm
         // acknowledgment (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:333`).
+        //
+        // CI fix (Lead 2026-10-01): `restoreKind: .cold(plan)`, matching what
+        // `mountPreparedTerminalContent` actually passes for a real cold
+        // pane's admission -- not `nil`, which forces `prepareTerminalSurfaceStartup`
+        // through `zmxAttachCommand`'s `sessionConfiguration.isOperational`
+        // check against this machine's own real zmx binary (uninjectable:
+        // `WorkspaceSurfaceCoordinator.sessionConfig` has no test seam), and
+        // which only resolves on a machine that has one. `.cold(plan)` routes
+        // through `ZmxBackend.buildColdRestoreCommand(plan)` instead, which
+        // only needs `plan.zmxExecutable`'s path as a string to interpolate,
+        // never executes it.
         let authority: TerminalSurfaceCreationAuthority = .released(PaneId(existingUUID: pane.id))
+        let sessionID = try #require(pane.terminalState?.zmxSessionID)
         guard
             case .mounted(let initialMount) = coordinator.createTopologyIndependentTerminalView(
                 for: pane,
                 initialFrame: NSRect(x: 0, y: 0, width: 400, height: 300),
                 treatAsRestoredSessionStart: true,
                 authority: authority,
-                restoreKind: nil,
+                restoreKind: .cold(makeFallbackPlan(sessionID: sessionID)),
                 armedRestoreGeneration: generation
             )
         else {
