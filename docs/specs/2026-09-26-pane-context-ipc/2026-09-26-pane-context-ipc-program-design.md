@@ -1,6 +1,6 @@
 # Enable pane agents: how it is built
 
-Date: 2026-09-30. **Revision 19** (owner decisions): the R3a exception is accepted. Membership source B, a directory, with its draft written into Gaps item 6 for review by the Sol xhigh advisor. Owner rule: nothing on the main actor. **Revision 18**: A1's remaining double-loss, identical-content case is named. The content fold is an exception to Spec R3a, so it needs the owner's acceptance (Gaps item 7). Until then, R3a's strict rule governs. **Revision 17** (advisor rev-16 verification):
+Date: 2026-09-30. **Revision 20** (advisor membership-directory review, M1–M3 accepted): mirror the existing structural placement with no tab id; one publisher at `commitPaneStates`; an atomic boot install; a stated linearization; auth parity; a bounded affected-owner invalidation with a lazy-start handshake. The main-actor allowance for the publication is pending the owner. **Revision 19** (owner decisions): the R3a exception is accepted. Membership source B, a directory, with its draft written into Gaps item 6 for review by the Sol xhigh advisor. Owner rule: nothing on the main actor. **Revision 18**: A1's remaining double-loss, identical-content case is named. The content fold is an exception to Spec R3a, so it needs the owner's acceptance (Gaps item 7). Until then, R3a's strict rule governs. **Revision 17** (advisor rev-16 verification):
 - F1: the last zero-main-actor claims are corrected (the person-action row and the proof boundary).
 - F4: the old producer paragraph is replaced.
 - A1: a fold needs exactly one open prompt with identical `questions`.
@@ -1150,20 +1150,28 @@ GRDB migrations, additive, never a rebuild):
    Bridge to replay facts after it on start. **Gap on main:** `membershipFacts()` is a live stream with no replay. Asked Bridge for an additive `membershipFacts(after: generation)` replay (board, 2026-09-27) before B2.
 5. **Contract row change.** The AgentMessage detail shapes, the `SessionStatusState` inputs (including "pane viewed") and the `SessionStatusAtom` value are hand-off contracts (delivery order). They are posted on thread 01a0cdc9 for Panes' acknowledgement before code.
 
-6. **Pane and drawer membership for off-main readers. Owner decision 2026-09-30: B, a membership directory**, with the owner's conditions:
-   - no "crazy new machinery that brings bugs";
-   - nothing on the main actor;
-   - a design review by the Sol xhigh advisor before any code.
-   **Draft (pending that review):**
-   - `PaneMembershipDirectory`, a `final class: Sendable` holding a `Mutex<PaneMembershipSnapshot>` and one `AsyncStream<UInt64>` continuation (`bufferingNewest(1)`). There's no actor, task or timer.
-   - **The snapshot:** `workspaceId`, `[PaneId: PanePlacement]` with `PanePlacement = .layout(tabId) | .drawerChild(parentPaneId)`, and `revision`.
-   - **Writer:** the existing accepted pane-graph commit point(s) call `apply(_ change: PaneMembershipChange)` with the commit's own pane-level effects. That's O(changed panes) assignments under the lock, then one yield. Every membership writer must call it, or the directory diverges; the review must list them all.
-   - **Seed:** the directory is seeded from the graph that boot loads, before the IPC listener accepts.
-   - **Readers:**
-     - IPC auth's `canonicalPaneMembership` becomes a directory read, a hard cutover from the `@MainActor` closure, with the same predicate (workspace matches and the pane is present);
-     - `PaneContextService` reads `drawerChildren(of:)` and `placement(of:)` and subscribes to the revisions.
-   - It's not persisted, not an atom and not a store.
-   - **Proof:** after every commit in a generated sequence of layout changes (open, close, undo, drawer attach/detach/move, workspace switch), the directory's answers equal the atoms' answers. Auth parity holds for a closed pane, an undo restore and a workspace switch.
+6. **Pane and drawer membership for off-main readers. Owner decision 2026-09-30: B, a membership directory** (no "crazy new machinery"; reviewed by the Sol xhigh advisor, `tmp/workspace-control/prb-review/membership-directory-review.md`, findings M1–M3 accepted). Design (rev 20):
+   - **What it mirrors, and nothing more (M1).** It holds `workspaceId`, each present pane's existing `PaneStructuralFacts.Placement` (`.layout` / `.drawerChild(parentPaneID)`), each pane's owned drawer-child ids, and a `membershipRevision`.
+     - There's **no tab id**. A valid backgrounded or orphan pane has no tab and must stay present, exactly as today's auth sees it.
+     - Tab moves, repository removal, residency, title, CWD and content changes don't touch it: equal membership publishes nothing.
+   - **One publisher, the real owner.** `WorkspacePaneGraphAtom.commitPaneStates` is the private commit that every graph writer passes through: open, create, close, undo restore, discard, detach and its rollback, purge, legacy restores, the development-server add and the fixtures. It updates the mirror inside the loop where it already populates the structural slots, from the changed and removed entries it already has. No App handler, executor, SQL save or Undo-expiry path writes it. (Undo expiry is a membership no-op: close already removed the pane.)
+   - **One atomic whole-workspace install.** At boot, the composition applier installs identity, the full membership and the revision in **one** locked write. The value is prepared off-main by the existing composition preparation, and installed before the IPC listener accepts and before the live publisher can run. There's no live workspace switch at this head, so none is added; the install is simply atomic if one ever exists.
+   - **Linearization (M2).** Each `commitPaneStates` call is one directory version, written under one lock. Every reader decision is one locked read of one version:
+     - auth's `contains(paneID:inWorkspace:)` keeps today's exact predicate (workspace matches and the pane is present);
+     - a drawer-source check needs the owner's child list and the child's parent to agree in that same version.
+     The mutable map stays private, and reads return compact values; no snapshot copies are handed out. Nothing runs under the lock except assignments and reads.
+   - **Auth.** The `@MainActor` `canonicalPaneMembership` closure is replaced (a hard cutover) by the directory read, for request revalidation, login and `PaneIPCIdentityOwner`'s environment check. The principal registry keeps credential validation, leases, invalidation sequencing, final revocation and shutdown unchanged; directory presence alone grants nothing.
+   - **Invalidation, not a feed (M3).** The directory keeps a bounded `pendingAffectedOwners: Set<PaneId>`: every owner and source whose membership changed since the service last took it. It also has one `AsyncStream<Void>` wake (`bufferingNewest(1)`) with one consumer, the service. On a wake, the service takes and clears the set atomically, then bumps those owners' revisions and recounts.
+     - Correctness never depends on the wake: auth and source-in-view checks always read the directory at the point of use.
+     - **Lazy-start handshake:** the service subscribes first, then reads the current revision and membership, then reconciles any newer revision. So no change falls between the snapshot and the subscription.
+   - **Main-actor cost (pending the owner's allowance, M2).** The publication is a few locked assignments inside the existing graph commit, on the main actor because the canonical pane graph lives there. It replaces a main-actor hop on **every** agent request. Commit-held time and lock contention are measured in the 15–20-pane trace.
+   - **Proof:** through real graph writers, never a hand-fed `apply`:
+     - boot seed;
+     - every insertion, deletion and drawer path with its rollback;
+     - close during Undo (absent at close, not at expiry); restore; a no-tab pane stays present;
+     - tab, repo and residency no-ops;
+     - development-server and fixture adds.
+     Auth parity is tested against the real predicate, including invalidated vs fresh leases and final revocation. A concurrent install is observed only as complete versions. A held consumer across a detach plus restore still invalidates every affected owner.
 
 7. **Decided (owner, 2026-09-30): the R3a exception is accepted** (Spec rev 11). The rev-18 options below are kept for the record. The options:
    - **Strict R3a:** every AskUserQuestion permission opens its own question prompt, which clears at the turn boundary. It never misses a waiting question, but it leaves NEEDS YOU after each answer until the turn ends.
