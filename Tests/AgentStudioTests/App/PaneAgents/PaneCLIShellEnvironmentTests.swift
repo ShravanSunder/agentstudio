@@ -65,6 +65,47 @@ struct PaneCLIShellEnvironmentTests {
         #expect(lines.contains("LOGIN_PATH_RESET=1"))
     }
 
+    @Test(
+        "plain login zsh keeps Helpers through macOS path_helper without Ghostty injection",
+        arguments: [false, true])
+    func plainLoginZshResolvesTheBundleCLI(mintFails: Bool) async throws {
+        let fixture = try PaneCLIShellFixture(resetsLoginPath: false)
+        defer { fixture.removeFiles() }
+        var environment = fixture.surfaceEnvironment(mintFails: mintFails)
+        environment["ZDOTDIR"] = fixture.zshDotDirectory.path
+        environment["TERM"] = "xterm-256color"
+        #expect(environment["GHOSTTY_ZSH_ZDOTDIR"] == nil)
+
+        let output = try await runProcessToExit(
+            executableURL: URL(fileURLWithPath: "/bin/zsh"),
+            arguments: ["-l", "-i", "-c", Self.inspectPlainLoginShell],
+            currentDirectoryURL: fixture.rootURL,
+            environment: environment)
+
+        #expect(
+            output.terminationStatus == 0, String(data: output.standardError, encoding: .utf8) ?? "Invalid UTF-8 stderr"
+        )
+        let standardOutput = try #require(String(data: output.standardOutput, encoding: .utf8))
+        let lines = standardOutput.split(separator: "\n").map(String.init)
+        #expect(lines.contains("CLI=\(fixture.cliURL.path)"))
+        #expect(lines.contains("BIN=\(fixture.helpersURL.path)"))
+        let pathLine = try #require(lines.first { $0.hasPrefix("PATH=") })
+        let pathEntries = pathLine.dropFirst("PATH=".count).split(separator: ":").map(String.init)
+        #expect(pathEntries.contains(fixture.helpersURL.path))
+        #expect(!pathEntries.contains(fixture.macOSURL.path))
+        #expect(lines.contains("LOGIN_PROFILE_READY=1"))
+    }
+
+    private static let inspectPlainLoginShell = #"""
+        [[ -o login && -o interactive && $PANE_LOGIN_PROFILE_READY == 1 ]] || exit 71
+        (( ! $+functions[_ghostty_deferred_init] )) || exit 72
+        [[ -z ${GHOSTTY_ZSH_ZDOTDIR+x} ]] || exit 73
+        builtin print -r -- "CLI=$(command -v agentstudio)"
+        builtin print -r -- "BIN=$GHOSTTY_BIN_DIR"
+        builtin print -r -- "PATH=$PATH"
+        builtin print -r -- "LOGIN_PROFILE_READY=$PANE_LOGIN_PROFILE_READY"
+        """#
+
     private static let inspectLoginShell = #"""
         [[ -o login && -o interactive && $PANE_LOGIN_PATH_RESET == 1 ]] || exit 71
         (( ${precmd_functions[(Ie)_ghostty_deferred_init]} )) || exit 72
@@ -89,7 +130,7 @@ private struct PaneCLIShellFixture {
     let cliURL: URL
     let zshDotDirectory: URL
 
-    init() throws {
+    init(resetsLoginPath: Bool = true) throws {
         rootURL = FileManager.default.temporaryDirectory.appending(path: "pane-cli-shell-\(UUIDv7.generate())")
         macOSURL = rootURL.appending(path: "AgentStudio.app/Contents/MacOS")
         helpersURL = rootURL.appending(path: "AgentStudio.app/Contents/Helpers")
@@ -104,13 +145,17 @@ private struct PaneCLIShellFixture {
             try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
-        // Real /etc/zprofile runs first. This user login profile deliberately
-        // resets PATH, then invokes macOS path_helper, before Ghostty's hook.
-        try #"""
-        export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-        eval "$(/usr/libexec/path_helper -s)"
-        export PANE_LOGIN_PATH_RESET=1
-        """#.write(to: zshDotDirectory.appending(path: ".zprofile"), atomically: true, encoding: .utf8)
+        // Real /etc/zprofile runs first. Only the integrated-shell scenario
+        // additionally resets PATH in the user's profile before Ghostty's hook.
+        let profileContents =
+            resetsLoginPath
+            ? #"""
+            export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+            eval "$(/usr/libexec/path_helper -s)"
+            export PANE_LOGIN_PATH_RESET=1
+            """#
+            : "export PANE_LOGIN_PROFILE_READY=1\n"
+        try profileContents.write(to: zshDotDirectory.appending(path: ".zprofile"), atomically: true, encoding: .utf8)
     }
 
     func surfaceEnvironment(mintFails: Bool) -> [String: String] {

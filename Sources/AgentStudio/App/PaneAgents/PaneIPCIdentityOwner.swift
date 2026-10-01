@@ -104,7 +104,7 @@ final class PaneIPCIdentityOwner {
             return try environment(paneID: paneID, workspaceID: workspaceID).environmentVariables
         } catch {
             Self.logger.warning("Pane IPC environment unavailable; terminal startup continuing without IPC authority")
-            var environment = inheritedEnvironment
+            var environment = makeTerminalShellEnvironment()
             for key in Self.authorityEnvironmentKeys {
                 environment[key] = ""
             }
@@ -120,13 +120,7 @@ final class PaneIPCIdentityOwner {
         workspaceID: UUID,
         rawToken: AgentStudioIPCSubjectToken
     ) -> [String: String] {
-        var environmentVariables = inheritedEnvironment
-        let executableDirectory = cliExecutableURL.deletingLastPathComponent().path
-        if let inheritedPath = inheritedEnvironment["PATH"], !inheritedPath.isEmpty {
-            environmentVariables["PATH"] = "\(executableDirectory):\(inheritedPath)"
-        } else {
-            environmentVariables["PATH"] = executableDirectory
-        }
+        var environmentVariables = makeTerminalShellEnvironment()
         environmentVariables["AGENTSTUDIO_PANE_ID"] = paneID.uuidString
         environmentVariables["AGENTSTUDIO_WORKSPACE_ID"] = workspaceID.uuidString
         environmentVariables["AGENTSTUDIO_IPC_SOCKET"] = socketURL.path
@@ -135,6 +129,21 @@ final class PaneIPCIdentityOwner {
         environmentVariables["AGENTSTUDIO_CLI_STORE_CHANNEL"] = cliStoreChannel.rawValue
         environmentVariables["AGENTSTUDIO_CLI"] = cliExecutableURL.path
         return environmentVariables
+    }
+
+    private func makeTerminalShellEnvironment() -> [String: String] {
+        var environment = inheritedEnvironment
+        let helpersDirectory = cliExecutableURL.deletingLastPathComponent()
+        let macOSDirectory = helpersDirectory.deletingLastPathComponent().appending(path: "MacOS").path
+        let inheritedPath = inheritedEnvironment["PATH"] ?? ""
+        var pathEntries = inheritedPath.isEmpty ? [] : inheritedPath.components(separatedBy: ":")
+        pathEntries.removeAll { $0 == macOSDirectory }
+        pathEntries.append(helpersDirectory.path)
+        // Ghostty applies surface overrides after its own executable-directory
+        // injection. Its post-startup shell hook must expose the CLI directory.
+        environment["PATH"] = pathEntries.joined(separator: ":")
+        environment["GHOSTTY_BIN_DIR"] = helpersDirectory.path
+        return environment
     }
 }
 
