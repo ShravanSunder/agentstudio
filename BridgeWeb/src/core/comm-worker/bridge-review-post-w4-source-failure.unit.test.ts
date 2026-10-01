@@ -177,8 +177,8 @@ describe('C15 post-W4 source failure before native installation admission return
 				if (begin.kind !== 'subscription.batchBegin') throw new Error('Review begin required.');
 				await application.sinks().install({
 					begin,
-				certified: true,
-				staleRecords: [],
+					certified: true,
+					staleRecords: [],
 					domain: 'default',
 					records: [{ key: 'publication', revision: publication.revision, value: publication }],
 				});
