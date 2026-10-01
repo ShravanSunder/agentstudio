@@ -55,6 +55,51 @@ extension WebKitSerializedTests {
             #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
         }
 
+        @Test("unavailable comparison commit owner publishes a retryable Review failure")
+        func unavailableComparisonCommitOwnerPublishesRetryableFailure() async throws {
+            let currentTarget = WorkspaceReviewContributionTarget.branch(name: "review-a")
+            let requestedTarget = WorkspaceReviewContributionTarget.branch(name: "review-b")
+            let comparison = makeComparison()
+            let controller = makeController(
+                target: currentTarget,
+                comparison: comparison,
+                provider: makeContributionProvider(comparison: comparison),
+                contributionTargetCommit: nil
+            )
+            _ = controller.surfaceSelectionAuthority.retainIntent(surface: .review)
+            let fixture = try await makeBridgeReviewComparisonControlFixture(controller: controller)
+            defer {
+                fixture.releaseAllHeldEffects()
+                _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
+            }
+            try await fixture.openWorkerSession()
+
+            let dispatch = try await fixture.dispatchComparisonUpdate(
+                target: requestedTarget,
+                requestSequence: 2,
+                workerDerivationEpoch: 2
+            )
+            let operationResult = try await fixture.readOperationResult(for: dispatch)
+
+            let comparisonAfterFailure = controller.refreshAdmissionCoordinator
+                .productPresentationSnapshot.reviewComparison
+            #expect(operationResult.outcome == .succeeded)
+            #expect(comparisonAfterFailure?.activeTarget == requestedTarget)
+            if let attempt = comparisonAfterFailure?.attempt,
+                case .unavailable(let failureKind, let retryable) = attempt
+            {
+                #expect(failureKind == "targetCommitUnavailable")
+                #expect(retryable)
+            } else {
+                Issue.record("Expected a retryable typed failure when the Review target commit owner is unavailable")
+            }
+            #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed)
+
+            await fixture.finish()
+            #expect(!controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+        }
+
         @Test("late completed comparison effect cannot overwrite the latest Review target")
         func lateCompletedComparisonEffectCannotOverwriteLatestTarget() async throws {
             let targetA = WorkspaceReviewContributionTarget.branch(name: "review-a")
@@ -279,7 +324,7 @@ extension WebKitSerializedTests {
             if let attempt = comparisonAfterMismatch?.attempt,
                 case .unavailable(let failureKind, let retryable) = attempt
             {
-                #expect(failureKind == "target_mismatch")
+                #expect(failureKind == "targetMismatch")
                 #expect(!retryable)
             } else {
                 Issue.record("Expected a target-scoped typed failure for the mismatched Review target")

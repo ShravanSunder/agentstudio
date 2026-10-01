@@ -16,8 +16,13 @@ extension BridgePaneController {
         guard productAdmission.withValidAdmission({ true }) == true else { return .rejected }
         guard let contributionTargetCommit
         else {
-            reviewGitRefreshSeedHolder.retire()
-            return .rejected
+            return failCurrentReviewComparisonTarget(
+                request.target,
+                workerDerivationEpoch: workerDerivationEpoch,
+                productAdmission: productAdmission,
+                failureKind: "targetCommitUnavailable",
+                retryable: true
+            )
         }
         guard
             let targetAdmission = productAdmission.withValidAdmission({
@@ -55,30 +60,13 @@ extension BridgePaneController {
         guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
             canonicalBaseline?.contributionTarget == request.target
         else {
-            let didFailCurrentTarget =
-                productAdmission.withValidAdmission {
-                    refreshAdmissionCoordinator.workAdmissionSource.withCurrentReviewComparisonIntent(
-                        workerDerivationEpoch: workerDerivationEpoch,
-                        productAdmission: productAdmission
-                    ) {
-                        let reviewGeneration = nextReviewGeneration.next()
-                        nextReviewGeneration = reviewGeneration
-                        refreshAdmissionCoordinator.beginAndFailReviewComparisonAttempt(
-                            activeTarget: request.target,
-                            reviewGeneration: reviewGeneration.rawValue,
-                            failureKind: "target_mismatch",
-                            retryable: false
-                        )
-                        return true
-                    } ?? false
-                } ?? false
-            guard didFailCurrentTarget else { return .superseded }
-            reviewGitRefreshSeedHolder.retire()
-            refreshAdmissionCoordinator.advanceAuthority(for: .review)
-            retireActiveReviewRefreshTask()
-            // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
-            _ = scheduleProductPresentationPublication()
-            return .applied
+            return failCurrentReviewComparisonTarget(
+                request.target,
+                workerDerivationEpoch: workerDerivationEpoch,
+                productAdmission: productAdmission,
+                failureKind: "targetMismatch",
+                retryable: false
+            )
         }
 
         guard
@@ -108,6 +96,39 @@ extension BridgePaneController {
         refreshAdmissionCoordinator.advanceAuthority(for: .review)
         retireActiveReviewRefreshTask()
         scheduleRetainedReviewPackageBuildIfPossible(admissionInput: .explicitTarget)
+        return .applied
+    }
+
+    private func failCurrentReviewComparisonTarget(
+        _ target: WorkspaceReviewContributionTarget,
+        workerDerivationEpoch: Int,
+        productAdmission: BridgeProductAdmissionContext,
+        failureKind: String,
+        retryable: Bool
+    ) -> BridgePaneReviewComparisonEffectDisposition {
+        let didFailCurrentTarget =
+            productAdmission.withValidAdmission {
+                refreshAdmissionCoordinator.workAdmissionSource.withCurrentReviewComparisonIntent(
+                    workerDerivationEpoch: workerDerivationEpoch,
+                    productAdmission: productAdmission
+                ) {
+                    let reviewGeneration = nextReviewGeneration.next()
+                    nextReviewGeneration = reviewGeneration
+                    refreshAdmissionCoordinator.beginAndFailReviewComparisonAttempt(
+                        activeTarget: target,
+                        reviewGeneration: reviewGeneration.rawValue,
+                        failureKind: failureKind,
+                        retryable: retryable
+                    )
+                    return true
+                } ?? false
+            } ?? false
+        guard didFailCurrentTarget else { return .superseded }
+        reviewGitRefreshSeedHolder.retire()
+        refreshAdmissionCoordinator.advanceAuthority(for: .review)
+        retireActiveReviewRefreshTask()
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
+        _ = scheduleProductPresentationPublication()
         return .applied
     }
 
