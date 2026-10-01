@@ -87,6 +87,30 @@ struct PanePublicationFixture {
         return try await openSubscription(object)
     }
 
+    func beginFileSubscription() async throws -> (bootstrapCount: Int, token: BridgeProductControlAdmissionToken) {
+        var object = bridgeProductLifecycleFileSubscriptionOpenObject(requestSequence: 2, epoch: 1)
+        object["subscription"] = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(fileFixture.openSnapshot().subscription))
+        let request = try bridgeProductLifecycleControlRequest(object)
+        guard case .subscriptionOpen(let opening) = request else {
+            throw ProductFileSourceFixtureError.invalidControlRequest
+        }
+        let bootstrapCount = await trace.count(for: opening.subscription.subscriptionKind) + 1
+        let token = try #require(controlExecutionToken(try await harness.begin(request)))
+        #expect(await harness.session.admitControlProviderExecution(token: token))
+        let response = try BridgeProductControlResponse.subscriptionOpenAccepted(
+            correlating: request,
+            worktreeId: nil
+        )
+        let effect = try await harness.session.completeAdmittedControl(
+            token: token,
+            exactResponseBytes: JSONEncoder().encode(response)
+        )
+        _ = try await pullMetadataFrame(from: pump)
+        await coordinator.apply(effect, productAdmission: harness.productAdmission.context)
+        return (bootstrapCount, token)
+    }
+
     func acceptFileViewScope(requestSequence: Int = 3) async throws {
         let scope = try BridgeProductStrictJSON.decode(
             BridgeProductViewScopeRequest.self,
@@ -231,9 +255,25 @@ func panePublicationStatus() -> GitWorkingTreeStatus {
 actor PanePublicationFileSource: BridgePaneProductFileMetadataProducing {
     let source: BridgePaneProductFileMetadataSource
     private var heldPublication: HeldStep<BridgeProductAdmissionContext>?
+    private var openCallCount = 0
+    private var openFailureByOrdinal: [Int: any Error] = [:]
+    private var openStepByOrdinal: [Int: HeldStep<BridgeProductAdmissionContext>] = [:]
 
     init(source: BridgePaneProductFileMetadataSource) { self.source = source }
     func holdPublication(_ step: HeldStep<BridgeProductAdmissionContext>) { heldPublication = step }
+    func holdNextOpen(_ step: HeldStep<BridgeProductAdmissionContext>) {
+        openStepByOrdinal[openCallCount + 1] = step
+    }
+    func holdOpen(ordinal: Int, at step: HeldStep<BridgeProductAdmissionContext>) {
+        openStepByOrdinal[ordinal] = step
+    }
+    func failOpen(ordinal: Int, with error: any Error) {
+        openFailureByOrdinal[ordinal] = error
+    }
+    func numberOfOpenCalls() -> Int { openCallCount }
+    func sourceDiagnostics() async -> BridgeFileMetadataSourceDiagnostics {
+        await source.diagnosticSnapshot()
+    }
     func currentSource() async throws(BridgeWorktreeFileRootAccessError) -> BridgeProductFileSourceCurrentResult {
         try await source.currentSource()
     }
@@ -241,6 +281,13 @@ actor PanePublicationFileSource: BridgePaneProductFileMetadataProducing {
         subscription: BridgeProductSubscriptionSnapshot, productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission, emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
+        openCallCount += 1
+        let ordinal = openCallCount
+        if let openStep = openStepByOrdinal.removeValue(forKey: ordinal) {
+            try await openStep.arrive(productAdmission)
+            try Task.checkCancellation()
+        }
+        if let error = openFailureByOrdinal.removeValue(forKey: ordinal) { throw error }
         try await source.open(
             subscription: subscription, productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission, emit: emit)

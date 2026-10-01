@@ -46,6 +46,47 @@ struct BridgeFileSurfaceReconcilerTests {
         )
     }
 
+    @Test("two admitted same-basis replays after interruption can still certify")
+    func twoAdmittedSameBasisReplaysAfterInterruptionCanCertify() async throws {
+        let reconciler = BridgeFileSurfaceReconciler(maximumUnchangedInputSupersessions: 1)
+        let inputBasis = makeInputBasis()
+        guard case .start(let firstAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+            Issue.record("Expected the initial File attempt to start")
+            return
+        }
+        let inputGeneration = firstAttempt.inputGeneration
+
+        await reconciler.builderCancelled(firstAttempt)
+        #expect(await reconciler.activeAttempt == nil)
+        #expect(await reconciler.currentFailure == nil)
+        #expect(await reconciler.currentInputGeneration == inputGeneration)
+
+        guard case .start(let secondAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+            Issue.record("Expected the first admitted replay to restart the interrupted attempt")
+            return
+        }
+        #expect(secondAttempt.nonce != firstAttempt.nonce)
+        #expect(secondAttempt.inputGeneration == inputGeneration)
+
+        await reconciler.builderCancelled(secondAttempt)
+        #expect(await reconciler.activeAttempt == nil)
+        #expect(await reconciler.currentInputGeneration == inputGeneration)
+
+        guard case .start(let thirdAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+            Issue.record("Expected the second admitted replay to restart without a budget charge")
+            return
+        }
+        #expect(thirdAttempt.nonce != secondAttempt.nonce)
+        #expect(thirdAttempt.inputGeneration == inputGeneration)
+        #expect(
+            await reconciler.builderFinished(thirdAttempt, outcome: .built)
+                == .completed(thirdAttempt)
+        )
+        #expect(await reconciler.currentFailure == nil)
+        #expect(await reconciler.activeAttempt == nil)
+        #expect(await reconciler.currentInputGeneration == inputGeneration)
+    }
+
     @Test("each material basis change renews the attempt budget")
     func eachMaterialBasisChangeRenewsTheAttemptBudget() async throws {
         let initialBasis = makeInputBasis()

@@ -56,6 +56,134 @@ struct BridgePaneProductPanePublicationTests {
         await fixture.close()
     }
 
+    @Test("metadata stream replay restarts an interrupted File bootstrap on the same basis")
+    func metadataStreamReplayRestartsInterruptedFileBootstrap() async throws {
+        let fixture = try await PanePublicationFixture.make()
+        let interruptedOpen = HeldStep<BridgeProductAdmissionContext>(
+            "File bootstrap interrupted by metadata disconnect",
+            cancellation: .holdThroughCancellation
+        )
+        await fixture.fileSource.holdNextOpen(interruptedOpen)
+
+        let initialBootstrap = Task { try await fixture.openFileSubscription() }
+        #expect(try await interruptedOpen.firstArrival() == fixture.harness.productAdmission.context)
+        let initialAttempt = try #require(await fixture.coordinator.fileSurfaceReconciler.activeAttempt)
+
+        let disconnect = Task {
+            await fixture.coordinator.uninstall(lease: fixture.lease)
+        }
+        try await interruptedOpen.cancellationObserved()
+        interruptedOpen.release()
+        await disconnect.value
+        #expect(try await initialBootstrap.value.result == .failure)
+        #expect(await fixture.coordinator.fileSurfaceReconciler.activeAttempt == nil)
+
+        try await fixture.harness.closeProducer(fixture.lease)
+        let resumedLease = try await fixture.harness.admitMetadataFrames(through: 0)
+        await fixture.coordinator.install(
+            request: try panePublicationResumedMetadataStreamRequest(lastAcceptedSequence: 0),
+            lease: resumedLease,
+            productAdmission: fixture.harness.productAdmission.context,
+            session: fixture.harness.session
+        )
+        let resumedOpen = HeldStep<BridgeProductAdmissionContext>("replayed File bootstrap")
+        await fixture.fileSource.holdNextOpen(resumedOpen)
+
+        await fixture.coordinator.replaySubscriptionsForInstalledStream()
+        let resumedAttempt = await fixture.coordinator.fileSurfaceReconciler.activeAttempt
+        #expect(resumedAttempt != nil)
+        #expect(resumedAttempt?.nonce != initialAttempt.nonce)
+        #expect(resumedAttempt?.inputGeneration == initialAttempt.inputGeneration)
+
+        if resumedAttempt?.nonce != initialAttempt.nonce, resumedAttempt != nil {
+            #expect(try await resumedOpen.firstArrival() == fixture.harness.productAdmission.context)
+            resumedOpen.release()
+            let resumedBootstrap = try await fixture.trace.finished(.fileMetadata, count: 2)
+            #expect(resumedBootstrap.result == .success)
+        }
+
+        await fixture.coordinator.uninstall(lease: resumedLease)
+        try await fixture.harness.closeProducer(resumedLease)
+        resumedOpen.release()
+        await fixture.close()
+    }
+
+    @Test("current File interruptions reopen twice before the same-basis source certifies")
+    func currentFileInterruptionsReopenTwiceBeforeCertification() async throws {
+        let fixture = try await PanePublicationFixture.make()
+        let firstOpen = HeldStep<BridgeProductAdmissionContext>("first interrupted File open")
+        let secondOpen = HeldStep<BridgeProductAdmissionContext>("second interrupted File open")
+        let thirdOpen = HeldStep<BridgeProductAdmissionContext>("final File open")
+        await fixture.fileSource.holdOpen(ordinal: 1, at: firstOpen)
+        await fixture.fileSource.failOpen(
+            ordinal: 1,
+            with: BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
+        )
+        await fixture.fileSource.holdOpen(ordinal: 2, at: secondOpen)
+        await fixture.fileSource.failOpen(
+            ordinal: 2,
+            with: BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
+        )
+        await fixture.fileSource.holdOpen(ordinal: 3, at: thirdOpen)
+
+        let subscriptionOpen = try await fixture.beginFileSubscription()
+        #expect(try await firstOpen.firstArrival() == fixture.harness.productAdmission.context)
+        let firstAttempt = try #require(await fixture.coordinator.fileSurfaceReconciler.activeAttempt)
+        firstOpen.release()
+
+        let firstCompletion = try await fixture.trace.finished(
+            .fileMetadata,
+            count: subscriptionOpen.bootstrapCount
+        )
+        #expect(firstCompletion.result == .failure)
+        await fixture.harness.session.settleControlProviderDispatch(token: subscriptionOpen.token)
+
+        guard let secondAttempt = await fixture.coordinator.fileSurfaceReconciler.activeAttempt else {
+            Issue.record("The current interrupted File attempt was deferred without a same-basis restart")
+            await fixture.close()
+            return
+        }
+        #expect(secondAttempt.nonce != firstAttempt.nonce)
+        #expect(secondAttempt.inputGeneration == firstAttempt.inputGeneration)
+        #expect(try await secondOpen.firstArrival() == fixture.harness.productAdmission.context)
+        secondOpen.release()
+
+        let secondCompletion = try await fixture.trace.finished(
+            .fileMetadata,
+            count: subscriptionOpen.bootstrapCount + 1
+        )
+        #expect(secondCompletion.result == .failure)
+        guard let thirdAttempt = await fixture.coordinator.fileSurfaceReconciler.activeAttempt else {
+            Issue.record("The second admitted interruption did not reopen the File attempt")
+            await fixture.close()
+            return
+        }
+        #expect(thirdAttempt.nonce != secondAttempt.nonce)
+        #expect(thirdAttempt.inputGeneration == firstAttempt.inputGeneration)
+        #expect(try await thirdOpen.firstArrival() == fixture.harness.productAdmission.context)
+        thirdOpen.release()
+
+        let thirdCompletion = try await fixture.trace.finished(
+            .fileMetadata,
+            count: subscriptionOpen.bootstrapCount + 2
+        )
+        #expect(thirdCompletion.result == .success)
+        #expect(await fixture.fileSource.numberOfOpenCalls() == 3)
+        #expect(await fixture.fileSource.sourceDiagnostics().subscriptionCount == 1)
+        #expect(await fixture.coordinator.fileSurfaceReconciler.currentFailure == nil)
+        #expect(await fixture.coordinator.fileSurfaceReconciler.activeAttempt == nil)
+        #expect(
+            await fixture.coordinator.fileSurfaceReconciler.currentInputGeneration
+                == firstAttempt.inputGeneration
+        )
+        #expect(await fixture.harness.session.subscriptionSnapshot(subscriptionId: "file-subscription-1") != nil)
+        #expect(await fixture.coordinator.activeStream?.lease == fixture.lease)
+
+        await fixture.coordinator.closeAndDrain()
+        #expect(await fixture.trace.count(for: .fileMetadata) == 3)
+        await fixture.close()
+    }
+
     @Test("initial missing File root reports retryable surface failure without resetting E3")
     func initialMissingFileRootRetainsRetryableSurfaceAndSubscription() async throws {
         let fixture = try await PanePublicationFixture.make()
@@ -295,4 +423,21 @@ struct BridgePaneProductPanePublicationTests {
             foregroundWorkAdmission: try #require(fixture.refresh.acquireForegroundWork()))
         return (publication, reservation)
     }
+}
+
+private func panePublicationResumedMetadataStreamRequest(
+    lastAcceptedSequence: Int
+) throws -> BridgeProductMetadataStreamRequest {
+    let data = try JSONSerialization.data(
+        withJSONObject: [
+            "kind": "metadataStream.open",
+            "metadataStreamId": "metadata-stream-resumed",
+            "paneSessionId": "pane-session-1",
+            "resumeFromStreamSequence": lastAcceptedSequence,
+            "wireVersion": BridgeProductWireContract.version,
+            "workerInstanceId": "worker-instance-1",
+        ],
+        options: [.sortedKeys]
+    )
+    return try BridgeProductStrictJSON.decode(BridgeProductMetadataStreamRequest.self, from: data)
 }
