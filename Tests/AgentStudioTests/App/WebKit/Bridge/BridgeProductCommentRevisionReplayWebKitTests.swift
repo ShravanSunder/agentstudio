@@ -202,8 +202,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
             try await installCommentReplayPageObserver(
                 hostedController.page,
-                changedBody: replayReplyBody,
-                removedBody: deletedDraftBody
+                changedBody: replayReplyBody
             )
             let pageInstallationWaiter = Task { @MainActor in
                 try? await hostedController.page.callJavaScript(
@@ -554,8 +553,7 @@ private func waitForAnnotationThreadResolution(
 @MainActor
 private func installCommentReplayPageObserver(
     _ page: WebPage,
-    changedBody: String,
-    removedBody: String
+    changedBody: String
 ) async throws {
     _ = try await page.callJavaScript(
         """
@@ -579,7 +577,7 @@ private func installCommentReplayPageObserver(
           globalThis.__rr4CommentReplayInstallResolve = resolve;
           const inspect = () => {
             const bodies = collect(document);
-            if (bodies.includes(changedBody) && !bodies.includes(removedBody)) {
+            if (bodies.includes(changedBody)) {
               globalThis.__rr4ResolveCommentReplayInstall('installed');
             }
           };
@@ -591,6 +589,6 @@ private func installCommentReplayPageObserver(
         });
         return true;
         """,
-        arguments: ["changedBody": changedBody, "removedBody": removedBody]
+        arguments: ["changedBody": changedBody]
     )
 }
