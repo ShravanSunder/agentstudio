@@ -279,8 +279,11 @@ package final class WorkspacePaneGraphAtom {
     @ObservationIgnored private var latestIssuedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
     @ObservationIgnored private var lastAppliedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
     @ObservationIgnored private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
+    @ObservationIgnored package nonisolated let paneContextMembershipDirectory: PaneContextMembershipDirectory
 
-    package init() {}
+    package init(paneContextMembershipDirectory: PaneContextMembershipDirectory = .init()) {
+        self.paneContextMembershipDirectory = paneContextMembershipDirectory
+    }
 
     package var paneIDs: Set<UUID> {
         _ = paneStateMap.membershipRevision

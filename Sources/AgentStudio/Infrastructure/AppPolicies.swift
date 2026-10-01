@@ -21,6 +21,7 @@ package enum AppPolicies {
         package static let maximumTitleBytes = 256
         package static let maximumOpenAsks = 32
         package static let maximumUnreadNotices = 200
+        package static let maximumPendingAffectedOwners = 256
         package static let maximumSettledMessages = 20
         package static let settledMessageLifetime: TimeInterval = 1800
         package static let maximumDetailBytes = 1_048_576
