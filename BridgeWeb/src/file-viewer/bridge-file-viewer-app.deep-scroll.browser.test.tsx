@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
+import { installBridgeReadyHandshake } from '../app/bridge-app-browser-test-actions.js';
+
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
-import { installBridgeReadyHandshake } from '../app/bridge-app-browser-test-actions.js';
 import {
 	installBridgeAppDevProductSessionHost,
 	type BridgeAppDevProductSessionHost,
@@ -29,6 +30,7 @@ import {
 	waitForBridgePierreWorkerPoolActiveTaskPublicationForTest,
 } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import { createBridgeCommWorkerModuleWorker } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-dev-factory.js';
+import pageConfigurationFixture from '../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import {
 	BridgeFileViewerBrowserHarnessApp,
 	type BridgeFileViewerBrowserTestProductSession,
@@ -385,7 +387,11 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 					fileViewerProps={{ autoOpenInitialFile: false }}
 					paneRuntimeFactory={() => {
 						routePaneRuntime ??= createBridgePaneRuntime({
-							sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
+							sessionProps: {
+								bootstrapTimeoutMilliseconds:
+									pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
+								workerFactory: createBridgeCommWorkerModuleWorker,
+							},
 						});
 						return routePaneRuntime;
 					}}

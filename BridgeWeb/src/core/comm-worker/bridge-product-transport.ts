@@ -124,8 +124,6 @@ export interface CreateBridgeProductTransportProps {
 	readonly onViewRecoveryStatus?: ConstructorParameters<
 		typeof BridgeProductViewScopeOwner
 	>[0]['onViewRecoveryStatus'];
-	/** Maximum time an exact frame observation acknowledgement may remain pending. */
-	readonly frameAcknowledgementTimeoutMilliseconds?: number;
 }
 
 type ViewRecoveryStatus = Parameters<
@@ -270,7 +268,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		});
 		this.#metadataApplicationRegistry = props.metadataApplicationRegistry;
 		this.#frameAcknowledgementTimeoutMilliseconds =
-			props.frameAcknowledgementTimeoutMilliseconds ?? 5000;
+			props.authority.bootstrap.policy.contentAcknowledgementDeadlineMilliseconds;
 		if (
 			!Number.isSafeInteger(this.#frameAcknowledgementTimeoutMilliseconds) ||
 			this.#frameAcknowledgementTimeoutMilliseconds <= 0

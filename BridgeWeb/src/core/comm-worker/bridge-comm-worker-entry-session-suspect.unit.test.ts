@@ -81,6 +81,7 @@ describe('Bridge comm worker session-suspect request', () => {
 								maximumMetadataFrameBytes: BRIDGE_PRODUCT_MAXIMUM_METADATA_FRAME_BYTES,
 								maximumQueuedStreamBytes: BRIDGE_PRODUCT_MAXIMUM_QUEUED_STREAM_BYTES,
 								admissionRetryCount: 2,
+								contentAcknowledgementDeadlineMilliseconds: 5_000,
 								contentProgressDeadlineMilliseconds: 5_000,
 								viewBatchProgressDeadlineMilliseconds: 5_000,
 								streamKeepaliveIntervalMilliseconds: 350,

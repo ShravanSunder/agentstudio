@@ -429,6 +429,7 @@ enum BridgeProductStrictJSON {
             "terminalFrameReserve",
             "streamKeepaliveIntervalMilliseconds",
             "contentProgressDeadlineMilliseconds",
+            "contentAcknowledgementDeadlineMilliseconds",
             "workerSettlementDeadlineMilliseconds",
             "viewAcknowledgementDeadlineMilliseconds",
             "viewBatchProgressDeadlineMilliseconds",
