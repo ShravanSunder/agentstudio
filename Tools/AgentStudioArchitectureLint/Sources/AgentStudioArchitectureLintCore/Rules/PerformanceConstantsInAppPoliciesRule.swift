@@ -11,7 +11,7 @@ struct PerformanceConstantsInAppPoliciesRule: ArchitectureRule {
                 where: context.normalizedPath.hasSuffix
             ),
             !ArchitectureAllowlists.performanceConstantPolicyHomes.contains(
-                where: { $0.functionName == nil && context.normalizedPath.hasSuffix($0.pathSuffix) }
+                where: { context.normalizedPath.hasSuffix($0.pathSuffix) }
             )
         else { return [] }
         let visitor = PerformanceConstantVisitor()

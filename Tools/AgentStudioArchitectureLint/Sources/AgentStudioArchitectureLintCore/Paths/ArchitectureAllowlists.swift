@@ -25,7 +25,7 @@ enum ArchitectureAllowlists {
     ]
     static let performanceConstantAllowedPathSuffixes: [String] = []
     static let performanceConstantPolicyHomes = [
-        NamedOwnerAllowance(
+        PolicyHomeAllowance(
             pathSuffix: "/Sources/AgentStudioCLIStore/CLIStorePolicy.swift",
             owner: "AgentStudioCLIStore policy home",
             reason:
@@ -180,15 +180,14 @@ struct ElapsedTimeBudgetOwner: Sendable {
 /// ownership, reviewed with the lint tool's source; debt lives in the ledger.
 struct NamedOwnerAllowance: Sendable {
     let pathSuffix: String
-    /// Nil denotes a designated policy-home file; a value names one function.
-    let functionName: String?
+    let functionName: String
     let owner: String
     let reason: String
+}
 
-    init(pathSuffix: String, functionName: String? = nil, owner: String, reason: String) {
-        self.pathSuffix = pathSuffix
-        self.functionName = functionName
-        self.owner = owner
-        self.reason = reason
-    }
+/// One target's designated policy home, with its owner and boundary rationale.
+struct PolicyHomeAllowance: Sendable {
+    let pathSuffix: String
+    let owner: String
+    let reason: String
 }
