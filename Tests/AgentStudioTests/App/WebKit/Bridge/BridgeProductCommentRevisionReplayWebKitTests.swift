@@ -408,6 +408,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 producerID: initialProducerID
             )
             let postCleanupBody = "P1 route survived P0 cleanup"
+            // Creation returns the whole session; identify the new thread by ID rather than the first row.
             let priorThreadIDs = Set(afterReplySave.threads.map(\.thread.id))
             let postCleanupDraft = try await annotationStore.createRootDraft(
                 rootDraftProps(
