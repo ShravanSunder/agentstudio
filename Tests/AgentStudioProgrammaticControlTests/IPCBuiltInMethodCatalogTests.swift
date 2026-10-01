@@ -160,8 +160,13 @@ struct IPCBuiltInMethodCatalogTests {
     @Test("the server policy keeps the previously advertised wait schema bytes")
     func serverWaitSchemaRemainsByteIdentical() throws {
         let descriptor = try makeCatalog(waitMaximum: 9).terminal.terminalWait
+        guard case .object(let selectorFields) = try IPCPaneSelectorParams.ipcSchema() else {
+            Issue.record("pane selector contract must be an object")
+            return
+        }
+        let paneField = try #require(selectorFields.first { $0.name == "handle" })
         let previousSchema = IPCJSONSchema.object(fields: [
-            IPCRequestSchemaFields.pane(),
+            paneField,
             .init(
                 name: "condition", description: "Terminal condition to observe",
                 schema: try IPCTerminalWaitCondition.ipcSchema()),
