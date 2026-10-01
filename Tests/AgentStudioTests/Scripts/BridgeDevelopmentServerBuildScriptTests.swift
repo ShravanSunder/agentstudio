@@ -3,6 +3,40 @@ import Testing
 
 @Suite("Bridge development server build script")
 struct BridgeDevelopmentServerBuildScriptTests {
+    @Test("test-bundle and product builds use identical resolved compiler settings")
+    func producerAndConsumerShareResolvedCompilerSettings() async throws {
+        let fixture = try BridgeDevelopmentBuildFixture()
+        defer { fixture.remove() }
+        let statisticsPath = fixture.buildSlot.rootURL.appending(path: "compiler statistics").path
+        let environment = [
+            "CI": "true", "SWIFT_BUILD_DIR": ".build-ci", "SWIFT_BUILD_STATS_DIR": statisticsPath,
+            "EXTRA_SWIFT_TEST_ARGS": "-Xswiftc -DSEED_PROOF",
+        ]
+        let producer = try await fixture.buildSlot.run(
+            """
+            bash scripts/vendor-worktree.sh verify
+            source scripts/swift-test-helpers.sh
+            BUILD_PATH=.build-ci
+            PREBUILD_TIMEOUT_SECONDS=10
+            run_swift_with_timeout() { shift; shift; "$@"; }
+            prebuild_swift_tests
+            """, environment: environment)
+        #expect(producer.exitCode == 0, "\(producer.output)")
+        var producerArguments = try fixture.compilationArguments()
+        producerArguments.removeAll { $0 == "--build-tests" }
+
+        let consumer = try await fixture.buildSlot.run(
+            "bash scripts/build-bridge-development-server.sh", environment: environment)
+        #expect(consumer.exitCode == 0, "\(consumer.output)")
+        var consumerArguments = try fixture.compilationArguments()
+        let productIndex = try #require(consumerArguments.firstIndex(of: "--product"))
+        consumerArguments.removeSubrange(productIndex...consumerArguments.index(after: productIndex))
+
+        #expect(producerArguments == consumerArguments)
+        #expect(producerArguments.contains("-DSEED_PROOF"))
+        #expect(producerArguments.contains(statisticsPath))
+    }
+
     @Test("product builds preserve publisher compiler flags and atomically stage the executable")
     func productBuildUsesPublisherFlags() async throws {
         let fixture = try BridgeDevelopmentBuildFixture()
@@ -78,6 +112,15 @@ private struct BridgeDevelopmentBuildFixture {
             at: projectRoot.appending(path: "scripts/build-bridge-development-server.sh"),
             to: buildSlot.rootURL.appending(path: "scripts/build-bridge-development-server.sh")
         )
+        try FileManager.default.copyItem(
+            at: projectRoot.appending(path: "scripts/swift-compilation-policy.sh"),
+            to: buildSlot.rootURL.appending(path: "scripts/swift-compilation-policy.sh")
+        )
+        for helperName in ["swift-test-helpers.sh", "xcb-helpers.sh"] {
+            try FileManager.default.copyItem(
+                at: projectRoot.appending(path: "scripts/\(helperName)"),
+                to: buildSlot.rootURL.appending(path: "scripts/\(helperName)"))
+        }
         let binaryDirectory = buildSlot.rootURL.appending(path: ".build-ci/debug")
         try FileManager.default.createDirectory(at: binaryDirectory, withIntermediateDirectories: true)
         try Data("fixture executable".utf8).write(

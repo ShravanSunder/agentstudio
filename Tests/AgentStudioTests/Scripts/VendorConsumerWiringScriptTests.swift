@@ -292,6 +292,7 @@ struct VendorConsumerWiringScriptTests {
         let sourcedOnlyHelpers: Set<String> = [
             "scripts/swift-test-helpers.sh",
             "scripts/swift-package-sandbox.sh",
+            "scripts/swift-compilation-policy.sh",
         ]
         // Scripts whose Swift commands build only the standalone architecture
         // lint package, which consumes no vendored framework.
@@ -491,8 +492,10 @@ struct VendorConsumerWiringScriptTests {
         guard let verification = vendorVerificationOffset(in: task) else {
             return false
         }
-        let consumerOffsets = ["swift build", "swift test", "run-swift-test-task.sh"]
-            .compactMap { task.range(of: $0)?.lowerBound }
+        let consumerOffsets = [
+            "swift build", "swift test", "run-swift-test-task.sh", "swift_compilation_policy_build_arguments",
+        ]
+        .compactMap { task.range(of: $0)?.lowerBound }
         guard let firstConsumer = consumerOffsets.min() else {
             return false
         }
@@ -502,7 +505,9 @@ struct VendorConsumerWiringScriptTests {
     /// Every shell command that runs `swift build`, `swift test`,
     /// `swift package` or `swift run`, with `\` continuations joined.
     private func swiftCommands(in source: String) -> [String] {
-        let commandPrefixes = ["swift build", "swift test", "swift package", "swift run"]
+        let commandPrefixes = [
+            "swift build", "swift test", "swift package", "swift run", "swift_compilation_policy_build_arguments",
+        ]
         let logicalLines = source.replacingOccurrences(of: "\\\n", with: " ")
             .split(separator: "\n")
             .map(String.init)
