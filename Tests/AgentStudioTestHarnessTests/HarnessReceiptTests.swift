@@ -117,5 +117,9 @@ private func makeReceiptLogURL() throws -> URL {
     let descriptor = mkstemp(&template)
     guard descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
     close(descriptor)
-    return URL(fileURLWithPath: String(cString: template))
+    let pathBytes = template.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+    guard let logPath = String(bytes: pathBytes, encoding: .utf8) else {
+        throw CocoaError(.fileReadCorruptFile)
+    }
+    return URL(fileURLWithPath: logPath)
 }
