@@ -22,8 +22,12 @@ extension CISwiftBuildInputsScriptTests {
         let runtimeOnlyOwners: Set<String> = [
             "scripts/swift-test-helpers.sh", "scripts/run-swift-test-task.sh",
         ]
-        let scriptNames = try FileManager.default.contentsOfDirectory(atPath: "scripts")
-            .filter { $0.hasSuffix(".sh") }.sorted()
+        let scripts = try #require(FileManager.default.enumerator(atPath: "scripts"))
+        let scriptNames = try scripts.allObjects.compactMap { entry -> String? in
+            let name = try #require(entry as? String)
+            let attributes = try FileManager.default.attributesOfItem(atPath: "scripts/\(name)")
+            return attributes[.type] as? FileAttributeType == .typeRegular ? name : nil
+        }.sorted()
         var owners: [(name: String, source: String)] = try scriptNames.map { name in
             ("scripts/\(name)", try String(contentsOfFile: "scripts/\(name)", encoding: .utf8))
         }

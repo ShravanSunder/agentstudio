@@ -68,8 +68,7 @@ swift_compilation_policy_build_arguments() {
       ;;
     bin-path)
       SWIFT_COMPILATION_COMMAND=(
-        swift build ${SWIFT_COMPILATION_SANDBOX_ARGUMENTS[@]+"${SWIFT_COMPILATION_SANDBOX_ARGUMENTS[@]}"}
-        ${SWIFT_COMPILATION_CONFIGURATION_ARGUMENTS[@]+"${SWIFT_COMPILATION_CONFIGURATION_ARGUMENTS[@]}"} --build-path "$SWIFT_COMPILATION_BUILD_PATH" --show-bin-path
+        swift build "${SWIFT_COMPILATION_COMMON_ARGUMENTS[@]}" --show-bin-path
       )
       ;;
     *)

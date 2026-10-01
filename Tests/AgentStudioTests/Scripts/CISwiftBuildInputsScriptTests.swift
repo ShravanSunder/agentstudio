@@ -63,6 +63,9 @@ struct CISwiftBuildInputsScriptTests {
         let registered = try await fixture.inventory("registered")
 
         #expect(registered.prefix == original.prefix)
+        let disposition = try await fixture.run("verify", original.path.path, registered.path.path)
+        #expect(disposition.hasPrefix("warm "))
+        #expect(FileManager.default.fileExists(atPath: fixture.marker.path))
     }
 
     @Test("disabled statistics requests share their effective policy and enabled statistics do not")

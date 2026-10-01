@@ -31,8 +31,11 @@ struct BridgeDevelopmentServerBuildScriptTests {
         var consumerArguments = try fixture.compilationArguments()
         let productIndex = try #require(consumerArguments.firstIndex(of: "--product"))
         consumerArguments.removeSubrange(productIndex...consumerArguments.index(after: productIndex))
+        var binaryPathArguments = try fixture.compilationArguments(named: "bin-path-arguments")
+        binaryPathArguments.removeAll { $0 == "--show-bin-path" }
 
         #expect(producerArguments == consumerArguments)
+        #expect(binaryPathArguments == consumerArguments)
         #expect(producerArguments.contains("-DSEED_PROOF"))
         #expect(producerArguments.contains(statisticsPath))
     }
@@ -139,8 +142,8 @@ private struct BridgeDevelopmentBuildFixture {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: swiftExecutable.path)
     }
 
-    func compilationArguments() throws -> [String] {
-        try Data(contentsOf: buildSlot.rootURL.appending(path: "compile-arguments"))
+    func compilationArguments(named filename: String = "compile-arguments") throws -> [String] {
+        try Data(contentsOf: buildSlot.rootURL.appending(path: filename))
             .split(separator: 0).map { try #require(String(bytes: $0, encoding: .utf8)) }
     }
 
@@ -175,6 +178,7 @@ private struct BridgeDevelopmentBuildFixture {
         test -f vendor-verified
         for argument in "$@"; do
           if [ "$argument" = --show-bin-path ]; then
+            printf '%s\\0' "$@" > bin-path-arguments
             printf '%s\\n' "$PWD/.build-ci/debug"
             exit 0
           fi
