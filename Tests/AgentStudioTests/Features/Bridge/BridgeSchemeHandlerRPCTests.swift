@@ -72,7 +72,8 @@ final class BridgeSchemeHandlerRPCTests {
         let normalizedClaim = claimSource.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let normalizedAdapter = adapterSource.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         let physicalStreamFactory = "AsyncThrowingStream<URLSchemeTaskResult, any Error> {"
-        #expect(normalizedHandler.components(separatedBy: physicalStreamFactory).count == 2)
+        let physicalStreamConstruction = physicalStreamFactory + " continuation in"
+        #expect(normalizedHandler.components(separatedBy: physicalStreamConstruction).count == 2)
         #expect(normalizedHandler.contains("startProductReplyTask(request: request, continuation: continuation)"))
         #expect(
             normalizedRelay.components(separatedBy: "await transportClaim.route(").count == 2,
