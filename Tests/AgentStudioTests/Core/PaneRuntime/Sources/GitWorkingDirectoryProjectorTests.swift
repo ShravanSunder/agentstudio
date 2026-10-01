@@ -1849,12 +1849,15 @@ struct GitWorkingDirectoryProjectorTests {
         try await collectionTask.finish()
     }
 
-    @Test("active pane periodic refresh bypasses background stripe")
-    func activePanePeriodicRefreshBypassesBackgroundStripe() async throws {
+    @Test(
+        "active pane periodic refresh bypasses background stripe",
+        arguments: [Duration.zero, .milliseconds(80)])
+    func activePanePeriodicRefreshBypassesBackgroundStripe(completedDuty: Duration) async throws {
         let source = GitProjectorFactSource()
         let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
+        let clockOrigin = clock.now
         let policy = AppPolicies.GitRefresh.Policy(
             activePaneCadence: .milliseconds(120),
             backgroundStripeCount: 2,
@@ -1920,12 +1923,31 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(initialSnapshotsArrived)
         await actor.setActivity(worktreeId: inactiveWorktreeId, isActiveInApp: false)
 
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: activePaneWorktreeId)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: inactiveWorktreeId)
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: activePaneWorktreeId, kind: .automatic
         )
+        // Feed the existing completion owner a controlled physical duty. A
+        // loaded runner may otherwise supply duty above the cadence floor.
+        await actor.recordAutomaticCompletion(worktreeId: activePaneWorktreeId, duty: completedDuty)
+
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: activePaneWorktreeId, kind: .automatic
+        )
+        let activeDeadline = try #require(await actor.automaticRefreshDeadlineByWorktreeId[activePaneWorktreeId])
+        #expect(activeDeadline == max(policy.activePaneCadence, policy.automaticDutyGap(for: completedDuty)))
 
         await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: policy.activePaneCadence)
+        let reachedActiveDeadline = clock.now >= clockOrigin.advanced(by: activeDeadline)
+        #expect(reachedActiveDeadline)
+        guard reachedActiveDeadline else {
+            // Keep a deterministic red from parking at the output expectation.
+            await actor.shutdown()
+            try await collectionTask.finish()
+            return
+        }
         let activeRefreshedOnNonMatchingBackgroundStripe =
             (try await observed.expectSnapshots(for: activePaneWorktreeId, through: 2)).count == 2
         #expect(activeRefreshedOnNonMatchingBackgroundStripe)
@@ -3252,12 +3274,15 @@ struct GitWorkingDirectoryProjectorTests {
         try await collectionTask.finish()
     }
 
-    @Test("equal active results lengthen the deadline and a file change runs promptly")
-    func equalActiveResultsLengthenDeadlineAndFileChangeRunsPromptly() async throws {
+    @Test(
+        "equal active results lengthen the deadline and a file change runs promptly",
+        arguments: [Duration.zero, .milliseconds(80)])
+    func equalActiveResultsLengthenDeadlineAndFileChangeRunsPromptly(completedDuty: Duration) async throws {
         let source = GitProjectorFactSource()
         let facts = try source.attach()
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
+        let clockOrigin = clock.now
         let calls = CallCounter()
         let policy = AppPolicies.GitRefresh.Policy(
             activePaneCadence: .milliseconds(100),
@@ -3302,19 +3327,44 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
         #expect((try await observed.expectSnapshots(for: worktreeId, through: 1)).count == 1)
+        _ = try await source.expectNextRefreshClosed(facts: facts, worktreeId: worktreeId)
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .automatic
         )
+        await actor.recordAutomaticCompletion(worktreeId: worktreeId, duty: completedDuty)
+        _ = try await source.expectDeadlineRegistered(
+            facts: facts, worktreeId: worktreeId, kind: .automatic
+        )
+        let firstDeadline = try #require(await actor.automaticRefreshDeadlineByWorktreeId[worktreeId])
+        #expect(firstDeadline == max(policy.activePaneCadence, policy.automaticDutyGap(for: completedDuty)))
         await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(100))
+        let reachedFirstDeadline = clock.now >= clockOrigin.advanced(by: firstDeadline)
+        #expect(reachedFirstDeadline)
+        guard reachedFirstDeadline else {
+            await actor.shutdown()
+            try await collectionTask.finish()
+            return
+        }
         #expect((await calls.count(until: { $0 == 2 })) == 2)
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .automatic
         )
+        let secondDeadline = try #require(await actor.automaticRefreshDeadlineByWorktreeId[worktreeId])
+        #expect(
+            secondDeadline >= firstDeadline
+                + policy.adaptiveCadence(base: policy.activePaneCadence, unchangedResultCount: 1))
         await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(199))
         #expect(await calls.value() == 2)
         clock.advance(by: .milliseconds(1))
+        let reachedSecondDeadline = clock.now >= clockOrigin.advanced(by: secondDeadline)
+        #expect(reachedSecondDeadline)
+        guard reachedSecondDeadline else {
+            await actor.shutdown()
+            try await collectionTask.finish()
+            return
+        }
         #expect((await calls.count(until: { $0 == 3 })) == 3)
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
