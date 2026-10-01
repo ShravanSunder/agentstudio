@@ -64,7 +64,7 @@ test.each([undefined, { readyAcknowledgementDeadlineMilliseconds: -1 }])(
 				/>,
 			),
 		);
-		await expect.element(rendered.getByText('Bridge failed to start')).toBeVisible();
+		await expect.element(rendered.getByRole('alert')).toHaveTextContent('Bridge failed to start');
 		expect(readyRequestCount).toBe(0);
 		expect(
 			document
@@ -94,7 +94,7 @@ test.each([undefined, { readyAcknowledgementDeadlineMilliseconds: -1 }])(
 			const rendered = await actWait(async () =>
 				render(<BridgeAppProtocolRouter codeViewWorkerPoolEnabled={false} protocol="review" />),
 			);
-			await expect.element(rendered.getByText('Bridge failed to start')).toBeVisible();
+			await expect.element(rendered.getByRole('alert')).toHaveTextContent('Bridge failed to start');
 			expect(
 				document
 					.querySelector('[data-bridge-region="pane-start"]')

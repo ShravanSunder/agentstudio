@@ -3,6 +3,7 @@ import type {
 	BridgeMainReviewCatalogChange,
 	BridgeMainReviewCatalogChangeRead,
 } from './bridge-main-review-catalog-contracts.js';
+import type { BridgeMainPanelChromeSlice } from './bridge-main-review-comparison-presentation.js';
 export type {
 	BridgeMainReviewCatalogSnapshot,
 	BridgeMainReviewCatalogOrderMutation,
@@ -40,7 +41,6 @@ import {
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerFileDisplayPatchEvent,
-	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewDisplayPatch,
 	BridgeWorkerReviewDisplayPatchEvent,
@@ -155,7 +155,7 @@ export interface BridgeMainRenderSnapshot
 		Record<string, BridgeWorkerContentAvailabilityPatchPayload>
 	>;
 	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
-	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
+	readonly panelChromeSlice: BridgeMainPanelChromeSlice;
 }
 
 export interface SetBridgeMainLocalSelectionProps {

@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import type { BridgePageReadyError } from '../bridge/bridge-page-handshake.js';
+import type { BridgePaneFailedStartFact } from '../core/models/bridge-pane-failed-start.js';
+import { bridgePaneFailedStartDisplaySpec } from './bridge-pane-failed-start-presentation.js';
 import type { BridgePaneReloadPort } from './bridge-pane-reload-port.js';
 import { BridgeRegionPresentation } from './bridge-region-presentation.js';
 
@@ -8,7 +9,8 @@ export function BridgeViewerAppShell(props: {
 	readonly appOwner: 'BridgeApp';
 	readonly children: ReactNode;
 	readonly mode: 'file' | 'review';
-	readonly pageReadyFailure?: BridgePageReadyError | null;
+	readonly paneFailedStart?: BridgePaneFailedStartFact | null;
+	readonly retainsContent?: boolean;
 	readonly paneReloadPort?: BridgePaneReloadPort;
 }): ReactElement {
 	return (
@@ -20,17 +22,22 @@ export function BridgeViewerAppShell(props: {
 			data-testid="bridge-app-root"
 		>
 			<BridgeRegionPresentation
+				failureControl="primary"
 				region="pane-start"
 				shape="code"
 				keepContentMounted
 				{...(props.paneReloadPort === undefined ? {} : { paneReloadPort: props.paneReloadPort })}
 				state={
-					props.pageReadyFailure == null
+					props.paneFailedStart == null
 						? { kind: 'content' }
 						: {
 								kind: 'failed',
-								retainsContent: false,
-								failure: { kind: 'retryable', scope: 'pane', message: 'Bridge failed to start' },
+								retainsContent: props.retainsContent ?? false,
+								failure: {
+									kind: 'retryable',
+									scope: 'pane',
+									message: bridgePaneFailedStartDisplaySpec.message,
+								},
 							}
 				}
 			>

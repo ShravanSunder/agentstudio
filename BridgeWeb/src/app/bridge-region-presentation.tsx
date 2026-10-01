@@ -15,7 +15,10 @@ export interface BridgeRegionPresentationProps {
 		readonly noSource?: string;
 	};
 	readonly region: string;
+	readonly testId?: string | undefined;
 	readonly retry?: ReactNode;
+	readonly retainedContentCopy?: string;
+	readonly failureControl?: 'primary' | 'summary';
 	readonly shape: 'tree' | 'code' | 'diff' | 'comments' | 'markdown';
 	readonly state: BridgeRegionPresentationState;
 }
@@ -35,28 +38,42 @@ export function BridgeRegionPresentation(props: BridgeRegionPresentationProps): 
 		state.kind === 'content' ||
 		state.kind === 'updating' ||
 		(state.kind === 'failed' && state.retainsContent);
+	const failureControl =
+		props.failureControl ??
+		(state.kind === 'failed' && state.failure.scope === 'pane' && props.paneReloadPort === undefined
+			? 'summary'
+			: 'primary');
+	const showsFailureControl =
+		state.kind === 'failed' && (failureControl !== 'summary' || state.failure.scope === 'read');
 	return (
 		<div
 			className="relative flex h-full min-h-0 min-w-0 flex-col"
 			data-bridge-region={props.region}
+			data-testid={props.testId}
 			data-presentation-state={state.kind}
 			data-empty-reason={state.kind === 'empty' ? state.reason : undefined}
 			data-content-current={state.kind === 'content' ? 'true' : 'false'}
 		>
-			{state.kind === 'failed' ? (
+			{state.kind === 'failed' && showsFailureControl ? (
 				<Alert layout="banner" variant="warning">
 					<AlertTitle>{state.failure.message}</AlertTitle>
 					<AlertDescription>
 						{state.failure.kind === 'permanent'
 							? state.failure.correctiveAction
 							: state.retainsContent
-								? 'Last good content is shown. It is not current.'
+								? (props.retainedContentCopy ?? 'Last good content is shown. It is not current.')
 								: null}
 					</AlertDescription>
 					{state.failure.kind === 'retryable' && retryControl !== undefined ? (
 						<AlertAction>{retryControl}</AlertAction>
 					) : null}
 				</Alert>
+			) : state.kind === 'failed' ? (
+				<p className="px-3 py-2 text-sm text-muted-foreground">
+					{state.retainsContent
+						? (props.retainedContentCopy ?? 'Last good content is shown. It is not current.')
+						: state.failure.message}
+				</p>
 			) : null}
 			{state.kind === 'loading' ? (
 				<div
@@ -127,13 +144,14 @@ export type BridgeRegionPresentationRenderSlot = (
 
 /** Shared quiet status, composed in existing chrome without changing the body geometry. */
 export function BridgeRegionUpdatingIndicator(props: {
+	readonly updatingLabel?: string;
 	readonly state: BridgeRegionPresentationState;
 	readonly held?: BridgeRegionPresentationComposition['held'];
 	readonly placement?: 'header' | 'floating';
 }): ReactElement | null {
 	if (props.state.kind !== 'updating') return null;
 	const held = props.state.rest === 'held' ? props.held : undefined;
-	const label = held?.label ?? 'Updating';
+	const label = held?.label ?? props.updatingLabel ?? 'Updating';
 	const content = (
 		<>
 			<span>{label}</span>

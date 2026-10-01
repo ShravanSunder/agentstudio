@@ -466,7 +466,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			<ReviewBoundaryActivationProbe readyPresentation={readyPresentation} />,
 		);
 		await expect
-			.element(rendered.getByTestId('bridge-review-projection-pending-shell'))
+			.element(rendered.getByTestId('bridge-review-metadata-loading-shell'))
 			.toBeVisible();
 
 		await act(async (): Promise<void> => {
@@ -482,7 +482,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 
 		// Assert
 		await expect
-			.element(rendered.getByTestId('bridge-review-projection-pending-shell'))
+			.element(rendered.getByTestId('bridge-review-metadata-loading-shell'))
 			.toBeVisible();
 	});
 	test('keeps selection local-first and mark-viewed retries bounded across A to B to A', async () => {

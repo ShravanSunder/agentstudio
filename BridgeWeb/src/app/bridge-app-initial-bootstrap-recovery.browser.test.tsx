@@ -32,6 +32,7 @@ describe('BridgeApp initial bootstrap failure recovery', () => {
 	});
 
 	test('initial native failure reaches the bounded terminal state and exposes its actual pre-E3 presentation', async () => {
+		let reloadRequestCount = 0;
 		const requests: z.infer<typeof bootstrapRequestSchema>[] = [];
 		const snapshots: BridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
 		const receiveRequest = (event: Event): void => {
@@ -53,6 +54,18 @@ describe('BridgeApp initial bootstrap failure recovery', () => {
 			await actWait(async (): Promise<void> => {
 				await render(
 					<BridgeAppProtocolRouter
+						paneReloadPort={{
+							command: 'reloadBridgeWebView',
+							display: {
+								accessibleName: 'Retry pane',
+								label: 'Retry pane',
+								helpText: 'Native command display stand-in',
+								icon: null,
+							},
+							requestPaneReload: (): void => {
+								reloadRequestCount += 1;
+							},
+						}}
 						codeViewWorkerPoolEnabled={false}
 						fileViewerProps={{ autoOpenInitialFile: false }}
 						paneRuntime={paneRuntime}
@@ -102,13 +115,27 @@ describe('BridgeApp initial bootstrap failure recovery', () => {
 					document.querySelector('[data-testid="bridge-review-projection-pending-shell"]') !== null,
 				text: document.body.innerText,
 			};
-			expect(presentation).toMatchObject({
-				empty: true,
-				failed: false,
-				loading: false,
-				projecting: false,
+			expect(
+				document
+					.querySelector('[data-bridge-region="pane-start"]')
+					?.getAttribute('data-presentation-state'),
+			).toBe('failed');
+			expect(presentation.text).toContain('Bridge failed to start');
+			expect(presentation.text).not.toMatch(
+				/Waiting for review metadata|Choose a comparison target/,
+			);
+			for (const region of ['review-content', 'review-tree'])
+				expect(
+					document
+						.querySelector(`[data-bridge-region="${region}"]`)
+						?.getAttribute('data-presentation-state'),
+				).toBe('failed');
+			expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+			await actUpdate(async (): Promise<void> => {
+				document.querySelector<HTMLButtonElement>('button[aria-label="Retry pane"]')?.click();
 			});
-			expect(presentation.text).toContain('Waiting for review metadata');
+			expect(reloadRequestCount).toBe(1);
+			expect(requests.filter((request) => request.reason === 'workerReplacement')).toHaveLength(4);
 		} finally {
 			document.removeEventListener('__bridge_product_session_bootstrap_request', receiveRequest);
 			ready.dispose();

@@ -22,6 +22,7 @@ import {
 	type BridgeMainReviewRefreshPresentation,
 	type BridgeMainReviewSourceDisplaySlice,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type { BridgeMainPanelChromeSlice } from '../core/comm-worker/bridge-main-review-comparison-presentation.js';
 import {
 	createBridgeMainReviewPublicationIntegration,
 	type BridgeMainReviewPublicationIntegration,
@@ -30,7 +31,6 @@ import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-ru
 import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
-	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerReviewComparisonUpdateCommand,
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewProjectionUpdateCommand,
@@ -91,7 +91,7 @@ export interface BridgeReviewRenderSnapshotController {
 		selectedSource: 'keyboard' | 'programmatic' | 'user',
 	) => void;
 	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean;
-	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
+	readonly panelChromeSlice: BridgeMainPanelChromeSlice;
 	readonly reviewSourceSlice: BridgeMainReviewSourceDisplaySlice | null;
 	readonly reviewRefreshPresentation: BridgeMainReviewRefreshPresentation;
 	readonly viewRecoveryStatus: BridgeMainViewRecoveryStatus | null;
@@ -176,7 +176,7 @@ export function useBridgeReviewRenderSnapshotController(
 		displayStore.getReviewSelectionSnapshot,
 	);
 	const getPanelChromeSnapshot = useCallback(
-		(): BridgeWorkerPanelChromePatchPayload => displayStore.getSnapshot().panelChromeSlice,
+		(): BridgeMainPanelChromeSlice => displayStore.getSnapshot().panelChromeSlice,
 		[displayStore],
 	);
 	const panelChromeSlice = useSyncExternalStore(

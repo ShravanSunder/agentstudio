@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
+import type { BridgePaneFailedStartFact } from '../core/models/bridge-pane-failed-start.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
@@ -26,6 +27,7 @@ import type { BridgeMermaidRenderer } from './markdown/bridge-mermaid-renderer.j
 import type { BridgeMarkdownRenderWorkerClient } from './markdown/worker/bridge-markdown-render-worker-client.js';
 
 export interface BridgeFileViewerModeProps {
+	readonly paneFailedStart?: BridgePaneFailedStartFact | null;
 	readonly controlTarget: EventTarget;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
@@ -124,6 +126,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 					)
 				) : (
 					<BridgeFileViewerApp
+						paneFailedStart={props.paneFailedStart ?? null}
 						{...props.fileViewerProps}
 						{...(props.codeViewWorkerFactory === undefined
 							? {}

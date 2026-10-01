@@ -95,7 +95,10 @@ test('failed member is Failed rather than a ready-empty fallback', async () => {
 			.querySelector('[data-bridge-region="file-tree"]')
 			?.getAttribute('data-presentation-state'),
 	).toBe('failed');
-	expect(document.querySelector('[data-bridge-region="file-tree"] [role="alert"]')).not.toBeNull();
+	expect(document.querySelector('[data-bridge-region="file-tree"] [role="alert"]')).toBeNull();
+	expect(
+		document.querySelector('[data-bridge-region="file-content"] [role="alert"]'),
+	).not.toBeNull();
 	expect(
 		document.querySelector('[data-bridge-region="file-tree"] [data-slot="skeleton"]'),
 	).toBeNull();

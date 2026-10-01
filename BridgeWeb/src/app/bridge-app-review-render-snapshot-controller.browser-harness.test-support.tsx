@@ -435,3 +435,36 @@ export async function settleRenderedReviewFrame(): Promise<void> {
 	});
 	await Promise.resolve();
 }
+
+export function reviewDisplayEventWithContribution(
+	props: Parameters<typeof reviewDisplayEvent>[0],
+): ReturnType<typeof reviewDisplayEvent> {
+	const event = reviewDisplayEvent(props);
+	return {
+		...event,
+		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-source patch while replacing one nested source payload.
+		patches: event.patches.map((patch) =>
+			patch.slice !== 'reviewSource' || patch.operation !== 'upsert'
+				? patch
+				: {
+						...patch,
+						payload: {
+							...patch.payload,
+							comparisonOrigin: {
+								baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+								baseRole: 'commonCommit',
+								comparedRole: 'capturedWorkingTree',
+								kind: 'contribution',
+								resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
+								reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
+								symbolicTarget: {
+									basis: 'commonCommit',
+									branchName: 'master',
+									kind: 'localDefaultBranch',
+								},
+							},
+						},
+					},
+		),
+	};
+}

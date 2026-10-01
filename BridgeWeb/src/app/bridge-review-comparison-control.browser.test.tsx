@@ -5,8 +5,8 @@ import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production CSS.
 import './bridge-app.css';
+import type { BridgeMainPanelChromeSlice } from '../core/comm-worker/bridge-main-review-comparison-presentation.js';
 import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
-import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import {
@@ -890,18 +890,16 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 
 function comparisonPresentation(props: {
 	readonly activeTarget?: NonNullable<
-		BridgeWorkerPanelChromePatchPayload['reviewComparison']
+		BridgeMainPanelChromeSlice['reviewComparison']
 	>['activeTarget'];
-	readonly attempt?: NonNullable<
-		BridgeWorkerPanelChromePatchPayload['reviewComparison']
-	>['attempt'];
+	readonly attempt?: NonNullable<BridgeMainPanelChromeSlice['reviewComparison']>['attempt'];
 	readonly displayedSnapshot: NonNullable<
-		BridgeWorkerPanelChromePatchPayload['reviewComparison']
+		BridgeMainPanelChromeSlice['reviewComparison']
 	>['displayedSnapshot'];
 	readonly repositoryDefaultTarget?: NonNullable<
-		NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']>
+		NonNullable<BridgeMainPanelChromeSlice['reviewComparison']>
 	>['repositoryDefaultTarget'];
-}): NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']> {
+}): NonNullable<BridgeMainPanelChromeSlice['reviewComparison']> {
 	return {
 		activeTarget:
 			props.activeTarget === undefined
@@ -951,7 +949,7 @@ function targetCatalog(
 
 function currentPresentationForPackage(
 	reviewPackage: BridgeReviewPackage,
-): NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']> {
+): NonNullable<BridgeMainPanelChromeSlice['reviewComparison']> {
 	return comparisonPresentation({
 		displayedSnapshot: {
 			packageId: reviewPackage.packageId,

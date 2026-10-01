@@ -22,6 +22,7 @@ import {
 	makeReviewSurfaceHarness,
 	requireHTMLElement,
 	reviewDisplayEvent,
+	reviewDisplayEventWithContribution,
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
@@ -522,6 +523,33 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
 			.toHaveTextContent('Update ready');
 		expect(canvas.hasAttribute('inert')).toBe(false);
+		await act(async (): Promise<void> => {
+			harness.reviewClient.renderStore.applyWorkerPatch({
+				slice: 'panelChrome',
+				operation: 'upsert',
+				payload: {
+					reviewComparison: {
+						activeTarget: {
+							basis: 'commonCommit',
+							branchName: 'master',
+							kind: 'localDefaultBranch',
+						},
+						attempt: { reviewGeneration: 1, status: 'settled' },
+						displayedSnapshot: {
+							packageId: 'review-browser-harness-package',
+							reviewGeneration: 1,
+							revision: 2,
+							status: 'current',
+						},
+						repositoryDefaultTarget: null,
+					},
+				},
+			});
+		});
+		expect(rendered.getByTestId('bridge-review-comparison-pending-icon').query()).toBeNull();
+		await act(async (): Promise<void> => {
+			await page.screenshot({ path: '../../../tmp/g1-review-held-single-indicator.png' });
+		});
 		expect(tree.hasAttribute('inert')).toBe(false);
 		expect(getComputedStyle(canvas).pointerEvents).not.toBe('none');
 		expect(getComputedStyle(tree).pointerEvents).not.toBe('none');
@@ -579,8 +607,8 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(getComputedStyle(canvas).opacity).toBe('1');
 		expect(getComputedStyle(tree).opacity).toBe('1');
 		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-loading-status'))
-			.toHaveTextContent('Loading comparison with feature/new-target');
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
+			.toHaveTextContent('Updating…');
 		expect(rendered.getByTestId('bridge-review-comparison-status-banner').query()).toBeNull();
 	});
 
@@ -712,9 +740,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			);
 			await Promise.resolve();
 		});
-		await expect
-			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
-			.toHaveTextContent('Update unavailable');
+		await expect.element(rendered.getByRole('alert')).toHaveTextContent('Update unavailable');
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Retry' }).click();
 			await Promise.resolve();
@@ -898,39 +924,6 @@ function reviewComparisonPanelChromeEvent(): Extract<
 		transferDescriptors: [],
 		wireVersion: 1,
 		workerDerivationEpoch: 1,
-	};
-}
-
-function reviewDisplayEventWithContribution(
-	props: Parameters<typeof reviewDisplayEvent>[0],
-): ReturnType<typeof reviewDisplayEvent> {
-	const event = reviewDisplayEvent(props);
-	return {
-		...event,
-		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-source patch while replacing one nested source payload.
-		patches: event.patches.map((patch) =>
-			patch.slice !== 'reviewSource' || patch.operation !== 'upsert'
-				? patch
-				: {
-						...patch,
-						payload: {
-							...patch.payload,
-							comparisonOrigin: {
-								baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-								baseRole: 'commonCommit',
-								comparedRole: 'capturedWorkingTree',
-								kind: 'contribution',
-								resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
-								reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
-								symbolicTarget: {
-									basis: 'commonCommit',
-									branchName: 'master',
-									kind: 'localDefaultBranch',
-								},
-							},
-						},
-					},
-		),
 	};
 }
 
