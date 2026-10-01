@@ -96,7 +96,7 @@ struct AgentStudioIPCBridgeFilterStrictIngressTests {
                 ]
 
                 for (offset, candidate) in invalidCandidates.enumerated() {
-                    let response = try sendRequest(
+                    let response = try await sendRequestWithoutBlockingCooperativePool(
                         socketPath: fixture.paths.socketURL.path,
                         request: JSONRPCClientRequest(
                             id: .number(92 + offset),

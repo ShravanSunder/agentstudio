@@ -141,12 +141,11 @@ struct AgentStudioAppIPCReusableCredentialTests {
                     verifierSHA256: Data(SHA256.hash(data: Data(currentToken.rawValue.utf8)))
                 )
                 try serverFixture.server.start()
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: serverFixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: serverFixture.paths.socketURL.path)
                 defer { connection.close() }
                 var reader = TestFrameReader()
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(50), method: "auth.login",
@@ -161,7 +160,7 @@ struct AgentStudioAppIPCReusableCredentialTests {
                 }
 
                 membership.setMember(false)
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(id: .number(51), method: "system.version", params: .object([:]))
                 )
@@ -502,10 +501,10 @@ private struct ReusableCredentialFixture {
         token: AgentStudioIPCSubjectToken,
         requestID: Int
     ) async throws -> ReusableCredentialLoginResult {
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        let connection = try await connectWithoutBlockingCooperativePool(socketPath: fixture.paths.socketURL.path)
         defer { connection.close() }
         var reader = TestFrameReader()
-        try sendRequest(
+        try await sendRequestWithoutBlockingCooperativePool(
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(requestID), method: "auth.login", params: .object(["token": .string(token.rawValue)])
@@ -513,7 +512,7 @@ private struct ReusableCredentialFixture {
         )
         let loginResponse = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         let loginStatus = try decodeResponseResult(IPCAuthStatusResult.self, from: loginResponse)
-        try sendRequest(
+        try await sendRequestWithoutBlockingCooperativePool(
             connection: connection,
             request: JSONRPCClientRequest(id: .number(requestID + 1), method: "system.version", params: .object([:]))
         )
@@ -531,9 +530,9 @@ private struct ReusableCredentialFixture {
         token: AgentStudioIPCSubjectToken,
         requestID: Int
     ) async throws -> JSONRPCResponseMessage {
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        let connection = try await connectWithoutBlockingCooperativePool(socketPath: fixture.paths.socketURL.path)
         defer { connection.close() }
-        try sendRequest(
+        try await sendRequestWithoutBlockingCooperativePool(
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(requestID), method: "auth.login", params: .object(["token": .string(token.rawValue)])
