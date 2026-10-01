@@ -71,7 +71,7 @@ struct AgentStudioAppIPCConnectionOutputTests {
                     socketPath: fixture.paths.socketURL.path, receiveBufferBytes: 4096)
                 defer { client.connection.close() }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: client.connection, request: connectionContractRequest("fixture.largeReply", id: 1)
+                    connection: client.connection, request: try connectionContractRequest("fixture.largeReply", id: 1)
                 )
                 let bytes = try await enteredWrite.firstArrival()
                 #expect(bytes.count > 3 * 1_048_576)
@@ -472,7 +472,7 @@ private func subscribeOutputSocket(
     try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 1, reader: &reader)
     try await sendRequestWithoutBlockingCooperativePool(
         connection: connection,
-        request: JSONRPCClientRequest(
+        request: try JSONRPCClientRequest(
             id: .number(2), method: "events.subscribe",
             params: .object([
                 "eventNames": .array([.string(IPCEventName.terminalCommandFinished.rawValue)]),

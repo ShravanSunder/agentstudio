@@ -67,8 +67,8 @@ func makeHeldConnectionRegistration(
     }
 }
 
-func connectionContractRequest(_ method: String, id: Int) -> JSONRPCClientRequest {
-    JSONRPCClientRequest(id: .number(id), method: method, params: .object([:]))
+func connectionContractRequest(_ method: String, id: Int) throws -> JSONRPCClientRequest {
+    try JSONRPCClientRequest(id: .number(id), method: method, params: .object([:]))
 }
 
 /// Names a missing response in the runner-owned hang evidence. Every client

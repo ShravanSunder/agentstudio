@@ -30,7 +30,7 @@ struct AgentStudioAppIPCConnectionAdmissionTests {
                 let client = try await connectHalfCloseTestSocket(socketPath: fixture.paths.socketURL.path)
                 defer { client.connection.close() }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: client.connection, request: connectionContractRequest("system.ping", id: 1)
+                    connection: client.connection, request: try connectionContractRequest("system.ping", id: 1)
                 )
                 try await valueFromDedicatedThread { try client.finishSending() }
                 let expected = try await heldWrite.firstArrival()
@@ -59,9 +59,9 @@ struct AgentStudioAppIPCConnectionAdmissionTests {
                     socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 let requests = [
-                    JSONRPCClientRequest(
+                    try JSONRPCClientRequest(
                         id: .number(1), method: "auth.login", params: .object(["token": .string(token.rawValue)])),
-                    connectionContractRequest("auth.status", id: 2),
+                    try connectionContractRequest("auth.status", id: 2),
                 ]
                 // One transport write makes this an actual pipeline, rather
                 // than waiting for login before sending the dependent frame.
@@ -106,10 +106,10 @@ struct AgentStudioAppIPCConnectionAdmissionTests {
                     socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: connection, request: connectionContractRequest("fixture.firstWrite", id: 1))
+                    connection: connection, request: try connectionContractRequest("fixture.firstWrite", id: 1))
                 #expect(try await firstWrite.firstArrival() == "first")
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: connection, request: connectionContractRequest("fixture.secondWrite", id: 2))
+                    connection: connection, request: try connectionContractRequest("fixture.secondWrite", id: 2))
                 firstWrite.release()
                 var reader = TestFrameReader()
                 let firstReply = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)

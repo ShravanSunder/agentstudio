@@ -27,7 +27,7 @@ struct AgentStudioAppIPCConnectionWaitingTests {
                     socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: connection, request: connectionContractRequest("fixture.waiting", id: 1))
+                    connection: connection, request: try connectionContractRequest("fixture.waiting", id: 1))
                 _ = try await hold.firstArrival()
                 try await recorder.expectNext(in: "waiting", .admitted)
                 connection.close()
@@ -71,12 +71,12 @@ struct AgentStudioAppIPCConnectionWaitingTests {
                     socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: connection, request: connectionContractRequest("fixture.waiting", id: 1))
+                    connection: connection, request: try connectionContractRequest("fixture.waiting", id: 1))
                 _ = try await hold.firstArrival()
                 try await recorder.expectNext(in: "waiting", .admitted)
                 failRead.withLock { $0 = true }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: connection, request: connectionContractRequest("fixture.failRead", id: 2))
+                    connection: connection, request: try connectionContractRequest("fixture.failRead", id: 2))
                 try await recorder.expectNext(in: "waiting", .ended(.error))
             }
         )
@@ -98,7 +98,7 @@ struct AgentStudioAppIPCConnectionWaitingTests {
                     socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: connection, request: connectionContractRequest("fixture.waiting", id: 1))
+                    connection: connection, request: try connectionContractRequest("fixture.waiting", id: 1))
                 _ = try await hold.firstArrival()
                 try await recorder.expectNext(in: "waiting", .admitted)
                 await valueFromDedicatedThread {
@@ -135,17 +135,17 @@ struct AgentStudioAppIPCConnectionWaitingTests {
                     socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 try await sendRequestWithoutBlockingCooperativePool(
-                    connection: connection, request: connectionContractRequest("fixture.waiting", id: 1))
+                    connection: connection, request: try connectionContractRequest("fixture.waiting", id: 1))
                 _ = try await hold.firstArrival()
                 try await recorder.expectNext(in: "waiting", .admitted)
                 let opening = await recorder.mark("ordinary")
                 let requests = [
-                    connectionContractRequest("fixture.read", id: 2),
-                    JSONRPCClientRequest(
+                    try connectionContractRequest("fixture.read", id: 2),
+                    try JSONRPCClientRequest(
                         id: .number(3), method: "auth.login",
                         params: .object(["token": .string("must-not-authenticate")])),
-                    connectionContractRequest("session.event", id: 4),
-                    connectionContractRequest("method.unknown", id: 5),
+                    try connectionContractRequest("session.event", id: 4),
+                    try connectionContractRequest("method.unknown", id: 5),
                 ]
                 for request in requests {
                     try await sendRequestWithoutBlockingCooperativePool(connection: connection, request: request)
