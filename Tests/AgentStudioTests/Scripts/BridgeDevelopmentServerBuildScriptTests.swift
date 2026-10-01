@@ -3,8 +3,10 @@ import Testing
 
 @Suite("Bridge development server build script")
 struct BridgeDevelopmentServerBuildScriptTests {
-    @Test("test-bundle and product builds use identical resolved compiler settings")
-    func producerAndConsumerShareResolvedCompilerSettings() async throws {
+    @Test(
+        "test-bundle and product builds use identical resolved compiler settings",
+        arguments: [false, true])
+    func producerAndConsumerShareResolvedCompilerSettings(holdCompilerStartup: Bool) async throws {
         let fixture = try BridgeDevelopmentBuildFixture()
         defer { fixture.remove() }
         let statisticsPath = fixture.buildSlot.rootURL.appending(path: "compiler statistics").path
@@ -17,16 +19,53 @@ struct BridgeDevelopmentServerBuildScriptTests {
             "SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH": "",
             "SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH": "",
         ]
+        var producerEnvironment = environment
+        // This fixture proves argument forwarding, not inactivity. Keep the
+        // inner watchdog unarmed; only the outer lane owns a hang bound, even
+        // when compiler startup or output draining is slow on a loaded host.
+        producerEnvironment["LANE_WATCHDOG_ARM_PATH"] =
+            fixture.buildSlot.rootURL.appending(path: "unused-watchdog.arm").path
+        let startupProof: String
+        if holdCompilerStartup {
+            producerEnvironment["BRIDGE_FIXTURE_STARTUP_RELEASE_PATH"] =
+                fixture.buildSlot.rootURL.appending(path: "compiler-startup.release").path
+            // The compiler cannot finish before the runner observes it. Release
+            // it at that observation, then witness any inactivity check without
+            // waiting for elapsed time or depending on host scheduling speed.
+            startupProof = #"""
+                mkfifo "$BRIDGE_FIXTURE_STARTUP_RELEASE_PATH"
+                swift_test_watchdog_state() {
+                  if [ ! -f compiler-startup-released ]; then
+                    printf 'release\n' > "$BRIDGE_FIXTURE_STARTUP_RELEASE_PATH"
+                    touch compiler-startup-released
+                  fi
+                  printf '%s %s\n' "$2" "$4"
+                }
+                swift_test_watchdog_timeout_status() {
+                  echo INACTIVITY_CHECK_DURING_COMPILER_SETTINGS_PROOF >&2
+                  return 124
+                }
+                """#
+        } else {
+            startupProof = ""
+        }
         let producer = try await fixture.buildSlot.run(
             """
             bash scripts/vendor-worktree.sh verify
             source scripts/swift-test-helpers.sh
             LOG_PREFIX=policy-proof
             BUILD_PATH=.build-ci
-            PREBUILD_TIMEOUT_SECONDS=10
+            PREBUILD_TIMEOUT_SECONDS=0
+            \(startupProof)
             prebuild_swift_tests
-            """, environment: environment)
+            """, environment: producerEnvironment)
         #expect(producer.exitCode == 0, "\(producer.output)")
+        #expect(!producer.output.contains("INACTIVITY_CHECK_DURING_COMPILER_SETTINGS_PROOF"))
+        if holdCompilerStartup {
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: fixture.buildSlot.rootURL.appending(path: "compiler-startup-released").path))
+        }
         #expect(!producer.output.contains("invocation_observation=unavailable"), "\(producer.output)")
         var producerArguments = try fixture.compilationArguments()
         producerArguments.removeAll { $0 == "--build-tests" }
@@ -185,6 +224,9 @@ private struct BridgeDevelopmentBuildFixture {
     private static let swiftCompiler = """
         #!/bin/bash
         set -euo pipefail
+        if [ -n "${BRIDGE_FIXTURE_STARTUP_RELEASE_PATH:-}" ]; then
+          read -r release < "$BRIDGE_FIXTURE_STARTUP_RELEASE_PATH"
+        fi
         test -f vendor-verified
         for argument in "$@"; do
           if [ "$argument" = --show-bin-path ]; then
