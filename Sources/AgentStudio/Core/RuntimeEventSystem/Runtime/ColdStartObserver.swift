@@ -6,7 +6,13 @@ import Foundation
 /// Proves handoff or failure for one cold-restore attempt entirely from
 /// OS-observable facts (SR4, SR5; Program Design revision 11, item 3). Two
 /// register-then-check stages, each registering its kqueue-backed watch
-/// before checking so no event between registration and check is missed:
+/// before checking so no event between registration and check is missed.
+/// "Register" means confirmed kernel registration (amended 2026-10-01, A2):
+/// each stage's mandatory initial check runs from a
+/// `dispatch_source_set_registration_handler` callback, not synchronously
+/// after `resume()` — `resume()` only requests registration; a check run
+/// synchronously right after it races a still-outstanding kevent()
+/// registration and can lose an event with no later recovery, by design.
 ///
 /// 1. **Discovery** — `EVFILT_VNODE` `NOTE_WRITE` on the zmx directory, then
 ///    checks whether the session's socket exists; on appearance, calls
@@ -64,6 +70,22 @@ package actor ColdStartObserver {
     }
 
     private let syscalls: any ColdStartObserverSyscalls
+    /// A2/A3/A4 (test technique amendment, 2026-10-01): the target queue
+    /// every watch's registration/event/cancel handler runs on. Private per
+    /// observer, not the shared `DispatchQueue.global(qos: .userInitiated)`
+    /// — production still gets `.userInitiated`-equivalent priority via the
+    /// default's own `qos:`, but this observer's handlers no longer
+    /// compete with unrelated work on a process-wide pool. Injectable so a
+    /// test can `suspend()`/`resume()` it directly (a real, documented GCD
+    /// primitive) to hold a handler deterministically, instead of
+    /// saturating a shared queue or blocking a thread with a semaphore.
+    private let targetQueue: DispatchQueue
+    /// A3 (test technique, Lead 2026-10-01): creates the setsid/handoff
+    /// process-watch source — injectable so a test can supply a double that
+    /// records `resume()`/`cancel()`/handler installs, proving source
+    /// ownership directly instead of through kernel or queue timing. See
+    /// `ColdStartProcessWatchSource.swift`.
+    private let processWatchSourceMaker: ColdStartProcessWatchSourceMaker
     private var settlementContinuation: CheckedContinuation<ColdStartOutcome, Never>?
     /// Set when `settle()` runs before `observeColdStart` ever started —
     /// `reportAttachClientExited()` is registered (via
@@ -73,13 +95,25 @@ package actor ColdStartObserver {
     /// `observeColdStart` returns this immediately instead of waiting.
     private var preSettledOutcome: ColdStartOutcome?
     private var isSettled = false
+    /// A3: set the moment this attempt commits to the handoff stage —
+    /// independent of `isSettled`, so a discovery-stage callback that was
+    /// already in flight (queued before the handoff watch took over) is
+    /// inert even though the attempt hasn't fully settled yet.
+    private var hasBegunHandoffWatch = false
     private var hasStartedObserving = false
     private var directoryDescriptor: Int32?
     private var directoryWatchSource: (any DispatchSourceProtocol)?
-    private var processWatchSource: (any DispatchSourceProtocol)?
+    private var processWatchSource: (any ColdStartProcessWatchSource)?
 
-    package init(syscalls: any ColdStartObserverSyscalls = DarwinColdStartObserverSyscalls()) {
+    package init(
+        syscalls: any ColdStartObserverSyscalls = DarwinColdStartObserverSyscalls(),
+        targetQueue: DispatchQueue = DispatchQueue(
+            label: "com.agentstudio.coldStartObserver.watch", qos: .userInitiated),
+        processWatchSourceMaker: @escaping ColdStartProcessWatchSourceMaker = defaultColdStartProcessWatchSourceMaker
+    ) {
         self.syscalls = syscalls
+        self.targetQueue = targetQueue
+        self.processWatchSourceMaker = processWatchSourceMaker
     }
 
     /// Runs the full two-stage watch for one cold-restore attempt, returning
@@ -133,11 +167,15 @@ package actor ColdStartObserver {
     }
 
     private func teardownWatches() {
+        // A4: the directory descriptor is closed by `directoryWatchSource`'s
+        // own cancel handler (set at creation in `beginDiscovery`), not
+        // here -- `dispatch_source_cancel` is asynchronous (source.h:512);
+        // closing the descriptor before cancellation actually completes
+        // permits its reuse while the source may still reference it
+        // (source.h:449). This call only requests cancellation and drops
+        // this actor's own reference.
         directoryWatchSource?.cancel()
         directoryWatchSource = nil
-        if let directoryDescriptor {
-            close(directoryDescriptor)
-        }
         directoryDescriptor = nil
         processWatchSource?.cancel()
         processWatchSource = nil
@@ -163,23 +201,45 @@ package actor ColdStartObserver {
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: descriptor,
             eventMask: .write,
-            queue: DispatchQueue.global(qos: .userInitiated)
+            queue: targetQueue
         )
         source.setEventHandler { [weak self] in
             self?.checkForSocketAndAdvance(socketPath: socketPath, bootID: bootID, attemptID: attemptID)
         }
-        source.setCancelHandler {}
+        // A4: closes the descriptor this source owns, exactly once, only
+        // once cancellation has actually completed -- `dispatch_source
+        // _cancel` is asynchronous (source.h:512); the cancel handler is
+        // the SDK's own documented boundary for when the handle is safe to
+        // close (source.h:449 warns that closing earlier permits the
+        // descriptor's reuse while the source may still reference it).
+        // Captures `descriptor` directly, not `self.directoryDescriptor` --
+        // the actor's own property is already niled out by the time this
+        // runs.
+        source.setCancelHandler {
+            close(descriptor)
+        }
+        // A2: the mandatory initial check must run once kernel registration
+        // is actually confirmed complete, not merely after `resume()`
+        // returns -- `resume()` only requests registration; the SDK's own
+        // contract (source.h:745) says the registration handler is
+        // submitted "once the corresponding kevent() has been registered
+        // with the system, following the initial dispatch_resume()". Set
+        // before `resume()`, so it always fires asynchronously once, never
+        // inline: "if a source is already registered when the registration
+        // handler is set, [it] will be invoked immediately" does not apply
+        // here. The socket may already exist by the time registration
+        // completes (or appear between completion and this firing — the
+        // event handler fires again and re-checks harmlessly).
+        source.setRegistrationHandler { [weak self] in
+            self?.checkForSocketAndAdvance(socketPath: socketPath, bootID: bootID, attemptID: attemptID)
+        }
         directoryWatchSource = source
         source.resume()
-
-        // Register first, then check: the socket may already exist by the
-        // time this registers (or appear between registration and this
-        // call — the event fires again and this re-checks harmlessly).
-        checkForSocketAndAdvance(socketPath: socketPath, bootID: bootID, attemptID: attemptID)
     }
 
-    /// Runs wherever it's called from — the DispatchSource's own GCD queue
-    /// (its event handler) or synchronously right after registration.
+    /// Runs wherever it's called from — the DispatchSource's own GCD queue,
+    /// whether its registration handler (the mandatory initial check, once
+    /// kernel registration is confirmed complete) or its event handler.
     /// Launches the connect attempt as its own task rather than blocking
     /// here, since a refused connect now retries with a real `Task.sleep`
     /// (see `attemptDiscoveryConnect`), which this `nonisolated` function
@@ -257,47 +317,50 @@ package actor ColdStartObserver {
     /// watch. `NOTE_EXIT` firing before any successful observe means the
     /// leader died before ever becoming a session/group leader: failed, not
     /// unobservable.
-    private func beginSetsidWatch(
+    ///
+    /// Not `private` (A3, Lead 2026-10-01): a dedicated test proves a late
+    /// `.pendingSetsid` reaching here after settlement installs no watch by
+    /// calling this directly after `cancel()`, rather than racing a real
+    /// discovery call against settlement (see `ColdStartObserverTests`).
+    package func beginSetsidWatch(
         terminalPID: Int32,
         socketPath: String,
         bootID: String,
         attemptID: ColdRestoreAttemptID
     ) {
-        let source = DispatchSource.makeProcessSource(
-            identifier: terminalPID,
-            eventMask: [.exit, .exec],
-            queue: DispatchQueue.global(qos: .userInitiated)
-        )
-        source.setEventHandler { [weak self] in
-            let exitFired = source.data.contains(.exit)
+        // A3: a late `.pendingSetsid` reaching here after this attempt has
+        // already settled (or already committed to handoff through a
+        // different, earlier discovery observation) must not install a new
+        // watch -- nothing would ever cancel it.
+        guard !isSettled, !hasBegunHandoffWatch else { return }
+        let source = processWatchSourceMaker(terminalPID, [.exit, .exec], targetQueue)
+        source.setEventHandler { [weak self] exitFired in
             self?.checkForSetsidAndAdvance(
                 terminalPID: terminalPID, socketPath: socketPath, bootID: bootID, attemptID: attemptID,
                 exitFired: exitFired)
         }
         source.setCancelHandler {}
+        // A2: the mandatory initial check must wait for confirmed kernel
+        // registration (see `beginDiscovery`'s own comment for the SDK
+        // contract) -- setsid (and the exec after it) may already have
+        // completed by the time registration confirms. `exitFired: false`
+        // here mirrors the event handler's own shape: this firing carries
+        // no real `NOTE_EXIT`, so an already-dead leader is caught by
+        // `syscalls.observeSession`'s own `.terminalLeaderGone` case below,
+        // not assumed from this call alone.
+        source.setRegistrationHandler { [weak self] in
+            self?.checkForSetsidAndAdvance(
+                terminalPID: terminalPID, socketPath: socketPath, bootID: bootID, attemptID: attemptID,
+                exitFired: false)
+        }
         processWatchSource = source
         source.resume()
-
-        // Register first, then check: setsid (and the exec after it) may
-        // already have completed by the time this registers. That's safe
-        // for the exit case specifically -- confirmed 2026-09-30 with a
-        // standalone kqueue probe against a real already-zombied process --
-        // but only because libdispatch's DispatchSource synthesizes a
-        // NOTE_EXIT for an already-zombie pid at registration time; a raw
-        // kevent EV_ADD EVFILT_PROC on a zombie pid returns EV_ERROR/ESRCH
-        // instead, so it is DispatchSource doing the work here, not the
-        // kernel replaying or latching the exit itself. NOTE_EXEC has no
-        // such synthesis: an exec that already happened before registration
-        // is simply never seen, which is exactly the race
-        // pendingSetsidReobservesAtRealExecAndDiscovers now removes with a
-        // FIFO hold instead of tolerating it.
-        checkForSetsidAndAdvance(
-            terminalPID: terminalPID, socketPath: socketPath, bootID: bootID, attemptID: attemptID, exitFired: false)
     }
 
-    /// Runs wherever it's called from — the DispatchSource's own GCD queue
-    /// or synchronously right after registration — never on this actor's
-    /// executor, matching `checkForSocketAndAdvance`'s reasoning.
+    /// Runs wherever it's called from — the DispatchSource's own GCD queue,
+    /// whether its registration handler (the mandatory initial check) or
+    /// its event handler — never on this actor's executor, matching
+    /// `checkForSocketAndAdvance`'s reasoning.
     nonisolated private func checkForSetsidAndAdvance(
         terminalPID: Int32,
         socketPath: String,
@@ -341,12 +404,16 @@ package actor ColdStartObserver {
         socketPath: String,
         attemptID: ColdRestoreAttemptID
     ) {
-        guard !isSettled else { return }
+        // A3: a superseded discovery-stage callback (e.g. the setsid
+        // watch's own in-flight event, still queued when the handoff watch
+        // already took over) must not re-enter here -- `hasBegunHandoffWatch`
+        // is set the moment this attempt committed to handoff, independent
+        // of `isSettled`, which only covers full settlement.
+        guard !isSettled, !hasBegunHandoffWatch else { return }
+        // A4: see `teardownWatches`'s own comment -- the cancel handler set
+        // in `beginDiscovery` owns closing the descriptor, not this call.
         directoryWatchSource?.cancel()
         directoryWatchSource = nil
-        if let directoryDescriptor {
-            close(directoryDescriptor)
-        }
         directoryDescriptor = nil
 
         guard let identity else {
@@ -368,28 +435,38 @@ package actor ColdStartObserver {
     // MARK: - Stage 2: handoff
 
     private func beginHandoffWatch(identity: ZmxSessionIdentity, attemptID: ColdRestoreAttemptID) {
+        // A3: commit to handoff before anything else -- makes a superseded
+        // discovery-stage callback that's already queued (e.g. the setsid
+        // watch's own event, racing this call) inert via `discoverySettled`'s
+        // own guard, and cancel the setsid watch's source before this
+        // overwrites `processWatchSource`, so it stops delivering future
+        // events and its ownership isn't silently dropped. Cancellation
+        // itself is asynchronous (A4); this only disposes of the reference,
+        // it does not guarantee no in-flight callback is already queued --
+        // `hasBegunHandoffWatch` is what makes that queued callback inert.
+        hasBegunHandoffWatch = true
+        processWatchSource?.cancel()
         let terminalLeaderPid = identity.terminalLeader.pid
-        let source = DispatchSource.makeProcessSource(
-            identifier: terminalLeaderPid,
-            eventMask: [.exit, .exec],
-            queue: DispatchQueue.global(qos: .userInitiated)
-        )
-        source.setEventHandler { [weak self] in
-            let exitFired = source.data.contains(.exit)
+        let source = processWatchSourceMaker(terminalLeaderPid, [.exit, .exec], targetQueue)
+        source.setEventHandler { [weak self] exitFired in
             self?.checkForHandoffAndAdvance(identity: identity, attemptID: attemptID, exitFired: exitFired)
         }
         source.setCancelHandler {}
+        // A2: the mandatory initial check must wait for confirmed kernel
+        // registration (see `beginDiscovery`'s own comment for the SDK
+        // contract) -- handoff may already have completed between
+        // discovering the identity and registration confirming.
+        source.setRegistrationHandler { [weak self] in
+            self?.checkForHandoffAndAdvance(identity: identity, attemptID: attemptID, exitFired: false)
+        }
         processWatchSource = source
         source.resume()
-
-        // Register first, then check: handoff may already have completed
-        // between discovering the identity and registering this watch.
-        checkForHandoffAndAdvance(identity: identity, attemptID: attemptID, exitFired: false)
     }
 
-    /// Runs wherever it's called from — the DispatchSource's own GCD queue
-    /// or synchronously right after registration — never on this actor's
-    /// executor, matching `checkForSocketAndAdvance`'s reasoning.
+    /// Runs wherever it's called from — the DispatchSource's own GCD queue,
+    /// whether its registration handler (the mandatory initial check) or
+    /// its event handler — never on this actor's executor, matching
+    /// `checkForSocketAndAdvance`'s reasoning.
     nonisolated private func checkForHandoffAndAdvance(
         identity: ZmxSessionIdentity,
         attemptID: ColdRestoreAttemptID,

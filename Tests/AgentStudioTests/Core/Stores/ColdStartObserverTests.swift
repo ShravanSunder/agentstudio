@@ -17,7 +17,10 @@ import Testing
 /// process are proven separately, with real zmx, in the E2E lane.
 @Suite("Cold start observer")
 struct ColdStartObserverTests {
-    private final class ScriptedSyscalls: ColdStartObserverSyscalls, @unchecked Sendable {
+    /// Not `private` (test-file split, Lead 2026-10-01): shared with
+    /// `ColdStartObserverProcessWatchOwnershipTests`, which the repo's
+    /// line-length ceiling split out of this file.
+    final class ScriptedSyscalls: ColdStartObserverSyscalls, @unchecked Sendable {
         var directoryOpenResult: Result<Int32, POSIXErrorNumber> = .failure(POSIXErrorNumber(EACCES))
         var processArgumentsResult: Result<[UInt8], POSIXErrorNumber> = .failure(POSIXErrorNumber(ESRCH))
         /// Consulted only when `processArgumentsResult` is `.failure` and no
@@ -562,6 +565,157 @@ struct ColdStartObserverTests {
 
         let settledOutcome = await outcome
         #expect(settledOutcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+    }
+
+    /// A2 (blocker, advisor review 2026-10-01; test technique corrected by
+    /// the Lead 2026-10-01 to avoid saturating a shared queue): proves the
+    /// discovery watch's mandatory initial check does not run until kernel
+    /// registration is actually confirmed complete -- not merely after
+    /// `source.resume()` returns. The SDK is explicit that `resume()` only
+    /// requests registration: `dispatch_source_set_registration_handler`'s
+    /// own contract says its handler is submitted "once the corresponding
+    /// kevent() has been registered with the system, following the initial
+    /// dispatch_resume()" (source.h:745), never synchronously inline at
+    /// `resume()`'s own call site.
+    ///
+    /// Injects a private, test-owned `DispatchQueue` as the observer's own
+    /// `targetQueue` (the same seam production uses — just a test-supplied
+    /// queue instead of production's own private one) and suspends it
+    /// before `observeColdStart` ever starts. `dispatch_suspend`/
+    /// `dispatch_resume` on a queue is a documented, deterministic GCD
+    /// primitive that holds a source's *handler block* from running; it
+    /// does not affect the source's own, independent kernel registration
+    /// (`source.resume()` still proceeds regardless of its target queue's
+    /// suspend state) -- this is why suspending the queue, not the source,
+    /// is the right seam for "registration confirmed, handler not yet run".
+    /// The socket file is created only after the watch is active but while
+    /// the queue is still suspended -- the event landing in the exact
+    /// window A2 is about, with no raw kernel timing and nothing
+    /// process-global touched.
+    ///
+    /// Before this fix, `beginDiscovery`'s mandatory check runs
+    /// synchronously inside `beginDiscovery` itself, before this test ever
+    /// creates the socket file: it sees nothing, and — with no
+    /// registration handler to ever re-check — `syscalls.observeSession`
+    /// is never called again. This test would then never observe that
+    /// first call and relies on the runner's own hang bound, exactly like
+    /// `FactRecorder.expectNext`'s own documented contract (no sleeps, no
+    /// deadlines of its own). After the fix, the registration-handler-
+    /// driven check only runs once this test resumes the queue, by which
+    /// point the file already exists, and it is observed correctly.
+    @Test("the discovery watch's mandatory check observes an event that lands while its queue is suspended")
+    func discoveryMandatoryCheckWaitsForConfirmedKernelRegistration() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-a2-registration-timing-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let socketPath = temporaryDirectory.appending(path: "session").path
+
+        let testQueue = DispatchQueue(label: "cold-start-observer-a2-test-queue", qos: .userInitiated)
+        testQueue.suspend()
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(try openRealDirectoryDescriptor(at: temporaryDirectory.path))
+        // A single, terminal result: this test is about whether the check
+        // observes the file at all, not about the stages past discovery.
+        syscalls.observeSessionResults = [.terminalLeaderGone]
+        let observeSessionCallSource = LocalFactSource(vocabulary: ScriptedSyscalls.observeSessionCallFactVocabulary())
+        let observeSessionCallRecorder = try observeSessionCallSource.attach()
+        syscalls.observeSessionCallFactSink = observeSessionCallSource.sink
+        let observer = ColdStartObserver(syscalls: syscalls, targetQueue: testQueue)
+
+        // Act
+        async let outcome = observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: socketPath,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
+
+        // The watch's own `resume()` already ran by program order below
+        // (this test suspended the queue before `observeColdStart` was
+        // ever called, and creates the file strictly before resuming it) —
+        // the file lands in the window this finding is about regardless of
+        // exactly when `beginDiscovery` itself gets scheduled.
+        FileManager.default.createFile(atPath: socketPath, contents: nil)
+        testQueue.resume()
+
+        // Assert: the mandatory check -- gated on confirmed registration,
+        // not the earlier resume() call -- observes the file once the
+        // queue is free to run it.
+        try await observeSessionCallRecorder.expectNext(in: ScriptedSyscalls.observeSessionScope, 1)
+
+        let settledOutcome = await outcome
+        #expect(settledOutcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+    }
+
+    /// A4 (important, advisor review 2026-10-01; test technique corrected
+    /// by the Lead 2026-10-01 to avoid saturating a shared queue): proves
+    /// the watched directory's file descriptor stays open until the
+    /// directory watch's own `DispatchSource` cancellation has actually
+    /// completed, never before. `dispatch_source_cancel` is asynchronous
+    /// (SDK source.h:512); its cancel handler is the documented boundary
+    /// for when the handle is safe to close (source.h:449 -- closing
+    /// earlier permits the descriptor's reuse while the source may still
+    /// reference it).
+    ///
+    /// Injects a private, test-owned, serial `DispatchQueue` as the
+    /// observer's `targetQueue` (same seam as A2's proof) and suspends it
+    /// before activation, so cancellation can be requested but the cancel
+    /// handler that must run the actual `close()` cannot. After resuming,
+    /// `testQueue.sync {}` -- a serial queue's own FIFO guarantee, not a
+    /// timing wait -- returns only once every block already queued ahead
+    /// of it (the cancel handler) has completed, off the cooperative pool
+    /// via the repo's own `withoutBlockingCooperativePool` helper.
+    ///
+    /// Before this fix, `teardownWatches`/`discoverySettled` close the
+    /// descriptor as a plain, synchronous actor-isolated call -- wholly
+    /// unaffected by the suspended queue, so it is already closed by the
+    /// time `cancel()` returns, failing the first assertion below. After
+    /// the fix, only the cancel handler closes it, and that handler cannot
+    /// run until this test resumes the queue.
+    @Test("the watched directory descriptor stays open until source cancellation actually completes")
+    func directoryDescriptorStaysOpenUntilCancellationCompletes() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "cold-start-observer-a4-fd-lifetime-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let watchedDescriptor = try openRealDirectoryDescriptor(at: temporaryDirectory.path)
+
+        let testQueue = DispatchQueue(label: "cold-start-observer-a4-test-queue", qos: .userInitiated)
+        testQueue.suspend()
+
+        let syscalls = ScriptedSyscalls()
+        syscalls.directoryOpenResult = .success(watchedDescriptor)
+        let observer = ColdStartObserver(syscalls: syscalls, targetQueue: testQueue)
+
+        // Act
+        async let outcome = observer.observeColdStart(
+            zmxDirectory: temporaryDirectory,
+            socketPath: temporaryDirectory.appending(path: "session").path,
+            bootID: "test-boot-id",
+            attemptID: ColdRestoreAttemptID.generate()
+        )
+        await observer.cancel()
+
+        // Assert: cancellation was requested, but the queue that must run
+        // the cancel handler is still suspended -- the descriptor must
+        // still be open.
+        #expect(fcntl(watchedDescriptor, F_GETFD) != -1, "the descriptor must stay open while cancellation is pending")
+
+        // Free the queue, then wait for it to actually drain the cancel
+        // handler -- a serial queue's own FIFO guarantee, not a sleep.
+        testQueue.resume()
+        try await withoutBlockingCooperativePool {
+            testQueue.sync {}
+        }
+
+        // Assert: the cancel handler has now closed it, exactly once.
+        #expect(fcntl(watchedDescriptor, F_GETFD) == -1)
+        #expect(errno == EBADF)
+
+        // Cleanup: already settled by the explicit cancel() above.
+        _ = await outcome
     }
 
     /// Event-driven wait for a real process's own `NOTE_EXIT`, so a test can
