@@ -87,6 +87,7 @@ actor BridgeFileSurfaceReconciler {
         case providerCancellation
         case constructionInvalidated
         case repeatedSupersession
+        case interruptedRepeatedly
         case progressExpired
         case providerFailure
         case unrecognizedProviderFailure
@@ -106,7 +107,8 @@ actor BridgeFileSurfaceReconciler {
             case .accessRefused:
                 .init(rootAccessFailure: .refused)
             case .providerCancellation, .constructionInvalidated, .repeatedSupersession,
-                .progressExpired, .providerFailure, .unrecognizedProviderFailure:
+                .interruptedRepeatedly, .progressExpired, .providerFailure,
+                .unrecognizedProviderFailure:
                 .init(
                     failureKind: disposition == .retryable ? .fileSourceUnavailable : .producerRejected
                 )
@@ -134,14 +136,19 @@ actor BridgeFileSurfaceReconciler {
     private(set) var retiringAttempt: Attempt?
     private(set) var currentFailure: Failure?
     private let maximumUnchangedInputSupersessions: Int
+    private let interruptionRestartLimit: Int
     private var unchangedInputSupersessionCount = 0
+    private var consecutiveInterruptionCount = 0
 
     init(
         maximumUnchangedInputSupersessions: Int = AppPolicies.Bridge
-            .fileSurfaceMaximumUnchangedInputSupersessions
+            .fileSurfaceMaximumUnchangedInputSupersessions,
+        interruptionRestartLimit: Int = AppPolicies.Bridge.fileSurfaceInterruptionRestartLimit
     ) {
         precondition(maximumUnchangedInputSupersessions > 0)
+        precondition(interruptionRestartLimit > 0)
         self.maximumUnchangedInputSupersessions = maximumUnchangedInputSupersessions
+        self.interruptionRestartLimit = interruptionRestartLimit
     }
 
     func beginAttempt(inputBasis: BridgeFileSurfaceInputBasis) -> Action {
@@ -159,6 +166,7 @@ actor BridgeFileSurfaceReconciler {
         currentInputBasis = inputBasis
         currentInputGeneration = (currentInputGeneration ?? 0) &+ 1
         unchangedInputSupersessionCount = 0
+        consecutiveInterruptionCount = 0
         currentFailure = nil
         guard let activeAttempt else {
             return startAttempt(inputGeneration: currentInputGeneration ?? 1)
@@ -181,6 +189,7 @@ actor BridgeFileSurfaceReconciler {
         switch outcome {
         case .built:
             activeAttempt = nil
+            consecutiveInterruptionCount = 0
             currentFailure = nil
             return .completed(attempt)
         case .superseded(let newerInputBasis):
@@ -226,10 +235,25 @@ actor BridgeFileSurfaceReconciler {
         )
     }
 
-    func builderCancelled(_ attempt: Attempt) {
-        guard activeAttempt == attempt else { return }
+    func builderCancelled(
+        _ attempt: Attempt,
+        phase: FailurePhase = .delivery,
+        isAutomaticRestartEligible: Bool = false
+    ) -> Action {
+        guard activeAttempt == attempt else { return .rest }
         activeAttempt = nil
         retiringAttempt = attempt
+        guard isAutomaticRestartEligible else { return .rest }
+
+        consecutiveInterruptionCount += 1
+        guard consecutiveInterruptionCount > interruptionRestartLimit else { return .rest }
+        let failure = Failure(
+            disposition: .retryable,
+            phase: phase,
+            cause: .interruptedRepeatedly
+        )
+        currentFailure = failure
+        return .failed(failure)
     }
 
     func retry() -> Action {
@@ -239,6 +263,7 @@ actor BridgeFileSurfaceReconciler {
         else { return .rest }
         currentFailure = nil
         unchangedInputSupersessionCount = 0
+        consecutiveInterruptionCount = 0
         return startAttempt(inputGeneration: currentInputGeneration)
     }
 

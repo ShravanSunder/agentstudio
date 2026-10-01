@@ -372,7 +372,7 @@ extension BridgePaneProductMetadataCoordinator {
         )
         guard completedCurrentTask else {
             if let fileSurfaceAttemptContext {
-                await fileSurfaceReconciler.builderCancelled(fileSurfaceAttemptContext.attempt)
+                _ = await fileSurfaceReconciler.builderCancelled(fileSurfaceAttemptContext.attempt)
                 await fileSurfaceReconciler.retirementCompleted(fileSurfaceAttemptContext.attempt)
             }
             return
@@ -386,8 +386,24 @@ extension BridgePaneProductMetadataCoordinator {
         if let fileSurfaceAttemptContext {
             let fileSurfaceAttempt = fileSurfaceAttemptContext.attempt
             if completion == .interrupted {
-                await fileSurfaceReconciler.builderCancelled(fileSurfaceAttempt)
+                let isAutomaticRestartEligible =
+                    activeStream?.lease
+                    == fileSurfaceAttemptContext.activeStream.lease
+                    && fileSurfaceAttemptContext.productAdmission.withValidAdmission({ true }) == true
+                    && fileSurfaceAttemptContext.foregroundWorkAdmission.withValidAdmission({ true }) == true
+                let interruptionAction = await fileSurfaceReconciler.builderCancelled(
+                    fileSurfaceAttempt,
+                    phase: .delivery,
+                    isAutomaticRestartEligible: isAutomaticRestartEligible
+                )
                 await fileSurfaceReconciler.retirementCompleted(fileSurfaceAttempt)
+                await handleFileSurfaceAction(
+                    interruptionAction,
+                    subscription: fileSurfaceAttemptContext.subscription,
+                    activeStream: fileSurfaceAttemptContext.activeStream,
+                    productAdmission: fileSurfaceAttemptContext.productAdmission,
+                    foregroundWorkAdmission: fileSurfaceAttemptContext.foregroundWorkAdmission
+                )
             } else {
                 let action: BridgeFileSurfaceReconciler.Action
                 if let error {

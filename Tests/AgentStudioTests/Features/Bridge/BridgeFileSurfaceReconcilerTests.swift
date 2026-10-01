@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -23,7 +24,7 @@ struct BridgeFileSurfaceReconcilerTests {
             return
         }
 
-        await reconciler.builderCancelled(retryBeforeSuspension)
+        _ = await reconciler.builderCancelled(retryBeforeSuspension)
         guard case .start(let reopenedAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
             Issue.record("Expected the same-basis File attempt to reopen after suspension")
             return
@@ -56,7 +57,10 @@ struct BridgeFileSurfaceReconcilerTests {
         }
         let inputGeneration = firstAttempt.inputGeneration
 
-        await reconciler.builderCancelled(firstAttempt)
+        _ = await reconciler.builderCancelled(
+            firstAttempt,
+            isAutomaticRestartEligible: true
+        )
         #expect(await reconciler.activeAttempt == nil)
         #expect(await reconciler.currentFailure == nil)
         #expect(await reconciler.currentInputGeneration == inputGeneration)
@@ -68,7 +72,10 @@ struct BridgeFileSurfaceReconcilerTests {
         #expect(secondAttempt.nonce != firstAttempt.nonce)
         #expect(secondAttempt.inputGeneration == inputGeneration)
 
-        await reconciler.builderCancelled(secondAttempt)
+        _ = await reconciler.builderCancelled(
+            secondAttempt,
+            isAutomaticRestartEligible: true
+        )
         #expect(await reconciler.activeAttempt == nil)
         #expect(await reconciler.currentInputGeneration == inputGeneration)
 
@@ -85,6 +92,177 @@ struct BridgeFileSurfaceReconcilerTests {
         #expect(await reconciler.currentFailure == nil)
         #expect(await reconciler.activeAttempt == nil)
         #expect(await reconciler.currentInputGeneration == inputGeneration)
+    }
+
+    @Test("consecutive uncertified interruptions are bounded and Retry restarts")
+    func repeatedInterruptionsAreBoundedAndRetryRestarts() async throws {
+        let reconciler = BridgeFileSurfaceReconciler()
+        let inputBasis = makeInputBasis()
+        let maximumAutomaticRestarts = AppPolicies.Bridge.fileSurfaceInterruptionRestartLimit
+        #expect(maximumAutomaticRestarts == 3)
+        guard case .start(let initialAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+            Issue.record("Expected the initial File attempt to start")
+            return
+        }
+        var currentAttempt = initialAttempt
+        var publishedFailures = 0
+
+        for interruptionIndex in 0...maximumAutomaticRestarts {
+            let interruptionAction = await reconciler.builderCancelled(
+                currentAttempt,
+                phase: .delivery,
+                isAutomaticRestartEligible: true
+            )
+            if case .failed = interruptionAction { publishedFailures += 1 }
+            await reconciler.retirementCompleted(currentAttempt)
+
+            if interruptionIndex < maximumAutomaticRestarts {
+                #expect(interruptionAction == .rest)
+                guard case .start(let restartedAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+                    Issue.record("Expected an admitted replay to restart below the interruption limit")
+                    return
+                }
+                #expect(restartedAttempt.inputGeneration == initialAttempt.inputGeneration)
+                #expect(restartedAttempt.nonce != currentAttempt.nonce)
+                currentAttempt = restartedAttempt
+                continue
+            }
+
+            let repeatedInterruptionFailure = BridgeFileSurfaceReconciler.Failure(
+                disposition: .retryable,
+                phase: .delivery,
+                cause: .interruptedRepeatedly
+            )
+            #expect(interruptionAction == .failed(repeatedInterruptionFailure))
+            #expect(await reconciler.currentFailure == repeatedInterruptionFailure)
+            #expect(repeatedInterruptionFailure.refreshFailure.retryable)
+            #expect(publishedFailures == 1)
+            #expect(await reconciler.beginAttempt(inputBasis: inputBasis) == .rest)
+            #expect(
+                await reconciler.builderCancelled(
+                    currentAttempt,
+                    phase: .delivery,
+                    isAutomaticRestartEligible: true
+                ) == .rest
+            )
+            guard case .start(let retriedAttempt) = await reconciler.retry() else {
+                Issue.record("Retry must restart after the interruption limit is reached")
+                return
+            }
+            #expect(retriedAttempt.inputGeneration == initialAttempt.inputGeneration)
+            #expect(retriedAttempt.nonce != currentAttempt.nonce)
+            #expect(await reconciler.currentFailure == nil)
+            #expect(
+                await reconciler.builderCancelled(
+                    retriedAttempt,
+                    phase: .delivery,
+                    isAutomaticRestartEligible: true
+                ) == .rest
+            )
+            await reconciler.retirementCompleted(retriedAttempt)
+            guard case .start = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+                Issue.record("Retry must reset the interruption count before the next replay")
+                return
+            }
+        }
+    }
+
+    @Test("a certified File completion resets the interruption restart limit")
+    func certifiedCompletionResetsInterruptionRestartLimit() async throws {
+        let reconciler = BridgeFileSurfaceReconciler()
+        let inputBasis = makeInputBasis()
+        let maximumAutomaticRestarts = AppPolicies.Bridge.fileSurfaceInterruptionRestartLimit
+        guard case .start(let initialAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+            Issue.record("Expected the initial File attempt to start")
+            return
+        }
+        var currentAttempt = initialAttempt
+
+        for _ in 0..<maximumAutomaticRestarts {
+            #expect(
+                await reconciler.builderCancelled(
+                    currentAttempt,
+                    phase: .delivery,
+                    isAutomaticRestartEligible: true
+                ) == .rest
+            )
+            await reconciler.retirementCompleted(currentAttempt)
+            guard case .start(let restartedAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+                Issue.record("Expected each admitted replay to restart below the limit")
+                return
+            }
+            currentAttempt = restartedAttempt
+        }
+
+        #expect(await reconciler.builderFinished(currentAttempt, outcome: .built) == .completed(currentAttempt))
+        guard case .start(let postCertificateAttempt) = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+            Issue.record("Expected a subsequent File attempt after the certified completion")
+            return
+        }
+        #expect(
+            await reconciler.builderCancelled(
+                postCertificateAttempt,
+                phase: .delivery,
+                isAutomaticRestartEligible: true
+            ) == .rest
+        )
+        await reconciler.retirementCompleted(postCertificateAttempt)
+        guard case .start = await reconciler.beginAttempt(inputBasis: inputBasis) else {
+            Issue.record("The interruption count should reset after the certified completion")
+            return
+        }
+    }
+
+    @Test("a material File basis change resets the interruption restart limit")
+    func materialBasisChangeResetsInterruptionRestartLimit() async throws {
+        let reconciler = BridgeFileSurfaceReconciler()
+        let initialBasis = makeInputBasis()
+        let maximumAutomaticRestarts = AppPolicies.Bridge.fileSurfaceInterruptionRestartLimit
+        guard case .start(let initialAttempt) = await reconciler.beginAttempt(inputBasis: initialBasis) else {
+            Issue.record("Expected the initial File attempt to start")
+            return
+        }
+        var currentAttempt = initialAttempt
+
+        for _ in 0..<maximumAutomaticRestarts {
+            #expect(
+                await reconciler.builderCancelled(
+                    currentAttempt,
+                    phase: .delivery,
+                    isAutomaticRestartEligible: true
+                ) == .rest
+            )
+            await reconciler.retirementCompleted(currentAttempt)
+            guard case .start(let restartedAttempt) = await reconciler.beginAttempt(inputBasis: initialBasis) else {
+                Issue.record("Expected each admitted replay to restart below the limit")
+                return
+            }
+            currentAttempt = restartedAttempt
+        }
+
+        let changedBasis = makeInputBasis(rootPathToken: "root-b")
+        guard
+            case .restart(let retiringAttempt, let changedAttempt) = await reconciler.inputsChanged(
+                to: changedBasis
+            )
+        else {
+            Issue.record("A material basis change must start a new File attempt")
+            return
+        }
+        await reconciler.retirementCompleted(retiringAttempt)
+        #expect(
+            await reconciler.builderCancelled(
+                changedAttempt,
+                phase: .delivery,
+                isAutomaticRestartEligible: true
+            ) == .rest
+        )
+        await reconciler.retirementCompleted(changedAttempt)
+        guard case .start(let replayAttempt) = await reconciler.beginAttempt(inputBasis: changedBasis) else {
+            Issue.record("The changed basis must get a fresh interruption restart limit")
+            return
+        }
+        #expect(replayAttempt.inputGeneration == changedAttempt.inputGeneration)
     }
 
     @Test("each material basis change renews the attempt budget")

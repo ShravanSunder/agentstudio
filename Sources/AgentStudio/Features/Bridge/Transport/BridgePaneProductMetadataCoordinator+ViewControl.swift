@@ -240,8 +240,23 @@ extension BridgePaneProductMetadataCoordinator {
     ) async {
         guard let surfaceAttempt else { return }
         if Task.isCancelled || Self.isForegroundWorkInvalidation(error) {
-            await fileSurfaceReconciler.builderCancelled(surfaceAttempt)
+            let isAutomaticRestartEligible =
+                self.activeStream?.lease == activeStream.lease
+                && productAdmission.withValidAdmission({ true }) == true
+                && foregroundWorkAdmission.withValidAdmission({ true }) == true
+            let interruptionAction = await fileSurfaceReconciler.builderCancelled(
+                surfaceAttempt,
+                phase: .delivery,
+                isAutomaticRestartEligible: isAutomaticRestartEligible
+            )
             await fileSurfaceReconciler.retirementCompleted(surfaceAttempt)
+            await handleFileSurfaceAction(
+                interruptionAction,
+                subscription: subscription,
+                activeStream: activeStream,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
             return
         }
         let newerInputBasis: BridgeFileSurfaceInputBasis?
