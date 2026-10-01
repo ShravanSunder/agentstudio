@@ -12,13 +12,7 @@ export function bridgeCommWorkerReviewDisplayPatchesFromBatch(
 		{ operation: 'replace', payload: desired.reviewComparison, slice: 'reviewComparison' },
 	];
 	if (displayed === null) {
-		if (desired.status === 'ready') {
-			patches.push({
-				operation: 'replace',
-				payload: { kind: 'readyEmpty', status: 'readyEmpty' },
-				slice: 'reviewSource',
-			});
-		} else if (desired.status === 'failedPermanent' || desired.status === 'failedRetryable') {
+		if (desired.status === 'failedPermanent' || desired.status === 'failedRetryable') {
 			patches.push({
 				operation: 'failed',
 				payload: { error: 'metadataUnavailable', status: 'failed' },

@@ -22,6 +22,7 @@ function commentInstallation(): BridgeProductViewInstallation {
 	});
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Comment begin is invalid.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [

@@ -20,6 +20,7 @@ import type {
 	BridgeProductTransportSession,
 } from './bridge-product-transport.js';
 import type { BridgeProductViewInstallation } from './bridge-product-view-batch-receiver.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 export function makeFileBatchInstallation(
 	subscriptionId: string,
@@ -41,6 +42,7 @@ export function makeFileBatchInstallation(
 	});
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('File batch begin missing.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [
@@ -78,6 +80,7 @@ export function makeReviewBatchInstallation(subscriptionId: string): BridgeProdu
 	});
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Review batch begin missing.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [
@@ -133,6 +136,7 @@ export function makeFileProductTestTransport(props: {
 		subscriptionKind: 'review.metadata',
 	};
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (surface): number => {
 			if (surface === 'file') fileEpoch += 1;
 			if (surface === 'review') reviewEpoch += 1;

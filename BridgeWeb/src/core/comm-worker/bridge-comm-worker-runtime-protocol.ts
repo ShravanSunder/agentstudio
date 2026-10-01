@@ -91,6 +91,7 @@ import {
 	recordBridgeCommWorkerPanePresentationTelemetry,
 	recordBridgeCommWorkerTaskTelemetry,
 } from './bridge-comm-worker-telemetry.js';
+import { retryBridgeCommWorkerViewDependencies } from './bridge-comm-worker-view-recovery-retry.js';
 import { recordBridgeWorkerOutstandingPublicationTelemetry } from './bridge-render-disposition-telemetry.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
@@ -539,29 +540,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			productController?.retryAnnotationProjection(surface);
 		},
 		retryView: (view): void => {
-			if (productTransport?.retryView === undefined) return;
-			const viewRetry = productTransport.retryView(view.subscriptionId);
-			void (async (): Promise<void> => {
-				let sourceRetry: Promise<void> = Promise.resolve();
-				switch (view.kind) {
-					case 'file.metadata':
-						sourceRetry = productController?.ensureFileSource() ?? sourceRetry;
-						break;
-					case 'review.metadata':
-						productController?.ensureReviewMetadata();
-						break;
-					case 'file.annotations':
-						sourceRetry = (productController?.ensureFileSource() ?? sourceRetry).then((): void => {
-							productController?.retryAnnotationProjection('file');
-						});
-						break;
-					case 'review.annotations':
-						productController?.ensureReviewMetadata();
-						productController?.retryAnnotationProjection('review');
-						break;
-				}
-				await Promise.all([viewRetry, sourceRetry]);
-			})().catch((): void => {
+			const viewRetry = productTransport?.retryView?.(view.subscriptionId) ?? Promise.resolve();
+			void Promise.all([
+				viewRetry,
+				retryBridgeCommWorkerViewDependencies(productController, view.kind),
+			]).catch((): void => {
 				port.postMessage({
 					direction: 'serverWorkerToMain',
 					kind: 'viewRecoveryStatus',
@@ -621,9 +604,10 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}
 				}
 			},
-			didInstallFile: (view, begin): void => {
+			didInstallFile: (view, begin, certified): void => {
 				const workerDerivationEpoch = productTransport.workerDerivationEpoch('file');
 				productController?.acceptInstalledFileBatch({
+					certified,
 					source: view.memberStatus.source,
 					subscriptionId: begin.subscriptionId,
 					workerDerivationEpoch,

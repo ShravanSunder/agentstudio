@@ -41,7 +41,11 @@ export interface BridgeCommWorkerProductBatchApplicationProps {
 		catalog: BridgeCommWorkerAnnotationCatalog,
 		surface: 'file' | 'review',
 	) => void;
-	readonly applyFile: (view: BridgeProductInstalledFileView, begin: BatchBegin) => void;
+	readonly applyFile: (
+		view: BridgeProductInstalledFileView,
+		begin: BatchBegin,
+		certified: boolean,
+	) => void;
 	readonly applyReview: (
 		presentation: BridgeCommWorkerReviewBatchPresentation,
 		begin: BatchBegin,
@@ -60,7 +64,7 @@ export interface BridgeCommWorkerProductBatchApplicationProps {
 	readonly workerDerivationEpoch: (surface: 'file' | 'review') => number;
 }
 
-/** W4 hands one certified bank to the owning typed installer. */
+/** W4 hands one installed bank and its certification to the owning typed installer. */
 export class BridgeCommWorkerProductBatchApplication {
 	readonly #props: BridgeCommWorkerProductBatchApplicationProps;
 	readonly #fileViewBySubscriptionId = new Map<string, BridgeProductInstalledFileView>();
@@ -201,7 +205,7 @@ export class BridgeCommWorkerProductBatchApplication {
 			case 'file.metadata': {
 				const previous = this.#fileViewBySubscriptionId.get(begin.subscriptionId) ?? null;
 				const candidate = installBridgeProductFileBatch(installation, previous);
-				this.#props.applyFile(candidate, begin);
+				this.#props.applyFile(candidate, begin, installation.certified);
 				this.#fileViewBySubscriptionId.set(begin.subscriptionId, candidate);
 				return;
 			}

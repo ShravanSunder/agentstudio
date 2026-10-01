@@ -65,6 +65,7 @@ describe('live worker typed batch sink', () => {
 		});
 		if (begin.kind !== 'subscription.batchBegin') throw new Error('File batch begin missing.');
 		const installation: BridgeProductViewInstallation = {
+			certified: true,
 			begin,
 			domain: 'default',
 			records: [
@@ -112,7 +113,33 @@ describe('live worker typed batch sink', () => {
 				subscription,
 			}),
 		});
-		const publication = reviewCorpus.records[1];
+		const emptyPublication = reviewCorpus.records[1];
+		const completePublication = reviewCorpus.records[2]?.record;
+		if (
+			emptyPublication === undefined ||
+			completePublication?.recordKind !== 'publication' ||
+			completePublication.displayed === null ||
+			completePublication.displayed === undefined
+		)
+			throw new Error('Complete empty Review fixture missing.');
+		const publication = {
+			...emptyPublication,
+			record: {
+				...emptyPublication.record,
+				displayed: {
+					...completePublication.displayed,
+					publicationId: emptyPublication.record.publicationId,
+					revision: emptyPublication.record.revision,
+					summary: {
+						additions: 0,
+						deletions: 0,
+						filesChanged: 0,
+						hiddenFileCount: 0,
+						visibleFileCount: 0,
+					},
+				},
+			},
+		};
 		if (
 			publication?.record.recordKind !== 'publication' ||
 			publication.record.revision === undefined
@@ -126,6 +153,7 @@ describe('live worker typed batch sink', () => {
 		if (begin.kind !== 'subscription.batchBegin') throw new Error('Review batch begin missing.');
 		if (sinkCapture.current === null) throw new Error('Typed batch sink was not registered.');
 		await sinkCapture.current.install({
+			certified: true,
 			begin,
 			domain: 'default',
 			records: [
@@ -140,11 +168,19 @@ describe('live worker typed batch sink', () => {
 			.map((posted) => posted.message)
 			.filter((message) => message.kind === 'reviewDisplayPatch');
 		expect(reviewEvents).toHaveLength(1);
-		expect(reviewEvents[0]?.patches.find((patch) => patch.slice === 'reviewSource')).toEqual({
-			operation: 'replace',
-			payload: { kind: 'readyEmpty', status: 'readyEmpty' },
+		expect(reviewEvents[0]?.patches.find((patch) => patch.slice === 'reviewSource')).toMatchObject({
+			operation: 'upsert',
+			payload: {
+				packageId: completePublication.displayed.packageId,
+				status: 'ready',
+				totalItemCount: 0,
+				totalTreeRowCount: 0,
+			},
 			slice: 'reviewSource',
 		});
+		expect(postedMessages.map(({ message }) => message.kind)).toEqual(
+			expect.arrayContaining(['reviewCandidateStarted', 'reviewCandidateReady']),
+		);
 	});
 
 	test('a Comment bank reaches catalog staging without an operation identity', async () => {
@@ -179,6 +215,7 @@ describe('live worker typed batch sink', () => {
 		if (begin.kind !== 'subscription.batchBegin') throw new Error('Comment batch begin missing.');
 		if (sinkCapture.current === null) throw new Error('Typed batch sink was not registered.');
 		await sinkCapture.current.install({
+			certified: true,
 			begin,
 			domain: 'default',
 			records: [

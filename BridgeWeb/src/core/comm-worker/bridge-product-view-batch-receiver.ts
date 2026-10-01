@@ -15,6 +15,7 @@ interface InstalledRecord {
 
 export interface BridgeProductViewInstallation {
 	readonly begin: BatchBegin;
+	readonly certified: boolean;
 	readonly domain: string;
 	readonly records: readonly InstalledRecord[];
 }
@@ -421,6 +422,9 @@ export class BridgeProductViewBatchReceiver {
 		}
 		const installation = {
 			begin: stage.begin,
+			certified:
+				stage.begin.mode !== 'coverage' &&
+				(stage.begin.mode === 'snapshot' || state.hasCertifiedSnapshot),
 			domain,
 			records: [...nextRecords.values()],
 		};

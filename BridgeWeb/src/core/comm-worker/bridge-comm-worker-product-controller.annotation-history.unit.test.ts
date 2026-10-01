@@ -9,6 +9,7 @@ import {
 } from './bridge-product-metadata-application-registry.js';
 import type { BridgeProductMetadataApplicationSubscription } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { createTestMetadataReopenPort } from './bridge-product-view-reopen.test-support.js';
 
 type AnnotationMetadataProtocol =
 	| typeof bridgeProductFileAnnotationMetadataApplicationProtocol
@@ -121,6 +122,7 @@ test('product controller preserves decoded nonempty annotation output history', 
 
 function decodedHistoryProductTransport(historyResult: unknown): BridgeProductTransportSession {
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (): number => 0,
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This fake returns the one decoded annotation history result under test.
 		call: (async (): Promise<unknown> => historyResult) as BridgeProductTransportSession['call'],
@@ -144,6 +146,7 @@ const reviewPublicationIdentity = {
 
 function unusedAnnotationProductTransport(): BridgeProductTransportSession {
 	return {
+		...createTestMetadataReopenPort(),
 		advanceWorkerDerivationEpoch: (): number => 0,
 		call: async (): Promise<never> => {
 			throw new Error('Unexpected product call.');

@@ -22,6 +22,7 @@ export function BridgeReviewReadyEmptyShell(props: {
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
+			isCompleteEmpty
 			isActive={props.isActive}
 			title="Bridge Review"
 			viewerContextSwitcher={props.viewerContextSwitcher}
@@ -208,6 +209,7 @@ export function BridgeReviewComparisonInitialShell(props: {
 
 function BridgeReviewFallbackFrame(props: {
 	readonly children: ReactNode;
+	readonly isCompleteEmpty?: boolean;
 	readonly comparisonStatusBanner?: ReactNode;
 	readonly isActive?: boolean | undefined;
 	readonly title: string;
@@ -257,7 +259,7 @@ function BridgeReviewFallbackFrame(props: {
 				contentTestId="bridge-review-content-panel"
 				handleTestId="bridge-review-rail-resize-handle"
 				rail={BridgeViewerRightRailShell({
-					body: (
+					body: props.isCompleteEmpty ? null : (
 						<div className="flex flex-col gap-2">
 							<Skeleton className="h-3 w-full bg-muted" />
 							<Skeleton className="h-3 w-11/12 bg-muted" />
@@ -272,7 +274,7 @@ function BridgeReviewFallbackFrame(props: {
 						leading: props.viewerContextSwitcher,
 						leadingTestId: 'bridge-review-rail-toolbar-leading',
 						testId: 'bridge-review-rail-toolbar',
-						trailing: (
+						trailing: props.isCompleteEmpty ? null : (
 							<>
 								<Skeleton className="h-6 w-6 bg-muted" />
 								<Skeleton className="h-6 w-6 bg-muted" />

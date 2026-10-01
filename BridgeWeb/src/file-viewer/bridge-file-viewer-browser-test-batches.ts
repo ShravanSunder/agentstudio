@@ -208,6 +208,7 @@ export function makeBrowserFileBatch(props: {
 	if (begin.kind !== 'subscription.batchBegin')
 		throw new Error('Expected browser File batch begin.');
 	return {
+		certified: true,
 		begin,
 		domain: 'default',
 		records: [
