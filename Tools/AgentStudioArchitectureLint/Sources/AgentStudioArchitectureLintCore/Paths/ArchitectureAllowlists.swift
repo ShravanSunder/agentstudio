@@ -24,6 +24,15 @@ enum ArchitectureAllowlists {
         "timeout",
     ]
     static let performanceConstantAllowedPathSuffixes: [String] = []
+    static let performanceConstantPolicyHomes = [
+        NamedOwnerAllowance(
+            pathSuffix: "/Sources/AgentStudioCLIStore/CLIStorePolicy.swift",
+            owner: "AgentStudioCLIStore policy home",
+            reason:
+                "CLI writer target links only GRDB and cannot import AgentStudioInfrastructure/AppPolicies; "
+                + "this file is the target's single policy home"
+        )
+    ]
     static let concurrentIOAllowedPathSuffixes: [String] = []
 
     /// MainActor stream consumers the architecture prescribes as thin
@@ -171,7 +180,15 @@ struct ElapsedTimeBudgetOwner: Sendable {
 /// ownership, reviewed with the lint tool's source; debt lives in the ledger.
 struct NamedOwnerAllowance: Sendable {
     let pathSuffix: String
-    let functionName: String
+    /// Nil denotes a designated policy-home file; a value names one function.
+    let functionName: String?
     let owner: String
     let reason: String
+
+    init(pathSuffix: String, functionName: String? = nil, owner: String, reason: String) {
+        self.pathSuffix = pathSuffix
+        self.functionName = functionName
+        self.owner = owner
+        self.reason = reason
+    }
 }
