@@ -310,7 +310,11 @@ extension BridgeProductSession {
                 streamSequence: target.nextSequence,
                 admittedAt: viewDeadlineElapsed()
             )
-        else { return }
+        else {
+            // A pending capture can become a no-op without producing another frame.
+            finishReadyViewEmissionWaiters()
+            return
+        }
         let result = try producerRegistry.enqueueNonterminalFrame(
             for: lease,
             build: { streamSequence in
