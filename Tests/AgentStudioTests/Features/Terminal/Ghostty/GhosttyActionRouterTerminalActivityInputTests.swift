@@ -108,37 +108,43 @@ private final class OrderedEventLog {
 /// binding singleton, which several other test files also bind/unbind
 /// against.
 ///
-/// R1 gate (Lead 2026-10-01, Fix 3): nested under `GhosttyActionRouterSerializedTests`
-/// -- `@MainActor` + `.serialized` on this struct alone do NOT prevent a
-/// *different* suite from rebinding the same process-wide singleton mid-test
-/// (confirmed against real reap-time evidence: two such suites were in
-/// flight at once), so the isolation this doc comment used to claim from
-/// those two traits alone was wrong. The shared parent's own `.serialized`
-/// is what actually serializes this suite against every sibling nested
-/// under it.
-extension GhosttyActionRouterSerializedTests {
-    @MainActor
-    @Suite("Ghostty action router restore-phase arming: shared singleton", .serialized)
-    struct GhosttyActionRouterRestorePhaseArmingTests {
-        @Test("arming an already-bound router submits .restorePhaseArmed and returns .armed")
-        func armingAnAlreadyBoundRouterSubmitsAndAcknowledges() async {
-            let bindingID = UUID()
-            let recorder = SubmittedInputRecorder()
-            Ghostty.ActionRouter.bindTerminalActivityInput(
-                id: bindingID,
-                context: { _ in .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 1) },
-                sink: { [recorder] input in recorder.record(input) }
-            )
-            defer { Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID) }
-            let paneID = UUID()
-            let generation = RestoreGeneration(rawValue: 42)
+/// Isolation audit (Lead 2026-10-01): this suite's own `@MainActor` +
+/// `.serialized` only serialize its own tests against each other, not
+/// against a *different* suite that also binds the same process-wide
+/// singleton -- confirmed against real reap-time evidence of two such
+/// suites in flight at once. What actually prevents that collision is the
+/// aggregate-serial lane runner itself:
+/// `run_aggregate_serial_non_webkit_swift_tests`
+/// (scripts/swift-test-helpers.sh:1496-1510) sends every auto-discovered
+/// `@MainActor @Suite(.serialized)` suite, this one included, through
+/// `dispatch_isolated_suites fast`, which runs each suite as its own
+/// `swift-testing-helper` process (`run_selected_isolated_suite`,
+/// scripts/swift-test-helpers.sh:1694-1716) -- confirmed by reading both
+/// functions directly. Two suites binding the same singleton therefore
+/// never share a process in the real lanes or in CI; they only collided
+/// under the gate's own ad-hoc `--filter` invocation, which puts every
+/// filtered suite into one process.
+@MainActor
+@Suite("Ghostty action router restore-phase arming: shared singleton", .serialized)
+struct GhosttyActionRouterRestorePhaseArmingTests {
+    @Test("arming an already-bound router submits .restorePhaseArmed and returns .armed")
+    func armingAnAlreadyBoundRouterSubmitsAndAcknowledges() async {
+        let bindingID = UUID()
+        let recorder = SubmittedInputRecorder()
+        Ghostty.ActionRouter.bindTerminalActivityInput(
+            id: bindingID,
+            context: { _ in .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 1) },
+            sink: { [recorder] input in recorder.record(input) }
+        )
+        defer { Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID) }
+        let paneID = UUID()
+        let generation = RestoreGeneration(rawValue: 42)
 
-            let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
-                paneID: paneID, restoreGeneration: generation)
+        let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
+            paneID: paneID, restoreGeneration: generation)
 
-            #expect(acknowledgment == .armed)
-            #expect(recorder.inputs == [.restorePhaseArmed(paneID: paneID, restoreGeneration: generation)])
-        }
+        #expect(acknowledgment == .armed)
+        #expect(recorder.inputs == [.restorePhaseArmed(paneID: paneID, restoreGeneration: generation)])
     }
 }
 

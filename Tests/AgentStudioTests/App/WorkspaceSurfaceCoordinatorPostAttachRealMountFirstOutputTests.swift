@@ -42,7 +42,7 @@ struct WorkspaceSurfacePostAttachRealMountTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    /// Same pattern as `GhosttyActionRouterSerializedTests/WorkspaceSurfaceRestorePhaseReplacementTests
+    /// Same pattern as `WorkspaceSurfaceRestorePhaseReplacementTests
     /// .SucceedingRestoreSurfaceManager` (A5): every surface it hands back
     /// is a real `Ghostty.SurfaceView` with no native `ghostty_surface_t` --
     /// this suite never sends real input through one.
@@ -110,7 +110,7 @@ struct WorkspaceSurfacePostAttachRealMountTests {
 
     /// `createTopologyIndependentTerminalView`'s repair-adjacent geometry
     /// path needs a resolvable frame for a tabbed pane -- mirrors
-    /// `GhosttyActionRouterSerializedTests/WorkspaceSurfaceRestorePhaseReplacementTests.makeTabbedPane`.
+    /// `WorkspaceSurfaceRestorePhaseReplacementTests.makeTabbedPane`.
     private func makeTabbedZmxPane(
         coordinator: WorkspaceSurfaceCoordinator, sessionIDText: String
     ) -> Pane {
