@@ -48,7 +48,8 @@ struct HarnessReceiptTests {
             #expect(try #require(metadata.seconds) >= 0)
             #expect((0..<1_000_000_000).contains(try #require(metadata.nanoseconds)))
             #expect(metadata.testID == expectedTestID)
-            #expect(try #require(metadata.caseID).isEmpty == false)
+            #expect(metadata.caseID == nil)
+            #expect(metadata.parameterized == false)
         }
     }
 
@@ -81,13 +82,14 @@ struct HarnessReceiptTests {
 
         let arrival = try #require(readReceiptRecords(logURL).first { $0.fields.first == "arrived" })
         #expect(arrival.metadata?.testID == String(describing: try #require(Test.current).id))
-        #expect(try #require(arrival.metadata?.caseID).isEmpty == false)
+        #expect(arrival.metadata?.caseID == nil)
+        #expect(arrival.metadata?.parameterized == false)
     }
 }
 
 @Suite("Harness parameterized receipt identity", ParameterizedReceiptScope())
 struct HarnessParameterizedReceiptTests {
-    @Test("equal arguments still have distinct framework case identities", arguments: ["same", "same"])
+    @Test("parameterized records declare partial case attribution", arguments: ["same", "same"])
     func recordsFromParameterizedCases(label: String) throws {
         let logURL = try #require(ParameterizedReceiptContext.logURL)
         let log = ExpectationLog(path: logURL.path)
@@ -110,8 +112,11 @@ private struct ParameterizedReceiptScope: SuiteTrait, TestScoping {
         let pending = try readReceiptRecords(logURL).filter { $0.fields.first == "expecting" }
         #expect(pending.count == 2)
         #expect(Set(pending.map { $0.fields[3] }).count == 1)
-        let identities = try pending.map { try #require($0.metadata?.caseID) }
-        #expect(Set(identities).count == 2)
+        for record in pending {
+            let metadata = try #require(record.metadata)
+            #expect(metadata.parameterized == true)
+            #expect(metadata.caseID == nil)
+        }
         #expect(Set(pending.compactMap { $0.metadata?.testID }).count == 1)
     }
 }
@@ -126,7 +131,23 @@ private struct ReceiptMetadata: Decodable {
     let nanoseconds: Int?
     let testID: String?
     let caseID: String?
+    let parameterized: Bool?
     let waiterID: UInt64?
+
+    private enum CodingKeys: String, CodingKey {
+        case clockDomain, seconds, nanoseconds, testID, caseID, parameterized, waiterID
+    }
+
+    init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        clockDomain = try fields.decode(String.self, forKey: .clockDomain)
+        seconds = try fields.decode(Int64?.self, forKey: .seconds)
+        nanoseconds = try fields.decode(Int?.self, forKey: .nanoseconds)
+        testID = try fields.decode(String?.self, forKey: .testID)
+        caseID = try fields.decode(String?.self, forKey: .caseID)
+        parameterized = try fields.decode(Bool?.self, forKey: .parameterized)
+        waiterID = try fields.decode(UInt64?.self, forKey: .waiterID)
+    }
 }
 
 private struct ReceiptRecord {

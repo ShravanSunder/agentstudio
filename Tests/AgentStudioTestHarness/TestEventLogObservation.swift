@@ -1,20 +1,19 @@
 import Darwin
 import Foundation
-@_spi(ForToolsIntegrationOnly) import Testing
+import Testing
 
-/// Keep the case-ID SPI in this one test-only adapter. v0 encodes the same
-/// description: swift-testing 48d727cc1cf4, ABI/Encoded/ABI.EncodedTest.swift:129.
-/// The public current getters live in Running/Runner.RuntimeState.swift:211,247;
-/// Parameterization/Test.Case.ID.swift:50 exposes the case ID through this SPI.
+/// The SDK's public arm64 Testing.swiftinterface:736-750 exposes current and
+/// isParameterized, but no case ID. Its module has no importable SPI interface.
+/// Keep caseID null; a parameterized test's waits have partial case attribution.
 package struct TestEventLogIdentity: Sendable {
     let testID: String
-    let caseID: String?
+    let parameterized: Bool?
 
     static var current: Self? {
         guard let test = Test.current else { return nil }
         return Self(
             testID: String(describing: test.id),
-            caseID: Test.Case.current.map { String(describing: $0.id) }
+            parameterized: Test.Case.current?.isParameterized
         )
     }
 }
@@ -42,7 +41,7 @@ struct TestEventLogObservation: Encodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case clockDomain, seconds, nanoseconds, testID, caseID, waiterID
+        case clockDomain, seconds, nanoseconds, testID, caseID, parameterized, waiterID
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -51,7 +50,8 @@ struct TestEventLogObservation: Encodable {
         try fields.encode(seconds, forKey: .seconds)
         try fields.encode(nanoseconds, forKey: .nanoseconds)
         try fields.encode(identity?.testID, forKey: .testID)
-        try fields.encode(identity?.caseID, forKey: .caseID)
+        try fields.encodeNil(forKey: .caseID)
+        try fields.encode(identity?.parameterized, forKey: .parameterized)
         try fields.encode(waiterID, forKey: .waiterID)
     }
 }
