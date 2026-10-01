@@ -14,6 +14,243 @@ extension WebKitSerializedTests {
     struct BridgePaneControllerBootstrapSupersessionTests {
         init() { installTestCoreAtomsIfNeeded() }
 
+        @Test("E1 close ends a held reply without joining its physical sink", arguments: [false, true])
+        func admissionCloseEndsHeldReply(failureReply: Bool) async throws {
+            let delivery = BootstrapSupersessionDeliveryLedger()
+            let heldSink = HeldStep<Void>("bootstrap reply at pane close", cancellation: .holdThroughCancellation)
+            let requestId = UUIDv7.generate().uuidString
+            if failureReply { delivery.failedRequestIds.insert(requestId) }
+            let controller = makeSupersessionController(
+                delivery: delivery, heldDelivery: heldSink, heldSuccessRequestId: requestId,
+                heldFailure: failureReply ? heldSink : nil, heldFailureRequestId: requestId)
+            let handler = BridgeReadyMessageHandler()
+            controller.configureReadyMessageHandler(handler)
+            let request = try #require(
+                handler.receiveValidatedBootstrapMessage(
+                    .productSessionBootstrap(requestId: requestId, reason: .initial)))
+            try await heldSink.firstArrival()
+            let teardown = controller.beginTeardown()
+            do {
+                try #require(heldSink.hasObservedCancellation)
+                await request.value
+                #expect(await teardown.value)
+                #expect(delivery.requestIds.isEmpty)
+                #expect(delivery.failures.isEmpty)
+                heldSink.release()
+                try await delivery.physicalCompletions.expectNext(
+                    in: failureReply ? .failureReply(requestId) : .successReply(requestId), .completed)
+                #expect(delivery.requestIds.isEmpty)
+                #expect(delivery.failures.count == (failureReply ? 1 : 0))
+                #expect(await controller.productSessionOwner.activeInstallation == nil)
+                try await delivery.physicalCompletions.finish()
+            } catch {
+                heldSink.release()
+                await request.value
+                _ = await teardown.value
+                throw error
+            }
+        }
+
+        @Test("the current held delivery expires through policy and retires only its own candidate")
+        func currentDeliveryDeadlineRetiresItsCandidate() async throws {
+            let delivery = BootstrapSupersessionDeliveryLedger()
+            let heldSink = HeldStep<Void>("current bootstrap success sink", cancellation: .holdThroughCancellation)
+            let clock = TestPushClock()
+            let currentId = UUIDv7.generate().uuidString
+            let paneId = UUIDv7.generate()
+            let revocations = HeldStep<String>("deadline worker revocation")
+            revocations.release()
+            let deadlines = FactRecorder<String, Duration>(
+                vocabulary: .init(
+                    describeScope: { $0 }, describeFact: { "deadline armed for \($0)" }, isClosing: { _, _ in false }))
+            let delay = AsyncDelay { interval in
+                deadlines.append(scope: currentId, fact: interval)
+                try await clock.sleep(for: interval)
+            }
+            let controller = makeSupersessionController(
+                delivery: delivery, heldDelivery: heldSink, heldSuccessRequestId: currentId,
+                bootstrapDelay: delay, paneId: paneId,
+                dependencies: makeSupersessionDependencies(paneId: paneId, revocations: revocations))
+            let handler = BridgeReadyMessageHandler()
+            controller.configureReadyMessageHandler(handler)
+            let current = try #require(
+                handler.receiveValidatedBootstrapMessage(
+                    .productSessionBootstrap(requestId: currentId, reason: .initial)))
+            try await heldSink.firstArrival()
+            let candidate = try #require(await controller.productSessionOwner.activeInstallation)
+            do {
+                try await deadlines.expectNext(
+                    in: currentId, AppPolicies.Bridge.productBootstrapDeliveryProgressDeadline)
+                await clock.waitForPendingSleepCount(atLeast: 1)
+                clock.advance(by: AppPolicies.Bridge.productBootstrapDeliveryProgressDeadline - .nanoseconds(1))
+                #expect(clock.pendingSleepCount == 1)
+                clock.advance(by: .nanoseconds(1))
+                #expect(clock.pendingSleepCount == 0)
+                await current.value
+                #expect(delivery.failures == [.init(requestId: currentId, reason: .deliveryFailed)])
+                #expect(delivery.requestIds.isEmpty)
+                #expect(controller.paneState.connection.health == .error)
+                #expect(await controller.productSessionOwner.activeInstallation == nil)
+                #expect(controller.productSessionOwner.installationFenceProjection.snapshot.installation == nil)
+                #expect(candidate.productAdapter.acquireAdmission() == nil)
+                #expect(
+                    await controller.productSessionOwner.waitForRetirement(of: candidate.bootstrap.workerInstanceId))
+                #expect(revocations.recordedArrivals.filter { $0 == candidate.bootstrap.workerInstanceId }.count == 1)
+                heldSink.release()
+                try await delivery.physicalCompletions.expectNext(in: .successReply(currentId), .completed)
+                #expect(delivery.requestIds.isEmpty)
+                #expect(delivery.failures.count == 1)
+                #expect(revocations.recordedArrivals.filter { $0 == candidate.bootstrap.workerInstanceId }.count == 1)
+                try await deadlines.finish()
+                try await delivery.physicalCompletions.finish()
+                #expect(await controller.beginTeardown().value)
+            } catch {
+                heldSink.release()
+                await current.value
+                _ = await controller.beginTeardown().value
+                throw error
+            }
+        }
+
+        @Test(
+            "a held success reply ends on supersession and its late completion cannot affect B",
+            arguments: [false, true])
+        func heldSuccessReplyDoesNotBlockSuccessor(lateFailure: Bool) async throws {
+            let delivery = BootstrapSupersessionDeliveryLedger()
+            let heldSink = HeldStep<Void>("A bootstrap success sink", cancellation: .holdThroughCancellation)
+            let initialId = UUIDv7.generate().uuidString
+            let oldId = UUIDv7.generate().uuidString
+            let currentId = UUIDv7.generate().uuidString
+            let paneId = UUIDv7.generate()
+            let revocations = HeldStep<String>("bootstrap replacement worker revocation")
+            revocations.release()
+            let controller = makeSupersessionController(
+                delivery: delivery, heldDelivery: heldSink, heldSuccessRequestId: oldId,
+                paneId: paneId, dependencies: makeSupersessionDependencies(paneId: paneId, revocations: revocations))
+            await controller.enqueueProductSessionBootstrapRequest(requestId: initialId, reason: .initial)
+            let handler = BridgeReadyMessageHandler()
+            controller.configureReadyMessageHandler(handler)
+            let old = try #require(
+                handler.receiveValidatedBootstrapMessage(
+                    .productSessionBootstrap(requestId: oldId, reason: .workerReplacement)))
+            try await heldSink.firstArrival()
+            let oldInstallation = try #require(await controller.productSessionOwner.activeInstallation)
+            let current = try #require(
+                handler.receiveValidatedBootstrapMessage(
+                    .productSessionBootstrap(requestId: currentId, reason: .workerReplacement)))
+
+            do {
+                // Ingress must end the captured delivery synchronously. This fails
+                // before an unbounded join on the old implementation.
+                try #require(heldSink.hasObservedCancellation)
+                await current.value
+                #expect(delivery.requestIds == [initialId, currentId])
+                let currentInstallation = try #require(await controller.productSessionOwner.activeInstallation)
+                let binding = try installAcceptedSelection(controller: controller, installation: currentInstallation)
+                let selectionBeforeLateCompletion = controller.surfaceSelectionAuthority.diagnosticSnapshot
+                let healthBeforeLateCompletion = controller.paneState.connection.health
+                #expect(oldInstallation.productAdapter.acquireAdmission() == nil)
+                #expect(
+                    await controller.productSessionOwner.waitForRetirement(
+                        of: oldInstallation.bootstrap.workerInstanceId))
+                #expect(
+                    revocations.recordedArrivals.filter { $0 == oldInstallation.bootstrap.workerInstanceId }.count == 1)
+
+                if lateFailure {
+                    heldSink.fail(BridgeError.encoding("late A success delivery failure"))
+                } else {
+                    heldSink.release()
+                }
+                try await delivery.physicalCompletions.expectNext(in: .successReply(oldId), .completed)
+                await old.value
+                #expect(
+                    await controller.productSessionOwner.activeInstallation?.bootstrap == currentInstallation.bootstrap)
+                #expect(currentInstallation.productAdapter.acquireAdmission()?.withValidAdmission { true } == true)
+                #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot == selectionBeforeLateCompletion)
+                #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.lastAcceptedRequest == binding)
+                #expect(controller.paneState.connection.health == healthBeforeLateCompletion)
+                #expect(delivery.requestIds == [initialId, currentId])
+                #expect(delivery.failures.isEmpty)
+                #expect(
+                    revocations.recordedArrivals.filter { $0 == oldInstallation.bootstrap.workerInstanceId }.count == 1)
+                let residue = await controller.productSessionOwner.snapshot()
+                #expect(residue.preparedInstallationCount == 0)
+                #expect(residue.retiringInstallationCount == 0)
+                #expect(residue.activeSchemeTaskCount == 0)
+                #expect((await oldInstallation.session.snapshot).lifecycle == .revoked)
+                #expect(
+                    controller.productSessionOwner.installationFenceProjection.snapshot.installation
+                        == currentInstallation.installationFence)
+                try await delivery.physicalCompletions.finish()
+                #expect(await controller.beginTeardown().value)
+            } catch {
+                heldSink.release()
+                await old.value
+                await current.value
+                _ = await controller.beginTeardown().value
+                throw error
+            }
+        }
+
+        @Test(
+            "a held typed-failure reply ends on supersession and its late completion cannot affect B",
+            arguments: [false, true])
+        func heldFailureReplyDoesNotBlockSuccessor(lateFailure: Bool) async throws {
+            let delivery = BootstrapSupersessionDeliveryLedger()
+            let heldSink = HeldStep<Void>("A bootstrap failure sink", cancellation: .holdThroughCancellation)
+            let initialId = UUIDv7.generate().uuidString
+            let oldId = UUIDv7.generate().uuidString
+            let currentId = UUIDv7.generate().uuidString
+            delivery.failedRequestIds.insert(oldId)
+            let controller = makeSupersessionController(
+                delivery: delivery, heldFailure: heldSink, heldFailureRequestId: oldId)
+            await controller.enqueueProductSessionBootstrapRequest(requestId: initialId, reason: .initial)
+            let handler = BridgeReadyMessageHandler()
+            controller.configureReadyMessageHandler(handler)
+            let old = try #require(
+                handler.receiveValidatedBootstrapMessage(
+                    .productSessionBootstrap(requestId: oldId, reason: .workerReplacement)))
+            try await heldSink.firstArrival()
+            let current = try #require(
+                handler.receiveValidatedBootstrapMessage(
+                    .productSessionBootstrap(requestId: currentId, reason: .workerReplacement)))
+
+            do {
+                try #require(heldSink.hasObservedCancellation)
+                await current.value
+                #expect(delivery.requestIds == [initialId, currentId])
+                let currentInstallation = try #require(await controller.productSessionOwner.activeInstallation)
+                let binding = try installAcceptedSelection(controller: controller, installation: currentInstallation)
+                let selectionBeforeLateCompletion = controller.surfaceSelectionAuthority.diagnosticSnapshot
+                let healthBeforeLateCompletion = controller.paneState.connection.health
+
+                if lateFailure {
+                    heldSink.fail(BridgeError.encoding("late A failure delivery failure"))
+                } else {
+                    heldSink.release()
+                }
+                try await delivery.physicalCompletions.expectNext(in: .failureReply(oldId), .completed)
+                await old.value
+                #expect(
+                    await controller.productSessionOwner.activeInstallation?.bootstrap == currentInstallation.bootstrap)
+                #expect(currentInstallation.productAdapter.acquireAdmission()?.withValidAdmission { true } == true)
+                #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot == selectionBeforeLateCompletion)
+                #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.lastAcceptedRequest == binding)
+                #expect(controller.paneState.connection.health == healthBeforeLateCompletion)
+                #expect(delivery.requestIds == [initialId, currentId])
+                #expect(delivery.failures.allSatisfy { $0.requestId == oldId })
+                #expect(delivery.failures.count == (lateFailure ? 0 : 1))
+                try await delivery.physicalCompletions.finish()
+                #expect(await controller.beginTeardown().value)
+            } catch {
+                heldSink.release()
+                await old.value
+                await current.value
+                _ = await controller.beginTeardown().value
+                throw error
+            }
+        }
+
         @Test("reload suppresses an older replacement held before its tail and installs the new initial")
         func reloadSupersedesHeldReplacement() async throws {
             let delivery = BootstrapSupersessionDeliveryLedger()
@@ -242,12 +479,43 @@ private final class BootstrapSupersessionDeliveryLedger {
     var requestIds: [String] = []
     var failures: [Failure] = []
     var shouldFailDelivery = false
+    var failedRequestIds: Set<String> = []
+    let physicalCompletions = FactRecorder<BootstrapSinkCompletionScope, BootstrapSinkCompletionFact>(
+        vocabulary: .init(
+            describeScope: { String(describing: $0) }, describeFact: { String(describing: $0) },
+            isClosing: { _, _ in true }))
+}
+
+private enum BootstrapSinkCompletionScope: Hashable, Sendable {
+    case successReply(String)
+    case failureReply(String)
+}
+
+private enum BootstrapSinkCompletionFact: Equatable, Sendable { case completed }
+
+@MainActor
+private func makeSupersessionDependencies(
+    paneId: UUID, revocations: HeldStep<String>
+) -> BridgePaneProductSessionDependencies {
+    let provider = BridgePaneProductSessionProviderGate(workerRevocation: revocations)
+    let paneGate = BridgeProductAdmissionGate()
+    let installation = BridgePaneController.makeInitialProductSessionInstallation(
+        paneSessionId: paneId.uuidString, provider: provider, productAdmissionGate: paneGate)
+    return .init(
+        installation: installation,
+        owner: BridgePaneController.makeProductSessionOwner(
+            paneSessionId: paneId.uuidString, provider: provider, productAdmissionGate: paneGate,
+            activeInstallation: installation))
 }
 
 @MainActor
 private func makeSupersessionController(
     delivery: BootstrapSupersessionDeliveryLedger,
     heldDelivery: HeldStep<Void>? = nil,
+    heldSuccessRequestId: String? = nil,
+    heldFailure: HeldStep<Void>? = nil,
+    heldFailureRequestId: String? = nil,
+    bootstrapDelay: AsyncDelay = .taskSleep,
     paneId: UUID = UUIDv7.generate(),
     dependencies: BridgePaneProductSessionDependencies? = nil
 ) -> BridgePaneController {
@@ -257,13 +525,20 @@ private func makeSupersessionController(
         appRootURL: testBridgeAppRootURL(), initialPaneActivity: .foreground,
         productSessionDependencies: dependencies,
         productSessionBootstrapSink: { _, requestId, _, _, admission in
-            if delivery.shouldFailDelivery { throw BridgeError.encoding("native bootstrap delivery refused") }
-            if requestId == "held-activated-replacement" { try await heldDelivery?.arrive(()) }
+            defer { delivery.physicalCompletions.append(scope: .successReply(requestId), fact: .completed) }
+            if delivery.shouldFailDelivery || delivery.failedRequestIds.contains(requestId) {
+                throw BridgeError.encoding("native bootstrap delivery refused")
+            }
+            if requestId == "held-activated-replacement" || requestId == heldSuccessRequestId {
+                try await heldDelivery?.arrive(())
+            }
             _ = admission.withValidAdmission { delivery.requestIds.append(requestId) }
         },
         productSessionBootstrapFailureSink: { _, requestId, reason, _ in
+            defer { delivery.physicalCompletions.append(scope: .failureReply(requestId), fact: .completed) }
+            if requestId == heldFailureRequestId { try await heldFailure?.arrive(()) }
             delivery.failures.append(.init(requestId: requestId, reason: reason))
-        })
+        }, productSessionBootstrapDelay: bootstrapDelay)
 }
 
 @MainActor

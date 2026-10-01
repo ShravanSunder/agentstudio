@@ -100,7 +100,12 @@ extension BridgePaneController {
             "Answering product session bootstrap requestId=\(requestId, privacy: .public) with failure reason=\(reason.rawValue, privacy: .public)"
         )
         do {
-            try await productSessionBootstrapFailureSink(page, requestId, reason, bridgeWorld)
+            let sink = productSessionBootstrapFailureSink
+            let replyPage = page
+            let replyWorld = bridgeWorld
+            try await deliverProductBootstrapReply(requestId: requestId, admission: productAdmission) {
+                try await sink(replyPage, requestId, reason, replyWorld)
+            }
         } catch {
             guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
             bridgeProductBootstrapFailureLogger.error(
