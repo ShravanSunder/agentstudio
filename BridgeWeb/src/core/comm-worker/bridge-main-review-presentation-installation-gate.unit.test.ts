@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 
 import {
 	FakeCandidateStore,
@@ -618,6 +619,41 @@ describe('Bridge main Review presentation installation gate', () => {
 		expect(port.replacementRequestCount).toBe(1);
 		expect(port.replacementSource).toBe('reviewInstalledReceiptFailed');
 		expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
+	});
+
+	test('page that applied B blocks C admission until the B receipt settles', async () => {
+		const store = new FakeCandidateStore(ACTIVE, CANDIDATE);
+		const port = new ImmediateInstallationPort(['admitted', 'admitted']);
+		const receiptEntered = createBridgeProductDeferred<void>();
+		const receiptSettlement = createBridgeProductDeferred<void>();
+		const sendReceipt = port.sendInstalledReceipt;
+		port.sendInstalledReceipt = async (installedIdentity): Promise<void> => {
+			if (installedIdentity.publicationId === CANDIDATE.publicationId) {
+				receiptEntered.resolve();
+				await receiptSettlement.promise;
+			}
+			await sendReceipt(installedIdentity);
+		};
+		const gate = createBridgeMainReviewPresentationInstallationGate({ installationPort: port, store });
+		try {
+			const firstInstall = gate.handleCandidateReady(candidateReady(CANDIDATE, 'ordinary', []), attention([]));
+			await receiptEntered.promise;
+			expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
+			store.replaceCandidate(SUCCESSOR);
+			await gate.handleCandidateReady(candidateReady(SUCCESSOR, 'ordinary', []), attention([]));
+			expect(port.requests).toHaveLength(1);
+			expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
+			receiptSettlement.resolve();
+			await firstInstall;
+			expect(port.requests[1]).toEqual({
+				candidatePublicationId: SUCCESSOR.publicationId,
+				expectedDisplayedPublicationId: CANDIDATE.publicationId,
+			});
+			expect(store.presentation.activeIdentity).toEqual(SUCCESSOR);
+		} finally {
+			receiptSettlement.resolve();
+			gate.close();
+		}
 	});
 
 	test('retains only affected promoted failure and ignores stale B failure after C starts', async () => {
