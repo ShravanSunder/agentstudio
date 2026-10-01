@@ -7,8 +7,8 @@ import Testing
 
 @Suite("File enumeration of the real viewer Git fixture")
 struct BridgeWorktreeFileGitFixtureEnumerationTests {
-    @Test("the real source seals coverage, certificate, descriptor and resnapshot batches")
-    func viewerSourcePublishes() async throws {
+    @Test("the real source seals coverage, certificate, descriptor and resnapshot batches", arguments: [false, true])
+    func viewerSourcePublishes(selectAfterCertificate: Bool) async throws {
         let harness = try await BridgeProductSessionLifecycleHarness.opened()
         let delivery = try await FileChangeDeliveryFixture.open(harness: harness)
         let fixture = try ProductFileSourceFixture(fileCount: 0, productAdmission: harness.productAdmission)
@@ -18,7 +18,7 @@ struct BridgeWorktreeFileGitFixtureEnumerationTests {
         let source = fixture.makeSource(constructionCoordinator: coordinator)
         let subscription = try fixture.openSnapshot()
         let demand = try fixture.viewDemand(
-            foregroundPaths: ["zz-large-complete-file.txt"], handle: delivery.handle)
+            foregroundPaths: selectAfterCertificate ? [] : ["zz-large-complete-file.txt"], handle: delivery.handle)
         let recording = ViewerFileBatchRecording()
         let context = ViewerFileBatchContext(
             source: source, subscription: subscription, demand: demand,
@@ -31,10 +31,32 @@ struct BridgeWorktreeFileGitFixtureEnumerationTests {
                 ) { _ in }
                 try await context.captureAndRecord()
             }
+            let selectionRevision = selectAfterCertificate ? 2 : 1
+            if selectAfterCertificate {
+                var object = delivery.requestObject(kind: "subscription.setScope", revision: selectionRevision)
+                object["scope"] = [
+                    "kind": "file", "changeFilter": ["kind": "none"], "pathScope": [],
+                    "interests": [["lane": "foreground", "paths": ["zz-large-complete-file.txt"]]],
+                ]
+                let selection = try BridgeProductStrictJSON.decode(
+                    BridgeProductViewScopeRequest.self,
+                    from: JSONSerialization.data(withJSONObject: object))
+                #expect(
+                    await harness.session.acceptViewScope(
+                        selection,
+                        productAdmission: harness.productAdmission.context) == nil)
+            }
+            let selectedDemand = try fixture.viewDemand(
+                foregroundPaths: ["zz-large-complete-file.txt"],
+                scopeRevision: selectionRevision, handle: delivery.handle)
+            let selectedContext = ViewerFileBatchContext(
+                source: source, subscription: subscription,
+                demand: selectedDemand, admission: harness.productAdmission.context, delivery: delivery,
+                recording: recording)
             try await source.applyViewDemand(
-                subscriptionId: subscription.subscriptionId, demand: demand,
+                subscriptionId: subscription.subscriptionId, demand: selectedDemand,
                 productAdmission: harness.productAdmission.context, forceRecapture: true
-            ) { _ in try await context.captureAndRecord() }
+            ) { _ in try await selectedContext.captureAndRecord() }
             let batches = await recording.batches
             let certificate = try #require(batches.first { $0.begin.mode == .snapshot })
             #expect(try certificate.rows.count == 51)
@@ -45,11 +67,11 @@ struct BridgeWorktreeFileGitFixtureEnumerationTests {
                 BridgeProductViewResnapshotRequest.self,
                 from: JSONSerialization.data(
                     withJSONObject: delivery.requestObject(
-                        kind: "subscription.resnapshot", revision: 1)))
+                        kind: "subscription.resnapshot", revision: selectionRevision)))
             #expect(
                 await harness.session.acceptViewResnapshot(
                     request, productAdmission: harness.productAdmission.context) == nil)
-            try await context.captureAndRecord()
+            try await selectedContext.captureAndRecord()
             #expect(await recording.batches.last?.begin.mode == .snapshot)
         } catch {
             Issue.record("Viewer source/N3 delivery failed: \(error)")
