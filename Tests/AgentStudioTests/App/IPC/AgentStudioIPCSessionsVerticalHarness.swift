@@ -125,9 +125,9 @@ struct SessionsVerticalHarness {
                     verifierSHA256: await credentialVerifier(for: token.rawValue)
                 )
             }
-            await appDelegate.startAppIPCServer()
+            let startFailure = await appDelegate.startAppIPCServer()
             guard appDelegate.appIPCServer != nil else {
-                throw SessionsVerticalHarnessError.serverUnavailable
+                throw SessionsVerticalHarnessError.serverUnavailable(startFailure ?? .initializationCancelled)
             }
             if let debugCredentialEscrowURL {
                 guard let escrowData = try? Data(contentsOf: debugCredentialEscrowURL),
@@ -500,7 +500,7 @@ final class SessionsVerticalHarnessBox {
 
 enum SessionsVerticalHarnessError: Error {
     case optionalSchemaUnavailable
-    case serverUnavailable
+    case serverUnavailable(AppIPCStartUnavailability)
     case debugCredentialEscrowUnavailable
     case boundPaneCredentialUnavailable
     case requestFailed(method: String, code: Int, data: JSONValue?)

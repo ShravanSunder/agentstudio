@@ -6,6 +6,193 @@ import Testing
 
 @Suite("Pane context detail paging")
 struct PaneContextDetailPagingTests {
+    @Test("Many-source traversal budgets every header and reaches every live message once")
+    func sourceListAndMessageContinuationsCompose() async throws {
+        try await withPaneContextService { fixture, service in
+            let drawers = (0..<160).map { _ in PaneId.generateUUIDv7() }
+            fixture.membership.setDrawers(drawers, for: fixture.paneId)
+            var expected = Set<AgentMessageId>()
+            for source in [fixture.paneId] + drawers {
+                try await fixture.bind(fixture.sender, to: source)
+                let ask = fixture.ask(paneId: source, body: String(repeating: "x", count: 4096))
+                try await fixture.sendCreated(ask, to: service)
+                expected.insert(ask.messageId)
+            }
+            // Leave several messages in each source so both continuation kinds
+            // can be required by the same composed page.
+            for drawer in drawers {
+                let notice = fixture.message(
+                    paneId: drawer, sender: .pane(drawer), body: String(repeating: "x", count: 4096))
+                try await fixture.sendCreated(notice, to: service)
+                expected.insert(notice.messageId)
+            }
+            var sourcePage = PaneContextReadPage.first
+            var seen = Set<AgentMessageId>()
+            var sourceCursors = Set<PaneId>()
+            var hasSourceContinuation = false
+            repeat {
+                let result = await service.readDetail(
+                    PaneContextReadRequest(paneId: fixture.paneId, page: sourcePage), maximumDetailBytes: 0)
+                guard case .detail(let detail) = result else {
+                    Issue.record("Expected source page: \(result)")
+                    return
+                }
+                #expect(PaneContextDetailBudget.detailBytes(detail) <= AppPolicies.PaneContext.minimumDetailBytes)
+                for message in flatMessages(detail) { #expect(seen.insert(message.id).inserted) }
+                for source in detail.truncation?.omitted ?? [] {
+                    var cursor = source.next
+                    var cursors: [LiveMessageCursor] = []
+                    repeat {
+                        try #require(!cursors.contains(cursor))
+                        cursors.append(cursor)
+                        let result = await service.readDetail(
+                            PaneContextReadRequest(
+                                paneId: fixture.paneId, page: .more(source: source.source, after: cursor)),
+                            maximumDetailBytes: 0)
+                        guard case .detail(let page) = result else {
+                            Issue.record("Expected live page: \(result)")
+                            return
+                        }
+                        try #require(!flatMessages(page).isEmpty)
+                        #expect(PaneContextDetailBudget.detailBytes(page) <= AppPolicies.PaneContext.minimumDetailBytes)
+                        for message in flatMessages(page) { #expect(seen.insert(message.id).inserted) }
+                        guard let remaining = page.truncation?.omitted.first else { break }
+                        cursor = remaining.next
+                    } while true
+                }
+                guard let after = detail.truncation?.nextSourcesAfter else {
+                    #expect(detail.truncation?.remainingLiveSources ?? 0 == 0)
+                    break
+                }
+                hasSourceContinuation = true
+                try #require(sourceCursors.insert(after).inserted, "The source list must advance")
+                #expect(detail.truncation?.remainingLiveSources ?? 0 > 0)
+                sourcePage = .moreSources(after: after)
+            } while true
+            #expect(hasSourceContinuation)
+            #expect(seen == expected)
+        }
+    }
+
+    @Test("Source continuation refuses an after-source that moved or disappeared")
+    func sourceListContinuationRevalidatesMembership() async throws {
+        try await withPaneContextService { fixture, service in
+            let drawer = PaneId.generateUUIDv7()
+            fixture.membership.setDrawers([drawer], for: fixture.paneId)
+            fixture.membership.setDrawers([], for: fixture.paneId)
+            #expect(
+                await service.readDetail(
+                    PaneContextReadRequest(paneId: fixture.paneId, page: .moreSources(after: drawer)))
+                    == .sourceNotInView)
+            #expect(
+                await service.readDetail(
+                    PaneContextReadRequest(paneId: fixture.paneId, page: .moreSources(after: .generateUUIDv7())))
+                    == .sourceNotInView)
+        }
+    }
+
+    @Test("Empty sources spend no source continuation or drawer header budget")
+    func emptySourcesHaveNoPagingCost() async throws {
+        try await withPaneContextService { fixture, service in
+            let drawers = (0..<200).map { _ in PaneId.generateUUIDv7() }
+            fixture.membership.setDrawers(drawers, for: fixture.paneId)
+            let notice = fixture.message()
+            try await fixture.sendCreated(notice, to: service)
+            let result = await service.readDetail(
+                PaneContextReadRequest(paneId: fixture.paneId, page: .first), maximumDetailBytes: 0)
+            guard case .detail(let detail) = result else {
+                Issue.record("Expected owner detail: \(result)")
+                return
+            }
+            #expect(detail.messages.map(\.id) == [notice.messageId])
+            #expect(detail.drawerMessages.isEmpty)
+            #expect(detail.truncation == nil)
+        }
+    }
+    @Test("A source contributing no messages receives a finite cursor that reaches every row")
+    func entirelyOmittedSourceHasFiniteCursor() async throws {
+        try await withPaneContextService { fixture, service in
+            let drawer = PaneId.generateUUIDv7()
+            fixture.membership.setDrawers([drawer], for: fixture.paneId)
+            try await fixture.bind(fixture.sender, to: drawer)
+            for _ in 0..<32 {
+                try await fixture.sendCreated(fixture.ask(body: String(repeating: "x", count: 4096)), to: service)
+            }
+            var expected = Set<AgentMessageId>()
+            for _ in 0..<12 {
+                let ask = fixture.ask(paneId: drawer, body: String(repeating: "x", count: 4096))
+                try await fixture.sendCreated(ask, to: service)
+                expected.insert(ask.messageId)
+            }
+            let result = await service.readDetail(
+                PaneContextReadRequest(paneId: fixture.paneId, page: .first), maximumDetailBytes: 0)
+            guard case .detail(let first) = result else {
+                Issue.record("Expected detail, got \(result)")
+                return
+            }
+            #expect(first.drawerMessages.isEmpty)
+            var next = try #require(first.truncation?.omitted.first { $0.source == drawer }).next
+            #expect(next.position == 13)
+            var seen = Set<AgentMessageId>()
+            repeat {
+                #expect(next.position <= 9_007_199_254_740_991)
+                let result = await service.readDetail(
+                    PaneContextReadRequest(paneId: fixture.paneId, page: .more(source: drawer, after: next)),
+                    maximumDetailBytes: 0)
+                guard case .detail(let detail) = result else {
+                    Issue.record("Expected continuation, got \(result)")
+                    return
+                }
+                let returned = flatMessages(detail)
+                try #require(!returned.isEmpty)
+                for message in returned { #expect(seen.insert(message.id).inserted) }
+                guard let remaining = detail.truncation?.omitted.first else { break }
+                try #require(remaining.next.position < next.position)
+                next = remaining.next
+            } while true
+            #expect(seen == expected)
+        }
+    }
+    @Test(
+        "Re-reading the same page at each smaller budget preserves every live cursor",
+        arguments: [0, 65_536, 131_072, 1_048_576, Int.max])
+    func smallerBudgetTraversesEveryMessage(budget: Int) async throws {
+        try await withPaneContextService { fixture, service in
+            var expected = Set<AgentMessageId>()
+            for _ in 0..<32 {
+                let ask = fixture.ask(body: String(repeating: "x", count: 4096))
+                try await fixture.sendCreated(ask, to: service)
+                expected.insert(ask.messageId)
+            }
+            for _ in 0..<80 {
+                let notice = fixture.message(body: String(repeating: "x", count: 4096))
+                try await fixture.sendCreated(notice, to: service)
+                expected.insert(notice.messageId)
+            }
+            let maximum = max(
+                AppPolicies.PaneContext.minimumDetailBytes, min(budget, AppPolicies.PaneContext.maximumDetailBytes))
+            var page = PaneContextReadPage.first
+            var seen = Set<AgentMessageId>()
+            var cursors: [LiveMessageCursor] = []
+            repeat {
+                let result = await service.readDetail(
+                    PaneContextReadRequest(paneId: fixture.paneId, page: page), maximumDetailBytes: budget)
+                guard case .detail(let detail) = result else {
+                    Issue.record("Budget page must return detail: \(result)")
+                    return
+                }
+                try #require(!detail.messages.isEmpty)
+                #expect(detail.messages.reduce(0) { $0 + $1.body.utf8.count } <= maximum)
+                #expect(PaneContextDetailBudget.detailBytes(detail) <= maximum)
+                for message in detail.messages { #expect(seen.insert(message.id).inserted) }
+                guard let omitted = detail.truncation?.omitted.first else { break }
+                try #require(!cursors.contains(omitted.next), "A smaller page must advance its cursor")
+                cursors.append(omitted.next)
+                page = .more(source: omitted.source, after: omitted.next)
+            } while true
+            #expect(seen == expected)
+        }
+    }
     @Test("Open asks precede unread notices, with newest position first within each kind")
     func liveMessageOrder() async throws {
         try await withPaneContextService { fixture, service in
@@ -109,7 +296,7 @@ struct PaneContextDetailPagingTests {
             fixture.membership.setDrawers([drawer], for: fixture.paneId)
             try await fixture.bind(fixture.sender, to: drawer)
             try await fixture.sendCreated(fixture.ask(paneId: drawer), to: service)
-            let cursor = LiveMessageCursor(rank: 0, position: UInt64.max)
+            let cursor = LiveMessageCursor(rank: 0, position: 1)
 
             #expect(
                 await service.readDetail(

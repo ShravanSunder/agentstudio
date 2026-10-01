@@ -140,7 +140,7 @@ extension AppDelegate {
             let unavailability = await AppIPCDeferredInitialization.run(
                 windowLifecycleStore: windowLifecycleStore
             ) { [weak self] in
-                await self?.startAppIPCServer()
+                _ = await self?.startAppIPCServer()
             }
             if let unavailability {
                 self?.recordAppIPCStart(unavailable: unavailability)
@@ -163,39 +163,52 @@ extension AppDelegate {
         )
     }
 
-    func startAppIPCServer() async {
-        guard appIPCServer == nil else { return }
+    @discardableResult
+    func startAppIPCServer() async -> AppIPCStartUnavailability? {
+        guard appIPCServer == nil else { return nil }
         guard let workspaceSQLiteDatastore else {
             appLogger.warning("App IPC server skipped: local SQLite is unavailable")
             recordAppIPCStart(unavailable: .localStoreUnavailable)
-            return
+            return .localStoreUnavailable
         }
         guard await AppIPCDeferredInitialization.prepareOptionalSchema(using: workspaceSQLiteDatastore) else {
             appLogger.warning("App IPC server skipped: optional local schema is unavailable")
             // A cancelled attempt is a shutdown, not an unavailable store.
-            if !Task.isCancelled { recordAppIPCStart(unavailable: .optionalSchemaUnavailable) }
-            return
+            if !Task.isCancelled {
+                recordAppIPCStart(unavailable: .optionalSchemaUnavailable)
+                return .optionalSchemaUnavailable
+            }
+            return .initializationCancelled
         }
-        guard appIPCServer == nil else { return }
+        guard appIPCServer == nil else { return nil }
         guard let sessionsIngestion = await prepareAppIPCSessionsIngestion(datastore: workspaceSQLiteDatastore) else {
-            if !Task.isCancelled { recordAppIPCStart(unavailable: .sessionsIngestionFailed) }
-            return
+            if !Task.isCancelled {
+                recordAppIPCStart(unavailable: .sessionsIngestionFailed)
+                return .sessionsIngestionFailed
+            }
+            return .initializationCancelled
         }
 
         do {
-            guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else { return }
+            guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else {
+                return Task.isCancelled ? .initializationCancelled : nil
+            }
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
             startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
             recordAppIPCStart()
+            return nil
         } catch {
             appLogger.warning(
                 "App IPC server failed to start: \(error.localizedDescription, privacy: .private)")
             if !Task.isCancelled {
-                recordAppIPCStart(unavailable: AppIPCStartUnavailability(serverStartError: error))
+                let reason = AppIPCStartUnavailability(serverStartError: error)
+                recordAppIPCStart(unavailable: reason)
+                return reason
             }
+            return .initializationCancelled
         }
     }
 

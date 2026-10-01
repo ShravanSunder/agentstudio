@@ -59,7 +59,7 @@ struct ClaudeCodeStatusTraceTests {
         #expect(try RecordedClaudeStatusTrace.fields(projected).failureSummary == "authentication_failed")
     }
 
-    @Test("no-ID elicitation preserves ambiguity and the real requested form")
+    @Test("no-ID elicitation preserves ambiguity and the required prompt metadata")
     func recordedElicitationHasNoInventedIdentity() throws {
         let opened = try RecordedClaudeStatusTrace.project("Elicitation")
         let result = try RecordedClaudeStatusTrace.project("ElicitationResult")
@@ -69,12 +69,7 @@ struct ClaudeCodeStatusTraceTests {
         #expect(result.event.name.rawValue == "elicitationResult")
         #expect(openFields.elicitationId == nil)
         #expect(resultFields.elicitationId == nil)
-        #expect(openFields.mcpServerName == "prb-elicit-probe")
-        #expect(resultFields.mcpServerName == "prb-elicit-probe")
         #expect(openFields.message == "Choose a fixture color.")
-        #expect(openFields.requestedSchema != nil)
-        #expect(resultFields.action == "accept")
-        #expect(resultFields.content == .object(["color": .string("fixture-choice")]))
     }
 
     @Test("new keyed completion hooks retain occurrence identity on re-invocation")
@@ -84,6 +79,38 @@ struct ClaudeCodeStatusTraceTests {
             let repeatEvent = try RecordedClaudeStatusTrace.project(event)
             #expect(first.event.occurrenceId == repeatEvent.event.occurrenceId)
         }
+    }
+
+    @Test(
+        "recorded provider forms and answers stay off the status wire and pass real schema admission",
+        arguments: ["Elicitation", "ElicitationResult"])
+    func elicitationProjectsOnlyStatusFields(fixture: String) throws {
+        guard
+            case .object(let sourceFields) = try JSONDecoder().decode(
+                JSONValue.self, from: RecordedClaudeStatusTrace.data(fixture))
+        else {
+            throw ClaudeCodeHookInvocationError.reportRejected
+        }
+        let sourceKey = fixture == "Elicitation" ? "requested_schema" : "content"
+        #expect(sourceFields[sourceKey] != nil)
+        let projected = try RecordedClaudeStatusTrace.project(fixture)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let encodedParams = try encoder.encode(projected)
+        let roundTripped = try IPCSessionEventParams.ipcSchema().decode(IPCSessionEventParams.self, from: encodedParams)
+        #expect(roundTripped == projected)
+        guard
+            case .object(let eventFields) = try JSONDecoder().decode(
+                JSONValue.self, from: encoder.encode(roundTripped.event))
+        else {
+            throw ClaudeCodeHookInvocationError.reportRejected
+        }
+        #expect(eventFields["requestedSchema"] == nil)
+        #expect(eventFields["content"] == nil)
+        #expect(eventFields["mcpServerName"] == nil)
+        #expect(eventFields["action"] == nil)
+        #expect(eventFields["message"] == sourceFields["message"])
+        #expect(try encoder.encode(roundTripped) == encodedParams)
     }
 }
 
@@ -120,11 +147,7 @@ struct RecordedStatusEventFields: Decodable {
     let questions: [RecordedQuestion]?
     let failureSummary: String?
     let elicitationId: String?
-    let mcpServerName: String?
     let message: String?
-    let requestedSchema: JSONValue?
-    let action: String?
-    let content: JSONValue?
 }
 
 struct RecordedQuestion: Decodable, Equatable {

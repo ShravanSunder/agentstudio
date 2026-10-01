@@ -1,76 +1,217 @@
+import AgentStudioInfrastructure
 import Foundation
 import GRDB
+import Synchronization
 
-/// RED shell: deliberately performs no work until the service tests prove the missing behavior.
+struct PaneContextMessageKey: Hashable, Sendable {
+    let paneId: PaneId
+    let messageId: AgentMessageId
+}
+
+struct PaneContextRetirementMailbox: Sendable {
+    var accepting = true
+    var pending = Set<PaneId>()
+    var retired = Set<PaneId>()
+}
+
+final class PaneContextRetirementMailboxBox: Sendable {
+    let state = Mutex(PaneContextRetirementMailbox())
+}
+
+struct PaneContextStartupCommit: Sendable {
+    let settlements: [(PaneContextMessageKey, PaneContextSettlementCommit)]
+}
+
+/// Messages and current values share one application-local transaction boundary.
 package actor PaneContextService: PaneContextDetailReading, PaneContextPersonActing {
+    let sqliteAccess: any PaneContextSQLiteAccess
+    let clock: any Clock<Duration> & Sendable
+    let wallNow: @Sendable () -> Date
+    let membership: any PaneContextMembershipReading
+    let currentBindingGeneration: @Sendable (PaneId, Database) throws -> UUID?
+    let sessionSummary: @Sendable (PaneId) async throws -> SessionSummary?
+    let openAskSink: @Sendable (PaneContextOpenAskUpdate) async -> Void
+    let agentLineSink: @Sendable (AgentLineWork?, UUID) async -> Void
+    let actionRunner: @Sendable (MessageAction) async -> MessageActionResult
+
+    nonisolated let retirementMailbox = PaneContextRetirementMailboxBox()
+    nonisolated let retirementWake: AsyncStream<Void>.Continuation
+    let retirementStream: AsyncStream<Void>
+    var retirementDrain: Task<Void, Never>?
+    var retirementCommit: Task<Void, Error>?
+    var retirementCommitGeneration: UInt64 = 0
+    var opening: Task<PaneContextStartupCommit, Error>?
+    var openingToken: UUID?
+    var didOpen = false
+    var isStopping = false
+    var deadlineScheduler: RepositoryRetentionScheduler?
+    var deadlineRefreshGeneration: UInt64 = 0
+    var waiters: [PaneContextMessageKey: [UUID: AsyncStream<AskOutcome>.Continuation]] = [:]
+    var detailVersions: [PaneId: (version: PaneContextDetailVersion, revision: PaneContextRevision)] = [:]
+
     package init(
         sqliteAccess: any PaneContextSQLiteAccess,
-        clock: any Clock<Duration>,
+        clock: any Clock<Duration> & Sendable,
         wallNow: @escaping @Sendable () -> Date,
         membership: any PaneContextMembershipReading,
-        currentBindingGeneration: @escaping @Sendable (PaneId, Database) throws -> UUID?
-    ) {}
-
-    package func send(_ request: PaneMessageSendRequest) async -> PaneMessageSendResult {
-        .unavailable(.databaseUnavailable)
+        currentBindingGeneration: @escaping @Sendable (PaneId, Database) throws -> UUID?,
+        sessionSummary: @escaping @Sendable (PaneId) async throws -> SessionSummary? = { _ in nil },
+        openAskSink: @escaping @Sendable (PaneContextOpenAskUpdate) async -> Void = { _ in },
+        agentLineSink: @escaping @Sendable (AgentLineWork?, UUID) async -> Void = { _, _ in },
+        actionRunner: @escaping @Sendable (MessageAction) async -> MessageActionResult = { _ in
+            .unavailable(.databaseUnavailable)
+        }
+    ) {
+        self.sqliteAccess = sqliteAccess
+        self.clock = clock
+        self.wallNow = wallNow
+        self.membership = membership
+        self.currentBindingGeneration = currentBindingGeneration
+        self.sessionSummary = sessionSummary
+        self.openAskSink = openAskSink
+        self.agentLineSink = agentLineSink
+        self.actionRunner = actionRunner
+        let wake = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        retirementStream = wake.stream
+        retirementWake = wake.continuation
     }
 
-    package func readDetail(_ request: PaneContextReadRequest) async -> PaneContextReadResult {
-        .unavailable(.databaseUnavailable)
+    func ensureOpen() async throws {
+        guard !isStopping else { throw PaneContextStorageFailure.decode("serviceStopped") }
+        if opening == nil {
+            let sqliteAccess = self.sqliteAccess
+            let wallNow = self.wallNow
+            openingToken = UUIDv7.generate()
+            opening = Task {
+                try await sqliteAccess.write { database in
+                    let now = wallNow()
+                    let rows = try Row.fetchAll(
+                        database,
+                        sql:
+                            "SELECT pane_id, message_id FROM pane_request WHERE state = 'open' AND waiting = 'blocking'"
+                    )
+                    let settlements = try rows.map { row in
+                        let key = PaneContextMessageKey(
+                            paneId: PaneId(existingUUID: try PaneContextStorage.uuid(row, "pane_id")),
+                            messageId: AgentMessageId(existingUUID: try PaneContextStorage.uuid(row, "message_id"))
+                        )
+                        return (
+                            key,
+                            try PaneContextAskSettlement.commit(
+                                database, paneId: key.paneId, id: key.messageId, cause: .appStopping, now: now)
+                        )
+                    }
+                    return PaneContextStartupCommit(settlements: settlements)
+                }
+            }
+        }
+        guard let opening else { return }
+        let token = openingToken
+        let startup: PaneContextStartupCommit
+        do { startup = try await opening.value } catch {
+            if token == openingToken {
+                self.opening = nil
+                openingToken = nil
+            }
+            throw error
+        }
+        guard !didOpen else {
+            try await drainRetirements()
+            return
+        }
+        didOpen = true
+        if !isStopping {
+            retirementDrain = Task { [weak self, retirementStream] in
+                for await _ in retirementStream {
+                    guard !Task.isCancelled, let self else { return }
+                    do { try await self.drainRetirements() } catch
+                    { /* Keep refusing the retired pane; the next demand retries persistence. */  }
+                }
+            }
+        }
+        for (key, commit) in startup.settlements { await acceptSettlement(commit, key: key) }
+        try await drainRetirements()
+        await refreshDeadline()
     }
 
-    package func answer(_ request: AnswerAskRequest) async -> AnswerAskResult {
-        .unavailable(.databaseUnavailable)
+    func isPendingRetirement(_ paneId: PaneId) -> Bool {
+        retirementMailbox.state.withLock { $0.retired.contains(paneId) }
     }
 
-    package func dismiss(messageId: AgentMessageId, paneId: PaneId) async -> DismissResult {
-        .unavailable(.databaseUnavailable)
+    func scopeAdmission() -> @Sendable (PaneId, Database) throws -> Bool {
+        let membership = self.membership
+        let mailbox = retirementMailbox
+        return { paneId, database in
+            guard membership.sources(for: paneId) != nil, !mailbox.state.withLock({ $0.retired.contains(paneId) })
+            else { return false }
+            return try !PaneContextStorage.isRetired(database, paneId: paneId)
+        }
     }
 
-    package func markRead(messageId: AgentMessageId, paneId: PaneId) async -> MarkReadResult {
-        .unavailable(.databaseUnavailable)
+    func acceptSettlement(_ commit: PaneContextSettlementCommit, key: PaneContextMessageKey) async {
+        if let outcome = commit.outcome, let continuations = waiters.removeValue(forKey: key) {
+            for continuation in continuations.values {
+                continuation.yield(outcome)
+                continuation.finish()
+            }
+        }
+        if let update = commit.openAsks { await openAskSink(update) }
     }
 
-    package func runAction(_ request: MessageActionRequest) async -> MessageActionResult {
-        .unavailable(.databaseUnavailable)
+    func storageFailure(_ error: any Error, writing: Bool = false) -> StorageFailureSummary {
+        if let failure = error as? PaneContextStorageFailure {
+            switch failure {
+            case .decode(let field): return .decodeFailed(field)
+            }
+        }
+        return writing ? .commitFailed : .databaseUnavailable
     }
 
-    package func settleAsk(_ id: AgentMessageId, paneId: PaneId, cause: AskSettlementCause) async -> AskSettlementResult
-    {
-        .unavailable(.databaseUnavailable)
+    package func openAskSummaries() async -> [PaneContextOpenAskUpdate] {
+        do {
+            try await ensureOpen()
+            return try await sqliteAccess.read { try PaneContextStorage.openAskUpdates($0) }
+        } catch { return [] }
     }
 
     package func waitForAskOutcome(messageId: AgentMessageId, paneId: PaneId) async -> AskOutcome {
-        .stale
+        let key = PaneContextMessageKey(paneId: paneId, messageId: messageId)
+        let token = UUIDv7.generate()
+        let channel = AsyncStream<AskOutcome>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        waiters[key, default: [:]][token] = channel.continuation
+        defer {
+            waiters[key]?.removeValue(forKey: token)
+            if waiters[key]?.isEmpty == true { waiters.removeValue(forKey: key) }
+            channel.continuation.finish()
+        }
+        do {
+            try await ensureOpen()
+            let outcome = try await sqliteAccess.read { database -> AskOutcome? in
+                guard let message = try PaneContextStorage.message(database, paneId: paneId, messageId: messageId),
+                    case .ask(_, _, _, let state) = message.detail.shape
+                else { return .stale }
+                return PaneContextStorage.outcome(state)
+            }
+            if let outcome {
+                channel.continuation.yield(outcome)
+                channel.continuation.finish()
+            }
+        } catch { return .stale }
+        var iterator = channel.stream.makeAsyncIterator()
+        return await iterator.next() ?? .stale
     }
 
-    package func withdraw(messageId: AgentMessageId, paneId: PaneId, writer: AgentMessageSender) async
-        -> PaneMessageWithdrawResult
-    {
-        .unavailable(.databaseUnavailable)
+    package func runAction(_ request: MessageActionRequest) async -> MessageActionResult {
+        do {
+            try await ensureOpen()
+            let admitted = try await sqliteAccess.read { database in
+                try PaneContextStorage.message(database, paneId: request.paneId, messageId: request.messageId)?.detail
+                    .actions.contains(request.action) == true
+            }
+            guard admitted, membership.sources(for: request.paneId) != nil, !isPendingRetirement(request.paneId) else {
+                return .notFound
+            }
+            return await actionRunner(request.action)
+        } catch { return .unavailable(storageFailure(error)) }
     }
-
-    package func claimEpoch(_ request: PaneEpochClaimRequest) async -> PaneEpochClaimResult {
-        .unavailable(.databaseUnavailable)
-    }
-
-    package func setTitle(_ request: PaneTitleWriteRequest) async -> PaneOrderedWriteResult {
-        .unavailable(.databaseUnavailable)
-    }
-
-    package func setLine(_ request: PaneLineWriteRequest) async -> PaneOrderedWriteResult {
-        .unavailable(.databaseUnavailable)
-    }
-
-    package func changes(_ request: PaneMessageChangesRequest) async -> PaneMessageChangesResult {
-        .unavailable(.databaseUnavailable)
-    }
-
-    package func sessionEnded(_ sessionKey: AgentMessageSender) async {}
-
-    package nonisolated func retire(_ paneIds: [PaneId]) {}
-
-    package func purgeRetired() async {}
-
-    package func stop() async {}
 }

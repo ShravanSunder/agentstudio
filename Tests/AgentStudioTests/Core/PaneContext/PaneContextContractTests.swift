@@ -4,6 +4,16 @@ import Testing
 
 @Suite("Pane context contracts")
 struct PaneContextContractTests {
+    @Test("Source-list continuation retains the after-source and remaining-source count")
+    func sourceListContinuationRetainsMeaning() {
+        let source = PaneId.generateUUIDv7()
+        let truncation = DetailTruncation(omitted: [], remainingLiveSources: 3, nextSourcesAfter: source)
+        #expect(truncation.remainingLiveSources == 3)
+        #expect(truncation.nextSourcesAfter == source)
+        #expect(
+            PaneContextReadPage.moreSources(after: source)
+                != .more(source: source, after: LiveMessageCursor(rank: 0, position: 1)))
+    }
     @Test("Paging retains the owner, source, rank and event position")
     func pagingRetainsSourceAndCursor() {
         let owner = PaneId.generateUUIDv7()

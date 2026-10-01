@@ -1,12 +1,27 @@
 import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudioCore
 
 @Suite("Pane context ordered writes")
 struct PaneContextOrderedWriteTests {
+    @Test("The full UInt64 counter is retained exactly across restart")
+    func fullWidthCounterRoundTrip() async throws {
+        try await withPaneContextService { fixture, service in
+            let epoch = try await fixture.epoch(service)
+            try #require(
+                await service.setTitle(fixture.title("maximum", epoch: epoch, counter: UInt64.max)) == .applied)
+            await service.stop()
+            let restarted = fixture.makeService()
+            #expect(
+                await restarted.setTitle(fixture.title("older", epoch: epoch, counter: UInt64.max - 1))
+                    == .stale(.lastAccepted(WriteNumber(epoch: epoch, counter: UInt64.max))))
+            await restarted.stop()
+        }
+    }
     @Test("An epoch claim is idempotent and never changes the title or line")
     func epochClaimHasNoDisplayEffect() async throws {
         try await withPaneContextService { fixture, service in
@@ -134,6 +149,55 @@ struct PaneContextOrderedWriteTests {
         }
     }
 
+    @Test("A binding replacement while an ask write is held refuses the old writer without any ask or revision effect")
+    func askWriterRecheckedAtCommit() async throws {
+        try await withPaneContextService { fixture, service in
+            let before = try await fixture.detail(service)
+            let summariesBefore = await service.openAskSummaries()
+            let ask = fixture.ask()
+            let replacement = AgentMessageSender.session(
+                provider: try BridgeAgentProviderName("claude-code"),
+                sessionRef: try BridgeAgentSessionRef("replacement-for-held-ask"),
+                bindingGeneration: UUIDv7.generate()
+            )
+            let result = try await withHeldPaneContextWrite(
+                fixture: fixture, name: "old writer ask waiting to commit",
+                operation: { await service.send(ask) },
+                whileHeld: { try await fixture.bind(replacement) }
+            )
+
+            #expect(result == .refused(.writerReplaced))
+            let after = try await fixture.detail(service)
+            #expect(after.messages == before.messages)
+            #expect(after.revision == before.revision)
+            #expect(await service.openAskSummaries() == summariesBefore)
+            #expect(try await requestCountForWriterRace(fixture) == 0)
+        }
+    }
+
+    @Test("A notice from the earlier binding is still recorded when the binding changes during its held write")
+    func noticeWriterSurvivesCommitRace() async throws {
+        try await withPaneContextService { fixture, service in
+            _ = try await fixture.detail(service)
+            let notice = fixture.message()
+            let replacement = AgentMessageSender.session(
+                provider: try BridgeAgentProviderName("claude-code"),
+                sessionRef: try BridgeAgentSessionRef("replacement-for-held-notice"),
+                bindingGeneration: UUIDv7.generate()
+            )
+            let result = try await withHeldPaneContextWrite(
+                fixture: fixture, name: "earlier writer notice waiting to commit",
+                operation: { await service.send(notice) },
+                whileHeld: { try await fixture.bind(replacement) }
+            )
+
+            #expect(result == .created(notice.messageId))
+            let stored = try #require(try await fixture.detail(service).messages.first)
+            #expect(stored.id == notice.messageId)
+            #expect(stored.sender == fixture.sender)
+        }
+    }
+
     @Test("Agent Line expiry fires without another write and leaves the line visible as stale")
     func lineExpiryIsScheduled() async throws {
         try await withPaneContextService { fixture, service in
@@ -195,12 +259,22 @@ struct PaneContextOrderedWriteTests {
                 sessionRef: try BridgeAgentSessionRef("unrelated"),
                 bindingGeneration: UUIDv7.generate()
             )
-            await service.sessionEnded(unrelated)
+            if case .session(_, _, let generation) = unrelated {
+                await service.sessionEnded(bindingGenerationId: generation)
+            }
             #expect(try await fixture.detail(service).agentLine?.stale == false)
 
-            await service.sessionEnded(fixture.sender)
+            await service.sessionEnded(bindingGenerationId: try fixture.bindingGenerationId)
 
             #expect(try await fixture.detail(service).agentLine?.stale == true)
         }
+    }
+}
+
+private func requestCountForWriterRace(_ fixture: PaneContextServiceFixture) async throws -> Int {
+    try await fixture.databasePool.read { database in
+        try Int.fetchOne(
+            database, sql: "SELECT COUNT(*) FROM pane_request WHERE pane_id = ?", arguments: [fixture.paneId.uuidString]
+        ) ?? 0
     }
 }

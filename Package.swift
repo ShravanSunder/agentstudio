@@ -350,6 +350,7 @@ let package = Package(
             dependencies: [
                 "AgentStudioCore",
                 "AgentStudioTestHarness",
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Tests/AgentStudioTests/TestSupport",
             swiftSettings: [

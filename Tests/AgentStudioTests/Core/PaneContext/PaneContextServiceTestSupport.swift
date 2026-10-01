@@ -3,7 +3,6 @@ import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import GRDB
-import Synchronization
 import Testing
 
 @testable import AgentStudioCore
@@ -46,7 +45,9 @@ final class PaneContextServiceFixture: Sendable {
         }
     }
 
-    func makeService() -> PaneContextService {
+    func makeService(sessionSummary: @escaping @Sendable (PaneId) async throws -> SessionSummary? = { _ in nil })
+        -> PaneContextService
+    {
         PaneContextService(
             sqliteAccess: sqliteAccess,
             clock: clock,
@@ -59,8 +60,18 @@ final class PaneContextServiceFixture: Sendable {
                     arguments: [paneId.uuidString]
                 )
                 return value.flatMap(UUID.init(uuidString:))
-            }
+            },
+            sessionSummary: sessionSummary
         )
+    }
+
+    var bindingGenerationId: UUID {
+        get throws {
+            guard case .session(_, _, let generation) = sender else {
+                throw PaneContextStorageFailure.decode("fixture.sender")
+            }
+            return generation
+        }
     }
 
     func message(
@@ -207,87 +218,6 @@ func withPaneContextService<Output: Sendable>(
         try? fixture.removeFiles()
         throw error
     }
-}
-
-final class PaneContextTestTime: Sendable {
-    private let clock: TestPushClock
-    private let origin: TestPushClock.Instant
-    private let offset = Mutex<TimeInterval>(0)
-
-    init(clock: TestPushClock) {
-        self.clock = clock
-        origin = clock.now
-    }
-
-    var now: Date {
-        let elapsed = origin.duration(to: clock.now).components
-        return Date(timeIntervalSince1970: 1_800_000_000 + Double(elapsed.seconds) + offset.withLock { $0 })
-    }
-
-    func shiftWallTime(by seconds: TimeInterval) {
-        offset.withLock { $0 += seconds }
-    }
-}
-
-final class TestPaneContextMembership: PaneContextMembershipReading, Sendable {
-    private let views = Mutex<[PaneId: [PaneId]]>([:])
-
-    func sources(for paneId: PaneId) -> [PaneId]? {
-        views.withLock { $0[paneId] }
-    }
-
-    func addPane(_ paneId: PaneId) {
-        views.withLock { $0[paneId] = [paneId] }
-    }
-
-    func setDrawers(_ drawers: [PaneId], for owner: PaneId) {
-        views.withLock { current in
-            current[owner] = [owner] + drawers
-            for drawer in drawers { current[drawer] = [drawer] }
-        }
-    }
-
-    func removePane(_ paneId: PaneId) {
-        _ = views.withLock { $0.removeValue(forKey: paneId) }
-    }
-}
-
-actor HeldPaneContextSQLiteAccess: PaneContextSQLiteAccess {
-    let databasePool: DatabasePool
-    private var beforeNextWrite: HeldStep<Void>?
-    private var afterNextWrite: HeldStep<Void>?
-    private var operations = 0
-
-    init(databasePool: DatabasePool) {
-        self.databasePool = databasePool
-    }
-
-    func read<Output: Sendable>(_ operation: @Sendable (Database) throws -> Output) async throws -> Output {
-        operations += 1
-        return try await databasePool.read(operation)
-    }
-
-    func write<Output: Sendable>(_ operation: @Sendable (Database) throws -> Output) async throws -> Output {
-        operations += 1
-        let before = beforeNextWrite
-        let after = afterNextWrite
-        beforeNextWrite = nil
-        afterNextWrite = nil
-        try await before?.arrive(())
-        let output = try await databasePool.write(operation)
-        try await after?.arrive(())
-        return output
-    }
-
-    func holdNextWrite(_ step: HeldStep<Void>) {
-        beforeNextWrite = step
-    }
-
-    func observeNextCommit(_ step: HeldStep<Void>) {
-        afterNextWrite = step
-    }
-
-    func operationCount() -> Int { operations }
 }
 
 func withHeldPaneContextWrite<Output: Sendable>(

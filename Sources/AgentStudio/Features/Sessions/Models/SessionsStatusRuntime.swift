@@ -56,12 +56,12 @@ struct SessionsStatusRuntime {
         guard let generation = currentBindingByPane[paneId], let binding = bindings[generation],
             let state = states[generation]
         else { return nil }
+        let prompts = SessionSummaryProjection.prompts(state.providerPrompts)
         return SessionSummary(
             id: binding.conversationId, provider: try .init(binding.providerIdentifier),
             sessionRef: try .init(binding.providerConversationId), bindingGeneration: generation,
-            status: SessionStatusReducer.status(of: state),
-            providerPrompts: state.providerPrompts.values.sorted { $0.observedAt < $1.observedAt }.map {
-                SessionProviderPromptSummary(reason: $0.reason, observedAt: $0.observedAt, summary: $0.summary)
-            })
+            status: SessionSummaryProjection.status(SessionStatusReducer.status(of: state)),
+            providerPrompts: prompts,
+            omittedPromptCount: state.providerPrompts.count - prompts.count)
     }
 }

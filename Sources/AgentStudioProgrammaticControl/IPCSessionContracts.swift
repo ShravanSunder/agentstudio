@@ -1,4 +1,3 @@
-import AgentStudioIPCTransport
 import Foundation
 
 /// Documented failure reasons the session methods declare. The descriptor's
@@ -180,8 +179,8 @@ package struct IPCSessionEventIdentity: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case name, conversationId, turnId, requestId, toolId, subagentId, occurrenceId
-        case toolName, questions, failureSummary, elicitationId, mcpServerName, message
-        case requestedSchema, action, content, sourceOccurredAt, resumeHint
+        case toolName, questions, failureSummary, elicitationId, message
+        case sourceOccurredAt, resumeHint
     }
 
     package init(from decoder: Decoder) throws {
@@ -214,11 +213,7 @@ package struct IPCSessionProviderEventFields: Codable, Equatable, Sendable {
     package var questions: [IPCSessionQuestion]?
     package var failureSummary: String?
     package var elicitationId: String?
-    package var mcpServerName: String?
     package var message: String?
-    package var requestedSchema: JSONValue?
-    package var action: String?
-    package var content: JSONValue?
     package var sourceOccurredAt: Date?
     package var resumeHint: String?
 

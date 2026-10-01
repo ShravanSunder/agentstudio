@@ -113,7 +113,7 @@ struct PaneContextAnswerPositionTests {
                         messageId: ask.messageId, paneId: fixture.paneId, by: .localUser, value: .text("ok")))
                     == .answered)
 
-            await service.sessionEnded(fixture.sender)
+            await service.sessionEnded(bindingGenerationId: try fixture.bindingGenerationId)
 
             #expect(try await answerReceipt(fixture, service, id: ask.messageId) == .unconfirmed)
         }

@@ -13,6 +13,36 @@ import Testing
 
 @Suite("Sessions recorded provider trace integration")
 struct SessionsProviderTraceIntegrationTests {
+    @Test(
+        "discarded provider schema, answer and server metadata do not change canonical replay",
+        arguments: ["Elicitation", "ElicitationResult"])
+    func discardedElicitationMetadataReplays(fixtureName: String) async throws {
+        try await withRecordedStatusIngestion { ingestion, adapter, paneId in
+            try await sendRecordedStatus("Elicitation.SessionStart", adapter: adapter, paneId: paneId)
+            let occurrenceId = UUIDv7.generate()
+            let captured = try recordedStatusData(fixtureName)
+            let first = try projectRecordedStatus(data: captured, occurrenceId: occurrenceId)
+            _ = try await adapter.recordProviderEvent(paneId: paneId, params: first, provenance: .matchingPane)
+            let before = try await ingestion.sessionSummary(paneId: paneId)
+            guard case .object(var changed) = try JSONDecoder().decode(JSONValue.self, from: captured) else {
+                throw ClaudeCodeHookInvocationError.reportRejected
+            }
+            changed["mcp_server_name"] = .string("different-discarded-server")
+            if fixtureName == "Elicitation" {
+                changed["requested_schema"] = .object([
+                    "type": .string("object"), "title": .string("A different discarded form"),
+                ])
+            } else {
+                changed["content"] = .object(["color": .string("a different discarded answer")])
+                changed["action"] = .string("cancel")
+            }
+            let replay = try projectRecordedStatus(
+                data: JSONEncoder().encode(JSONValue.object(changed)), occurrenceId: occurrenceId)
+            _ = try await adapter.recordProviderEvent(paneId: paneId, params: replay, provenance: .matchingPane)
+            #expect(try await ingestion.sessionSummary(paneId: paneId) == before)
+        }
+    }
+
     @Test("a lifecycle occurrence replays across correlations and rejects changed canonical intent")
     func sessionEndReplaysBySuppliedOccurrence() async throws {
         try await withRecordedStatusIngestion { ingestion, adapter, paneId in

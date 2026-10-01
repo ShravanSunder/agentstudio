@@ -193,9 +193,7 @@ extension SessionsEvidenceReducer {
             origin: mutation.origin,
             freshness: freshness,
             occurredAt: mutation.occurredAt,
-            sourceOccurredAt: mutation.sourceOccurredAt.flatMap { sourceTime in
-                sourceTime <= mutation.occurredAt.addingTimeInterval(300) ? sourceTime : nil
-            },
+            sourceOccurredAt: SessionsMutation.recordEvidence(mutation).boundedSourceOccurredAt,
             providerSignal: mutation.providerSignal
         )
         let sourceChanges =

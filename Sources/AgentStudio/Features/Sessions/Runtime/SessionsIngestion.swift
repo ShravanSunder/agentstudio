@@ -262,9 +262,7 @@ extension SessionsIngestion {
             providerOccurrence: mutation.providerOccurrence,
             contextQuery: mutation.contextQuery,
             createdAt: mutation.occurredAt,
-            sourceOccurredAt: mutation.sourceOccurredAt.flatMap {
-                $0 <= mutation.occurredAt.addingTimeInterval(300) ? $0 : nil
-            }
+            sourceOccurredAt: mutation.boundedSourceOccurredAt
         )
     }
 
@@ -367,6 +365,14 @@ extension SessionsMutation {
         case .message, .deliberateNeedsYou, .clearDeliberateNeedsYou, .deliberateDone,
             .acknowledgeMessage, .recordLiveLoss, .prepareForLaunch:
             return nil
+        }
+    }
+
+    /// Source time is display evidence only. The mutation owns both time facts
+    /// and validates them before either operation or evidence persistence.
+    var boundedSourceOccurredAt: Date? {
+        sourceOccurredAt.flatMap {
+            $0 <= occurredAt.addingTimeInterval(AppPolicies.Sessions.maximumSourceFutureSkew) ? $0 : nil
         }
     }
 

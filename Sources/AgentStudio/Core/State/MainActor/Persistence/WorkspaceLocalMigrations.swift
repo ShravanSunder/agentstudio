@@ -16,6 +16,7 @@ package enum WorkspaceLocalMigrations {
     package static var migrator: DatabaseMigrator {
         var migrator = bootRequiredMigrator
         registerSessionsSchema(in: &migrator)
+        registerPaneContextSchema(in: &migrator)
         registerIPCCredentialSchema(in: &migrator)
         registerOpaquePaneCredentialRecords(in: &migrator)
         registerPaneOnlyCredentialRecords(in: &migrator)

@@ -98,13 +98,7 @@ extension IPCSessionEventIdentity: IPCSchemaProviding {
                 schema: .array(items: try IPCSessionQuestion.ipcSchema())),
             .optional("failureSummary", description: "Provider turn failure category", schema: .string()),
             .optional("elicitationId", description: "Provider elicitation identity when present", schema: .string()),
-            .optional("mcpServerName", description: "Provider MCP server name", schema: .string()),
             .optional("message", description: "Provider prompt summary", schema: .string()),
-            .optional("requestedSchema", description: "Provider requested form schema", schema: .schemaDocument),
-            .optional("action", description: "Provider elicitation result action", schema: .string()),
-            .optional(
-                "content", description: "Provider elicitation scalar answers",
-                schema: .dictionary(values: .oneOf([.string(), .number(), .boolean, .null]))),
             .optional("sourceOccurredAt", description: "Source UTC time; never an ordering key", schema: .number()),
             .optional("resumeHint", description: "Provider resume command hint", schema: .string()),
             .init(

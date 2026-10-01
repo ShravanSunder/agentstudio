@@ -47,10 +47,12 @@ package enum PaneMessageSendResult: Sendable, Equatable {
 package enum PaneContextWriteRefusal: Sendable, Equatable {
     case conflict
     case bindingRequired
+    case writerReplaced
     case paneGone
     case notSender
     case noticeAlreadyRead
     case tooLarge(PaneContextLimitField)
+    case invalidField(PaneContextLimitField)
 }
 package enum PaneContextLimitField: Sendable, Equatable {
     case body
@@ -79,8 +81,10 @@ package enum AskSettlementCause: Sendable, Equatable {
     case withdraw(writer: AgentMessageSender)
     case callerGone
     case appStopping
+    case sessionEnded
 }
 package enum AskSettlementResult: Sendable, Equatable {
+    case stillOpen
     case settled(AskState)
     case alreadySettled(AskState)
     case refused(AnswerRefusal)

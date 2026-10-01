@@ -1,4 +1,3 @@
-import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import CryptoKit
 import Foundation
@@ -53,11 +52,7 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
     package let toolInput: ClaudeCodeToolInput?
     package let error: String?
     package let elicitationId: String?
-    package let mcpServerName: String?
     package let message: String?
-    package let requestedSchema: JSONValue?
-    package let action: String?
-    package let content: JSONValue?
 
     package init(
         sessionId: String,
@@ -75,11 +70,7 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
         toolInput = nil
         error = nil
         elicitationId = nil
-        mcpServerName = nil
         message = nil
-        requestedSchema = nil
-        action = nil
-        content = nil
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -92,10 +83,7 @@ package struct ClaudeCodeHookPayload: Decodable, Equatable, Sendable {
         case toolInput = "tool_input"
         case error
         case elicitationId = "elicitation_id"
-        case mcpServerName = "mcp_server_name"
         case message
-        case requestedSchema = "requested_schema"
-        case action, content
     }
 }
 
@@ -147,11 +135,7 @@ package enum ClaudeCodeHookProjection {
         providerFields.questions = payload.toolInput?.questions
         providerFields.failureSummary = event == .stopFailure ? payload.error : nil
         providerFields.elicitationId = payload.elicitationId
-        providerFields.mcpServerName = payload.mcpServerName
         providerFields.message = payload.message
-        providerFields.requestedSchema = payload.requestedSchema
-        providerFields.action = payload.action
-        providerFields.content = payload.content
         return .projected(
             IPCSessionEventParams(
                 handle: "self",
