@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import AppKit
 import Foundation
@@ -5,6 +6,7 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
 @testable import AgentStudioCore
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
@@ -81,8 +83,16 @@ struct WorkspaceSurfacePostAttachRealMountTests {
 
     private final class ScriptedProbe: ZmxSessionRestoreProbing, @unchecked Sendable {
         var observedIdentity: Data?
+        /// Proves the check never probes before the real mount's registered
+        /// pane receives its simulated first-output push.
+        private(set) var observeCallCount = 0
+
         func discoverSessionInventory() async -> ZmxSessionInventory { .complete([:]) }
-        func observeSessionIdentity(_ sessionID: ZmxSessionID) async throws -> Data? { observedIdentity }
+
+        func observeSessionIdentity(_ sessionID: ZmxSessionID) async throws -> Data? {
+            observeCallCount += 1
+            return observedIdentity
+        }
     }
 
     /// `createTopologyIndependentTerminalView`'s repair-adjacent geometry
@@ -162,7 +172,7 @@ struct WorkspaceSurfacePostAttachRealMountTests {
         let mountResult = await coordinator.mountPreparedTerminalContent(
             admission: admission,
             initialFrame: NSRect(x: 0, y: 0, width: 400, height: 300),
-            authority: .released(admission.descriptor.paneID)
+            authority: TerminalSurfaceCreationAuthority.released(admission.descriptor.paneID)
         )
         guard case .ready = mountResult else {
             Issue.record("expected the real mount to succeed, got \(mountResult)")

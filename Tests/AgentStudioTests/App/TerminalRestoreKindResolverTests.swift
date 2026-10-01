@@ -4,6 +4,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
 
 /// SR1, SR2, SR6; Program Design item 1: the kind mapping table, including a
 /// whole-inventory unavailable outcome. Real zmx's own boundary behavior

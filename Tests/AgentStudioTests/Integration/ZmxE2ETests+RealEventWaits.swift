@@ -89,24 +89,21 @@ extension E2ESerializedTests.ZmxE2ETests {
         // `pendingContinuation`'s extract-and-clear makes whichever of the
         // handler or the synchronous already-exited check runs first the
         // only one that resumes -- the same exactly-once guard
-        // `awaitProcessExit` itself uses.
+        // `awaitProcessExit` itself uses. F7 follow-up (Lead 2026-10-01): a
+        // local named function captured by `Process.terminationHandler`'s
+        // own `@Sendable` closure type isn't itself provably `Sendable`, so
+        // the extract-and-clear runs inline at each `withLock` call instead
+        // of through a named `takePendingContinuation()`.
         let pendingContinuation = Mutex<CheckedContinuation<Int32, any Error>?>(nil)
-        func takePendingContinuation() -> CheckedContinuation<Int32, any Error>? {
-            pendingContinuation.withLock { stored in
-                let resuming = stored
-                stored = nil
-                return resuming
-            }
-        }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
                 pendingContinuation.withLock { $0 = continuation }
                 process.terminationHandler = { exitedProcess in
-                    takePendingContinuation()?.resume(returning: exitedProcess.terminationStatus)
+                    pendingContinuation.withLock { $0.take() }?.resume(returning: exitedProcess.terminationStatus)
                 }
                 if !process.isRunning {
                     process.terminationHandler = nil
-                    takePendingContinuation()?.resume(returning: process.terminationStatus)
+                    pendingContinuation.withLock { $0.take() }?.resume(returning: process.terminationStatus)
                 }
             }
         } onCancel: {
@@ -138,14 +135,11 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// beyond the suite's own runner-owned hang bound.
     func awaitMarkerInProcessOutput(pipe: Pipe, marker: String) async throws {
         let markerBytes = Data(marker.utf8)
+        // F7 follow-up (Lead 2026-10-01): same inline extract-and-clear as
+        // `awaitAlreadyRunningProcessExit` -- a named local function
+        // captured by `FileHandle.readabilityHandler`'s own `@Sendable`
+        // closure type isn't provably `Sendable`.
         let pendingContinuation = Mutex<CheckedContinuation<Void, any Error>?>(nil)
-        func takePendingContinuation() -> CheckedContinuation<Void, any Error>? {
-            pendingContinuation.withLock { stored in
-                let resuming = stored
-                stored = nil
-                return resuming
-            }
-        }
         let accumulated = Mutex<Data>(Data())
 
         try await withTaskCancellationHandler {
@@ -155,7 +149,7 @@ extension E2ESerializedTests.ZmxE2ETests {
                     let chunk = handle.availableData
                     if chunk.isEmpty {
                         pipe.fileHandleForReading.readabilityHandler = nil
-                        takePendingContinuation()?.resume(
+                        pendingContinuation.withLock { $0.take() }?.resume(
                             throwing: ProcessOutputMarkerWaitFailure.reachedEOFWithoutMarker)
                         return
                     }
@@ -165,13 +159,29 @@ extension E2ESerializedTests.ZmxE2ETests {
                     }
                     if foundMarker {
                         pipe.fileHandleForReading.readabilityHandler = nil
-                        takePendingContinuation()?.resume()
+                        pendingContinuation.withLock { $0.take() }?.resume()
                     }
                 }
             }
         } onCancel: {
             pipe.fileHandleForReading.readabilityHandler = nil
         }
+    }
+}
+
+/// F7 follow-up (Lead 2026-10-01): a minimal, file-local extract-and-clear
+/// convenience -- `$0.take()` inside a `Mutex.withLock` closure reads the
+/// stored value and leaves `nil` behind in one step, used by
+/// `awaitAlreadyRunningProcessExit` and `awaitMarkerInProcessOutput` to keep
+/// their exactly-once continuation resolution inline instead of through a
+/// named local function (not provably `Sendable` when captured by another
+/// `@Sendable` closure, such as `Process.terminationHandler`'s or
+/// `FileHandle.readabilityHandler`'s own).
+extension Optional {
+    fileprivate mutating func take() -> Wrapped? {
+        let value = self
+        self = nil
+        return value
     }
 }
 

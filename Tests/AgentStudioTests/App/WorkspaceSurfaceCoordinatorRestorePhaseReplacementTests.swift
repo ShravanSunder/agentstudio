@@ -6,6 +6,7 @@ import GhosttyKit
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioBridge
 @testable import AgentStudioCore
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
@@ -201,7 +202,7 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     private struct ReplacementScenario {
         let coordinator: WorkspaceSurfaceCoordinator
         let projector: TerminalActivityProjector
-        let outcomes: OutcomeRecorder
+        let outcomes: ReplacementOutcomeRecorder
         let facts: FactRecorder<UUID, ReplacementFact>
         let paneID: UUID
         let generation: RestoreGeneration
@@ -216,12 +217,46 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         /// `do`/`catch` wrapper, never from inside a branch that can return
         /// early -- a failed `#expect`/thrown `#require` partway through
         /// must not leak these into the suite's next test.
+        ///
+        /// `@MainActor`: a nested type does not inherit the enclosing
+        /// suite's own `@MainActor` annotation (only the suite's own
+        /// members do), and both `Ghostty.ActionRouter.unbindTerminalActivityInput`
+        /// and `SurfaceManager.destroy` (the class itself is `@MainActor`)
+        /// are MainActor-isolated -- confirmed by reading both directly.
+        /// `Ghostty.ActionRouter.retireLocalActions` is plain `nonisolated`,
+        /// so it's unaffected either way.
+        @MainActor
         func tearDown() async {
             Ghostty.ActionRouter.retireLocalActions(for: repairedSurface.managedSurfaceID)
             Ghostty.ActionRouter.retireLocalActions(for: preRepairSurface.managedSurfaceID)
             Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID)
             SurfaceManager.shared.destroy(repairedSurface.managedSurfaceID)
             await projector.reset()
+        }
+    }
+
+    /// A minimal, file-local stand-in for `AgentStudioTerminalTests
+    /// .OutcomeRecorder` -- that type lives in a separate test target
+    /// (`Tests/AgentStudioTests/Features/Terminal/TestSupport/TerminalActivityProjectorTestSupport.swift`,
+    /// the `AgentStudioTerminalTests` target) this suite's own
+    /// `AgentStudioTests` target cannot see. This suite only ever needs the
+    /// flattened `outcomes` snapshot after the fact (`drainAndAssertRestorePhaseEndedExactlyOnce`'s
+    /// own baseline assertion), never the full recorder's wait/predicate
+    /// machinery, so this carries only `record(_:)` and `outcomes`.
+    private final class ReplacementOutcomeRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recordedOutcomes: [TerminalActivityProjectionOutcome] = []
+
+        func record(_ batch: [TerminalActivityProjectionOutcome]) {
+            lock.lock()
+            defer { lock.unlock() }
+            recordedOutcomes.append(contentsOf: batch)
+        }
+
+        var outcomes: [TerminalActivityProjectionOutcome] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedOutcomes
         }
     }
 
@@ -321,7 +356,7 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         // redraws its restored scrollback, then the person's first
         // keystroke lands) -- establishes the pre-end accumulation that
         // `resetPaneActivityBaselineAfterRestorePhaseEnd` must discard.
-        let outcomes = OutcomeRecorder()
+        let outcomes = ReplacementOutcomeRecorder()
         await projector.configure(outcomeSink: { recorded in outcomes.record(recorded) })
         await projector.ingest(
             surfaceID: repairedSurface.managedSurfaceID,
