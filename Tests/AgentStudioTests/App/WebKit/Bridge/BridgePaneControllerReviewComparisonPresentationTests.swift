@@ -55,48 +55,6 @@ extension WebKitSerializedTests {
             #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
         }
 
-        @Test("noncanonical committed comparison result closes pane admission")
-        func noncanonicalCommittedComparisonResultClosesPaneAdmission() async throws {
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .branch(name: "main"))
-                ),
-                appRootURL: testBridgeAppRootURL(),
-                initialPaneActivity: .dormant,
-                contributionTargetCommit: { _ in
-                    .unchanged(
-                        BridgePaneState(
-                            panelKind: .diffViewer,
-                            source: .workspace(
-                                rootPath: "/tmp/worktree",
-                                baseline: .branch(name: "different-target")
-                            )
-                        )
-                    )
-                }
-            )
-            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
-
-            admitReviewComparisonIntent(
-                workerDerivationEpoch: 1,
-                controller: controller,
-                productAdmission: productAdmission
-            )
-
-            let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
-                BridgeProductReviewComparisonUpdateRequest(target: .branch(name: "stack/base")),
-                workerDerivationEpoch: 1,
-                productAdmission: productAdmission
-            )
-
-            #expect(didAdopt == .rejected)
-            #expect(!controller.productAdmissionGate.diagnosticSnapshot.isOpen)
-            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .closed)
-        }
-
         @Test("late completed comparison effect cannot overwrite the latest Review target")
         func lateCompletedComparisonEffectCannotOverwriteLatestTarget() async throws {
             let targetA = WorkspaceReviewContributionTarget.branch(name: "review-a")
@@ -247,6 +205,112 @@ extension WebKitSerializedTests {
             #expect(controller.bridgePaneState == lastGoodState)
             #expect(controller.paneState.diff.packageMetadata?.packageId == lastGoodPackageId)
             await fixture.finish()
+        }
+
+        @Test("a mismatched target fails only Review and a later target remains admitted")
+        func mismatchedTargetDoesNotClosePaneAdmission() async throws {
+            let targetA = WorkspaceReviewContributionTarget.branch(name: "review-a")
+            let mismatchedTarget = WorkspaceReviewContributionTarget.branch(name: "review-b")
+            let wrongCanonicalTarget = WorkspaceReviewContributionTarget.branch(name: "unexpected")
+            let mainTarget = WorkspaceReviewContributionTarget.branch(name: "main")
+            let stateA = paneState(for: targetA)
+            let mismatchedState = paneState(for: wrongCanonicalTarget)
+            let mainState = paneState(for: mainTarget)
+            let comparison = makeComparison()
+            let sourceProvider = makeContributionProvider(comparison: comparison)
+            let controller = makeController(
+                target: targetA,
+                comparison: comparison,
+                provider: sourceProvider,
+                contributionTargetCommit: { target in
+                    if target == targetA { return .applied(stateA) }
+                    if target == mismatchedTarget { return .unchanged(mismatchedState) }
+                    if target == mainTarget { return .applied(mainState) }
+                    return .unchanged(mainState)
+                }
+            )
+            _ = controller.surfaceSelectionAuthority.retainIntent(surface: .review)
+            let fixture = try await makeBridgeReviewComparisonControlFixture(controller: controller)
+            defer {
+                fixture.releaseAllHeldEffects()
+                _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
+            }
+            try await fixture.openWorkerSession()
+
+            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            else {
+                Issue.record("Expected the last good Review package before the target mismatch")
+                return
+            }
+            let acceptedADispatch = try await fixture.dispatchComparisonUpdate(
+                target: targetA,
+                requestSequence: 2,
+                workerDerivationEpoch: 2
+            )
+            let acceptedAResult = try await fixture.readOperationResult(for: acceptedADispatch)
+            #expect(acceptedAResult.outcome == .succeeded)
+            let acceptedATargetBuild = try #require(controller.activeReviewRefreshTask)
+            await acceptedATargetBuild.value
+            let packageA = try #require(controller.paneState.diff.packageMetadata)
+            let lastGoodIdentity = BridgePaneReviewDisplayedSnapshotIdentity(
+                packageId: packageA.packageId,
+                reviewGeneration: packageA.reviewGeneration.rawValue,
+                revision: packageA.revision
+            )
+
+            let mismatchDispatch = try await fixture.dispatchComparisonUpdate(
+                target: mismatchedTarget,
+                requestSequence: 3,
+                workerDerivationEpoch: 3
+            )
+            guard case .response(let mismatchAdmissionBytes) = mismatchDispatch else {
+                Issue.record("Expected the mismatched target operation admission")
+                return
+            }
+            let mismatchAdmission = try BridgeProductStrictJSON.decode(
+                BridgeProductOperationAdmittedResponse.self,
+                from: mismatchAdmissionBytes
+            )
+            await fixture.session.waitForOperationExecution(operationId: mismatchAdmission.operationId)
+            let comparisonAfterMismatch = controller.refreshAdmissionCoordinator
+                .productPresentationSnapshot.reviewComparison
+            #expect(comparisonAfterMismatch?.activeTarget == mismatchedTarget)
+            #expect(controller.bridgePaneState == stateA)
+            if let attempt = comparisonAfterMismatch?.attempt,
+                case .unavailable(let failureKind, let retryable) = attempt
+            {
+                #expect(failureKind == "target_mismatch")
+                #expect(!retryable)
+            } else {
+                Issue.record("Expected a target-scoped typed failure for the mismatched Review target")
+            }
+            #expect(comparisonAfterMismatch?.displayedSnapshot == .stale(lastGoodIdentity))
+            #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed)
+            // File and Comments share pane admission; a fresh token must remain available.
+            #expect(controller.productAdmissionGate.acquire()?.withValidAdmission({ true }) == true)
+
+            let mainDispatch = try await fixture.dispatchComparisonUpdate(
+                target: mainTarget,
+                requestSequence: 4,
+                workerDerivationEpoch: 4
+            )
+            if case .response = mainDispatch {
+                let mainResult = try await fixture.readOperationResult(for: mainDispatch)
+                let mainTargetBuild = try #require(controller.activeReviewRefreshTask)
+                await mainTargetBuild.value
+                #expect(mainResult.outcome == .succeeded)
+                #expect(controller.bridgePaneState == mainState)
+                #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+                #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed)
+            } else {
+                Issue.record("Expected main to remain admitted after a Review target mismatch")
+            }
+
+            await fixture.finish()
+            // finish tears the pane down; actual removal still ends E1.
+            #expect(!controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .closed)
         }
 
         @Test("contribution load publishes pending then exact settled snapshot identity")

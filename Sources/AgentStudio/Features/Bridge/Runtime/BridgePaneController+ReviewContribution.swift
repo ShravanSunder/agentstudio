@@ -17,8 +17,6 @@ extension BridgePaneController {
         guard let contributionTargetCommit
         else {
             reviewGitRefreshSeedHolder.retire()
-            productAdmissionGate.close()
-            refreshAdmissionCoordinator.close()
             return .rejected
         }
         guard
@@ -52,17 +50,35 @@ extension BridgePaneController {
             replacedLineage = false
         case .paneMissing, .notBridgePane, .notWorkspaceSource:
             reviewGitRefreshSeedHolder.retire()
-            productAdmissionGate.close()
-            refreshAdmissionCoordinator.close()
             return .rejected
         }
         guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
             canonicalBaseline?.contributionTarget == request.target
         else {
+            let didFailCurrentTarget =
+                productAdmission.withValidAdmission {
+                    refreshAdmissionCoordinator.workAdmissionSource.withCurrentReviewComparisonIntent(
+                        workerDerivationEpoch: workerDerivationEpoch,
+                        productAdmission: productAdmission
+                    ) {
+                        let reviewGeneration = nextReviewGeneration.next()
+                        nextReviewGeneration = reviewGeneration
+                        refreshAdmissionCoordinator.beginAndFailReviewComparisonAttempt(
+                            activeTarget: request.target,
+                            reviewGeneration: reviewGeneration.rawValue,
+                            failureKind: "target_mismatch",
+                            retryable: false
+                        )
+                        return true
+                    } ?? false
+                } ?? false
+            guard didFailCurrentTarget else { return .superseded }
             reviewGitRefreshSeedHolder.retire()
-            productAdmissionGate.close()
-            refreshAdmissionCoordinator.close()
-            return .rejected
+            refreshAdmissionCoordinator.advanceAuthority(for: .review)
+            retireActiveReviewRefreshTask()
+            // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
+            _ = scheduleProductPresentationPublication()
+            return .applied
         }
 
         guard
