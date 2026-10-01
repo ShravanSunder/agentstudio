@@ -384,9 +384,6 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     func shutdown() async {
-        for task in scrollbackRetirementTasksByID.values { await task.value }
-        scrollbackRetirementTasksByID.removeAll()
-        await scrollbackSnapshotter?.shutdown()
         terminalSessionCleanupStopped = true
         terminalSessionCleanupWakeups.continuation.finish()
         terminalSessionCleanupTask?.cancel()
@@ -396,6 +393,10 @@ final class WorkspaceSurfaceCoordinator {
         undoDeadlineTask?.cancel()
         await undoDeadlineTask?.value
         undoDeadlineTask = nil
+        // Undo expiry can submit retirement forwards until its task joins.
+        for task in scrollbackRetirementTasksByID.values { await task.value }
+        scrollbackRetirementTasksByID.removeAll()
+        await scrollbackSnapshotter?.shutdown()
         retireAllZoomCompanions()
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
