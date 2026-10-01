@@ -489,6 +489,7 @@ export const bridgeProductBootstrapPolicySchema = z
 	.object({
 		admissionRetryCount: bridgeProductNonnegativeSequenceSchema,
 		contentProgressDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,
+		contentAcknowledgementDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,
 		viewBatchProgressDeadlineMilliseconds: bridgeProductPositiveSequenceSchema,
 		maximumContentBytes: z
 			.number()

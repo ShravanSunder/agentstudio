@@ -48,6 +48,8 @@ extension BridgePaneProductFileMetadataSource {
             )
         else { return }
         let productSource = context.productSource
+        // Record interest while the inventory is frozen; post-open reconciliation enriches it.
+        guard !context.initialEnumerationInFlight else { return }
 
         let demandedPaths = canonicalDemand.lanesByPath.filter { path, _ in
             context.descriptorInterestRevisionByPath[path] != context.demandGeneration

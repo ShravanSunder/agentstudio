@@ -12,6 +12,11 @@ import {
 import { waitForCommittedAnnotationOutcome } from './bridge-viewer-vite-annotation-wire-response-observation.ts';
 import { launchBridgeViewerE2EChromium } from './bridge-viewer-vite-e2e-browser.ts';
 import { observeSelectedFileRetention } from './bridge-viewer-vite-file-retention-probe.ts';
+import { proveLostViewAcknowledgement } from './bridge-viewer-vite-lost-view-ack-proof.ts';
+import {
+	observeMetadataFrames,
+	type MetadataFrameObservation,
+} from './bridge-viewer-vite-metadata-frame-observation.ts';
 import {
 	createBridgeViewerViteProductFixture,
 	startBridgeViewerOwnedViteProductServer,
@@ -30,15 +35,6 @@ interface ReviewContentRequestObservation {
 }
 
 type BatchBegin = Extract<BridgeProductMetadataFrame, { readonly kind: 'subscription.batchBegin' }>;
-
-interface MetadataFrameObservation {
-	readonly frames: readonly BridgeProductMetadataFrame[];
-	readonly record: (frame: BridgeProductMetadataFrame) => void;
-	readonly waitFor: (
-		predicate: (frame: BridgeProductMetadataFrame) => boolean,
-		startingAt: number,
-	) => Promise<BridgeProductMetadataFrame>;
-}
 
 test('File and Review semantic part faults recover on the live Vite and Swift stream', async () => {
 	const fixture = await createBridgeViewerViteProductFixture();
@@ -194,6 +190,20 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 		expect(proxy.snapshot().metadataRequestCount).toBe(establishedStreamCount);
 		expect(proxy.snapshot().activeMetadataResponses).toBe(1);
 		expect(proxy.snapshot().lostViewAcknowledgements).toEqual([]);
+		await proveLostViewAcknowledgement({
+			metadataFrames,
+			page: activePage,
+			proxy,
+			mutateReviewFile: fixture.mutateReviewFile,
+			waitForUpdatedReview: async ({ path, priorRevision }): Promise<void> => {
+				await waitForReviewRevisionAfter(activePage, priorRevision);
+				await waitForSelectedReviewItemAfterMutation({
+					expectedPath: path,
+					page: activePage,
+					previousItemId: siblingReviewItemId,
+				});
+			},
+		});
 		expect(proxy.snapshot().semanticMetadataClosures).toEqual([]);
 	} catch (error: unknown) {
 		const snapshot = proxy?.snapshot();
@@ -237,36 +247,6 @@ test('File and Review semantic part faults recover on the live Vite and Swift st
 		});
 	}
 });
-
-function observeMetadataFrames(): MetadataFrameObservation {
-	const frames: BridgeProductMetadataFrame[] = [];
-	const waiters: {
-		readonly predicate: (frame: BridgeProductMetadataFrame) => boolean;
-		readonly resolve: (frame: BridgeProductMetadataFrame) => void;
-		readonly startingAt: number;
-	}[] = [];
-	return {
-		frames,
-		record: (frame): void => {
-			frames.push(frame);
-			const frameIndex = frames.length - 1;
-			for (let waiterIndex = waiters.length - 1; waiterIndex >= 0; waiterIndex -= 1) {
-				const waiter = waiters[waiterIndex];
-				if (waiter === undefined) continue;
-				if (frameIndex < waiter.startingAt || !waiter.predicate(frame)) continue;
-				waiters.splice(waiterIndex, 1);
-				waiter.resolve(frame);
-			}
-		},
-		waitFor: (predicate, startingAt): Promise<BridgeProductMetadataFrame> => {
-			const observed = frames.slice(startingAt).find(predicate);
-			if (observed !== undefined) return Promise.resolve(observed);
-			return new Promise((resolve): void => {
-				waiters.push({ predicate, resolve, startingAt });
-			});
-		},
-	};
-}
 
 async function proveAnnotationBatchRecovery(props: {
 	readonly kind: Extract<BridgeSemanticBatchKind, 'file.annotations' | 'review.annotations'>;

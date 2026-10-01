@@ -64,6 +64,10 @@ extension BridgePaneProductMetadataCoordinator {
     static func fileRefreshDisposition(
         for error: any Error
     ) -> BridgePaneProductFileRefreshPublicationDisposition {
+        if let rootAccessFailure = error as? BridgeWorktreeFileRootAccessError {
+            return .failed(
+                .init(failureKind: rootAccessFailure.retryable ? .fileSourceUnavailable : .producerRejected))
+        }
         if error is BridgePaneProductFileMetadataSourceError {
             return .failed(.init(failureKind: .fileSourceUnavailable))
         }
@@ -115,6 +119,7 @@ extension BridgePaneProductMetadataCoordinator {
     static func producerFailureReason(
         for error: any Error
     ) -> BridgeProductMetadataProducerFailureReason {
+        if error is BridgeWorktreeFileRootAccessError { return .fileSourceUnavailable }
         if error is CancellationError { return .cancellation }
         if let reviewSourceError = error as? BridgePaneProductReviewMetadataSourceError {
             switch reviewSourceError {

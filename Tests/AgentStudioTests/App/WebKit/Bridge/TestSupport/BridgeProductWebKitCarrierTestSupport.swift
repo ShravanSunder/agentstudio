@@ -187,8 +187,8 @@ actor BridgeWebKitTrackingFileMetadataSource:
         self.source = source
     }
 
-    func currentSource() async -> BridgeProductFileSourceCurrentResult {
-        await source.currentSource()
+    func currentSource() async throws(BridgeWorktreeFileRootAccessError) -> BridgeProductFileSourceCurrentResult {
+        try await source.currentSource()
     }
 
     func captureKeyedSnapshot(
@@ -327,6 +327,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private var corruptedPublicationId: UUID?
     private var didCorruptViewCapture = false
     private var deliveryAttempts: [BridgeProductWebKitCarrierReviewDeliveryAttempt] = []
+    private var firstViewCapture: BridgePaneProductReviewViewCapture?
     private var openedSubscriptions: [BridgeProductWebKitCarrierSubscriptionIdentity] = []
     private let firstOpen = HeldStep<BridgeProductWebKitCarrierSubscriptionIdentity>("first carrier metadata open")
     private var replayIsBlocked = false
@@ -368,6 +369,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
         guard
             let capture = try await source.applyViewDemand(request)
         else { return nil }
+        if firstViewCapture == nil { firstViewCapture = capture }
         guard request.expectedPublicationId == corruptedPublicationId, !didCorruptViewCapture,
             let itemIndex = capture.snapshot.items.firstIndex(where: { item in
                 let roles = item.record.contentByRole
@@ -459,6 +461,18 @@ actor BridgeWebKitFailingReviewMetadataSource:
 
     func armFailure(after publicationId: UUID) {
         armedPredecessorPublicationId = publicationId
+    }
+
+    func firstViewCaptureDiagnostic() -> String {
+        guard let capture = firstViewCapture else { return "none" }
+        let records =
+            [BridgeProductReviewBatchRecord.publication(capture.snapshot.publication)]
+            + capture.snapshot.items.map { BridgeProductReviewBatchRecord.item($0.record) }
+        let encodedRecords =
+            (try? JSONEncoder().encode(records))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "unavailable"
+        return
+            "publication=\(capture.publicationId),scopeRevision=\(capture.scopeRevision),targetRevision=\(capture.snapshot.targetRevision),items=\(capture.snapshot.items.count),records=\(encodedRecords)"
     }
 
     func releaseReplay() {

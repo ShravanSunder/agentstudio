@@ -584,9 +584,10 @@ private func sealSchemeHandlerFileBatch(
         absenceFloorRevisionByRange: [:]
     )
     try #require(
-        try await installation.session.sealFileSnapshot(
+        try await installation.session.sealFileCapture(
             subscriptionId: scope.subscriptionId,
             snapshot: snapshot,
+            scope: try #require(await installation.session.acceptedViewScope(subscriptionId: scope.subscriptionId)),
             productAdmission: productAdmission
         )
     )

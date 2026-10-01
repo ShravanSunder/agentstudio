@@ -2,13 +2,15 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 import { z } from 'zod';
 
-// oxlint-disable-next-line import/no-unassigned-import -- Exercise the real app's bootstrap callbacks and recovery UI.
-import './bridge-app.css';
 import {
 	createBridgePaneRuntime,
 	type BridgePaneRuntime,
 } from '../core/comm-worker/bridge-pane-runtime.js';
+
+// oxlint-disable-next-line import/no-unassigned-import -- Exercise the real app's bootstrap callbacks and recovery UI.
+import './bridge-app.css';
 import type { BridgePaneCommWorkerSessionDiagnosticSnapshot } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import pageConfigurationFixture from '../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import {
 	actUpdate,
 	actWait,
@@ -40,6 +42,7 @@ describe('BridgeApp initial bootstrap failure recovery', () => {
 		const ready = installControlledBridgeReadyHandshake();
 		const paneRuntime = createBridgePaneRuntime({
 			sessionProps: {
+				bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 				recordDiagnosticSnapshot: (snapshot): void => {
 					snapshots.push(snapshot);
 				},

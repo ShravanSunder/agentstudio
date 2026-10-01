@@ -168,32 +168,6 @@ struct BridgeProductSchemeAdapter: Sendable {
         }
     }
 
-    private func recordContainedFailure(
-        reason: BridgeProductSchemeContainedFailureReason
-    ) async {
-        guard let telemetryRecorder else { return }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .webKit,
-                name: "performance.bridge.webkit.product_scheme_failure_contained",
-                durationMilliseconds: nil,
-                traceContext: nil,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": "error",
-                    "agentstudio.bridge.plane": "observability",
-                    "agentstudio.bridge.priority": "hot",
-                    "agentstudio.bridge.result": "failure",
-                    "agentstudio.bridge.result_reason": reason.rawValue,
-                    "agentstudio.bridge.slice": "connection_health",
-                    "agentstudio.bridge.transport": "scheme",
-                ],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
-        )
-    }
-
     private func routeAccepted(
         _ request: BridgeProductSchemeAcceptedRequest,
         productAdmission: BridgeProductAdmissionContext,
@@ -583,12 +557,18 @@ struct BridgeProductSchemeAdapter: Sendable {
         productAdmission: BridgeProductAdmissionContext,
         continuation: BridgeProductSchemeReplyContinuation
     ) async throws {
-        guard
-            let metadataRequest = try? BridgeProductStrictJSON.decode(
+        let metadataRequest: BridgeProductMetadataStreamRequest
+        do {
+            metadataRequest = try BridgeProductStrictJSON.decode(
                 BridgeProductMetadataStreamRequest.self,
                 from: request.exactBodyBytes
             )
-        else {
+        } catch {
+            if let reason = BridgeProductSchemeMetadataDecodeRefusalReason(error: error) {
+                await recordContainedFailure(reason: reason)
+            } else {
+                await recordContainedFailure(reason: BridgeProductSchemeContainedFailureReason.unexpected)
+            }
             try await sendRejectedBody(
                 url: request.url,
                 productAdmission: productAdmission,
@@ -911,6 +891,44 @@ extension BridgeProductSchemeAdapter {
             .streamSequenceConflict, .unknownSubscription:
             409
         }
+    }
+}
+
+extension BridgeProductSchemeAdapter {
+    fileprivate func recordContainedFailure(
+        reason: BridgeProductSchemeContainedFailureReason
+    ) async {
+        await recordContainedFailure(reasonValue: reason.rawValue)
+    }
+
+    fileprivate func recordContainedFailure(
+        reason: BridgeProductSchemeMetadataDecodeRefusalReason
+    ) async {
+        await recordContainedFailure(reasonValue: reason.rawValue)
+    }
+
+    fileprivate func recordContainedFailure(reasonValue: String) async {
+        guard let telemetryRecorder else { return }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .webKit,
+                name: "performance.bridge.webkit.product_scheme_failure_contained",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.phase": "error",
+                    "agentstudio.bridge.plane": "observability",
+                    "agentstudio.bridge.priority": "hot",
+                    "agentstudio.bridge.result": "failure",
+                    "agentstudio.bridge.result_reason": reasonValue,
+                    "agentstudio.bridge.slice": "connection_health",
+                    "agentstudio.bridge.transport": "scheme",
+                ],
+                numericAttributes: [:],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
     }
 }
 

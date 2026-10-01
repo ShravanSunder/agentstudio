@@ -1,6 +1,7 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- MessagePort postMessage does not accept a target origin.
 import { describe, expect, test, vi } from 'vitest';
 
+import pageConfigurationFixture from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import { BridgePaneCommWorkerSession } from './bridge-pane-comm-worker-session.js';
 import {
 	MessagePortRecorder,
@@ -28,6 +29,7 @@ describe('Bridge pane comm worker session suspect recovery', () => {
 		const replacementReasons: string[] = [];
 		const replacementFacts: unknown[] = [];
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			recordDiagnosticSnapshot: (snapshot): void => {
 				if (snapshot.state === 'replacement_requested') {
 					replacementFacts.push(snapshot.lastReplacementReason);

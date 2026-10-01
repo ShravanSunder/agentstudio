@@ -62,6 +62,10 @@ actor BridgeProductSession {
     var viewAcknowledgementReplayByDomain: [BridgeProductViewDomainKey: (requestBytes: Data, responseBytes: Data)] =
         [:]
     var nextViewDeliverySequenceByDomain: [BridgeProductViewDomainKey: Int] = [:]
+    var lastSealedFileTargetByViewDomain: [BridgeProductViewDomainKey: Int] = [:]
+    typealias FileCaptureBatchSealer =
+        @Sendable (BridgeProductFileViewSnapshotInput, Int?) throws -> BridgeProductSealedViewBatch
+    let fileCaptureBatchSealer: FileCaptureBatchSealer
     var pendingFileSnapshotByViewDomain: [BridgeProductViewDomainKey: BridgeWorktreeFileKeyedSnapshot] = [:]
     var pendingReviewSnapshotByViewDomain: [BridgeProductViewDomainKey: BridgeProductReviewKeyedSnapshot] = [:]
     var viewEmissionWaiterByDomain: [BridgeProductViewDomainKey: BridgeProductViewEmissionWaiter] = [:]
@@ -89,7 +93,8 @@ actor BridgeProductSession {
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         producerFrameWaiterRegistrationObserver: ProducerFrameWaiterRegistrationObserver? = nil,
         resultWaiterRegistrationObserver: ResultWaiterRegistrationObserver? = nil,
-        viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver? = nil
+        viewEmissionWaiterRegistrationObserver: ViewEmissionWaiterRegistrationObserver? = nil,
+        fileCaptureBatchSealer: FileCaptureBatchSealer? = nil
     ) throws {
         guard maximumRequestOrResponseBytes > 0,
             maximumRequestOrResponseBytes <= BridgeProductWireContract.maximumRequestBodyBytes
@@ -113,6 +118,11 @@ actor BridgeProductSession {
         self.producerFrameWaiterRegistrationObserver = producerFrameWaiterRegistrationObserver
         self.resultWaiterRegistrationObserver = resultWaiterRegistrationObserver
         self.viewEmissionWaiterRegistrationObserver = viewEmissionWaiterRegistrationObserver
+        self.fileCaptureBatchSealer =
+            fileCaptureBatchSealer ?? { input, base in
+                if let base { return try BridgeProductFileViewBatchFactory.sealChange(input, baseRevision: base) }
+                return try BridgeProductFileViewBatchFactory.sealSnapshot(input)
+            }
         self.producerRegistry = BridgeProductProducerRegistry(
             limits: producerQueueLimits,
             deadlineClock: resolvedDeadlineClock

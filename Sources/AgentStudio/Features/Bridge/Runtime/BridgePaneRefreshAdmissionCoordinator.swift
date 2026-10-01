@@ -235,6 +235,23 @@ final class BridgePaneRefreshAdmissionCoordinator {
         presentationRevision += 1
     }
 
+    func beginAndFailReviewComparisonAttempt(
+        activeTarget: WorkspaceReviewContributionTarget,
+        reviewGeneration: Int,
+        failureKind: String,
+        retryable: Bool
+    ) {
+        beginReviewComparisonAttempt(
+            activeTarget: activeTarget,
+            reviewGeneration: reviewGeneration
+        )
+        failReviewComparisonAttempt(
+            reviewGeneration: reviewGeneration,
+            failureKind: failureKind,
+            retryable: retryable
+        )
+    }
+
     func isReviewComparisonAttemptPending(reviewGeneration: Int) -> Bool {
         reviewComparison?.attempt == .pending(reviewGeneration: reviewGeneration)
     }
