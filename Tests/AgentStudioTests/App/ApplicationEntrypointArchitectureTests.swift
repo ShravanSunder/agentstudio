@@ -439,9 +439,14 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(joinConnectionHandlersIndex < credentialDrainCallIndex)
         #expect(ipcBootSource.contains("let paneIPCIdentityOwner = paneIPCIdentityOwner!"))
         #expect(!ipcBootSource.contains("self.appIPCInitializationTask = nil"))
-        #expect(
-            ipcBootSource.components(separatedBy: "guard appIPCServer == nil else { return }").count - 1
-                == 2)
+        let ipcStartRange = try #require(
+            ipcBootSource.range(of: "func startAppIPCServer() async -> AppIPCStartUnavailability? {"))
+        let ipcStartEndRange = try #require(
+            ipcBootSource.range(of: "\n    }\n", range: ipcStartRange.upperBound..<ipcBootSource.endIndex))
+        let ipcStartBody = ipcBootSource[ipcStartRange.upperBound..<ipcStartEndRange.lowerBound]
+        // Pin both already-running guards: at entry and after optional schema preparation.
+        let alreadyRunningGuard = "guard appIPCServer == nil else { return nil }"
+        #expect(ipcStartBody.components(separatedBy: alreadyRunningGuard).count - 1 == 2)
         #expect(ipcBootSource.contains("import AgentStudioAppIPC"))
         #expect(ipcBootSource.contains("import AgentStudioProgrammaticControl"))
         #expect(ipcBootSource.contains("AppIPCBuiltInMethodRegistrations.make("))
