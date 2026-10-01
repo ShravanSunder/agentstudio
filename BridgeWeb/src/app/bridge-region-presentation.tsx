@@ -16,7 +16,6 @@ export interface BridgeRegionPresentationProps {
 	};
 	readonly region: string;
 	readonly retry?: ReactNode;
-	readonly heldAction?: ReactNode;
 	readonly shape: 'tree' | 'code' | 'diff' | 'comments' | 'markdown';
 	readonly state: BridgeRegionPresentationState;
 }
@@ -44,14 +43,6 @@ export function BridgeRegionPresentation(props: BridgeRegionPresentationProps): 
 			data-empty-reason={state.kind === 'empty' ? state.reason : undefined}
 			data-content-current={state.kind === 'content' ? 'true' : 'false'}
 		>
-			{state.kind === 'updating' ? (
-				<div
-					className="flex shrink-0 items-center justify-between gap-2 px-2 py-1 text-xs text-muted-foreground"
-					role="status"
-				>
-					Updating{state.rest === 'held' ? props.heldAction : null}
-				</div>
-			) : null}
 			{state.kind === 'failed' ? (
 				<Alert layout="banner" variant="warning">
 					<AlertTitle>{state.failure.message}</AlertTitle>
@@ -120,5 +111,55 @@ export function BridgeRegionPresentation(props: BridgeRegionPresentationProps): 
 				</div>
 			) : null}
 		</div>
+	);
+}
+
+export interface BridgeRegionPresentationComposition {
+	readonly body: ReactElement;
+	readonly state: BridgeRegionPresentationState;
+	readonly held?: { readonly label: string; readonly action: ReactNode } | undefined;
+}
+
+/** The read owner supplies values; the header owner supplies placement. */
+export type BridgeRegionPresentationRenderSlot = (
+	presentation: BridgeRegionPresentationComposition,
+) => ReactElement;
+
+/** Shared quiet status, composed in existing chrome without changing the body geometry. */
+export function BridgeRegionUpdatingIndicator(props: {
+	readonly state: BridgeRegionPresentationState;
+	readonly held?: BridgeRegionPresentationComposition['held'];
+	readonly placement?: 'header' | 'floating';
+}): ReactElement | null {
+	if (props.state.kind !== 'updating') return null;
+	const held = props.state.rest === 'held' ? props.held : undefined;
+	const label = held?.label ?? 'Updating';
+	const content = (
+		<>
+			<span>{label}</span>
+			{held === undefined ? null : <span className="sr-only">Updating</span>}
+			{held?.action}
+		</>
+	);
+	return props.placement === 'floating' ? (
+		<Alert
+			aria-label={label}
+			className="pointer-events-auto items-center"
+			layout="floating"
+			role="status"
+			variant="floating"
+		>
+			<AlertTitle>{label}</AlertTitle>
+			{held === undefined ? null : <span className="sr-only">Updating</span>}
+			{held === undefined ? null : <AlertAction className="self-center">{held.action}</AlertAction>}
+		</Alert>
+	) : (
+		<span
+			aria-label={label}
+			className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
+			role="status"
+		>
+			{content}
+		</span>
 	);
 }

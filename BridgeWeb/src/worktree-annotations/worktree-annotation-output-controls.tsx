@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { Drawer } from '@/components/ui/drawer.js';
 
+import { BridgeRegionUpdatingIndicator } from '../app/bridge-region-presentation.js';
 import { BridgeViewerContextPanel } from '../app/bridge-viewer-context-panel.js';
 import { BridgeViewerRecoveryRetryButton } from '../app/bridge-viewer-recovery-retry-button.js';
 import {
@@ -16,7 +17,10 @@ import {
 	useWorktreeAnnotationOutputPendingController,
 } from './worktree-annotation-output-pending-controller.js';
 import { annotationOutputFeedback } from './worktree-annotation-output-presentation.js';
-import { worktreeAnnotationSurfacePresentationStatus } from './worktree-annotation-region-presentation.js';
+import {
+	worktreeAnnotationSurfacePresentationStatus,
+	worktreeAnnotationRegionPresentation,
+} from './worktree-annotation-region-presentation.js';
 import {
 	WorktreeAnnotationShareModeRow,
 	WorktreeAnnotationShareTrigger,
@@ -199,8 +203,15 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 	);
 	if (projection.revision === null || session === undefined) {
 		const knownEmpty = projection.revision !== null && projection.sessions.length === 0;
+		const presentationState = worktreeAnnotationRegionPresentation({
+			readiness: knownEmpty ? 'current' : 'unknown',
+			hasContent: false,
+			hasSelection: !selection.requiresExplicitSelection,
+			surface: commentsSurface,
+		});
 		return (
 			<WorktreeAnnotationShareModeRow
+				regionIndicator={<BridgeRegionUpdatingIndicator state={presentationState} />}
 				error={
 					selection.requiresExplicitSelection ? 'Choose a review session to share comments.' : null
 				}
@@ -217,6 +228,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 				scope={displayedScope}
 			>
 				<WorktreeAnnotationSharePreview
+					presentationState={presentationState}
 					surfaceStatus={commentsSurface}
 					retryControl={commentsRetry}
 					hasSelection={!selection.requiresExplicitSelection}
@@ -242,6 +254,14 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 		projection.readStatus.kind === 'ready' &&
 		!projection.unreconciledCommandReceiptSessionIds.includes(session.sessionId) &&
 		viewedController.isOutputReady(session.sessionId, session.semanticRevision, sessionMessages);
+	const commentsPresentation = worktreeAnnotationRegionPresentation({
+		readiness: isOutputReady ? 'current' : 'unconfirmed',
+		hasSelection: true,
+		hasContent: [...shared.inlineThreads, ...shared.otherThreads].some(
+			(thread): boolean => thread.messages.length > 0,
+		),
+		surface: commentsSurface,
+	});
 	const clearHandled = async (attemptId: string, sessionId: string): Promise<void> => {
 		try {
 			const outcome = await clearWorktreeAnnotationOutputHandled({
@@ -379,6 +399,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 	};
 	return (
 		<WorktreeAnnotationShareModeRow
+			regionIndicator={<BridgeRegionUpdatingIndicator state={commentsPresentation} />}
 			error={error}
 			errorCanChooseFolder={errorCanChooseFolder}
 			isOutputPending={props.outputPendingController.isPending}
@@ -405,6 +426,7 @@ function WorktreeAnnotationShareSurfaceContent(props: {
 			scope={displayedScope}
 		>
 			<WorktreeAnnotationSharePreview
+				presentationState={commentsPresentation}
 				surfaceStatus={commentsSurface}
 				retryControl={commentsRetry}
 				scope={displayedScope}

@@ -2,7 +2,10 @@ import { FileTree } from '@pierre/trees/react';
 import type { ReactElement, ReactNode, Ref } from 'react';
 
 import type { BridgeRegionPresentationState } from '../app/bridge-region-presentation-state.js';
-import { BridgeRegionPresentation } from '../app/bridge-region-presentation.js';
+import {
+	BridgeRegionPresentation,
+	BridgeRegionUpdatingIndicator,
+} from '../app/bridge-region-presentation.js';
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../app/bridge-viewer-search-control.js';
@@ -136,6 +139,9 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					leading: (
 						<>
 							{props.viewerContextSwitcher}
+							<BridgeRegionUpdatingIndicator
+								state={props.presentationState ?? { kind: 'content' }}
+							/>
 							<span
 								aria-live="polite"
 								className="sr-only"

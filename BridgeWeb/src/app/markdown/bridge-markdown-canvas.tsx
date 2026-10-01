@@ -24,9 +24,14 @@ import {
 	useWorktreeAnnotationProjection,
 } from '../../worktree-annotations/worktree-annotation-surface-provider.js';
 import type { BridgeRegionSurfaceStatus } from '../bridge-region-presentation-state.js';
-import { BridgeRegionPresentation } from '../bridge-region-presentation.js';
-import { BridgeViewerFileChangedAlert } from '../bridge-viewer-file-changed-alert.js';
+import {
+	BridgeRegionPresentation,
+	BridgeRegionUpdatingIndicator,
+	type BridgeRegionPresentationRenderSlot,
+} from '../bridge-region-presentation.js';
 import { BridgeViewerRecoveryRetryButton } from '../bridge-viewer-recovery-retry-button.js';
+import { bridgeViewerRegionApplyActionSpec } from '../bridge-viewer-region-apply-action-spec.js';
+import { BridgeViewerRegionApplyAction } from '../bridge-viewer-region-apply-action.js';
 import { BridgeMarkdownAnnotationLayer } from './bridge-markdown-annotation-layer.js';
 import { bridgeMarkdownRegionPresentation } from './bridge-markdown-region-presentation.js';
 import {
@@ -56,6 +61,7 @@ export interface BridgeMarkdownRenderFulfillment {
 }
 
 export interface BridgeMarkdownCanvasProps {
+	readonly renderRegion?: BridgeRegionPresentationRenderSlot | undefined;
 	readonly annotationSource?:
 		| { readonly item: BridgeFileViewerSelectedCodeViewItem | null }
 		| undefined;
@@ -70,23 +76,26 @@ export interface BridgeMarkdownCanvasProps {
 export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactElement {
 	if (props.presentationState.status !== 'ready') {
 		const state = props.presentationState;
-		return (
+		const presentationState = bridgeMarkdownRegionPresentation({
+			presentation: state,
+			isActive: props.isActive,
+			surface: props.surfaceStatus,
+		});
+		const body = (
 			<BridgeRegionPresentation
 				region="markdown"
 				shape="markdown"
 				emptyCopy={{ noSelection: 'Select a Markdown file', certified: 'Document is empty' }}
 				retry={<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />}
-				state={bridgeMarkdownRegionPresentation({
-					presentation: state,
-					isActive: props.isActive,
-					surface: props.surfaceStatus,
-				})}
+				state={presentationState}
 			/>
 		);
+		return props.renderRegion?.({ body, state: presentationState }) ?? body;
 	}
 
 	return (
 		<BridgeMarkdownReadyDocument
+			renderRegion={props.renderRegion}
 			retry={props.retry}
 			annotationSource={props.annotationSource}
 			isActive={props.isActive}
@@ -101,6 +110,7 @@ export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactEle
 }
 
 const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(props: {
+	readonly renderRegion?: BridgeRegionPresentationRenderSlot | undefined;
 	readonly retry: () => void;
 	readonly annotationSource?:
 		| { readonly item: BridgeFileViewerSelectedCodeViewItem | null }
@@ -286,39 +296,43 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 		};
 	}, [diagramRetryRevision, props.isActive, props.mermaidRenderer, presentation]);
 
-	return (
+	const regionState = bridgeMarkdownRegionPresentation({
+		presentation: props.presentation,
+		displayed: presentation,
+		isActive: props.isActive,
+		surface: props.surfaceStatus,
+		held:
+			installationFailure ||
+			(presentation.identity.requestId !== props.presentation.identity.requestId &&
+				(editTokens.size > 0 || keepsConfirmedSource)),
+	});
+	const applyDisplay = bridgeViewerRegionApplyActionSpec('markdown', explicitInstallationFailure);
+	const held = {
+		label: applyDisplay.statusLabel,
+		action: (
+			<BridgeViewerRegionApplyAction
+				display={applyDisplay}
+				pending={installationPending}
+				onApply={(): void => {
+					void installLatestCandidate();
+				}}
+			/>
+		),
+	};
+	const body = (
 		<BridgeRegionPresentation
 			region="markdown"
 			shape="markdown"
-			state={bridgeMarkdownRegionPresentation({
-				presentation: props.presentation,
-				displayed: presentation,
-				isActive: props.isActive,
-				surface: props.surfaceStatus,
-				held:
-					installationFailure ||
-					(presentation.identity.requestId !== props.presentation.identity.requestId &&
-						(editTokens.size > 0 || keepsConfirmedSource)),
-			})}
+			state={regionState}
 			retry={<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />}
 		>
 			<div
 				className="bridge-scrollbar relative h-full min-h-0 overflow-auto bg-background"
 				data-markdown-scroll-viewport
 			>
-				{installationFailure ||
-				(presentation.sourcePath === props.presentation.sourcePath &&
-					presentation.identity.requestId !== props.presentation.identity.requestId &&
-					(editTokens.size > 0 || keepsConfirmedSource)) ? (
+				{props.renderRegion === undefined ? (
 					<div className="pointer-events-none sticky top-2 z-20 ml-auto h-0 w-fit pr-2">
-						<BridgeViewerFileChangedAlert
-							installationFailed={explicitInstallationFailure}
-							installationPending={installationPending}
-							onUpdate={(): void => {
-								void installLatestCandidate();
-							}}
-							updateActionLabel="Update Markdown file"
-						/>
+						<BridgeRegionUpdatingIndicator state={regionState} held={held} placement="floating" />
 					</div>
 				) : null}
 				<div className="bridge-markdown-document-frame">
@@ -353,6 +367,7 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 			</div>
 		</BridgeRegionPresentation>
 	);
+	return props.renderRegion?.({ body, state: regionState, held }) ?? body;
 });
 
 const BridgeMarkdownArticle = memo(function BridgeMarkdownArticle(props: {

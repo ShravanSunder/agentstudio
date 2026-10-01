@@ -11,8 +11,14 @@ import {
 } from 'react';
 
 import type { BridgeRegionPresentationState } from '../app/bridge-region-presentation-state.js';
-import { BridgeRegionPresentation } from '../app/bridge-region-presentation.js';
-import { BridgeViewerFileChangedAlert } from '../app/bridge-viewer-file-changed-alert.js';
+import {
+	BridgeRegionPresentation,
+	BridgeRegionUpdatingIndicator,
+	type BridgeRegionPresentationRenderSlot,
+} from '../app/bridge-region-presentation.js';
+import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
+import { bridgeViewerRegionApplyActionSpec } from '../app/bridge-viewer-region-apply-action-spec.js';
+import { BridgeViewerRegionApplyAction } from '../app/bridge-viewer-region-apply-action.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { codeViewSelectionScrollRetryFrameBudget } from '../review-viewer/code-view/bridge-code-view-panel-types.js';
 import {
@@ -72,7 +78,7 @@ export interface BridgeFileViewerCodePanelProps {
 	>;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly totalHeightPixels: number | null;
-	readonly staleNotice?: ReactElement | null;
+	readonly renderRegion?: BridgeRegionPresentationRenderSlot | undefined;
 }
 
 interface FileAnnotationAdmissionIdentity {
@@ -242,13 +248,36 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		props.openFileState,
 		displayedCodeViewItem,
 	]);
-	const presentationState =
+	const basePresentationState =
 		props.presentationState ??
 		bridgeFileContentPresentation({
 			openFileState: props.openFileState,
 			displayedFileId: displayedCodeViewItem?.bridgeMetadata.itemId ?? null,
 			surface: { kind: 'current' },
 		});
+	const presentationState: BridgeRegionPresentationState =
+		retainsAnnotationSource && basePresentationState.kind !== 'failed'
+			? { kind: 'updating', rest: 'held' }
+			: basePresentationState;
+	const applyDisplay = bridgeViewerRegionApplyActionSpec(
+		'file',
+		sourcePinRelease.failedSourceDescriptorId === previousSourceId,
+	);
+	const held =
+		retainsAnnotationSource && previousSourceId !== undefined
+			? {
+					label: applyDisplay.statusLabel,
+					action: (
+						<BridgeViewerRegionApplyAction
+							display={applyDisplay}
+							pending={sourcePinRelease.pendingSourceDescriptorId === previousSourceId}
+							onApply={(): void => {
+								sourcePinRelease.release(previousSourceId);
+							}}
+						/>
+					),
+				}
+			: undefined;
 	useLayoutEffect((): void => {
 		if (displayedCodeViewItem === null) return;
 		reconcileBridgeCodeViewRenderFulfillment({
@@ -506,7 +535,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			scrollOwner?.removeEventListener('pointerdown', cancelByUser);
 		};
 	}, [displayedCodeViewItem, navigation, navigationTarget, navigationPaintRevision]);
-	return (
+	const body = (
 		<section
 			aria-label="Selected file"
 			className="relative h-full min-h-0 min-w-0 overflow-hidden bg-background"
@@ -618,20 +647,20 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 					</div>
 				</BridgePierreWorkerPoolProvider>
 			</BridgeRegionPresentation>
-			{props.staleNotice ??
-				(retainsAnnotationSource && previousSourceId !== undefined ? (
-					<div className="pointer-events-none absolute right-2 bottom-2">
-						<BridgeViewerFileChangedAlert
-							installationFailed={sourcePinRelease.failedSourceDescriptorId === previousSourceId}
-							installationPending={sourcePinRelease.pendingSourceDescriptorId === previousSourceId}
-							onUpdate={(): void => {
-								sourcePinRelease.release(previousSourceId);
-							}}
-							updateActionLabel="Update file"
-						/>
-					</div>
-				) : null)}
 		</section>
+	);
+	return (
+		props.renderRegion?.({ body, state: presentationState, held }) ?? (
+			<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
+				<BridgeViewerContentHeader
+					mode="file"
+					statusText={null}
+					title={displayedCodeViewItem?.bridgeMetadata.displayPath ?? ''}
+					regionIndicator={<BridgeRegionUpdatingIndicator state={presentationState} held={held} />}
+				/>
+				{body}
+			</section>
+		)
 	);
 }
 

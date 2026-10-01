@@ -21,7 +21,10 @@ import {
 } from '@/components/ui/card.js';
 import { ItemDescription, ItemMetadata, ItemMetadataIcon } from '@/components/ui/item-content.js';
 
-import { type BridgeRegionSurfaceStatus } from '../app/bridge-region-presentation-state.js';
+import {
+	type BridgeRegionSurfaceStatus,
+	type BridgeRegionPresentationState,
+} from '../app/bridge-region-presentation-state.js';
 import { BridgeRegionPresentation } from '../app/bridge-region-presentation.js';
 import {
 	WorktreeAnnotationAuthorLabel,
@@ -52,6 +55,7 @@ interface AnnotationPreviewNavigationProps {
 }
 
 interface WorktreeAnnotationSharePreviewProps extends AnnotationPreviewNavigationProps {
+	readonly presentationState?: BridgeRegionPresentationState;
 	readonly surfaceStatus?: BridgeRegionSurfaceStatus;
 	readonly retryControl?: ReactElement;
 	readonly hasSelection?: boolean;
@@ -66,12 +70,14 @@ export function WorktreeAnnotationSharePreview(
 ): ReactElement {
 	const participatingThreads = [...props.inlineThreads, ...props.otherThreads];
 	const hasContent = participatingThreads.some((thread): boolean => thread.messages.length > 0);
-	const state = worktreeAnnotationRegionPresentation({
-		readiness: props.readiness,
-		hasContent,
-		hasSelection: props.hasSelection !== false,
-		...(props.surfaceStatus === undefined ? {} : { surface: props.surfaceStatus }),
-	});
+	const state =
+		props.presentationState ??
+		worktreeAnnotationRegionPresentation({
+			readiness: props.readiness,
+			hasContent,
+			hasSelection: props.hasSelection !== false,
+			...(props.surfaceStatus === undefined ? {} : { surface: props.surfaceStatus }),
+		});
 	return (
 		<BridgeRegionPresentation
 			region="comments"

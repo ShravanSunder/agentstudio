@@ -1,5 +1,9 @@
 import { useRef, type ReactElement, type ReactNode } from 'react';
 
+import {
+	BridgeRegionUpdatingIndicator,
+	type BridgeRegionPresentationRenderSlot,
+} from '../app/bridge-region-presentation.js';
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import {
 	BridgeViewerContextPanelProvider,
@@ -127,6 +131,24 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 		props.onRetryFile === undefined ? undefined : (
 			<BridgeViewerRecoveryRetryButton surface="file" onClick={props.onRetryFile} />
 		);
+	const renderContentRegion: BridgeRegionPresentationRenderSlot = ({
+		body,
+		state,
+		held,
+	}): ReactElement => (
+		<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
+			<BridgeViewerContentHeader
+				controls={props.viewerHeaderControls}
+				mode="file"
+				statusText={null}
+				title={props.contentHeaderTitle}
+				regionIndicator={<BridgeRegionUpdatingIndicator state={state} held={held} />}
+			/>
+			<BridgeViewerContextPanelViewport testId="bridge-file-viewer-context-panel-viewport">
+				{body}
+			</BridgeViewerContextPanelViewport>
+		</section>
+	);
 	return (
 		<main
 			ref={surfaceRootRef}
@@ -169,55 +191,47 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 				isActive={true}
 				content={
 					<BridgeViewerContextPanelProvider>
-						<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
-							<BridgeViewerContentHeader
-								controls={props.viewerHeaderControls}
-								mode="file"
-								statusText={null}
-								title={props.contentHeaderTitle}
+						{props.markdownPresentation === null || props.markdownPresentation === undefined ? (
+							<BridgeFileViewerCodePanel
+								renderRegion={renderContentRegion}
+								presentationState={contentPresentation}
+								retryControl={retryControl}
+								openFileState={props.openFileState}
+								renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
+								selectedCodeViewItem={props.selectedCodeViewItem}
+								totalHeightPixels={props.openFileTotalHeightPixels}
+								{...(props.codeViewOptions === undefined
+									? {}
+									: { codeViewOptions: props.codeViewOptions })}
+								{...(props.codeViewWorkerFactory === undefined
+									? {}
+									: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+								{...(props.codeViewWorkerPoolEnabled === undefined
+									? {}
+									: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 							/>
-							<BridgeViewerContextPanelViewport testId="bridge-file-viewer-context-panel-viewport">
-								{props.markdownPresentation === null || props.markdownPresentation === undefined ? (
-									<BridgeFileViewerCodePanel
-										presentationState={contentPresentation}
-										retryControl={retryControl}
-										openFileState={props.openFileState}
-										renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
-										selectedCodeViewItem={props.selectedCodeViewItem}
-										totalHeightPixels={props.openFileTotalHeightPixels}
-										{...(props.codeViewOptions === undefined
-											? {}
-											: { codeViewOptions: props.codeViewOptions })}
-										{...(props.codeViewWorkerFactory === undefined
-											? {}
-											: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-										{...(props.codeViewWorkerPoolEnabled === undefined
-											? {}
-											: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-									/>
-								) : (
-									<BridgeMarkdownCanvas
-										annotationSource={{ item: props.selectedCodeViewItem }}
-										isActive={props.isActive}
-										presentationState={props.markdownPresentation.presentationState}
-										{...(props.markdownPresentation.intent === null ||
-										props.selectedCodeViewItem === null
-											? {}
-											: {
-													renderFulfillment: {
-														coordinator: props.renderFulfillmentCoordinator,
-														intent: props.markdownPresentation.intent,
-														selectedItem: props.selectedCodeViewItem,
-													},
-												})}
-										retry={props.markdownPresentation.retry}
-										{...(props.markdownPresentation.mermaidRenderer === undefined
-											? {}
-											: { mermaidRenderer: props.markdownPresentation.mermaidRenderer })}
-									/>
-								)}
-							</BridgeViewerContextPanelViewport>
-						</section>
+						) : (
+							<BridgeMarkdownCanvas
+								renderRegion={renderContentRegion}
+								annotationSource={{ item: props.selectedCodeViewItem }}
+								isActive={props.isActive}
+								presentationState={props.markdownPresentation.presentationState}
+								{...(props.markdownPresentation.intent === null ||
+								props.selectedCodeViewItem === null
+									? {}
+									: {
+											renderFulfillment: {
+												coordinator: props.renderFulfillmentCoordinator,
+												intent: props.markdownPresentation.intent,
+												selectedItem: props.selectedCodeViewItem,
+											},
+										})}
+								retry={props.markdownPresentation.retry}
+								{...(props.markdownPresentation.mermaidRenderer === undefined
+									? {}
+									: { mermaidRenderer: props.markdownPresentation.mermaidRenderer })}
+							/>
+						)}
 					</BridgeViewerContextPanelProvider>
 				}
 				contentTestId="bridge-file-viewer-content-panel"
