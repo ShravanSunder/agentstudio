@@ -10,8 +10,11 @@ package struct SessionsRepository: Sendable {
 
     package func apply(
         operation: SessionsRepositoryOperation,
+        commitParticipant: (any SessionsCommitParticipant)? = nil,
         reducing: @Sendable (SessionsRepositoryContext) throws -> SessionsRepositoryReduction
     ) async throws -> SessionsSubmissionResult {
+        // S2 red scaffold: the optional input compiles but does not join the
+        // transaction until the Lead verifies the participant tests are red.
         try await sqliteAccess.write { database in
             if let replay = try SessionsRepositoryStorage.loadOperationReplay(
                 database: database,

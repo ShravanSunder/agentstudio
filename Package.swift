@@ -41,6 +41,7 @@ let package = Package(
             name: "AgentStudio",
             dependencies: [
                 "AgentStudioAppIPC",
+                "AgentStudioCLIStore",
                 "AgentStudioBridge",
                 "AgentStudioCodeViewer",
                 "AgentStudioCommandBar",
@@ -625,6 +626,7 @@ let package = Package(
                 "AgentStudioSessions",
                 "AgentStudioCore",
                 "AgentStudioInfrastructure",
+                "AgentStudioTestHarness",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Tests/AgentStudioTests/Features/Sessions",
@@ -634,6 +636,7 @@ let package = Package(
             name: "AgentStudioIPCClientTests",
             dependencies: [
                 "AgentStudioIPCClientCore",
+                "AgentStudioCLIStore",
                 "AgentStudioIPCTransport",
                 "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",
@@ -652,6 +655,7 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 "AgentStudioAppIPC",
+                "AgentStudioCLIStore",
                 "AgentStudioBridge",
                 "AgentStudioCodeViewer",
                 "AgentStudioCommandBar",

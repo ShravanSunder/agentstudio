@@ -57,8 +57,10 @@ package actor SessionsIngestion {
 
     package func submit(
         correlationId: UUID,
-        mutation: SessionsMutation
+        mutation: SessionsMutation,
+        commitParticipant: (any SessionsCommitParticipant)? = nil
     ) async throws -> SessionsMutationOutcome {
+        // S2 red scaffold: participant plumbing is deliberately not implemented.
         try await submitWithCommitDisposition(correlationId: correlationId, mutation: mutation).outcome
     }
 

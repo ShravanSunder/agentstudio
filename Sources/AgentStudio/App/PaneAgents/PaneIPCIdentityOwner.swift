@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioCLIStore
 import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
@@ -45,8 +46,12 @@ final class PaneIPCIdentityOwner {
         cliExecutableURL: URL,
         inheritedEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         canonicalPaneMembership: @escaping @MainActor @Sendable (UUID, UUID) -> Bool,
-        randomBytes: @escaping @Sendable () throws -> Data = secureRandomBytes
+        randomBytes: @escaping @Sendable () throws -> Data = secureRandomBytes,
+        cliStoreURL: URL? = nil,
+        cliStoreChannel: CLIStoreChannel? = nil
     ) {
+        // S2 red scaffold: the store environment inputs intentionally do not
+        // reach pane environments until their export tests have failed.
         self.principalRegistry = principalRegistry
         self.socketURL = socketURL
         self.spoolDirectory = spoolDirectory
