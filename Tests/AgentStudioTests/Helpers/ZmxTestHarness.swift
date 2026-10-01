@@ -56,6 +56,11 @@ final class ZmxTestHarness: @unchecked Sendable {
 
     let zmxDir: String
     let zmxPath: String?
+    /// R1 gate (Lead 2026-10-01): a scratch `HOME`/`ZDOTDIR` for every spawned
+    /// zmx/shell process, created here and removed alongside `zmxDir` in
+    /// `cleanup()`. Keeps the cold-restore script's `exec <loginShell> -i -l`
+    /// from sourcing the owner's real `.bash_profile`/`.profile`/`.zshrc`.
+    let scratchHomeDirectory: String
     private let executor: any ProcessExecutor
     private var spawnedProcesses: [SpawnedProcess] = []
     private let clock = ContinuousClock()
@@ -68,6 +73,9 @@ final class ZmxTestHarness: @unchecked Sendable {
         // the Darwin 103-byte usable Unix domain socket payload limit. Main
         // /tmp/zt-<12chars>/ leaves ample room for the app's generated session IDs.
         self.zmxDir = "/tmp/zt-\(shortId)"
+        self.scratchHomeDirectory = "/tmp/zt-\(shortId)-home"
+        try? FileManager.default.createDirectory(
+            atPath: scratchHomeDirectory, withIntermediateDirectories: true)
         // zmx kill and list run to exit with no per-call time limit: a slow runner must not turn a
         // correct call into a timeout and a retry. A wedged zmx is caught by the lane's hang bound.
         self.executor = RunToExitProcessExecutor()
@@ -112,7 +120,82 @@ final class ZmxTestHarness: @unchecked Sendable {
     init(zmxDir: String, zmxPath: String?, executor: any ProcessExecutor) {
         self.zmxDir = zmxDir
         self.zmxPath = zmxPath
+        self.scratchHomeDirectory = "\(zmxDir)-home"
+        try? FileManager.default.createDirectory(
+            atPath: scratchHomeDirectory, withIntermediateDirectories: true)
         self.executor = executor
+    }
+
+    /// A hermetic child environment for every zmx/shell process this harness
+    /// spawns, built from an explicit allowlist instead of inheriting the
+    /// parent's full environment.
+    ///
+    /// R1 gate (Lead 2026-10-01): the gate's own test run can itself be
+    /// running inside a real AgentStudio pane -- confirmed against real
+    /// evidence captured from a hung zmx-e2e run (a real `ZMX_SESSION`, the
+    /// owner's real `ZMX_DIR=~/.agentstudio/z`, `GHOSTTY_SURFACE_ID`,
+    /// `TERM_PROGRAM=ghostty`, `__CFBundleIdentifier=com.agentstudio.app` all
+    /// present in that pane's own environment). The previous shape --
+    /// `ProcessInfo.processInfo.environment` plus overriding just `ZMX_DIR`,
+    /// `ZMX_SESSION` and `ZMX_SESSION_PREFIX` -- let every other ambient
+    /// marker reach a spawned `zmx attach`'s login shell unfiltered. zmx's
+    /// own production contract (`ZmxBackend.buildAttachCommand`'s doc
+    /// comment: "ZMX_DIR must be provided via process environment (Ghostty
+    /// surface env vars)") means a shell that still carries those markers
+    /// can end up correlated with the owner's real pane instead of this
+    /// test's disposable session -- the process tree evidence for the hang
+    /// this fixes was exactly that: a nested `zmx attach` sitting idle.
+    ///
+    /// `ZMX_SESSION` and `ZMX_SESSION_PREFIX` are never added at all, not
+    /// set to empty strings: a variable that is merely present-but-empty can
+    /// still read as "a session is in scope" to code that only checks
+    /// existence rather than non-emptiness.
+    ///
+    /// `PATH` is copied from the parent but with every entry that lives
+    /// inside an application bundle filtered out: `/Applications/AgentStudio
+    /// .app/Contents/MacOS` on `PATH` means a script invoking `agentstudio`
+    /// resolves to this GUI app's own binary on case-insensitive APFS, not a
+    /// CLI tool of a similar name -- a known hazard independent of this fix.
+    ///
+    /// `HOME` and `ZDOTDIR` are set to `scratchHomeDirectory`, never copied
+    /// from the parent: every zmx-e2e test's `folderCandidates` is `/tmp`
+    /// and every `loginShell` is `/bin/bash` (confirmed by reading every
+    /// call site), so nothing in this suite depends on the real `HOME`, and
+    /// the cold-restore script's `exec <loginShell> -i -l` would otherwise
+    /// source the owner's real `.bash_profile`/`.profile`/`.zshrc` inside a
+    /// test. A future test that genuinely needs the real `HOME` must set it
+    /// explicitly in its own plan/command rather than rely on this
+    /// environment.
+    ///
+    /// `parentEnvironment` defaults to the real ambient environment at every
+    /// call site; a test supplies a synthetic one to prove this allowlist in
+    /// isolation without needing a real pane's environment to reproduce it.
+    static func hermeticChildEnvironment(
+        zmxDir: String,
+        scratchHomeDirectory: String,
+        parentEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var environment: [String: String] = [:]
+        for allowlistedKey in ["USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL"] {
+            if let value = parentEnvironment[allowlistedKey] {
+                environment[allowlistedKey] = value
+            }
+        }
+        environment["HOME"] = scratchHomeDirectory
+        environment["ZDOTDIR"] = scratchHomeDirectory
+        environment["TERM"] = "xterm-256color"
+        if let inheritedPath = parentEnvironment["PATH"] {
+            environment["PATH"] =
+                inheritedPath
+                .split(separator: ":", omittingEmptySubsequences: false)
+                .filter { pathEntry in
+                    let lowercasedEntry = pathEntry.lowercased()
+                    return !lowercasedEntry.contains(".app/") && !lowercasedEntry.hasSuffix(".app")
+                }
+                .joined(separator: ":")
+        }
+        environment["ZMX_DIR"] = zmxDir
+        return environment
     }
 
     /// Create a ZmxBackend configured with the test-isolated ZMX_DIR.
@@ -133,6 +216,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         await terminateSpawnedProcesses()
         if outcome.succeeded {
             try? FileManager.default.removeItem(atPath: zmxDir)
+            try? FileManager.default.removeItem(atPath: scratchHomeDirectory)
         }
         return outcome
     }
@@ -304,11 +388,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.standardInput = Pipe()
-        var env = ProcessInfo.processInfo.environment
-        env["ZMX_DIR"] = zmxDir
-        env["ZMX_SESSION"] = ""
-        env["ZMX_SESSION_PREFIX"] = ""
-        process.environment = env
+        process.environment = Self.hermeticChildEnvironment(zmxDir: zmxDir, scratchHomeDirectory: scratchHomeDirectory)
         try process.run()
 
         let processID = process.processIdentifier
@@ -376,11 +456,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.standardInput = Pipe()
-        var env = ProcessInfo.processInfo.environment
-        env["ZMX_DIR"] = zmxDir
-        env["ZMX_SESSION"] = ""
-        env["ZMX_SESSION_PREFIX"] = ""
-        process.environment = env
+        process.environment = Self.hermeticChildEnvironment(zmxDir: zmxDir, scratchHomeDirectory: scratchHomeDirectory)
         try process.run()
 
         let processID = process.processIdentifier
@@ -417,11 +493,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         process.standardOutput = standardOutputPipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = Pipe()
-        var env = ProcessInfo.processInfo.environment
-        env["ZMX_DIR"] = zmxDir
-        env["ZMX_SESSION"] = ""
-        env["ZMX_SESSION_PREFIX"] = ""
-        process.environment = env
+        process.environment = Self.hermeticChildEnvironment(zmxDir: zmxDir, scratchHomeDirectory: scratchHomeDirectory)
         try process.run()
 
         let processID = process.processIdentifier
