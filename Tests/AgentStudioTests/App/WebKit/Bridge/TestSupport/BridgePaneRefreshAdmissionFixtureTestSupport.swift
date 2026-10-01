@@ -264,17 +264,17 @@ func makeRefreshAdmissionIntegrationFixture(
         reviewConstructionProgress: reviewConstructionProgress,
         contributionTargetCommit: contributionTargetCommit
     )
-    // These tests exercise a selected Review surface after explicit intake.
-    // Retain its native selection through the same admission path as the UI.
-    #expect(controller.requestViewerSurface(.review))
-    #expect(await controller.surfaceSelectionTransitionTail?.value == true)
-    if schedulesInitialReviewIntake { controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake) }
     let productAdmission = try #require(productAdmissionGate.acquire())
     let metadataProducerLease = try await installRefreshAdmissionMetadataProducer(
         installation: installation,
         productProvider: productProvider,
         productAdmission: productAdmission
     )
+    // G2 defers hidden Review builds. Select Review after its metadata stream
+    // opens, through native admission, before requesting the initial package.
+    #expect(controller.requestViewerSurface(.review))
+    #expect(await controller.surfaceSelectionTransitionTail?.value == true)
+    if schedulesInitialReviewIntake { controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake) }
     return RefreshAdmissionIntegrationFixture(
         baseEndpoint: baseEndpoint,
         headEndpoint: headEndpoint,
