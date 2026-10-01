@@ -1938,16 +1938,9 @@ struct GitWorkingDirectoryProjectorTests {
         let activeDeadline = try #require(await actor.automaticRefreshDeadlineByWorktreeId[activePaneWorktreeId])
         #expect(activeDeadline == max(policy.activePaneCadence, policy.automaticDutyGap(for: completedDuty)))
 
-        await clock.waitForPendingSleepCount(exactly: 1)
-        clock.advance(by: policy.activePaneCadence)
-        let reachedActiveDeadline = clock.now >= clockOrigin.advanced(by: activeDeadline)
-        #expect(reachedActiveDeadline)
-        guard reachedActiveDeadline else {
-            // Keep a deterministic red from parking at the output expectation.
-            await actor.shutdown()
-            try await collectionTask.finish()
-            return
-        }
+        // Absolute advancement also handles a rescheduled sleep that enters
+        // the clock after this advance; no anonymous sleeper count is needed.
+        clock.advance(to: clockOrigin.advanced(by: activeDeadline))
         let activeRefreshedOnNonMatchingBackgroundStripe =
             (try await observed.expectSnapshots(for: activePaneWorktreeId, through: 2)).count == 2
         #expect(activeRefreshedOnNonMatchingBackgroundStripe)
@@ -3337,15 +3330,7 @@ struct GitWorkingDirectoryProjectorTests {
         )
         let firstDeadline = try #require(await actor.automaticRefreshDeadlineByWorktreeId[worktreeId])
         #expect(firstDeadline == max(policy.activePaneCadence, policy.automaticDutyGap(for: completedDuty)))
-        await clock.waitForPendingSleepCount(exactly: 1)
-        clock.advance(by: .milliseconds(100))
-        let reachedFirstDeadline = clock.now >= clockOrigin.advanced(by: firstDeadline)
-        #expect(reachedFirstDeadline)
-        guard reachedFirstDeadline else {
-            await actor.shutdown()
-            try await collectionTask.finish()
-            return
-        }
+        clock.advance(to: clockOrigin.advanced(by: firstDeadline))
         #expect((await calls.count(until: { $0 == 2 })) == 2)
         _ = try await source.expectDeadlineRegistered(
             facts: facts, worktreeId: worktreeId, kind: .automatic
@@ -3354,17 +3339,10 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(
             secondDeadline >= firstDeadline
                 + policy.adaptiveCadence(base: policy.activePaneCadence, unchangedResultCount: 1))
-        await clock.waitForPendingSleepCount(exactly: 1)
-        clock.advance(by: .milliseconds(199))
+        let secondDeadlineInstant = clockOrigin.advanced(by: secondDeadline)
+        clock.advance(to: secondDeadlineInstant.advanced(by: .milliseconds(-1)))
         #expect(await calls.value() == 2)
-        clock.advance(by: .milliseconds(1))
-        let reachedSecondDeadline = clock.now >= clockOrigin.advanced(by: secondDeadline)
-        #expect(reachedSecondDeadline)
-        guard reachedSecondDeadline else {
-            await actor.shutdown()
-            try await collectionTask.finish()
-            return
-        }
+        clock.advance(to: secondDeadlineInstant)
         #expect((await calls.count(until: { $0 == 3 })) == 3)
 
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
