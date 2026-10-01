@@ -5,6 +5,22 @@ import Testing
 
 @Suite("Swift lane invocation receipts")
 struct SwiftLaneInvocationReceiptTests {
+    @Test(
+        "missing receipt support is visible and never changes command status",
+        arguments: ["swift-test-invocation-receipts.sh", "swift-test-invocation-receipts.pl"], [0, 7])
+    func missingReceiptSupportIsFailOpen(missingHelper: String, status: Int) async throws {
+        let fixture = try InvocationReceiptFixture()
+        defer { fixture.remove() }
+        let helper = try fixture.copyRunnerSupport(omitting: missingHelper)
+        let result = try await fixture.run("/bin/bash -c 'exit \(status)'", helper: helper)
+
+        #expect(result.output.contains("STATUS=\(status)"), Comment(rawValue: result.output))
+        #expect(result.record["command_status"] as? Int == status)
+        #expect(result.output.contains("invocation_observation=unavailable"))
+        #expect(result.output.contains("receipt support could not be loaded"))
+        #expect(!result.output.contains("command not found"))
+    }
+
     @Test("every command gets resource fields with honest coverage")
     func commandHasResourceFields() async throws {
         let fixture = try InvocationReceiptFixture()
@@ -271,6 +287,20 @@ private struct InvocationReceiptFixture {
 
     func remove() { try? FileManager.default.removeItem(at: root) }
 
+    func copyRunnerSupport(omitting missingHelper: String) throws -> URL {
+        let scripts = root.appending(path: "scripts")
+        try FileManager.default.createDirectory(at: scripts, withIntermediateDirectories: true)
+        for name in [
+            "swift-test-helpers.sh", "xcb-helpers.sh", "swift-package-sandbox.sh",
+            "filter-known-linker-warnings.sh", "swift-compilation-policy.sh",
+            "swift-test-invocation-receipts.sh", "swift-test-invocation-receipts.pl",
+        ] where name != missingHelper {
+            try FileManager.default.copyItem(
+                at: URL(fileURLWithPath: "scripts/\(name)"), to: scripts.appending(path: name))
+        }
+        return scripts.appending(path: "swift-test-helpers.sh")
+    }
+
     func writeEvents(_ records: [[String: Any]]) throws {
         var data = Data()
         for record in records {
@@ -292,7 +322,7 @@ private struct InvocationReceiptFixture {
                 + "'\(events.path)' '\(held.path)'", eventStream: true)
     }
 
-    func run(_ command: String, eventStream: Bool = false, setup: String = "") async throws -> (
+    func run(_ command: String, eventStream: Bool = false, setup: String = "", helper: URL? = nil) async throws -> (
         output: String, record: [String: Any]
     ) {
         let result = try await runCommandToExit(
@@ -300,7 +330,7 @@ private struct InvocationReceiptFixture {
             arguments: [
                 "-c",
                 "LOG_PREFIX=f2; export LANE_EVENT_STREAM_DIR='\(root.path)/evidence'; "
-                    + "source scripts/swift-test-helpers.sh; "
+                    + "source '\(helper?.path ?? "scripts/swift-test-helpers.sh")'; "
                     + (eventStream ? "swift_test_command_accepts_event_stream() { return 0; }; " : "")
                     + setup
                     + "set +e; run_swift_with_timeout fixture 60 \(command) || status=$?; echo STATUS=${status:-0}",
