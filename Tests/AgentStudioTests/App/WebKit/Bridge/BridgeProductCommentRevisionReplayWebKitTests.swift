@@ -52,6 +52,9 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 )
 
                 let seed = try await reviewCommentSeed(controller: controller, repositoryURL: repositoryURL)
+                recordCommentFixtureDiagnostic(
+                    "C11_SEED worktree=\(seed.fingerprint.worktreeID) metadata=\(controller.runtime.metadata.worktreeId?.uuidString.lowercased() ?? "nil")"
+                )
                 let rootBody = "RR4 retained root comment"
                 let deletedDraftBody = "RR4 draft removed during restart"
                 let replayReplyBody = "RR4 reply delivered after replay"
@@ -100,6 +103,15 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     diagnostics: replayDiagnostics
                 )
                 do {
+                    let activeInstallation = try #require(await controller.productSessionOwner.activeInstallation)
+                    for (subscriptionID, handle) in await coordinator.commentViewHandleBySubscriptionId {
+                        let subscription = await activeInstallation.session.subscriptionSnapshot(
+                            subscriptionId: subscriptionID
+                        )
+                        recordCommentFixtureDiagnostic(
+                            "C11_SETUP_VIEW subscription=\(subscriptionID) handle=\(handle) kind=\(String(describing: subscription?.subscriptionKind))"
+                        )
+                    }
                     try await waitForAnnotationBodies(
                         hostedController.page,
                         required: [rootBody, deletedDraftBody]

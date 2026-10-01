@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 @testable import AgentStudio
 @testable import AgentStudioBridge
@@ -104,7 +105,24 @@ private func recordCommentProducerObservation(
     case .finished(let handle, let producerID, let reason):
         detail = "finished handle=\(handle) producer=\(producerID) reason=\(reason)"
     }
-    FileHandle.standardError.write(Data("C11_PRODUCER[\(stage)] \(detail)\n".utf8))
+    recordCommentFixtureDiagnostic("C11_PRODUCER[\(stage)] \(detail)")
+}
+
+private let commentDiagnosticWriteLock = Mutex(())
+
+func recordCommentFixtureDiagnostic(_ line: String) {
+    guard let ledgerPath = ProcessInfo.processInfo.environment["AGENTSTUDIO_HELD_STEP_LOG"] else { return }
+    let logURL = URL(fileURLWithPath: ledgerPath).deletingPathExtension()
+        .appendingPathExtension("producer-observations.log")
+    commentDiagnosticWriteLock.withLock { _ in
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            _ = FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
+        guard let file = try? FileHandle(forWritingTo: logURL) else { return }
+        defer { try? file.close() }
+        _ = try? file.seekToEnd()
+        try? file.write(contentsOf: Data("\(line)\n".utf8))
+    }
 }
 
 @MainActor
@@ -113,6 +131,7 @@ func withCommentProducerDiagnostics<TValue>(
     operation: @MainActor () async throws -> TValue
 ) async throws -> TValue {
     let observation = await source.observeProducerEvents()
+    recordCommentFixtureDiagnostic("C11_TAP_STARTED sourceWorktree=\(await source.admittedWorktreeID() ?? "nil")")
     let diagnosticTask = Task { @MainActor in
         for await event in observation.events {
             recordCommentProducerObservation(event, stage: "live")
