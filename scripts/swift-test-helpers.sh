@@ -801,6 +801,7 @@ large|PaneContextDetailPagingTests|concurrent
 large|PaneContextMessageTests|concurrent
 large|PaneContextOrderedWriteTests|concurrent
 large|PaneContextRetirementTests|concurrent
+large|PaneContextSessionsBridgeTests|concurrent
 large|PrimarySidebarPipelineIntegrationTests|concurrent
 large|ProcessExecutorTests|concurrent
 large|RendererPopulationScriptTests|concurrent
