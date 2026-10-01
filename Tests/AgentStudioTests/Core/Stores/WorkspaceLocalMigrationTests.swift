@@ -138,6 +138,7 @@ struct WorkspaceLocalMigrationTests {
             "sessions_loss",
             "local_ipc_credential",
             "local_drawer_presentation",
+            "terminal_pane_foreground_observation",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -295,8 +296,7 @@ struct WorkspaceLocalMigrationTests {
     func migrationCopiesExistingGroupingModeIntoMainWindowRow() throws {
         // F4: the pre-005 grouping selection lives in local_repo_explorer_preferences.grouping_mode.
         // local_window_state lacks repo_grouping_mode. Migrate only through 004, then recreate
-        // the legacy column and seed All Panes / By Tab to prove upgrading preserves it
-        // instead of resetting existing users to By Repo.
+        // the legacy column and seed All Panes / By Tab to prove upgrades preserve it instead of resetting to By Repo.
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrator.migrate(
             databaseQueue,

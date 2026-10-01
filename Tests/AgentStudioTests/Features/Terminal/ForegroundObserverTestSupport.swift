@@ -134,6 +134,22 @@ private final class HeldForegroundExitDelivery: Sendable {
     }
 }
 
+/// Watch events have their own operation scope, even after their creating look
+/// closes. Record those IDs before delivery so look discovery cannot claim them.
+final class ForegroundRecordingExitWatcher: ProcessExitWatching, Sendable {
+    private let wrapped: any ProcessExitWatching
+    private let watchIds = Mutex<Set<UUID>>([])
+
+    init(wrapping wrapped: any ProcessExitWatching) { self.wrapped = wrapped }
+
+    func watchExit(of process: ProcessIncarnation, watchId: UUID) -> ProcessExitWatch {
+        watchIds.withLock { _ = $0.insert(watchId) }
+        return wrapped.watchExit(of: process, watchId: watchId)
+    }
+
+    func isWatchOperation(_ operationId: UUID) -> Bool { watchIds.withLock { $0.contains(operationId) } }
+}
+
 struct ForegroundObserverFixture: Sendable {
     let paneId = UUIDv7.generate()
     let sessionId = ZmxSessionID.generateUUIDv7()
@@ -143,6 +159,7 @@ struct ForegroundObserverFixture: Sendable {
     let repository: ForegroundMemoryRepository
     let probe: ForegroundScriptedProbe
     let watcher = ForegroundScriptedExitWatcher()
+    let recordingWatcher: ForegroundRecordingExitWatcher
     let recorder: FactRecorder<ForegroundObserverFactScope, ForegroundObserverFact>
     let observer: PaneForegroundObserver<TestPushClock>
 
@@ -155,10 +172,11 @@ struct ForegroundObserverFixture: Sendable {
         repository = ForegroundMemoryRepository(
             binding: .init(paneId: paneId, sessionId: sessionId, bindingGenerationId: generationId))
         probe = ForegroundScriptedProbe(snapshots: [sessionId: try Self.snapshot(program: program)])
+        recordingWatcher = ForegroundRecordingExitWatcher(wrapping: exitWatcher ?? watcher)
         observer = PaneForegroundObserver(
             clock: clock,
             policy: .init(lookSettleDelay: .seconds(5), lookMaxDelay: .seconds(60), quitLookDeadline: .seconds(1)),
-            repository: repository, probe: probe, exitWatcher: exitWatcher ?? watcher, observerLaunchId: launchId,
+            repository: repository, probe: probe, exitWatcher: recordingWatcher, observerLaunchId: launchId,
             factSink: source.sink)
     }
 
@@ -172,16 +190,19 @@ struct ForegroundObserverFixture: Sendable {
 
     func expectScheduled() async throws {
         let pane = paneId
+        let watches = recordingWatcher
         let scope = try await recorder.expectNextOperation(
-            matching: { $0.paneId == pane }, opening: { $0 == .scheduled }, "scheduled demand")
+            matching: { $0.paneId == pane && !watches.isWatchOperation($0.operationId) },
+            opening: { $0 == .scheduled }, "scheduled demand")
         try await recorder.expectNext(in: scope, .scheduled)
         try await recorder.expectNext(in: scope, .closed(.scheduled))
     }
 
     func expectLookStarted(sequence: UInt64) async throws -> ForegroundObserverFactScope {
         let pane = paneId
+        let watches = recordingWatcher
         let scope = try await recorder.expectNextOperation(
-            matching: { $0.paneId == pane },
+            matching: { $0.paneId == pane && !watches.isWatchOperation($0.operationId) },
             opening: { $0 == .snapshotStarted(sequence: sequence) }, "foreground snapshot \(sequence)")
         try await recorder.expectNext(in: scope, .snapshotStarted(sequence: sequence))
         return scope

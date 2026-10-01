@@ -18,6 +18,7 @@ struct ZmxForegroundFixture: Sendable {
     let observer: PaneForegroundObserver<TestPushClock>
     let probe: DarwinTerminalForegroundProbe
     let probeGate: ZmxForegroundProbeGate
+    let recordingWatcher: ForegroundRecordingExitWatcher
     let facts: FactRecorder<ForegroundObserverFactScope, ForegroundObserverFact>
     let inputWriter: ForegroundFIFOHandle
     let agentOutputReader: ForegroundFIFOHandle
@@ -68,7 +69,9 @@ struct ZmxForegroundFixture: Sendable {
             reader = outputReader
             let marker = Data("agent-ready".utf8)
             try await writeForegroundFIFO(descriptor: writer.descriptor(), bytes: marker)
-            try await requireForegroundBytes(descriptor: outputReader.descriptor(), expected: marker)
+            let readyBytes = try await readForegroundBytes(
+                descriptor: outputReader.descriptor(), byteCount: marker.count)
+            #expect(readyBytes == marker)
             let observed = try await backend.observeSessionIdentity(sessionId)
             let identity = try #require(observed)
             let bootId = try ZmxSessionIdentity.decode(identity).bootID
@@ -85,15 +88,17 @@ struct ZmxForegroundFixture: Sendable {
             let facts = try source.attach()
             let probe = DarwinTerminalForegroundProbe(sessionDirectory: harness.zmxDir, bootId: bootId)
             let probeGate = ZmxForegroundProbeGate(probe: probe)
+            let recordingWatcher = ForegroundRecordingExitWatcher(wrapping: DarwinProcessExitWatcher())
             let observer = PaneForegroundObserver(
                 clock: TestPushClock(),
                 policy: .init(lookSettleDelay: .seconds(5), lookMaxDelay: .seconds(60), quitLookDeadline: .seconds(1)),
-                repository: repository, probe: probeGate, exitWatcher: DarwinProcessExitWatcher(),
+                repository: repository, probe: probeGate, exitWatcher: recordingWatcher,
                 observerLaunchId: launchId,
                 factSink: source.sink)
             return Self(
                 paneId: paneId, sessionId: sessionId, generationId: generationId, repository: repository,
-                observer: observer, probe: probe, probeGate: probeGate, facts: facts, inputWriter: writer,
+                observer: observer, probe: probe, probeGate: probeGate, recordingWatcher: recordingWatcher,
+                facts: facts, inputWriter: writer,
                 agentOutputReader: outputReader,
                 shellReadyPath: shellPath, successorInputPath: successorInput, successorOutputPath: successorOutput,
                 successorHandles: ForegroundFIFOGroup(), identity: identity, harness: harness)
@@ -122,8 +127,9 @@ struct ZmxForegroundFixture: Sendable {
 
     func nextLook(sequence: UInt64) async throws -> ForegroundObserverFactScope {
         let pane = paneId
+        let watches = recordingWatcher
         let scope = try await facts.expectNextOperation(
-            matching: { $0.paneId == pane },
+            matching: { $0.paneId == pane && !watches.isWatchOperation($0.operationId) },
             opening: { $0 == .snapshotStarted(sequence: sequence) }, "real look \(sequence)")
         try await facts.expectNext(in: scope, .snapshotStarted(sequence: sequence))
         return scope
@@ -133,7 +139,9 @@ struct ZmxForegroundFixture: Sendable {
         inputWriter.closeOnce()
         let reader = try await openForegroundFIFO(path: shellReadyPath, flags: O_RDONLY)
         defer { close(reader) }
-        try await requireForegroundBytes(descriptor: reader, expected: Data("shell-ready".utf8))
+        let marker = Data("shell-ready".utf8)
+        let readyBytes = try await readForegroundBytes(descriptor: reader, byteCount: marker.count)
+        #expect(readyBytes == marker)
     }
 
     func letAnotherProgramTakeForeground() async throws {
@@ -146,7 +154,8 @@ struct ZmxForegroundFixture: Sendable {
         successorHandles.add(reader)
         let marker = Data("other-ready".utf8)
         try await writeForegroundFIFO(descriptor: writer.descriptor(), bytes: marker)
-        try await requireForegroundBytes(descriptor: reader.descriptor(), expected: marker)
+        let readyBytes = try await readForegroundBytes(descriptor: reader.descriptor(), byteCount: marker.count)
+        #expect(readyBytes == marker)
     }
 
     func killOwnedSession() async throws {
@@ -230,18 +239,17 @@ private func writeForegroundFIFO(descriptor: Int32, bytes: Data) async throws {
     }
 }
 
-private func requireForegroundBytes(descriptor: Int32, expected: Data) async throws {
-    let actual = try await withoutBlockingCooperativePool {
+private func readForegroundBytes(descriptor: Int32, byteCount: Int) async throws -> Data {
+    try await withoutBlockingCooperativePool {
         var result = Data()
-        while result.count < expected.count {
-            var bytes = [UInt8](repeating: 0, count: expected.count - result.count)
+        while result.count < byteCount {
+            var bytes = [UInt8](repeating: 0, count: byteCount - result.count)
             let count = bytes.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
             guard count > 0 else { throw POSIXError(.EIO) }
             result.append(contentsOf: bytes.prefix(count))
         }
         return result
     }
-    #expect(actual == expected)
 }
 
 private func seedZmxForegroundBinding(database: DatabaseQueue, paneId: UUID, generationId: UUID) async throws {

@@ -61,6 +61,8 @@ package final class DarwinProcessExitWatcher: ProcessExitWatching, @unchecked Se
         case cancelled
         case event(ProcessExitWatchEvent)
     }
+    // The injected cancel handler may re-enter synchronously; native handlers
+    // arrive later on Dispatch. Both paths need the same ownership lock.
     private let lock = NSRecursiveLock()
     private var entries: [UUID: Entry] = [:]
     private var usedIdentifiers: Set<UUID> = []
