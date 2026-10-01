@@ -82,15 +82,14 @@ struct AppIPCErrorCorrectionTests {
                         status: .registered
                     )
                 )
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 var reader = TestFrameReader()
                 try await loginWithoutBlockingMainActor(
                     connection: connection, token: token, requestId: 1, reader: &reader)
 
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(2),
@@ -132,15 +131,14 @@ struct AppIPCErrorCorrectionTests {
                 let token = try fixture.issueTestCredential(
                     for: .pane(paneId: boundPaneId, credentialRecordId: UUIDv7.generate(), status: .registered)
                 )
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 var reader = TestFrameReader()
                 try await loginWithoutBlockingMainActor(
                     connection: connection, token: token, requestId: 1, reader: &reader)
 
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(2),

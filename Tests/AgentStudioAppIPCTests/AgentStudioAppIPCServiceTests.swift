@@ -2,6 +2,7 @@ import AgentStudioAppIPC
 import AgentStudioIPCTransport
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
+import AgentStudioTestSupport
 import Foundation
 import Testing
 
@@ -57,7 +58,7 @@ struct AgentStudioAppIPCServiceTests {
                 try fixture.server.start(
                     processIdentifier: 12_345, startedAt: Date(timeIntervalSince1970: 1_800_000_000))
 
-                let response = try sendRequest(
+                let response = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(id: .number(1), method: "system.ping", params: .object([:]))
                 )
@@ -91,15 +92,14 @@ struct AgentStudioAppIPCServiceTests {
                         status: .registered
                     )
                 )
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer {
                     connection.close()
                 }
                 var frameReader = TestFrameReader()
 
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(9),
@@ -118,7 +118,7 @@ struct AgentStudioAppIPCServiceTests {
                     reader: &frameReader
                 )
 
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(id: .number(11), method: "system.identify", params: .object([:]))
                 )
@@ -142,7 +142,7 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let response = try sendRequest(
+                let response = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(id: .number(2), method: "terminal.status", params: .object([:]))
                 )
@@ -160,7 +160,7 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let response = try sendRequest(
+                let response = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(id: .number(60), method: "auth.status", params: .object([:]))
                 )
@@ -191,7 +191,7 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let response = try sendRequest(
+                let response = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(61),
@@ -227,14 +227,14 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer {
                     connection.close()
                 }
                 var reader = TestFrameReader()
 
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(62),
@@ -242,11 +242,11 @@ struct AgentStudioAppIPCServiceTests {
                         params: .object(["token": .string("invalid-token")])
                     )
                 )
-                let loginResponse = try reader.receiveResponse(connection: connection)
+                let loginResponse = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
                 #expect(loginResponse.id == .number(62))
                 #expect(loginResponse.error?.code == -32_001)
 
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(63),
@@ -258,7 +258,7 @@ struct AgentStudioAppIPCServiceTests {
                         ])
                     )
                 )
-                let sendResponse = try reader.receiveResponse(connection: connection)
+                let sendResponse = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
                 #expect(sendResponse.id == .number(63))
                 #expect(sendResponse.error?.code == -32_001)
                 #expect(sendResponse.error?.message == "unauthenticated")
@@ -281,7 +281,7 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let response = try sendRequest(
+                let response = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(64),
@@ -321,7 +321,7 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let response = try sendRequest(
+                let response = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(65),
@@ -349,7 +349,7 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let status = try sendRequest(
+                let status = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(id: .number(62), method: "auth.status", params: .object([:]))
                 )
@@ -360,7 +360,7 @@ struct AgentStudioAppIPCServiceTests {
                 }
                 #expect(statusResult["authenticated"] == .bool(false))
 
-                let version = try sendRequest(
+                let version = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(63),
@@ -382,13 +382,13 @@ struct AgentStudioAppIPCServiceTests {
                 let token = fixture.installDebugCredential()
 
                 for requestId in [65, 66] {
-                    let connection = try UnixSocketClient.connect(
-                        endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                    )
+                    let connection = try await connectWithoutBlockingCooperativePool(
+                        socketPath: fixture.paths.socketURL.path)
                     defer { connection.close() }
                     var reader = TestFrameReader()
-                    try login(connection: connection, token: token, requestId: requestId, reader: &reader)
-                    try sendRequest(
+                    try await loginWithoutBlockingMainActor(
+                        connection: connection, token: token, requestId: requestId, reader: &reader)
+                    try await sendRequestWithoutBlockingCooperativePool(
                         connection: connection,
                         request: JSONRPCClientRequest(
                             id: .number(requestId + 1),
@@ -396,7 +396,7 @@ struct AgentStudioAppIPCServiceTests {
                             params: .object([:])
                         )
                     )
-                    let response = try reader.receiveResponse(connection: connection)
+                    let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
                     #expect(response.error == nil)
                 }
             })
@@ -416,7 +416,7 @@ struct AgentStudioAppIPCServiceTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let split = try sendRequest(
+                let split = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(71),
@@ -432,7 +432,7 @@ struct AgentStudioAppIPCServiceTests {
                 #expect(splitResult.targetPaneId == paneId)
                 #expect(splitResult.direction == .right)
 
-                let close = try sendRequest(
+                let close = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(74),
@@ -446,7 +446,7 @@ struct AgentStudioAppIPCServiceTests {
                 let closeResult = try decodeResponseResult(IPCPaneCloseResult.self, from: close)
                 #expect(closeResult.paneId == paneId)
 
-                let drawerAdd = try sendRequest(
+                let drawerAdd = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(75),
@@ -461,7 +461,7 @@ struct AgentStudioAppIPCServiceTests {
                 let drawerAddResult = try decodeResponseResult(IPCDrawerAddPaneResult.self, from: drawerAdd)
                 #expect(drawerAddResult.parentPaneId == paneId)
 
-                let drawerToggle = try sendRequest(
+                let drawerToggle = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(76),
@@ -490,16 +490,16 @@ struct AgentStudioAppIPCServiceTests {
                     status: .registered
                 )
             )
-            let connection = try UnixSocketClient.connect(
-                endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path)
-            )
+            let connection = try await connectWithoutBlockingCooperativePool(
+                socketPath: scenario.fixture.paths.socketURL.path)
             defer {
                 connection.close()
             }
             var reader = TestFrameReader()
-            try login(connection: connection, token: token, requestId: 40, reader: &reader)
+            try await loginWithoutBlockingMainActor(
+                connection: connection, token: token, requestId: 40, reader: &reader)
 
-            try sendRequest(
+            try await sendRequestWithoutBlockingCooperativePool(
                 connection: connection,
                 request: JSONRPCClientRequest(
                     id: .number(41),
@@ -521,7 +521,7 @@ struct AgentStudioAppIPCServiceTests {
 
             // The friendly ordinal names another pane, so an own-pane command is
             // refused by name after the canonical identity is known.
-            let response = try reader.receiveResponse(connection: connection)
+            let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
             #expect(response.id == .number(41))
             #expect(response.error?.code == -32_011)
             #expect(response.error?.message == "not yet allowed")
@@ -552,14 +552,13 @@ struct AgentStudioAppIPCServiceTests {
                         status: .registered
                     )
                 )
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer {
                     connection.close()
                 }
                 var reader = TestFrameReader()
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(49),
@@ -581,11 +580,13 @@ struct AgentStudioAppIPCServiceTests {
                 fixture.stop()
 
                 do {
-                    try sendRequest(
+                    try await sendRequestWithoutBlockingCooperativePool(
                         connection: connection,
                         request: JSONRPCClientRequest(id: .number(51), method: "system.identify", params: .object([:]))
                     )
-                    let responseData = try connection.receive(maxBytes: 4096)
+                    let responseData = try await withoutBlockingCooperativePool {
+                        try connection.receive(maxBytes: 4096)
+                    }
                     if responseData.isEmpty {
                         return
                     }
@@ -612,23 +613,25 @@ struct AgentStudioAppIPCServiceTests {
                         status: .registered
                     )
                 )
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer {
                     connection.close()
                 }
                 var reader = TestFrameReader()
-                try login(connection: connection, token: token, requestId: 52, reader: &reader)
+                try await loginWithoutBlockingMainActor(
+                    connection: connection, token: token, requestId: 52, reader: &reader)
 
                 fixture.server.invalidatePrincipals(boundToPaneId: fixture.boundPaneId.uuidString)
 
                 do {
-                    try sendRequest(
+                    try await sendRequestWithoutBlockingCooperativePool(
                         connection: connection,
                         request: JSONRPCClientRequest(id: .number(53), method: "system.identify", params: .object([:]))
                     )
-                    let responseData = try connection.receive(maxBytes: 4096)
+                    let responseData = try await withoutBlockingCooperativePool {
+                        try connection.receive(maxBytes: 4096)
+                    }
                     #expect(responseData.isEmpty)
                 } catch let error as UnixSocketTransportError {
                     #expect(error.reason == .writeFailed || error.reason == .readFailed)
@@ -654,19 +657,19 @@ struct AgentStudioAppIPCServiceTests {
                         status: .registered
                     )
                 )
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 var reader = TestFrameReader()
-                try login(connection: connection, token: token, requestId: 60, reader: &reader)
+                try await loginWithoutBlockingMainActor(
+                    connection: connection, token: token, requestId: 60, reader: &reader)
 
                 membership.setMember(false)
-                try sendRequest(
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(id: .number(61), method: "system.version", params: .object([:]))
                 )
-                let response = try reader.receiveResponse(connection: connection)
+                let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
                 #expect(response.error?.code == -32_001)
                 #expect(response.error?.message == "unauthenticated")
@@ -686,17 +689,17 @@ struct AgentStudioAppIPCServiceTests {
                         status: .registered
                     )
                 )
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer { connection.close() }
                 var reader = TestFrameReader()
-                try login(connection: connection, token: token, requestId: 67, reader: &reader)
-                try sendRequest(
+                try await loginWithoutBlockingMainActor(
+                    connection: connection, token: token, requestId: 67, reader: &reader)
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(id: .number(68), method: "system.identify", params: .object([:]))
                 )
-                let response = try reader.receiveResponse(connection: connection)
+                let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
                 #expect(response.error == nil)
             })
     }

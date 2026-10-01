@@ -83,7 +83,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
                         JSONValue.object(["surface": .string("inbox")])
                     ),
                 ] {
-                    try sendRequest(
+                    try await sendRequestWithoutBlockingCooperativePool(
                         connection: connection,
                         request: JSONRPCClientRequest(
                             id: .number(requestId),
@@ -154,7 +154,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         tokenRequestId: Int
     ) async throws -> UnixSocketConnection {
         let token = fixture.installDebugCredential()
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        let connection = try await connectWithoutBlockingCooperativePool(socketPath: fixture.paths.socketURL.path)
         var reader = TestFrameReader()
         try await loginWithoutBlockingMainActor(
             connection: connection,
@@ -171,7 +171,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         requestId: Int,
         surface: IPCSidebarSurface
     ) async throws -> IPCSidebarGroupingResult {
-        try sendRequest(
+        try await sendRequestWithoutBlockingCooperativePool(
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(requestId),
@@ -191,7 +191,7 @@ struct AgentStudioAppIPCSidebarServiceTests {
         reader: inout TestFrameReader,
         requestId: Int
     ) async throws -> IPCSidebarSurfaceResult {
-        try sendRequest(
+        try await sendRequestWithoutBlockingCooperativePool(
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(requestId),

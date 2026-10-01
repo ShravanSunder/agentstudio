@@ -157,14 +157,14 @@ struct AppIPCDynamicCommandClientTests {
         try await DynamicCommandScenario.withScope(body: { scenario in
             try scenario.fixture.server.start()
             let token = scenario.fixture.installDebugCredential()
-            let connection = try UnixSocketClient.connect(
-                endpoint: UnixSocketEndpoint(path: scenario.fixture.paths.socketURL.path))
+            let connection = try await connectWithoutBlockingCooperativePool(
+                socketPath: scenario.fixture.paths.socketURL.path)
             defer { connection.close() }
             var reader = TestFrameReader()
             try await loginWithoutBlockingMainActor(
                 connection: connection, token: token, requestId: 50, reader: &reader)
 
-            try sendRequest(
+            try await sendRequestWithoutBlockingCooperativePool(
                 connection: connection,
                 request: JSONRPCClientRequest(id: .number(51), method: "command.list", params: .object([:]))
             )
@@ -177,7 +177,7 @@ struct AppIPCDynamicCommandClientTests {
                 correlationId: scenario.correlationId,
                 arguments: .noArguments
             )
-            try sendRequest(
+            try await sendRequestWithoutBlockingCooperativePool(
                 connection: connection,
                 request: JSONRPCClientRequest(
                     id: .number(52),

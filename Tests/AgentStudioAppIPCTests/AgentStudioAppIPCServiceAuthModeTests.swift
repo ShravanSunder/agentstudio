@@ -21,16 +21,16 @@ struct AgentStudioAppIPCServiceAuthModeTests {
             body: { fixture in
                 try fixture.server.start()
                 let token = fixture.installDebugCredential()
-                let connection = try UnixSocketClient.connect(
-                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-                )
+                let connection = try await connectWithoutBlockingCooperativePool(
+                    socketPath: fixture.paths.socketURL.path)
                 defer {
                     connection.close()
                 }
                 var reader = TestFrameReader()
 
-                try login(connection: connection, token: token, requestId: 10, reader: &reader)
-                try sendRequest(
+                try await loginWithoutBlockingMainActor(
+                    connection: connection, token: token, requestId: 10, reader: &reader)
+                try await sendRequestWithoutBlockingCooperativePool(
                     connection: connection,
                     request: JSONRPCClientRequest(
                         id: .number(11),
@@ -44,7 +44,7 @@ struct AgentStudioAppIPCServiceAuthModeTests {
                         )
                     )
                 )
-                let response = try reader.receiveResponse(connection: connection)
+                let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
                 let result = try decodeResponseResult(IPCCommandBarOpenResult.self, from: response)
 
                 #expect(response.error == nil)
@@ -61,7 +61,7 @@ struct AgentStudioAppIPCServiceAuthModeTests {
             body: { fixture in
                 try fixture.server.start()
 
-                let response = try sendRequest(
+                let response = try await sendRequestWithoutBlockingCooperativePool(
                     socketPath: fixture.paths.socketURL.path,
                     request: JSONRPCClientRequest(
                         id: .number(1), method: "auth.login",
@@ -82,7 +82,7 @@ struct AgentStudioAppIPCServiceAuthModeTests {
                     try fixture.server.start()
                     let token = fixture.installDebugCredential()
 
-                    let response = try sendRequest(
+                    let response = try await sendRequestWithoutBlockingCooperativePool(
                         socketPath: fixture.paths.socketURL.path,
                         request: JSONRPCClientRequest(
                             id: .number(2), method: "auth.login",

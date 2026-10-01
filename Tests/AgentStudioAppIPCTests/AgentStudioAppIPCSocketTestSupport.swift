@@ -32,16 +32,26 @@ func sendRequestWithoutBlockingMainActor(
     socketPath: String,
     request: JSONRPCClientRequest,
     observeIO: TestSocketIOObserver? = nil
-) async throws
-    -> JSONRPCResponseMessage
-{
-    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
-    defer {
-        connection.close()
+) async throws -> JSONRPCResponseMessage {
+    try await sendRequestWithoutBlockingCooperativePool(
+        socketPath: socketPath, request: request, observeIO: observeIO)
+}
+
+/// A persistent connection keeps its frame reader in the caller; only I/O hops.
+func connectWithoutBlockingCooperativePool(socketPath: String) async throws -> UnixSocketConnection {
+    try await withoutBlockingCooperativePool {
+        try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
     }
-    try sendRequest(connection: connection, request: request, observeIO: observeIO)
-    var reader = TestFrameReader(observeIO: observeIO)
-    return try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+}
+
+func sendRequestWithoutBlockingCooperativePool(
+    connection: UnixSocketConnection,
+    request: JSONRPCClientRequest,
+    observeIO: TestSocketIOObserver? = nil
+) async throws {
+    try await withoutBlockingCooperativePool {
+        try sendRequest(connection: connection, request: request, observeIO: observeIO)
+    }
 }
 
 func sendRequest(
@@ -49,31 +59,12 @@ func sendRequest(
     request: JSONRPCClientRequest,
     observeIO: TestSocketIOObserver? = nil
 ) throws {
-    withUnsafeCurrentTask { observeIO?(.send, $0 != nil) }
-    try connection.send(
-        try NDJSONFrameEncoder.encode(
-            JSONRPCCodec.encodeRequest(request),
-            maxFrameBytes: 65_536
-        ))
-}
-
-func login(
-    connection: UnixSocketConnection,
-    token: AgentStudioIPCSubjectToken,
-    requestId: Int,
-    reader: inout TestFrameReader
-) throws {
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(requestId),
-            method: "auth.login",
-            params: .object(["token": .string(token.rawValue)])
-        )
+    let frameData = try NDJSONFrameEncoder.encode(
+        JSONRPCCodec.encodeRequest(request),
+        maxFrameBytes: 65_536
     )
-    let response = try reader.receiveResponse(connection: connection)
-    try #require(response.id == .number(requestId))
-    try #require(response.error == nil)
+    withUnsafeCurrentTask { observeIO?(.send, $0 != nil) }
+    try connection.send(frameData)
 }
 
 func loginWithoutBlockingMainActor(
@@ -82,13 +73,14 @@ func loginWithoutBlockingMainActor(
     requestId: Int,
     reader: inout TestFrameReader
 ) async throws {
-    try sendRequest(
+    try await sendRequestWithoutBlockingCooperativePool(
         connection: connection,
         request: JSONRPCClientRequest(
             id: .number(requestId),
             method: "auth.login",
             params: .object(["token": .string(token.rawValue)])
-        )
+        ),
+        observeIO: reader.observeIO
     )
     let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
     try #require(response.id == .number(requestId))
@@ -96,13 +88,14 @@ func loginWithoutBlockingMainActor(
     var rejectionContext = "auth.login rejection was not observed"
     if response.error != nil {
         do {
-            try sendRequest(
+            try await sendRequestWithoutBlockingCooperativePool(
                 connection: connection,
                 request: JSONRPCClientRequest(
                     id: .number(requestId + 1_000_000),
                     method: "auth.status",
                     params: .object([:])
-                )
+                ),
+                observeIO: reader.observeIO
             )
             let status = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
             let authenticated: Bool?
@@ -171,29 +164,23 @@ struct TestFrameReader {
     mutating func receiveResponseWithoutBlockingMainActor(connection: UnixSocketConnection) async throws
         -> JSONRPCResponseMessage
     {
+        try JSONRPCCodec.decodeResponse(try await receiveFrameWithoutBlockingCooperativePool(connection: connection))
+    }
+
+    mutating func receiveFrameWithoutBlockingCooperativePool(connection: UnixSocketConnection) async throws -> String {
         if !queuedFrames.isEmpty {
-            return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
+            return queuedFrames.removeFirst()
         }
         while true {
-            let data = try await receiveDataWithoutBlockingMainActor(connection: connection)
+            let observeIO = observeIO
+            let data = try await withoutBlockingCooperativePool {
+                withUnsafeCurrentTask { observeIO?(.receive, $0 != nil) }
+                return try connection.receive(maxBytes: 4096)
+            }
             guard !data.isEmpty else { throw TestFrameReaderError.endOfStream }
             queuedFrames.append(contentsOf: try decoder.append(data))
             if !queuedFrames.isEmpty {
-                return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
-            }
-        }
-    }
-
-    private func receiveDataWithoutBlockingMainActor(connection: UnixSocketConnection) async throws -> Data {
-        let observeIO = observeIO
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                withUnsafeCurrentTask { observeIO?(.receive, $0 != nil) }
-                do {
-                    continuation.resume(returning: try connection.receive(maxBytes: 4096))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+                return queuedFrames.removeFirst()
             }
         }
     }
@@ -203,7 +190,7 @@ struct TestFrameReader {
 /// blocks in `UnixSocketConnection.receive` until the app answers. From a test
 /// body that block lands on the cooperative executor, which is where the
 /// server's own connection handler needs to run, so these shims move the wait
-/// to a libdispatch thread. See `withoutBlockingCooperativePool`.
+/// to a dedicated thread. See `withoutBlockingCooperativePool`.
 extension AgentStudioIPCClient {
     func discoverCatalogWithoutBlockingCooperativePool(
         requestID: Int = 1
@@ -223,9 +210,12 @@ extension AgentStudioIPCClient {
 /// connection is opened, used and closed inside the one hop.
 func sendRequestWithoutBlockingCooperativePool(
     socketPath: String,
-    request: JSONRPCClientRequest
+    request: JSONRPCClientRequest,
+    observeIO: TestSocketIOObserver? = nil
 ) async throws -> JSONRPCResponseMessage {
-    try await withoutBlockingCooperativePool { try sendRequest(socketPath: socketPath, request: request) }
+    try await withoutBlockingCooperativePool {
+        try sendRequest(socketPath: socketPath, request: request, observeIO: observeIO)
+    }
 }
 
 /// Reads one request inside a `UnixSocketListener.start` handler.
