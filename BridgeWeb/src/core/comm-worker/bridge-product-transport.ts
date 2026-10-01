@@ -86,6 +86,7 @@ import {
 import type { ViewResnapshotAdmissionProps } from './bridge-product-view-control-admission.js';
 import type { BridgeProductViewScopeRequest } from './bridge-product-view-control-wire-contracts.js';
 import { bridgeProductInitialViewOpening } from './bridge-product-view-opening.js';
+import type { BridgeProductViewReceiptAcknowledger } from './bridge-product-view-receipt-acknowledger.js';
 import { BridgeProductViewScopeOwner } from './bridge-product-view-scope-owner.js';
 import type { BridgeProductViewScopeSettlement } from './bridge-product-view-scope-owner.js';
 import { bridgeWorkerViewRecoveryKindSchema } from './bridge-worker-view-recovery-contracts.js';
@@ -235,6 +236,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	};
 	readonly #subscriptions = new Map<string, BridgeProductSubscriptionFrameSink>();
 	readonly #batchFrameRouter: BridgeProductBatchFrameRouter;
+	#viewReceiptAcknowledger: BridgeProductViewReceiptAcknowledger | null = null;
 	readonly #viewScopeOwner: BridgeProductViewScopeOwner;
 	readonly #onViewRecoveryStatus: CreateBridgeProductTransportProps['onViewRecoveryStatus'];
 	readonly #viewRecoveryStatusByKind = new Map<string, ViewRecoveryStatus>();
@@ -310,13 +312,18 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	}
 
 	setBatchFrameSinks(sinks: BridgeProductBatchFrameSinks): void {
-		installBridgeProductBatchDelivery({
+		this.#viewReceiptAcknowledger?.close();
+		this.#viewReceiptAcknowledger = installBridgeProductBatchDelivery({
 			authority: this.#authority,
 			deadlineClock: this.#deadlineClock,
 			executeProductRequest: this.#executeProductRequest,
 			router: this.#batchFrameRouter,
 			sinks: {
 				...sinks,
+				subscriptionRetired: (subscriptionId): void => {
+					this.#viewReceiptAcknowledger?.retireSubscription(subscriptionId);
+					sinks.subscriptionRetired?.(subscriptionId);
+				},
 				install: async (installation): Promise<void> => {
 					await sinks.install(installation);
 					if (installation.begin.mode !== 'snapshot') return;

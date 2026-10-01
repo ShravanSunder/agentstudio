@@ -22,6 +22,7 @@ export class BridgeProductViewReceiptAcknowledger {
 	readonly #idleWaiters: Array<() => void> = [];
 	#active: Promise<void> | null = null;
 	#activeAbortController: AbortController | null = null;
+	#activeRequest: BridgeProductViewAcknowledgementRequest | null = null;
 	#closed = false;
 
 	constructor(props: {
@@ -62,6 +63,14 @@ export class BridgeProductViewReceiptAcknowledger {
 		this.#beginDrain();
 	}
 
+	retireSubscription(subscriptionId: string): void {
+		for (const [viewKey, request] of this.#pendingByView) {
+			if (request.subscriptionId === subscriptionId) this.#pendingByView.delete(viewKey);
+		}
+		if (this.#activeRequest?.subscriptionId === subscriptionId)
+			this.#activeAbortController?.abort();
+	}
+
 	close(): void {
 		this.#closed = true;
 		this.#pendingByView.clear();
@@ -95,10 +104,11 @@ export class BridgeProductViewReceiptAcknowledger {
 			const [viewKey, request] = next;
 			const acknowledged = await this.#sendExactWithRetry(request);
 			if (!acknowledged) {
+				const retired = !this.#pendingByView.has(viewKey);
 				// Every pending credit for this view belongs to the unconfirmed bank.
 				// Its resnapshot must start with a fresh receipt baseline.
 				this.#pendingByView.delete(viewKey);
-				if (!this.#closed) this.#onExhausted(request);
+				if (!this.#closed && !retired) this.#onExhausted(request);
 			} else if (this.#pendingByView.get(viewKey) === request) {
 				this.#pendingByView.delete(viewKey);
 			}
@@ -111,11 +121,17 @@ export class BridgeProductViewReceiptAcknowledger {
 			attempt <= this.#authority.bootstrap.policy.admissionRetryCount;
 			attempt += 1
 		) {
-			if (this.#closed) return false;
+			if (this.#closed || !this.#pendingByView.has(receiptViewKey(request))) return false;
 			const controller = new AbortController();
 			this.#activeAbortController = controller;
+			this.#activeRequest = request;
 			let cancelDeadline = (): void => {};
+			let removeAbortListener = (): void => {};
 			const deadline = new Promise<never>((_, reject): void => {
+				const onAbort = (): void =>
+					reject(new Error('Bridge product view acknowledgement retired.'));
+				controller.signal.addEventListener('abort', onAbort, { once: true });
+				removeAbortListener = (): void => controller.signal.removeEventListener('abort', onAbort);
 				cancelDeadline = this.#deadlineClock.schedule(
 					this.#authority.bootstrap.policy.viewAcknowledgementDeadlineMilliseconds,
 					(): void => {
@@ -143,7 +159,11 @@ export class BridgeProductViewReceiptAcknowledger {
 				// A missing reply is ambiguous: replay the exact request, not another credit.
 			} finally {
 				cancelDeadline();
-				if (this.#activeAbortController === controller) this.#activeAbortController = null;
+				removeAbortListener();
+				if (this.#activeAbortController === controller) {
+					this.#activeAbortController = null;
+					this.#activeRequest = null;
+				}
 			}
 		}
 		return false;
