@@ -12,6 +12,15 @@ enum ResumedFileRestartFact: Sendable {
     case descriptorDelivered(BridgeProductFileContentDescriptor)
     case interruptedState(contextCount: Int, deferred: Bool)
 
+    var recordingScope: String {
+        switch self {
+        case .lifecycle: "lifecycle"
+        case .waiter: "waiter"
+        case .descriptorDelivered: "descriptor"
+        case .interruptedState: "pump-state"
+        }
+    }
+
     var description: String {
         switch self {
         case .lifecycle(let event): "\(event.stage.rawValue):\(event.result.rawValue)"
@@ -45,7 +54,9 @@ enum ResumedFileRestartFact: Sendable {
 struct ResumedFileRestartTrace: BridgeProductMetadataLifecycleTraceRecording {
     let sink: @Sendable (String, ResumedFileRestartFact) -> Void
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async {
-        if event.subscriptionKind == .fileMetadata { sink("File", .lifecycle(event)) }
+        if event.subscriptionKind == .fileMetadata, event.stage == .bootstrapFinished {
+            sink("File", .lifecycle(event))
+        }
     }
     func record(_: BridgeAnnotationLifecycleTraceEvent) async {}
     func record(_: BridgeProductReviewMetadataPublicationTraceEvent) async {}
