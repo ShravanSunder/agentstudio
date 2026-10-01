@@ -81,12 +81,6 @@ struct BridgeReviewMetadataPublicationProjectionPlan: Equatable, Sendable {
         )
     }
 
-    func events(
-        binding: BridgeReviewMetadataPublicationBinding
-    ) throws -> [BridgeProductReviewMetadataEvent] {
-        try windows.map { try event(window: $0, binding: binding) }
-    }
-
     private func makeWindows(
         provisionalBinding: BridgeReviewMetadataPublicationBinding
     ) throws -> [BridgeReviewMetadataProjectionWindow] {

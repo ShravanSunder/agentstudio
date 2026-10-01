@@ -36,7 +36,7 @@ struct BridgePaneProductFileFrozenScanTests {
                 subscription: subscription, productAdmission: fixture.productAdmission.context
             ) { event in
                 try await recording.recordCurrentCapture()
-                if case .treeWindow(let window) = event, window.startIndex == 0 {
+                if case .inventoryProgress(let window) = event, window.updatedPaths.contains(fixture.demandedPath) {
                     try await firstWindow.arrive(())
                 }
             }

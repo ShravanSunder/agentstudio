@@ -16,6 +16,10 @@ import {
 	createBridgeMarkdownRenderModuleWorkerFactory,
 	createBridgeMarkdownRenderWebWorkerClient,
 } from '../app/markdown/worker/bridge-markdown-render-worker-transport.js';
+import type {
+	BridgeWorkerMainToServerMessage,
+	BridgeWorkerServerToMainMessage,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import { BridgeFileViewerBrowserHarnessApp as BridgeFileViewerApp } from './bridge-file-viewer-browser-test-app.js';
 import {
@@ -27,6 +31,7 @@ import {
 	actFrame,
 	actClick,
 	actUpdate,
+	actUpdateAndWaitForBridgeFileViewerWorkerPublication,
 	installBridgeFileViewerNoopResizeObserver,
 } from './bridge-file-viewer-browser-test-harness.js';
 
@@ -312,6 +317,81 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 			);
 			expect(document.querySelector('[role="alert"]')).toBeNull();
 			expect(sendCount).toBe(2);
+		} finally {
+			markdownWorkerClient.dispose();
+		}
+	});
+
+	test('a File surface failure over Markdown retries File recovery and retains its document', async (): Promise<void> => {
+		const markdownContent = '# Retained File Markdown\n';
+		const descriptor = await makeBrowserFileDescriptorOutcomeForContent({
+			content: markdownContent,
+			path: 'docs/retained.md',
+		});
+		const commands: BridgeWorkerMainToServerMessage[] = [];
+		const workerPublication: {
+			publish: ((messages: readonly BridgeWorkerServerToMainMessage[]) => void) | null;
+		} = { publish: null };
+		const markdownWorkerClient = createBridgeMarkdownRenderWebWorkerClient({
+			workerFactory: createBridgeMarkdownRenderModuleWorkerFactory(),
+		});
+		if (markdownWorkerClient === null) throw new Error('Expected the Markdown worker.');
+		try {
+			const rendered = await render(
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					initialFileBatch={makeBrowserFileBatchWithDescriptors(descriptor)}
+					markdownWorkerClient={markdownWorkerClient}
+					navigationCommand={fileNavigationCommandForPath('docs/retained.md')}
+					fileProductSession={{
+						readContent: async (): Promise<string> => markdownContent,
+						onWorkerCommand: (command): void => {
+							commands.push(command);
+						},
+						onWorkerMessagesPublisher: (publish): void => {
+							workerPublication.publish = publish;
+						},
+					}}
+				/>,
+			);
+			await waitForMarkdownOpenFileState('ready');
+			await waitForMarkdownSelector('[data-testid="bridge-markdown-canvas"] h1');
+			await expect
+				.element(rendered.getByRole('heading', { name: 'Retained File Markdown' }))
+				.toBeVisible();
+			const canvas = rendered.getByTestId('bridge-markdown-canvas').element();
+			await actUpdateAndWaitForBridgeFileViewerWorkerPublication((): void => {
+				if (workerPublication.publish === null)
+					throw new Error('Expected the File message publisher.');
+				workerPublication.publish([
+					{
+						wireVersion: 1,
+						direction: 'serverWorkerToMain',
+						transferDescriptors: [],
+						kind: 'viewRecoveryStatus',
+						view: { kind: 'file.metadata', subscriptionId: 'browser-file-metadata-subscription' },
+						status: 'failedRetryable',
+					},
+				]);
+			});
+			await expect.element(rendered.getByRole('alert')).toBeVisible();
+			expect(rendered.getByRole('button', { name: 'Retry', exact: true }).all()).toHaveLength(1);
+			await actUpdateAndWaitForBridgeFileViewerWorkerPublication((): void => {
+				requireHTMLElement(
+					rendered.getByRole('button', { name: 'Retry', exact: true }).element(),
+				).click();
+			});
+			expect(
+				commands
+					.filter(
+						({ command }) => command === 'viewRecoveryRetry' || command === 'fileRefreshRetry',
+					)
+					.map(({ command }) => command),
+			).toEqual(['viewRecoveryRetry', 'fileRefreshRetry']);
+			expect(rendered.getByTestId('bridge-markdown-canvas').element()).toBe(canvas);
+			await expect
+				.element(rendered.getByRole('heading', { name: 'Retained File Markdown' }))
+				.toBeVisible();
 		} finally {
 			markdownWorkerClient.dispose();
 		}

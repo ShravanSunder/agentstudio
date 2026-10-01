@@ -23,7 +23,7 @@ extension BridgePaneProductFileMetadataSource {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         forceRecapture: Bool,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         guard let initialContext = contextBySubscriptionId[subscriptionId],
             let sourceSpec = initialContext.subscription.subscription.fileMetadataSource
@@ -231,9 +231,9 @@ extension BridgePaneProductFileMetadataSource {
                     (request.productAdmission.withValidAdmission { true }) == true
                 else { return false }
                 try await request.emit(
-                    .treeDelta(
-                        try .init(
-                            operations: [.upsertRows(rows)],
+                    .inventoryChanged(
+                        .init(
+                            updatedPaths: Set(rows.map(\.path)), removedPaths: [],
                             source: request.productSource
                         )
                     )

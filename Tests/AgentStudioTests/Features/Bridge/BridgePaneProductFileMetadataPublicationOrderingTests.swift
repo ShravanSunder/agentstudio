@@ -27,7 +27,7 @@ struct FileMetadataPublicationOrderingTests {
             forceRecapture: false
         ) { event in
             guard case .descriptorReady(let ready) = event,
-                case .available(let descriptor) = ready.payload.availability
+                case .available(let descriptor) = ready.availability
             else { return }
             let request = try fixture.contentRequest(descriptor: descriptor)
             await observation.record(
@@ -65,7 +65,7 @@ struct FileMetadataPublicationOrderingTests {
                 forceRecapture: false
             ) { event in
                 guard case .descriptorReady(let ready) = event,
-                    case .available(let descriptor) = ready.payload.availability
+                    case .available(let descriptor) = ready.availability
                 else { return }
                 await observation.record(descriptor)
                 throw DescriptorPublicationTestError.expectedEmissionFailure
@@ -105,7 +105,7 @@ struct FileMetadataPublicationOrderingTests {
             forceRecapture: false
         ) { event in
             guard case .descriptorReady(let ready) = event,
-                case .available(let descriptor) = ready.payload.availability
+                case .available(let descriptor) = ready.availability
             else { return }
             await firstObservation.record(descriptor)
         }
@@ -124,7 +124,7 @@ struct FileMetadataPublicationOrderingTests {
                 forceRecapture: false
             ) { event in
                 guard case .descriptorReady(let ready) = event,
-                    case .available(let descriptor) = ready.payload.availability
+                    case .available(let descriptor) = ready.availability
                 else { return }
                 await replacementObservation.record(descriptor)
                 throw DescriptorPublicationTestError.expectedEmissionFailure
@@ -173,7 +173,7 @@ struct FileMetadataPublicationOrderingTests {
                 forceRecapture: false
             ) { event in
                 guard case .descriptorReady(let ready) = event,
-                    case .available(let descriptor) = ready.payload.availability
+                    case .available(let descriptor) = ready.availability
                 else { return }
                 await olderObservation.record(descriptor)
                 await olderEmissionGate.markStarted()
@@ -193,7 +193,7 @@ struct FileMetadataPublicationOrderingTests {
             forceRecapture: false
         ) { event in
             guard case .descriptorReady(let ready) = event,
-                case .available(let descriptor) = ready.payload.availability
+                case .available(let descriptor) = ready.availability
             else { return }
             await newerObservation.record(descriptor)
         }

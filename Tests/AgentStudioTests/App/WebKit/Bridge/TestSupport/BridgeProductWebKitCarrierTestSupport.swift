@@ -207,7 +207,7 @@ actor BridgeWebKitTrackingFileMetadataSource:
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         let identity = Self.identity(subscription)
         openedSubscriptions.append(identity)
@@ -231,7 +231,7 @@ actor BridgeWebKitTrackingFileMetadataSource:
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         forceRecapture: Bool,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         try await source.applyViewDemand(
             subscriptionId: subscriptionId,

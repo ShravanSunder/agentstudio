@@ -64,13 +64,13 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
         let source = fixture.makeSource()
         let opened = try fixture.openSnapshot()
         let demand = try fixture.viewDemand()
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         try await source.open(
             subscription: opened,
             productAdmission: fixture.productAdmission.context
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
         #expect((await collector.events).compactMap(\.availableDescriptorForTest).isEmpty)
 
@@ -80,13 +80,13 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         #expect(
             (await collector.events).contains {
                 if case .descriptorReady(let ready) = $0 {
-                    return ready.payload.path == fixture.demandedPath
+                    return ready.path == fixture.demandedPath
                 }
                 return false
             })
@@ -121,8 +121,8 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
         let latestDemand = try fixture.viewDemand(
             foregroundPaths: ["File-0001.swift"], scopeRevision: 2
         )
-        let staleCollector = ProductFileMetadataEventCollector()
-        let latestCollector = ProductFileMetadataEventCollector()
+        let staleCollector = ProductFileSourceFactCollector()
+        let latestCollector = ProductFileSourceFactCollector()
         let staleTask = Task {
             try await source.applyViewDemand(
                 subscriptionId: opened.subscriptionId,
@@ -130,7 +130,7 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
                 productAdmission: fixture.productAdmission.context,
                 forceRecapture: false
             ) { event in
-                await staleCollector.append(event)
+                await staleCollector.append(event, source: source)
             }
         }
         await gate.waitUntilStarted()
@@ -141,7 +141,7 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await latestCollector.append(event)
+            await latestCollector.append(event, source: source)
         }
         await gate.release()
         try await staleTask.value
@@ -149,7 +149,7 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
         #expect(
             (await latestCollector.events).contains {
                 if case .descriptorReady(let ready) = $0 {
-                    return ready.payload.path == "File-0001.swift"
+                    return ready.path == "File-0001.swift"
                 }
                 return false
             })
@@ -280,20 +280,20 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let snapshot = try fixture.openSnapshot()
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         // Act
         try await source.open(
             subscription: snapshot,
             productAdmission: fixture.productAdmission.context
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         // Assert
         let events = await collector.events
-        let windows = events.compactMap { event -> BridgeProductFileTreeWindowEvent? in
-            guard case .treeWindow(let window) = event else { return nil }
+        let windows = events.compactMap { event -> ProductFileInventoryObservation? in
+            guard case .inventoryProgress(let window) = event else { return nil }
             return window
         }
         #expect(events.contains { if case .sourceAccepted = $0 { true } else { false } })
@@ -305,11 +305,10 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             })
         #expect(windows.last?.finalWindow == true)
         #expect(windows.last?.rows.isEmpty == true)
-        #expect(windows.last?.startIndex == 260)
-        #expect(windows.last?.totalRowCount == 260)
+        #expect(windows.last?.inventoryRowCount == 260)
         #expect(windows.flatMap(\.rows).count == 260)
         #expect(windows.flatMap(\.rows).contains { $0.path == fixture.demandedPath })
-        #expect(events.contains { if case .statusPatch = $0 { true } else { false } })
+        #expect(events.contains { if case .statusChanged = $0 { true } else { false } })
     }
 
     @Test("interest publishes exact complete metadata and a descriptor-bound read plan")
@@ -324,7 +323,7 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             productAdmission: fixture.productAdmission.context
         ) { _ in }
         let updatedSnapshot = try fixture.viewDemand()
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         // Act
         try await source.applyViewDemand(
@@ -333,14 +332,14 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         // Assert
         let descriptorPayload = try #require(
             (await collector.events).compactMap { event -> BridgeProductFileDescriptorReadyPayload? in
                 guard case .descriptorReady(let ready) = event else { return nil }
-                return ready.payload
+                return ready
             }.first
         )
         guard case .available(let descriptor) = descriptorPayload.availability else {
@@ -378,16 +377,16 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let openSnapshot = try fixture.openSnapshot()
-        let openCollector = ProductFileMetadataEventCollector()
+        let openCollector = ProductFileSourceFactCollector()
         try await source.open(
             subscription: openSnapshot,
             productAdmission: fixture.productAdmission.context
         ) { event in
-            await openCollector.append(event)
+            await openCollector.append(event, source: source)
         }
-        let initialRows = (await openCollector.events).flatMap(\.treeWindowRowsForTest)
+        let initialRows = (await openCollector.events).flatMap(\.inventoryProgressRowsForTest)
         let initialFirstPath = try #require(initialRows.first?.path)
-        let updateCollector = ProductFileMetadataEventCollector()
+        let updateCollector = ProductFileSourceFactCollector()
 
         // Act
         try await source.applyViewDemand(
@@ -396,15 +395,15 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await updateCollector.append(event)
+            await updateCollector.append(event, source: source)
         }
 
         // Assert
         let updateEvents = await updateCollector.events
-        let upsertedRows = updateEvents.flatMap(\.treeDeltaUpsertRowsForTest)
+        let upsertedRows = updateEvents.flatMap(\.inventoryChangedUpsertRowsForTest)
         #expect(initialFirstPath == "File-0000.swift")
         #expect(fixture.demandedPath == "File-0002.swift")
-        #expect(updateEvents.allSatisfy { if case .treeWindow = $0 { false } else { true } })
+        #expect(updateEvents.allSatisfy { if case .inventoryProgress = $0 { false } else { true } })
         #expect(upsertedRows.map(\.path) == [fixture.demandedPath])
         #expect(!upsertedRows.contains { $0.path == initialFirstPath })
     }
@@ -422,19 +421,19 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
             productAdmission: fixture.productAdmission.context
         ) { _ in }
         let updatedSnapshot = try fixture.viewDemand()
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         try await source.applyViewDemand(
             subscriptionId: openSnapshot.subscriptionId,
             demand: updatedSnapshot,
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
         let descriptor = try #require(
             (await collector.events).compactMap { event -> BridgeProductFileContentDescriptor? in
                 guard case .descriptorReady(let ready) = event,
-                    case .available(let descriptor) = ready.payload.availability
+                    case .available(let descriptor) = ready.availability
                 else { return nil }
                 return descriptor
             }.first
@@ -463,8 +462,8 @@ struct BridgePaneProductFileMetadataSourceViewDemandTests {
         )
 
         // Assert
-        #expect(emissions.contains { if case .treeDelta = $0.event { true } else { false } })
-        #expect(emissions.contains { if case .invalidated = $0.event { true } else { false } })
+        #expect(emissions.contains { if case .inventoryChanged = $0.fact { true } else { false } })
+        #expect(emissions.contains { if case .invalidated = $0.fact { true } else { false } })
         let retainedPlan = try #require(
             await source.contentReadPlan(
                 for: contentRequest,

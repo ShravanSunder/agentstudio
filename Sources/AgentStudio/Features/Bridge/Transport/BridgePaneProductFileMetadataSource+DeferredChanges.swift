@@ -53,7 +53,7 @@ extension BridgePaneProductFileMetadataSource {
                 request.foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 request.productAdmission.withValidAdmission({ true }) == true
             else { return false }
-            try await request.emit(emission.event)
+            try await request.emit(emission.fact)
         }
         return true
     }

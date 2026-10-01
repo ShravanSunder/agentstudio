@@ -62,6 +62,7 @@ describe('BridgeReviewComparisonStatusBanner', () => {
 				state={{
 					displayedTargetLabel: 'origin/main',
 					kind: 'failedPrevious',
+					failureKind: 'targetNotFound',
 					requestedTargetLabel: 'feature/new-target',
 					retryTarget,
 				}}

@@ -212,7 +212,7 @@ actor ActivityMetadataFileSource: BridgePaneProductFileMetadataProducing {
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         openCallCount += 1
         await waitBeforeEmissionIfRequired()
@@ -227,7 +227,7 @@ actor ActivityMetadataFileSource: BridgePaneProductFileMetadataProducing {
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         updateCallCount += 1
         descriptorSourceCallCount += 1
@@ -410,19 +410,16 @@ func requiredActivityMetadataFrame(
     return try #require(try decoder.append(delivery.frame.data).first)
 }
 
-private func activityFileSourceAcceptedEvent() throws -> BridgeProductFileMetadataEvent {
+private func activityFileSourceAcceptedEvent() throws -> BridgePaneProductFileSourceFact {
     .sourceAccepted(
-        .init(
-            source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
-                rootRevisionToken: "root-token-activity",
-                sourceCursor: "source-cursor-activity",
-                sourceId: "file-source-activity",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
-            )
-        )
-    )
+        try .init(
+            repoId: "00000000-0000-4000-8000-000000000001",
+            rootRevisionToken: "root-token-activity",
+            sourceCursor: "source-cursor-activity",
+            sourceId: "file-source-activity",
+            subscriptionGeneration: 1,
+            worktreeId: "00000000-0000-4000-8000-000000000002"
+        ))
 }
 
 private func activityMetadataStreamRequest() throws -> BridgeProductMetadataStreamRequest {

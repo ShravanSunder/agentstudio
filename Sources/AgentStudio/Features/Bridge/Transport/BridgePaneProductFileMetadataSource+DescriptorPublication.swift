@@ -9,19 +9,19 @@ extension BridgePaneProductFileMetadataSource {
         let renewedByPath = renewalEmissions.reduce(
             into: [String: BridgeProductFileDescriptorReadyPayload]()
         ) { payloads, emission in
-            if case .descriptorReady(let ready) = emission.event {
-                payloads[ready.payload.path] = ready.payload
+            if case .descriptorReady(let ready) = emission.fact {
+                payloads[ready.path] = ready
             }
         }
         var attachedPaths = Set<String>()
         let changesets = try changesetEmissions.map { emission in
-            guard case .invalidated(let invalidation) = emission.event,
+            guard case .invalidated(let invalidation) = emission.fact,
                 let replacement = renewedByPath[invalidation.path],
                 replacement.source == invalidation.source
             else { return emission }
             attachedPaths.insert(invalidation.path)
             return BridgePaneProductFileMetadataEmission(
-                event: .invalidated(
+                fact: .invalidated(
                     try .init(
                         fileId: invalidation.fileId,
                         path: invalidation.path,
@@ -37,8 +37,8 @@ extension BridgePaneProductFileMetadataSource {
         // Other renewal events still carry their normal tree and unavailable-path facts.
         return changesets
             + renewalEmissions.filter { emission in
-                guard case .descriptorReady(let ready) = emission.event else { return true }
-                return !attachedPaths.contains(ready.payload.path)
+                guard case .descriptorReady(let ready) = emission.fact else { return true }
+                return !attachedPaths.contains(ready.path)
             }
     }
 
@@ -61,7 +61,7 @@ extension BridgePaneProductFileMetadataSource {
             forceRecapture: false
         ) { event in
             emissions.withLock {
-                $0.append(.init(event: event, subscriptionId: subscription.subscriptionId))
+                $0.append(.init(fact: event, subscriptionId: subscription.subscriptionId))
             }
         }
         return emissions.withLock { $0 }

@@ -61,11 +61,15 @@ export function projectBridgeRegionPresentation(
 			? readIdentity !== null
 			: input.read.kind !== 'loading' && input.read.kind !== 'noSource' && input.read.hasContent;
 	const hasDemandedContent = hasContent && readIdentity === input.demandedIdentity;
+	const hasCompleteRead = input.read.kind === 'complete';
+	const hasDemandedRead =
+		hasDemandedContent || (hasCompleteRead && readIdentity === input.demandedIdentity);
 	if (input.surface.kind === 'failed') {
 		return {
 			kind: 'failed',
 			failure: input.surface.failure,
-			retainsContent: input.surface.failure.scope === 'pane' ? hasContent : hasDemandedContent,
+			retainsContent:
+				input.surface.failure.scope === 'pane' ? hasContent || hasCompleteRead : hasDemandedRead,
 		};
 	}
 	if (input.read.kind === 'noSource') return { kind: 'empty', reason: 'noSource' };
@@ -73,6 +77,8 @@ export function projectBridgeRegionPresentation(
 	if (input.read.kind === 'failed')
 		return { kind: 'failed', failure: input.read.failure, retainsContent: hasDemandedContent };
 	if (!hasDemandedContent) {
+		if (hasDemandedRead && input.surface.kind === 'updating')
+			return { kind: 'updating', rest: input.surface.rest ?? null };
 		return input.read.kind === 'complete' && readIdentity === input.demandedIdentity
 			? { kind: 'empty', reason: 'certified' }
 			: { kind: 'loading' };

@@ -75,7 +75,7 @@ private actor LeaseOwnershipGatedFileMetadataSource: BridgePaneProductFileMetada
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {}
 
     func applyViewDemand(
@@ -84,7 +84,7 @@ private actor LeaseOwnershipGatedFileMetadataSource: BridgePaneProductFileMetada
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {}
 
     func cancel(subscriptionId _: String) async {

@@ -28,7 +28,7 @@ struct BridgePaneProductFileMetadataPriorityTests {
         ) { _ in }
         let visiblePaths = (0..<39).map { String(format: "File-%04d.swift", $0) }
         let viewDemand = try fixture.viewDemand(visiblePaths: visiblePaths)
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         // Act
         try await source.applyViewDemand(
@@ -37,13 +37,13 @@ struct BridgePaneProductFileMetadataPriorityTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         // Assert
         let descriptorPaths = (await collector.events).compactMap { event -> String? in
             guard case .descriptorReady(let ready) = event else { return nil }
-            return ready.payload.path
+            return ready.path
         }
         #expect(descriptorPaths.count == 40)
         #expect(descriptorPaths.first == fixture.demandedPath)

@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
+import {
+	bridgeMainReviewComparisonPresentationSchema,
+	type BridgeMainReviewComparisonPresentation,
+} from '../core/comm-worker/bridge-main-review-comparison-presentation.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
@@ -78,6 +82,7 @@ describe('bridgeReviewComparisonPaneState', () => {
 		).toEqual({
 			displayedTargetLabel: 'origin/main',
 			kind: 'failedPrevious',
+			failureKind: 'refreshUnavailable',
 			requestedTargetLabel: 'feature/new-target',
 			retryTarget: activeTarget,
 		});
@@ -93,6 +98,7 @@ describe('bridgeReviewComparisonPaneState', () => {
 			}),
 		).toEqual({
 			kind: 'failedInitial',
+			failureKind: 'refreshUnavailable',
 			requestedTargetLabel: 'feature/new-target',
 			retryTarget: null,
 		});
@@ -179,13 +185,13 @@ function comparisonPresentation(props: {
 	readonly displayedSnapshot: NonNullable<
 		BridgeWorkerPanelChromePatchPayload['reviewComparison']
 	>['displayedSnapshot'];
-}): NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']> {
-	return {
+}): BridgeMainReviewComparisonPresentation {
+	return bridgeMainReviewComparisonPresentationSchema.parse({
 		activeTarget: props.activeTarget ?? comparisonTarget(),
 		attempt: props.attempt,
 		displayedSnapshot: props.displayedSnapshot,
 		repositoryDefaultTarget: { branchName: 'main', remoteName: 'origin' },
-	};
+	});
 }
 
 function comparisonTarget(): NonNullable<
