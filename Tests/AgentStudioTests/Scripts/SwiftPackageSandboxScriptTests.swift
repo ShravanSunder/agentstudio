@@ -90,7 +90,8 @@ struct SwiftPackageSandboxScriptTests {
             for line in callLines
             where !line.contains(sandboxArgumentsCall)
                 && !(owner.name == "scripts/swift-compilation-policy.sh"
-                    && line.contains("SWIFT_COMPILATION_SANDBOX_ARGUMENTS"))
+                    && (line.contains("SWIFT_COMPILATION_SANDBOX_ARGUMENTS")
+                        || line.contains("SWIFT_COMPILATION_COMMON_ARGUMENTS")))
             {
                 unguardedCalls.append("\(owner.name): \(line.trimmingCharacters(in: .whitespaces))")
             }
