@@ -1,3 +1,5 @@
+import AgentStudioPrimitives
+import Darwin
 import Foundation
 import GRDB
 
@@ -21,11 +23,12 @@ package enum CLIStoreFailure: Error, Equatable, Sendable {
     case readOnly
 }
 
-package struct CLIStoreDecodeIssue: Equatable, Sendable {
+package struct CLIStoreDecodeIssue: Error, Equatable, Sendable {
     package enum Field: String, Sendable {
         case kind
         case paneID = "pane_id"
         case messageID = "message_id"
+        case payloadJSON = "payload_json"
         case createdAt = "created_at"
     }
 
@@ -57,15 +60,21 @@ package struct CLIOutboxReadBatch: Equatable, Sendable {
     package let lastReadID: Int64
 }
 
-/// Red-phase contract scaffold. S1 replaces the fail-open placeholders after
-/// the Lead observes the new behavior tests failing.
+/// A synchronous persistence boundary for the CLI's writer and the app's
+/// read-only intake. Run it off the UI and cooperative executors.
 package final class CLIStore: Sendable {
     let databaseQueue: DatabaseQueue
     package let identity: CLIStoreIdentity
+    private let logDecodeIssue: @Sendable (CLIStoreDecodeIssue) -> Void
 
-    private init(databaseQueue: DatabaseQueue, identity: CLIStoreIdentity) {
+    private init(
+        databaseQueue: DatabaseQueue,
+        identity: CLIStoreIdentity,
+        logDecodeIssue: @escaping @Sendable (CLIStoreDecodeIssue) -> Void
+    ) {
         self.databaseQueue = databaseQueue
         self.identity = identity
+        self.logDecodeIssue = logDecodeIssue
     }
 
     package static func openWriter(
@@ -73,7 +82,46 @@ package final class CLIStore: Sendable {
         channel: CLIStoreChannel,
         logDecodeIssue: @escaping @Sendable (CLIStoreDecodeIssue) -> Void = { _ in }
     ) -> Result<CLIStore, CLIStoreFailure> {
-        .failure(.unavailable)
+        do {
+            guard url.isFileURL else { throw CLIStoreFailure.unavailable }
+            try prepareWriterFile(at: url)
+            // Open without a journal mutation until the version and channel
+            // have been admitted. A foreign store must not be reshaped.
+            let databaseQueue = try DatabaseQueue(
+                path: url.path, configuration: makeConfiguration(readonly: false))
+            let migrator = CLIStoreMigrator.makeMigrator(channel: channel)
+            let needsMigration = try databaseQueue.read { database in
+                let applied = try migrator.appliedIdentifiers(database)
+                // Same unregistered-id rule as hasBeenSuperseded, using one
+                // migration-table read for both supersession and upgrade.
+                guard applied.isSubset(of: CLIStoreMigrator.knownMigrations) else {
+                    throw CLIStoreFailure.superseded
+                }
+                if try database.tableExists("cli_store_identity") {
+                    _ = try readIdentity(database, expectedChannel: channel)
+                }
+                return applied != CLIStoreMigrator.knownMigrations
+            }
+            try databaseQueue.writeWithoutTransaction { database in
+                if try String.fetchOne(database, sql: "PRAGMA journal_mode") != "wal" {
+                    guard try String.fetchOne(database, sql: "PRAGMA journal_mode = WAL") == "wal" else {
+                        throw CLIStoreFailure.unavailable
+                    }
+                }
+                try database.execute(sql: "PRAGMA synchronous = NORMAL")
+            }
+            if needsMigration {
+                try migrator.migrate(databaseQueue)
+            }
+            let identity = try databaseQueue.read { database in
+                try readIdentity(database, expectedChannel: channel)
+            }
+            return .success(
+                CLIStore(
+                    databaseQueue: databaseQueue, identity: identity, logDecodeIssue: logDecodeIssue))
+        } catch {
+            return .failure(classifyFailure(error))
+        }
     }
 
     package static func openReader(
@@ -81,7 +129,20 @@ package final class CLIStore: Sendable {
         expectedChannel: CLIStoreChannel,
         logDecodeIssue: @escaping @Sendable (CLIStoreDecodeIssue) -> Void = { _ in }
     ) -> Result<CLIStore, CLIStoreFailure> {
-        .failure(.unavailable)
+        do {
+            guard url.isFileURL else { throw CLIStoreFailure.unavailable }
+            // This branch creates no file or directory and never migrates.
+            let databaseQueue = try DatabaseQueue(
+                path: url.path, configuration: makeConfiguration(readonly: true))
+            let identity = try databaseQueue.read { database in
+                try readIdentity(database, expectedChannel: expectedChannel)
+            }
+            return .success(
+                CLIStore(
+                    databaseQueue: databaseQueue, identity: identity, logDecodeIssue: logDecodeIssue))
+        } catch {
+            return .failure(classifyFailure(error))
+        }
     }
 
     package func appendNotice(
@@ -90,10 +151,126 @@ package final class CLIStore: Sendable {
         payloadJSON: String,
         createdAt: Date
     ) -> Result<CLIOutboxEntry, CLIStoreFailure> {
-        .failure(.unavailable)
+        guard !databaseQueue.configuration.readonly else { return .failure(.readOnly) }
+        guard
+            let createdAtMilliseconds = Int64(
+                exactly: (createdAt.timeIntervalSince1970 * CLIStorePolicy.millisecondsPerSecond).rounded())
+        else { return .failure(.unavailable) }
+        do {
+            let entry = try databaseQueue.write { database in
+                // Returning the original entry makes repeats idempotent while
+                // preserving its immutable payload and time.
+                if let existing = try CLIOutboxRecord.fetchOne(
+                    database, sql: "SELECT * FROM cli_outbox WHERE message_id = ?",
+                    arguments: [messageID.uuidString]
+                ) {
+                    return existing.entry
+                }
+                try database.execute(
+                    sql: """
+                        INSERT INTO cli_outbox
+                            (kind, pane_id, message_id, payload_json, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        CLIOutboxKind.notice.rawValue, paneID.uuidString, messageID.uuidString,
+                        payloadJSON, createdAtMilliseconds,
+                    ]
+                )
+                return CLIOutboxEntry.notice(
+                    CLINoticeEntry(
+                        id: database.lastInsertedRowID,
+                        paneID: paneID,
+                        messageID: messageID,
+                        payloadJSON: payloadJSON,
+                        createdAt: Date(
+                            timeIntervalSince1970: Double(createdAtMilliseconds) / CLIStorePolicy.millisecondsPerSecond)
+                    ))
+            }
+            return .success(entry)
+        } catch {
+            return .failure(Self.classifyFailure(error))
+        }
     }
 
     package func readOutbox(after lastHandledID: Int64) -> Result<CLIOutboxReadBatch, CLIStoreFailure> {
-        .failure(.unavailable)
+        do {
+            let outcome = try databaseQueue.read { database throws -> (CLIOutboxReadBatch, [CLIStoreDecodeIssue]) in
+                // Only the identity table exists at the previous version.
+                guard try database.tableExists("cli_outbox") else {
+                    return (CLIOutboxReadBatch(entries: [], lastReadID: lastHandledID), [])
+                }
+                let rows = try Row.fetchAll(
+                    database, sql: "SELECT * FROM cli_outbox WHERE id > ? ORDER BY id",
+                    arguments: [lastHandledID])
+                var entries: [CLIOutboxEntry] = []
+                var issues: [CLIStoreDecodeIssue] = []
+                var lastReadID = lastHandledID
+                for row in rows {
+                    lastReadID = try row.decode(Int64.self, forColumn: "id")
+                    do {
+                        entries.append(try CLIOutboxRecord(row: row).entry)
+                    } catch let issue as CLIStoreDecodeIssue {
+                        issues.append(issue)
+                    }
+                }
+                return (CLIOutboxReadBatch(entries: entries, lastReadID: lastReadID), issues)
+            }
+            // Log outside GRDB's connection queue so the sink cannot re-enter it.
+            for issue in outcome.1 {
+                logDecodeIssue(issue)
+            }
+            return .success(outcome.0)
+        } catch {
+            return .failure(Self.classifyFailure(error))
+        }
+    }
+
+    private static func readIdentity(
+        _ database: Database,
+        expectedChannel: CLIStoreChannel
+    ) throws -> CLIStoreIdentity {
+        let rows = try Row.fetchAll(database, sql: "SELECT store_id, channel FROM cli_store_identity LIMIT 2")
+        guard rows.count == 1,
+            let row = rows.first,
+            let storedID = try? row.decode(String.self, forColumn: "store_id"),
+            let storeID = UUID(uuidString: storedID), UUIDv7.isV7(storeID),
+            let channelValue = try? row.decode(String.self, forColumn: "channel"),
+            let channel = CLIStoreChannel(rawValue: channelValue)
+        else { throw CLIStoreFailure.invalidIdentity }
+        guard channel == expectedChannel else { throw CLIStoreFailure.channelMismatch }
+        return CLIStoreIdentity(storeID: storeID, channel: channel)
+    }
+
+    private static func makeConfiguration(readonly: Bool) -> Configuration {
+        var configuration = Configuration()
+        configuration.readonly = readonly
+        configuration.busyMode = .timeout(CLIStorePolicy.busyTimeout)
+        return configuration
+    }
+
+    private static func prepareWriterFile(at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        // O_EXCL avoids truncating a file another short-lived CLI just created.
+        let descriptor = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        if descriptor >= 0 {
+            Darwin.close(descriptor)
+        } else if errno != EEXIST {
+            throw CLIStoreFailure.unavailable
+        }
+    }
+
+    private static func classifyFailure(_ error: any Error) -> CLIStoreFailure {
+        if let failure = error as? CLIStoreFailure { return failure }
+        if let databaseError = error as? DatabaseError {
+            switch databaseError.resultCode {
+            case .SQLITE_BUSY, .SQLITE_LOCKED: return .busy
+            case .SQLITE_READONLY: return .readOnly
+            default: break
+            }
+        }
+        return .unavailable
     }
 }

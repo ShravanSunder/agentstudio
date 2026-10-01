@@ -246,21 +246,16 @@ struct CLIStoreTests {
             defer { fixture.remove() }
             let holder = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
-            try holder.databaseQueue.writeWithoutTransaction { database in
-                try database.execute(sql: "BEGIN IMMEDIATE")
-            }
-            defer {
-                try? holder.databaseQueue.writeWithoutTransaction { database in
-                    try database.execute(sql: "ROLLBACK")
-                }
-            }
+            // GRDB owns this transaction's lifetime; leaving a manual BEGIN
+            // open across queue calls violates its unsafe-transaction check.
+            try holder.databaseQueue.write { database throws in
+                let outcome = writer.appendNotice(
+                    paneID: UUIDv7.generate(), messageID: UUIDv7.generate(),
+                    payloadJSON: "locked", createdAt: fixture.createdAt)
 
-            let outcome = writer.appendNotice(
-                paneID: UUIDv7.generate(), messageID: UUIDv7.generate(),
-                payloadJSON: "locked", createdAt: fixture.createdAt)
-
-            #expect(failure(in: outcome) == .busy)
-            #expect(try holder.readOutbox(after: 0).get().entries.isEmpty)
+                #expect(failure(in: outcome) == .busy)
+                #expect(try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_outbox") == 0)
+            }
         }
     }
 
