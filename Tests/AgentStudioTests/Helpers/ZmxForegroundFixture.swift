@@ -18,7 +18,7 @@ struct ZmxForegroundFixture: Sendable {
     let observer: PaneForegroundObserver<TestPushClock>
     let probe: DarwinTerminalForegroundProbe
     let probeGate: ZmxForegroundProbeGate
-    let recordingWatcher: ForegroundRecordingExitWatcher
+    private let recordingWatcher: ZmxForegroundRecordingExitWatcher
     let facts: FactRecorder<ForegroundObserverFactScope, ForegroundObserverFact>
     let inputWriter: ForegroundFIFOHandle
     let agentOutputReader: ForegroundFIFOHandle
@@ -88,7 +88,7 @@ struct ZmxForegroundFixture: Sendable {
             let facts = try source.attach()
             let probe = DarwinTerminalForegroundProbe(sessionDirectory: harness.zmxDir, bootId: bootId)
             let probeGate = ZmxForegroundProbeGate(probe: probe)
-            let recordingWatcher = ForegroundRecordingExitWatcher(wrapping: DarwinProcessExitWatcher())
+            let recordingWatcher = ZmxForegroundRecordingExitWatcher(wrapping: DarwinProcessExitWatcher())
             let observer = PaneForegroundObserver(
                 clock: TestPushClock(),
                 policy: .init(lookSettleDelay: .seconds(5), lookMaxDelay: .seconds(60), quitLookDeadline: .seconds(1)),
@@ -175,6 +175,22 @@ struct ZmxForegroundFixture: Sendable {
         successorHandles.closeAll()
         try await facts.finish()
     }
+}
+
+/// Kept in this executable-test target: the Terminal unit-test wrapper is in
+/// another module. Record IDs before native delivery without sharing test targets.
+private final class ZmxForegroundRecordingExitWatcher: ProcessExitWatching, Sendable {
+    private let wrapped: any ProcessExitWatching
+    private let watchIds = Mutex<Set<UUID>>([])
+
+    init(wrapping wrapped: any ProcessExitWatching) { self.wrapped = wrapped }
+
+    func watchExit(of process: ProcessIncarnation, watchId: UUID) -> ProcessExitWatch {
+        watchIds.withLock { _ = $0.insert(watchId) }
+        return wrapped.watchExit(of: process, watchId: watchId)
+    }
+
+    func isWatchOperation(_ operationId: UUID) -> Bool { watchIds.withLock { $0.contains(operationId) } }
 }
 
 final class ForegroundFIFOGroup: Sendable {
