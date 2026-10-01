@@ -1,3 +1,14 @@
+import type {
+	BridgeMainReviewCatalogSnapshot,
+	BridgeMainReviewCatalogChange,
+	BridgeMainReviewCatalogChangeRead,
+} from './bridge-main-review-catalog-contracts.js';
+export type {
+	BridgeMainReviewCatalogSnapshot,
+	BridgeMainReviewCatalogOrderMutation,
+	BridgeMainReviewCatalogChange,
+	BridgeMainReviewCatalogChangeRead,
+} from './bridge-main-review-catalog-contracts.js';
 import {
 	BridgeMainFileDisplayPatchApplier,
 	type BridgeMainFileDisplayPatchApplierProps,
@@ -79,45 +90,6 @@ export interface BridgeMainReviewDisplayFreshness {
 	readonly epoch: number;
 	readonly projectionRevision: number;
 	readonly sequence: number;
-}
-
-export interface BridgeMainReviewCatalogSnapshot {
-	readonly changeCursor: number;
-	readonly epoch: number | null;
-	readonly itemOrderLength: number;
-	readonly revision: number;
-	readonly treeRowOrderLength: number;
-}
-
-export type BridgeMainReviewCatalogOrderMutation =
-	| {
-			readonly kind: 'replace';
-			readonly length: number;
-	  }
-	| {
-			readonly kind: 'setRange';
-			readonly length: number;
-			readonly startIndex: number;
-	  }
-	| {
-			readonly deleteCount: number;
-			readonly insertCount: number;
-			readonly kind: 'splice';
-			readonly startIndex: number;
-	  };
-
-export interface BridgeMainReviewCatalogChange {
-	readonly cursor: number;
-	readonly itemIds: readonly string[];
-	readonly itemOrderMutations: readonly BridgeMainReviewCatalogOrderMutation[];
-	readonly reset: boolean;
-	readonly treeRowIds: readonly string[];
-	readonly treeRowOrderMutations: readonly BridgeMainReviewCatalogOrderMutation[];
-}
-
-export interface BridgeMainReviewCatalogChangeRead {
-	readonly changes: readonly BridgeMainReviewCatalogChange[];
-	readonly resetRequired: boolean;
 }
 
 export type BridgeMainReviewSourceDisplaySlice =
@@ -326,6 +298,15 @@ export function createBridgeMainRenderSnapshotStore(
 	const publishCandidatePresentation = (): void => {
 		publishReviewRefreshPresentation();
 		publishBridgeMainListeners(reviewCandidateSourceListeners);
+	};
+	const publishReviewCandidateTransition = (
+		transition: () => boolean,
+		notify: () => void,
+	): boolean => {
+		if (isDisposed) return false;
+		const changed = transition();
+		if (changed) notify();
+		return changed;
 	};
 	const discardReviewCandidate = (identity?: BridgeMainReviewPublicationIdentity): boolean => {
 		if (!reviewCandidateBankOwner.discard(identity)) return false;
@@ -651,36 +632,31 @@ export function createBridgeMainRenderSnapshotStore(
 				}),
 			);
 		},
-		markReviewCandidateReady: (props): boolean => {
-			if (isDisposed) return false;
-			const marked = reviewCandidateBankOwner.markReady(props);
-			if (marked) publishReviewRefreshPresentation();
-			return marked;
-		},
-		escalateReviewCandidatePresentation: (props): boolean => {
-			if (isDisposed) return false;
-			const escalated = reviewCandidateBankOwner.escalatePresentation(props);
-			if (escalated) publishReviewRefreshPresentation();
-			return escalated;
-		},
-		failReviewCandidate: (props): boolean => {
-			if (isDisposed) return false;
-			const failed = reviewCandidateBankOwner.fail(props);
-			if (failed) publishCandidatePresentation();
-			return failed;
-		},
-		clearReviewCandidateFailure: (): boolean => {
-			if (isDisposed) return false;
-			const cleared = reviewCandidateBankOwner.clearFailure();
-			if (cleared) publishReviewRefreshPresentation();
-			return cleared;
-		},
-		failReviewInstallation: (identity): boolean => {
-			if (isDisposed) return false;
-			const failed = reviewCandidateBankOwner.failInstallation(identity);
-			if (failed) publishCandidatePresentation();
-			return failed;
-		},
+		markReviewCandidateReady: (props): boolean =>
+			publishReviewCandidateTransition(
+				() => reviewCandidateBankOwner.markReady(props),
+				publishReviewRefreshPresentation,
+			),
+		escalateReviewCandidatePresentation: (props): boolean =>
+			publishReviewCandidateTransition(
+				() => reviewCandidateBankOwner.escalatePresentation(props),
+				publishReviewRefreshPresentation,
+			),
+		failReviewCandidate: (props): boolean =>
+			publishReviewCandidateTransition(
+				() => reviewCandidateBankOwner.fail(props),
+				publishCandidatePresentation,
+			),
+		clearReviewCandidateFailure: (): boolean =>
+			publishReviewCandidateTransition(
+				() => reviewCandidateBankOwner.clearFailure(),
+				publishReviewRefreshPresentation,
+			),
+		failReviewInstallation: (identity): boolean =>
+			publishReviewCandidateTransition(
+				() => reviewCandidateBankOwner.failInstallation(identity),
+				publishCandidatePresentation,
+			),
 		promoteReviewCandidate: (identity): boolean =>
 			isDisposed ? false : promoteReviewCandidate(identity),
 		discardReviewCandidate: (identity): boolean =>

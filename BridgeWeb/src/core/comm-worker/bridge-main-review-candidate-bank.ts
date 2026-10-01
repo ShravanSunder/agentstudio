@@ -212,8 +212,13 @@ export class BridgeMainReviewCandidateBankOwner {
 		if (this.#activeIdentity !== null && !isNewer(props.identity, this.#activeIdentity)) {
 			return false;
 		}
-		const reoffersFailedInstallation = this.#failure?.kind === 'installation' && isExact(props.identity, this.#failure.identity);
-		if (this.#failure !== null && !isNewer(props.identity, this.#failure.identity) && !reoffersFailedInstallation) {
+		const reoffersFailedInstallation =
+			this.#failure?.kind === 'installation' && isExact(props.identity, this.#failure.identity);
+		if (
+			this.#failure !== null &&
+			!isNewer(props.identity, this.#failure.identity) &&
+			!reoffersFailedInstallation
+		) {
 			return false;
 		}
 		const candidate = this.#candidate;

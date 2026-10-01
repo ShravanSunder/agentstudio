@@ -430,7 +430,7 @@ export function useBridgeReviewRenderSnapshotController(
 				}),
 			);
 		},
-		[displayStore, props.reviewClient],
+		[props.reviewClient],
 	);
 	const retryFailedMetadataView = useCallback(
 		(comparisonTarget: BridgeWorkerReviewComparisonUpdateCommand['target'] | null): void => {
