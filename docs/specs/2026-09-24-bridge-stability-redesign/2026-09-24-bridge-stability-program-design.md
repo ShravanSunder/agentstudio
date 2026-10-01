@@ -664,6 +664,7 @@ The PR1 main assessment, the real-app journey and the Advisor's wedge hunt found
     - `demandedIdentity`: the view's selection/comparison state.
   - The Retry control comes from the existing recovery action spec (`bridge-viewer-recovery-action-spec.ts`). The pane failed-start Retry is a port whose native wiring waits on the owner's page-command decision.
   - W6 holds no state, timer, retry budget or atom, and writes no currentness.
+  - One control per failure fact, keyed by `failure.scope`. A `surface` failure renders one shared Failed alert and Retry in the surface's primary region (Review: centre; File: content); its other regions keep retained content marked stale, or a quiet placeholder with no second Retry. A `read` failure renders in its own region. A `pane` failure (failed start) renders one control for the pane.
 - **PR1 File attempt owner = the N5 File reconciler, minimum form (native).**
   - An off-MainActor actor `BridgeFileSurfaceReconciler`, home `Sources/AgentStudio/Features/Bridge/Runtime/SurfaceReconciliation/`.
   - It owns, per File surface: the current input generation, the running and retiring attempt identity (input generation + nonce), the surface attempt budget, and the attempt's finite-progress deadline (`AppPolicies`).
