@@ -8,6 +8,59 @@ import Testing
 @Suite("Bridge pane refresh admission coordinator")
 @MainActor
 struct BridgePaneRefreshAdmissionCoordinatorTests {
+    @Test("Review intent floor is monotonic within E1 and resets for a new E1")
+    func reviewIntentFloorIsKeyedToProductAdmission() throws {
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        let source = coordinator.workAdmissionSource
+        let firstAdmission = try BridgeProductAdmissionTestContext.make()
+        let secondAdmission = try BridgeProductAdmissionTestContext.make()
+
+        _ = firstAdmission.context.withValidAdmission {
+            source.admitReviewComparisonIntent(
+                workerDerivationEpoch: 3,
+                productAdmission: firstAdmission.context
+            )
+        }
+        _ = firstAdmission.context.withValidAdmission {
+            source.admitReviewComparisonIntent(
+                workerDerivationEpoch: 2,
+                productAdmission: firstAdmission.context
+            )
+        }
+        let olderIntentWasAdmitted =
+            firstAdmission.context.withValidAdmission {
+                source.withCurrentReviewComparisonIntent(
+                    workerDerivationEpoch: 2,
+                    productAdmission: firstAdmission.context
+                ) { true } == true
+            } == true
+
+        _ = secondAdmission.context.withValidAdmission {
+            source.admitReviewComparisonIntent(
+                workerDerivationEpoch: 1,
+                productAdmission: secondAdmission.context
+            )
+        }
+        let newE1IntentWasAdmitted =
+            secondAdmission.context.withValidAdmission {
+                source.withCurrentReviewComparisonIntent(
+                    workerDerivationEpoch: 1,
+                    productAdmission: secondAdmission.context
+                ) { true } == true
+            } == true
+        let oldE1CannotReuseItsHigherEpoch =
+            firstAdmission.context.withValidAdmission {
+                source.withCurrentReviewComparisonIntent(
+                    workerDerivationEpoch: 99,
+                    productAdmission: firstAdmission.context
+                ) { true } == true
+            } == true
+
+        #expect(!olderIntentWasAdmitted)
+        #expect(newE1IntentWasAdmitted)
+        #expect(!oldE1CannotReuseItsHigherEpoch)
+    }
+
     @Test("explicit File retry cannot bypass stream-reset recovery without unavailable state")
     func explicitFileRetryRequiresUnavailableState() {
         let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)

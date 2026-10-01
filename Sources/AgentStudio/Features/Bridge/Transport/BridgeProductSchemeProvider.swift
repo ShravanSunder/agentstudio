@@ -1,4 +1,6 @@
 protocol BridgeProductSchemeProvider: Sendable {
+    var reviewIntentAdmissionSource: BridgePaneRefreshWorkAdmissionSource? { get }
+
     func response(
         for request: BridgeProductControlRequest,
         productAdmission: BridgeProductAdmissionContext?
@@ -50,6 +52,8 @@ protocol BridgeProductSchemeProvider: Sendable {
 }
 
 extension BridgeProductSchemeProvider {
+    var reviewIntentAdmissionSource: BridgePaneRefreshWorkAdmissionSource? { nil }
+
     func invalidatePendingComparisonTargetReservation() async {}
 
     func activateWorkerIdentity(_ workerInstanceId: String) async {}
