@@ -306,6 +306,7 @@ package enum AppPolicies {
         package static let captureByteCeiling: Int = 8 * 1024 * 1024
         package static let maximumConcurrentCaptures: Int = 4
         package static let snapshotByteCap: Int = 2 * 1024 * 1024
+        package static let snapshotReadChunkByteCount: Int = 16_384
         /// Bounds the one `zmx list` inventory probe `mount()` runs, off-main,
         /// before the terminal lane activates (SR1, SR4; Program Design item
         /// 1). The probe never retries: a probe that exceeds this becomes
