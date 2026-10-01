@@ -2,12 +2,12 @@ import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
-struct AgentStudioAppIPCRequestError: Error, Equatable, Sendable {
-    let code: Int
-    let message: String
-    let data: JSONValue?
+package struct AgentStudioAppIPCRequestError: Error, Equatable, Sendable {
+    package let code: Int
+    package let message: String
+    package let data: JSONValue?
 
-    init(code: Int, message: String, data: JSONValue? = nil) {
+    package init(code: Int, message: String, data: JSONValue? = nil) {
         self.code = code
         self.message = message
         self.data = data
@@ -29,7 +29,7 @@ struct AgentStudioAppIPCRequestError: Error, Equatable, Sendable {
 }
 
 extension AgentStudioAppIPCRequestError {
-    init(_ error: Error) {
+    package init(_ error: Error) {
         switch error {
         case let authorizationError as AuthorizationError:
             self.init(authorizationError)

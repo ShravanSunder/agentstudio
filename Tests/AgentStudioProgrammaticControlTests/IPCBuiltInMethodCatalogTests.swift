@@ -129,72 +129,63 @@ struct IPCBuiltInMethodCatalogTests {
         #expect(names.isDisjoint(with: excludedNames))
     }
 
-    @Test("terminal wait uses the caller-supplied maximum in discovery and decoding")
-    func terminalWaitUsesInjectedMaximum() throws {
-        let suppliedMaximum = 2.5
-        let catalog = try makeCatalog(waitMaximum: suppliedMaximum)
-        let descriptor = catalog.terminal.terminalWait
-        let valid = try descriptor.decodeParameters(
-            from: Data(
-                #"{"handle":"self","condition":"titleChanged","timeoutSeconds":2.5}"#.utf8
-            )
-        )
-        #expect(valid.timeoutSeconds == suppliedMaximum)
+    @Test("the advertised wait intake admits finite nonnegative values without an upper bound")
+    func terminalWaitLeavesLimitToServer() throws {
+        let descriptor = try makeCatalog(waitMaximum: 9).terminal.terminalWait
+        let decoded = try descriptor.decodeParameters(
+            from: Data(#"{"handle":"self","condition":"titleChanged","timeoutSeconds":10}"#.utf8))
+        #expect(decoded.timeoutSeconds == 10)
         #expect(throws: IPCSchemaValidationError.self) {
             try descriptor.decodeParameters(
-                from: Data(
-                    #"{"handle":"self","condition":"titleChanged","timeoutSeconds":2.5001}"#.utf8
-                )
-            )
+                from: Data(#"{"handle":"self","condition":"titleChanged","timeoutSeconds":-1}"#.utf8))
         }
-
-        let document = try #require(
-            JSONSerialization.jsonObject(
-                with: descriptor.contract.parameterSchema.jsonSchemaData()
-            ) as? [String: Any]
-        )
-        let properties = try #require(document["properties"] as? [String: [String: Any]])
-        #expect(properties["timeoutSeconds"]?["maximum"] as? Double == suppliedMaximum)
     }
 
-    @Test("the server policy keeps the previously advertised wait schema bytes")
-    func serverWaitSchemaRemainsByteIdentical() throws {
+    @Test("the advertised wait schema pins the S5 clamp and report contract")
+    func advertisedWaitSchemaPinsClampContract() throws {
         let descriptor = try makeCatalog(waitMaximum: 9).terminal.terminalWait
         guard case .object(let selectorFields) = try IPCPaneSelectorParams.ipcSchema() else {
             Issue.record("pane selector contract must be an object")
             return
         }
         let paneField = try #require(selectorFields.first { $0.name == "handle" })
-        let previousSchema = IPCJSONSchema.object(fields: [
+        let schema = IPCJSONSchema.object(fields: [
             paneField,
             .init(
                 name: "condition", description: "Terminal condition to observe",
                 schema: try IPCTerminalWaitCondition.ipcSchema()),
             .init(
-                name: "timeoutSeconds", description: "Finite bounded wait duration in seconds",
-                schema: .number(minimum: 0, maximum: 9)),
+                name: "timeoutSeconds",
+                description:
+                    "Finite nonnegative wait duration in seconds; the server clamps to its policy maximum and reports the effective timeout",
+                schema: .number(minimum: 0)),
             .optional(
                 "afterSequence", description: "Observe only events after this terminal sequence",
                 schema: IPCSchemaScalars.unsignedInteger),
         ])
-
-        #expect(try descriptor.contract.parameterSchema.jsonSchemaData() == previousSchema.jsonSchemaData())
+        #expect(try descriptor.contract.parameterSchema.jsonSchemaData() == schema.jsonSchemaData())
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        #expect(try encoder.encode(descriptor.contract.parameterSchema) == encoder.encode(previousSchema))
+        #expect(try encoder.encode(descriptor.contract.parameterSchema) == encoder.encode(schema))
+        guard case .object(let resultFields) = descriptor.contract.resultSchema else {
+            Issue.record("wait response must be a flat object")
+            return
+        }
+        #expect(resultFields.first { $0.name == "timeoutSeconds" }?.schema == .number(minimum: 0))
+        #expect(resultFields.first { $0.name == "timeoutSeconds" }?.presence == .required)
+        #expect(resultFields.first { $0.name == "wasClamped" }?.schema == .boolean)
+        #expect(resultFields.first { $0.name == "wasClamped" }?.presence == .required)
     }
 
-    @Test("local wait leaves the upper bound to the server while rejecting negative input")
-    func localWaitUpperBoundIsEnforcedByServer() throws {
+    @Test("local wait validation matches the advertised finite nonnegative intake")
+    func localWaitValidationMatchesAdvertisedIntake() throws {
         let local = try #require(
-            IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: fixtureContext)
-                .first { $0.metadata.name == "terminal.wait" })
+            IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: fixtureContext).first {
+                $0.metadata.name == "terminal.wait"
+            })
         let abovePolicy = Data(#"{"handle":"self","condition":"titleChanged","timeoutSeconds":10}"#.utf8)
-
         _ = try local.normalizeParameters(abovePolicy)
-        #expect(throws: IPCSchemaValidationError.self) {
-            try makeCatalog(waitMaximum: 9).terminal.terminalWait.decodeParameters(from: abovePolicy)
-        }
+        _ = try makeCatalog(waitMaximum: 9).terminal.terminalWait.decodeParameters(from: abovePolicy)
         #expect(throws: IPCSchemaValidationError.self) {
             try local.normalizeParameters(
                 Data(#"{"handle":"self","condition":"titleChanged","timeoutSeconds":-1}"#.utf8))

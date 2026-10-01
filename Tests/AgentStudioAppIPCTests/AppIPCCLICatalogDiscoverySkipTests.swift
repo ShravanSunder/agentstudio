@@ -57,13 +57,17 @@ struct AppIPCCLICatalogDiscoverySkipTests {
             })
     }
 
-    @Test("command.execute still resolves its arguments from the live catalog")
-    func commandExecuteStillDiscovers() async throws {
-        let observed = try await runClientThroughRecordingProxy(
-            arguments: ["command.execute", "--json", #"{"commandId":"x","correlationId":"y"}"#])
-
-        #expect(observed.contains("system.capabilities"))
+    @Test("command.execute sends its compiled raw envelope without discovery")
+    func commandExecuteSkipsDiscovery() async throws {
+        let observed = try await runRecordedCLIInvocation(
+            .init(
+                arguments: ["command.execute", "--command-id", recordedCLILiveCommandID.rawValue],
+                includesLiveCommand: true))
+        #expect(!observed.requests.contains { $0.method == "system.capabilities" || $0.method == "command.list" })
+        #expect(observed.requests.map(\.method) == ["auth.login", "command.execute"])
+        #expect(observed.outcome.exitCode == 0, "stderr: \(observed.outcome.standardError)")
     }
+
 }
 
 private func runClientThroughRecordingProxy(arguments: [String]) async throws -> [String] {

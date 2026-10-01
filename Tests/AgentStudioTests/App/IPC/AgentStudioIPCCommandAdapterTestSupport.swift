@@ -169,3 +169,23 @@ let retiredPanesOrganizationCommands: [AppCommand] = [
     .setPanesSortFieldActivity,
     .togglePanesSortDirection,
 ]
+
+/// Gives raw-wire adapter tests the existing isolated dispatcher ownership.
+@MainActor
+func withRawCommandAdapterDispatcher<Result>(
+    harness: CommandAdapterHarness, body: () async throws -> Result
+) async throws -> Result {
+    try await withIsolatedCommandDispatcher(
+        configure: {
+            AppCommandDispatcher.shared.handler = nil
+            AppCommandDispatcher.shared.appCommandRouter = harness.shellCommandHandler
+        }, body: body)
+}
+
+@MainActor
+func rawCommandOwnerArguments(from harness: CommandAdapterHarness) -> [IPCCommandArguments] {
+    harness.shellCommandHandler.handledRequests.compactMap { request in
+        guard case .typedIPC(let arguments) = request.arguments else { return nil }
+        return arguments
+    }
+}

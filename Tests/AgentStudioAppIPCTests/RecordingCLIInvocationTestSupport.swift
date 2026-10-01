@@ -18,6 +18,9 @@ struct RecordingCLIInvocationRequest: Sendable {
     var standardInput = Data()
     var authenticated = true
     var includesLiveCommand = false
+    var commandArgumentExample: IPCCommandArguments = .noArguments
+    var panes: [IPCPaneSummary] = []
+    var runtimePort: (any AppIPCRuntimePort)?
     var correlationId = UUIDv7.generate()
     var execution: Execution = .inProcess
 }
@@ -26,6 +29,7 @@ struct RecordedCLIInvocation: Sendable {
     let outcome: ClientCommandLineOutcome
     let requests: [JSONRPCRequest]
     let acceptedConnections: Int
+    let executedCommands: [IPCCommandExecutionRequest]
 }
 
 struct ClientCommandLineOutcome: Sendable {
@@ -43,8 +47,9 @@ func runRecordedCLIInvocation(_ request: RecordingCLIInvocationRequest) async th
     let proxyPath = "/tmp/asipc-skip-\(UUIDv7.generate().uuidString).sock"
     let proxy = UnixSocketListener(endpoint: UnixSocketEndpoint(path: proxyPath))
     let pumps = RecordingProxyPumpOwner()
+    let commandPort = try request.includesLiveCommand ? makeRecordingCLICommandPort(request) : nil
     let outcome = try await withLiveServer(
-        makeFixture: { try makeRecordingCLIFixture(request) },
+        makeFixture: { try makeRecordingCLIFixture(request, commandPort: commandPort) },
         releaseHeldWork: {
             proxy.stop()
             await pumps.closeAndJoin()
@@ -89,23 +94,33 @@ func runRecordedCLIInvocation(_ request: RecordingCLIInvocationRequest) async th
                     standardError: String(bytes: output.standardError, encoding: .utf8) ?? "Invalid UTF-8 stderr")
             }
         })
-    return recorder.snapshot(outcome: outcome)
+    return recorder.snapshot(outcome: outcome, executedCommands: commandPort?.receivedExecutionRequests ?? [])
 }
 
-private func makeRecordingCLIFixture(_ request: RecordingCLIInvocationRequest) throws -> LiveServerFixture {
+private func makeRecordingCLIFixture(
+    _ request: RecordingCLIInvocationRequest, commandPort: FakeCommandPort?
+) throws -> LiveServerFixture {
     let accessMode: IPCAccessMode = request.authenticated ? .agentStudioOnly : .unsafeDebug
-    guard request.includesLiveCommand else {
-        return try LiveServerFixture(accessMode: accessMode, channel: .debug)
+    guard let commandPort else {
+        return try LiveServerFixture(
+            accessMode: accessMode, channel: .debug, panes: request.panes,
+            runtimePort: request.runtimePort ?? FakeRuntimePort())
     }
+    return try LiveServerFixture(
+        accessMode: accessMode, channel: .debug, panes: request.panes,
+        runtimePort: request.runtimePort ?? FakeRuntimePort(), commandPort: commandPort,
+        commandComposition: IPCCommandMethodComposition(compatibility: .current, commands: commandPort.commands))
+}
+
+private func makeRecordingCLICommandPort(_ request: RecordingCLIInvocationRequest) throws -> FakeCommandPort {
+    let result = IPCCommandExecutionResult.applied(
+        .init(commandId: recordedCLILiveCommandID, correlationId: request.correlationId))
     let descriptor = try makeFakeCommandDescriptor(
         .init(
-            id: recordedCLILiveCommandID, executionMode: .headless, arguments: .noArguments,
-            requiredPrivileges: [.appCommandExecute], dataScope: .unspecified, allowedTargetKinds: [],
-            result: .applied(.init(commandId: recordedCLILiveCommandID, correlationId: request.correlationId))))
-    return try LiveServerFixture(
-        accessMode: accessMode, channel: .debug,
-        commandPort: FakeCommandPort(commands: [descriptor]),
-        commandComposition: IPCCommandMethodComposition(compatibility: .current, commands: [descriptor]))
+            id: recordedCLILiveCommandID, executionMode: .headless, arguments: request.commandArgumentExample,
+            requiredPrivileges: [.appCommandExecute], dataScope: .unspecified, allowedTargetKinds: [], result: result))
+    return FakeCommandPort(
+        commands: [descriptor], executionResultsByCommandId: [recordedCLILiveCommandID.rawValue: result])
 }
 
 /// Blocking socket IO runs on a dedicated thread. Only observations return;
@@ -221,10 +236,13 @@ private final class CLIRequestRecorder: Sendable {
         state.withLock { $0.requests.append(request) }
     }
 
-    func snapshot(outcome: ClientCommandLineOutcome) -> RecordedCLIInvocation {
+    func snapshot(outcome: ClientCommandLineOutcome, executedCommands: [IPCCommandExecutionRequest])
+        -> RecordedCLIInvocation
+    {
         state.withLock {
             RecordedCLIInvocation(
-                outcome: outcome, requests: $0.requests, acceptedConnections: $0.acceptedConnections)
+                outcome: outcome, requests: $0.requests, acceptedConnections: $0.acceptedConnections,
+                executedCommands: executedCommands)
         }
     }
 }
