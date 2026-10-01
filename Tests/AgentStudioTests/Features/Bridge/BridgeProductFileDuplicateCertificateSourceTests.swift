@@ -139,7 +139,7 @@ private struct DuplicateCertificateEnrichmentProof {
         guard case .batch(.begin(let begin)) = beginFrame else {
             throw ProductFileSourceFixtureError.invalidControlRequest
         }
-        #expect(begin.scopeRevision == demand.scopeRevision)
+        #expect(begin.identity.scopeRevision == demand.scopeRevision)
         #expect(begin.mode == .snapshot)
         var descriptorCount = 0
         for _ in 0..<begin.partCount {
