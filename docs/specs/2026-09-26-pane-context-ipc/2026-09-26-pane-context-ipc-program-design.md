@@ -1,6 +1,21 @@
 # Enable pane agents: how it is built
 
-Date: 2026-09-30. **Revision 14** (owner: "as little work on the main actor as possible"): "MainActor and atom boundaries" is redesigned from the repo's owning docs:
+Date: 2026-10-01. **Revision 22**: the status value type is renamed `AgentSessionStatus`, because main already has `Core/Models/SessionStatus.swift` (the zmx backend session lifecycle state machine) and CI's compile caught the redeclaration. The atom keeps its owner-approved name, `SessionStatusAtom`, and its state stays `SessionStatusState`. **Revision 21**: the owner allowed the directory's thin publish at the graph commit. The rule, clarified: main-actor touches to main-owned state are fine; derivation and work stay off-main. **Revision 20** (advisor membership-directory review, M1–M3 accepted): mirror the existing structural placement with no tab id; one publisher at `commitPaneStates`; an atomic boot install; a stated linearization; auth parity; a bounded affected-owner invalidation with a lazy-start handshake. The main-actor allowance for the publication is pending the owner. **Revision 19** (owner decisions): the R3a exception is accepted. Membership source B, a directory, with its draft written into Gaps item 6 for review by the Sol xhigh advisor. Owner rule: nothing on the main actor. **Revision 18**: A1's remaining double-loss, identical-content case is named. The content fold is an exception to Spec R3a, so it needs the owner's acceptance (Gaps item 7). Until then, R3a's strict rule governs. **Revision 17** (advisor rev-16 verification):
+- F1: the last zero-main-actor claims are corrected (the person-action row and the proof boundary).
+- F4: the old producer paragraph is replaced.
+- A1: a fold needs exactly one open prompt with identical `questions`.
+- A2: a no-id elicitation result never resolves; prompts wait for the turn boundary.
+
+**Revision 16** (advisor's rev-14 check, five findings plus A1/A2, all accepted after the Lead verified the anchors):
+- F1: the main-actor list now names the inherited authentication hop and the native person-action effects.
+- F2: the equality baseline is the last *desired* value, and removal joins the lane.
+- F3: the pane-keyed status keeps an ended binding's value.
+- F4: pane viewed comes from person-initiated, successful focus, ordered by a monotonic instant against done.
+- F5: the claim of an existing topology feed is withdrawn; it's now an owner decision (Gaps item 6).
+- A1: an AskUserQuestion permission folds into the question, or opens a conservative question prompt.
+- A2: no elicitation FIFO; an ambiguous result resolves nothing.
+
+**Revision 15** (provider traces, gap 1 closed): the provider table is re-based on Claude Code 2.1.286 and Codex 0.159.2. A PermissionRequest for AskUserQuestion opens no approval prompt. Elicitation has no `elicitation_id`, so correlation by server and order is the normal path. The StopFailure summary is its `error`. **Revision 14** (owner: "as little work on the main actor as possible"): "MainActor and atom boundaries" is redesigned from the repo's owning docs:
 - a complete list of main-actor work;
 - a what-runs-where table;
 - one publication lane (off-main equal-check, a latest-value mailbox, one awaited sink call per batch, following `PaneActivityClock`);
@@ -288,16 +303,16 @@ projections. **Installed** means Agent Studio wires it today; **PR B** means
 PR B adds it. A row counts as supported only after a recorded trace from the
 installed provider version (Spec R6).
 
-| Status input | Claude Code 2.1.283 | Codex CLI 0.157.1 |
+| Status input | Claude Code 2.1.286 (traced 2026-09-30) | Codex CLI 0.159.2 |
 | --- | --- | --- |
 | working(active) | `UserPromptSubmit`, `PreToolUse`, `SubagentStart/Stop` (installed) | `PreToolUse`, `SubagentStart/Stop` (installed) |
 | idle(done) | `Stop` (installed). It does **not** run when the person interrupts. | `Stop` (installed) |
 | idle(interrupted) | no hook reports it; see the silent-case rule below | `Interrupt` → turnAbort (installed) |
 | idle(ended) | `SessionEnd` (installed) | `SessionEnd` (installed) |
-| failed(summary) | **`StopFailure`** (PR B), with its documented error category as the summary | not in hooks (app-server only), so it stays unknown |
+| failed(summary) | **`StopFailure`** (PR B). The summary is its `error` category; the trace shows `"error":"authentication_failed"` | not in hooks (app-server only), so it stays unknown |
 | provider prompt, approval (S13) | `PermissionRequest` (installed; report-only) opens it. It carries `tool_name`/`tool_input` but no `tool_use_id`, so no completion can be proved to be its own. It resolves at the turn boundary (`Stop`, `StopFailure`, `UserPromptSubmit`) or session end, whether you allowed or denied it in the terminal | `PermissionRequest` (installed; report-only) opens it. The same rule: it resolves at a turn boundary (`Stop`, `UserPromptSubmit`) or session end |
 | provider prompt, question (S13) | **`PreToolUse` with `tool_name == "AskUserQuestion"`** (PR B decodes `tool_name`, `tool_use_id`, question and choices) opens it; that tool's `PostToolUse` resolves it | not in hooks (app-server `requestUserInput` only) |
-| provider prompt, MCP form (S13) | **`Elicitation`** opens it; **`ElicitationResult`** resolves it, correlated by `elicitation_id` when present, otherwise by server name and order (PR B; payload re-checked against a recorded trace before wiring) | none |
+| provider prompt, MCP form (S13) | **`Elicitation`** opens it (`mcp_server_name`, `message`, `mode`, `requested_schema`), and **`ElicitationResult`** resolves it (`action`, `content`). The 2.1.286 trace carries **no `elicitation_id`** on either event. A no-id result resolves nothing, and prompts without an id resolve at a turn boundary or session end. That's the conservative R3a rule: a lost opening makes any attribution unprovable (rev 17, A2) | none |
 | `Notification` | not a status input. Its `agent_needs_input` type covers only background agent-view sessions and one setup question, not a foreground blocked agent. | none |
 | agent ask | the session's own open `ask` from `agentstudio` (PR B) | same |
 
@@ -333,7 +348,7 @@ Rules this sets for the reducer:
 | Entity | Semantic owner | Home (new / modified / existing) | Type home | Shape at boundaries | Kind |
 | --- | --- | --- | --- | --- | --- |
 | S1 Agent session | Sessions | modified `Features/Sessions` binding + resume info | `SessionsBindingRecord` gains `resumeHint`, `ownerPaneId` | existing `session.event` sessionStart params gain an optional resume hint | persisted (Sessions tables) |
-| S2 Session status | Sessions reducer | modified `SessionsEvidenceReducer`; new keyed atom `SessionStatusAtom` (owner-approved) | `SessionStatus = .needsYou(reason) \| .failed(summary) \| .working(active \| monitoring) \| .idle(done \| ready \| interrupted \| ended) \| .unknown` | UI: `AtomFamily<PaneId, SessionStatus>` (the status of the pane's current binding) via the batched publication lane; IPC: in `pane.context.get` | derived |
+| S2 Session status | Sessions reducer | modified `SessionsEvidenceReducer`; new keyed atom `SessionStatusAtom` (owner-approved) | `AgentSessionStatus = .needsYou(reason) \| .failed(summary) \| .working(active \| monitoring) \| .idle(done \| ready \| interrupted \| ended) \| .unknown` | UI: `AtomFamily<PaneId, AgentSessionStatus>` (the status of the pane's current binding) via the batched publication lane; IPC: in `pane.context.get` | derived |
 | S3–S5 AgentMessage | PaneContextService | new `Core/PaneContext/` | `AgentMessageDetail` and its unions ("Contracts PR C consumes") | wire: `IPCPaneMessageSendParams { handle, messageId, writer?, sourceOccurredAt?, importance, body, why?, actions, shape }`, where an ask shape carries its `reason` → `.created(id) \| .existing(id)`; `pane.message.ask` → `AskOutcome = .answered(value) \| .handedBack \| .expired \| .withdrawn \| .stale` (a repeat of a settled ask returns its outcome) | persisted |
 | S6 Message action | PaneContextService (record); owner of each effect | new | `MessageAction = .openFile(path, line?) (B2) \| .openPullRequest(ForgePullRequestIdentity) \| .goToPane(PaneId)` | embedded in S3 | value |
 | S7 Answer position | CLI store + PaneContextService | new | `AnswerPosition(UInt64)` per (session, pane) | wire: `pane.message.changes { handle, writer, after }` → `{ entries, nextPosition, more }`; reporting `after` confirms receipt of answers at or before it | persisted (both sides) |
@@ -529,7 +544,7 @@ can't move it back.
 ## Session status: inputs and transitions
 
 The Sessions actor keeps one `SessionStatusState` per session, off-main, and
-derives `SessionStatus` from it after every input. Only a changed value is
+derives `AgentSessionStatus` from it after every input. Only a changed value is
 published (below).
 
 ```swift
@@ -548,10 +563,10 @@ struct SessionStatusState: Sendable, Equatable {
 | sessionStart | new state `.bound(g)`; the replaced session gets `.replaced`, its prompts end | recomputed for both |
 | UserPromptSubmit | `turn = .working`; a turn boundary: resolves every open prompt | WORKING unless NEEDS YOU |
 | PreToolUse, SubagentStart/Stop | `turn = .working`; resolves **no** prompt (a parallel tool is not an answer) | WORKING unless NEEDS YOU |
-| PermissionRequest | opens an approval prompt, keyed `permission(sequence)`. It has no `tool_use_id`, and no reliable causal link to one call exists, so it is never tied to a tool call. It resolves only at a turn boundary or session end. | NEEDS YOU(approval) |
+| PermissionRequest | if `tool_name == "AskUserQuestion"` (rev 17, A1): it **folds into** an open AskUserQuestion prompt of the same turn only when exactly one such prompt has an identical `tool_input.questions` and hasn't already absorbed a permission. It never opens an approval prompt. Otherwise, whether PreToolUse was lost, a different question was asked, or two prompts are identical, it opens a **question** prompt keyed `permission(sequence)`. That prompt resolves only at a turn boundary or session end, never by some other call's completion. **Known limit, the owner-accepted exception in Spec R3a (2026-09-30):** the hooks carry nothing that tells question A's permission apart from an identical question B's. Take the case where A's PermissionRequest *and* B's PreToolUse are both lost, and B repeats A's exact questions: B's permission folds into A, and A's completion clears the NEEDS YOU that B still needs. Never folding would be exact in that case, but it would leave every normal question NEEDS YOU(question) until its turn ends. So the fold keeps the common path correct, and the double-loss, identical-content case is accepted and named here. Any other PermissionRequest opens an approval prompt keyed `permission(sequence)`. It has no `tool_use_id`, and no reliable causal link to one call exists, so it's never tied to a tool call. It resolves only at a turn boundary or session end. | NEEDS YOU(approval), or NEEDS YOU(question) for AskUserQuestion |
 | AskUserQuestion `PreToolUse`, Elicitation | opens a question prompt keyed by `toolCall(id)` or `elicitation(id)` | NEEDS YOU(question) |
 | PostToolUse / PostToolUseFailure | resolves the `toolCall(tool_use_id)` prompt (an AskUserQuestion) with this id, if open. It never resolves a permission prompt. | recomputed |
-| ElicitationResult | resolves `elicitation(elicitation_id)`; with no id, the oldest open elicitation from the same MCP server | recomputed |
+| ElicitationResult | resolves `elicitation(elicitation_id)` **only when an id is present**. With no id (the 2.1.286 trace), a result resolves nothing, because it can't prove which request it answers: that request's opening may have been lost. Elicitation prompts without an id resolve at a turn boundary or session end (R3a). What that costs: after the person answers an MCP form, the pane stays NEEDS YOU(question) until the turn ends, the same honest cost as report-only permissions | recomputed |
 | Stop | `turn = .done(at)`, `seenAfterDone = false`; a turn boundary: resolves every open prompt (a denied tool fires no failure event, and its turn then stops) | IDLE(done), then IDLE(ready) once seen |
 | StopFailure | `turn = .failed(category)`; a turn boundary: resolves every open prompt | FAILED |
 | Codex Interrupt | `turn = .interrupted(at)` | IDLE(interrupted) |
@@ -585,10 +600,12 @@ delayed older summary can't republish NEEDS YOU after the ask resolved. On
 Sessions' lazy open it asks once for `openAskSummaries()` (each with its
 sequence) and joins them the same way.
 
-**Pane viewed** comes from where focus lands on a terminal pane,
-`PaneFocusExecutor.syncTerminalRuntimeFocus(for:)`. That site makes one
-`nonisolated` mailbox submit into Sessions, a lock and a dictionary write, and
-Sessions decides done → ready off-main (rev 14; see "MainActor and atom boundaries").
+**Pane viewed** comes from the point where a **person-initiated** focus has been
+applied successfully (`PaneTabViewController`'s focus path, after
+`paneFocusExecutor.apply` returns true), drawer-child selection included. That
+point makes one `nonisolated` submit into Sessions, `(paneId, viewedAt)`. Sessions
+applies it only to a `done` admitted before `viewedAt` (rev 16; see "MainActor and
+atom boundaries", item 5).
 
 ## Keeping displayed values current
 
@@ -606,10 +623,11 @@ Sessions decides done → ready off-main (rev 14; see "MainActor and atom bounda
   advances inside every transaction that changes anything `readDetail`
   returns, including answers, receipts, read state and settled-message
   retention. So an open popover re-reads even when counts don't change.
-- **Drawer moves.** The service observes the existing topology facts on
-  `PaneRuntimeEventBus` (off-main subscriber). A drawer's owner change bumps
-  both the old and the new owner's revision and recomputes their aggregated
-  counts; in-flight B2 effects from the drawer return stale.
+- **Drawer moves.** They depend on the membership decision (Gaps item 6); rev 14's
+  claim of an existing topology feed was wrong. Whatever the source, the rule
+  holds: a drawer's owner change bumps both owners' revisions, and a `.more(source:)`
+  read admits the source only if it's the owner or one of its drawers **at read
+  time**.
 
 ## Contracts PR C consumes (the typed seams)
 
@@ -651,7 +669,7 @@ struct PaneContextDetail: Sendable, Equatable {
     let revision: PaneContextRevision  // bumps on ANY change the detail shows
     let agentTitle: String?
     let agentLine: AgentLineDetail?    // Panes E6 fields + writer + stale
-    let session: SessionSummary?       // bound session, SessionStatus, provider prompt ages
+    let session: SessionSummary?       // bound session, AgentSessionStatus, provider prompt ages
     let messages: [AgentMessageDetail] // open asks, unread notices, then settled (retention below)
     let drawerMessages: [DrawerMessageGroup]  // owner pane only, labeled by source pane
     let links: PaneLinksDetail         // .unknown until B2
@@ -857,14 +875,26 @@ Dependency rules:
 
 ### Everything the main actor does in PR B
 
-1. **Apply display values.** One sink call per batch assigns already-decided `PaneContextDisplay` values into `PaneContextPresentationAtom`.
-2. **Apply status values.** One sink call per batch assigns already-decided `SessionStatus` values into `SessionStatusAtom`.
-3. **Finish a person action (PR C).** The popover's await on `PaneContextPersonActing` resumes, and the popover assigns its own local view state.
-4. **Render.** Views read keyed values with `value(for:)`. `PaneDisplayTitleDerived` composes the pane's own title with the agent title as it's read: two strings, no copy onto another atom.
-5. **Pane viewed.** One `nonisolated` mailbox submit where terminal focus lands: a lock and a dictionary write, with no await.
-6. **Retirement.** `retirePanesPermanently` makes one `nonisolated retire(_:)` call beside the existing `paneActivityClock?.retire`: a mailbox append, with no await.
+**Existing hops PR B inherits (not new, but counted).**
+- **Authentication revalidation.** Every authenticated pane-agent request, hooks included, awaits `canonicalPaneMembership` (`AgentStudioIPCAuthentication.swift:109`, awaited at `:384`; server `:319`; wired at `AppDelegate+IPC.swift:87`). It's an O(1) check that the pane is in the workspace, but it's a main-actor hop per request.
+- PR B adds hook events (`PostToolUse`, `PostToolUseFailure`, `StopFailure`, `Elicitation*`), so it **adds hops on this path** unless the membership decision below removes them.
+- The existing `query`-port target tools also hop, even for `self` (server `:407-430`, `AgentStudioIPCQueryAdapter`). PR B's `pane.*` methods don't use them. The own-pane target comes from the authenticated context, and the pane's existence is the same revalidation check above.
 
-That's the whole list. No IPC handler, hook, write, read, deadline or drawer move runs on the main actor, and none of them waits for it.
+**What PR B adds:**
+1. **Apply display values.** One sink call per batch assigns already-decided `PaneContextDisplay` values into `PaneContextPresentationAtom`.
+2. **Apply status values.** One sink call per batch assigns already-decided `AgentSessionStatus` values into `SessionStatusAtom`.
+3. **Person-action native effects (PR C).** The seam decides off-main. The native effect then runs through its existing main-actor owner as one thin call:
+   - `goToPane` → `PaneFocusAppControl` / `PaneFocusExecutor`;
+   - `openPullRequest` → the existing external opener callback.
+   The popover then assigns its own local view state.
+4. **Render.** Views read keyed values with `value(for:)`. `PaneDisplayTitleDerived` composes the pane's own title with the agent title as it's read.
+5. **Pane viewed (rev 16, F4).** After `paneFocusExecutor.apply(decision)` returns true in `PaneTabViewController`'s focus path (`PaneTabViewController.swift:1031`), and only for **person-initiated** triggers (a click, or a person's keyboard focus including drawer-child selection), one `nonisolated` submit carries `(paneId, viewedAt: ContinuousClock.Instant)`. It's a `Mutex` write with no await.
+   - Excluded: restore tail, parked replay, automatic repair, IPC focus, and a failed apply.
+   - Sessions applies a view only to a `done` whose admission instant is earlier than `viewedAt`. So a view can never acknowledge a later Stop or a replacement binding.
+   - Coalescing keeps the latest instant per pane, which is safe: a later view acknowledges everything an earlier one could.
+6. **Retirement.** `retirePanesPermanently` makes one `nonisolated retire(_:)` call beside the existing `paneActivityClock?.retire`.
+
+Nothing else. No PR B handler, write, read, deadline or reduction runs on the main actor. The proof trace measures actual main-actor occupancy separately from await time, and it includes the inherited authentication hop.
 
 ### What runs where
 
@@ -872,25 +902,29 @@ That's the whole list. No IPC handler, hook, write, read, deadline or drawer mov
 | --- | --- | --- | --- |
 | `pane.*` writes: send, ask, withdraw, line, title, claimEpoch | ordered fact, per writer | `PaneContextService` actor; SQL on `WorkspaceSQLiteDatastoreActor` | Ordered and never coalesced. The target is always the credential's own pane (`handle: "self"`), resolved off-main by the principal registry. There's no main-actor target resolution, unlike `command.execute`'s `@MainActor` resolver |
 | `session.event` hooks | ordered fact | Sessions ingestion actor, the existing path (`AgentStudioIPCSessionsAdapter`: "nothing here touches MainActor") | ordered |
-| Pane existence and drawer ownership | ordered topology fact | an index the service keeps itself, fed by an off-main subscriber on `PaneRuntimeEventBus` topology facts | subscription; the service never reads a main-actor atom |
-| Pane viewed | latest-state, per pane | `PaneFocusExecutor.syncTerminalRuntimeFocus(for:)` (`PaneFocusExecutor.swift:335`), where focus lands on a terminal pane, calls one injected `nonisolated` submit, `SessionsPaneViewedMailbox.noteViewed(paneId)`. That's a `Mutex` dictionary write: no await, no `Task`, no bus post. Sessions drains it off-main and decides done → ready. `FocusChangeEvent.activePaneChanged` exists in `RuntimeEnvelopeCore.swift:158`, but nothing posts it today, so it isn't used | one O(1) call on the main actor (with retirement, one of PR B's two new main-actor calls) |
+| Pane existence and drawer ownership | ordered membership change | **Open: owner decision "Where off-main readers get pane and drawer membership"** (Gaps item 6). No existing bus fact carries it: `TopologyEvent` holds only repo, worktree and watched-folder facts (`RuntimeEnvelopeCore.swift:134`) | — |
+| Pane viewed | an ordered occurrence per pane, coalesced to the latest instant | the person-initiated, successful-apply point in `PaneTabViewController`'s focus path (item 5 above), with `(paneId, viewedAt)` into a `nonisolated` Sessions mailbox | Sessions applies it only to a `done` admitted before `viewedAt` (monotonic, same process) |
 | Ask deadlines and Agent Line expiry | future eligibility deadline | one reschedulable next-deadline task in the service, on its injected clock | no fleet-wide timer |
 | Retirement | ordered fact | `retirePanesPermanently` calls the service's `nonisolated retire(_:)`, which appends to a `Mutex` mailbox without awaiting, as `PaneActivityClock.retire` already does | no await on the main actor |
 | Per-pane display (title, line, counts, newest ask, PR summary) | latest-state projection | computed by the service after each commit | the publication lane below |
 | Per-pane session status | latest-state projection | computed by the Sessions reducer after each input | the publication lane below |
 | Pull-request summary | latest-state projection | `PullRequestSummaryFold` in the service, on a Forge fact change | a pure fold; an equal result publishes nothing |
 | `readDetail` and `pane.context.get` | query | service actor | returns a value; nothing is kept in an atom |
-| Person actions | intent with a typed result | service actor | the caller awaits; the main actor only resumes |
+| Person actions | intent with a typed result | the decision and the record run on the service actor | the caller awaits. The native effect (`goToPane` focus, the `openPullRequest` opener) is one thin call on its existing main-actor owner (item 3 above) |
 
 ### The publication lane (one shape, used twice)
 
 It follows the shipped `PaneActivityClock` shape: "orders both activity sources before one thin, acknowledged MainActor publication" (`PaneActivityClock.swift`).
 
-1. **Distinct-until-changed, off-main.** After a commit, the owner actor (the service, or Sessions) computes the new value for each affected pane and compares it with the last value it published. An equal value is counted as suppressed, and nothing is sent.
+1. **Distinct-until-changed, off-main, against the last *desired* value (rev 16, F2).** After a commit, the owner actor (the service, or Sessions) computes the new value for each affected pane. It compares that value with `lastDesired[pane]`: the last value it put in the mailbox, whether that value is still pending, in flight or applied. It never compares against the last *applied* value.
+   - An equal value is counted as suppressed, and nothing is sent.
+   - A changed value updates `lastDesired`.
+   - So A → B → A always ends at A: the return to A differs from the desired B, so it's enqueued and replaces B, or follows B if B is already in flight.
 2. **Latest-value coalescing.** Changed values go into a `Mutex`-guarded mailbox keyed by pane, and the newest value wins.
 3. **One awaited main-actor call per batch.** One drain task takes the whole mailbox and awaits one `@MainActor` sink call with the batch. The sink applies every key inside one `AtomMutationContext` (one aggregate revision bump) and returns.
    - While that call is in flight, new changes coalesce in the mailbox. So a busy main actor gets fewer wakes, never more.
    - Publication order is commit order per pane.
+   - **Removal joins the same lane.** Retirement enqueues a `remove` for the key. After that, the actor drops any later set for a retired key, so a pending or late set can never resurrect it. At shutdown the drain stops; both atoms are runtime-only.
 4. **Backstop only.** The atom's `isContentEqual` comparator never does the suppression work; the actor already did it.
 
 Two shapes are deliberately not used:
@@ -904,13 +938,13 @@ Two shapes are deliberately not used:
 | Owner approval | 2026-09-30, as a runtime cache | recorded earlier |
 | Who observes (step 0) | pane title layer, NEEDS YOU and unread badges, PR C's shared PR chip | pane chrome and PR C's status line |
 | Lane / role | runtime/presentation; write-owner of a runtime cache of the service's output | same |
-| Primitive | `AtomFamily<PaneId, PaneContextDisplay>`; hot reads use `value(for:)` | `AtomFamily<PaneId, SessionStatus>`, **keyed by pane** (see below) |
+| Primitive | `AtomFamily<PaneId, PaneContextDisplay>`; hot reads use `value(for:)` | `AtomFamily<PaneId, AgentSessionStatus>`, **keyed by pane** (see below) |
 | Comparator | content equality of the small struct | enum equality |
 | Methods | `apply(_ batch:)` and `remove(_ paneIds:)`, assign only | same |
 | Persistence | never written to SQLite; a restart refills it from rows | same |
 | Home | `Core/State/MainActor/Atoms/`; `PaneContextDisplay` lives in `Core/PaneContext/` | `Features/Sessions/State/MainActor/Atoms/`, injected (a Feature atom) |
 
-**Why status is keyed by pane (rev 14).** Views are per pane. An atom keyed by session would make each view find its pane's current session first, which is a join on the main actor. Sessions already knows every pane's current binding off-main, so it publishes the status of that binding keyed by the pane. A drawer child is a pane, so it gets its own key. A session that's been replaced or has ended leaves the atom; its record remains readable through `readDetail`.
+**Why status is keyed by pane (rev 14; corrected rev 16, F3).** Views are per pane, and Sessions knows each pane's latest binding off-main, so it publishes that binding's status keyed by the pane. The value **stays** when that binding ends: IDLE(ended), or NEEDS YOU while its own open asks remain (R2). It changes only when a new binding replaces it (the key then shows the new binding) or when the pane retires (a `remove`). A replaced session keeps its per-session state in Sessions (`SessionStatusState`). `readDetail` carries only the pane's **current** binding summary. Historical per-session statuses aren't exposed in PR B; that read boundary is deferred.
 
 **Never in an atom:** message bodies, asks, answers, change entries, or any list. Those are read on demand through `readDetail`, which is paged and bounded to 1 MiB.
 
@@ -918,7 +952,7 @@ Two shapes are deliberately not used:
 
 - **Class `often`:** a busy agent can write its Agent Line or cross status transitions more than 10 times a minute. Hook traffic itself is higher, but step 1 turns it into rare publications.
 - **Telemetry (Per-Stage Outcome Telemetry)** for `pane_context.presentation_apply` and `sessions.status_apply`: the computed count, the equal-suppressed count, the coalesced count, the batch size, and main-actor held time (total and max per batch).
-- **Proof:** a marker-scoped trace with 15–20 active panes (agents writing lines and asks, hooks flowing). It must show main-actor held time per batch under 1 ms, the `heavy` threshold, and zero main-actor time on the IPC, hook and deadline paths, and only the O(1) submit on the pane-viewed path. The CLI's `cli.call_total_ms` is measured separately.
+- **Proof:** a marker-scoped trace with 15–20 active panes (agents writing lines and asks, hooks flowing). It must show main-actor held time per batch under 1 ms, the `heavy` threshold, with main-actor occupancy measured separately from await time. Allowed on the main actor: the inherited authentication revalidation hop per authenticated request (until the membership decision, Gaps item 6), the O(1) pane-viewed and retirement submits, and the thin native person-action effects. No PR B handler, write, read, deadline or reduction may run there. The CLI's `cli.call_total_ms` is measured separately.
 
 ## Call paths
 
@@ -1059,7 +1093,11 @@ GRDB migrations, additive, never a rebuild):
 
 ## Gaps and open items
 
-1. **Provider signals:** settled in "Provider signals for the status tree". Before wiring, a recorded trace from each installed provider version confirms: the `Elicitation`/`ElicitationResult` payload and `elicitation_id`; that `PermissionRequest` follows its `PreToolUse`; that `CLAUDE_CODE_SESSION_ID` / `CODEX_THREAD_ID` reach commands the model runs; and whether either provider re-invokes a hook on its own ("Writers and write numbers"). If a variable is missing, that provider's writes are accepted as writer `pane`, and asks from it are refused `bindingRequired` until it is qualified.
+1. **Provider signals: traced 2026-09-30** (`tmp/workspace-control/prb-provider-traces/2026-09-30-report.md`, with S0 and S0b raw payloads).
+   - **Claude Code 2.1.286:** every row in the provider table was traced: SessionStart, UserPromptSubmit, PreToolUse (including AskUserQuestion's `questions[]`), PostToolUse (with the same `tool_use_id` and `answers`), PostToolUseFailure, PermissionRequest (after its PreToolUse, with no `tool_use_id`), Stop, StopFailure, SessionEnd, Elicitation and ElicitationResult (no `elicitation_id`).
+   - `CLAUDE_CODE_SESSION_ID` reaches commands the model runs.
+   - **Codex CLI 0.159.2:** `CODEX_THREAD_ID` reaches commands. Hook payloads weren't re-traced: project hooks are gated by directory trust in the owner's config, and we don't touch that. PR B adds no Codex hooks, and Codex occurrence ids are derived deterministically, so a re-invoked hook replays safely.
+   - Re-invocation by either provider wasn't observed.
 2. **The shared IPC-server change** (one waiter beside the reader, writes off
    the cooperative pool, bounded output; "Connections") touches every
    connection. It needs its own focused test set, and a note
@@ -1111,6 +1149,35 @@ GRDB migrations, additive, never a rebuild):
    exit, so PR B stores the last consumed generation per receiver and asks
    Bridge to replay facts after it on start. **Gap on main:** `membershipFacts()` is a live stream with no replay. Asked Bridge for an additive `membershipFacts(after: generation)` replay (board, 2026-09-27) before B2.
 5. **Contract row change.** The AgentMessage detail shapes, the `SessionStatusState` inputs (including "pane viewed") and the `SessionStatusAtom` value are hand-off contracts (delivery order). They are posted on thread 01a0cdc9 for Panes' acknowledgement before code.
+
+6. **Pane and drawer membership for off-main readers. Owner decision 2026-09-30: B, a membership directory** (no "crazy new machinery"; reviewed by the Sol xhigh advisor, `tmp/workspace-control/prb-review/membership-directory-review.md`, findings M1–M3 accepted). Design (rev 20):
+   - **What it mirrors, and nothing more (M1).** It holds `workspaceId`, each present pane's existing `PaneStructuralFacts.Placement` (`.layout` / `.drawerChild(parentPaneID)`), each pane's owned drawer-child ids, and a `membershipRevision`.
+     - There's **no tab id**. A valid backgrounded or orphan pane has no tab and must stay present, exactly as today's auth sees it.
+     - Tab moves, repository removal, residency, title, CWD and content changes don't touch it: equal membership publishes nothing.
+   - **One publisher, the real owner.** `WorkspacePaneGraphAtom.commitPaneStates` is the private commit that every graph writer passes through: open, create, close, undo restore, discard, detach and its rollback, purge, legacy restores, the development-server add and the fixtures. It updates the mirror inside the loop where it already populates the structural slots, from the changed and removed entries it already has. No App handler, executor, SQL save or Undo-expiry path writes it. (Undo expiry is a membership no-op: close already removed the pane.)
+   - **One atomic whole-workspace install.** At boot, the composition applier installs identity, the full membership and the revision in **one** locked write. The value is prepared off-main by the existing composition preparation, and installed before the IPC listener accepts and before the live publisher can run. There's no live workspace switch at this head, so none is added; the install is simply atomic if one ever exists.
+   - **Linearization (M2).** Each `commitPaneStates` call is one directory version, written under one lock. Every reader decision is one locked read of one version:
+     - auth's `contains(paneID:inWorkspace:)` keeps today's exact predicate (workspace matches and the pane is present);
+     - a drawer-source check needs the owner's child list and the child's parent to agree in that same version.
+     The mutable map stays private, and reads return compact values; no snapshot copies are handed out. Nothing runs under the lock except assignments and reads.
+   - **Auth.** The `@MainActor` `canonicalPaneMembership` closure is replaced (a hard cutover) by the directory read, for request revalidation, login and `PaneIPCIdentityOwner`'s environment check. The principal registry keeps credential validation, leases, invalidation sequencing, final revocation and shutdown unchanged; directory presence alone grants nothing.
+   - **Invalidation, not a feed (M3).** The directory keeps a bounded `pendingAffectedOwners: Set<PaneId>`: every owner and source whose membership changed since the service last took it. It also has one `AsyncStream<Void>` wake (`bufferingNewest(1)`) with one consumer, the service. On a wake, the service takes and clears the set atomically, then bumps those owners' revisions and recounts.
+     - Correctness never depends on the wake: auth and source-in-view checks always read the directory at the point of use.
+     - **Lazy-start handshake:** the service subscribes first, then reads the current revision and membership, then reconciles any newer revision. So no change falls between the snapshot and the subscription.
+   - **Main-actor cost (allowed by the owner on 2026-10-01, M2: "jumps are fine as ghostty and panes and metal exist there").** The publication is a few locked assignments inside the existing graph commit, on the main actor because the canonical pane graph lives there. It replaces a main-actor hop on **every** agent request. Commit-held time and lock contention are measured in the 15–20-pane trace.
+   - **Proof:** through real graph writers, never a hand-fed `apply`:
+     - boot seed;
+     - every insertion, deletion and drawer path with its rollback;
+     - close during Undo (absent at close, not at expiry); restore; a no-tab pane stays present;
+     - tab, repo and residency no-ops;
+     - development-server and fixture adds.
+     Auth parity is tested against the real predicate, including invalidated vs fresh leases and final revocation. A concurrent install is observed only as complete versions. A held consumer across a detach plus restore still invalidates every affected owner.
+
+7. **Decided (owner, 2026-09-30): the R3a exception is accepted** (Spec rev 11). The rev-18 options below are kept for the record. The options:
+   - **Strict R3a:** every AskUserQuestion permission opens its own question prompt, which clears at the turn boundary. It never misses a waiting question, but it leaves NEEDS YOU after each answer until the turn ends.
+   - **The exception:** fold the permission into exactly one open question with identical content. It's exact on the normal path; a double delivery loss with identical questions can clear a still-waiting question early.
+
+   If the exception is accepted, the Spec's R3a gains that sentence.
 
 ## Follow-ups this design must not block (not in PR B)
 
