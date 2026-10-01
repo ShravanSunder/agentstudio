@@ -196,11 +196,6 @@ func makeRefreshAdmissionIntegrationFixture(
         path: "Sources/App/Initial.swift",
         sizeBytes: 100
     )
-    let refreshedFile = makeBridgeEndpointChangedFile(
-        fileId: "refreshed",
-        path: "Sources/App/Refreshed.swift",
-        sizeBytes: 100
-    )
     let reviewProvider = makeRefreshAdmissionReviewProvider(
         baseEndpoint: baseEndpoint,
         headEndpoint: headEndpoint,
@@ -272,16 +267,16 @@ func makeRefreshAdmissionIntegrationFixture(
     )
     // G2 defers hidden Review builds. Select Review after its metadata stream
     // opens, through native admission, before requesting the initial package.
-    #expect(controller.requestViewerSurface(.review))
-    #expect(await controller.surfaceSelectionTransitionTail?.value == true)
+    try await selectRefreshAdmissionReviewSurface(
+        controller: controller, installation: installation,
+        lease: metadataProducerLease, productAdmission: productAdmission)
     if schedulesInitialReviewIntake { controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake) }
     return RefreshAdmissionIntegrationFixture(
         baseEndpoint: baseEndpoint,
         headEndpoint: headEndpoint,
-        refreshedComparison: BridgeEndpointComparison(
+        refreshedComparison: makeRefreshAdmissionSuccessorComparison(
             baseEndpoint: baseEndpoint,
-            headEndpoint: headEndpoint,
-            changedFiles: [refreshedFile]
+            headEndpoint: headEndpoint
         ),
         reviewProvider: reviewProvider,
         fileMetadataSource: fileMetadataSource,
@@ -290,6 +285,37 @@ func makeRefreshAdmissionIntegrationFixture(
         productAdmission: productAdmission,
         productProvider: productProvider,
         controller: controller
+    )
+}
+
+@MainActor
+private func selectRefreshAdmissionReviewSurface(
+    controller: BridgePaneController,
+    installation: BridgeProductSessionInstallation,
+    lease: BridgeProductProducerLease,
+    productAdmission: BridgeProductAdmissionContext
+) async throws {
+    #expect(controller.requestViewerSurface(.review))
+    #expect(await controller.surfaceSelectionTransitionTail?.value == true)
+    guard
+        let queuedFrame = await consumeNextBridgeProductProducerFrame(
+            for: lease, from: installation.session, productAdmission: productAdmission)
+    else { throw RefreshAdmissionIntegrationError.expectedMetadataFrame }
+    let decoder = try BridgeProductMetadataFrameDecoder()
+    guard case .paneSurfaceSelectionRequested = try decoder.append(queuedFrame.data).first
+    else { throw RefreshAdmissionIntegrationError.expectedMetadataFrame }
+}
+
+private func makeRefreshAdmissionSuccessorComparison(
+    baseEndpoint: BridgeSourceEndpoint,
+    headEndpoint: BridgeSourceEndpoint
+) -> BridgeEndpointComparison {
+    let refreshedFile = makeBridgeEndpointChangedFile(
+        fileId: "refreshed", path: "Sources/App/Refreshed.swift", sizeBytes: 100)
+    return BridgeEndpointComparison(
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        changedFiles: [refreshedFile]
     )
 }
 
