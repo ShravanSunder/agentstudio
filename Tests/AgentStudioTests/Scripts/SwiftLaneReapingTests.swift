@@ -185,6 +185,94 @@ struct SwiftLaneReapingTests {
         #expect(result.exitCode == 130, Comment(rawValue: result.output))
         #expect(result.output.contains("INT_FORWARDED=yes"), Comment(rawValue: result.output))
     }
+
+    @Test("a grouped child signal trap cannot signal its caller's active groups")
+    func groupedChildSignalTrapCannotSignalCallerGroups() async throws {
+        let workDirectory = NSTemporaryDirectory() + "agentstudio-signal-group-boundary-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        try FileManager.default.createDirectory(atPath: workDirectory, withIntermediateDirectories: true)
+
+        let laneRunnerScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let signalTrap = try shellFunction(named: "trap_lane_termination_signals", in: laneRunnerScript)
+        let childScriptPath = workDirectory + "/signal-child.sh"
+        let childScript = """
+            set -euo pipefail
+            source scripts/swift-test-helpers.sh
+            \(signalTrap)
+            }
+            trap_lane_termination_signals
+            ( kill -TERM "$$" ) &
+            wait
+            """
+        try childScript.write(toFile: childScriptPath, atomically: true, encoding: .utf8)
+
+        let command = #"""
+            set -euo pipefail
+            source scripts/swift-test-helpers.sh
+            fixture_dir='\#(workDirectory)'
+            mkdir -p "$fixture_dir/events"
+            mkfifo "$fixture_dir/survivor.ready" "$fixture_dir/survivor.release"
+            survivor_lock="$fixture_dir/survivor.lock"
+            swift_test_begin_active_command_groups
+            LOG_PREFIX=signal-group-boundary
+            TIMEOUT_SECONDS=60
+            BUILD_PATH=.build-agent-1
+            export LANE_EVENT_STREAM_DIR="$fixture_dir/events"
+            probe_survivor_lock() {
+              /usr/bin/perl -MFcntl=:flock -e 'open(my $lock, ">>", shift) or die $!; flock($lock, LOCK_EX|LOCK_NB) or exit 7' "$survivor_lock"
+            }
+            release_survivor_group() {
+              if [ -n "${survivor_pid:-}" ]; then
+                lock_status=0
+                probe_survivor_lock || lock_status=$?
+                if [ "$lock_status" -eq 7 ]; then
+                  printf 'RELEASE\n' >"$fixture_dir/survivor.release" || true
+                fi
+                wait "$survivor_pid" 2>/dev/null || true
+                swift_test_unregister_active_command_group "$survivor_pid"
+              fi
+            }
+            trap release_survivor_group EXIT
+            swift_test_launch_command_group /usr/bin/perl -MFcntl=:flock -e '
+              $| = 1;
+              $SIG{HUP} = "IGNORE";
+              my ($lock_path, $ready_path, $release_path) = @ARGV;
+              open(my $lock, ">>", $lock_path) or die $!;
+              flock($lock, LOCK_EX) or die $!;
+              open(my $ready, ">", $ready_path) or die $!;
+              print {$ready} "READY\n";
+              close($ready);
+              open(my $release, "<", $release_path) or die $!;
+              <$release>;
+            ' "$survivor_lock" "$fixture_dir/survivor.ready" "$fixture_dir/survivor.release"
+            survivor_pid="$SWIFT_TEST_STARTED_COMMAND_GROUP_PID"
+            IFS= read -r survivor_ready <"$fixture_dir/survivor.ready"
+            [ "$survivor_ready" = READY ] || { echo SURVIVOR_NOT_READY=yes; exit 40; }
+
+            signal_child_status=0
+            run_swift_with_timeout 'grouped signal child' "$TIMEOUT_SECONDS" /bin/bash "$fixture_dir/signal-child.sh" || signal_child_status=$?
+            echo "SIGNAL_CHILD_STATUS=$signal_child_status"
+            [ "$signal_child_status" -eq 143 ] || { echo UNEXPECTED_SIGNAL_STATUS=yes; exit 41; }
+
+            lock_status=0
+            probe_survivor_lock || lock_status=$?
+            if [ "$lock_status" -eq 7 ]; then
+              echo OUTER_GROUP_SURVIVED=yes
+              printf 'RELEASE\n' >"$fixture_dir/survivor.release"
+              wait "$survivor_pid"
+              swift_test_unregister_active_command_group "$survivor_pid"
+              survivor_pid=""
+            else
+              echo OUTER_GROUP_SURVIVED=no
+              exit 42
+            fi
+            """#
+
+        let result = try await runLaneScriptBash(command)
+        #expect(result.exitCode == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("SIGNAL_CHILD_STATUS=143"), Comment(rawValue: result.output))
+        #expect(result.output.contains("OUTER_GROUP_SURVIVED=yes"), Comment(rawValue: result.output))
+    }
 }
 
 private func shellFunction(named functionName: String, in script: String) throws -> String {
