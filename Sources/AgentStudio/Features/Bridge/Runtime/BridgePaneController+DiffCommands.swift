@@ -227,7 +227,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             case .committed(let deliveryDisposition) =
                 await commitReviewPackageLoadAndPublishDiffLoaded(commit)
         else {
-            if retainedViewerSurface != .review {
+            if !isReviewShownByPage {
                 retainReviewPackageBuildReasonIfCurrent(
                     reset: commit.reset,
                     productAdmission: commit.productAdmission
@@ -297,7 +297,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) -> Bool {
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission {
-                guard retainedViewerSurface == .review,
+                guard isReviewShownByPage,
                     reset.reviewGeneration == nextReviewGeneration,
                     reset.reviewAuthorityGeneration
                         == refreshAdmissionCoordinator.currentAuthorityGeneration(for: .review)
@@ -315,7 +315,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) -> Bool {
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission {
-                retainedViewerSurface == .review
+                isReviewShownByPage
                     && reset.reviewGeneration == nextReviewGeneration
                     && reset.reviewAuthorityGeneration
                         == refreshAdmissionCoordinator.currentAuthorityGeneration(for: .review)
@@ -326,7 +326,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     private func commitReviewPackageLoadAndPublishDiffLoaded(
         _ request: ReviewPackageLoadCommit
     ) async -> BridgeReviewPackageLoadCommitDisposition {
-        guard retainedViewerSurface == .review else { return .rejected }
+        guard isReviewShownByPage else { return .rejected }
         let commitDisposition = await commitReviewPackageLoad(
             request.load,
             expectedReviewGeneration: request.reset.reviewGeneration,
@@ -562,7 +562,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneRefreshCatchUpOutcome {
-        guard retainedViewerSurface == .review,
+        guard isReviewShownByPage,
             foregroundWorkAdmission.withValidAdmission({ true }) == true,
             refreshAdmissionCoordinator.isRefreshPassCurrent(reservation)
         else { return .stale }
@@ -675,7 +675,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             guard
                 !Task.isCancelled,
-                retainedViewerSurface == .review,
+                isReviewShownByPage,
                 foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 refreshAdmissionCoordinator.isRefreshPassCurrent(reservation),
                 refreshGeneration == nextReviewGeneration,

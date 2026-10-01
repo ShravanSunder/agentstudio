@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import Foundation
 import Testing
@@ -10,13 +11,14 @@ struct WorktreeAnnotationNotificationSourceTests {
     func batchOpeningWaitsForFirstAcceptedScope() async throws {
         let harness = try makeNotificationSourceHarness()
         let handle = "comment-view-awaiting-scope"
+        let producerID = UUIDv7.generate()
         let (batches, continuation) = AsyncStream.makeStream(
             of: RecordedCommentBatchDelivery.self,
             bufferingPolicy: .bufferingOldest(1)
         )
         let openTask = Task {
             defer { continuation.finish() }
-            try await harness.source.openBatch(handle: handle) { batch, mode in
+            try await harness.source.openBatch(handle: handle, producerID: producerID) { batch, mode in
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -43,8 +45,9 @@ struct WorktreeAnnotationNotificationSourceTests {
     func retiringHandleReleasesFirstScopeWaiter() async throws {
         let harness = try makeNotificationSourceHarness()
         let handle = "comment-view-retired-before-scope"
+        let producerID = UUIDv7.generate()
         let openTask = Task {
-            try await harness.source.openBatch(handle: handle) { _, _ in
+            try await harness.source.openBatch(handle: handle, producerID: producerID) { _, _ in
                 Issue.record("A retired Comment handle must not capture a catalog")
             }
         }
@@ -60,8 +63,9 @@ struct WorktreeAnnotationNotificationSourceTests {
     func cancelledOpeningReleasesFirstScopeWaiter() async throws {
         let harness = try makeNotificationSourceHarness()
         let handle = "comment-view-cancelled-before-scope"
+        let producerID = UUIDv7.generate()
         let openTask = Task {
-            try await harness.source.openBatch(handle: handle) { _, _ in
+            try await harness.source.openBatch(handle: handle, producerID: producerID) { _, _ in
                 Issue.record("A cancelled Comment opening must not capture a catalog")
             }
         }
@@ -77,6 +81,7 @@ struct WorktreeAnnotationNotificationSourceTests {
     func retainedViewAcceptsScopeAfterProducerRestart() async throws {
         let harness = try makeNotificationSourceHarness()
         let handle = "retained-comment-view"
+        let firstProducerID = UUIDv7.generate()
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
@@ -87,7 +92,7 @@ struct WorktreeAnnotationNotificationSourceTests {
             bufferingPolicy: .bufferingOldest(2)
         )
         let firstProducer = Task {
-            try await harness.source.openBatch(handle: handle) { batch, mode in
+            try await harness.source.openBatch(handle: handle, producerID: firstProducerID) { batch, mode in
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -96,15 +101,16 @@ struct WorktreeAnnotationNotificationSourceTests {
 
         firstProducer.cancel()
         _ = try? await firstProducer.value
-        await harness.source.releaseProducerBatchScope(handle: handle)
+        await harness.source.releaseProducerBatchScope(handle: handle, producerID: firstProducerID)
 
         try await harness.source.acceptBatchScope(
             handle: handle,
             worktreeID: "worktree-1",
             scopeRevision: 1
         )
+        let successorProducerID = UUIDv7.generate()
         let successor = Task {
-            try await harness.source.openBatch(handle: handle) { batch, mode in
+            try await harness.source.openBatch(handle: handle, producerID: successorProducerID) { batch, mode in
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -149,7 +155,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         )
         let openTask = Task {
             defer { continuation.finish() }
-            try await harness.source.openBatch(handle: "comment-view-1") { batch, mode in
+            try await harness.source.openBatch(handle: "comment-view-1", producerID: UUIDv7.generate()) { batch, mode in
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -212,7 +218,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         )
         let openTask = Task {
             defer { continuation.finish() }
-            try await harness.source.openBatch(handle: handle) { batch, mode in
+            try await harness.source.openBatch(handle: handle, producerID: UUIDv7.generate()) { batch, mode in
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -268,7 +274,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         )
         let openTask = Task {
             defer { continuation.finish() }
-            try await harness.source.openBatch(handle: handle) { batch, mode in
+            try await harness.source.openBatch(handle: handle, producerID: UUIDv7.generate()) { batch, mode in
                 continuation.yield(.init(batch: batch, mode: mode))
                 if batch.baseRevision == 0 { try await initialDelivery.arrive(()) }
             }
@@ -328,7 +334,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         )
         let openTask = Task {
             defer { continuation.finish() }
-            try await harness.source.openBatch(handle: handle) { batch, mode in
+            try await harness.source.openBatch(handle: handle, producerID: UUIDv7.generate()) { batch, mode in
                 continuation.yield(.init(batch: batch, mode: mode))
             }
         }
@@ -378,7 +384,7 @@ struct WorktreeAnnotationNotificationSourceTests {
         )
         let openTask = Task {
             defer { continuation.finish() }
-            try await harness.source.openBatch(handle: handle) { batch, _ in
+            try await harness.source.openBatch(handle: handle, producerID: UUIDv7.generate()) { batch, _ in
                 if batch.baseRevision > 0 { throw NotificationDeliveryFailure.injected }
                 continuation.yield(batch)
             }
@@ -426,6 +432,13 @@ func makeNotificationSourceHarness() throws -> NotificationSourceHarness {
 struct RecordedCommentBatchDelivery: Sendable {
     let batch: BridgeProductCommentCatalogBatch
     let mode: BridgeProductBatchMode
+    let producerID: UUID?
+
+    init(batch: BridgeProductCommentCatalogBatch, mode: BridgeProductBatchMode, producerID: UUID? = nil) {
+        self.batch = batch
+        self.mode = mode
+        self.producerID = producerID
+    }
 }
 
 private enum NotificationDeliveryFailure: Error {

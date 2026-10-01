@@ -12,7 +12,7 @@ extension BridgePaneController {
             paneState.diff.packageMetadata == nil
         else { return }
         let hiddenInput = BridgePaneReviewBuildAdmissionInput.initialIntake
-        guard retainedViewerSurface == .review else {
+        guard isReviewShownByPage else {
             pendingReviewPackageBuildReasons.insert(reason)
             recordReviewBuildAdmissionFact(
                 .deferredHidden(input: hiddenInput),
@@ -37,7 +37,7 @@ extension BridgePaneController {
     func scheduleReviewPackageReloadForProductResync(reason: BridgeReviewPackageBuildReason) {
         pendingReviewPackageBuildReasons.insert(reason)
         let hiddenInput = BridgePaneReviewBuildAdmissionInput.productResync
-        guard retainedViewerSurface == .review else {
+        guard isReviewShownByPage else {
             recordReviewBuildAdmissionFact(
                 .deferredHidden(input: hiddenInput),
                 scope: .hiddenInput(hiddenInput)
@@ -55,7 +55,7 @@ extension BridgePaneController {
     ) {
         guard !pendingReviewPackageBuildReasons.isEmpty else { return }
         let hiddenInput = admissionInput ?? .retainedPackageBuild
-        guard retainedViewerSurface == .review else {
+        guard isReviewShownByPage else {
             recordReviewBuildAdmissionFact(
                 .deferredHidden(input: hiddenInput),
                 scope: .hiddenInput(hiddenInput)

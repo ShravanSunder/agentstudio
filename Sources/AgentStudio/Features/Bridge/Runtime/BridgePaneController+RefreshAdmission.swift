@@ -40,7 +40,7 @@ extension BridgePaneController {
         reservation: BridgePaneRefreshCatchUpReservation,
         packageTraceContext: BridgeTraceContext?
     ) -> Bool {
-        retainedViewerSurface == .review
+        isReviewShownByPage
             && !Task.isCancelled
             && foregroundWorkAdmission.withValidAdmission({ true }) == true
             && refreshAdmissionCoordinator.isRefreshPassCurrent(reservation)
@@ -154,7 +154,7 @@ extension BridgePaneController {
         let hiddenInput = BridgePaneReviewBuildAdmissionInput.filesystemCatchUp(
             batchSequence: dirtyFact.latestBatchSequence
         )
-        guard retainedViewerSurface == .review else {
+        guard isReviewShownByPage else {
             recordReviewBuildAdmissionFact(
                 .deferredHidden(input: hiddenInput),
                 scope: .hiddenInput(hiddenInput)

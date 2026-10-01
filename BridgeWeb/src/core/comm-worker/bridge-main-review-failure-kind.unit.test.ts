@@ -4,6 +4,7 @@ import { createBridgeMainRenderSnapshotStore } from './bridge-main-render-snapsh
 
 const wireFailureCases = [
 	['targetNotFound', 'targetNotFound'],
+	['targetMismatch', 'targetMismatch'],
 	['defaultTargetUnavailable', 'defaultTargetUnavailable'],
 	['providerUnavailable', 'refreshUnavailable'],
 	['loadFailed:package:unavailableEndpoint', 'refreshUnavailable'],
