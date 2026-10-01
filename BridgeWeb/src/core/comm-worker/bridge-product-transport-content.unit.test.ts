@@ -7,7 +7,6 @@ import {
 	createContentTransportHarness,
 	fileContentDescriptor,
 	metadataAccepted,
-	waitForCondition,
 } from './test-fixtures/bridge-product-transport-content.test-support.js';
 
 afterEach(() => {
@@ -310,9 +309,10 @@ describe('Bridge product content transport', () => {
 		harness.transport.subscribe(bridgeProductReviewMetadataApplicationProtocol, {});
 		await harness.server.waitForMetadataStream();
 		harness.server.emitMetadata(metadataAccepted(harness.server.requiredMetadataRequest()));
-		await waitForCondition(
-			() => harness.transport.metadataStreamDiagnostics?.().routedFrameCount === 1,
+		await harness.server.waitForControlRequestWhere(
+			(request): boolean => request.kind === 'subscription.open',
 		);
+		expect(harness.transport.metadataStreamDiagnostics?.().routedFrameCount).toBe(1);
 		await expect(
 			harness.transport.call('review.markFileViewed', { itemId: 'review-item-independent' }),
 		).resolves.toBeNull();
@@ -409,6 +409,7 @@ describe('Bridge product content transport', () => {
 			abortController.signal,
 		);
 		await harness.server.waitForContentRequestCount(1);
+		await harness.server.waitForHeldContentReadStarted(content.contentRequestId);
 
 		abortController.abort(new DOMException('cancelled', 'AbortError'));
 
