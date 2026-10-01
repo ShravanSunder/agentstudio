@@ -52,7 +52,8 @@ struct PaneCLIShellEnvironmentTests {
             environment: environment)
 
         #expect(
-            output.terminationStatus == 0, String(data: output.standardError, encoding: .utf8) ?? "Invalid UTF-8 stderr"
+            output.terminationStatus == 0,
+            "stderr: \(String(data: output.standardError, encoding: .utf8) ?? "Invalid UTF-8 stderr")"
         )
         let standardOutput = try #require(String(data: output.standardOutput, encoding: .utf8))
         let lines = standardOutput.split(separator: "\n").map(String.init)
@@ -83,7 +84,8 @@ struct PaneCLIShellEnvironmentTests {
             environment: environment)
 
         #expect(
-            output.terminationStatus == 0, String(data: output.standardError, encoding: .utf8) ?? "Invalid UTF-8 stderr"
+            output.terminationStatus == 0,
+            "stderr: \(String(data: output.standardError, encoding: .utf8) ?? "Invalid UTF-8 stderr")"
         )
         let standardOutput = try #require(String(data: output.standardOutput, encoding: .utf8))
         let lines = standardOutput.split(separator: "\n").map(String.init)
