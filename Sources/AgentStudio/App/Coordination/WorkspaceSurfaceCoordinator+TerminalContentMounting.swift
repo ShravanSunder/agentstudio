@@ -263,7 +263,8 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     /// `PostAttachRecreationCheckWiringTests`).
     func beginPostAttachRecreationCheckIfNeeded(
         pane: Pane,
-        restoreKind: TerminalRestoreKind?
+        restoreKind: TerminalRestoreKind?,
+        observeDerivationExecutionContext: @Sendable () -> Void = {}
     ) {
         let baselineIdentity: Data?
         switch restoreKind {
@@ -275,22 +276,56 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             return
         }
         guard let sessionID = pane.terminalState?.zmxSessionID else { return }
+        guard let probe = postAttachRecreationProbe else { return }
         let paneID = pane.id
+        // A1 (advisor review 2026-10-01): the comparison itself
+        // (`PaneRecreationChecker.checkForRecreation`) is pure -- it needs
+        // no actor, only `probe.observeSessionIdentity`'s own I/O does.
+        // `probe` is captured by value (a `Sendable` existential) before
+        // this task, not read through `self` inside it, so the off-main
+        // body never touches MainActor state; only the completion step
+        // (removing this task from `postAttachRecreationCheckTasksByPaneID`
+        // and firing the fact sink) hops back to `self` on MainActor.
         let checkTask = Task { @MainActor [weak self] in
-            guard let self, let probe = self.postAttachRecreationProbe else { return }
-            let observedIdentity = try? await probe.observeSessionIdentity(sessionID)
-            let result = PaneRecreationChecker.checkForRecreation(
-                baselineIdentity: baselineIdentity,
-                observedIdentity: observedIdentity
-            )
-            // SR2a: telemetry only, scrubbing raw ids -- this local trace
-            // line is this restore code path's own established
-            // diagnostic channel (matching `handleColdStartOutcome`
-            // above), gated behind `AGENTSTUDIO_RESTORE_TRACE`, not OTLP.
-            RestoreTrace.log("postAttachRecreationCheck result=\(result)")
+            let result = await Self.resolveRecreationVerdictOffMain(
+                probe: probe, sessionID: sessionID, baselineIdentity: baselineIdentity,
+                observeDerivationExecutionContext: observeDerivationExecutionContext)
+            guard let self else { return }
             self.postAttachRecreationCheckTasksByPaneID.removeValue(forKey: paneID)
             self.postAttachRecreationCheckFactSink?(paneID, result)
         }
         postAttachRecreationCheckTasksByPaneID[paneID] = checkTask
+    }
+
+    /// A1: off-main derivation for `beginPostAttachRecreationCheckIfNeeded`
+    /// — the observe I/O and the pure comparison both run here, away from
+    /// MainActor. `@concurrent nonisolated static` so it carries no actor
+    /// affinity of its own; the caller still decides where to resume
+    /// (`Task { @MainActor in await Self.resolveRecreationVerdictOffMain(...) }`
+    /// hops back only for the completion step).
+    ///
+    /// `observeDerivationExecutionContext` (test technique amendment, Lead
+    /// 2026-10-01): same seam as `TerminalRestoreKindResolver`'s own —
+    /// a no-op in production, called right before the pure comparison so a
+    /// test can record a structural "not on MainActor" fact instead of
+    /// racing this call against other MainActor work.
+    @concurrent nonisolated private static func resolveRecreationVerdictOffMain(
+        probe: any ZmxSessionRestoreProbing,
+        sessionID: ZmxSessionID,
+        baselineIdentity: Data?,
+        observeDerivationExecutionContext: @Sendable () -> Void = {}
+    ) async -> PaneRecreationCheckResult {
+        let observedIdentity = try? await probe.observeSessionIdentity(sessionID)
+        observeDerivationExecutionContext()
+        let result = PaneRecreationChecker.checkForRecreation(
+            baselineIdentity: baselineIdentity,
+            observedIdentity: observedIdentity
+        )
+        // SR2a: telemetry only, scrubbing raw ids -- this local trace line
+        // is this restore code path's own established diagnostic channel
+        // (matching `handleColdStartOutcome` above), gated behind
+        // `AGENTSTUDIO_RESTORE_TRACE`, not OTLP.
+        RestoreTrace.log("postAttachRecreationCheck result=\(result)")
+        return result
     }
 }

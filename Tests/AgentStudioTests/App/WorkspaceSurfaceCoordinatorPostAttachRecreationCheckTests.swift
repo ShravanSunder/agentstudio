@@ -189,6 +189,42 @@ struct PostAttachRecreationCheckWiringTests {
         try await recorder.expectNext(in: pane.id, .couldNotCheck)
     }
 
+    /// A1 (test technique corrected by the Lead 2026-10-01): same
+    /// structural-fact technique as `TerminalRestoreKindResolverTests`'
+    /// own proof — `resolveRecreationVerdictOffMain`'s injected
+    /// `observeDerivationExecutionContext` seam (a no-op in production)
+    /// records `Thread.isMainThread` from inside the off-main comparison
+    /// itself, right before `PaneRecreationChecker.checkForRecreation`
+    /// runs. Deterministic on every machine: today's (pre-fix) `@MainActor`
+    /// task would always record `true`; after the fix it always records
+    /// `false`.
+    @Test("the recreation-verdict comparison records a real off-main execution context")
+    func recreationVerdictRecordsOffMainExecutionContext() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let probe = ScriptedProbe()
+        let baseline = Data([1, 2, 3])
+        probe.observedIdentity = baseline
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-structural-offmain")
+        let executionContextRecorder = ExecutionContextRecorder()
+
+        // Act
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-structural-offmain")),
+            observeDerivationExecutionContext: { executionContextRecorder.record() }
+        )
+
+        // Assert
+        try await recorder.expectNext(in: pane.id, .unchanged)
+        #expect(executionContextRecorder.wasOnMainThread == false)
+    }
+
     @Test("a cold restore kind never starts a post-attach check")
     func coldRestoreKindNeverStartsACheck() throws {
         // Arrange
