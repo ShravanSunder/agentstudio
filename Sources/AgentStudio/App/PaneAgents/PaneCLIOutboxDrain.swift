@@ -225,13 +225,13 @@ actor PaneCLIOutboxDrain {
         -> Result<OutboxIntakeBatch, CLIStoreFailure>
     {
         let issues = OutboxDecodeIssueRecorder()
-        do {
-            let reader = try CLIStore.openReader(
-                url: url, expectedChannel: channel, logDecodeIssue: { issues.record($0) }
-            ).get()
-            let batch = try reader.readOutbox(after: cursor).get()
-            return .success(OutboxIntakeBatch(identity: reader.identity, entries: batch.entries, issues: issues.values))
-        } catch let failure as CLIStoreFailure { return .failure(failure) } catch { return .failure(.unavailable) }
+        return CLIStore.openReader(
+            url: url, expectedChannel: channel, logDecodeIssue: { issues.record($0) }
+        ).flatMap { reader in
+            reader.readOutbox(after: cursor).map { batch in
+                OutboxIntakeBatch(identity: reader.identity, entries: batch.entries, issues: issues.values)
+            }
+        }
     }
 
     private func importLegacyFiles(in directory: URL) async -> DrainReport {
