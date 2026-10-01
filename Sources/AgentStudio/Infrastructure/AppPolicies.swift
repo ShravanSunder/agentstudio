@@ -7,6 +7,8 @@ package enum AppPolicies {
     }
 
     package enum IPC {
+        /// Includes the active partial write and every frame waiting behind it.
+        package static let maximumQueuedOutputBytes: Int = 4 * 1_048_576
         package static let maximumTerminalWaitSeconds: Double = 86_400
         /// One spooled notification is one wire frame, so the drainer accepts
         /// exactly what the IPC server would have accepted live. A longer line

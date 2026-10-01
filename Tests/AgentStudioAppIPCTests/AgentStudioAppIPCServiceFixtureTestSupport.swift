@@ -123,7 +123,10 @@ struct LiveServerFixture: Sendable {
         ownPaneScopes: [AppIPCOwnPaneScope] = [],
         additionalRegistrations: [AnyAppIPCMethodRegistration] = [],
         eventBroker: IPCEventBroker = IPCEventBroker(),
-        makeConnectionIO: @escaping @Sendable (UnixSocketConnection) -> AppIPCConnectionIO = AppIPCConnectionIO.live
+        makeConnectionIO: @escaping @Sendable (UnixSocketConnection) -> AppIPCConnectionIO = AppIPCConnectionIO.live,
+        makeConnectionWriter: @escaping @Sendable (AppIPCConnectionIO, Int) -> AgentStudioAppIPCConnectionWriter = {
+            AgentStudioAppIPCConnectionWriter(io: $0, maxFrameBytes: $1)
+        }
     ) throws {
         let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
         testCredentialResolver = resolvedCredentialResolver as? IPCFixtureCredentialResolver
@@ -211,7 +214,8 @@ struct LiveServerFixture: Sendable {
                     channel: channel,
                     principalRegistry: principalRegistry,
                     credentialContinuityPort: credentialContinuityPort,
-                    makeConnectionIO: makeConnectionIO
+                    makeConnectionIO: makeConnectionIO,
+                    makeConnectionWriter: makeConnectionWriter
                 )
             )
         } catch {

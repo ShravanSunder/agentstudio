@@ -56,8 +56,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let maxRequestFrameBytes: Int
     private let maxResponseFrameBytes: Int
     private let makeConnectionIO: @Sendable (UnixSocketConnection) -> AppIPCConnectionIO
+    private let makeConnectionWriter: @Sendable (AppIPCConnectionIO, Int) -> AgentStudioAppIPCConnectionWriter
     private let lifecycleLock = NSLock()
     private var isRunning = false
+    private var isStopping = false
     private var activeConnections: [ObjectIdentifier: UnixSocketConnection] = [:]
     private var activeConnectionContexts: [ObjectIdentifier: AgentStudioIPCAuthenticatedContext] = [:]
     /// One entry per connection handler `Task`, from acceptance until the
@@ -79,7 +81,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         currentUserIdentifier: uid_t = getuid(),
         maxRequestFrameBytes: Int = IPCFramePolicy.maximumRequestFrameBytes,
         maxResponseFrameBytes: Int = IPCFramePolicy.maximumResponseFrameBytes,
-        makeConnectionIO: @escaping @Sendable (UnixSocketConnection) -> AppIPCConnectionIO = AppIPCConnectionIO.live
+        makeConnectionIO: @escaping @Sendable (UnixSocketConnection) -> AppIPCConnectionIO = AppIPCConnectionIO.live,
+        makeConnectionWriter: @escaping @Sendable (AppIPCConnectionIO, Int) -> AgentStudioAppIPCConnectionWriter = {
+            AgentStudioAppIPCConnectionWriter(io: $0, maxFrameBytes: $1)
+        }
     ) {
         self.service = service
         self.paths = paths
@@ -110,6 +115,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.maxRequestFrameBytes = maxRequestFrameBytes
         self.maxResponseFrameBytes = maxResponseFrameBytes
         self.makeConnectionIO = makeConnectionIO
+        self.makeConnectionWriter = makeConnectionWriter
     }
 
     public func start(
@@ -150,6 +156,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     }
 
     public func stop() {
+        markStopping()
         principalRegistry.shutdown()
         stopListenerAndConnections()
         principalRegistry.revokeAllGrants()
@@ -162,6 +169,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     /// call performs no durable write of its own and never waits for one, so a
     /// caller may run it before persisting other state.
     package func stopAcceptingConnections() {
+        markStopping()
         let shutdownSnapshot = principalRegistry.beginGracefulShutdownAndSnapshotUnsavedCredentials()
         schedulePersistence(of: shutdownSnapshot)
         stopListenerAndConnections()
@@ -218,18 +226,26 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func handleRegisteredConnection(_ connection: UnixSocketConnection) async {
+    private func handleRegisteredConnection(
+        _ connection: UnixSocketConnection,
+        io: AppIPCConnectionIO,
+        writer: AgentStudioAppIPCConnectionWriter
+    ) async {
         defer {
             unregisterConnection(connection)
             connection.close()
         }
 
         let connectionId = UUIDv7.generate()
-        await handleConnectionRequests(connection, connectionId: connectionId)
+        await handleConnectionRequests(connection, connectionId: connectionId, io: io, writer: writer)
         await service.eventBroker.removeSubscriptions(connectionId: connectionId)
+        await writer.finishAcceptedOutput()
     }
 
-    private func handleConnectionRequests(_ connection: UnixSocketConnection, connectionId: UUID) async {
+    private func handleConnectionRequests(
+        _ connection: UnixSocketConnection, connectionId: UUID,
+        io: AppIPCConnectionIO, writer: AgentStudioAppIPCConnectionWriter
+    ) async {
 
         do {
             let credentials = try connection.peerCredentials(using: peerCredentialProvider)
@@ -238,58 +254,21 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             return
         }
 
-        let io = makeConnectionIO(connection)
-        let writer = AgentStudioAppIPCConnectionWriter(
-            io: io, maxFrameBytes: maxResponseFrameBytes
-        )
         let socketSubscriber = AgentStudioAppIPCSocketEventSubscriber(writer: writer)
-        var decoder = NDJSONFrameDecoder(maxFrameBytes: maxRequestFrameBytes)
         let connectionState = AgentStudioAppIPCConnectionState()
 
-        while true {
-            do {
-                let data = try await receiveFrameData(from: io)
-                guard !data.isEmpty else { return }
-                let frames = try decoder.append(data)
-                for frame in frames {
-                    let request: JSONRPCRequest
-                    do {
-                        request = try JSONRPCCodec.decodeRequest(frame, maxBytes: maxRequestFrameBytes)
-                        try IPCEventBroker.validateInboundClientNotification(method: request.method)
-                    } catch {
-                        try await writer.sendError(
-                            id: nil,
-                            code: -32_600,
-                            message: "invalid request"
-                        )
-                        continue
-                    }
-
-                    guard let id = request.id else {
-                        continue
-                    }
-
-                    do {
-                        let result = try await process(
-                            request,
-                            connection: connection,
-                            connectionId: connectionId,
-                            connectionState: connectionState,
-                            socketSubscriber: socketSubscriber
-                        )
-                        try await writer.sendResponse(JSONRPCResponse.success(id: id, result: result))
-                    } catch let error as AgentStudioAppIPCRequestError {
-                        try await writer.sendError(id: id, code: error.code, message: error.message, data: error.data)
-                    } catch {
-                        let mappedError = AgentStudioAppIPCRequestError(error)
-                        try await writer.sendError(
-                            id: id, code: mappedError.code, message: mappedError.message, data: mappedError.data)
-                    }
-                }
-            } catch {
-                return
+        let reader = AgentStudioAppIPCConnectionReader(
+            methodRegistry: methodRegistry, connection: connection, io: io, writer: writer,
+            maxRequestFrameBytes: maxRequestFrameBytes,
+            isStopping: { [self] in serverIsStopping() },
+            executeRequest: { [self] request, state in
+                try await process(
+                    request, connection: connection, connectionId: connectionId,
+                    connectionState: state, socketSubscriber: socketSubscriber
+                )
             }
-        }
+        )
+        await reader.run(connectionState: connectionState)
     }
 
     private func process(
@@ -374,7 +353,11 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 return .authenticated(
                     principalId: principal.principalId, runtimeId: principal.runtimeId, accessMode: principal.accessMode
                 )
-            }, eventSubscriber: socketSubscriber
+            },
+            eventSubscriber: socketSubscriber,
+            connectionEndCause: { [self] in
+                connectionState.endCause ?? (serverIsStopping() ? .stopping : .eof)
+            }
         )
         let tools = AppIPCTargetResolutionTools { [self] rawHandle in
             try await canonicalHandle(fromRawHandle: rawHandle, principal: context.principal)
@@ -469,7 +452,16 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private func setRunning(_ running: Bool) {
         lifecycleLock.withLock {
             isRunning = running
+            if running { isStopping = false }
         }
+    }
+
+    private func markStopping() {
+        lifecycleLock.withLock { isStopping = true }
+    }
+
+    private func serverIsStopping() -> Bool {
+        lifecycleLock.withLock { isStopping }
     }
 
     private func serverIsRunning() -> Bool {
@@ -497,14 +489,19 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     /// locked section that records it, so a handler that finishes
     /// immediately can never remove an entry before this call inserted it.
     private func registerConnectionAndTrackHandler(_ connection: UnixSocketConnection) -> Bool {
-        lifecycleLock.withLock {
+        guard serverIsRunning() else { return false }
+        // The listener invokes acceptance on its own GCD queue. Construct
+        // connection I/O there, outside the lifecycle lock and cooperative pool.
+        let io = makeConnectionIO(connection)
+        let writer = makeConnectionWriter(io, maxResponseFrameBytes)
+        return lifecycleLock.withLock {
             guard isRunning else {
                 return false
             }
             let connectionIdentifier = ObjectIdentifier(connection)
             activeConnections[connectionIdentifier] = connection
             connectionHandlerTasks[connectionIdentifier] = Task { [self] in
-                await handleRegisteredConnection(connection)
+                await handleRegisteredConnection(connection, io: io, writer: writer)
             }
             return true
         }
@@ -549,19 +546,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         lifecycleLock.withLock { connectionHandlerTasks.count }
     }
 
-    private func receiveFrameData(from io: AppIPCConnectionIO) async throws -> Data {
-        let readLimit = min(maxRequestFrameBytes, 16_384)
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                do {
-                    continuation.resume(returning: try io.receive(readLimit))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-
     private func recordAuthenticatedContext(
         _ context: AgentStudioIPCAuthenticatedContext,
         for connection: UnixSocketConnection
@@ -591,43 +575,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         listener.stop()
         for connection in connections {
             connection.close()
-        }
-    }
-}
-
-private final class AgentStudioAppIPCConnectionState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedAuthenticatedContext: AgentStudioIPCAuthenticatedContext?
-    private var storedAuthenticationFailed = false
-
-    var authenticatedContext: AgentStudioIPCAuthenticatedContext? { lock.withLock { storedAuthenticatedContext } }
-    var principal: IPCPrincipal? { authenticatedContext?.principal }
-    var authenticationFailed: Bool { lock.withLock { storedAuthenticationFailed } }
-
-    func setAuthenticatedContext(_ context: AgentStudioIPCAuthenticatedContext) {
-        lock.withLock {
-            storedAuthenticatedContext = context
-            storedAuthenticationFailed = false
-        }
-    }
-
-    func replaceAuthenticatedContext(
-        _ context: AgentStudioIPCAuthenticatedContext
-    ) -> AgentStudioIPCAuthenticatedContext? {
-        lock.withLock {
-            let replaced = storedAuthenticatedContext
-            storedAuthenticatedContext = context
-            storedAuthenticationFailed = false
-            return replaced
-        }
-    }
-
-    func rejectAuthentication() -> AgentStudioIPCAuthenticatedContext? {
-        lock.withLock {
-            let rejected = storedAuthenticatedContext
-            storedAuthenticatedContext = nil
-            storedAuthenticationFailed = true
-            return rejected
         }
     }
 }

@@ -7,6 +7,47 @@ import Testing
 
 @Suite("App IPC connection admission")
 struct AgentStudioAppIPCConnectionAdmissionTests {
+    @Test("write-side EOF drains accepted reply bytes before the server closes")
+    func halfClosePreservesLegacyReplyBytes() async throws {
+        let heldWrite = HeldStep<Data>("half-closed peer's accepted reply on the I/O queue")
+        try await withLiveServer(
+            makeFixture: {
+                try LiveServerFixture(makeConnectionIO: { connection in
+                    let live = AppIPCConnectionIO.live(connection)
+                    return AppIPCConnectionIO(
+                        receive: live.receive,
+                        send: { data in
+                            try heldWrite.arriveBlocking(data)
+                            try live.send(data)
+                        },
+                        close: live.close
+                    )
+                })
+            },
+            releaseHeldWork: { heldWrite.retire() },
+            body: { fixture in
+                try fixture.server.start()
+                let client = try await connectHalfCloseTestSocket(socketPath: fixture.paths.socketURL.path)
+                defer { client.connection.close() }
+                try await sendRequestWithoutBlockingCooperativePool(
+                    connection: client.connection, request: connectionContractRequest("system.ping", id: 1)
+                )
+                try await valueFromDedicatedThread { try client.finishSending() }
+                let expected = try await heldWrite.firstArrival()
+                let frame = try #require(String(data: expected.dropLast(), encoding: .utf8))
+                let reply = try JSONRPCCodec.decodeResponse(frame)
+                #expect(reply.id == .number(1))
+                #expect(reply.error == nil)
+                #expect(
+                    reply.result == .object(["ok": .bool(true), "runtimeId": .string(fixture.runtimeId.uuidString)]))
+                heldWrite.release()
+                #expect(try await receiveBytesThroughEOF(connection: client.connection) == expected)
+                await fixture.server.joinConnectionHandlers()
+                #expect(fixture.server.trackedConnectionHandlerCount == 0)
+            }
+        )
+    }
+
     @Test("pipelined login establishes authentication before the next frame")
     func pipelinedLoginThenAuthenticatedCall() async throws {
         try await withLiveServer(

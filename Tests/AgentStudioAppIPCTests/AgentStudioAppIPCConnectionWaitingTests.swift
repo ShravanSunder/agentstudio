@@ -158,7 +158,7 @@ struct AgentStudioAppIPCConnectionWaitingTests {
                 }
                 connection.close()
                 try await recorder.expectNext(in: "waiting", .ended(.eof))
-                fixture.stopAcceptingConnections()
+                await valueFromDedicatedThread { fixture.stopAcceptingConnections() }
                 await fixture.server.joinConnectionHandlers()
                 source.sink("ordinary", .ended(.eof))
                 try await recorder.expectNone(

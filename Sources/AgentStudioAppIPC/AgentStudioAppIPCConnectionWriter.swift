@@ -1,5 +1,7 @@
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import Foundation
+import Synchronization
 
 /// The connection owns these synchronous operations. The production binding
 /// retains the transport's partial-write loop and descriptor lifetime rules.
@@ -33,8 +35,18 @@ package enum AppIPCFrameEnqueueResult: Equatable, Sendable {
 }
 
 package actor AgentStudioAppIPCConnectionWriter {
+    private struct OutputState: Sendable {
+        var queuedByteCount = 0
+        var isClosed = false
+    }
+
     private let io: AppIPCConnectionIO
     private let maxFrameBytes: Int
+    private let outputQueue = DispatchQueue(label: "com.agentstudio.ipc.connection-output", qos: .utility)
+    /// Admission is actor-serialized; physical completion returns its byte
+    /// reservation on the I/O queue without waking a cooperative task.
+    private let outputState = Mutex(OutputState())
+    private var isAcceptingFrames = true
 
     package init(io: AppIPCConnectionIO, maxFrameBytes: Int) {
         self.io = io
@@ -59,8 +71,55 @@ package actor AgentStudioAppIPCConnectionWriter {
 
     @discardableResult
     package func sendFrame(_ frame: String) throws -> AppIPCFrameEnqueueResult {
-        try io.send(try NDJSONFrameEncoder.encode(frame, maxFrameBytes: maxFrameBytes))
+        // Subscription teardown can race a publication that already captured
+        // its subscriber. The fence owns a closed admission set: a late enqueue
+        // must not land behind it or abort bytes accepted before orderly EOF.
+        guard isAcceptingFrames else { return .overloaded }
+        let bytes = try NDJSONFrameEncoder.encode(frame, maxFrameBytes: maxFrameBytes)
+        let accepted = outputState.withLock { state in
+            guard !state.isClosed,
+                bytes.count <= AppPolicies.IPC.maximumQueuedOutputBytes - state.queuedByteCount
+            else { return false }
+            state.queuedByteCount += bytes.count
+            return true
+        }
+        guard accepted else {
+            closeOutput()
+            return .overloaded
+        }
+
+        outputQueue.async { [self] in
+            defer { outputState.withLock { $0.queuedByteCount -= bytes.count } }
+            guard outputState.withLock({ !$0.isClosed }) else { return }
+            do {
+                try io.send(bytes)
+            } catch {
+                closeOutput()
+            }
+        }
         return .accepted
+    }
+
+    /// EOF can follow a peer's write-side shutdown while it still reads our
+    /// replies. Keep accepted bytes alive until their serial I/O has finished.
+    package func finishAcceptedOutput() async {
+        isAcceptingFrames = false
+        await withCheckedContinuation { continuation in
+            outputQueue.async { continuation.resume() }
+        }
+    }
+
+    package var queuedOutputByteCount: Int {
+        outputState.withLock { $0.queuedByteCount }
+    }
+
+    private nonisolated func closeOutput() {
+        let shouldClose = outputState.withLock { state in
+            guard !state.isClosed else { return false }
+            state.isClosed = true
+            return true
+        }
+        if shouldClose { io.close() }
     }
 }
 
@@ -72,7 +131,9 @@ package actor AgentStudioAppIPCSocketEventSubscriber: IPCEventSubscriber {
     }
 
     package func deliver(_ frame: String) async throws -> IPCEventDeliveryResult {
-        try await writer.sendFrame(frame)
-        return .delivered
+        switch try await writer.sendFrame(frame) {
+        case .accepted: .delivered
+        case .overloaded: .backpressure
+        }
     }
 }

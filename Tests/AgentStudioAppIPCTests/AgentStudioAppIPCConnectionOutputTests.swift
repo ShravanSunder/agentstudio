@@ -13,6 +13,82 @@ import Testing
 
 @Suite("App IPC connection output")
 struct AgentStudioAppIPCConnectionOutputTests {
+    @Test("stop joins a queued write to a peer that never reads and returns its accounting to zero")
+    func stopJoinsNonReadingPeerAndReleasesQueuedBytes() async throws {
+        let writerCreated = HeldStep<AgentStudioAppIPCConnectionWriter>("non-reading peer's real connection writer")
+        writerCreated.release()
+        let enteredWrite = HeldStep<Data>("non-reading peer's large accepted write")
+        enteredWrite.release()
+        let source = makeOutputFactSource()
+        let recorder = try source.attach()
+        let descriptor = try TypedConnectionRegistrationFixture.preAuthenticationDescriptor(
+            name: "fixture.largeReply", parameters: IPCEmptyParams(),
+            result: IPCConnectionLargeReply(text: "example")
+        )
+        let registrations = try [
+            AppIPCTypedMethodRegistration(
+                descriptorRepresentations: IPCMethodDescriptorRepresentations(typedDescriptor: descriptor),
+                correlation: AppIPCCorrelation<IPCEmptyParams>.notRequired,
+                resolveTarget: { parameters, _, _ in
+                    AppIPCTargetResolution(parameters: parameters, canonicalHandle: nil, target: .app)
+                },
+                connectionHandler: { _, _, _ in
+                    IPCConnectionLargeReply(text: String(repeating: "x", count: 3 * 1_048_576))
+                }
+            ).erase()
+        ]
+        try await withLiveServer(
+            makeFixture: {
+                try LiveServerFixture(
+                    additionalRegistrations: registrations,
+                    makeConnectionIO: { connection in
+                        let live = AppIPCConnectionIO.live(connection)
+                        return AppIPCConnectionIO(
+                            receive: live.receive,
+                            send: { data in
+                                try enteredWrite.arriveBlocking(data)
+                                do {
+                                    try live.send(data)
+                                    source.sink("output", .written(data))
+                                } catch {
+                                    source.sink("output", .closed)
+                                    throw error
+                                }
+                            },
+                            close: live.close
+                        )
+                    },
+                    makeConnectionWriter: { io, maxFrameBytes in
+                        let writer = AgentStudioAppIPCConnectionWriter(io: io, maxFrameBytes: maxFrameBytes)
+                        try? writerCreated.arriveBlocking(writer)
+                        return writer
+                    }
+                )
+            },
+            body: { fixture in
+                try fixture.server.start()
+                let client = try await connectHalfCloseTestSocket(
+                    socketPath: fixture.paths.socketURL.path, receiveBufferBytes: 4096)
+                defer { client.connection.close() }
+                try await sendRequestWithoutBlockingCooperativePool(
+                    connection: client.connection, request: connectionContractRequest("fixture.largeReply", id: 1)
+                )
+                let bytes = try await enteredWrite.firstArrival()
+                #expect(bytes.count > 3 * 1_048_576)
+                let writer = try await writerCreated.firstArrival()
+                #expect(await writer.queuedOutputByteCount == bytes.count)
+                // This client performs no receive. Stop is the real descriptor
+                // shutdown that must release the server's accepted output.
+                await valueFromDedicatedThread { fixture.stop() }
+                await fixture.server.joinConnectionHandlers()
+                try await recorder.expectNext(in: "output", .closed)
+                #expect(await writer.queuedOutputByteCount == 0)
+                #expect(fixture.server.trackedConnectionHandlerCount == 0)
+            }
+        )
+        try await recorder.finish()
+    }
+
     @Test("enqueue returns before a held write and the serial writer preserves exact frame bytes")
     func enqueueAcceptanceAndDependentFrameOrder() async throws {
         let firstWrite = HeldStep<Data>("first queued socket write off the cooperative pool")
@@ -36,6 +112,8 @@ struct AgentStudioAppIPCConnectionOutputTests {
             for frame in ["first", "second", "third"] {
                 try await recorder.expectNext(in: "output", .written(Data("\(frame)\n".utf8)))
             }
+            await writer.finishAcceptedOutput()
+            #expect(await writer.queuedOutputByteCount == 0)
         } catch {
             firstWrite.retire()
             throw error
@@ -46,14 +124,14 @@ struct AgentStudioAppIPCConnectionOutputTests {
     @Test("an output frame above 4 MiB is refused before any transport write")
     func oversizedEnqueueClosesWithoutWriting() async throws {
         let written = HeldStep<Data>("transport write forbidden for oversized output")
-        let closed = HeldStep<Bool>("overloaded output closes its connection")
+        let source = makeOutputFactSource()
+        let recorder = try source.attach()
         written.release()
-        closed.release()
         let writer = AgentStudioAppIPCConnectionWriter(
             io: AppIPCConnectionIO(
                 receive: { _ in Data() },
                 send: { try written.arriveBlocking($0) },
-                close: { try? closed.arriveBlocking(true) }
+                close: { source.sink("connection", .closed) }
             ),
             maxFrameBytes: 5 * 1_048_576
         )
@@ -61,14 +139,15 @@ struct AgentStudioAppIPCConnectionOutputTests {
         let frame = String(repeating: "x", count: 4 * 1_048_576)
         #expect(try await writer.sendFrame(frame) == .overloaded)
         #expect(written.recordedArrivals.isEmpty)
-        #expect(closed.recordedArrivals == [true])
+        try await recorder.expectNext(in: "connection", .closed)
+        await writer.finishAcceptedOutput()
+        #expect(await writer.queuedOutputByteCount == 0)
+        try await recorder.finish()
     }
 
     @Test("exactly 4 MiB of held output is accepted and one more byte overloads")
     func exactQueuedByteBoundIncludesInFlightWrite() async throws {
         let heldWrite = HeldStep<Int>("4 MiB queued write held on its dedicated I/O queue")
-        let closed = HeldStep<Bool>("4 MiB overload closes output")
-        closed.release()
         let source = makeOutputFactSource()
         let recorder = try source.attach()
         let writer = AgentStudioAppIPCConnectionWriter(
@@ -78,7 +157,7 @@ struct AgentStudioAppIPCConnectionOutputTests {
                     try heldWrite.arriveBlocking(data.count)
                     source.sink("output", .written(Data()))
                 },
-                close: { try? closed.arriveBlocking(true) }
+                close: { source.sink("connection", .closed) }
             ),
             maxFrameBytes: 5 * 1_048_576
         )
@@ -86,9 +165,11 @@ struct AgentStudioAppIPCConnectionOutputTests {
             #expect(try await writer.sendFrame(String(repeating: "x", count: 4 * 1_048_576 - 1)) == .accepted)
             #expect(try await heldWrite.firstArrival() == 4 * 1_048_576)
             #expect(try await writer.sendFrame("") == .overloaded)
-            #expect(closed.recordedArrivals == [true])
+            try await recorder.expectNext(in: "connection", .closed)
             heldWrite.release()
             try await recorder.expectNext(in: "output", .written(Data()))
+            await writer.finishAcceptedOutput()
+            #expect(await writer.queuedOutputByteCount == 0)
             #expect(heldWrite.recordedArrivals == [4 * 1_048_576])
         } catch {
             heldWrite.retire()
@@ -115,6 +196,8 @@ struct AgentStudioAppIPCConnectionOutputTests {
             _ = try await heldWrite.firstArrival()
             heldWrite.fail(UnixSocketTransportError(reason: .writeFailed, errnoCode: EPIPE))
             try await recorder.expectNext(in: "output", .closed)
+            await writer.finishAcceptedOutput()
+            #expect(await writer.queuedOutputByteCount == 0)
         } catch {
             heldWrite.retire()
             throw error
@@ -157,17 +240,15 @@ struct AgentStudioAppIPCConnectionOutputTests {
         _ = await broker.publish(first) { _, _ in true }
         do {
             _ = try await heldWrite.firstArrival()
-            try await recorder.expectNext(
-                in: "healthy", .written(Data(try IPCEventBroker.encodeEventNotification(first).utf8)))
+            try await expectOutputNotification(first, in: "healthy", recorder: recorder)
             _ = await broker.publish(second) { _, _ in true }
-            try await recorder.expectNext(
-                in: "healthy", .written(Data(try IPCEventBroker.encodeEventNotification(second).utf8)))
+            try await expectOutputNotification(second, in: "healthy", recorder: recorder)
             heldWrite.release()
             for notification in [first, second] {
-                let bytes = try NDJSONFrameEncoder.encode(
-                    IPCEventBroker.encodeEventNotification(notification), maxFrameBytes: 1_048_576)
-                try await recorder.expectNext(in: "slow", .written(bytes))
+                try await expectOutputNotification(notification, in: "slow", recorder: recorder)
             }
+            await slowWriter.finishAcceptedOutput()
+            #expect(await slowWriter.queuedOutputByteCount == 0)
         } catch {
             heldWrite.retire()
             await broker.removeSubscriptions(connectionId: slowConnection)
@@ -230,24 +311,20 @@ struct AgentStudioAppIPCConnectionOutputTests {
                 let firstFailures = await broker.publish(first) { _, _ in true }
                 #expect(firstFailures.isEmpty)
                 _ = try await heldWrite.firstArrival()
-                #expect(
-                    try await healthyReader.receiveFrameWithoutBlockingCooperativePool(connection: healthy)
-                        == IPCEventBroker.encodeEventNotification(first))
+                let healthyFirst = try await healthyReader.receiveFrameWithoutBlockingCooperativePool(
+                    connection: healthy)
+                #expect(try decodeOutputNotification(healthyFirst) == first)
                 let second = makeOutputNotification()
                 let secondFailures = await broker.publish(second) { _, _ in true }
                 #expect(secondFailures.isEmpty)
-                #expect(
-                    try await healthyReader.receiveFrameWithoutBlockingCooperativePool(connection: healthy)
-                        == IPCEventBroker.encodeEventNotification(second))
+                let healthySecond = try await healthyReader.receiveFrameWithoutBlockingCooperativePool(
+                    connection: healthy)
+                #expect(try decodeOutputNotification(healthySecond) == second)
                 heldWrite.release()
                 for notification in [first, second] {
-                    let bytes = try NDJSONFrameEncoder.encode(
-                        IPCEventBroker.encodeEventNotification(notification),
-                        maxFrameBytes: IPCFramePolicy.maximumResponseFrameBytes)
-                    try await recorder.expectNext(in: "slow", .written(bytes))
-                    #expect(
-                        try await slowReader.receiveFrameWithoutBlockingCooperativePool(connection: slow)
-                            == IPCEventBroker.encodeEventNotification(notification))
+                    let fact = try await expectOutputNotification(notification, in: "slow", recorder: recorder)
+                    let observed = try await slowReader.receiveFrameWithoutBlockingCooperativePool(connection: slow)
+                    #expect(Data((observed + "\n").utf8) == fact)
                 }
             }
         )
@@ -317,6 +394,41 @@ struct AgentStudioAppIPCConnectionOutputTests {
 enum IPCConnectionOutputFact: Equatable, Sendable {
     case written(Data)
     case closed
+}
+
+private struct IPCConnectionLargeReply: Codable, Equatable, Sendable, IPCSchemaProviding {
+    let text: String
+
+    static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [.init(name: "text", description: "Large queued reply", schema: .string(minimumLength: 1))])
+    }
+}
+
+private func decodeOutputNotification(_ frame: String) throws -> IPCEventNotification {
+    let request = try JSONRPCCodec.decodeRequest(frame)
+    try #require(request.method == "events.notification")
+    try #require(request.id == nil)
+    return try decodeJSONValue(IPCEventNotification.self, from: #require(request.params))
+}
+
+@discardableResult
+private func expectOutputNotification(
+    _ notification: IPCEventNotification,
+    in scope: String,
+    recorder: FactRecorder<String, IPCConnectionOutputFact>
+) async throws -> Data {
+    let fact = try await recorder.expectNext(
+        in: scope,
+        where: { fact in
+            guard case .written(let bytes) = fact, let frame = String(data: bytes, encoding: .utf8) else {
+                return false
+            }
+            return (try? decodeOutputNotification(frame)) == notification
+        },
+        "encoded notification \(notification.eventId)"
+    )
+    guard case .written(let bytes) = fact else { throw TestFrameReaderError.endOfStream }
+    return bytes
 }
 
 func makeOutputFactSource() -> LocalFactSource<String, IPCConnectionOutputFact> {
