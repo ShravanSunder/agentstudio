@@ -61,7 +61,7 @@ struct PaneIPCIdentityOwnerTests {
         #expect(first.environmentVariables["AGENTSTUDIO_CLI"] == fixture.cliExecutableURL.path)
         #expect(
             first.environmentVariables["PATH"]
-                == "\(fixture.cliExecutableURL.deletingLastPathComponent().path):/usr/bin:/bin"
+                == "/usr/bin:/bin:\(fixture.cliExecutableURL.deletingLastPathComponent().path)"
         )
 
         let firstContext = try await registry.authenticate(
@@ -134,7 +134,7 @@ struct PaneIPCIdentityOwnerTests {
             workspaceID: UUIDv7.generate()
         )
 
-        #expect(environment["PATH"] == "/usr/bin:/bin")
+        #expect(environment["PATH"] == "/usr/bin:/bin:\(fixture.cliExecutableURL.deletingLastPathComponent().path)")
         for key in inheritedEnvironment.keys where key.hasPrefix("AGENTSTUDIO_") {
             #expect(environment[key]?.isEmpty == true)
         }
