@@ -179,25 +179,34 @@ export async function scanBridgeReviewRecoveryWitnessDocument(props: {
 				targetItemId !== undefined &&
 				visibleItemIds.includes(targetItemId)
 			) {
-				const markerLineScrollTop = bridgeReviewRecoveryMarkerLineScrollTop({
-					itemId: targetItemId,
-					marker,
-					scrollOwner: props.scrollOwner,
+				// Rendered IDs include overscan. Hydration can grow the document after native
+				// scrollend, so a mounted target does not mean its marker is in the viewport.
+				// Observe either the marker or a new geometric destination, then drive that
+				// destination in its own act turn instead of waiting at a stale scrollTop.
+				// oxlint-disable-next-line no-await-in-loop -- Each marker awaits paint or an observed scroll destination.
+				const markerState = await waitForBridgeReviewRecoveryDomState({
+					readState: (): { readonly text: string; readonly nextScrollTop: number } => ({
+						text: props.visibleCodeText(props.scrollOwner),
+						nextScrollTop:
+							bridgeReviewRecoveryMarkerLineScrollTop({
+								itemId: targetItemId,
+								marker,
+								scrollOwner: props.scrollOwner,
+							}) ??
+							(isFinalMarker
+								? Math.max(0, props.scrollOwner.scrollHeight - props.scrollOwner.clientHeight)
+								: markerConvergenceScrollTop({ markerIndex, markerProgress, props })),
+					}),
+					isExpected: (state): boolean =>
+						state.text.includes(marker) ||
+						Math.abs(props.scrollOwner.scrollTop - state.nextScrollTop) > 1,
 				});
-				if (markerLineScrollTop !== null) {
-					// oxlint-disable-next-line no-await-in-loop -- The exact marker line replaces stationary host-level convergence.
-					await captureScrollSample(markerLineScrollTop);
-					if (observedMarkers.has(marker)) break;
+				if (markerState.text.includes(marker)) {
+					observedMarkers.add(marker);
+					break;
 				}
-				// The target is already in the viewport; await its actual paint rather than retrying
-				// stationary frames while asynchronous Pierre work can escape act.
-				// oxlint-disable-next-line no-await-in-loop -- Each marker owns its observed target paint.
-				await waitForBridgeReviewRecoveryDomState({
-					readState: (): string => props.visibleCodeText(props.scrollOwner),
-					isExpected: (text): boolean => text.includes(marker),
-				});
-				observedMarkers.add(marker);
-				break;
+				// oxlint-disable-next-line no-await-in-loop -- Layout observation supplies the next actual scroll step.
+				await captureScrollSample(markerState.nextScrollTop);
 			}
 		}
 	}
