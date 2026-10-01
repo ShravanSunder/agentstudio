@@ -251,29 +251,21 @@ func makeRefreshAdmissionIntegrationFixture(
     failsReviewDelivery: Bool = false,
     fileMetadataProducerGate: RefreshAdmissionCancellationIgnoringProducerGate? = nil,
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil,
+    reviewConstructionProgress: BridgeReviewConstructionProgressWaitOwner = .init(),
     reviewBuildAdmissionFactSink: BridgePaneReviewBuildAdmissionFactSink? = nil,
     contributionTargetCommit:
         (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
 ) async throws -> RefreshAdmissionIntegrationFixture {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
-    let initialFile = makeBridgeEndpointChangedFile(
-        fileId: "initial",
-        path: "Sources/App/Initial.swift",
-        sizeBytes: 100
-    )
     let refreshedFile = makeBridgeEndpointChangedFile(
         fileId: "refreshed",
         path: "Sources/App/Refreshed.swift",
         sizeBytes: 100
     )
-    let reviewProvider = BridgeReviewSourceProviderFake(
-        comparison: BridgeEndpointComparison(
-            baseEndpoint: baseEndpoint,
-            headEndpoint: headEndpoint,
-            changedFiles: [initialFile]
-        ),
-        contentByHandleId: [:],
+    let reviewProvider = makeRefreshAdmissionInitialReviewProvider(
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
         comparisonGate: comparisonGate
     )
     let fileMetadataSource = RefreshAdmissionTrackingFileMetadataSource(
@@ -330,6 +322,7 @@ func makeRefreshAdmissionIntegrationFixture(
             ),
             productProvider: productProvider
         ),
+        reviewConstructionProgress: reviewConstructionProgress,
         contributionTargetCommit: contributionTargetCommit,
         reviewBuildAdmissionFactSink: reviewBuildAdmissionFactSink ?? { _, _ in }
     )
@@ -354,6 +347,24 @@ func makeRefreshAdmissionIntegrationFixture(
         productAdmission: productAdmission,
         productProvider: productProvider,
         controller: controller
+    )
+}
+
+private func makeRefreshAdmissionInitialReviewProvider(
+    baseEndpoint: BridgeSourceEndpoint,
+    headEndpoint: BridgeSourceEndpoint,
+    comparisonGate: BridgeComparisonGate?
+) -> BridgeReviewSourceProviderFake {
+    let initialFile = makeBridgeEndpointChangedFile(
+        fileId: "initial", path: "Sources/App/Initial.swift", sizeBytes: 100)
+    return BridgeReviewSourceProviderFake(
+        comparison: BridgeEndpointComparison(
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            changedFiles: [initialFile]
+        ),
+        contentByHandleId: [:],
+        comparisonGate: comparisonGate
     )
 }
 
