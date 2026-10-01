@@ -5,7 +5,7 @@ package struct SessionSummary: Sendable, Equatable {
     package let provider: BridgeAgentProviderName
     package let sessionRef: BridgeAgentSessionRef
     package let bindingGeneration: UUID
-    package let status: SessionStatus
+    package let status: AgentSessionStatus
     package let providerPrompts: [SessionProviderPromptSummary]
 
     package init(
@@ -13,7 +13,7 @@ package struct SessionSummary: Sendable, Equatable {
         provider: BridgeAgentProviderName,
         sessionRef: BridgeAgentSessionRef,
         bindingGeneration: UUID,
-        status: SessionStatus,
+        status: AgentSessionStatus,
         providerPrompts: [SessionProviderPromptSummary]
     ) {
         self.id = id
@@ -51,7 +51,7 @@ package struct SessionFailureSummary: Sendable, Equatable {
     }
 }
 
-package enum SessionStatus: Sendable, Equatable {
+package enum AgentSessionStatus: Sendable, Equatable {
     case needsYou(AskReason)
     case failed(SessionFailureSummary)
     case working(SessionWorkingState)
