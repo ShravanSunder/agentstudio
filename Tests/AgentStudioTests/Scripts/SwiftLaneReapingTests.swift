@@ -9,32 +9,61 @@ struct SwiftLaneReapingTests {
     func timedOutChildThatIgnoresTermIsStillReaped() async throws {
         let workDirectory = NSTemporaryDirectory() + "agentstudio-s2e-reap-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: workDirectory) }
+        try FileManager.default.createDirectory(atPath: workDirectory, withIntermediateDirectories: true)
+        let childLockPath = workDirectory + "/child.lock"
+        let childPIDPath = workDirectory + "/child.pid"
+        let watchdogArmPath = workDirectory + "/watchdog.arm"
+        let childReleasePath = workDirectory + "/child.release"
+        let childFixturePath = workDirectory + "/reap-child.sh"
+        // The shell ignores TERM before exec and records $$ before the watchdog is
+        // armed, so startup speed cannot decide whether the fixture reaches KILL.
+        let childFixture = #"""
+            #!/bin/bash
+            set -eu
+            trap '' TERM
+            child_pid_file="$1"
+            lock_path="$2"
+            arm_path="$3"
+            release_path="$4"
+            printf '%s\n' "$$" >"$child_pid_file"
+            exec /usr/bin/perl -MFcntl=:flock -e '
+              $| = 1;
+              my ($lock_path, $arm_path, $release_path) = @ARGV;
+              open(my $lock, ">>", $lock_path) or die $!;
+              flock($lock, LOCK_EX) or die $!;
+              print "LOCK_HELD\n";
+              open(my $arm, ">", $arm_path) or die $!;
+              close($arm) or die $!;
+              open(my $release, "<", $release_path) or die $!;
+              <$release>;
+              # The shell's inherited ignored disposition protects this blocked handler setup.
+              $SIG{TERM} = "IGNORE";
+            ' "$lock_path" "$arm_path" "$release_path"
+            """#
+        try childFixture.write(toFile: childFixturePath, atomically: true, encoding: .utf8)
+
         let laneOutput = try await runBashAllowingFailure(
             "mkdir -p '\(workDirectory)/bin'; "
                 + "printf '#!/bin/sh\\nexit 126\\n' >'\(workDirectory)/bin/ps'; "
                 + "printf '#!/bin/sh\\nexit 3\\n' >'\(workDirectory)/bin/pgrep'; "
                 + "chmod +x '\(workDirectory)/bin/ps' '\(workDirectory)/bin/pgrep'; "
-                + "mkfifo '\(workDirectory)/child.release'; "
+                + "mkfifo '\(childReleasePath)'; "
                 + "PATH='\(workDirectory)/bin':\"$PATH\"; export PATH; "
                 + "LOG_PREFIX=lane; TIMEOUT_SECONDS=2; BUILD_PATH=.build-agent-1; "
+                + "LANE_WATCHDOG_ARM_PATH='\(watchdogArmPath)'; export LANE_WATCHDOG_ARM_PATH; "
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
-                + "run_swift_with_timeout 'reap probe' 2 /usr/bin/perl -MFcntl=:flock -e "
-                + #"'$SIG{TERM} = "IGNORE"; $| = 1; "#
-                + #"open(my $lock, ">>", shift) or die $!; flock($lock, LOCK_EX) or die $!; "#
-                + #"open(my $pid_file, ">", shift) or die $!; print {$pid_file} "$$\n"; close($pid_file); "#
-                + #"print "LOCK_HELD\n"; open(my $release, "<", shift) or die $!; <$release>;' "#
-                + "'\(workDirectory)/child.lock' '\(workDirectory)/child.pid' "
-                + "'\(workDirectory)/child.release' "
+                + "run_swift_with_timeout 'reap probe' 2 /bin/bash '\(childFixturePath)' "
+                + "'\(childPIDPath)' '\(childLockPath)' '\(watchdogArmPath)' '\(childReleasePath)' "
                 + "|| returned=$?; echo \"RETURNED=${returned:-0}\"; "
-                + "child_pid=$(cat '\(workDirectory)/child.pid' 2>/dev/null || echo 0); "
+                + "child_pid=$(cat '\(childPIDPath)' 2>/dev/null || echo 0); "
                 + "echo \"CHILD_PID=${child_pid:-0}\"; "
                 + "if [ \"$child_pid\" -gt 0 ] && kill -0 \"$child_pid\" 2>/dev/null; then "
                 + "echo CHILD_ALIVE=yes; child_alive=yes; "
                 + "else echo CHILD_ALIVE=no; child_alive=no; fi; "
                 + "if /usr/bin/perl -MFcntl=:flock -e "
                 + #"'open(my $lock, ">>", shift) or die $!; flock($lock, LOCK_EX|LOCK_NB) or exit 7; print "LOCK_ACQUIRED\n";' "#
-                + "'\(workDirectory)/child.lock'; then echo LOCK_AVAILABLE=yes; "
+                + "'\(childLockPath)'; then echo LOCK_AVAILABLE=yes; "
                 + "else echo LOCK_AVAILABLE=no; fi; "
                 + "if [ \"$child_alive\" = yes ]; then kill -9 \"$child_pid\" 2>/dev/null || true; fi"
         )
