@@ -340,6 +340,7 @@ extension WebKitSerializedTests {
 
             // Assert
             let replacementInstallation = try #require(deliveredInstallations.last)
+            #expect(!(await provider.lifecycleAcknowledgementsWereReleased))
             #expect(deliveredRequestIds == ["bootstrap-initial", "bootstrap-replacement"])
             #expect(
                 (await owner.activeInstallation)?.bootstrap.workerInstanceId
@@ -351,8 +352,20 @@ extension WebKitSerializedTests {
             )
 
             let staleReply = try await assertRetiredPaneProductCommandRefusal(
-                installation: initialInstallation
+                installation: initialInstallation,
+                router: owner.schemeRouter
             )
+
+            let successorResponse = try await openBridgePaneProductSessionThroughRouter(
+                installation: replacementInstallation,
+                router: owner.schemeRouter
+            )
+            if case .workerSessionAccepted(let accepted) = successorResponse {
+                #expect(accepted.correlation.workerInstanceId == replacementInstallation.bootstrap.workerInstanceId)
+            } else {
+                Issue.record("Expected the live successor to accept its worker session while cleanup is held")
+            }
+            #expect(!(await provider.lifecycleAcknowledgementsWereReleased))
 
             await provider.releaseLifecycleAcknowledgements(result: true)
             _ = try? await metadataReply.value
@@ -364,11 +377,12 @@ extension WebKitSerializedTests {
             #expect(replacementInstallation.capabilityBytes != initialInstallation.capabilityBytes)
             #expect((await initialInstallation.session.producerSnapshot()).hasZeroResidue)
             let afterCleanupReply = try await assertRetiredPaneProductCommandRefusal(
-                installation: initialInstallation
+                installation: initialInstallation,
+                router: owner.schemeRouter
             )
-            #expect(afterCleanupReply.response?.statusCode == 409)
+            #expect(afterCleanupReply.response?.statusCode == 403)
             #expect(afterCleanupReply.body == staleReply.body)
-            try await openBridgePaneProductSession(replacementInstallation)
+            #expect((await replacementInstallation.session.snapshot.controlReplay).nextExpectedRequestSequence == 2)
 
             #expect(await controller.beginTeardown().value)
         }

@@ -33,8 +33,37 @@ func openBridgePaneProductSession(
     #expect(observation.response?.statusCode == 200)
 }
 
+func openBridgePaneProductSessionThroughRouter(
+    installation: BridgeProductSessionInstallation,
+    router: BridgeProductSchemeSessionRouter
+) async throws -> BridgeProductControlResponse {
+    let handler = BridgeSchemeHandler(
+        paneId: try #require(UUID(uuidString: installation.bootstrap.paneSessionId)),
+        appRootURL: testBridgeAppRootURL(), productSessionRouter: router
+    )
+    let reply = try await collectBridgeSchemeHandlerProductReply(
+        handler: handler,
+        request: bridgeProductSchemeRequest(
+            route: BridgeProductWireContract.commandRoute,
+            capability: try BridgeProductCapabilityHeaderEncoding.encode(installation.capabilityBytes),
+            body: try JSONSerialization.data(withJSONObject: [
+                "kind": "workerSession.open",
+                "paneSessionId": installation.bootstrap.paneSessionId,
+                "request": NSNull(),
+                "requestId": "request-open-live-successor",
+                "requestSequence": 1,
+                "wireVersion": BridgeProductWireContract.version,
+                "workerInstanceId": installation.bootstrap.workerInstanceId,
+            ])
+        )
+    )
+    #expect(reply.response?.statusCode == 200)
+    return try BridgeProductStrictJSON.decode(BridgeProductControlResponse.self, from: reply.body)
+}
+
 func assertRetiredPaneProductCommandRefusal(
-    installation: BridgeProductSessionInstallation
+    installation: BridgeProductSessionInstallation,
+    router: BridgeProductSchemeSessionRouter
 ) async throws -> BridgeProductSchemeReplyObservation {
     let capability = try BridgeProductCapabilityHeaderEncoding.encode(installation.capabilityBytes)
     let requestBody = try JSONSerialization.data(withJSONObject: [
@@ -48,27 +77,33 @@ func assertRetiredPaneProductCommandRefusal(
     ])
     let controlBefore = await installation.session.snapshot.controlReplay
     let operationsBefore = await installation.session.diagnosticSnapshot
-    let reply = try await collectBridgeProductSchemeReply(
-        adapter: installation.productAdapter,
+    // E1 closes the retired adapter; the live router rejects its old capability before body admission.
+    let admission = await router.claimActiveAdapter(
+        presentedCapability: capability,
+        schemeTaskId: UUIDv7.generate(),
+        route: .command
+    )
+    if case .unauthorized = admission {
+        // BridgeSchemeHandler+RPC maps this typed refusal to HTTP 403.
+    } else {
+        Issue.record("Expected the live router to reject the retired capability as unauthorized")
+        if case .admitted(let claim) = admission { await claim.finish() }
+    }
+    let handler = BridgeSchemeHandler(
+        paneId: try #require(UUID(uuidString: installation.bootstrap.paneSessionId)),
+        appRootURL: testBridgeAppRootURL(),
+        productSessionRouter: router
+    )
+    let reply = try await collectBridgeSchemeHandlerProductReply(
+        handler: handler,
         request: bridgeProductSchemeRequest(
             route: BridgeProductWireContract.commandRoute,
             capability: capability,
             body: requestBody
         )
     )
-    #expect(reply.response?.statusCode == 409)
-    let response = try BridgeProductStrictJSON.decode(
-        BridgeProductControlResponse.self,
-        from: reply.body
-    )
-    if case .requestError(let refusal) = response {
-        #expect(refusal.code == .staleWorker)
-        #expect(refusal.correlation.requestId == "request-open-retired-pane-owner")
-        #expect(refusal.correlation.requestSequence == 2)
-        #expect(refusal.correlation.workerInstanceId == installation.bootstrap.workerInstanceId)
-    } else {
-        Issue.record("Expected a typed retired-worker refusal")
-    }
+    #expect(reply.response?.statusCode == 403)
+    #expect(reply.body.isEmpty)
     #expect(
         (try? BridgeProductStrictJSON.decode(
             BridgeProductOperationAdmittedResponse.self,
@@ -135,7 +170,7 @@ private func collectPaneOwnerProductReply(
     )
 }
 
-private func collectBridgeSchemeHandlerProductReply(
+func collectBridgeSchemeHandlerProductReply(
     handler: BridgeSchemeHandler,
     request: URLRequest
 ) async throws -> BridgeProductSchemeReplyObservation {
