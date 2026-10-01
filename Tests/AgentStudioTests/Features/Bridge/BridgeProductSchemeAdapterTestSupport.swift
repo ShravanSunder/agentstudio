@@ -36,6 +36,7 @@ struct BridgeProductSchemeAdapterHarness {
                 session: session,
                 provider: provider,
                 productAdmissionGate: productAdmissionGate,
+                installationAdmissionGate: BridgeProductAdmissionGate(),
                 telemetryRecorder: telemetryRecorder
             ),
             capabilityHeader: capabilityHeader,
