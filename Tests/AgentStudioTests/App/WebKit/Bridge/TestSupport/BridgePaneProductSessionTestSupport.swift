@@ -55,7 +55,11 @@ func openBridgePaneProductSessionThroughRouter(
         )
     )
     #expect(reply.response?.statusCode == 200)
-    return try BridgeProductStrictJSON.decode(BridgeProductControlResponse.self, from: reply.body)
+    return try await readAdmittedBridgeProductControlResponse(
+        .response(reply.body),
+        installation: installation,
+        capabilityHeader: BridgeProductCapabilityHeaderEncoding.encode(installation.capabilityBytes)
+    )
 }
 
 func assertRetiredPaneProductCommandRefusal(
