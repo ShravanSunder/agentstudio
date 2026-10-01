@@ -11,22 +11,12 @@ swift_build_slot_acquire build "mise run build-bridge-development-server"
 trap swift_build_slot_release EXIT
 
 echo "[build-bridge-development-server] BUILD_PATH=$SWIFT_BUILD_DIR"
-swift_build_arguments=(--build-path "$SWIFT_BUILD_DIR" --product agentstudio-bridge-dev-server)
-if [ -n "${SWIFT_BUILD_STATS_DIR:-}" ]; then
-  if [[ "$SWIFT_BUILD_STATS_DIR" = /* ]] && mkdir -p "$SWIFT_BUILD_STATS_DIR" 2>/dev/null; then
-    swift_build_arguments+=(-Xswiftc -stats-output-dir -Xswiftc "$SWIFT_BUILD_STATS_DIR")
-  else
-    echo "[build-bridge-development-server] warning: compiler statistics disabled (directory must be writable and absolute)" >&2
-  fi
-fi
-# Match the publisher's effective compiler flags even when the Vite supervisor
-# invokes this narrower product build again later in the same CI job.
-# shellcheck disable=SC2086
-swift build $(swift_package_sandbox_arguments) \
-  ${EXTRA_SWIFT_TEST_ARGS:-} \
-  "${swift_build_arguments[@]}"
+source "${CI_SWIFT_COMPILATION_POLICY_PATH:-$PROJECT_ROOT/scripts/swift-compilation-policy.sh}"
+swift_compilation_policy_build_arguments bridge-development-server "$SWIFT_BUILD_DIR"
+"${SWIFT_COMPILATION_COMMAND[@]}"
 
-swift_bin_path="$(swift build $(swift_package_sandbox_arguments) --build-path "$SWIFT_BUILD_DIR" --show-bin-path)"
+swift_compilation_policy_build_arguments bin-path "$SWIFT_BUILD_DIR"
+swift_bin_path="$("${SWIFT_COMPILATION_COMMAND[@]}")"
 source_executable="$swift_bin_path/agentstudio-bridge-dev-server"
 artifact_directory="$PROJECT_ROOT/.build-bridge-development-server"
 artifact_executable="$artifact_directory/agentstudio-bridge-dev-server"
