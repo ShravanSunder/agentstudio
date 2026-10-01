@@ -416,8 +416,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         let packageBuildStart = ContinuousClock.now
         let constructionResult: BridgeReviewPackageConstructionResult
         reviewLoadStage = "package"
-        let request = try await resolveContributionRequestIfNeeded(unresolvedRequest)
-        constructionResult = try await acquireReviewPackage(request)
+        constructionResult = try await acquireReviewPackage(unresolvedRequest)
         await recordSwiftTelemetry(
             name: "performance.bridge.swift.package_build",
             phase: "package_build",
@@ -770,59 +769,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 return nextReviewGeneration
             }
         }.flatMap { $0 }.flatMap { $0 }
-    }
-
-    private func loadReviewPackageForRefresh(
-        _ currentPackage: BridgeReviewPackage,
-        reviewGeneration: BridgeReviewGeneration,
-        reservation: BridgePaneRefreshCatchUpReservation
-    ) async throws -> (
-        result: BridgeReviewPackageConstructionResult,
-        traceContext: BridgeTraceContext?
-    ) {
-        let packageTraceContext = makeRootTraceContext()
-        let packageBuildStart = ContinuousClock.now
-        let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
-        let unresolvedRequest = makeReviewRefreshPipelineRequest(
-            currentPackage: currentPackage,
-            reviewGeneration: reviewGeneration,
-            reservation: reservation
-        )
-        let request = try await resolveContributionRequestIfNeeded(unresolvedRequest)
-        let result = try await acquireReviewPackage(request)
-        await recordSwiftTelemetry(
-            name: "performance.bridge.swift.package_build",
-            phase: "package_build",
-            priorityHint: .cold,
-            traceContext: packageTraceContext,
-            stringAttributes: [
-                "agentstudio.bridge.package_build.reason": buildReason.rawValue
-            ],
-            durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                from: packageBuildStart.duration(to: ContinuousClock.now)
-            )
-        )
-        return (result, packageTraceContext)
-    }
-
-    private func makeReviewRefreshPipelineRequest(
-        currentPackage: BridgeReviewPackage,
-        reviewGeneration: BridgeReviewGeneration,
-        reservation: BridgePaneRefreshCatchUpReservation
-    ) -> BridgeReviewPipelineRequest {
-        BridgeReviewPipelineRequest(
-            packageId: currentPackage.packageId,
-            query: currentPackage.query,
-            baseEndpoint: currentPackage.baseEndpoint,
-            headEndpoint: currentPackage.headEndpoint,
-            checkpointIds: currentPackage.groups.map(\.groupId),
-            reviewGeneration: reviewGeneration,
-            generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000),
-            reviewAttemptAuthorityGeneration: reservation.authorityGeneration,
-            gitRefreshScope:
-                reservation.reviewRefreshScope ?? .complete(reason: .nonExactInput),
-            gitRefreshSeed: reviewGitRefreshSeedHolder.activeSeed
-        )
     }
 
     private static func isUnchangedSameLineageLoad(

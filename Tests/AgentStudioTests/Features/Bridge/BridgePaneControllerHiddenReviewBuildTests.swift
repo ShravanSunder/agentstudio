@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioGit
+import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
@@ -14,11 +15,14 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("hidden Review retains initial intake and builds once on show")
+    @Test("hidden Review defers its progress deadline and builds within the window on show")
     func hiddenReviewRetainsInitialIntakeUntilShown() async throws {
         // Arrange
         let facts = try BridgePaneReviewBuildAdmissionTrace()
+        let progressClock = TestPushClock()
+        let progressOwner = BridgeReviewConstructionProgressWaitOwner(clock: progressClock)
         let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            reviewConstructionProgress: progressOwner,
             reviewBuildAdmissionFactSink: facts.source.sink
         )
         await bringPaneToForeground(fixture)
@@ -50,12 +54,38 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 0)
         #expect(fixture.controller.activeReviewRefreshTask == nil)
         #expect(fixture.controller.pendingReviewPackageBuildReasons.contains(.initialIntake))
+        #expect(progressOwner.activeWaitCount() == 0)
+        #expect(progressOwner.physicalTaskHandles().isEmpty)
+        #expect(progressClock.pendingSleepCount == 0)
+        progressClock.advance(by: AppPolicies.Bridge.reviewBuildProgressDeadline * 2)
+        #expect(progressClock.pendingSleepCount == 0)
+        #expect(progressOwner.activeWaitCount() == 0)
+        #expect(fixture.controller.paneState.diff.status != .error)
 
         // Act: the accepted Review-mode signal releases one build at the latest input.
+        let shownComparison = HeldStep<Void>(
+            "shown Review comparison after hidden deadline window", cancellation: .holdThroughCancellation)
+        defer { shownComparison.release() }
+        await fixture.reviewProvider.setComparisonStep(shownComparison)
         await acceptReviewViewerMode(fixture, sequence: 2, requiresCommittedSource: false)
+        try await shownComparison.firstArrival()
+        let progressWaitStarted = progressOwner.activeWaitCount() == 1
+        #expect(progressWaitStarted)
+        guard progressWaitStarted else {
+            shownComparison.release()
+            _ = try await facts.nextAttemptOutcome()
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
+        await progressClock.waitForPendingSleepCount(atLeast: 1)
+        progressClock.advance(by: AppPolicies.Bridge.reviewBuildProgressDeadline - .seconds(1))
+        shownComparison.release()
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
 
         // Assert
+        #expect(progressOwner.activeWaitCount() == 0)
+        #expect(progressClock.pendingSleepCount == 0)
         #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 1)
         #expect(
             fixture.controller.paneState.diff.packageMetadata?.orderedItemIds

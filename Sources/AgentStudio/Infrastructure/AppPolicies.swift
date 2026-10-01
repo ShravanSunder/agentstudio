@@ -184,6 +184,7 @@ package enum AppPolicies {
         package static let productWorkerSettlementDeadline: Duration = .seconds(5)
         /// Bounds native delivery into a page independently of a cooperative WebKit reply.
         package static let productBootstrapDeliveryProgressDeadline: Duration = .seconds(5)
+        package static let reviewBuildProgressDeadline: Duration = .seconds(5)
         /// A finite content read must make response or verified body progress.
         package static let contentProgressDeadline: Duration = .seconds(5)
         /// A page content receipt must be acknowledged independently of body progress.
