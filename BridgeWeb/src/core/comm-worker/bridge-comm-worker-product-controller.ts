@@ -382,8 +382,13 @@ export class BridgeCommWorkerProductController {
 
 	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
 		switch (command.method) {
-			case 'file.refresh.retry':
-				return await this.#productTransport.call('file.refresh.retry', {});
+			case 'file.refresh.retry': {
+				const needsSourceRecovery =
+					this.#fileSubscription === null || this.#fileSourceEnsure === null;
+				const result = await this.#productTransport.call('file.refresh.retry', {});
+				if (needsSourceRecovery) await this.retryMetadataView('file');
+				return result;
+			}
 			case 'file.annotations.command':
 				return await this.#sendAnnotationCommand('file', command.params.operation, null);
 			case 'review.annotations.command':
