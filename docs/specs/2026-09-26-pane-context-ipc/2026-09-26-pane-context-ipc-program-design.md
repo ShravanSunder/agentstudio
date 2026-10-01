@@ -1,6 +1,6 @@
 # Enable pane agents: how it is built
 
-Date: 2026-10-01. **Revision 21**: the owner allowed the directory's thin publish at the graph commit. The rule, clarified: main-actor touches to main-owned state are fine; derivation and work stay off-main. **Revision 20** (advisor membership-directory review, M1–M3 accepted): mirror the existing structural placement with no tab id; one publisher at `commitPaneStates`; an atomic boot install; a stated linearization; auth parity; a bounded affected-owner invalidation with a lazy-start handshake. The main-actor allowance for the publication is pending the owner. **Revision 19** (owner decisions): the R3a exception is accepted. Membership source B, a directory, with its draft written into Gaps item 6 for review by the Sol xhigh advisor. Owner rule: nothing on the main actor. **Revision 18**: A1's remaining double-loss, identical-content case is named. The content fold is an exception to Spec R3a, so it needs the owner's acceptance (Gaps item 7). Until then, R3a's strict rule governs. **Revision 17** (advisor rev-16 verification):
+Date: 2026-10-01. **Revision 22**: the status value type is renamed `AgentSessionStatus`, because main already has `Core/Models/SessionStatus.swift` (the zmx backend session lifecycle state machine) and CI's compile caught the redeclaration. The atom keeps its owner-approved name, `SessionStatusAtom`, and its state stays `SessionStatusState`. **Revision 21**: the owner allowed the directory's thin publish at the graph commit. The rule, clarified: main-actor touches to main-owned state are fine; derivation and work stay off-main. **Revision 20** (advisor membership-directory review, M1–M3 accepted): mirror the existing structural placement with no tab id; one publisher at `commitPaneStates`; an atomic boot install; a stated linearization; auth parity; a bounded affected-owner invalidation with a lazy-start handshake. The main-actor allowance for the publication is pending the owner. **Revision 19** (owner decisions): the R3a exception is accepted. Membership source B, a directory, with its draft written into Gaps item 6 for review by the Sol xhigh advisor. Owner rule: nothing on the main actor. **Revision 18**: A1's remaining double-loss, identical-content case is named. The content fold is an exception to Spec R3a, so it needs the owner's acceptance (Gaps item 7). Until then, R3a's strict rule governs. **Revision 17** (advisor rev-16 verification):
 - F1: the last zero-main-actor claims are corrected (the person-action row and the proof boundary).
 - F4: the old producer paragraph is replaced.
 - A1: a fold needs exactly one open prompt with identical `questions`.
@@ -348,7 +348,7 @@ Rules this sets for the reducer:
 | Entity | Semantic owner | Home (new / modified / existing) | Type home | Shape at boundaries | Kind |
 | --- | --- | --- | --- | --- | --- |
 | S1 Agent session | Sessions | modified `Features/Sessions` binding + resume info | `SessionsBindingRecord` gains `resumeHint`, `ownerPaneId` | existing `session.event` sessionStart params gain an optional resume hint | persisted (Sessions tables) |
-| S2 Session status | Sessions reducer | modified `SessionsEvidenceReducer`; new keyed atom `SessionStatusAtom` (owner-approved) | `SessionStatus = .needsYou(reason) \| .failed(summary) \| .working(active \| monitoring) \| .idle(done \| ready \| interrupted \| ended) \| .unknown` | UI: `AtomFamily<PaneId, SessionStatus>` (the status of the pane's current binding) via the batched publication lane; IPC: in `pane.context.get` | derived |
+| S2 Session status | Sessions reducer | modified `SessionsEvidenceReducer`; new keyed atom `SessionStatusAtom` (owner-approved) | `AgentSessionStatus = .needsYou(reason) \| .failed(summary) \| .working(active \| monitoring) \| .idle(done \| ready \| interrupted \| ended) \| .unknown` | UI: `AtomFamily<PaneId, AgentSessionStatus>` (the status of the pane's current binding) via the batched publication lane; IPC: in `pane.context.get` | derived |
 | S3–S5 AgentMessage | PaneContextService | new `Core/PaneContext/` | `AgentMessageDetail` and its unions ("Contracts PR C consumes") | wire: `IPCPaneMessageSendParams { handle, messageId, writer?, sourceOccurredAt?, importance, body, why?, actions, shape }`, where an ask shape carries its `reason` → `.created(id) \| .existing(id)`; `pane.message.ask` → `AskOutcome = .answered(value) \| .handedBack \| .expired \| .withdrawn \| .stale` (a repeat of a settled ask returns its outcome) | persisted |
 | S6 Message action | PaneContextService (record); owner of each effect | new | `MessageAction = .openFile(path, line?) (B2) \| .openPullRequest(ForgePullRequestIdentity) \| .goToPane(PaneId)` | embedded in S3 | value |
 | S7 Answer position | CLI store + PaneContextService | new | `AnswerPosition(UInt64)` per (session, pane) | wire: `pane.message.changes { handle, writer, after }` → `{ entries, nextPosition, more }`; reporting `after` confirms receipt of answers at or before it | persisted (both sides) |
@@ -544,7 +544,7 @@ can't move it back.
 ## Session status: inputs and transitions
 
 The Sessions actor keeps one `SessionStatusState` per session, off-main, and
-derives `SessionStatus` from it after every input. Only a changed value is
+derives `AgentSessionStatus` from it after every input. Only a changed value is
 published (below).
 
 ```swift
@@ -669,7 +669,7 @@ struct PaneContextDetail: Sendable, Equatable {
     let revision: PaneContextRevision  // bumps on ANY change the detail shows
     let agentTitle: String?
     let agentLine: AgentLineDetail?    // Panes E6 fields + writer + stale
-    let session: SessionSummary?       // bound session, SessionStatus, provider prompt ages
+    let session: SessionSummary?       // bound session, AgentSessionStatus, provider prompt ages
     let messages: [AgentMessageDetail] // open asks, unread notices, then settled (retention below)
     let drawerMessages: [DrawerMessageGroup]  // owner pane only, labeled by source pane
     let links: PaneLinksDetail         // .unknown until B2
@@ -882,7 +882,7 @@ Dependency rules:
 
 **What PR B adds:**
 1. **Apply display values.** One sink call per batch assigns already-decided `PaneContextDisplay` values into `PaneContextPresentationAtom`.
-2. **Apply status values.** One sink call per batch assigns already-decided `SessionStatus` values into `SessionStatusAtom`.
+2. **Apply status values.** One sink call per batch assigns already-decided `AgentSessionStatus` values into `SessionStatusAtom`.
 3. **Person-action native effects (PR C).** The seam decides off-main. The native effect then runs through its existing main-actor owner as one thin call:
    - `goToPane` → `PaneFocusAppControl` / `PaneFocusExecutor`;
    - `openPullRequest` → the existing external opener callback.
@@ -938,7 +938,7 @@ Two shapes are deliberately not used:
 | Owner approval | 2026-09-30, as a runtime cache | recorded earlier |
 | Who observes (step 0) | pane title layer, NEEDS YOU and unread badges, PR C's shared PR chip | pane chrome and PR C's status line |
 | Lane / role | runtime/presentation; write-owner of a runtime cache of the service's output | same |
-| Primitive | `AtomFamily<PaneId, PaneContextDisplay>`; hot reads use `value(for:)` | `AtomFamily<PaneId, SessionStatus>`, **keyed by pane** (see below) |
+| Primitive | `AtomFamily<PaneId, PaneContextDisplay>`; hot reads use `value(for:)` | `AtomFamily<PaneId, AgentSessionStatus>`, **keyed by pane** (see below) |
 | Comparator | content equality of the small struct | enum equality |
 | Methods | `apply(_ batch:)` and `remove(_ paneIds:)`, assign only | same |
 | Persistence | never written to SQLite; a restart refills it from rows | same |
