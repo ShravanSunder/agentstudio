@@ -15,6 +15,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 # shellcheck source=scripts/swift-package-sandbox.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swift-package-sandbox.sh"
+# shellcheck source=scripts/swift-test-invocation-receipts.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.sh"
 
 # Maximum test cases Swift Testing may run concurrently inside one test process.
 # OPT-IN, WITH NO DEFAULT, ON PURPOSE.
@@ -1911,6 +1913,7 @@ write_lane_timing_sidecar() {
       print JSON::PP->new->canonical->encode($record), "\n";
     ' >"$sidecar_path" 2>/dev/null || \
     echo "[${LOG_PREFIX:-test}] warning: timing sidecar unavailable: $sidecar_path" >&2
+  swift_test_f2_attach_receipt "$sidecar_path" || true
   rm -f "$child_timing_file" || true
   return 0
 }
@@ -2085,6 +2088,7 @@ run_swift_with_timeout() {
   evidence_stem="$(lane_evidence_stem "$label")"
   mkdir -p "$LANE_EVENT_STREAM_DIR" 2>/dev/null || true
   local child_timing_file="$evidence_stem.child-timing"
+  swift_test_f2_begin_receipt "$evidence_stem" || true
   # The test process appends to this log through AGENTSTUDIO_HELD_STEP_LOG; it is
   # handed over as an absolute path because the test process's working directory
   # is not this script's to promise.
@@ -2106,12 +2110,17 @@ run_swift_with_timeout() {
   # tracked command PID after both execs.
   SWIFT_TEST_HELPERS_PATH="${BASH_SOURCE[0]}"
   export SWIFT_TEST_HELPERS_PATH
-  if ! swift_test_launch_command_group \
+  if ! swift_test_f2_launch_command_group "$evidence_stem" \
     /bin/bash -c \
     'set -u -o pipefail; source "$SWIFT_TEST_HELPERS_PATH"; swift_test_run_pipeline_child "$@"' \
     swift-test-pipeline "$output_file" "$child_timing_file" "$xcb_pipe" "$held_step_log" "$@"
   then
     echo "[$LOG_PREFIX] failed to launch command process group for '$label'" >&2
+    swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" launch_error || true
+    swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+      "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
+    write_lane_timing_sidecar "$evidence_stem.timing.json" "$label" "$child_timing_file" \
+      "$timing_dispatch_ms" "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" "" || true
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     return 1
   fi
@@ -2139,6 +2148,9 @@ run_swift_with_timeout() {
       wait "$command_pid" 2>/dev/null || true
       swift_test_unregister_active_command_group "$command_pid"
       swift_test_record_lane_peaks "$output_file" "$event_stream_file"
+      swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" watchdog_error || true
+      swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+        "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
       discard_empty_held_step_log "$held_step_log"
       rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
       local retained_event_stream=""
@@ -2176,7 +2188,8 @@ run_swift_with_timeout() {
     # Read the stream before terminating anything: this names what was still
     # executing at the timeout, not what survived the kill.
     print_running_parameterized_cases_at_timeout "$event_stream_file"
-    print_held_steps_unarrived_at_timeout "$held_step_log" "$output_file"
+    swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" before_reap || true
+    swift_test_f2_print_pending_waits "$evidence_stem" "$held_step_log" "$output_file" || true
     print_timeout_process_diagnostics "$label" "$command_pid" "$evidence_stem"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     print_swift_test_output_tail "$output_file" || true
@@ -2211,6 +2224,8 @@ run_swift_with_timeout() {
       wait "$command_pid" 2>/dev/null || true
     fi
     swift_test_unregister_active_command_group "$command_pid"
+    swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+      "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
     discard_empty_held_step_log "$held_step_log"
     rm -f "$output_file" ${event_stream_file:+"$event_stream_file"}
     local retained_event_stream=""
@@ -2243,6 +2258,9 @@ run_swift_with_timeout() {
     should_preserve_event_stream=1
   fi
 
+  swift_test_f2_collect_events "$evidence_stem" "$output_file" "$event_stream_file" "$held_step_log" command_exit || true
+  swift_test_f2_finalize_resources "$evidence_stem" "$child_timing_file" "$timing_dispatch_ms" \
+    "$(lane_timing_now_ms 2>/dev/null || true)" "$timed_out" || true
   swift_test_record_lane_peaks "$output_file" "$event_stream_file"
   # A width comparison compares what ran, so it keeps every ledger, passing or not.
   if [ "$should_preserve_event_stream" -eq 1 ] || [ "${LANE_EVENT_STREAM_RETAIN_ALWAYS:-0}" = "1" ]; then

@@ -91,6 +91,53 @@ struct SwiftLaneInvocationReceiptTests {
         #expect(result.output.contains("one of these 2 cases' waits"))
     }
 
+    @Test("later settlement changes only later issue annotations")
+    func issueHistoryKeepsClosingBoundary() async throws {
+        let fixture = try InvocationReceiptFixture()
+        defer { fixture.remove() }
+        let testID = "Fixture.Suite/history()"
+        try fixture.writeEvents([
+            testDefinition(testID), event("testStarted", testID, 100),
+            event("issueRecorded", testID, 102), event("issueRecorded", testID, 104),
+        ])
+        try fixture.writeHeld([
+            fact("expecting\tfact-1\tclose\tscope\tsite\tfile:1", testID, 101),
+            fact("settled\tfact-1\tmatched", testID, 103),
+        ])
+        let result = try await fixture.runFixtureStreams()
+        let issues = try #require(result.record["issue_annotations"] as? [[String: Any]])
+        #expect(issues.count == 2)
+        #expect(issues[0]["wait_status"] as? String == "outstanding")
+        #expect(issues[1]["wait_status"] as? String == "none")
+    }
+
+    @Test("an arrival closes only its own step and partial final records are ignored")
+    func stepArrivalDoesNotCloseOtherWait() async throws {
+        let fixture = try InvocationReceiptFixture()
+        defer { fixture.remove() }
+        let testID = "Fixture.Suite/steps()"
+        try fixture.writeEvents([
+            testDefinition(testID), event("testStarted", testID, 100), event("issueRecorded", testID, 102),
+        ])
+        try fixture.writeHeld([
+            fact("waiting\tstep-1\tone\tsite", testID, 101, waiterID: 1),
+            fact("waiting\tstep-2\ttwo\tsite", testID, 101.1, waiterID: 2),
+            fact("arrived\tstep-1\tone", testID, 101.5),
+        ])
+        let handle = try FileHandle(forWritingTo: fixture.held)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("wait_settled\tstep-2\t2\tcancelled".utf8))
+        try handle.close()
+        let result = try await fixture.runFixtureStreams()
+        let issue = try #require((result.record["issue_annotations"] as? [[String: Any]])?.first)
+        let waits = try #require(issue["waits"] as? [[String: Any]])
+        #expect(waits.count == 1)
+        #expect(waits.first?["id"] as? String == "step-2")
+        #expect(result.record["announced_tests"] as? Int == 1)
+        #expect(result.record["started_parameterized_cases"] as? Int == 0)
+        #expect(result.record["event_coverage"] as? String == "v0_parameterized_case_subset")
+    }
+
     @Test("an unavailable or legacy-only harness log never claims no outstanding wait")
     func unavailableLogRemainsUnknown() async throws {
         let fixture = try InvocationReceiptFixture()
@@ -104,6 +151,46 @@ struct SwiftLaneInvocationReceiptTests {
         let issue = try #require((result.record["issue_annotations"] as? [[String: Any]])?.first)
         #expect(issue["wait_status"] as? String == "unavailable")
     }
+}
+
+@Suite("Swift lane resource table")
+struct SwiftLaneResourceTableTests {
+    @Test("the lane table includes only its own invocations and preserves unknown fields")
+    func tableExcludesHistoricalSidecars() async throws {
+        let fixture = try InvocationReceiptFixture()
+        defer { fixture.remove() }
+        let old = fixture.root.appending(path: "historical.timing.json")
+        let current = fixture.root.appending(path: "current.timing.json")
+        try JSONSerialization.data(withJSONObject: ["label": "stale", "wall_seconds": 999]).write(to: old)
+        try JSONSerialization.data(withJSONObject: [
+            "label": "current", "wall_seconds": 1.5, "resource_coverage": "unavailable",
+        ]).write(to: current)
+        let result = try await runCommandToExit(
+            command: "/bin/bash",
+            arguments: [
+                "-c",
+                "LOG_PREFIX=table; source scripts/swift-test-helpers.sh; "
+                    + "swift_test_f2_begin_lane_accounting; swift_test_f2_attach_receipt '\(current.path)'; "
+                    + "rm -f '\(current.path)'; swift_test_f2_report_resource_table",
+            ])
+        #expect(result.exitCode == 0)
+        #expect(result.stdout.contains("invocation_resource_row current|1.5|unavailable"))
+        #expect(!result.stdout.contains("stale"))
+    }
+
+    @Test("commands do not inherit the outer lane's private resource registry")
+    func commandCannotPolluteOuterRegistry() async throws {
+        let fixture = try InvocationReceiptFixture()
+        defer { fixture.remove() }
+        let list = fixture.root.appending(path: "outer-list")
+        let result = try await fixture.run(
+            "/bin/bash -c 'if [ -n \"${SWIFT_TEST_F2_SIDECAR_LIST:-}\" ]; then exit 7; fi'",
+            setup: "export SWIFT_TEST_F2_SIDECAR_LIST='\(list.path)'; ")
+        #expect(result.output.contains("STATUS=0"))
+        let rows = try String(contentsOf: list, encoding: .utf8).split(separator: "\n")
+        #expect(rows.count == 1)
+    }
+
 }
 
 @Suite("Swift lane resource wrapper")
