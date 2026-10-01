@@ -16,6 +16,7 @@ case "$mode" in
 esac
 
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
+source "${PROJECT_ROOT}/scripts/swift-package-sandbox.sh"
 swift_build_slot_acquire test "$mode"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 # Defaults match what every gated path already sets (CI lane env and the
@@ -25,7 +26,7 @@ TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-600}"
 PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}"
 
 LOG_PREFIX="$mode"
-EXTRA_SWIFT_TEST_ARGS=""
+EXTRA_SWIFT_TEST_ARGS="${EXTRA_SWIFT_TEST_ARGS:-}"
 source scripts/swift-test-helpers.sh
 
 echo "[$LOG_PREFIX] BUILD_PATH=$BUILD_PATH"
@@ -35,11 +36,11 @@ echo "[$LOG_PREFIX] PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"
 # The machine and the tree a lane ran on. The tree identity is captured here and
 # re-checked at the close, so edits made while the lane ran invalidate it.
 print_opening_lane_report() {
-  LANE_CPU_COUNT="$(sysctl -n hw.ncpu)"
+  LANE_CPU_COUNT="$(swift_test_cpu_count)"
   LANE_RECEIPT_HEAD_SHA="$(lane_receipt_head_sha)"
   LANE_RECEIPT_TREE_DIRTY="$(lane_receipt_tree_dirty)"
   echo "[$LOG_PREFIX] lane-report cpu_count=$LANE_CPU_COUNT"
-  echo "[$LOG_PREFIX] lane-report memory_bytes=$(sysctl -n hw.memsize)"
+  echo "[$LOG_PREFIX] lane-report memory_bytes=$(sysctl -n hw.memsize 2>/dev/null || echo unavailable)"
   echo "[$LOG_PREFIX] lane-report parallelization_width=$(swift_test_parallelization_width_label)"
   echo "[$LOG_PREFIX] lane-report isolated_process_concurrency=$(swift_test_isolated_process_concurrency)"
   echo "[$LOG_PREFIX] lane-report xcode=$(xcodebuild -version | tr '\n' ' ')"
@@ -72,6 +73,7 @@ lane_children_cpu_seconds() {
 # owns its own tally files, so two lanes in one invocation never share counts.
 begin_lane_accounting() {
   LANE_START_SECONDS="$SECONDS"
+  swift_test_begin_active_command_groups
   LANE_TIMES_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-times.XXXXXX")"
   SWIFT_TEST_PEAK_ANNOUNCED_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-announced.XXXXXX")"
   SWIFT_TEST_PEAK_RUNNING_FILE="$(mktemp "${TMPDIR:-/tmp}/agentstudio-lane-peak-running.XXXXXX")"
@@ -144,23 +146,54 @@ print_closing_lane_report() {
 
   rm -f "$LANE_TIMES_FILE" "${SWIFT_TEST_PEAK_ANNOUNCED_FILE:-}" "${SWIFT_TEST_PEAK_RUNNING_FILE:-}" \
     "${SWIFT_TEST_FAILED_ISOLATED_SUITES_FILE:-}"
+  swift_test_cleanup_active_command_groups_directory
 }
 
 # A lane ended by a signal exits with 128+signal, so its receipt says so. Without
 # these, bash runs the EXIT trap after a fatal signal with `$?` still holding the
 # last completed command's status, and a SIGTERMed lane printed
 # `exit_status=0 verdict=pass`.
+# These handlers also run in receipt fixtures that do not source the process-group
+# helpers, so group forwarding is optional and every cleanup must leave slot release reachable.
 trap_lane_termination_signals() {
-  trap 'swift_test_terminate_active_isolated_suites; exit 129' HUP
-  trap 'swift_test_terminate_active_isolated_suites; exit 130' INT
-  trap 'swift_test_terminate_active_isolated_suites; exit 143' TERM
+  trap '
+    if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+      swift_test_signal_active_command_groups HUP || true
+    fi
+    swift_test_terminate_active_isolated_suites || true
+    exit 129
+  ' HUP
+  trap '
+    if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+      swift_test_signal_active_command_groups INT || true
+    fi
+    swift_test_terminate_active_isolated_suites || true
+    exit 130
+  ' INT
+  trap '
+    if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+      swift_test_signal_active_command_groups TERM || true
+    fi
+    swift_test_terminate_active_isolated_suites || true
+    exit 143
+  ' TERM
 }
 
 # The invocation's single EXIT handler owns the lane receipt and slot release.
 finish_lane_invocation() {
   local exit_status=$?
-  swift_test_terminate_active_isolated_suites
+  # Optional group helpers and cleanup failures must never prevent the slot release.
+  if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+    swift_test_signal_active_command_groups TERM || true
+  fi
+  swift_test_terminate_active_isolated_suites || true
+  if declare -F swift_test_signal_active_command_groups >/dev/null 2>&1; then
+    swift_test_signal_active_command_groups KILL || true
+  fi
   print_closing_lane_report "$exit_status" || true
+  if declare -F swift_test_cleanup_active_command_groups_directory >/dev/null 2>&1; then
+    swift_test_cleanup_active_command_groups_directory || true
+  fi
   swift_build_slot_release || true
   return "$exit_status"
 }
@@ -299,7 +332,7 @@ if [ "$#" -gt 0 ]; then
   run_swift_with_timeout \
     "requested swift test args: $*" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test --skip-build "${swift_test_args[@]}" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) --skip-build "${swift_test_args[@]}" \
     --build-path "$BUILD_PATH"
   exit $?
 fi
@@ -315,7 +348,7 @@ case "$mode" in
       run_swift_with_timeout \
         "E2ESerializedTests" \
         "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test --skip-build \
+        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) swift test $(swift_package_sandbox_arguments) --skip-build \
         --filter "$(swift_test_lane_filter_pattern e2e)" \
         --skip "$(swift_test_lane_filter_pattern zmx)" --build-path "$BUILD_PATH"
     else

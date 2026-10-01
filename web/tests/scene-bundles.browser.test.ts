@@ -582,8 +582,8 @@ describe("scene bundles for HyperFrames", () => {
       expect(["absolute", "fixed"]).not.toContain(getComputedStyle(thread as HTMLElement).position);
       expect(thread?.textContent).toContain("1 comment");
       expect(thread?.textContent).toContain("Open");
-      expect(thread?.querySelector(".scene-review__avatar")?.textContent).toBe("A");
-      expect(thread?.textContent).toContain("Agent");
+      expect(thread?.querySelector(".scene-review__avatar")?.textContent).toBe("Y");
+      expect(thread?.querySelector(".scene-review__metadata strong")?.textContent).toBe("You");
       expect(thread?.textContent).toContain("2m");
       expect(thread?.textContent).toContain("Keep the comparison dated.");
       expect(thread?.textContent).toContain("The current.md pin can stay brief.");
