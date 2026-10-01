@@ -13,9 +13,9 @@ export type BridgeMainReviewFailureKind = z.infer<typeof bridgeMainReviewFailure
 
 function decodeReviewFailureKind(failureKind: string): BridgeMainReviewFailureKind {
 	// Package/provider errors do not establish invalid target authority. Unknown wire reasons stay refresh-scoped.
-	return failureKind === 'targetNotFound'
-		|| failureKind === 'targetMismatch'
-		|| failureKind === 'defaultTargetUnavailable'
+	return failureKind === 'targetNotFound' ||
+		failureKind === 'targetMismatch' ||
+		failureKind === 'defaultTargetUnavailable'
 		? failureKind
 		: 'refreshUnavailable';
 }
