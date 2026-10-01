@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import Foundation
 import Testing
@@ -35,12 +36,8 @@ func openBridgePaneProductSession(
 
 func openBridgePaneProductSessionThroughRouter(
     installation: BridgeProductSessionInstallation,
-    router: BridgeProductSchemeSessionRouter
+    handler: BridgeSchemeHandler
 ) async throws -> BridgeProductControlResponse {
-    let handler = BridgeSchemeHandler(
-        paneId: try #require(UUID(uuidString: installation.bootstrap.paneSessionId)),
-        appRootURL: testBridgeAppRootURL(), productSessionRouter: router
-    )
     let reply = try await collectBridgeSchemeHandlerProductReply(
         handler: handler,
         request: bridgeProductSchemeRequest(
@@ -63,8 +60,9 @@ func openBridgePaneProductSessionThroughRouter(
 
 func assertRetiredPaneProductCommandRefusal(
     installation: BridgeProductSessionInstallation,
-    router: BridgeProductSchemeSessionRouter
+    handler: BridgeSchemeHandler
 ) async throws -> BridgeProductSchemeReplyObservation {
+    let router = try #require(handler.productSessionRouter)
     let capability = try BridgeProductCapabilityHeaderEncoding.encode(installation.capabilityBytes)
     let requestBody = try JSONSerialization.data(withJSONObject: [
         "kind": "workerSession.open",
@@ -89,11 +87,6 @@ func assertRetiredPaneProductCommandRefusal(
         Issue.record("Expected the live router to reject the retired capability as unauthorized")
         if case .admitted(let claim) = admission { await claim.finish() }
     }
-    let handler = BridgeSchemeHandler(
-        paneId: try #require(UUID(uuidString: installation.bootstrap.paneSessionId)),
-        appRootURL: testBridgeAppRootURL(),
-        productSessionRouter: router
-    )
     let reply = try await collectBridgeSchemeHandlerProductReply(
         handler: handler,
         request: bridgeProductSchemeRequest(
@@ -170,7 +163,7 @@ private func collectPaneOwnerProductReply(
     )
 }
 
-func collectBridgeSchemeHandlerProductReply(
+private func collectBridgeSchemeHandlerProductReply(
     handler: BridgeSchemeHandler,
     request: URLRequest
 ) async throws -> BridgeProductSchemeReplyObservation {

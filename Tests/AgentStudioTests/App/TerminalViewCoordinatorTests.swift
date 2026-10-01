@@ -302,6 +302,9 @@ extension WebKitSerializedTests {
                 activeInstallation: initialInstallation
             )
             var deliveredRequestIds: [String] = []
+            let handler = BridgeSchemeHandler(
+                paneId: paneId, appRootURL: testBridgeAppRootURL(), productSessionRouter: owner.schemeRouter
+            )
             var deliveredInstallations: [BridgeProductSessionInstallation] = []
             let controller = BridgePaneController(
                 paneId: paneId,
@@ -353,12 +356,12 @@ extension WebKitSerializedTests {
 
             let staleReply = try await assertRetiredPaneProductCommandRefusal(
                 installation: initialInstallation,
-                router: owner.schemeRouter
+                handler: handler
             )
 
             let successorResponse = try await openBridgePaneProductSessionThroughRouter(
                 installation: replacementInstallation,
-                router: owner.schemeRouter
+                handler: handler
             )
             if case .workerSessionAccepted(let accepted) = successorResponse {
                 #expect(accepted.correlation.workerInstanceId == replacementInstallation.bootstrap.workerInstanceId)
@@ -378,7 +381,7 @@ extension WebKitSerializedTests {
             #expect((await initialInstallation.session.producerSnapshot()).hasZeroResidue)
             let afterCleanupReply = try await assertRetiredPaneProductCommandRefusal(
                 installation: initialInstallation,
-                router: owner.schemeRouter
+                handler: handler
             )
             #expect(afterCleanupReply.response?.statusCode == 403)
             #expect(afterCleanupReply.body == staleReply.body)
