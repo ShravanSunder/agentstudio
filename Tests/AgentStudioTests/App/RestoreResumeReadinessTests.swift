@@ -17,7 +17,7 @@ struct RestoreResumeReadinessTests {
     func allThreeReadinessFactsAreRequired() async throws {
         let boundary = LifecycleReportBoundary.stored(storeId: UUIDv7.generate(), sequence: 42)
         let fixture = try ResumeReadinessFixture(boundary: boundary)
-        let initialization = fixture.start()
+        let initialization = fixture.beginResumeReadiness()
         let paneId = UUIDv7.generate()
         let waiting = Task { await fixture.readiness.wait(paneId: paneId) }
         do {
@@ -45,7 +45,7 @@ struct RestoreResumeReadinessTests {
     @Test("a no-store stand-in has no rows but still obeys the three-fact readiness boundary")
     func noStoreStandInClosesTheBoundary() async throws {
         let fixture = try ResumeReadinessFixture()
-        let initialization = fixture.start()
+        let initialization = fixture.beginResumeReadiness()
         do {
             let boundary = try await fixture.expectIntakeHeld()
             #expect(boundary == .noStore)
@@ -63,7 +63,7 @@ struct RestoreResumeReadinessTests {
     @Test("the controlled readiness deadline is final and late intake cannot publish ready")
     func deadlineCannotBeRevivedByLateIntake() async throws {
         let fixture = try ResumeReadinessFixture()
-        let initialization = fixture.start()
+        let initialization = fixture.beginResumeReadiness()
         let paneId = UUIDv7.generate()
         let waiting = Task { await fixture.readiness.wait(paneId: paneId) }
         do {

@@ -74,12 +74,17 @@ final class ForegroundProjectorFixture {
         foreground = try ForegroundObserverFixture()
         edges = try ForegroundProducerLedger()
         self.quietDuration = quietDuration
-        let observer = foreground.observer
-        let edges = edges
+        let foregroundObserver: PaneForegroundObserver<TestPushClock> = foreground.observer
+        let edgeLedger: ForegroundProducerLedger = edges
+        let ignoredActivity: @Sendable (PaneActivityOccurrence) -> Void = { _ in }
+        let activitySink: (@Sendable (PaneActivityOccurrence) -> Void)? =
+            configureActivityConsumer ? ignoredActivity : nil
+        let foregroundLookSink: @Sendable (ForegroundLookTrigger, UUID) async -> Void = { trigger, pane in
+            await edgeLedger.deliver(trigger, pane: pane, observer: foregroundObserver)
+        }
         projector = TerminalActivityProjector(
             unseenQuietDuration: quietDuration, clock: foreground.clock,
-            activitySink: configureActivityConsumer ? { _ in } : nil,
-            foregroundLookSink: { trigger, pane in await edges.deliver(trigger, pane: pane, observer: observer) })
+            activitySink: activitySink, foregroundLookSink: foregroundLookSink)
     }
 
     func configure() async {

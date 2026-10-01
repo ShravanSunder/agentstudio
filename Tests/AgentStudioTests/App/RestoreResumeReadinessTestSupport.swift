@@ -110,7 +110,7 @@ struct ResumeReadinessFixture: Sendable {
             boundary: boundary, arrivalSink: { intakeSource.sink(launch, .arrived($0)) })
     }
 
-    func start(prepareForLaunch: @escaping @Sendable () async throws -> Void = {}) -> Task<Void, Never> {
+    func beginResumeReadiness(prepareForLaunch: @escaping @Sendable () async throws -> Void = {}) -> Task<Void, Never> {
         Task {
             defer { initializationCompleted() }
             await AppIPCDeferredInitialization.prepareResumeReadiness(

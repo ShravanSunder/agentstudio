@@ -68,7 +68,7 @@ struct RestoreResumeObservationHandoffTests {
                     providerIdentifier: "codex", providerSessionId: sessions.sessionId, to: plan)
             })
         await coordinator.installTerminalGeometryAvailability([descriptor.paneID])
-        let initialization = readiness.start {
+        let initialization = readiness.beginResumeReadiness {
             _ = try await ingestion.prepareForLaunch(at: Date(timeIntervalSince1970: 2))
         }
         let mount = Task { await coordinator.mount() }

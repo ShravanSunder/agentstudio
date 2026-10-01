@@ -46,7 +46,7 @@ struct RestoreResumeDecisionBoundaryTests {
                     providerIdentifier: "codex", providerSessionId: providerId, to: plan)
             })
         await coordinator.installTerminalGeometryAvailability([descriptor.paneID])
-        let initialization = fixture.start()
+        let initialization = fixture.beginResumeReadiness()
         let mount = Task { await coordinator.mount() }
         do {
             try await fixture.expectIntakeHeld()
@@ -148,7 +148,7 @@ struct RestoreResumeDecisionBoundaryTests {
             return try await adapter.recordProviderEvent(
                 paneId: sessions.paneId, params: end, provenance: .matchingPane)
         }
-        let initialization = fixture.start {
+        let initialization = fixture.beginResumeReadiness {
             _ = try await ingestion.prepareForLaunch(at: Date(timeIntervalSince1970: 2))
         }
         let mount = Task { await coordinator.mount() }
