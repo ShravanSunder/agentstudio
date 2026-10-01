@@ -13,19 +13,19 @@ package struct SessionsRepository: Sendable {
         commitParticipant: (any SessionsCommitParticipant)? = nil,
         reducing: @Sendable (SessionsRepositoryContext) throws -> SessionsRepositoryReduction
     ) async throws -> SessionsSubmissionResult {
-        // S2 red scaffold: the optional input compiles but does not join the
-        // transaction until the Lead verifies the participant tests are red.
         try await sqliteAccess.write { database in
             if let replay = try SessionsRepositoryStorage.loadOperationReplay(
                 database: database,
                 operation: operation
             ) {
+                try commitParticipant?.commit(in: database)
                 return SessionsSubmissionResult(outcome: replay, disposition: .replayed)
             }
             if let replay = try SessionsRepositoryStorage.loadOccurrenceReplay(
                 database: database,
                 operation: operation
             ) {
+                try commitParticipant?.commit(in: database)
                 return SessionsSubmissionResult(outcome: replay, disposition: .replayed)
             }
             let context = try SessionsRepositoryStorage.loadContext(
@@ -43,6 +43,7 @@ package struct SessionsRepository: Sendable {
                 commitRevision: commitRevision,
                 database: database
             )
+            try commitParticipant?.commit(in: database)
             return SessionsSubmissionResult(outcome: reduction.outcome, disposition: .inserted)
         }
     }

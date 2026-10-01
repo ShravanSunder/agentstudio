@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioCLIStore
 import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
@@ -97,7 +98,8 @@ extension AppDelegate {
         paneIPCIdentityOwner = PaneIPCIdentityOwner(
             principalRegistry: registry,
             socketURL: paths.socketURL,
-            spoolDirectory: paths.spoolDirectory,
+            cliStoreURL: paths.cliStoreURL,
+            cliStoreChannel: cliStoreChannel,
             cliExecutableURL: Bundle.main.bundleURL
                 .appending(path: "Contents/Helpers/agentstudio"),
             canonicalPaneMembership: { [store] paneID, workspaceID in
@@ -188,7 +190,7 @@ extension AppDelegate {
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
-            startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
+            startPaneCLIOutboxDrain(sessionsIngestion: sessionsIngestion, datastore: workspaceSQLiteDatastore)
             recordAppIPCStart()
         } catch {
             appLogger.warning(
@@ -248,11 +250,12 @@ extension AppDelegate {
         AgentStudioIPCFilesystem.removeDebugCredentialEscrow(at: escrowURL)
     }
 
-    /// Notifications the CLI spooled while this app was unreachable are admitted
+    /// Notifications the CLI queued while this app was unreachable are admitted
     /// once IPC is listening and ingestion is prepared. The drain is detached and
     /// awaited nowhere, so no startup, terminal or zmx path waits on it.
-    private func startPaneReportSpoolDrain(sessionsIngestion: SessionsIngestion) {
-        guard paneReportSpoolDrainTask == nil, let spoolDirectory = appIPCPaths?.spoolDirectory else {
+    private func startPaneCLIOutboxDrain(sessionsIngestion: SessionsIngestion, datastore: WorkspaceSQLiteDatastoreActor)
+    {
+        guard paneCLIOutboxDrainTask == nil, let storeURL = appIPCPaths?.cliStoreURL else {
             return
         }
         let lateAdmission = AgentStudioIPCSessionsAdapter(
@@ -260,29 +263,25 @@ extension AppDelegate {
             providerRegistry: SessionsProviderAdapterRegistry(profiles: appIPCSessionsProviderProfiles),
             admissionFreshness: .late
         )
-        let spool: PaneReportSpool
-        do {
-            spool = try PaneReportSpool(admission: lateAdmission)
-        } catch {
-            appLogger.warning(
-                "Offline notification drain skipped: \(error.localizedDescription, privacy: .private)"
-            )
-            return
-        }
-        // The drain must not inherit MainActor isolation: it holds a file lock
-        // across admission and nothing on the startup path may await it.
+        let sqliteAccess = WorkspaceSessionsSQLiteAccess(datastore: datastore)
+        let channel = cliStoreChannel
+        // Intake and catalog construction run off MainActor; the app only reads
+        // the CLI file and its cursor uses the existing application-local writer.
         // swiftlint:disable:next no_task_detached
-        paneReportSpoolDrainTask = Task.detached(priority: .utility) {
-            let report = await spool.drain(spoolDirectory: spoolDirectory)
-            guard report.hasWork else { return }
-            appLogger.info(
-                """
-                Offline notification drain admitted \(report.admittedLineCount, privacy: .public) \
-                rejected \(report.rejectedLineCount, privacy: .public) \
-                malformed \(report.malformedLineCount, privacy: .public) \
-                retained \(report.retainedFileCount, privacy: .public) files
-                """
-            )
+        paneCLIOutboxDrainTask = Task.detached(priority: .utility) {
+            do {
+                let drain = try PaneCLIOutboxDrain(
+                    admission: lateAdmission, sqliteAccess: sqliteAccess,
+                    expectedChannel: channel,
+                    refusalProbe: { reason in
+                        appLogger.info("Offline notice refused: \(reason.rawValue, privacy: .public)")
+                    })
+                let report = await drain.drain(storeURL: storeURL)
+                guard report.hasWork else { return }
+                appLogger.info(
+                    "Offline outbox admitted \(report.admittedEntryCount, privacy: .public) refused \(report.refusedEntryCount, privacy: .public) malformed \(report.malformedEntryCount, privacy: .public) retryable \(report.retryableEntryCount, privacy: .public)"
+                )
+            } catch { appLogger.warning("Offline outbox intake unavailable") }
         }
     }
 
@@ -363,10 +362,10 @@ extension AppDelegate {
     /// `beginGracefulShutdownAndSnapshotUnsavedCredentials()`, and nothing
     /// after this point drains it.
     func drainAppIPCCredentialPersistence() async {
-        let spoolDrainTask = paneReportSpoolDrainTask
-        spoolDrainTask?.cancel()
-        paneReportSpoolDrainTask = nil
-        await spoolDrainTask?.value
+        let outboxDrainTask = paneCLIOutboxDrainTask
+        outboxDrainTask?.cancel()
+        paneCLIOutboxDrainTask = nil
+        await outboxDrainTask?.value
         guard let server = appIPCServer else {
             appIPCPrincipalRegistry?.shutdown()
             await finishAppIPCSessionsIngestion()
@@ -544,6 +543,14 @@ extension AppDelegate {
                 return .beta
             }
         #endif
+    }
+
+    private var cliStoreChannel: CLIStoreChannel {
+        switch appIPCServerChannel {
+        case .stable: .stable
+        case .beta: .beta
+        case .debug: .debug
+        }
     }
 
     private static func appIPCAccessMode() -> IPCAccessMode {

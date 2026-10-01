@@ -113,7 +113,6 @@ struct PaneIPCIdentityOwnerTests {
             "AGENTSTUDIO_WORKSPACE_ID": "outer-workspace",
             "AGENTSTUDIO_IPC_SOCKET": "/tmp/outer.sock",
             "AGENTSTUDIO_PANE_TOKEN": "outer-token",
-            "AGENTSTUDIO_IPC_SPOOL_DIR": "/tmp/outer-spool",
             "AGENTSTUDIO_CLI_STORE": "/tmp/outer-cli.sqlite",
             "AGENTSTUDIO_CLI_STORE_CHANNEL": "beta",
             "AGENTSTUDIO_CLI": "/tmp/outer-agentstudio",
@@ -195,13 +194,12 @@ struct PaneIPCIdentityOwnerTests {
         PaneIPCIdentityOwner(
             principalRegistry: principalRegistry,
             socketURL: fixture.socketURL,
-            spoolDirectory: fixture.spoolDirectory,
+            cliStoreURL: fixture.rootDirectory.appending(path: "ipc/cli.sqlite"),
+            cliStoreChannel: .debug,
             cliExecutableURL: fixture.cliExecutableURL,
             inheritedEnvironment: inheritedEnvironment,
             canonicalPaneMembership: membership,
-            randomBytes: randomBytes,
-            cliStoreURL: fixture.rootDirectory.appending(path: "ipc/cli.sqlite"),
-            cliStoreChannel: .debug
+            randomBytes: randomBytes
         )
     }
 

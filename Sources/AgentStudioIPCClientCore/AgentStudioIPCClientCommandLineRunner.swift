@@ -1,3 +1,4 @@
+import AgentStudioCLIStore
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -316,9 +317,9 @@ package struct AgentStudioIPCClientCommandLineRunner {
 
     private func exitCode(forFailure error: Error, endpointCameFromDebugEscrow: Bool) -> Int32 {
         switch error {
-        case let failure as PaneNotificationSpoolWriteError:
+        case let failure as CLIStoreFailure:
             props.standardErrorSink(
-                "Agent Studio could not durably queue this notification: \(failure.reason.rawValue)")
+                "Agent Studio could not durably queue this notification: \(String(describing: failure))")
         case let failure as IPCCommandDiscoveryError:
             writeStructuredError(CLIErrorPresentation(commandDiscoveryFailure: failure))
         case let failure as IPCDescriptorInvocationError:

@@ -152,7 +152,7 @@ struct PaneCLIOutboxDrainTests {
             _ = try await harness.append(
                 paneID: paneID,
                 line: harness.messageLine(
-                    text: String(repeating: "x", count: AppPolicies.IPC.spoolDrainMaximumLineBytes)))
+                    text: String(repeating: "x", count: AppPolicies.IPC.offlineNoticeMaximumPayloadBytes)))
             let survivor = try await harness.append(paneID: paneID, line: harness.messageLine(text: "survivor"))
 
             let report = await harness.drain()

@@ -379,7 +379,8 @@ struct AgentStudioAppIPCReusableCredentialTests {
                 appDelegate.paneIPCIdentityOwner = PaneIPCIdentityOwner(
                     principalRegistry: serverFixture.server.principalRegistry,
                     socketURL: serverFixture.paths.socketURL,
-                    spoolDirectory: serverFixture.paths.spoolDirectory,
+                    cliStoreURL: serverFixture.paths.cliStoreURL,
+                    cliStoreChannel: .debug,
                     cliExecutableURL: fixture.rootURL.appending(path: "AgentStudio.app/Contents/Helpers/agentstudio"),
                     inheritedEnvironment: [:],
                     canonicalPaneMembership: { _, _ in true }

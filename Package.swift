@@ -314,6 +314,7 @@ let package = Package(
         .target(
             name: "AgentStudioIPCClientCore",
             dependencies: [
+                "AgentStudioCLIStore",
                 "AgentStudioIPCTransport",
                 "AgentStudioPrimitives",
                 "AgentStudioProgrammaticControl",

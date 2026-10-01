@@ -5,8 +5,8 @@ import Testing
 
 /// The `agentstudio-cli` helper is shipped inside the app bundle as
 /// `Contents/Helpers/agentstudio`. Worktree verbs intentionally link libgit2
-/// through `AgentStudioWorktreeOperations`; the helper must stay off
-/// `AgentStudioInfrastructure` and its GRDB/OTel base.
+/// through `AgentStudioWorktreeOperations`; the CLI store intentionally links
+/// GRDB. The helper must stay off `AgentStudioInfrastructure` and its OTel base.
 ///
 /// These tests pin the allowed module imports of the CLI-side targets, the
 /// worktree-operation leaf, and the test targets that cover the CLI so a direct
@@ -25,6 +25,7 @@ struct CommandLineClientLeafTargetArchitectureTests {
         "System",
         "Darwin",
         "AgentStudioIPCClientCore",
+        "AgentStudioCLIStore",
         "AgentStudioIPCTransport",
         "AgentStudioPrimitives",
         "AgentStudioProgrammaticControl",
