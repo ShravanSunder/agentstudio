@@ -398,10 +398,11 @@ extension WebKitSerializedTests {
             await bootstrapTask.value
             let replacementInstallation = try #require(overlapState.deliveredInstallations.last)
             let metadataProducer = try #require(overlapState.replacementMetadataProducer)
+            // E1 composes the producer claim with the replacement installation's admission.
             let publishedRequest = try await consumeBootstrapSurfaceSelectionRequest(
                 producerLease: metadataProducer,
                 installation: replacementInstallation,
-                productAdmission: try #require(controller.productAdmissionGate.acquire())
+                productAdmission: try #require(replacementInstallation.productAdapter.acquireAdmission())
             )
 
             // Assert
