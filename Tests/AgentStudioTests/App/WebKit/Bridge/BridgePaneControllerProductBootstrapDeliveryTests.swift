@@ -71,7 +71,11 @@ extension WebKitSerializedTests {
                     == replacementInstallation.bootstrap.workerInstanceId
             )
             _ = try await assertRetiredPaneProductCommandRefusal(
-                installation: initialInstallation
+                installation: initialInstallation,
+                handler: BridgeSchemeHandler(
+                    paneId: paneId, appRootURL: testBridgeAppRootURL(),
+                    productSessionRouter: await controller.productSessionOwner.schemeRouter
+                )
             )
             let productProvider = try #require(controller.productSchemeProvider)
             let replaySubscription = try await openBootstrapReviewReplaySubscription(

@@ -94,6 +94,12 @@ struct BridgePaneProductContentActivityAdmissionTests {
     @MainActor
     func hidingDuringFileStreamingSuppressesRemainingFrames() async throws {
         // Arrange
+        let retirements = FactRecorder<BridgeProductProducerLease, BridgeProductProducerRetirementBarrier>(
+            vocabulary: .init(
+                describeScope: { $0.id.uuidString }, describeFact: { _ in "File read retirement started" },
+                isClosing: { _, _ in true }
+            )
+        )
         let sourceBytes = Data(
             repeating: 0x61,
             count: BridgeProductWireContract.maximumContentDataPayloadBytes * 2 + 1
@@ -105,7 +111,8 @@ struct BridgePaneProductContentActivityAdmissionTests {
         let context = try await makeActivityContentContext(
             request: request,
             initialActivity: .foreground,
-            fileBytes: sourceBytes
+            fileBytes: sourceBytes,
+            retirementRecorder: retirements
         )
         let decoder = try BridgeProductContentFrameDecoder()
         let accepted = try await requiredActivityContentFrame(context)
@@ -128,13 +135,20 @@ struct BridgePaneProductContentActivityAdmissionTests {
         #expect(await context.fileReaderHarness.readCount >= 1)
         #expect(await context.fileReaderHarness.readCount <= AppPolicies.Bridge.productViewCreditParts)
         #expect(await context.fileReaderHarness.closeCount == 0)
+        // Physical consumption already cleared this receipt; zero cannot attest logical retirement.
+        #expect((await context.harness.session.producerSnapshot()).inFlightFrameReceiptCount == 0)
 
         // Act
         context.activityCoordinator.applyActivity(.loadedHidden)
-        let retiredDeliverySnapshot = await waitForActivityContentState(context) { snapshot in
-            snapshot.inFlightFrameReceiptCount == 0
-        }
-        #expect(retiredDeliverySnapshot.inFlightFrameReceiptCount == 0)
+        let retirement = try await retirements.expectNext(
+            in: context.lease, where: { _ in true }, "hidden File read retirement"
+        )
+        #expect(await retirement.wait())
+        #expect(
+            !(await context.harness.session.hasContentAdmission(
+                contentRequestId: request.admission.contentRequestId, leaseId: request.admission.leaseId
+            ))
+        )
         #expect(
             !(await context.harness.session.acknowledgeContentFrameObservation(
                 try activityContentFrameAcknowledgement(
@@ -531,7 +545,8 @@ private func makeActivityContentContext(
     suspendReviewBody: Bool = false,
     invalidateActivityOnFileReaderClose: Bool = false,
     fileEndOfSourceGate: HeldStep<Void>? = nil,
-    producerEntryGate: HeldStep<Void>? = nil
+    producerEntryGate: HeldStep<Void>? = nil,
+    retirementRecorder: FactRecorder<BridgeProductProducerLease, BridgeProductProducerRetirementBarrier>? = nil
 ) async throws -> ActivityContentContext {
     let activityCoordinator = BridgePaneRefreshAdmissionCoordinator(
         initialActivity: initialActivity
@@ -569,6 +584,11 @@ private func makeActivityContentContext(
     ) { lease in
         try? await producerEntryGate?.arrive(())
         await contentProducerOperation(lease)
+        if let retirementRecorder,
+            let barrier = await harness.session.producerRetirementStateByLease[lease]?.barrier
+        {
+            retirementRecorder.append(scope: lease, fact: barrier)
+        }
     }
     return ActivityContentContext(
         activityCoordinator: activityCoordinator,

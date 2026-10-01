@@ -57,7 +57,7 @@ import {
 import { BridgeReviewHeaderPanels } from './bridge-review-header-panels.js';
 import {
 	BridgeReviewRefreshHeaderGroup,
-	type BridgeReviewRefreshHeaderPresentation,
+	bridgeReviewRegionRefreshHeaderPresentation,
 } from './bridge-review-refresh-header-chrome.js';
 import {
 	createBridgeViewerSearchState,
@@ -414,12 +414,10 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 			refreshPresentation: reviewRefreshPresentation,
 			isActive,
 		});
-	const refreshHeaderPresentation: BridgeReviewRefreshHeaderPresentation =
-		regionSurfaceStatus.kind === 'updating'
-			? regionSurfaceStatus.rest === 'held'
-				? { action: 'applyNow', statusText: 'Update ready' }
-				: { action: null, statusText: 'Updating…' }
-			: { action: null, statusText: null };
+	const refreshHeaderPresentation = bridgeReviewRegionRefreshHeaderPresentation({
+		surface: regionSurfaceStatus,
+		isActive,
+	});
 	const onRetryRegion = (): void => {
 		if (installationRetry || controller.viewRecoveryStatus !== null || refreshRetryTarget === null)
 			controller.retryFailedMetadataView(refreshRetryTarget);
@@ -659,7 +657,6 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 		presentationSnapshot,
 		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
 		reviewSourceSlice,
-		reviewRefreshStatusText: null,
 		selectedCodeViewItem,
 		selectedContentAvailability,
 		selectedItemId,
