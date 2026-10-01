@@ -102,6 +102,22 @@ struct CISwiftBuildInputsScriptTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.marker.path))
     }
 
+    @Test("an unavailable compilation policy cannot verify a restored seed")
+    func unavailableCompilationPolicyRequiresColdBuild() async throws {
+        let fixture = try SwiftInputFixture()
+        defer { fixture.remove() }
+        let seed = try await fixture.inventory("seed")
+        try FileManager.default.removeItem(at: fixture.root.appendingPathComponent("compilation-policy.sh"))
+        let currentPath = fixture.root.appendingPathComponent("unavailable-policy.json")
+        _ = try await fixture.run("inventory", currentPath.path, expectedExitCode: 1)
+
+        let disposition = try await fixture.run("verify", seed.path.path, currentPath.path)
+
+        #expect(disposition.hasPrefix("cold "))
+        #expect(!FileManager.default.fileExists(atPath: fixture.marker.path))
+        #expect(FileManager.default.fileExists(atPath: fixture.unrelated.path))
+    }
+
     @Test("build and compiler statistics outputs do not change compatibility")
     func generatedOutputsDoNotChangeFingerprint() async throws {
         let fixture = try SwiftInputFixture()

@@ -41,6 +41,11 @@ extension CISwiftBuildInputsScriptTests {
         var observedOutsideOwners: Set<String> = []
         var observedPolicy = false
         for owner in owners {
+            if owner.name != policyPath {
+                #expect(
+                    !owner.source.contains(#/\bSWIFT_COMPILATION_(?:COMMAND|COMMON_ARGUMENTS)\s*(?:\[[^\]]*\])?\+?=/#),
+                    "\(owner.name) must not modify the compilation policy's resolved command")
+            }
             let lines = owner.source.replacingOccurrences(of: "\\\n", with: " ")
                 .components(separatedBy: "\n")
             for line in lines
@@ -83,6 +88,8 @@ extension CISwiftBuildInputsScriptTests {
         #expect(!product.contains("swift build"))
         #expect(!product.contains("-Xswiftc"))
         let runner = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
-        #expect(!runner.contains("EXTRA_SWIFT_TEST_ARGS=\"\""))
+        let extraArgumentAssignments = runner.components(separatedBy: "\n")
+            .filter { $0.hasPrefix("EXTRA_SWIFT_TEST_ARGS=") }
+        #expect(extraArgumentAssignments == [#"EXTRA_SWIFT_TEST_ARGS="${EXTRA_SWIFT_TEST_ARGS:-}""#])
     }
 }
