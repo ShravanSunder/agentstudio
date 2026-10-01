@@ -46,15 +46,25 @@ export interface BridgeMainReviewCandidatePresentation {
 	readonly role: BridgeMainReviewCandidateRole;
 	readonly startDisposition: BridgeWorkerReviewCandidateStartDisposition;
 }
-export interface BridgeMainReviewFailurePresentation {
+interface BridgeMainReviewFailureFacts {
 	readonly affectedStableFileIdentities: readonly string[];
 	readonly identity: BridgeMainReviewPublicationIdentity;
-	readonly presentationClass: Extract<
-		BridgeMainReviewEffectivePresentationClass,
-		{ readonly kind: 'promoted' }
-	>;
 	readonly retryable: boolean;
 }
+export type BridgeMainReviewFailurePresentation = BridgeMainReviewFailureFacts &
+	(
+		| {
+				readonly kind: 'installation';
+				readonly presentationClass: BridgeMainReviewEffectivePresentationClass;
+		  }
+		| {
+				readonly kind: 'promotedRefresh';
+				readonly presentationClass: Extract<
+					BridgeMainReviewEffectivePresentationClass,
+					{ readonly kind: 'promoted' }
+				>;
+		  }
+	);
 export interface BridgeMainReviewRefreshPresentation {
 	readonly activeIdentity: BridgeMainReviewPublicationIdentity | null;
 	readonly candidate: BridgeMainReviewCandidatePresentation | null;
@@ -111,6 +121,7 @@ export interface BridgeMainReviewCandidateStore {
 		readonly retryable: boolean;
 	}) => boolean;
 	readonly clearReviewCandidateFailure: () => boolean;
+	readonly failReviewInstallation: (identity: BridgeMainReviewPublicationIdentity) => boolean;
 }
 export interface MutableBridgeMainReviewCandidateBank {
 	effectivePresentationClass: BridgeMainReviewEffectivePresentationClass;
@@ -201,7 +212,13 @@ export class BridgeMainReviewCandidateBankOwner {
 		if (this.#activeIdentity !== null && !isNewer(props.identity, this.#activeIdentity)) {
 			return false;
 		}
-		if (this.#failure !== null && !isNewer(props.identity, this.#failure.identity)) {
+		const reoffersFailedInstallation =
+			this.#failure?.kind === 'installation' && isExact(props.identity, this.#failure.identity);
+		if (
+			this.#failure !== null &&
+			!isNewer(props.identity, this.#failure.identity) &&
+			!reoffersFailedInstallation
+		) {
 			return false;
 		}
 		const candidate = this.#candidate;
@@ -219,7 +236,7 @@ export class BridgeMainReviewCandidateBankOwner {
 		} else {
 			this.#candidate = cloneCandidate(props.activeSnapshot, props.identity, props.disposition);
 		}
-		this.#failure = null;
+		if (!reoffersFailedInstallation) this.#failure = null;
 		this.#refresh();
 		return true;
 	}
@@ -290,6 +307,7 @@ export class BridgeMainReviewCandidateBankOwner {
 		const candidate = this.#candidate;
 		this.#activeIdentity = candidate.identity;
 		this.#candidate = null;
+		this.#failure = null;
 		this.#refresh();
 		return candidate;
 	}
@@ -325,6 +343,29 @@ export class BridgeMainReviewCandidateBankOwner {
 	clearFailure(): boolean {
 		if (this.#failure === null) return false;
 		this.#failure = null;
+		this.#refresh();
+		return true;
+	}
+
+	failInstallation(identity: BridgeMainReviewPublicationIdentity): boolean {
+		const candidate = this.#candidate;
+		if (
+			candidate === null ||
+			candidate.role !== 'installing' ||
+			!isExact(identity, candidate.identity)
+		)
+			return false;
+		this.#candidate = null;
+		this.#failure = {
+			affectedStableFileIdentities:
+				candidate.startDisposition.kind === 'sameSource'
+					? candidate.startDisposition.affectedStableFileIdentities
+					: [],
+			identity: candidate.identity,
+			kind: 'installation',
+			presentationClass: candidate.effectivePresentationClass,
+			retryable: true,
+		};
 		this.#refresh();
 		return true;
 	}
@@ -598,6 +639,7 @@ function promotedFailure(
 		return null;
 	}
 	return {
+		kind: 'promotedRefresh',
 		affectedStableFileIdentities: disposition.affectedStableFileIdentities,
 		identity: candidate.identity,
 		presentationClass: candidate.effectivePresentationClass,

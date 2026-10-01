@@ -381,6 +381,7 @@ private func sessionIntegrationFileSnapshot(
         changeStatus: "modified"
     )
     return BridgeWorktreeFileKeyedSnapshot(
+        isEnumerationComplete: true,
         memberStatus: .init(record: .init(source: source), revision: generation),
         records: [
             .init(key: "/workspace/Sources", revision: generation, row: directory, descriptorOutcome: nil),

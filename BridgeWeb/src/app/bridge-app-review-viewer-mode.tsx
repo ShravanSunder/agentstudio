@@ -406,9 +406,12 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 	]);
 	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(comparisonPaneState);
 	const refreshRetryTarget = panelChromeSlice.reviewComparison?.activeTarget ?? null;
+	const installationRetry = reviewRefreshPresentation.failure?.kind === 'installation';
 	const refreshHeaderPresentation = bridgeReviewRefreshHeaderPresentation({
 		attentionItemIds: semanticAttentionItemIds,
-		canRetry: refreshRetryTarget !== null,
+		canRetry: installationRetry
+			? controller.viewRecoveryStatus !== null
+			: refreshRetryTarget !== null,
 		refreshPresentation: reviewRefreshPresentation,
 	});
 	const contentHeaderControls = (
@@ -422,7 +425,8 @@ function BridgeReviewViewerModeContent(props: BridgeReviewViewerModeProps): Reac
 			<BridgeReviewRefreshHeaderGroup
 				onApplyNow={(): void => void controller.applyReviewRefreshNow()}
 				onRetry={(): void => {
-					if (refreshRetryTarget !== null)
+					if (installationRetry) controller.retryFailedMetadataView(refreshRetryTarget);
+					else if (refreshRetryTarget !== null)
 						controller.updateReviewComparisonTarget(refreshRetryTarget);
 				}}
 				presentation={refreshHeaderPresentation}

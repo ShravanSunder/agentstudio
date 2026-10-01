@@ -702,6 +702,7 @@ struct BridgeProductSealedViewBatchTests {
             changeStatus: "modified"
         )
         let snapshot = BridgeWorktreeFileKeyedSnapshot(
+            isEnumerationComplete: true,
             memberStatus: try fileMemberStatusFixture(),
             records: [.init(key: "/workspace/Tests/File.swift", revision: 2, row: row, descriptorOutcome: nil)],
             targetRevision: 3,
@@ -826,6 +827,7 @@ struct BridgeProductSealedViewBatchTests {
 
 private func nineRowFileSnapshot() throws -> BridgeWorktreeFileKeyedSnapshot {
     BridgeWorktreeFileKeyedSnapshot(
+        isEnumerationComplete: true,
         memberStatus: try fileMemberStatusFixture(),
         records: (1...9).map { ordinal in
             let path = "file-\(ordinal).swift"

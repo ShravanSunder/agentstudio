@@ -86,9 +86,29 @@ export function installBridgeProductFileBatch(
 				row: bridgeProductFileBatchRowSchema.parse(record.value),
 			}),
 		);
-	const activeRecords = currentRecords.filter((record) => record.row.kind !== 'deleted');
+	const currentKeys = new Set(currentRecords.map((record) => record.key));
+	const currentDisplayKeys = new Set(currentRecords.map((record) => record.row.displayKey));
+	const staleRows = installation.staleRecords
+		.filter(
+			(record) =>
+				record.key !== BRIDGE_PRODUCT_FILE_MEMBER_STATUS_KEY && !currentKeys.has(record.key),
+		)
+		.flatMap((record): readonly BridgeProductInstalledFileRecord[] => {
+			const row = bridgeProductFileBatchRowSchema.parse(record.value);
+			if (currentDisplayKeys.has(row.displayKey)) return [];
+			return [
+				{
+					key: record.key,
+					revision: record.revision,
+					row: { ...row, descriptorOutcome: null, readDescriptor: null },
+				},
+			];
+		});
+	const activeRecords = [...currentRecords, ...staleRows].filter(
+		(record) => record.row.kind !== 'deleted',
+	);
 	const orderedRecords = orderFileRecords(activeRecords);
-	const descriptorOutcomes = orderedRecords.flatMap(({ row }) =>
+	const descriptorOutcomes = currentRecords.flatMap(({ row }) =>
 		row.descriptorOutcome === null ? [] : [row.descriptorOutcome],
 	);
 	const runtimeIdByDisplayKey = new Map(

@@ -166,6 +166,7 @@ function publicationInstallation(
 	return {
 		begin,
 		certified: true,
+		staleRecords: [],
 		domain: 'default',
 		records: [
 			...(hasItem ? [{ key: item.itemId, revision, value: item }] : []),

@@ -37,11 +37,13 @@ export function bridgeReviewRefreshHeaderPresentation(props: {
 	const failure = props.refreshPresentation.failure;
 	if (
 		failure !== null &&
-		promotedPresentationAffectsAttention({
-			affectedStableFileIdentities: failure.affectedStableFileIdentities,
-			attentionItemIds,
-			promotionReason: failure.presentationClass.reason,
-		})
+		(failure.kind === 'installation' ||
+			(failure.presentationClass.kind === 'promoted' &&
+				promotedPresentationAffectsAttention({
+					affectedStableFileIdentities: failure.affectedStableFileIdentities,
+					attentionItemIds,
+					promotionReason: failure.presentationClass.reason,
+				})))
 	) {
 		return {
 			action: failure.retryable && props.canRetry ? 'retry' : null,

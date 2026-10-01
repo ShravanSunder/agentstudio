@@ -527,5 +527,5 @@ function makeEmptyReviewAnnotationBatch(subscriptionId: string): BridgeProductVi
 		targetRevision: 1,
 	});
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Comment batch begin missing.');
-	return { certified: true, begin, domain: 'default', records: [] };
+	return { certified: true, staleRecords: [], begin, domain: 'default', records: [] };
 }
