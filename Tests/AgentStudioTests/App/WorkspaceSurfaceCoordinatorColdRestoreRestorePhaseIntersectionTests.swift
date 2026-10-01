@@ -43,7 +43,7 @@ import Testing
 /// key/paste latch calls, then `Ghostty.ActionRouter.drainLocalActions`,
 /// the real static drain entry point -- not a hand-rolled substitute. A
 /// real `TerminalActivityProjector` is bound to `Ghostty.ActionRouter`'s
-/// singleton the same way `GhosttyActionRouterRestorePhaseArmingTests`
+/// singleton the same way `GhosttyActionRouterSerializedTests/GhosttyActionRouterRestorePhaseArmingTests`
 /// already proves `armRestorePhase` against it, standing in for the full
 /// `TerminalActivityRouter` (594 lines of EventBus/inbox-notification
 /// wiring this test doesn't need) -- this test's own sink replicates only
@@ -54,7 +54,7 @@ import Testing
 /// `@MainActor` + `.serialized`: binds the same process-global
 /// `Ghostty.ActionRouter` singleton and calls the real, global
 /// `localActionAccumulator` + `drainLocalActions`, matching
-/// `GhosttyActionRouterRestorePhaseArmingTests`'s own classification.
+/// `GhosttyActionRouterSerializedTests/GhosttyActionRouterRestorePhaseArmingTests`'s own classification.
 /// Registered in `swift_test_suite_lane_inventory` as a `zmx` suite (see
 /// `scripts/swift-test-helpers.sh`) so `mise run test:swift:zmx-e2e` runs
 /// it; living in a file with `extension E2ESerializedTests` already

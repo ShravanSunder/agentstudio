@@ -106,31 +106,39 @@ private final class OrderedEventLog {
 
 /// Exercises `Ghostty.ActionRouter.armRestorePhase` against the real shared
 /// binding singleton, which several other test files also bind/unbind
-/// against. `@MainActor` + `.serialized` together (matching
-/// `TerminalActivityRouterAttentionTests`'s own pattern) put this suite in
-/// the isolated-process phase, so it never shares that mutable global with
-/// another suite's concurrent run — the fast lane's own concurrency, not a
-/// per-test detail this suite could otherwise control.
-@MainActor
-@Suite("Ghostty action router restore-phase arming: shared singleton", .serialized)
-struct GhosttyActionRouterRestorePhaseArmingTests {
-    @Test("arming an already-bound router submits .restorePhaseArmed and returns .armed")
-    func armingAnAlreadyBoundRouterSubmitsAndAcknowledges() async {
-        let bindingID = UUID()
-        let recorder = SubmittedInputRecorder()
-        Ghostty.ActionRouter.bindTerminalActivityInput(
-            id: bindingID,
-            context: { _ in .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 1) },
-            sink: { [recorder] input in recorder.record(input) }
-        )
-        defer { Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID) }
-        let paneID = UUID()
-        let generation = RestoreGeneration(rawValue: 42)
+/// against.
+///
+/// R1 gate (Lead 2026-10-01, Fix 3): nested under `GhosttyActionRouterSerializedTests`
+/// -- `@MainActor` + `.serialized` on this struct alone do NOT prevent a
+/// *different* suite from rebinding the same process-wide singleton mid-test
+/// (confirmed against real reap-time evidence: two such suites were in
+/// flight at once), so the isolation this doc comment used to claim from
+/// those two traits alone was wrong. The shared parent's own `.serialized`
+/// is what actually serializes this suite against every sibling nested
+/// under it.
+extension GhosttyActionRouterSerializedTests {
+    @MainActor
+    @Suite("Ghostty action router restore-phase arming: shared singleton", .serialized)
+    struct GhosttyActionRouterRestorePhaseArmingTests {
+        @Test("arming an already-bound router submits .restorePhaseArmed and returns .armed")
+        func armingAnAlreadyBoundRouterSubmitsAndAcknowledges() async {
+            let bindingID = UUID()
+            let recorder = SubmittedInputRecorder()
+            Ghostty.ActionRouter.bindTerminalActivityInput(
+                id: bindingID,
+                context: { _ in .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 1) },
+                sink: { [recorder] input in recorder.record(input) }
+            )
+            defer { Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID) }
+            let paneID = UUID()
+            let generation = RestoreGeneration(rawValue: 42)
 
-        let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(paneID: paneID, restoreGeneration: generation)
+            let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
+                paneID: paneID, restoreGeneration: generation)
 
-        #expect(acknowledgment == .armed)
-        #expect(recorder.inputs == [.restorePhaseArmed(paneID: paneID, restoreGeneration: generation)])
+            #expect(acknowledgment == .armed)
+            #expect(recorder.inputs == [.restorePhaseArmed(paneID: paneID, restoreGeneration: generation)])
+        }
     }
 }
 

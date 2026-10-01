@@ -28,12 +28,65 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// the next real event, never a sleep or a yield loop. Any other
     /// failure propagates immediately, exactly as the legacy helper's own
     /// uncaught case already does.
-    func observeSessionIdentityOnRealEvent(
+    ///
+    /// Architecture lint follow-up (Lead 2026-10-01): merged with the former
+    /// `awaitNextZmxDirectoryEvent` into this one function, renamed to match
+    /// what it returns. `IndependentLeaderExecWitness`
+    /// (`ZmxE2ETests+ForcedTiming.swift`) is the precedent this follows: the
+    /// directory watch's event handler only sinks a fact through
+    /// `LocalFactSource` (synchronous, never a Task, matching
+    /// `FactRecorder.append`'s own "the owner calls this synchronously; it
+    /// never creates a task" contract) -- no `HeldStep`, which parks its
+    /// caller until a test-side `release()`/`fail()`/`retire()` and is not a
+    /// one-shot event primitive, and no hand-built continuation. The retry
+    /// loop (try the real check, then wait for the next event fact on a
+    /// miss) stays entirely in this function's own async context: nothing
+    /// async runs inside the GCD event handler. The session identity this
+    /// loop was built to find IS the value that satisfies it, so this
+    /// function returns it directly and every caller asserts on that
+    /// returned identity.
+    func awaitSessionIdentityOnRealEvent(
         _ sessionID: ZmxSessionID, backend: ZmxBackend, zmxDirectory: String
     ) async throws -> Data {
         let directoryFileDescriptor = open(zmxDirectory, O_EVTONLY)
         guard directoryFileDescriptor >= 0 else { throw ZmxSessionControlFailure.unavailable }
         defer { close(directoryFileDescriptor) }
+
+        let scope = "zmxDirectoryEvent"
+        let source = LocalFactSource(
+            vocabulary: FactVocabulary<String, Void>(
+                describeScope: { $0 },
+                describeFact: { _ in "directory event" },
+                // Never closing: the retry loop below may need more than one
+                // directory-event fact before `backend.observeSessionIdentity`
+                // finally succeeds, and nothing in this fact stream itself
+                // marks the last one -- that decision is external to it. A
+                // closing vocabulary here would make the second fact at this
+                // scope a reported violation (FactRecorder's own
+                // FactAfterClose), matching `IndependentLeaderExecWitness`'s
+                // (ZmxE2ETests+ForcedTiming.swift) non-closing vocabulary for
+                // the same reason.
+                isClosing: { _, _ in false }
+            )
+        )
+        let recorder = try source.attach()
+        let sink = source.sink
+
+        let eventSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: directoryFileDescriptor,
+            eventMask: [.write, .rename],
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        eventSource.setEventHandler {
+            // A raw GCD callback on .global(), not inside a Swift Task;
+            // LocalFactSource.sink is synchronous and safe here. Never
+            // cancelled from inside the handler: this watch must keep
+            // firing across every retry, not just the first.
+            sink(scope, ())
+        }
+        eventSource.setCancelHandler {}
+        eventSource.resume()
+        defer { eventSource.cancel() }
 
         while true {
             do {
@@ -45,32 +98,8 @@ extension E2ESerializedTests.ZmxE2ETests {
             {
                 // Transient -- fall through to wait for the next real event.
             }
-            try await awaitNextZmxDirectoryEvent(fileDescriptor: directoryFileDescriptor)
+            _ = try await recorder.expectNext(in: scope, where: { _ in true }, "zmx directory event")
         }
-    }
-
-    /// One real vnode event on an open zmx-directory descriptor, or this
-    /// task's own cancellation -- never a sleep or a yield. Shares
-    /// `ZmxTestHarness.awaitSessionSocketEvent`'s register-then-check-free
-    /// shape: the caller already did its own synchronous check before
-    /// calling this, so this function only ever needs to wait.
-    func awaitNextZmxDirectoryEvent(fileDescriptor: Int32) async throws {
-        let step = HeldStep<Void>("zmx directory event")
-        let eventSource = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .rename],
-            queue: DispatchQueue.global(qos: .userInitiated)
-        )
-        eventSource.setEventHandler {
-            eventSource.cancel()
-            // A raw GCD callback on .global(), not inside a Swift Task.
-            try? step.arriveBlocking(())
-        }
-        eventSource.setCancelHandler {}
-        eventSource.resume()
-        defer { eventSource.cancel() }
-        _ = try await step.firstArrival()
-        step.release()
     }
 
     /// The repo's own `awaitProcessExit` (`AgentStudioTestHarness/ProcessExitWait.swift`)
@@ -82,30 +111,42 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// comment names, confirmed by reading it directly. This is that same
     /// function's await half only, minus the launch, against a process
     /// already in flight.
+    ///
+    /// Architecture lint follow-up (Lead 2026-10-01): register-then-check
+    /// against a `LocalFactSource`/`FactRecorder` pair instead of a
+    /// hand-built `CheckedContinuation`. `Process.terminationHandler` only
+    /// sinks the exit status fact -- synchronous, never a Task -- and
+    /// `recorder.expectNext(in:where:_:)` returns that fact's value
+    /// directly, so the exit status IS what this wait returns. An
+    /// already-exited process is reported straight from the synchronous
+    /// check below, with no detour through the fact source at all.
     func awaitAlreadyRunningProcessExit(_ process: Process) async throws -> Int32 {
+        let scope = "already-running process exit"
+        let source = LocalFactSource(
+            vocabulary: FactVocabulary<String, Int32>(
+                describeScope: { $0 },
+                describeFact: { "exit status \($0)" },
+                isClosing: { _, _ in true }
+            )
+        )
+        let recorder = try source.attach()
+        let sink = source.sink
+
+        process.terminationHandler = { exitedProcess in
+            // Process.terminationHandler runs on an arbitrary queue, not
+            // inside a Swift Task; LocalFactSource.sink is synchronous and
+            // safe here.
+            sink(scope, exitedProcess.terminationStatus)
+        }
         // Register-then-check: the process may have already exited in the
         // gap between its caller spawning it and this call, and a handler
         // set after that exit is not guaranteed to fire for it.
-        // `pendingContinuation`'s extract-and-clear makes whichever of the
-        // handler or the synchronous already-exited check runs first the
-        // only one that resumes -- the same exactly-once guard
-        // `awaitProcessExit` itself uses. F7 follow-up (Lead 2026-10-01): a
-        // local named function captured by `Process.terminationHandler`'s
-        // own `@Sendable` closure type isn't itself provably `Sendable`, so
-        // the extract-and-clear runs inline at each `withLock` call instead
-        // of through a named `takePendingContinuation()`.
-        let pendingContinuation = Mutex<CheckedContinuation<Int32, any Error>?>(nil)
+        if !process.isRunning {
+            process.terminationHandler = nil
+            return process.terminationStatus
+        }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, any Error>) in
-                pendingContinuation.withLock { $0 = continuation }
-                process.terminationHandler = { exitedProcess in
-                    pendingContinuation.withLock { $0.take() }?.resume(returning: exitedProcess.terminationStatus)
-                }
-                if !process.isRunning {
-                    process.terminationHandler = nil
-                    pendingContinuation.withLock { $0.take() }?.resume(returning: process.terminationStatus)
-                }
-            }
+            try await recorder.expectNext(in: scope, where: { _ in true }, "process exit status")
         } onCancel: {
             if process.isRunning {
                 process.terminate()
@@ -133,35 +174,63 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// stdout, so whatever it was going to print has already arrived or
     /// never will, and this throws instead of hanging past it. No deadline
     /// beyond the suite's own runner-owned hang bound.
-    func awaitMarkerInProcessOutput(pipe: Pipe, marker: String) async throws {
+    ///
+    /// Architecture lint follow-up (Lead 2026-10-01): register-then-check
+    /// against a `LocalFactSource`/`FactRecorder` pair instead of a
+    /// hand-built `CheckedContinuation`. The readability handler only sinks
+    /// an observation fact -- synchronous, never a Task -- and
+    /// `recorder.expectNext(in:where:_:)` returns that fact's value
+    /// directly: the accumulated bytes through the marker ARE the value
+    /// that satisfied this wait, so this function returns them and every
+    /// caller asserts on that returned snapshot instead of a later,
+    /// separately-timed read.
+    func awaitMarkerInProcessOutput(pipe: Pipe, marker: String) async throws -> Data {
         let markerBytes = Data(marker.utf8)
-        // F7 follow-up (Lead 2026-10-01): same inline extract-and-clear as
-        // `awaitAlreadyRunningProcessExit` -- a named local function
-        // captured by `FileHandle.readabilityHandler`'s own `@Sendable`
-        // closure type isn't provably `Sendable`.
-        let pendingContinuation = Mutex<CheckedContinuation<Void, any Error>?>(nil)
         let accumulated = Mutex<Data>(Data())
+        let scope = "process output contains marker"
+        let source = LocalFactSource(
+            vocabulary: FactVocabulary<String, ProcessOutputMarkerObservation>(
+                describeScope: { $0 },
+                describeFact: { observation in
+                    switch observation {
+                    case .markerFound(let data): return "marker found in \(data.count) bytes"
+                    case .reachedEOFWithoutMarker: return "reached EOF without the marker"
+                    }
+                },
+                isClosing: { _, _ in true }
+            )
+        )
+        let recorder = try source.attach()
+        let sink = source.sink
 
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                pendingContinuation.withLock { $0 = continuation }
-                pipe.fileHandleForReading.readabilityHandler = { handle in
-                    let chunk = handle.availableData
-                    if chunk.isEmpty {
-                        pipe.fileHandleForReading.readabilityHandler = nil
-                        pendingContinuation.withLock { $0.take() }?.resume(
-                            throwing: ProcessOutputMarkerWaitFailure.reachedEOFWithoutMarker)
-                        return
-                    }
-                    let foundMarker = accumulated.withLock { stored -> Bool in
-                        stored.append(chunk)
-                        return stored.contains(markerBytes)
-                    }
-                    if foundMarker {
-                        pipe.fileHandleForReading.readabilityHandler = nil
-                        pendingContinuation.withLock { $0.take() }?.resume()
-                    }
-                }
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            // FileHandle.readabilityHandler dispatches off the cooperative
+            // pool entirely, not inside a Swift Task; LocalFactSource.sink
+            // is synchronous and safe here.
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                pipe.fileHandleForReading.readabilityHandler = nil
+                sink(scope, .reachedEOFWithoutMarker)
+                return
+            }
+            let (foundMarker, capturedSoFar) = accumulated.withLock { stored -> (Bool, Data) in
+                stored.append(chunk)
+                return (stored.contains(markerBytes), stored)
+            }
+            if foundMarker {
+                pipe.fileHandleForReading.readabilityHandler = nil
+                sink(scope, .markerFound(capturedSoFar))
+            }
+        }
+
+        return try await withTaskCancellationHandler {
+            let observation = try await recorder.expectNext(
+                in: scope, where: { _ in true }, "process output marker observation")
+            switch observation {
+            case .markerFound(let data):
+                return data
+            case .reachedEOFWithoutMarker:
+                throw ProcessOutputMarkerWaitFailure.reachedEOFWithoutMarker
             }
         } onCancel: {
             pipe.fileHandleForReading.readabilityHandler = nil
@@ -169,20 +238,12 @@ extension E2ESerializedTests.ZmxE2ETests {
     }
 }
 
-/// F7 follow-up (Lead 2026-10-01): a minimal, file-local extract-and-clear
-/// convenience -- `$0.take()` inside a `Mutex.withLock` closure reads the
-/// stored value and leaves `nil` behind in one step, used by
-/// `awaitAlreadyRunningProcessExit` and `awaitMarkerInProcessOutput` to keep
-/// their exactly-once continuation resolution inline instead of through a
-/// named local function (not provably `Sendable` when captured by another
-/// `@Sendable` closure, such as `Process.terminationHandler`'s or
-/// `FileHandle.readabilityHandler`'s own).
-extension Optional {
-    fileprivate mutating func take() -> Wrapped? {
-        let value = self
-        self = nil
-        return value
-    }
+/// What `awaitMarkerInProcessOutput`'s readability handler observed: either
+/// the marker arrived (carrying the bytes accumulated through it) or the
+/// process's stdout reached EOF first.
+private enum ProcessOutputMarkerObservation: Sendable {
+    case markerFound(Data)
+    case reachedEOFWithoutMarker
 }
 
 /// Thrown by `awaitMarkerInProcessOutput` when a process's stdout reaches

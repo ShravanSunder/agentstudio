@@ -212,11 +212,16 @@ package actor ColdStartObserver {
         // the SDK's own documented boundary for when the handle is safe to
         // close (source.h:449 warns that closing earlier permits the
         // descriptor's reuse while the source may still reference it).
-        // Captures `descriptor` directly, not `self.directoryDescriptor` --
-        // the actor's own property is already niled out by the time this
-        // runs.
+        // Captures `descriptor` and `syscalls` directly, not `self
+        // .directoryDescriptor` -- the actor's own property is already
+        // niled out by the time this runs. R1 gate (Lead 2026-10-01):
+        // routed through `syscalls.closeWatchedDirectory`, not a raw
+        // `close(descriptor)`, so a test can observe the real close as a
+        // typed fact instead of racing a queue drain against this same
+        // asynchronous cancellation.
+        let syscalls = self.syscalls
         source.setCancelHandler {
-            close(descriptor)
+            syscalls.closeWatchedDirectory(descriptor)
         }
         // A2: the mandatory initial check must run once kernel registration
         // is actually confirmed complete, not merely after `resume()`

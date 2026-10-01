@@ -80,6 +80,16 @@ package protocol ColdStartObserverSyscalls: Sendable {
     /// see `ColdStartLeaderState`'s own doc for why this never falls back to
     /// `kill(pid, 0)`.
     func leaderState(of incarnation: ZmxProcessIncarnation) -> ColdStartLeaderState
+
+    /// Closes `descriptor`, the watched directory's file descriptor
+    /// `openDirectoryForWatching` opened. R1 gate (Lead 2026-10-01): routed
+    /// through the syscalls seam, symmetric with `openDirectoryForWatching`,
+    /// so a test can observe the real close as a typed fact instead of
+    /// racing a queue drain against `dispatch_source_cancel`'s own
+    /// asynchronous deregistration (source.h:512) -- the cancel handler
+    /// libdispatch submits to the target queue is not guaranteed to land
+    /// before a `sync {}` issued around the same time.
+    func closeWatchedDirectory(_ descriptor: Int32)
 }
 
 /// The real Darwin implementation. Kept separate from the protocol so a
@@ -177,5 +187,9 @@ package struct DarwinColdStartObserverSyscalls: ColdStartObserverSyscalls {
             return .exited
         }
         return .sameIncarnationAlive
+    }
+
+    package func closeWatchedDirectory(_ descriptor: Int32) {
+        close(descriptor)
     }
 }

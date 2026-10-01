@@ -71,7 +71,11 @@ private final class LocalDrainRoutingLookup: GhosttyActionRoutingLookup {
     }
 }
 
-extension GhosttyActionRouterTests {
+/// R1 gate (Lead 2026-10-01, Fix 3): qualified to the nested path -- this
+/// extension adds tests to `GhosttyActionRouterTests`, which now lives under
+/// `GhosttyActionRouterSerializedTests` because it binds/drives
+/// `Ghostty.ActionRouter`'s process-wide activity-input singleton.
+extension GhosttyActionRouterSerializedTests.GhosttyActionRouterTests {
     @Test("commandFinished reaches ordered activity input before the ordinary runtime fact")
     func commandFinishedReachesOrderedInputBeforeRuntimeFact() async throws {
         let surfaceID = UUIDv7.generate()

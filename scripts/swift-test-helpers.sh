@@ -1207,6 +1207,24 @@ aggregate_serial_non_webkit_suite_filters() {
     echo "[test] failed to discover Suite-first MainActor serialized suites" >&2
     return 1
   fi
+  # R1 gate (Lead 2026-10-01, Fix 3): five of these additional_suite_pairs rows
+  # are for suites nested under GhosttyActionRouterSerializedTests
+  # (Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyActionRouterSerializedTests.swift).
+  # The bare-name regex scan above (serialized_main_actor_suite_matches) still
+  # finds each child struct's own MainActor/Suite(.serialized) declaration, but
+  # its capture has no notion of enclosing extension nesting, so it only ever
+  # emits the unqualified child name. Once nested, a bare child name has no dot
+  # before it in Swift Testing's real id (only a slash separates a nested
+  # child from its parent -- see swift_test_isolated_suite_filter_pattern's
+  # own comment above), so that bare-name entry matches nothing: harmless, but
+  # it cannot select these suites into the fast-lane filter on its own. The
+  # five qualified-path rows below (GhosttyRouterRestorePhaseEndDuringDrainTests
+  # through GhosttyActionRouterTests) are what actually select them.
+  #
+  # This explanation sits above the command substitution on purpose: a
+  # comment with backticks or parentheses inside additional_suite_pairs="$( ... )"
+  # mis-parses under macOS /bin/bash 3.2 (the mise task's and CI's shell),
+  # even though it parses fine under Homebrew bash 5.
   if ! additional_suite_pairs="$(
     printf '%s:%s\n' \
       'Tests/AgentStudioTests/Features/Terminal/State/TerminalActivityProjectorTests.swift' \
@@ -1262,6 +1280,21 @@ aggregate_serial_non_webkit_suite_filters() {
     printf '%s:%s\n' \
       'Tests/AgentStudioAppIPCTests/AgentStudioAppIPCConnectionHandlerLifecycleTests.swift' \
       'AgentStudioAppIPCConnectionHandlerLifecycleTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyRouterRestorePhaseEndDuringDrainTests.swift' \
+      'GhosttyActionRouterSerializedTests/GhosttyRouterRestorePhaseEndDuringDrainTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorRestorePhaseReplacementTests.swift' \
+      'GhosttyActionRouterSerializedTests/WorkspaceSurfaceRestorePhaseReplacementTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Features/Terminal/State/TerminalActivityRouterAttentionTests.swift' \
+      'GhosttyActionRouterSerializedTests/TerminalActivityRouterAttentionTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyActionRouterTerminalActivityInputTests.swift' \
+      'GhosttyActionRouterSerializedTests/GhosttyActionRouterRestorePhaseArmingTests'
+    printf '%s:%s\n' \
+      'Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyActionRouterTests.swift' \
+      'GhosttyActionRouterSerializedTests/GhosttyActionRouterTests'
   )"; then
     echo "[test] failed to create explicit serialized-suite candidates" >&2
     return 1

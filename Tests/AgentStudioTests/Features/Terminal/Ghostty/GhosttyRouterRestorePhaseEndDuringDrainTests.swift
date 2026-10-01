@@ -44,107 +44,116 @@ import Testing
 /// replacement-latch suite already use), not a substitute resolver. Freshly
 /// generated `UUIDv7` identities, so this cannot collide with another test's
 /// entries; torn down at the end of the test.
-@MainActor
-@Suite("Ghostty router restore-phase end during drain", .serialized)
-struct GhosttyRouterRestorePhaseEndDuringDrainTests {
-    private enum DrainFact: Sendable, Equatable {
-        case restorePhaseEnded(generation: RestoreGeneration)
-    }
-
-    private func vocabulary() -> FactVocabulary<UUID, DrainFact> {
-        FactVocabulary(
-            describeScope: { $0.uuidString },
-            describeFact: { String(describing: $0) },
-            isClosing: { _, fact in
-                if case .restorePhaseEnded = fact { return true }
-                return false
-            }
-        )
-    }
-
-    @Test("input landing while the real drain is suspended still schedules a follow-up that delivers it")
-    func restorePhaseEndWhileRealDrainIsSuspendedStillDelivers() async throws {
-        let surfaceID = UUIDv7.generate()
-        let paneID = UUIDv7.generate()
-        let generation = RestoreGeneration(rawValue: 11)
-        let bindingID = UUIDv7.generate()
-
-        let surface = Ghostty.SurfaceView(
-            managedSurfaceID: surfaceID, appCommandDispatcher: DuringDrainNoOpAppCommandDispatcher())
-        guard
-            case .success = SurfaceManager.shared.acceptCreatedSurface(
-                surface, metadata: SurfaceMetadata(paneId: paneID))
-        else {
-            Issue.record("expected SurfaceManager.shared to accept the test surface")
-            throw DuringDrainTestFailure.setupDidNotSucceed
+///
+/// R1 gate (Lead 2026-10-01, Fix 3): nested under `GhosttyActionRouterSerializedTests`
+/// -- this suite drives `Ghostty.ActionRouter.localActionAccumulator` and
+/// `bindTerminalActivityInput` against the one real, process-wide singleton
+/// by design (see above), so it must never run concurrently with another
+/// suite doing the same.
+extension GhosttyActionRouterSerializedTests {
+    @MainActor
+    @Suite("Ghostty router restore-phase end during drain", .serialized)
+    struct GhosttyRouterRestorePhaseEndDuringDrainTests {
+        private enum DrainFact: Sendable, Equatable {
+            case restorePhaseEnded(generation: RestoreGeneration)
         }
-        SurfaceManager.shared.attach(surfaceID, to: paneID)
-        defer { SurfaceManager.shared.destroy(surfaceID) }
 
-        let source = LocalFactSource(vocabulary: vocabulary())
-        let recorder = try source.attach()
-        let suspensionPoint = HeldStep<Void>("real drain suspended submitting ordinary activity")
-
-        Ghostty.ActionRouter.bindTerminalActivityInput(
-            id: bindingID,
-            context: { _ in
-                TerminalActivityProjectionContext(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30)
-            },
-            sink: { input in
-                switch input {
-                case .aggregate:
-                    // The real suspension point: parks the real drain Task
-                    // here until the test releases it.
-                    try? await suspensionPoint.arrive(())
-                case .orderedControl(_, let inputPaneID, _, let control):
-                    if case .restorePhaseEnded(let endedGeneration) = control {
-                        source.sink(inputPaneID, .restorePhaseEnded(generation: endedGeneration))
-                    }
-                case .restorePhaseArmed, .restorePhaseEnded, .paneRetiredPermanently:
-                    break
+        private func vocabulary() -> FactVocabulary<UUID, DrainFact> {
+            FactVocabulary(
+                describeScope: { $0.uuidString },
+                describeFact: { String(describing: $0) },
+                isClosing: { _, fact in
+                    if case .restorePhaseEnded = fact { return true }
+                    return false
                 }
-            }
-        )
-        defer { Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID) }
-        defer { Ghostty.ActionRouter.retireLocalActions(for: surfaceID) }
-
-        // Arrange -- ordinary output schedules a real drain through the
-        // real scheduler. It will suspend inside the bound sink's
-        // `.aggregate` arm, above.
-        Ghostty.ActionRouter.localActionAccumulator.offer(
-            .scrollbar(ScrollbarState(top: 0, bottom: 10, total: 10), observedAtMilliseconds: 1000),
-            for: surfaceID
-        )
-        _ = try await suspensionPoint.firstArrival()
-
-        // Act -- input ends the restore phase while that real drain is
-        // genuinely suspended mid-flight, exactly as a real keyDown's
-        // `endRestorePhaseIfLatched()` would.
-        Ghostty.ActionRouter.localActionAccumulator.markRestorePhaseEnded(
-            surfaceID: surfaceID,
-            generation: generation,
-            contextBeforeControl: TerminalActivityProjectionContext(
-                isAttended: false, isAgentClassified: false, outputBurstThreshold: 30)
-        )
-
-        // Release the suspended drain: it finishes with no additional
-        // ordinary work, and (with the F2 fix) schedules a real follow-up
-        // through the real scheduler.
-        suspensionPoint.release()
-
-        let endedFact = try await recorder.expectNext(
-            in: paneID,
-            where: {
-                if case .restorePhaseEnded = $0 { return true }
-                return false
-            },
-            "restorePhaseEnded"
-        )
-        guard case .restorePhaseEnded(let endedGeneration) = endedFact else {
-            Issue.record("expected restorePhaseEnded, got \(endedFact)")
-            throw DuringDrainTestFailure.setupDidNotSucceed
+            )
         }
-        #expect(endedGeneration == generation)
+
+        @Test("input landing while the real drain is suspended still schedules a follow-up that delivers it")
+        func restorePhaseEndWhileRealDrainIsSuspendedStillDelivers() async throws {
+            let surfaceID = UUIDv7.generate()
+            let paneID = UUIDv7.generate()
+            let generation = RestoreGeneration(rawValue: 11)
+            let bindingID = UUIDv7.generate()
+
+            let surface = Ghostty.SurfaceView(
+                managedSurfaceID: surfaceID, appCommandDispatcher: DuringDrainNoOpAppCommandDispatcher())
+            guard
+                case .success = SurfaceManager.shared.acceptCreatedSurface(
+                    surface, metadata: SurfaceMetadata(paneId: paneID))
+            else {
+                Issue.record("expected SurfaceManager.shared to accept the test surface")
+                throw DuringDrainTestFailure.setupDidNotSucceed
+            }
+            SurfaceManager.shared.attach(surfaceID, to: paneID)
+            defer { SurfaceManager.shared.destroy(surfaceID) }
+
+            let source = LocalFactSource(vocabulary: vocabulary())
+            let recorder = try source.attach()
+            let suspensionPoint = HeldStep<Void>("real drain suspended submitting ordinary activity")
+
+            Ghostty.ActionRouter.bindTerminalActivityInput(
+                id: bindingID,
+                context: { _ in
+                    TerminalActivityProjectionContext(
+                        isAttended: false, isAgentClassified: false, outputBurstThreshold: 30)
+                },
+                sink: { input in
+                    switch input {
+                    case .aggregate:
+                        // The real suspension point: parks the real drain Task
+                        // here until the test releases it.
+                        try? await suspensionPoint.arrive(())
+                    case .orderedControl(_, let inputPaneID, _, let control):
+                        if case .restorePhaseEnded(let endedGeneration) = control {
+                            source.sink(inputPaneID, .restorePhaseEnded(generation: endedGeneration))
+                        }
+                    case .restorePhaseArmed, .restorePhaseEnded, .paneRetiredPermanently:
+                        break
+                    }
+                }
+            )
+            defer { Ghostty.ActionRouter.unbindTerminalActivityInput(id: bindingID) }
+            defer { Ghostty.ActionRouter.retireLocalActions(for: surfaceID) }
+
+            // Arrange -- ordinary output schedules a real drain through the
+            // real scheduler. It will suspend inside the bound sink's
+            // `.aggregate` arm, above.
+            Ghostty.ActionRouter.localActionAccumulator.offer(
+                .scrollbar(ScrollbarState(top: 0, bottom: 10, total: 10), observedAtMilliseconds: 1000),
+                for: surfaceID
+            )
+            _ = try await suspensionPoint.firstArrival()
+
+            // Act -- input ends the restore phase while that real drain is
+            // genuinely suspended mid-flight, exactly as a real keyDown's
+            // `endRestorePhaseIfLatched()` would.
+            Ghostty.ActionRouter.localActionAccumulator.markRestorePhaseEnded(
+                surfaceID: surfaceID,
+                generation: generation,
+                contextBeforeControl: TerminalActivityProjectionContext(
+                    isAttended: false, isAgentClassified: false, outputBurstThreshold: 30)
+            )
+
+            // Release the suspended drain: it finishes with no additional
+            // ordinary work, and (with the F2 fix) schedules a real follow-up
+            // through the real scheduler.
+            suspensionPoint.release()
+
+            let endedFact = try await recorder.expectNext(
+                in: paneID,
+                where: {
+                    if case .restorePhaseEnded = $0 { return true }
+                    return false
+                },
+                "restorePhaseEnded"
+            )
+            guard case .restorePhaseEnded(let endedGeneration) = endedFact else {
+                Issue.record("expected restorePhaseEnded, got \(endedFact)")
+                throw DuringDrainTestFailure.setupDidNotSucceed
+            }
+            #expect(endedGeneration == generation)
+        }
     }
 }
 

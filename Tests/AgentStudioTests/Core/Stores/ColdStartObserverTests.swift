@@ -76,6 +76,24 @@ struct ColdStartObserverTests {
             return directoryOpenResult
         }
 
+        func closeWatchedDirectory(_ descriptor: Int32) {
+            close(descriptor)
+            lock.lock()
+            directoryCloseCallCount += 1
+            lock.unlock()
+            // R1 gate (Lead 2026-10-01, FAIL 1 fix 1): `testQueue.sync {}`
+            // only proves blocks enqueued before it ran have completed --
+            // `dispatch_source_cancel`'s own deregistration (source.h:512)
+            // happens on libdispatch's manager thread, so the cancel
+            // handler's submission to the target queue is not ordered
+            // against an unrelated `sync {}` issued around the same time.
+            // This fact is fired from inside the real close call itself
+            // (routed here instead of a raw `close(descriptor)` in
+            // `ColdStartObserver`'s own cancel handler), so a test awaiting
+            // it observes the real close, not a queue-drain proxy for it.
+            directoryCloseCallFactSink?(Self.directoryCloseScope, descriptor)
+        }
+
         /// F7 follow-up (Lead 2026-10-01, R1 gate failure 1): same
         /// technique as `processArgumentsCallFactSink`, for a test that
         /// must prove the directory watch source already exists -- not
@@ -84,7 +102,21 @@ struct ColdStartObserverTests {
         var directoryOpenCallFactSink: (@Sendable (String, Int) -> Void)?
         private var directoryOpenCallCount = 0
 
+        /// R1 gate (Lead 2026-10-01, FAIL 1 fix 1): the fact value is the
+        /// closed descriptor itself, so a test can assert it matches the
+        /// one it opened, not merely that some close happened.
+        var directoryCloseCallFactSink: (@Sendable (String, Int32) -> Void)?
+        private(set) var directoryCloseCallCount = 0
+
         static let directoryOpenScope = "openDirectoryForWatching"
+        static let directoryCloseScope = "closeWatchedDirectory"
+
+        /// The typed-fact vocabulary for `directoryCloseCallFactSink`.
+        static func directoryCloseCallFactVocabulary() -> FactVocabulary<String, Int32> {
+            FactVocabulary(
+                describeScope: { $0 }, describeFact: { "closeWatchedDirectory fd=\($0)" },
+                isClosing: { _, _ in true })
+        }
 
         /// The typed-fact vocabulary for `directoryOpenCallFactSink`.
         static func directoryOpenCallFactVocabulary() -> FactVocabulary<String, Int> {
