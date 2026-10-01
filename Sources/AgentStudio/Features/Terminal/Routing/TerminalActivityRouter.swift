@@ -28,6 +28,19 @@ package final class TerminalActivityRouter {
     private let attendedPane: AttendedPaneDerived?
     private let traceRuntime: AgentStudioTraceRuntime?
     private let startupTraceRecorder: AgentStudioStartupTraceRecorder?
+    /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
+    /// not pull): notified beside `startupTraceRecorder?.recordFirstOutput`
+    /// in `consumeProjectionOutcome`'s existing `.firstOutput` arm -- the
+    /// same raw fact, already unconditional for warm/unverified panes (they
+    /// never arm a restore phase, so `consumeAggregateState`'s
+    /// `!isInRestorePhase` gate never blocks them). Composed in
+    /// `AppDelegate.bootStartTerminalActivityRouter` to notify
+    /// `WorkspaceSurfaceCoordinator.receivePostAttachFirstOutput(paneID:)`.
+    /// Both this router and the coordinator are `@MainActor`, so this adds
+    /// no new actor hop over the trace call beside it -- typed
+    /// `@MainActor @Sendable`, matching `recordSettledActivityStatus`'s own
+    /// shape below, so the call at the `.firstOutput` arm needs no `await`.
+    private let onFirstOutput: (@MainActor @Sendable (UUID) -> Void)?
     private let surfaceIDForPaneID: @MainActor (UUID) -> UUID?
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
     private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
@@ -56,6 +69,7 @@ package final class TerminalActivityRouter {
         attendedPane: AttendedPaneDerived? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         startupTraceRecorder: AgentStudioStartupTraceRecorder? = nil,
+        onFirstOutput: (@MainActor @Sendable (UUID) -> Void)? = nil,
         surfaceIDForPaneID: (@MainActor (UUID) -> UUID?)? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
@@ -85,6 +99,7 @@ package final class TerminalActivityRouter {
         self.attendedPane = attendedPane
         self.traceRuntime = traceRuntime
         self.startupTraceRecorder = startupTraceRecorder
+        self.onFirstOutput = onFirstOutput
         self.surfaceIDForPaneID = surfaceIDForPaneID ?? { SurfaceManager.shared.surfaceId(forPaneId: $0) }
         self.isPaneCurrentlyAttended =
             isPaneCurrentlyAttended
@@ -281,6 +296,7 @@ package final class TerminalActivityRouter {
             activityAtom.apply(update)
         case .firstOutput(let surfaceID, let paneID):
             startupTraceRecorder?.recordFirstOutput(paneID: paneID, surfaceID: surfaceID)
+            onFirstOutput?(paneID)
         case .paneObservationChanged(_, let paneID, let isPinnedToBottom):
             derivedEnvelopes.append(
                 derivedActivityEnvelope(

@@ -26,10 +26,19 @@ struct PostAttachRecreationCheckWiringTests {
     private final class ScriptedProbe: ZmxSessionRestoreProbing, @unchecked Sendable {
         var observedIdentity: Data?
         var throwsOnObserve = false
+        /// A6: thrown instead of `ScriptedProbeFailure.simulated` when a test
+        /// needs `resolveRecreationVerdictOffMain` to recognize the failure
+        /// as a `ZmxSessionControlFailure` and report its typed reason.
+        var zmxFailureToThrow: ZmxSessionControlFailure?
+        /// A6: proves the probe is never touched before a pane's first
+        /// output has actually arrived.
+        private(set) var observeCallCount = 0
 
         func discoverSessionInventory() async -> ZmxSessionInventory { .complete([:]) }
 
         func observeSessionIdentity(_ sessionID: ZmxSessionID) async throws -> Data? {
+            observeCallCount += 1
+            if let zmxFailureToThrow { throw zmxFailureToThrow }
             if throwsOnObserve { throw ScriptedProbeFailure.simulated }
             return observedIdentity
         }
@@ -39,7 +48,7 @@ struct PostAttachRecreationCheckWiringTests {
         case simulated
     }
 
-    private func vocabulary() -> FactVocabulary<UUID, PaneRecreationCheckResult> {
+    private func vocabulary() -> FactVocabulary<UUID, PaneRecreationCheckOutcome> {
         FactVocabulary(
             describeScope: { $0.uuidString },
             describeFact: { String(describing: $0) },
@@ -113,6 +122,7 @@ struct PostAttachRecreationCheckWiringTests {
             pane: pane,
             restoreKind: .warm(
                 identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unchanged")))
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .unchanged)
@@ -137,14 +147,17 @@ struct PostAttachRecreationCheckWiringTests {
             restoreKind: .warm(
                 identity: Data([1, 2, 3]),
                 fallback: makeFallbackPlan(sessionIDText: "as-post-attach-recreated")))
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .recreated)
         #expect(coordinator.postAttachRecreationCheckTasksByPaneID[pane.id] == nil)
     }
 
-    @Test("a failed observation settles couldNotCheck, never recreated on a mere absence of proof")
-    func failedObservationSettlesCouldNotCheck() async throws {
+    @Test(
+        "a failed observation with an unrecognized error settles uncheckable, never recreated on a mere absence of proof"
+    )
+    func failedObservationSettlesUncheckable() async throws {
         // Arrange
         let coordinator = try makeCoordinator()
         let source = LocalFactSource(vocabulary: vocabulary())
@@ -161,13 +174,42 @@ struct PostAttachRecreationCheckWiringTests {
             restoreKind: .warm(
                 identity: Data([1, 2, 3]),
                 fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unobservable")))
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
 
         // Assert
-        try await recorder.expectNext(in: pane.id, .couldNotCheck)
+        try await recorder.expectNext(in: pane.id, .uncheckable(.observationFailedUnrecognized))
     }
 
-    @Test("an unverified pane with no baseline settles couldNotCheck even when the observation succeeds")
-    func unverifiedPaneWithNoBaselineSettlesCouldNotCheck() async throws {
+    /// A6: `observeSessionIdentity` throwing a recognized `ZmxSessionControlFailure`
+    /// -- including the pre-setsid window immediately after a freshly
+    /// recreated session -- reports that exact reason, not a bare
+    /// "couldn't check."
+    @Test("a failed observation with a recognized zmx failure reports its typed reason")
+    func failedObservationWithRecognizedZmxFailureReportsItsReason() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let probe = ScriptedProbe()
+        probe.zmxFailureToThrow = .unexpectedProcessGroup
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-presetsid")
+
+        // Act
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: Data([1, 2, 3]),
+                fallback: makeFallbackPlan(sessionIDText: "as-post-attach-presetsid")))
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+
+        // Assert
+        try await recorder.expectNext(in: pane.id, .uncheckable(.observationFailed(.unexpectedProcessGroup)))
+    }
+
+    @Test("an unverified pane with no baseline settles uncheckable even when the observation succeeds")
+    func unverifiedPaneWithNoBaselineSettlesUncheckable() async throws {
         // Arrange
         let coordinator = try makeCoordinator()
         let source = LocalFactSource(vocabulary: vocabulary())
@@ -184,9 +226,131 @@ struct PostAttachRecreationCheckWiringTests {
             restoreKind: .unverified(
                 .warmIdentityUnobservable,
                 fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unverified")))
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
 
         // Assert
-        try await recorder.expectNext(in: pane.id, .couldNotCheck)
+        try await recorder.expectNext(in: pane.id, .uncheckable(.missingBaseline))
+    }
+
+    /// A6 (advisor review 2026-10-01; PD rev 21 item 5): the pane exiting,
+    /// retiring, or unmounting before its first output ever arrives must
+    /// settle `.uncheckable` without ever touching the probe -- there is
+    /// nothing meaningful left to observe once the pane itself is gone.
+    /// `retirePanesPermanently` is the coordinator's one real "this pane is
+    /// permanently gone" signal (undo expiry and direct discard both funnel
+    /// through it -- confirmed by reading `WorkspaceSurfaceCoordinator+PaneDiscard.swift`
+    /// directly), so this drives the real retirement path rather than a
+    /// scripted stand-in.
+    @Test("a pane retired before first output settles uncheckable without ever probing")
+    func paneRetiredBeforeFirstOutputSettlesUncheckableWithoutProbing() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let probe = ScriptedProbe()
+        probe.observedIdentity = Data([1, 2, 3])
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-unavailable")
+
+        // Act
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: Data([1, 2, 3]),
+                fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unavailable")))
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] != nil)
+        coordinator.retirePanesPermanently([pane.id])
+
+        // Assert
+        try await recorder.expectNext(in: pane.id, .uncheckable(.paneUnavailableBeforeFirstOutput))
+        #expect(probe.observeCallCount == 0)
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil)
+    }
+
+    /// A6 (Lead decision, push design): proves the check genuinely waits
+    /// for `receivePostAttachFirstOutput`, not merely that the two values
+    /// happen to differ -- the probe is still untouched right after
+    /// registration (`observeCallCount == 0`, the pane sits in
+    /// `pendingPostAttachRecreationChecksByPaneID`), and its baseline-matching
+    /// identity is only overwritten with a *different* one strictly between
+    /// registration and the simulated push. If the probe had run at
+    /// registration time, this would observe the original, still-matching
+    /// identity and settle `.unchanged` instead.
+    @Test("registering then replacing the identity before the first-output push reports recreated")
+    func registeringThenReplacingIdentityBeforePushReportsRecreated() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let baseline = Data([1, 2, 3])
+        let probe = ScriptedProbe()
+        probe.observedIdentity = baseline
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-push-recreated")
+
+        // Act
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-push-recreated")))
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] != nil)
+        #expect(probe.observeCallCount == 0)
+        // The session is "recreated" strictly after native mount, before
+        // the pane's first output ever arrives.
+        probe.observedIdentity = Data([9, 9, 9])
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+
+        // Assert
+        try await recorder.expectNext(in: pane.id, .recreated)
+        #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil)
+    }
+
+    /// A6: the same push shape as the recreated case above, but the identity
+    /// observed at push time still matches the baseline -- proves the push
+    /// mechanism itself doesn't bias the outcome.
+    @Test("registering then pushing with the identity unchanged reports unchanged")
+    func registeringThenPushingWithIdentityUnchangedReportsUnchanged() async throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        let recorder = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let baseline = Data([1, 2, 3])
+        let probe = ScriptedProbe()
+        probe.observedIdentity = baseline
+        coordinator.postAttachRecreationProbe = probe
+        let pane = makeZmxPane(sessionIDText: "as-post-attach-push-unchanged")
+
+        // Act
+        coordinator.beginPostAttachRecreationCheckIfNeeded(
+            pane: pane,
+            restoreKind: .warm(
+                identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-push-unchanged")))
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+
+        // Assert
+        try await recorder.expectNext(in: pane.id, .unchanged)
+    }
+
+    /// A6: a push for a pane never registered (steady-state, already
+    /// checked, already retired) is ignored -- no task started, no fact
+    /// emitted.
+    @Test("a first-output push for an unregistered pane is ignored")
+    func firstOutputPushForUnregisteredPaneIsIgnored() throws {
+        // Arrange
+        let coordinator = try makeCoordinator()
+        let source = LocalFactSource(vocabulary: vocabulary())
+        _ = try source.attach()
+        coordinator.postAttachRecreationCheckFactSink = source.sink
+        let unregisteredPaneID = UUIDv7.generate()
+
+        // Act
+        coordinator.receivePostAttachFirstOutput(paneID: unregisteredPaneID)
+
+        // Assert
+        #expect(coordinator.postAttachRecreationCheckTasksByPaneID.isEmpty)
     }
 
     /// A1 (test technique corrected by the Lead 2026-10-01): same
@@ -219,6 +383,7 @@ struct PostAttachRecreationCheckWiringTests {
                 identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-structural-offmain")),
             observeDerivationExecutionContext: { executionContextRecorder.record() }
         )
+        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .unchanged)

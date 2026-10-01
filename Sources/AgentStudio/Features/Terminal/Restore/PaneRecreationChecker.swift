@@ -29,6 +29,42 @@ package enum PaneRecreationCheckResult: Equatable, Sendable {
     case couldNotCheck
 }
 
+/// A6 (advisor review 2026-10-01; PD rev 21 item 5): why a post-attach
+/// recreation check reached no verdict -- the orchestration layer's own
+/// typed reason for taking `PaneRecreationCheckResult.couldNotCheck`'s
+/// branch, now that waiting for the pane's first output before checking can
+/// itself fail in a way the pure comparison never could. `PaneRecreationChecker
+/// .checkForRecreation` is unchanged: it stays an honest two-blob
+/// comparison, oblivious to why either blob might be missing.
+package enum PaneRecreationUncheckableReason: Equatable, Sendable {
+    /// `restoreKind == .unverified`: no warm baseline ever existed to
+    /// compare against.
+    case missingBaseline
+    /// The pane exited, was retired, unmounted, or this check's own task
+    /// was cancelled before the awaited first output after native mount
+    /// ever arrived -- the check never got to observe at all.
+    case paneUnavailableBeforeFirstOutput
+    /// `ZmxSessionRestoreProbing.observeSessionIdentity` threw a recognized
+    /// `ZmxSessionControlFailure` -- including the pre-setsid window
+    /// immediately after a freshly recreated session
+    /// (`.unexpectedProcessGroup`/`.unexpectedProcessParent`).
+    case observationFailed(ZmxSessionControlFailure)
+    /// `observeSessionIdentity` threw an error this reason type doesn't
+    /// recognize (a non-`ZmxSessionControlFailure` conformer).
+    case observationFailedUnrecognized
+}
+
+/// A6: the post-attach recreation check's own outer verdict -- wraps
+/// `PaneRecreationCheckResult`, the pure identity comparison, with a typed
+/// reason when no comparison could be made. `unchanged`/`recreated` collapse
+/// directly from the pure result; `uncheckable` replaces its bare
+/// `.couldNotCheck` with a specific `PaneRecreationUncheckableReason`.
+package enum PaneRecreationCheckOutcome: Equatable, Sendable {
+    case unchanged
+    case recreated
+    case uncheckable(PaneRecreationUncheckableReason)
+}
+
 package enum PaneRecreationChecker {
     /// `baselineIdentity` is `TerminalRestoreKind.warm(identity:fallback:)`'s
     /// stored `identity` for a warm pane, or `nil` for an unverified one (which never

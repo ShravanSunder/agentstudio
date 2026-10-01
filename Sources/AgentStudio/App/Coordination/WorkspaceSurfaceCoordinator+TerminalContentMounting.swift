@@ -9,6 +9,22 @@ struct MountedTerminalContent {
     let surfaceID: UUID
 }
 
+/// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
+/// not pull): one warm/unverified pane's post-attach recreation check,
+/// registered at mount time by `beginPostAttachRecreationCheckIfNeeded` and
+/// started later by `receivePostAttachFirstOutput(paneID:)` once the pane's
+/// real first output arrives. Carries exactly what `resolveRecreationVerdictOffMain`
+/// needs, since the check itself no longer starts at registration time.
+/// `Sendable` so it can cross into the `Task { @MainActor in ... }`
+/// `receivePostAttachFirstOutput` starts, matching `TerminalRestoreKindResolver
+/// .ZmxPaneCapture`'s own precedent for a capture struct crossing an async
+/// boundary.
+struct PendingPostAttachRecreationCheck: Sendable {
+    let sessionID: ZmxSessionID
+    let baselineIdentity: Data?
+    let observeDerivationExecutionContext: @Sendable () -> Void
+}
+
 enum TopologyIndependentTerminalMountFailure {
     case trustedInitialFrameUnavailable
     case startupPreparationFailed
@@ -257,6 +273,17 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     /// retirement and coordinator teardown can cancel it, mirroring
     /// `beginObservingColdStart`'s task-ownership shape.
     ///
+    /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
+    /// not pull): registers this pane for its check instead of starting it
+    /// -- "the attach settles" is now the pane's first real terminal output
+    /// after native mount, not native-mount completion itself, and the
+    /// check only starts when `receivePostAttachFirstOutput(paneID:)` is
+    /// notified of that fact (`TerminalActivityRouter`'s existing
+    /// `.firstOutput` outcome arm). A pane that retires, exits or unmounts
+    /// before that notification is removed in `retirePanesPermanently`
+    /// instead, recording `.uncheckable(.paneUnavailableBeforeFirstOutput)`
+    /// without ever probing.
+    ///
     /// Not `private`: a dedicated test suite calls this directly with a
     /// scripted `ZmxSessionRestoreProbing` to prove the comparison and
     /// task-ownership wiring without a real zmx daemon (see
@@ -264,7 +291,7 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     func beginPostAttachRecreationCheckIfNeeded(
         pane: Pane,
         restoreKind: TerminalRestoreKind?,
-        observeDerivationExecutionContext: @Sendable () -> Void = {}
+        observeDerivationExecutionContext: @escaping @Sendable () -> Void = {}
     ) {
         let baselineIdentity: Data?
         switch restoreKind {
@@ -276,23 +303,39 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             return
         }
         guard let sessionID = pane.terminalState?.zmxSessionID else { return }
+        guard postAttachRecreationProbe != nil else { return }
+        pendingPostAttachRecreationChecksByPaneID[pane.id] = PendingPostAttachRecreationCheck(
+            sessionID: sessionID,
+            baselineIdentity: baselineIdentity,
+            observeDerivationExecutionContext: observeDerivationExecutionContext
+        )
+    }
+
+    /// A6 (Lead decision, push design): called by `TerminalActivityRouter`'s
+    /// injected `onFirstOutput` callback -- a synchronous set-lookup plus a
+    /// task start, no new actor hop (both types are `@MainActor`). A pane
+    /// not registered here (never mounted warm/unverified, already
+    /// checked, or already retired through `retirePanesPermanently`) is
+    /// ignored.
+    func receivePostAttachFirstOutput(paneID: UUID) {
+        guard let pending = pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneID) else { return }
         guard let probe = postAttachRecreationProbe else { return }
-        let paneID = pane.id
         // A1 (advisor review 2026-10-01): the comparison itself
         // (`PaneRecreationChecker.checkForRecreation`) is pure -- it needs
         // no actor, only `probe.observeSessionIdentity`'s own I/O does.
-        // `probe` is captured by value (a `Sendable` existential) before
-        // this task, not read through `self` inside it, so the off-main
-        // body never touches MainActor state; only the completion step
-        // (removing this task from `postAttachRecreationCheckTasksByPaneID`
-        // and firing the fact sink) hops back to `self` on MainActor.
+        // `probe` and `pending` are captured by value (both `Sendable`)
+        // before this task, not read through `self` inside it, so the
+        // off-main body never touches MainActor state; only the
+        // completion step (removing this task from
+        // `postAttachRecreationCheckTasksByPaneID` and firing the fact
+        // sink) hops back to `self` on MainActor.
         let checkTask = Task { @MainActor [weak self] in
-            let result = await Self.resolveRecreationVerdictOffMain(
-                probe: probe, sessionID: sessionID, baselineIdentity: baselineIdentity,
-                observeDerivationExecutionContext: observeDerivationExecutionContext)
+            let outcome = await Self.resolveRecreationVerdictOffMain(
+                probe: probe, sessionID: pending.sessionID, baselineIdentity: pending.baselineIdentity,
+                observeDerivationExecutionContext: pending.observeDerivationExecutionContext)
             guard let self else { return }
             self.postAttachRecreationCheckTasksByPaneID.removeValue(forKey: paneID)
-            self.postAttachRecreationCheckFactSink?(paneID, result)
+            self.postAttachRecreationCheckFactSink?(paneID, outcome)
         }
         postAttachRecreationCheckTasksByPaneID[paneID] = checkTask
     }
@@ -309,23 +352,49 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     /// a no-op in production, called right before the pure comparison so a
     /// test can record a structural "not on MainActor" fact instead of
     /// racing this call against other MainActor work.
+    ///
+    /// A6: captures *why* a thrown observation couldn't check (instead of
+    /// `try?`'s silent `nil`), without changing `PaneRecreationChecker`
+    /// .checkForRecreation`'s own pure, reason-free comparison. A thrown
+    /// observation takes priority over a merely-missing baseline when a
+    /// `.couldNotCheck` comparison could honestly point at either --
+    /// something actually failed, which is the more actionable fact.
     @concurrent nonisolated private static func resolveRecreationVerdictOffMain(
         probe: any ZmxSessionRestoreProbing,
         sessionID: ZmxSessionID,
         baselineIdentity: Data?,
         observeDerivationExecutionContext: @Sendable () -> Void = {}
-    ) async -> PaneRecreationCheckResult {
-        let observedIdentity = try? await probe.observeSessionIdentity(sessionID)
+    ) async -> PaneRecreationCheckOutcome {
+        let observedIdentity: Data?
+        var observationFailureReason: PaneRecreationUncheckableReason?
+        do {
+            observedIdentity = try await probe.observeSessionIdentity(sessionID)
+        } catch let failure as ZmxSessionControlFailure {
+            observedIdentity = nil
+            observationFailureReason = .observationFailed(failure)
+        } catch {
+            observedIdentity = nil
+            observationFailureReason = .observationFailedUnrecognized
+        }
         observeDerivationExecutionContext()
-        let result = PaneRecreationChecker.checkForRecreation(
+        let comparison = PaneRecreationChecker.checkForRecreation(
             baselineIdentity: baselineIdentity,
             observedIdentity: observedIdentity
         )
+        let outcome: PaneRecreationCheckOutcome
+        switch comparison {
+        case .unchanged:
+            outcome = .unchanged
+        case .recreated:
+            outcome = .recreated
+        case .couldNotCheck:
+            outcome = .uncheckable(observationFailureReason ?? .missingBaseline)
+        }
         // SR2a: telemetry only, scrubbing raw ids -- this local trace line
         // is this restore code path's own established diagnostic channel
         // (matching `handleColdStartOutcome` above), gated behind
         // `AGENTSTUDIO_RESTORE_TRACE`, not OTLP.
-        RestoreTrace.log("postAttachRecreationCheck result=\(result)")
-        return result
+        RestoreTrace.log("postAttachRecreationCheck result=\(outcome)")
+        return outcome
     }
 }
