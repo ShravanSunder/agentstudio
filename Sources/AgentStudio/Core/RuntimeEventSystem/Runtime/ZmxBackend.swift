@@ -186,6 +186,22 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
 
     // MARK: - Pane Session Lifecycle
 
+    /// Raw VT capture has its own absolute deadline and bounded byte contract
+    /// (SR7–SR8); ProcessExecutor intentionally retains its trimmed strings.
+    @concurrent
+    nonisolated
+        package func captureHistory(
+            _ sessionID: ZmxSessionID,
+            clock: any Clock<Duration> = ContinuousClock(),
+            deadline: Duration = AppPolicies.Restore.captureDeadline,
+            byteCeiling: Int = AppPolicies.Restore.captureByteCeiling
+        ) async -> ScrollbackCaptureResult
+    {
+        let capture = ScrollbackHistoryCapture(
+            executablePath: zmxPath, zmxDirectory: zmxDir, sessionID: sessionID, byteCeiling: byteCeiling)
+        return await capture.run(clock: clock, deadline: deadline)
+    }
+
     /// Build a handle for a zmx session. No CLI call — zmx auto-creates on first attach.
     func createPaneSession(sessionID: ZmxSessionID) async throws -> PaneSessionHandle {
         // Ensure the zmx directory exists for socket isolation

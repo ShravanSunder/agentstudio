@@ -291,12 +291,13 @@ final class ZmxTestHarness: @unchecked Sendable {
     func spawnZmxSession(
         zmxPath: String,
         sessionId: String,
-        commandArgs: [String]
+        commandArgs: [String],
+        standardOutput: FileHandle = .nullDevice
     ) async throws -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: zmxPath)
         process.arguments = ["attach", sessionId] + commandArgs
-        process.standardOutput = FileHandle.nullDevice
+        process.standardOutput = standardOutput
         process.standardError = FileHandle.nullDevice
         process.standardInput = Pipe()
         var env = ProcessInfo.processInfo.environment
