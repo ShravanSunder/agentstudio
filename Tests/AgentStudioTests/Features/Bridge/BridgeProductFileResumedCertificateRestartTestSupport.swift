@@ -147,9 +147,14 @@ struct ResumedFileRestartContext: Sendable {
         return accepted.metadataStreamSequenceBarrier
     }
 
-    func resnapshot() async throws -> BridgeProductControlResponse {
-        try await dispatchReconnectControl(
-            reconnectFileResnapshotRequest(), dispatcher: dispatcher, capabilityHeader: harness.capabilityHeader)
+    func resnapshot(sequence: Int) async throws -> BridgeProductControlResponse {
+        let data = try JSONEncoder().encode(reconnectFileResnapshotRequest())
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["requestSequence"] = sequence
+        object["requestId"] = "resumed-file-resnapshot-\(sequence)"
+        return try await dispatchReconnectControl(
+            bridgeProductLifecycleControlRequest(object), dispatcher: dispatcher,
+            capabilityHeader: harness.capabilityHeader)
     }
 
     func pump(_ pump: BridgeProductSchemeFramePump, holding held: HeldStep<BridgeProductBatchBeginFrame>?) async throws

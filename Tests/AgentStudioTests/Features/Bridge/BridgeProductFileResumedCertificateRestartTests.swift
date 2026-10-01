@@ -41,6 +41,8 @@ struct BridgeProductFileResumedCertificateRestartTests {
         let resumed = try await context.openStream(id: "file-after-resume", barrier: barrier)
         let replaySource = try await context.replaySourceHeld.firstArrival()
         #expect(replaySource.subscriptionGeneration > initialSource.subscriptionGeneration)
+        // Physical recovery first requests a replacement bank for the retained view.
+        #expect(try await context.resnapshot(sequence: 5).kind == "subscription.resnapshotAccepted")
         try await context.applyRetainedDemand()
         let certificateHeld = HeldStep<BridgeProductBatchBeginFrame>("Resumed File certificate exhausts real N3 credit")
         defer { certificateHeld.release() }
@@ -50,7 +52,7 @@ struct BridgeProductFileResumedCertificateRestartTests {
         #expect(certificate.identity.handle == initialScope.handle)
         _ = try await recorder.expectNext(
             in: "waiter", where: { $0.isWaiter }, "Replay File source awaits its held certificate")
-        let response = try await context.resnapshot()
+        let response = try await context.resnapshot(sequence: 6)
         #expect(response.kind == "subscription.resnapshotAccepted")
         certificateHeld.release()
         _ = try await recorder.expectNext(
