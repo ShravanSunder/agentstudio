@@ -411,8 +411,8 @@ func makeBootstrapColdReviewIntakeFixture(
                 cwd: URL(fileURLWithPath: "Sources")
             )
         ),
-        telemetryRecorder: telemetryRecorder,
         reviewSourceProvider: reviewFixture.sourceProvider,
+        telemetryRecorder: telemetryRecorder,
         initialPaneActivity: .foreground
     )
     let installation = try #require(await controller.productSessionOwner.activeInstallation)
