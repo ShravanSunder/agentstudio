@@ -116,18 +116,21 @@ final class BridgePaneProductCommittedCallTarget {
 
     func applyReviewComparisonUpdate(
         _ request: BridgeProductReviewComparisonUpdateRequest,
+        workerDerivationEpoch: Int,
         productAdmission: BridgeProductAdmissionContext
     ) async {
         guard productAdmission.withValidAdmission({ true }) == true else { return }
-        guard let controller,
-            await controller.handleCommittedProductReviewComparisonUpdate(
-                request,
-                productAdmission: productAdmission
-            )
-        else {
+        guard let controller else {
             if productAdmission.withValidAdmission({ true }) == true { productAdmissionGate.close() }
             return
         }
+        let disposition = await controller.handleCommittedProductReviewComparisonUpdate(
+            request,
+            workerDerivationEpoch: workerDerivationEpoch,
+            productAdmission: productAdmission
+        )
+        guard case .rejected = disposition else { return }
+        if productAdmission.withValidAdmission({ true }) == true { productAdmissionGate.close() }
     }
 }
 

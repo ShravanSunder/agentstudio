@@ -9,6 +9,22 @@ struct DevelopmentDisplayReviewReplayObservation {
     let partCount: Int
 }
 
+func admitDevelopmentReviewComparisonIntent(
+    host: BridgeDevelopmentProductHost,
+    workerDerivationEpoch: Int,
+    productAdmission: BridgeProductAdmissionContext
+) async {
+    let refreshAdmissionCoordinator = await host.refreshAdmissionCoordinator
+    await MainActor.run {
+        _ = productAdmission.withValidAdmission {
+            refreshAdmissionCoordinator.workAdmissionSource.admitReviewComparisonIntent(
+                workerDerivationEpoch: workerDerivationEpoch,
+                productAdmission: productAdmission
+            )
+        }
+    }
+}
+
 @MainActor
 struct DevelopmentDisplayMetadataStream {
     private var frameIterator: AsyncThrowingStream<BridgeProductMetadataFrame, any Error>.Iterator

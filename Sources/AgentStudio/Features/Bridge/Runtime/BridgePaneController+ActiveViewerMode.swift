@@ -106,6 +106,8 @@ extension BridgePaneController {
         }
         if rejectionReasons.isEmpty, didAcceptSequence, mode == .review {
             scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+            scheduleRetainedReviewPackageBuildIfPossible()
+            scheduleWorktreeProductCatchUpIfPossible()
         }
     }
 
