@@ -317,6 +317,11 @@ extension E2ESerializedTests {
         private func withRealBackend(_ body: (ZmxTestHarness, ZmxBackend) async throws -> Void) async throws {
             let harness = await ZmxTestHarness()
             let backend = try #require(harness.createBackend(), "real zmx executable required")
+            // FIFO fixtures precede zmx's first spawn, which would otherwise
+            // be the first operation to create this isolated directory.
+            try await withoutBlockingCooperativePool {
+                try FileManager.default.createDirectory(atPath: harness.zmxDir, withIntermediateDirectories: true)
+            }
             var bodyError: (any Error)?
             do { try await body(harness, backend) } catch { bodyError = error }
             let cleanup = await harness.cleanup()
