@@ -330,6 +330,19 @@ struct ColdStartObserverWatchSourceOwnershipTests {
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
         let watchedDescriptor = try openRealDirectoryDescriptor(at: temporaryDirectory.path)
+        // R1 gate (Lead 2026-10-01, CI fix): the watched directory's own
+        // identity, captured while the descriptor is definitely still open
+        // and still refers to it. This suite is not MainActor-serialized and
+        // runs in the shared concurrent fast lane, where another test can
+        // open a file in the gap between this test's own close and its next
+        // check, and the kernel can hand that file the exact same lowest-free
+        // descriptor number this test just freed -- fd numbers are reused by
+        // design, not leaked. Comparing identity instead of the bare number
+        // is what makes the later assertion sound under that concurrency.
+        var watchedDirectoryStatBeforeCancellation = stat()
+        try #require(
+            fstat(watchedDescriptor, &watchedDirectoryStatBeforeCancellation) == 0,
+            "expected to fstat the freshly opened directory descriptor")
 
         let testQueue = DispatchQueue(label: "cold-start-observer-a4-test-queue", qos: .userInitiated)
         testQueue.suspend()
@@ -382,8 +395,24 @@ struct ColdStartObserverWatchSourceOwnershipTests {
         // Assert: the cancel handler closed exactly this descriptor,
         // exactly once.
         #expect(syscalls.directoryCloseCallCount == 1)
-        #expect(fcntl(watchedDescriptor, F_GETFD) == -1)
-        #expect(errno == EBADF)
+
+        // A bare "this number is now invalid" assertion is unsound here:
+        // another concurrently running test may already have reused it for
+        // an unrelated file by the time this check runs, in which case
+        // `fstat` succeeds. Either outcome is acceptable proof that *our*
+        // directory is gone: the descriptor is dead, or it now identifies
+        // something else entirely.
+        var watchedDirectoryStatAfterClose = stat()
+        let statResultAfterClose = fstat(watchedDescriptor, &watchedDirectoryStatAfterClose)
+        let statErrnoAfterClose = errno
+        if statResultAfterClose == 0 {
+            let identityChanged =
+                watchedDirectoryStatAfterClose.st_dev != watchedDirectoryStatBeforeCancellation.st_dev
+                || watchedDirectoryStatAfterClose.st_ino != watchedDirectoryStatBeforeCancellation.st_ino
+            #expect(identityChanged, "a reused descriptor number must not still identify the watched directory")
+        } else {
+            #expect(statErrnoAfterClose == EBADF, "an fstat failure on a closed descriptor must be exactly EBADF")
+        }
 
         // Cleanup: already settled by the explicit cancel() above.
         _ = await outcome
