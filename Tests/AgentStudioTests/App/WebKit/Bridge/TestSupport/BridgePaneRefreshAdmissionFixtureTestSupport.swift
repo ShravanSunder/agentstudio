@@ -182,8 +182,12 @@ func makeRefreshAdmissionIntegrationFixture(
     reviewMetadataReservationGate: RefreshAdmissionReviewReservationGate? = nil,
     initialContributionTarget: WorkspaceReviewContributionTarget? = nil,
     lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
+    constructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
+    reviewConstructionProgress: BridgeReviewConstructionProgressWaitOwner = .init(),
+    reviewProviderTransform: (@MainActor (BridgeReviewSourceProviderFake) -> any BridgeReviewSourceProvider)? = nil,
     contributionTargetCommit:
-        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
+        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil,
+    schedulesInitialReviewIntake: Bool = true
 ) async throws -> RefreshAdmissionIntegrationFixture {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
@@ -244,7 +248,8 @@ func makeRefreshAdmissionIntegrationFixture(
                 cwd: URL(fileURLWithPath: "/tmp/bridge-refresh-admission")
             )
         ),
-        reviewSourceProvider: reviewProvider,
+        reviewSourceProvider: reviewProviderTransform?(reviewProvider) ?? reviewProvider,
+        worktreeProductConstructionCoordinator: constructionCoordinator,
         initialPaneActivity: .dormant,
         productSessionDependencies: BridgePaneProductSessionDependencies(
             installation: installation,
@@ -256,11 +261,12 @@ func makeRefreshAdmissionIntegrationFixture(
             ),
             productProvider: productProvider
         ),
+        reviewConstructionProgress: reviewConstructionProgress,
         contributionTargetCommit: contributionTargetCommit
     )
     // These tests exercise refresh after explicit Review intake. Foreground
     // activity alone does not request the initial package.
-    controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+    if schedulesInitialReviewIntake { controller.scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake) }
     let productAdmission = try #require(productAdmissionGate.acquire())
     let metadataProducerLease = try await installRefreshAdmissionMetadataProducer(
         installation: installation,

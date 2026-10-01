@@ -153,17 +153,25 @@ extension BridgePaneController {
         return resolvedDefaultTarget
     }
 
-    func resolveContributionRequestIfNeeded(
-        _ request: BridgeReviewPipelineRequest
+    func captureContributionResolutionContext() -> BridgeReviewContributionResolutionContext {
+        .init(
+            source: bridgePaneState.source, provider: reviewSourceProvider, reviewedSubjectLabel: reviewedSubjectLabel)
+    }
+
+    @concurrent
+    nonisolated static func resolveContributionRequestIfNeeded(
+        _ request: BridgeReviewPipelineRequest,
+        context: BridgeReviewContributionResolutionContext,
+        progress: BridgeReviewConstructionProgressSink
     ) async throws -> BridgeReviewPipelineRequest {
-        guard case .workspace(_, let baseline) = bridgePaneState.source else { return request }
+        guard case .workspace(_, let baseline) = context.source else { return request }
         guard let baseline else {
             throw BridgeProviderFailure.providerFailed(
                 message: "Contribution target selection required"
             )
         }
         guard let symbolicTarget = baseline.contributionTarget else { return request }
-        let capture = try await reviewSourceProvider.captureContributionComparison(
+        let capture = try await context.provider.captureContributionComparison(
             BridgeContributionComparisonRequest(
                 symbolicTarget: symbolicTarget,
                 baseEndpoint: request.baseEndpoint,
@@ -174,12 +182,14 @@ extension BridgePaneController {
                 gitRefreshSeed: request.gitRefreshSeed
             )
         )
-        return try BridgeResolvedContributionRequestBuilder.build(
+        let resolved = try BridgeResolvedContributionRequestBuilder.build(
             request: request,
             symbolicTarget: symbolicTarget,
             capture: capture,
-            reviewedSubjectLabel: reviewedSubjectLabel
+            reviewedSubjectLabel: context.reviewedSubjectLabel
         )
+        progress(.contributionResolved)
+        return resolved
     }
 
     private var reviewedSubjectLabel: String? {
@@ -193,4 +203,10 @@ extension BridgePaneController {
         else { return nil }
         return normalized
     }
+}
+
+struct BridgeReviewContributionResolutionContext: Sendable {
+    let source: BridgePaneSource?
+    let provider: any BridgeReviewSourceProvider
+    let reviewedSubjectLabel: String?
 }
