@@ -10,12 +10,15 @@ actor NativeProgressSharedReviewProvider: BridgeSharedReviewConstructionSourcePr
     let source: BridgeReviewSourceProviderFake
     let captureStep = HeldStep<Void>("shared Review template capture", cancellation: .holdThroughCancellation)
     let installStep = HeldStep<Void>("shared Review content installation", cancellation: .holdThroughCancellation)
+    let comparisonStep = HeldStep<Void>("shared Review endpoint comparison", cancellation: .holdThroughCancellation)
     private var holdsCapture = false
     private var holdsInstall = false
+    private var holdsComparison = false
 
     init(source: BridgeReviewSourceProviderFake) { self.source = source }
     func holdCapture() { holdsCapture = true }
     func holdInstall() { holdsInstall = true }
+    func holdComparison() { holdsComparison = true }
 
     func captureReviewComparisonTargets(_ request: BridgeReviewComparisonTargetsCaptureRequest) async throws
         -> BridgeReviewComparisonTargetsCapture
@@ -58,6 +61,7 @@ actor NativeProgressSharedReviewProvider: BridgeSharedReviewConstructionSourcePr
         async throws -> BridgeEndpointComparison
     {
         let comparison = try await source.compareEndpoints(request)
+        if holdsComparison { try await comparisonStep.arrive(()) }
         return .init(
             baseEndpoint: request.baseEndpoint, headEndpoint: request.headEndpoint,
             changedFiles: comparison.changedFiles)

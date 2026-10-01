@@ -14,6 +14,59 @@ extension WebKitSerializedTests {
     struct ReviewNativeProgressDeadlineTests {
         init() { installTestCoreAtomsIfNeeded() }
 
+        @Test("producer phase completion renews a joined consumer while acquisition remains held")
+        func producerProgressRenewsJoinedConsumerBeforeAcquisitionCompletes() async throws {
+            let pair = try await makeReviewNativeProgressPair(initialContributionTarget: nil)
+            await pair.provider.holdComparison()
+            await pair.provider.holdCapture()
+            let firstForeground = pair.first.controller.applyBridgePaneActivity(.foreground)
+            let firstIntake = try #require(pair.first.controller.activeReviewRefreshTask)
+            await firstForeground?.value
+            try await pair.provider.comparisonStep.firstArrival()
+            let entry = try #require(pair.constructionProbe.events.last { $0.kind == .buildStarted }?.entryNonce)
+            let secondForeground = pair.second.controller.applyBridgePaneActivity(.foreground)
+            let secondIntake = try #require(pair.second.controller.activeReviewRefreshTask)
+            await secondForeground?.value
+            try await pair.facts.expectNext(in: entry, .joined)
+            do {
+                await pair.secondClock.waitForPendingSleepCount(atLeast: 1)
+                pair.secondClock.advance(by: .seconds(4))
+                pair.provider.comparisonStep.release()
+                try await pair.provider.captureStep.firstArrival()
+                await pair.secondClock.waitForPendingSleepCount(atLeast: 1)
+                pair.secondClock.advance(by: .seconds(2))
+                try #require(pair.secondClock.pendingSleepCount == 1)
+                #expect(pair.secondProgress.activeWaitCount() == 1)
+                #expect(await pair.coordinator.snapshot().waiterCount == 2)
+                pair.secondClock.advance(by: AppPolicies.Bridge.reviewBuildProgressDeadline)
+                await secondIntake.value
+                #expect(pair.second.controller.activeReviewRefreshTask == nil)
+                #expect(pair.second.controller.paneState.diff.status == .error)
+                #expect(pair.second.controller.paneState.diff.packageMetadata == nil)
+                let physicalTasks = pair.secondProgress.physicalTaskHandles()
+                pair.provider.captureStep.release()
+                await firstIntake.value
+                for task in physicalTasks { await task.value }
+                #expect(pair.second.controller.paneState.diff.packageMetadata == nil)
+                await pair.first.finish()
+                await pair.second.finish()
+                let residue = await pair.coordinator.snapshot()
+                #expect(residue.waiterCount == 0)
+                #expect(residue.leaseCount == 0)
+                #expect(residue.inFlightCount == 0)
+                try await pair.facts.finish()
+            } catch {
+                pair.provider.comparisonStep.release()
+                pair.provider.captureStep.release()
+                await firstIntake.value
+                await secondIntake.value
+                for task in pair.secondProgress.physicalTaskHandles() { await task.value }
+                await pair.first.finish()
+                await pair.second.finish()
+                throw error
+            }
+        }
+
         @Test("a new consumer and presentation traffic do not renew a stalled shared-build join")
         func joiningConsumerAndTrafficDoNotRenew() async throws {
             let pair = try await makeReviewNativeProgressPair()
@@ -428,7 +481,10 @@ private struct ReviewNativeProgressPair {
 }
 
 @MainActor
-private func makeReviewNativeProgressPair(secondSchedulesInitialReviewIntake: Bool = true) async throws
+private func makeReviewNativeProgressPair(
+    secondSchedulesInitialReviewIntake: Bool = true,
+    initialContributionTarget: WorkspaceReviewContributionTarget? = .ref(name: "main")
+) async throws
     -> ReviewNativeProgressPair
 {
     let constructionProbe = BridgeWorktreeProductConstructionEventProbe()
@@ -448,7 +504,7 @@ private func makeReviewNativeProgressPair(secondSchedulesInitialReviewIntake: Bo
     var heldProvider: NativeProgressSharedReviewProvider?
     var catalogProvider: NativeProgressSharedReviewProvider?
     let first = try await makeRefreshAdmissionIntegrationFixture(
-        initialContributionTarget: .ref(name: "main"), constructionCoordinator: coordinator,
+        initialContributionTarget: initialContributionTarget, constructionCoordinator: coordinator,
         reviewConstructionProgress: firstProgress,
         reviewProviderTransform: { provider in
             let shared = NativeProgressSharedReviewProvider(source: provider)
@@ -456,7 +512,7 @@ private func makeReviewNativeProgressPair(secondSchedulesInitialReviewIntake: Bo
             return shared
         })
     let second = try await makeRefreshAdmissionIntegrationFixture(
-        initialContributionTarget: .ref(name: "main"), constructionCoordinator: coordinator,
+        initialContributionTarget: initialContributionTarget, constructionCoordinator: coordinator,
         reviewConstructionProgress: secondProgress,
         reviewProviderTransform: { provider in
             let shared = NativeProgressSharedReviewProvider(source: provider)
