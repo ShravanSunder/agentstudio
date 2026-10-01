@@ -9,7 +9,6 @@ import {
 	buildBridgeWorkerReviewCandidateFailedEvent,
 	buildBridgeWorkerReviewCandidateReadyEvent,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	bridgeWorkerReviewPublicationIdentity,
 	bridgeWorkerReviewSourceContext,
@@ -23,21 +22,15 @@ import {
 	requireHTMLElement,
 	reviewDisplayEvent,
 	reviewDisplayEventWithContribution,
+	reviewComparisonPanelChromeEvent,
+	reviewComparisonPanelChromeEventForHarness,
+	reviewComparisonLoadingPanelChromeEventForHarness,
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
 import { performComparisonAction } from './bridge-review-comparison-control.browser.test-support.js';
-import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
 
 const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
-
-const TEST_REVIEW_PUBLICATION_IDENTITY = {
-	packageId: 'test-review-package',
-	publicationId: '00000000-0000-7000-8000-000000000001',
-	reviewGeneration: 1,
-	revision: 1,
-	sourceIdentity: 'test-review-source',
-} as const;
 
 describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
@@ -461,16 +454,18 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('keeps active Review interactive while same-source comparison remains loading', async () => {
 		const harness = makeReviewSurfaceHarness();
 		const rendered = await render(
-			<BridgeReviewViewerMode
-				codeViewWorkerPoolEnabled={false}
-				isActive
-				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
-				onActiveSourceChange={vi.fn()}
-				onNavigationSourceChange={vi.fn()}
-				reviewClient={harness.reviewClient}
-				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerContextSwitcher={<div />}
-			/>,
+			<div className="h-[600px] w-full">
+				<BridgeReviewViewerMode
+					codeViewWorkerPoolEnabled={false}
+					isActive
+					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+					onActiveSourceChange={vi.fn()}
+					onNavigationSourceChange={vi.fn()}
+					reviewClient={harness.reviewClient}
+					telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+					viewerContextSwitcher={<div />}
+				/>
+			</div>,
 		);
 		await act(async (): Promise<void> => {
 			harness.publish(
@@ -547,7 +542,26 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			});
 		});
 		expect(rendered.getByTestId('bridge-review-comparison-pending-icon').query()).toBeNull();
+		expect(
+			document
+				.querySelector('[data-bridge-region="review-content"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('loading');
+		expect(
+			document.querySelectorAll('[data-bridge-region="review-content"] [data-slot="skeleton"]'),
+		).toHaveLength(6);
 		await act(async (): Promise<void> => {
+			expect(
+				Object.keys(harness.reviewClient.renderStore.getSnapshot().codeViewItemsById),
+			).toHaveLength(0);
+			expect(
+				[...document.querySelectorAll('diffs-container')].flatMap((container) => [
+					...(container.shadowRoot?.querySelectorAll('[data-line][data-line-index]') ?? []),
+				]),
+			).toHaveLength(0);
+			expect(
+				rendered.getByTestId('bridge-review-sidebar').element().getBoundingClientRect().height,
+			).toBe(600);
 			await page.screenshot({ path: '../../../tmp/g1-review-held-single-indicator.png' });
 		});
 		expect(tree.hasAttribute('inert')).toBe(false);
@@ -892,88 +906,3 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		).toHaveLength(0);
 	});
 });
-
-function reviewComparisonPanelChromeEvent(): Extract<
-	BridgeWorkerServerToMainMessage,
-	{ readonly kind: 'reviewRenderPatch' }
-> {
-	return {
-		direction: 'serverWorkerToMain',
-		kind: 'reviewRenderPatch',
-		reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
-		patches: [
-			{
-				operation: 'upsert',
-				payload: {
-					reviewComparison: {
-						activeTarget: {
-							basis: 'commonCommit',
-							branchName: 'master',
-							kind: 'localDefaultBranch',
-						},
-						attempt: { reviewGeneration: 1, status: 'settled' },
-						displayedSnapshot: { status: 'none' },
-						repositoryDefaultTarget: null,
-					},
-				},
-				slice: 'panelChrome',
-			},
-		],
-		publicationSequence: 1,
-		surface: 'review',
-		transferDescriptors: [],
-		wireVersion: 1,
-		workerDerivationEpoch: 1,
-	};
-}
-
-function reviewComparisonPanelChromeEventForHarness(): ReturnType<
-	typeof reviewComparisonPanelChromeEvent
-> {
-	return {
-		...reviewComparisonPanelChromeEvent(),
-		reviewPublicationIdentity: {
-			packageId: 'review-browser-harness-package',
-			publicationId: '00000000-0000-7000-8000-000000000001',
-			reviewGeneration: 1,
-			revision: 1,
-			sourceIdentity: 'review-browser-harness-source',
-		},
-	};
-}
-
-function reviewComparisonLoadingPanelChromeEventForHarness(
-	props: {
-		readonly activeTarget?: BridgeReviewComparisonTarget;
-	} = {},
-): ReturnType<typeof reviewComparisonPanelChromeEvent> {
-	const event = reviewComparisonPanelChromeEventForHarness();
-	return {
-		...event,
-		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-panel patch while replacing one nested panel payload.
-		patches: event.patches.map((patch) =>
-			patch.slice !== 'panelChrome' || patch.operation !== 'upsert'
-				? patch
-				: {
-						...patch,
-						payload: {
-							reviewComparison: {
-								activeTarget: props.activeTarget ?? {
-									basis: 'commonCommit',
-									branchName: 'master',
-									kind: 'localDefaultBranch',
-								},
-								attempt: { reviewGeneration: 2, status: 'pending' },
-								displayedSnapshot: {
-									packageId: 'review-browser-harness-package',
-									reviewGeneration: 1,
-									revision: 1,
-									status: 'current',
-								},
-								repositoryDefaultTarget: null,
-							},
-						},
-					},
-		),
-	};
-}

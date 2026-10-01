@@ -468,3 +468,96 @@ export function reviewDisplayEventWithContribution(
 		),
 	};
 }
+
+const TEST_REVIEW_PUBLICATION_IDENTITY = {
+	packageId: 'test-review-package',
+	publicationId: '00000000-0000-7000-8000-000000000001',
+	reviewGeneration: 1,
+	revision: 1,
+	sourceIdentity: 'test-review-source',
+} as const;
+
+export function reviewComparisonPanelChromeEvent(): Extract<
+	BridgeWorkerServerToMainMessage,
+	{ readonly kind: 'reviewRenderPatch' }
+> {
+	return {
+		direction: 'serverWorkerToMain',
+		kind: 'reviewRenderPatch',
+		reviewPublicationIdentity: TEST_REVIEW_PUBLICATION_IDENTITY,
+		patches: [
+			{
+				operation: 'upsert',
+				payload: {
+					reviewComparison: {
+						activeTarget: {
+							basis: 'commonCommit',
+							branchName: 'master',
+							kind: 'localDefaultBranch',
+						},
+						attempt: { reviewGeneration: 1, status: 'settled' },
+						displayedSnapshot: { status: 'none' },
+						repositoryDefaultTarget: null,
+					},
+				},
+				slice: 'panelChrome',
+			},
+		],
+		publicationSequence: 1,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+		workerDerivationEpoch: 1,
+	};
+}
+
+export function reviewComparisonPanelChromeEventForHarness(): ReturnType<
+	typeof reviewComparisonPanelChromeEvent
+> {
+	return {
+		...reviewComparisonPanelChromeEvent(),
+		reviewPublicationIdentity: {
+			packageId: 'review-browser-harness-package',
+			publicationId: '00000000-0000-7000-8000-000000000001',
+			reviewGeneration: 1,
+			revision: 1,
+			sourceIdentity: 'review-browser-harness-source',
+		},
+	};
+}
+
+export function reviewComparisonLoadingPanelChromeEventForHarness(
+	props: {
+		readonly activeTarget?: BridgeReviewComparisonTarget;
+	} = {},
+): ReturnType<typeof reviewComparisonPanelChromeEvent> {
+	const event = reviewComparisonPanelChromeEventForHarness();
+	return {
+		...event,
+		// oxlint-disable-next-line no-map-spread -- The strict immutable fixture preserves every non-panel patch while replacing one nested panel payload.
+		patches: event.patches.map((patch) =>
+			patch.slice !== 'panelChrome' || patch.operation !== 'upsert'
+				? patch
+				: {
+						...patch,
+						payload: {
+							reviewComparison: {
+								activeTarget: props.activeTarget ?? {
+									basis: 'commonCommit',
+									branchName: 'master',
+									kind: 'localDefaultBranch',
+								},
+								attempt: { reviewGeneration: 2, status: 'pending' },
+								displayedSnapshot: {
+									packageId: 'review-browser-harness-package',
+									reviewGeneration: 1,
+									revision: 1,
+									status: 'current',
+								},
+								repositoryDefaultTarget: null,
+							},
+						},
+					},
+		),
+	};
+}
