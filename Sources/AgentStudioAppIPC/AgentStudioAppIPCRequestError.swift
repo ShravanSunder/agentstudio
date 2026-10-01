@@ -49,6 +49,10 @@ extension AgentStudioAppIPCRequestError {
             self.init(bridgeError.reason)
         case let sessionsError as AppIPCSessionsError:
             self.init(sessionsError.reason)
+        case let paneContextError as AppIPCPaneContextError:
+            self.init(paneContextError)
+        case is IPCPaneNumericEncodingError:
+            self = Self(code: -32_603, message: "internal error", data: .object(["reason": .string("internalError")]))
         case let uiPresentationError as AppIPCUIPresentationError:
             self.init(uiPresentationError.reason)
         case let authError as AgentStudioIPCAuthenticationError:
@@ -78,6 +82,30 @@ extension AgentStudioAppIPCRequestError {
         default:
             self = Self(code: -32_603, message: "internal error")
         }
+    }
+
+    private init(_ error: AppIPCPaneContextError) {
+        var details: [String: JSONValue] = ["reason": .string(error.reason.rawValue)]
+        if let field = error.field { details["field"] = .string(field) }
+        if let staleness = error.staleness {
+            do {
+                details["staleness"] = try JSONRPCCodec.encodeJSONValue(staleness)
+            } catch {
+                self = Self(
+                    code: -32_603, message: "internal error", data: .object(["reason": .string("internalError")]))
+                return
+            }
+        }
+        let code: Int
+        switch error.reason {
+        case .invalidField: code = -32_602
+        case .tooLarge: code = -32_008
+        case .unavailable: code = -32_005
+        case .paneGone, .sourceNotInView: code = -32_004
+        case .internalError: code = -32_603
+        case .bindingRequired, .conflict, .notSender, .noticeAlreadyRead, .stale: code = -32_007
+        }
+        self.init(code: code, message: error.reason.rawValue, data: .object(details))
     }
 
     /// A frame this process composed itself overflowed the outbound bound.

@@ -261,9 +261,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             methodRegistry: methodRegistry, connection: connection, io: io, writer: writer,
             maxRequestFrameBytes: maxRequestFrameBytes,
             isStopping: { [self] in serverIsStopping() },
-            executeRequest: { [self] request, state in
+            executeRequest: { [self] request, replyId, state in
                 try await process(
-                    request, connection: connection, connectionId: connectionId,
+                    request, replyId: replyId, connection: connection, connectionId: connectionId,
                     connectionState: state, socketSubscriber: socketSubscriber
                 )
             }
@@ -273,6 +273,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
     private func process(
         _ request: JSONRPCRequest,
+        replyId: JSONRPCIdentifier,
         connection: UnixSocketConnection,
         connectionId: UUID,
         connectionState: AgentStudioAppIPCConnectionState,
@@ -314,6 +315,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             throw refusal
         }
         guard let registration else { throw AgentStudioAppIPCRequestError.methodNotFound }
+        let replyEnvelopeOverheadBytes =
+            request.method == "pane.context.get"
+            ? try AppIPCPaneContextReplyBudget.envelopeOverheadBytes(id: replyId) : 0
         let context = AppIPCConnectionContext(
             contextId: connectionId, channel: channel,
             authenticatedContext: connectionState.authenticatedContext,
@@ -357,7 +361,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             eventSubscriber: socketSubscriber,
             connectionEndCause: { [self] in
                 connectionState.endCause ?? (serverIsStopping() ? .stopping : .eof)
-            }
+            },
+            replyEnvelopeOverheadBytes: replyEnvelopeOverheadBytes
         )
         let tools = AppIPCTargetResolutionTools { [self] rawHandle in
             try await canonicalHandle(fromRawHandle: rawHandle, principal: context.principal)

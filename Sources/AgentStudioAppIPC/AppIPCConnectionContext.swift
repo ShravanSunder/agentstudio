@@ -12,6 +12,7 @@ package struct AppIPCConnectionContext: Sendable {
     package let channel: AgentStudioIPCChannel
     package let authenticatedContext: AgentStudioIPCAuthenticatedContext?
     package var principal: IPCPrincipal? { authenticatedContext?.principal }
+    package let replyEnvelopeOverheadBytes: Int
     private let authenticateConnection: @Sendable (IPCAuthLoginParams) async throws -> IPCAuthStatusResult
     private let readAuthenticationStatus: @Sendable () -> IPCAuthStatusResult
     package let eventSubscriber: any IPCEventSubscriber
@@ -26,9 +27,11 @@ package struct AppIPCConnectionContext: Sendable {
         authenticate: @escaping @Sendable (IPCAuthLoginParams) async throws -> IPCAuthStatusResult,
         authenticationStatus: @escaping @Sendable () -> IPCAuthStatusResult,
         eventSubscriber: any IPCEventSubscriber,
-        connectionEndCause: @escaping @Sendable () -> AppIPCConnectionEndCause = { .eof }
+        connectionEndCause: @escaping @Sendable () -> AppIPCConnectionEndCause = { .eof },
+        replyEnvelopeOverheadBytes: Int = 0
     ) {
         self.contextId = contextId
+        self.replyEnvelopeOverheadBytes = replyEnvelopeOverheadBytes
         self.channel = channel
         self.authenticatedContext = authenticatedContext
         self.authenticateConnection = authenticate

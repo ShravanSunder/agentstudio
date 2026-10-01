@@ -95,7 +95,7 @@ struct AppIPCPaneAgentAuthorization: Sendable {
         refusedName: String
     ) throws {
         switch rule {
-        case .targetOnly:
+        case .targetOnly, .credentialPaneOnly:
             return
         case .closesPane(let paneId):
             guard paneId != scope.boundPaneId else {
