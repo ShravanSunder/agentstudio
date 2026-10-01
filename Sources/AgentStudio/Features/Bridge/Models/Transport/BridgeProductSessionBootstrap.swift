@@ -5,6 +5,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case admissionRetryCount
         case contentProgressDeadlineMilliseconds
+        case contentAcknowledgementDeadlineMilliseconds
         case maximumContentBytes
         case maximumRequestBodyBytes
         case maximumMetadataFrameBytes
@@ -25,6 +26,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
 
     let admissionRetryCount: Int
     let contentProgressDeadlineMilliseconds: Int
+    let contentAcknowledgementDeadlineMilliseconds: Int
     let maximumContentBytes: Int
     let maximumRequestBodyBytes: Int
     let maximumMetadataFrameBytes: Int
@@ -47,6 +49,8 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         contentProgressDeadlineMilliseconds: Int(
             AppPolicies.Bridge.contentProgressDeadline.components.seconds * 1000
         ),
+        contentAcknowledgementDeadlineMilliseconds: Int(
+            AppPolicies.Bridge.productContentAcknowledgementDeadline.components.seconds * 1000),
         maximumContentBytes: BridgeProductWireContract.maximumContentStreamBytes,
         maximumRequestBodyBytes: BridgeProductWireContract.maximumRequestBodyBytes,
         maximumMetadataFrameBytes: BridgeProductWireContract.maximumMetadataFrameBytes,
@@ -77,6 +81,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     init(
         admissionRetryCount: Int,
         contentProgressDeadlineMilliseconds: Int,
+        contentAcknowledgementDeadlineMilliseconds: Int,
         maximumContentBytes: Int,
         maximumRequestBodyBytes: Int,
         maximumMetadataFrameBytes: Int,
@@ -96,6 +101,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
     ) {
         self.admissionRetryCount = admissionRetryCount
         self.contentProgressDeadlineMilliseconds = contentProgressDeadlineMilliseconds
+        self.contentAcknowledgementDeadlineMilliseconds = contentAcknowledgementDeadlineMilliseconds
         self.maximumContentBytes = maximumContentBytes
         self.maximumRequestBodyBytes = maximumRequestBodyBytes
         self.maximumMetadataFrameBytes = maximumMetadataFrameBytes
@@ -125,6 +131,8 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
         self.contentProgressDeadlineMilliseconds = try container.decode(
             Int.self, forKey: .contentProgressDeadlineMilliseconds
         )
+        self.contentAcknowledgementDeadlineMilliseconds = try container.decode(
+            Int.self, forKey: .contentAcknowledgementDeadlineMilliseconds)
         self.maximumContentBytes = try container.decode(Int.self, forKey: .maximumContentBytes)
         self.maximumRequestBodyBytes = try container.decode(Int.self, forKey: .maximumRequestBodyBytes)
         self.maximumMetadataFrameBytes = try container.decode(Int.self, forKey: .maximumMetadataFrameBytes)
@@ -189,6 +197,7 @@ struct BridgeProductBootstrapPolicy: Codable, Equatable, Sendable {
             codingPath: codingPath
         )
         for (name, value) in [
+            ("contentAcknowledgementDeadlineMilliseconds", contentAcknowledgementDeadlineMilliseconds),
             ("streamKeepaliveIntervalMilliseconds", streamKeepaliveIntervalMilliseconds),
             ("viewAcknowledgementDeadlineMilliseconds", viewAcknowledgementDeadlineMilliseconds),
             ("viewBatchProgressDeadlineMilliseconds", viewBatchProgressDeadlineMilliseconds),

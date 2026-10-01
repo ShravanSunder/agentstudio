@@ -13,6 +13,7 @@ import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
 } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import { decodeBridgePageConfigurationHandshake } from './bridge-page-configuration.js';
 
 const bridgeBootstrapAcknowledgementIdSchema = z.union([z.string(), z.number()]);
 const bridgeBootstrapAcknowledgementErrorSchema = z
@@ -141,8 +142,6 @@ export function installBridgePageHandshakeSession(
 	let readyRequestId: string | null = null;
 	let readyRequestState: BridgePageReadyRequestState = 'awaiting';
 	let readyAcknowledgementTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
-	const readyAcknowledgementTimeoutMilliseconds =
-		props.readyAcknowledgementTimeoutMilliseconds ?? 5000;
 
 	const clearReadyAcknowledgementTimeout = (): void => {
 		if (readyAcknowledgementTimeout === null) {
@@ -202,6 +201,10 @@ export function installBridgePageHandshakeSession(
 		if (didSendReady) {
 			return;
 		}
+		const readyAcknowledgementTimeoutMilliseconds =
+			props.readyAcknowledgementTimeoutMilliseconds ??
+			decodeBridgePageConfigurationHandshake(event)?.readyAcknowledgementDeadlineMilliseconds;
+		if (readyAcknowledgementTimeoutMilliseconds === undefined) return;
 
 		didSendReady = true;
 		readyRequestId = createBridgeReadyRequestId();

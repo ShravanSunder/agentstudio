@@ -13,6 +13,7 @@ import {
 	BRIDGE_PRODUCT_WIRE_VERSION,
 } from '../core/comm-worker/bridge-product-contract-primitives.js';
 import type { BridgeTelemetryWorkerBootstrap } from '../core/telemetry-worker/bridge-telemetry-worker-contracts.js';
+import pageConfigurationFixture from '../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import validProductSessionCorpus from '../test-fixtures/bridge-contract-fixtures/valid/bridge-product-session-corpus.json' with { type: 'json' };
 import {
 	installBridgePageHandshake,
@@ -26,7 +27,11 @@ describe('bridge page handshake', () => {
 
 		target.addEventListener('__bridge_handshake_request', () => {
 			eventNames.push('__bridge_handshake_request');
-			target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+			target.dispatchEvent(
+				new CustomEvent('__bridge_handshake', {
+					detail: { pageConfiguration: pageConfigurationFixture },
+				}),
+			);
 		});
 		target.addEventListener('__bridge_ready', () => {
 			eventNames.push('__bridge_ready');
@@ -35,7 +40,11 @@ describe('bridge page handshake', () => {
 		const uninstall = installBridgePageHandshake(target);
 		expect(eventNames).toEqual(['__bridge_handshake_request']);
 		await Promise.resolve();
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		uninstall();
 
 		expect(eventNames).toEqual(['__bridge_handshake_request', '__bridge_ready']);
@@ -52,7 +61,11 @@ describe('bridge page handshake', () => {
 		const session = installBridgePageHandshakeSession(target);
 		expect(eventNames).toEqual([]);
 
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		expect(eventNames).toEqual([]);
 		await Promise.resolve();
 		session.uninstall();
@@ -69,8 +82,16 @@ describe('bridge page handshake', () => {
 		});
 
 		const session = installBridgePageHandshakeSession(target);
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 		session.uninstall();
 
@@ -84,6 +105,7 @@ describe('bridge page handshake', () => {
 			target.dispatchEvent(
 				new CustomEvent('__bridge_handshake', {
 					detail: {
+						pageConfiguration: pageConfigurationFixture,
 						telemetryConfig: {
 							enabledScopes: ['web', 'webkit'],
 							scenario: 'bridge-runtime',
@@ -96,9 +118,7 @@ describe('bridge page handshake', () => {
 		const session = installBridgePageHandshakeSession(target);
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
-				detail: {
-					telemetryConfig: null,
-				},
+				detail: { pageConfiguration: pageConfigurationFixture, telemetryConfig: null },
 			}),
 		);
 		session.uninstall();
@@ -119,6 +139,7 @@ describe('bridge page handshake', () => {
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
 				detail: {
+					pageConfiguration: pageConfigurationFixture,
 					telemetryConfig: {
 						enabledScopes: ['web'],
 						scenario: 'metadata_apply_content_fetch_v1',
@@ -129,6 +150,7 @@ describe('bridge page handshake', () => {
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
 				detail: {
+					pageConfiguration: pageConfigurationFixture,
 					telemetryConfig: {
 						enabledScopes: ['web'],
 						scenario: 'ignored_later_config',
@@ -157,7 +179,11 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 		expect(events).toEqual(['ready-event']);
 		expect(readyRequestId).not.toBeNull();
@@ -189,7 +215,11 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {
@@ -216,7 +246,11 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {
@@ -249,7 +283,11 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {
@@ -281,7 +319,11 @@ describe('bridge page handshake', () => {
 			},
 			readyAcknowledgementTimeoutMilliseconds: 25,
 		});
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 
 		vi.advanceTimersByTime(25);
@@ -309,7 +351,11 @@ describe('bridge page handshake', () => {
 			},
 			readyAcknowledgementTimeoutMilliseconds: 25,
 		});
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 
 		vi.advanceTimersByTime(25);
@@ -344,7 +390,11 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 		});
-		target.dispatchEvent(new CustomEvent('__bridge_handshake'));
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pageConfiguration: pageConfigurationFixture },
+			}),
+		);
 		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_ready_ack', {
@@ -686,6 +736,7 @@ function makeProductBootstrapDetail(
 			policy: {
 				...validProductSessionCorpus.bootstrap.policy,
 				admissionRetryCount: validProductSessionCorpus.bootstrap.policy.admissionRetryCount,
+				contentAcknowledgementDeadlineMilliseconds: 5_000,
 				contentProgressDeadlineMilliseconds: 5_000,
 				maximumContentBytes: BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
 				maximumRequestBodyBytes: BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,

@@ -7,6 +7,7 @@ import {
 	type BridgePageHandshakeSession,
 } from '../../bridge/bridge-page-handshake.js';
 import type { BridgePaneCommWorkerSessionDiagnosticSnapshot } from '../../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import pageConfigurationFixture from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import { encodeBridgeWorkerViewRecoveryRetryCommand } from './bridge-comm-worker-protocol.js';
 import { BridgePaneCommWorkerSession } from './bridge-pane-comm-worker-session.js';
 import {
@@ -46,6 +47,7 @@ describe('Page bootstrap finite progress through the real handshake and worker s
 			}
 			vi.stubGlobal('MessageChannel', RecordingChannel);
 			const session = new BridgePaneCommWorkerSession({
+				bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 				workerFactory: (): Worker => new RecordingPaneCommWorker(),
 				recordDiagnosticSnapshot: (snapshot): void => {
 					snapshots.push(snapshot);
@@ -161,6 +163,7 @@ describe('Page bootstrap finite progress through the real handshake and worker s
 			vi.stubGlobal('MessageChannel', RecordingChannel);
 			let handshake: BridgePageHandshakeSession | null = null;
 			const session = new BridgePaneCommWorkerSession({
+				bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 				requestNativeBootstrap: (): void => {
 					handshake?.requestProductSessionReplacement();
 				},
@@ -307,6 +310,7 @@ describe('Page bootstrap finite progress through the real handshake and worker s
 			vi.stubGlobal('Worker', RecordedLateWorker);
 			let handshake: BridgePageHandshakeSession | null = null;
 			const session = new BridgePaneCommWorkerSession({
+				bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 				requestNativeBootstrap: (): void => {
 					handshake?.requestProductSessionReplacement();
 				},

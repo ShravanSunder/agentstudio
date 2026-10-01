@@ -35,6 +35,29 @@ class ControlledContentDeadlineClock implements BridgeProductDeadlineClock {
 }
 
 describe('Bridge product finite content progress', () => {
+	test('uses the delivered session policy for a held content acknowledgement deadline', async () => {
+		const clock = new ControlledContentDeadlineClock();
+		const harness = createContentTransportHarness(0, undefined, 71, clock);
+		harness.server.leaveContentOpenAfterAcceptance = true;
+		harness.server.holdContentAcknowledgement('content-request-1');
+		const abortController = new AbortController();
+		const content = harness.transport.openContent(
+			fileContentDescriptor('policy-bound-ack'),
+			abortController.signal,
+		);
+		try {
+			await harness.server.waitForFrameAcknowledgementCount(1);
+			expect(
+				clock.deadlines.some(
+					(deadline): boolean => deadline.active && deadline.delayMilliseconds === 71,
+				),
+			).toBe(true);
+		} finally {
+			abortController.abort(new DOMException('test cleanup', 'AbortError'));
+			harness.server.releaseHeldContentAcknowledgement();
+			await content.terminal.catch((): void => {});
+		}
+	});
 	test('arms the deadline before starting the fetch', async () => {
 		const clock = new ControlledContentDeadlineClock();
 		const result = await awaitBridgeProductFiniteProgress({

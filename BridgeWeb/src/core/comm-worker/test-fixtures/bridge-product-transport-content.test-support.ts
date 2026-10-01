@@ -58,6 +58,8 @@ export function createContentTransportHarness(
 			kind: 'productSession.bootstrap',
 			paneSessionId: 'pane-session-1',
 			policy: {
+				contentAcknowledgementDeadlineMilliseconds:
+					frameAcknowledgementTimeoutMilliseconds ?? 5_000,
 				maximumContentBytes: 2 * 1024 * 1024,
 				maximumMetadataFrameBytes: 256 * 1024,
 				maximumQueuedStreamBytes: 4 * 1024 * 1024,
@@ -102,9 +104,6 @@ export function createContentTransportHarness(
 			...(maximumConcurrentContentResponses === undefined
 				? {}
 				: { maximumConcurrentContentResponses }),
-			...(frameAcknowledgementTimeoutMilliseconds === undefined
-				? {}
-				: { frameAcknowledgementTimeoutMilliseconds }),
 		}),
 	};
 }
