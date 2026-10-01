@@ -419,6 +419,44 @@ struct SwiftLaneRunnerReportTests {
         #expect(laneOutput.contains("RETURNED=139"))
     }
 
+    @Test("invalid child bytes do not break a passing lane or its failure diagnostics")
+    func invalidChildBytesDoNotBreakLaneOutput() async throws {
+        let fixtureDirectory = NSTemporaryDirectory() + "agentstudio-invalid-lane-output-\(UUIDv7.generate())"
+        let command = #"""
+            set -euo pipefail
+            source scripts/swift-test-helpers.sh
+            LOG_PREFIX=utf8-probe
+            BUILD_PATH=.build-agent-1
+            fixture_directory='\#(fixtureDirectory)'
+            mkdir -p "$fixture_directory/events"
+            export LANE_EVENT_STREAM_DIR="$fixture_directory/events"
+            swift_test_begin_active_command_groups
+            trap 'swift_test_cleanup_active_command_groups_directory; rm -f "$fixture_directory"/events/*; rmdir "$fixture_directory/events" "$fixture_directory"' EXIT
+
+            passed_status=0
+            run_swift_with_timeout 'passing invalid-byte probe' 20 /usr/bin/perl -e \
+              'binmode STDOUT; print "PASS_CHILD_BEFORE\n"; print "\xff"; print "PASS_CHILD_AFTER\n"' -- \
+              || passed_status=$?
+            [ "$passed_status" -eq 0 ] || exit 41
+            printf 'PASS_CHILD_STATUS=%s\n' "$passed_status"
+
+            failed_status=0
+            run_swift_with_timeout 'failed invalid-byte probe' 20 /usr/bin/perl -e \
+              'binmode STDOUT; print "TESTS_PASSED\n"; print "\xff"; exit 7' -- \
+              || failed_status=$?
+            [ "$failed_status" -eq 7 ] || exit 42
+            printf 'FAIL_CHILD_STATUS=%s\n' "$failed_status"
+            """#
+
+        let result = try await runLaneScriptBash(command)
+        #expect(result.exitCode == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("PASS_CHILD_BEFORE"))
+        #expect(result.output.contains("PASS_CHILD_AFTER"))
+        #expect(result.output.contains("PASS_CHILD_STATUS=0"))
+        #expect(result.output.contains("TESTS_PASSED"))
+        #expect(result.output.contains("FAIL_CHILD_STATUS=7"))
+    }
+
     @Test("signal names are resolved only for signalled exits")
     func signalNamesAreResolvedOnlyForSignalledExits() async throws {
         let names = try await runBash(

@@ -2176,7 +2176,7 @@ run_swift_with_timeout() {
     print_held_steps_unarrived_at_timeout "$held_step_log" "$output_file"
     print_timeout_process_diagnostics "$label" "$command_pid" "$evidence_stem"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
-    tail -n 120 "$output_file" || true
+    print_swift_test_output_tail "$output_file" || true
     # Copy the ledger BEFORE anything is signalled, while the writer is still
     # alive: the child holds the stream open and a copy taken after termination
     # can miss records it had not flushed. Copying rather than moving also keeps
@@ -2307,7 +2307,15 @@ print_failed_child_diagnostics() {
   echo "[$LOG_PREFIX] ERROR: '$label' exited $status with no recorded test failure" >&2
   echo "[$LOG_PREFIX] exit_status=$status signal=$signal_name" >&2
   echo "[$LOG_PREFIX] raw output tail for '$label':" >&2
-  tail -n 120 "$output_file" >&2 || true
+  print_swift_test_output_tail "$output_file" >&2 || true
+}
+
+# Captured child output is kept byte-for-byte for failure detection. Sanitize
+# only when echoing the diagnostic tail so malformed output cannot make Mise's
+# UTF-8 reader close the lane's stdout pipe.
+print_swift_test_output_tail() {
+  local output_file="$1"
+  tail -n 120 "$output_file" | /usr/bin/iconv -f UTF-8 -t UTF-8 -c
 }
 
 swift_test_output_has_failures() {
