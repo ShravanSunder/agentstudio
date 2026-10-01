@@ -46,7 +46,7 @@ final class BridgeBootstrapTests {
         let script = BridgeBootstrap.generateScript()
 
         #expect(script.contains("__bridge_handshake"))
-        #expect(script.contains("detail: { telemetryConfig: TELEMETRY_CONFIG }"))
+        #expect(script.contains("detail: { telemetryConfig: TELEMETRY_CONFIG, pageConfiguration: PAGE_CONFIGURATION }"))
         #expect(script.contains("__bridge_handshake_request"))
     }
 

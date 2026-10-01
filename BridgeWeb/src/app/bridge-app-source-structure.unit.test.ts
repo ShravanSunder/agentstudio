@@ -58,10 +58,14 @@ describe('BridgeApp source structure', () => {
 	});
 
 	test('mounts one pane runtime and compile-deletes the legacy page-owned dispatcher', () => {
-		const source = readSource('bridge-app.tsx');
+		const appSource = readSource('bridge-app.tsx');
+		const source = [appSource, readSource('bridge-app-initial-composition.tsx')].join('\n');
+		const runtimeConstructionPattern =
+			/(?:createBridgePaneRuntime\s*\(|props\.paneRuntimeFactory\s*\(|\(props\.paneRuntimeFactory\s*\?\?\s*createBridgePaneRuntime\)\s*\()/g;
 
 		expect(source).toContain("from '../core/comm-worker/bridge-pane-runtime.js'");
-		expect(source).toContain('createBridgePaneRuntime(');
+		expect(source.match(runtimeConstructionPattern) ?? []).toHaveLength(1);
+		expect(appSource.match(runtimeConstructionPattern) ?? []).toHaveLength(0);
 		expect(source).not.toContain('createBridgePaneRuntimeProtocolDispatcher');
 		expect(source).not.toContain('createBridgeReviewRuntimeProtocolDispatcher');
 		expect(source).not.toContain('getBridgePaneCommWorkerSession');

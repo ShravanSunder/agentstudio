@@ -35,6 +35,7 @@ export const bootstrap: BridgeProductSessionBootstrap = {
 	paneSessionId: 'pane-result-ack',
 	policy: {
 		admissionRetryCount: 2,
+		contentAcknowledgementDeadlineMilliseconds: 5_000,
 		contentProgressDeadlineMilliseconds: 5_000,
 		viewBatchProgressDeadlineMilliseconds: 5_000,
 		streamKeepaliveIntervalMilliseconds: 350,

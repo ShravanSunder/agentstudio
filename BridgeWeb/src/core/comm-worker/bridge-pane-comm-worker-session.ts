@@ -1,3 +1,4 @@
+import { readBridgePageConfiguration } from '../../bridge/bridge-page-configuration.js';
 import type {
 	BridgePaneCommWorkerSessionDiagnosticSnapshot,
 	BridgePaneCommWorkerSessionDiagnosticState,
@@ -94,7 +95,9 @@ export class BridgePaneCommWorkerSession {
 	#workerPromise: Promise<Worker> | null = null;
 
 	constructor(props: BridgePaneCommWorkerSessionProps = {}) {
-		this.#bootstrapTimeoutMilliseconds = props.bootstrapTimeoutMilliseconds ?? 5000;
+		this.#bootstrapTimeoutMilliseconds =
+			props.bootstrapTimeoutMilliseconds ??
+			readBridgePageConfiguration().workerBootstrapDeadlineMilliseconds;
 		this.#now = props.now ?? readBridgeCommWorkerAbsoluteNowMilliseconds;
 		this.#recordDiagnosticSnapshot = props.recordDiagnosticSnapshot ?? ((): void => {});
 		this.#requestNativeBootstrap = props.requestNativeBootstrap ?? ((): void => {});

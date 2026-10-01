@@ -186,6 +186,11 @@ package enum AppPolicies {
         package static let productBootstrapDeliveryProgressDeadline: Duration = .seconds(5)
         /// A finite content read must make response or verified body progress.
         package static let contentProgressDeadline: Duration = .seconds(5)
+        /// A page content receipt must be acknowledged independently of body progress.
+        package static let productContentAcknowledgementDeadline: Duration = .seconds(5)
+        /// Available through document-start configuration before any product session response.
+        package static let productPageBootstrapDeadline: Duration = .seconds(5)
+        package static let productPageReadyAcknowledgementDeadline: Duration = .seconds(5)
         package static let productAdmissionRetryCount: Int = 2
         /// N3 bounds in-transit metadata parts independently of the producer queue.
         package static let productViewCreditParts: Int = 8
