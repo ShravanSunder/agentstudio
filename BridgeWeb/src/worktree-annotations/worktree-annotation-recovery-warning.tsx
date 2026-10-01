@@ -4,6 +4,7 @@ import { useState, useSyncExternalStore, type ReactElement } from 'react';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Button } from '@/components/ui/button.js';
 
+import { BridgeRegionPresentation } from '../app/bridge-region-presentation.js';
 import { BridgeViewerRecoveryRetryButton } from '../app/bridge-viewer-recovery-retry-button.js';
 import {
 	useWorktreeAnnotationProjection,
@@ -24,6 +25,27 @@ export function WorktreeAnnotationRecoveryWarning(): ReactElement | null {
 	const isLocallyRecoveredDegraded = projection.recoveryStatus === 'recovered_degraded';
 
 	if (!isLocallyRecoveredDegraded && !isViewRecoveryFailed) return null;
+	if (isViewRecoveryFailed && !isLocallyRecoveredDegraded)
+		return (
+			<BridgeRegionPresentation
+				region="comments-recovery"
+				shape="comments"
+				state={{
+					kind: 'failed',
+					retainsContent: false,
+					failure: { kind: 'retryable', scope: 'surface', message: 'Comments unavailable' },
+				}}
+				retry={
+					<BridgeViewerRecoveryRetryButton
+						surface="comments"
+						onClick={(): void => {
+							annotationClient.retryViewRecovery();
+							annotationClient.retryProjection();
+						}}
+					/>
+				}
+			/>
+		);
 
 	const acknowledgeRecovery = async (): Promise<void> => {
 		if (isAcknowledging) return;

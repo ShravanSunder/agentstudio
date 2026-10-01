@@ -182,6 +182,8 @@ package enum AppPolicies {
         package static let productOperationSettlementDeadline: Duration = .seconds(4)
         /// The worker allows the native settlement deadline to fire first.
         package static let productWorkerSettlementDeadline: Duration = .seconds(5)
+        /// Bounds native delivery into a page independently of a cooperative WebKit reply.
+        package static let productBootstrapDeliveryProgressDeadline: Duration = .seconds(5)
         /// A finite content read must make response or verified body progress.
         package static let contentProgressDeadline: Duration = .seconds(5)
         package static let productAdmissionRetryCount: Int = 2

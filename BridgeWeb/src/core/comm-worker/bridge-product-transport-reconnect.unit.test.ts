@@ -122,6 +122,8 @@ describe('Bridge product transport metadata reconnection', () => {
 		harness.transport.setBatchFrameSinks?.({
 			install: (): void => {
 				installationCount += 1;
+			},
+			certifiedInstallCompleted: (): void => {
 				if (installationCount === 1) resolveInstallation();
 				if (installationCount === 2) resolveReplacementInstallation();
 			},
@@ -202,6 +204,9 @@ describe('Bridge product transport metadata reconnection', () => {
 				),
 			);
 			await harness.server.waitForControlKind('subscription.resnapshot');
+			await harness.transport.resnapshotView?.(
+				harness.server.requiredControlRequest('subscription.resnapshot', 0),
+			);
 			expect(harness.server.requiredControlRequest('subscription.resnapshot', 0)).toMatchObject({
 				domain: 'default',
 				handle: identity.handle,
@@ -271,6 +276,7 @@ describe('Bridge product transport metadata reconnection', () => {
 					}),
 				);
 				await harness.server.waitForControlKind('subscription.open');
+				await harness.server.waitForControlKind('subscription.setScope');
 
 				if (failureKind === 'read-error') {
 					harness.server.failMetadataReader(new Error('deliberate physical metadata read failure'));
@@ -360,6 +366,7 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 				}),
 			);
 			await harness.server.waitForControlKind('subscription.open');
+			await harness.server.waitForControlKind('subscription.setScope');
 
 			// Spend the single recovery attempt: kill stream #1, let the resync reopen...
 			harness.server.failMetadataReader(new Error('deliberate metadata read failure'));
@@ -395,6 +402,7 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 				}),
 			);
 			await harness.server.waitForControlKind('subscription.open', 2);
+			await harness.server.waitForControlKind('subscription.setScope', 2);
 			expect(harness.transport.metadataStreamDiagnostics?.()).toMatchObject({
 				activeSubscriptionCount: 1,
 				failureStage: null,
@@ -432,6 +440,7 @@ describe('Bridge product transport fresh metadata stream after poison', () => {
 				}),
 			);
 			await harness.server.waitForControlKind('subscription.open');
+			await harness.server.waitForControlKind('subscription.setScope');
 
 			// This is what the pre-fix native side did on a fresh stream: announce a
 			// subscription under an id from before the client poisoned its session.

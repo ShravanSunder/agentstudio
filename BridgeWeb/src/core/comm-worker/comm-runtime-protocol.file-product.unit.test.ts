@@ -759,7 +759,7 @@ describe('Bridge comm worker File product runtime', () => {
 		);
 	});
 
-	test('marks retained File metadata stale without publishing empty source truth after stream failure', async () => {
+	test('marks retained File metadata failed without publishing empty source truth after stream failure', async () => {
 		// Arrange: the complete File tree is already authoritative before transport fails.
 		const events = new BridgeProductBoundedAsyncQueue<never>(64);
 		const batchSinks: { current: BridgeProductBatchFrameSinks | null } = { current: null };
@@ -804,7 +804,7 @@ describe('Bridge comm worker File product runtime', () => {
 			.filter((message) => message.kind === 'fileDisplayPatch');
 		expect(fileDisplayEvents.at(-1)).toMatchObject({
 			epoch: 1,
-			patches: [{ operation: 'upsert', payload: { state: 'stale' }, slice: 'fileStatus' }],
+			patches: [{ operation: 'upsert', payload: { state: 'failed' }, slice: 'fileStatus' }],
 		});
 		expect(
 			postedMessages

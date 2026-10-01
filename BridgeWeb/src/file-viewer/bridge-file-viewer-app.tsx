@@ -10,7 +10,6 @@ import {
 	type ReactElement,
 } from 'react';
 
-import { BridgeViewerRecoveryRetryButton } from '../app/bridge-viewer-recovery-retry-button.js';
 import { BridgeViewerViewSettingsMenu } from '../app/bridge-viewer-view-settings-menu.js';
 import type { BridgeFilesViewSettings } from '../app/bridge-viewer-view-settings.js';
 import { resolveBridgeFileMarkdownIntent } from '../app/markdown/bridge-file-markdown-intent.js';
@@ -136,15 +135,6 @@ export function BridgeFileViewerAppImplementation(
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const contentHeaderControls = (
 		<>
-			{isActive &&
-			((renderSnapshotController.panelChromeSlice.fileRefreshFailure !== undefined &&
-				renderSnapshotController.panelChromeSlice.fileRefreshFailure !== null) ||
-				renderSnapshotController.fileViewRecoveryStatus?.status === 'failedRetryable') ? (
-				<BridgeViewerRecoveryRetryButton
-					onClick={renderSnapshotController.retryUnavailableFileRefresh}
-					surface="file"
-				/>
-			) : null}
 			<WorktreeAnnotationShareHeaderControl />
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
@@ -503,6 +493,10 @@ export function BridgeFileViewerAppImplementation(
 			}
 		>
 			<FileViewerShell
+				recoveryFailed={
+					renderSnapshotController.fileViewRecoveryStatus?.status === 'failedRetryable'
+				}
+				onRetryFile={renderSnapshotController.retryUnavailableFileRefresh}
 				codeViewOptions={codeViewOptions}
 				completeFileQueryTransaction={renderSnapshotController.completeFileQueryTransaction}
 				contentHeaderTitle={contentHeaderTitle}

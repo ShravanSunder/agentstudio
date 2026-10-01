@@ -566,8 +566,13 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				),
 			);
 			expect(
-				document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
-			).toContain('Loading file');
+				document
+					.querySelector('[data-bridge-region="file-content"]')
+					?.getAttribute('data-presentation-state'),
+			).toBe('updating');
+			expect(
+				document.querySelector('[data-bridge-region="file-content"] [data-slot="skeleton"]'),
+			).toBeNull();
 			const retainedView = rendered.getByTestId('bridge-file-viewer-code-view').element();
 			expect(getComputedStyle(retainedView).visibility).toBe('visible');
 			expect(mountedCodeView.current).toBe(capturedCodeView);

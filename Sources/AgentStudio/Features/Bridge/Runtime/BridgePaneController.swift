@@ -102,6 +102,7 @@ package final class BridgePaneController {
     let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
     let productSessionBootstrapSink: BridgeProductSessionBootstrapSink
     let productSessionBootstrapFailureSink: BridgeProductSessionBootstrapFailureSink
+    let productSessionBootstrapDelay: AsyncDelay
     let telemetrySessionBootstrapSink: BridgeTelemetrySessionBootstrapSink
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
@@ -111,7 +112,16 @@ package final class BridgePaneController {
     private var isTeardownStarted = false
     private var lifecycleRetirementTask: Task<Bool, Never>?
     var productSessionBootstrapTransitionTail: Task<Void, Never>?
-    var latestProductSessionBootstrapRequestId: String?
+    var productBootstrapDelivery: BridgeProductBootstrapDelivery?
+    var latestProductSessionBootstrapRequestId: String? {
+        didSet {
+            if let productBootstrapDelivery,
+                productBootstrapDelivery.requestId != latestProductSessionBootstrapRequestId
+            {
+                productBootstrapDelivery.settle(.superseded)
+            }
+        }
+    }
     var hasPublishedProductSessionBootstrap = false
     var telemetrySessionBootstrapTransitionTail: Task<Void, Never>?
     var hasPublishedTelemetrySessionBootstrap = false
@@ -153,6 +163,7 @@ package final class BridgePaneController {
             BridgePaneController.dispatchProductSessionBootstrap,
         productSessionBootstrapFailureSink: @escaping BridgeProductSessionBootstrapFailureSink =
             BridgePaneController.dispatchProductSessionBootstrapFailure,
+        productSessionBootstrapDelay: AsyncDelay = .taskSleep,
         telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
             BridgePaneController.dispatchTelemetrySessionBootstrap,
         initialContributionTargetCommit:
@@ -247,6 +258,7 @@ package final class BridgePaneController {
         self.userContentController = pageComposition.userContentController
         self.productSessionBootstrapSink = productSessionBootstrapSink
         self.productSessionBootstrapFailureSink = productSessionBootstrapFailureSink
+        self.productSessionBootstrapDelay = productSessionBootstrapDelay
         self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
         self.bootstrapScript = pageComposition.bootstrapScript
         self.page = pageComposition.page

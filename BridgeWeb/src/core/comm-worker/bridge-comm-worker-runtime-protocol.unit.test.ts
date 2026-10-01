@@ -680,6 +680,7 @@ describe('Bridge comm worker runtime protocol', () => {
 			'reviewCandidateStarted',
 			'reviewDisplayPatch',
 			'reviewCandidateReady',
+			'fileDisplayPatch',
 		]);
 		expect(scheduledDrains).toHaveLength(1);
 		clockMs += 1;
@@ -706,10 +707,13 @@ describe('Bridge comm worker runtime protocol', () => {
 			'reviewCandidateStarted',
 			'reviewDisplayPatch',
 			'reviewCandidateReady',
+			'fileDisplayPatch',
 			'reviewPierreRenderJob',
 			'reviewRenderPatch',
 		]);
-		expect(postedMessages[5]?.message).toMatchObject({
+		expect(
+			postedMessages.find(({ message }) => message.kind === 'reviewPierreRenderJob')?.message,
+		).toMatchObject({
 			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
@@ -717,7 +721,14 @@ describe('Bridge comm worker runtime protocol', () => {
 				budgetClass: 'visible',
 			},
 		});
-		expect(postedMessages[6]?.message).toMatchObject({
+		expect(
+			postedMessages.find(
+				({ message }) =>
+					message.kind === 'reviewRenderPatch' &&
+					message.publicationSequence ===
+						publishedReviewJob.renderReceiptIdentity.publicationSequence,
+			)?.message,
+		).toMatchObject({
 			kind: 'reviewRenderPatch',
 			publicationSequence: publishedReviewJob.renderReceiptIdentity.publicationSequence,
 			workerDerivationEpoch: 1,

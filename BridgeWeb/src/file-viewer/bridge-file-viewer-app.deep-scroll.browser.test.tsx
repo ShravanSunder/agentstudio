@@ -469,8 +469,13 @@ async function assertDeepScrollLoadingState(props: {
 	expect(document.querySelectorAll('[data-line-index], [data-content]')).toHaveLength(0);
 	expect(scrollOwner.scrollHeight).toBeLessThanOrEqual(scrollOwner.clientHeight + 32);
 	expect(
-		document.querySelector('[data-testid="bridge-file-viewer-content-state"]')?.textContent,
-	).toContain('Loading file');
+		document
+			.querySelector('[data-bridge-region="file-content"]')
+			?.getAttribute('data-presentation-state'),
+	).toBe('loading');
+	expect(
+		document.querySelector('[data-bridge-region="file-content"] [data-slot="skeleton"]'),
+	).not.toBeNull();
 }
 
 function assertDeepScrollReadyCorrelation(props: {

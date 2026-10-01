@@ -384,15 +384,15 @@ extension BridgePaneController {
             surfaceSelectionReplay = nil
         }
         do {
-            try await productSessionBootstrapSink(
-                page,
-                requestId,
-                installation,
-                bridgeWorld,
-                installationAdmission
-            )
+            let sink = productSessionBootstrapSink
+            let replyPage = page
+            let replyWorld = bridgeWorld
+            try await deliverProductBootstrapReply(requestId: requestId, admission: installationAdmission) {
+                try await sink(replyPage, requestId, installation, replyWorld, installationAdmission)
+            }
             guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else {
-                await retireProductBootstrapCandidateIfCurrent(installation)
+                // The successor captured this projection as its predecessor. Its
+                // replacement owner must perform retirement after that comparison.
                 return
             }
             _ = await surfaceSelectionReplay?.value
@@ -404,6 +404,7 @@ extension BridgePaneController {
                 "Delivered product session bootstrap requestId=\(requestId, privacy: .public)"
             )
         } catch {
+            guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
             let failedInstallation = productSessionOwner.installationFenceProjection.snapshot
             await retireProductBootstrapCandidateIfCurrent(installation)
             guard isCurrentProductBootstrapRequest(requestId, productAdmission: productAdmission) else { return }
