@@ -365,12 +365,23 @@ extension WebKitSerializedTests {
                 provider: provider
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let contributionCaptureGate = BridgeContributionCaptureGate()
+            await provider.setContributionCaptureGate(contributionCaptureGate)
             let initialPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
-            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            await sendPageActiveViewerMode(
+                .review,
+                controller: controller,
+                productAdmission: productAdmission,
+                sequence: 1
+            )
+            await contributionCaptureGate.waitForStart()
+            await contributionCaptureGate.releaseAll()
+            await waitForActiveReviewRefreshTaskToFinish(controller)
             let settledPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
-            guard case .success = result else {
+            guard controller.paneState.diff.packageMetadata != nil else {
                 Issue.record("Expected contribution load to succeed")
                 return
             }
@@ -414,7 +425,12 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    controller,
+                    productAdmission: productAdmission
+                )
             else {
                 Issue.record("Expected predecessor load to succeed")
                 return
@@ -432,7 +448,6 @@ extension WebKitSerializedTests {
                     baseOID: "replacement-base"
                 )
             )
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
             admitReviewComparisonIntent(
                 workerDerivationEpoch: 1,
                 controller: controller,
@@ -481,7 +496,17 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
             )
             defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            try await fixture.loadInitialReviewPackage()
+            // fire-and-forget: this fixture asserts Review package admission, not the transition handle.
+            _ = fixture.controller.applyBridgePaneActivity(.foreground)
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    fixture.controller,
+                    productAdmission: fixture.productAdmission
+                )
+            else {
+                Issue.record("Expected the shown Review page to build the initial package")
+                return
+            }
             _ = try await fixture.consumeQueuedMetadataFrames()
             let contributionCaptureGate = BridgeContributionCaptureGate()
             await fixture.reviewProvider.setContributionCaptureGate(contributionCaptureGate)
@@ -537,7 +562,12 @@ extension WebKitSerializedTests {
                 provider: provider
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    controller,
+                    productAdmission: productAdmission
+                )
             else {
                 Issue.record("Expected initial contribution load to succeed")
                 return
@@ -594,7 +624,12 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    controller,
+                    productAdmission: productAdmission
+                )
             else {
                 Issue.record("Expected initial contribution load to succeed")
                 return
@@ -606,7 +641,6 @@ extension WebKitSerializedTests {
             let defaultTargetGate = BridgeContributionCaptureGate()
             await provider.setRepositoryDefaultTarget(successorDefaultTarget)
             await provider.setDefaultTargetGate(defaultTargetGate)
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
             admitReviewComparisonIntent(
                 workerDerivationEpoch: 1,
                 controller: controller,
@@ -724,14 +758,25 @@ private func admitReviewComparisonIntent(
 private func showReviewPageAndAwaitInitialPackage(
     _ fixture: BridgeReviewComparisonControlFixture
 ) async -> Bool {
+    await showReviewPageAndAwaitInitialPackage(
+        fixture.controller,
+        productAdmission: fixture.productAdmission
+    )
+}
+
+@MainActor
+private func showReviewPageAndAwaitInitialPackage(
+    _ controller: BridgePaneController,
+    productAdmission: BridgeProductAdmissionContext
+) async -> Bool {
     await sendPageActiveViewerMode(
         .review,
-        controller: fixture.controller,
-        productAdmission: fixture.productAdmission,
+        controller: controller,
+        productAdmission: productAdmission,
         sequence: 1
     )
-    if let initialBuild = fixture.controller.activeReviewRefreshTask {
+    if let initialBuild = controller.activeReviewRefreshTask {
         await initialBuild.value
     }
-    return fixture.controller.paneState.diff.packageMetadata != nil
+    return controller.paneState.diff.packageMetadata != nil
 }
