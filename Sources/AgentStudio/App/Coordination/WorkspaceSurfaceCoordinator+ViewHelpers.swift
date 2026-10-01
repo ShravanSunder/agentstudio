@@ -371,10 +371,24 @@ extension WorkspaceSurfaceCoordinator {
                 Self.logger.warning("repair \(String(describing: repairAction)): pane not in store")
                 return
             }
+            // A5 (advisor review 2026-10-01): `restorePhaseLatch` (SR6b) lives
+            // on the native surface, not the pane, so tearing down and
+            // rebuilding that surface silently drops an open restore phase --
+            // nothing else ends it, since `TerminalActivityProjector`'s own
+            // pane-keyed restore state intentionally survives surface
+            // replacement and waits for this latch's input signal. Carry it
+            // across the repair by hand: capture it from the surface about to
+            // be torn down, and re-arm it on whatever surface replaces it.
+            let preservedRestorePhaseLatch = viewRegistry.terminalView(for: paneId)?.ghosttySurface?
+                .restorePhaseLatch
             teardownView(for: paneId, shouldUnregisterRuntime: false)
-            guard createViewForRepair(for: pane) != nil else {
+            guard let repairedView = createViewForRepair(for: pane) else {
                 Self.logger.error("repair recreateSurface failed for pane \(paneId)")
                 return
+            }
+            if let preservedRestorePhaseLatch {
+                repairedView.mountedContent(as: TerminalPaneMountView.self)?.ghosttySurface?
+                    .restorePhaseLatch = preservedRestorePhaseLatch
             }
             Self.logger.info("Repaired view for pane \(paneId)")
 
