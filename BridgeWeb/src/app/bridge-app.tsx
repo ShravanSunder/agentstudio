@@ -2,12 +2,12 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
+	type BridgePageReadyError,
 	type BridgePageHandshakeSession,
 	installBridgePageHandshakeSession,
 } from '../bridge/bridge-page-handshake.js';
 import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
 import {
-	createBridgePaneRuntime,
 	type BridgePaneRuntime,
 	type BridgePaneSurfaceClient,
 } from '../core/comm-worker/bridge-pane-runtime.js';
@@ -64,6 +64,8 @@ import {
 } from './markdown/bridge-markdown-runtime-host.js';
 import { useBridgeAnnotationNavigation } from './use-bridge-annotation-navigation.js';
 export type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
+import { BridgeAppInitialComposition } from './bridge-app-initial-composition.js';
+import type { BridgePaneReloadPort } from './bridge-pane-reload-port.js';
 import {
 	bridgeViewerActivationPrewarm,
 	type BridgeViewerActivationPrewarmState,
@@ -81,6 +83,7 @@ import { useBridgeViewerContextFocusHandoff } from './bridge-viewer-context-focu
 import { useBridgeCommWorkerSessionTelemetry } from './use-bridge-comm-worker-session-telemetry.js';
 
 export interface BridgeAppProps {
+	readonly paneReloadPort?: BridgePaneReloadPort;
 	readonly target?: EventTarget;
 	readonly fetchContent?: BridgeContentFetch;
 	readonly markdownRuntime?: BridgeMarkdownRenderRuntime | null;
@@ -121,18 +124,21 @@ interface BridgePendingNativeSurfaceSelection {
 type BridgeActiveViewerSources = Record<BridgeViewerMode, BridgeActiveViewerSource | null>;
 
 interface BridgePaneRuntimeHost {
-	readonly disposeWithComponent: boolean;
 	readonly fileViewClient: BridgePaneSurfaceClient;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly runtime: BridgePaneRuntime;
 }
 
 export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
+	return <BridgeAppInitialComposition {...props} readyContent={BridgeAppRuntimeContent} />;
+}
+
+function BridgeAppRuntimeContent(
+	props: BridgeAppProps & { readonly paneRuntime: BridgePaneRuntime },
+): ReactElement {
+	const [pageReadyFailure, setPageReadyFailure] = useState<BridgePageReadyError | null>(null);
 	const paneRuntimeHostRef = useRef<BridgePaneRuntimeHost | null>(null);
-	paneRuntimeHostRef.current ??= createBridgePaneRuntimeHost({
-		externallyOwnedRuntime: props.paneRuntime ?? null,
-		runtimeFactory: props.paneRuntimeFactory ?? createDefaultBridgePaneRuntime,
-	});
+	paneRuntimeHostRef.current ??= createBridgePaneRuntimeHost(props.paneRuntime);
 	const paneRuntimeHost = paneRuntimeHostRef.current;
 	const markdownRuntimeHostRef = useRef<BridgeMarkdownRuntimeHost | null>(null);
 	markdownRuntimeHostRef.current ??= createBridgeMarkdownRuntimeHost({
@@ -458,6 +464,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				paneRuntimeHost.runtime.handleNativeBootstrapFailure();
 			},
 			onReady: (): void => {
+				setPageReadyFailure(null);
 				recordBridgePageReadyState('ready');
 				isBridgeReadyRef.current = true;
 				isBridgeReadyGateOpenRef.current = true;
@@ -470,7 +477,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					}
 				});
 			},
-			onReadyError: (): void => {
+			onReadyError: (error): void => {
+				setPageReadyFailure(error);
 				recordBridgePageReadyState('failed');
 				isBridgeReadyRef.current = false;
 				isBridgeReadyGateOpenRef.current = false;
@@ -541,9 +549,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				resolversByRequestId: requestResolvers,
 			});
 			settledResults.clear();
-			if (paneRuntimeHost.disposeWithComponent) {
-				paneRuntimeHost.runtime.dispose();
-			}
 			disposeBridgeMarkdownRuntimeHost(markdownRuntimeHost);
 		};
 	}, [markdownRuntimeHost, paneRuntimeHost, publishActiveViewerModeWorkerMessages]);
@@ -827,7 +832,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		navigationAdmissionState.pendingCommand?.surface === 'file';
 
 	return (
-		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerMode}>
+		<BridgeViewerAppShell
+			appOwner="BridgeApp"
+			mode={activeViewerMode}
+			pageReadyFailure={pageReadyFailure}
+			{...(props.paneReloadPort === undefined ? {} : { paneReloadPort: props.paneReloadPort })}
+		>
 			<WorktreeAnnotationNavigationProvider controller={annotationNavigation}>
 				{mountedViewerModes.has('file') ? (
 					<div
@@ -926,29 +936,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	);
 }
 
-function createBridgePaneRuntimeHost(props: {
-	readonly externallyOwnedRuntime: BridgePaneRuntime | null;
-	readonly runtimeFactory: () => BridgePaneRuntime;
-}): BridgePaneRuntimeHost {
-	const runtime = props.externallyOwnedRuntime ?? props.runtimeFactory();
-	const disposeWithComponent = props.externallyOwnedRuntime === null;
-	try {
-		return {
-			disposeWithComponent,
-			fileViewClient: runtime.surfaceClient('fileView'),
-			reviewClient: runtime.surfaceClient('review'),
-			runtime,
-		};
-	} catch (error: unknown) {
-		if (disposeWithComponent) {
-			runtime.dispose();
-		}
-		throw error;
-	}
-}
-
-function createDefaultBridgePaneRuntime(): BridgePaneRuntime {
-	return createBridgePaneRuntime();
+function createBridgePaneRuntimeHost(runtime: BridgePaneRuntime): BridgePaneRuntimeHost {
+	return {
+		fileViewClient: runtime.surfaceClient('fileView'),
+		reviewClient: runtime.surfaceClient('review'),
+		runtime,
+	};
 }
 
 function bridgeAppNavigationCommandIsAdmitted(

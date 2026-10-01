@@ -315,7 +315,9 @@ describe('bridge page handshake', () => {
 				events.push('ready-callback');
 			},
 			onReadyError: (error): void => {
-				events.push(`${error.kind}:${error.requestId.length > 0 ? 'request' : 'missing'}`);
+				events.push(
+					`${error.kind}:${error.requestId !== null && error.requestId.length > 0 ? 'request' : 'missing'}`,
+				);
 			},
 			readyAcknowledgementTimeoutMilliseconds: 25,
 		});

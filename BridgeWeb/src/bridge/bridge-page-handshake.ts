@@ -61,11 +61,13 @@ export interface BridgePageHandshakeSession {
 	readonly uninstall: () => void;
 }
 
-export interface BridgePageReadyError {
-	readonly kind: 'ack_error' | 'ack_timeout';
-	readonly message: string;
-	readonly requestId: string;
-}
+export type BridgePageReadyError =
+	| {
+			readonly kind: 'ack_error' | 'ack_timeout';
+			readonly message: string;
+			readonly requestId: string;
+	  }
+	| { readonly kind: 'configuration_error'; readonly message: string; readonly requestId: null };
 
 type BridgePageReadyRequestState = 'awaiting' | 'failed' | 'ready' | 'timed_out';
 
@@ -191,6 +193,7 @@ export function installBridgePageHandshakeSession(
 	};
 
 	const handleHandshake = (event: Event): void => {
+		if (readyRequestState === 'failed') return;
 		if (telemetryConfig === null) {
 			const nextTelemetryConfig = extractTelemetryConfig(event);
 			if (nextTelemetryConfig !== null) {
@@ -204,7 +207,14 @@ export function installBridgePageHandshakeSession(
 		const readyAcknowledgementTimeoutMilliseconds =
 			props.readyAcknowledgementTimeoutMilliseconds ??
 			decodeBridgePageConfigurationHandshake(event)?.readyAcknowledgementDeadlineMilliseconds;
-		if (readyAcknowledgementTimeoutMilliseconds === undefined) return;
+		if (readyAcknowledgementTimeoutMilliseconds === undefined) {
+			failReadyRequest({
+				kind: 'configuration_error',
+				message: 'Bridge page configuration is missing or invalid.',
+				requestId: null,
+			});
+			return;
+		}
 
 		didSendReady = true;
 		readyRequestId = createBridgeReadyRequestId();

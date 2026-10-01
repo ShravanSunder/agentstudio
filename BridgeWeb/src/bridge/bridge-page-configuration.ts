@@ -14,6 +14,13 @@ export const bridgePageConfigurationSchema = z
 
 export type BridgePageConfiguration = z.infer<typeof bridgePageConfigurationSchema>;
 
+export class BridgePageConfigurationReadError extends Error {
+	constructor() {
+		super('Bridge page configuration is unavailable before bootstrap.');
+		this.name = 'BridgePageConfigurationReadError';
+	}
+}
+
 export function decodeBridgePageConfigurationHandshake(
 	event: Event,
 ): BridgePageConfiguration | null {
@@ -42,7 +49,6 @@ export function readBridgePageConfiguration(
 	} finally {
 		target.removeEventListener('__bridge_handshake', receiveConfiguration);
 	}
-	if (configuration === null)
-		throw new Error('Bridge page configuration is unavailable before bootstrap.');
+	if (configuration === null) throw new BridgePageConfigurationReadError();
 	return configuration;
 }
