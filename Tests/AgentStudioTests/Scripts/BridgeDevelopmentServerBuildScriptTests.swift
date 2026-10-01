@@ -11,14 +11,15 @@ struct BridgeDevelopmentServerBuildScriptTests {
         let environment = [
             "CI": "true", "SWIFT_BUILD_DIR": ".build-ci", "SWIFT_BUILD_STATS_DIR": statisticsPath,
             "EXTRA_SWIFT_TEST_ARGS": "-Xswiftc -DSEED_PROOF",
+            "_XCB_BYPASS": "1",
         ]
         let producer = try await fixture.buildSlot.run(
             """
             bash scripts/vendor-worktree.sh verify
             source scripts/swift-test-helpers.sh
+            LOG_PREFIX=policy-proof
             BUILD_PATH=.build-ci
             PREBUILD_TIMEOUT_SECONDS=10
-            run_swift_with_timeout() { shift; shift; "$@"; }
             prebuild_swift_tests
             """, environment: environment)
         #expect(producer.exitCode == 0, "\(producer.output)")
@@ -119,7 +120,7 @@ private struct BridgeDevelopmentBuildFixture {
             at: projectRoot.appending(path: "scripts/swift-compilation-policy.sh"),
             to: buildSlot.rootURL.appending(path: "scripts/swift-compilation-policy.sh")
         )
-        for helperName in ["swift-test-helpers.sh", "xcb-helpers.sh"] {
+        for helperName in ["swift-test-helpers.sh", "xcb-helpers.sh", "filter-known-linker-warnings.sh"] {
             try FileManager.default.copyItem(
                 at: projectRoot.appending(path: "scripts/\(helperName)"),
                 to: buildSlot.rootURL.appending(path: "scripts/\(helperName)"))
