@@ -146,9 +146,10 @@ struct AgentStudioIPCLifecycleEndFactTests {
         let event: IPCSessionEventIdentity
         if providerIdentifier == "codex" {
             let payload = try JSONDecoder().decode(CodexHookPayload.self, from: data)
+            let hookEventName = try #require(CodexHookEventName(rawValue: eventName))
             let projected = try #require(
                 CodexHookProjection.project(
-                    eventName: try #require(CodexHookEventName(rawValue: eventName)),
+                    eventName: hookEventName,
                     payload: payload, reportIdentifier: reportIdentifier
                 ))
             provider = projected.provider

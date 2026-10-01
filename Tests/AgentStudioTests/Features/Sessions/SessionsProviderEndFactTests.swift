@@ -192,15 +192,15 @@ struct SessionsProviderEndFactTests {
         fixture: SessionsDatabaseFixture, bindingGenerationId: UUID
     ) async throws -> StoredEndFact {
         try await fixture.sqliteAccess.read { database in
-            let row = try #require(
-                Row.fetchOne(
-                    database,
-                    sql: """
-                        SELECT provider_end_reason, provider_end_reason_text, CAST(provider_ended_at AS TEXT) AS end_time
-                        FROM sessions_pane_binding WHERE binding_generation_id = ?
-                        """,
-                    arguments: [bindingGenerationId.uuidString]
-                ))
+            let fetchedRow = try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT provider_end_reason, provider_end_reason_text, CAST(provider_ended_at AS TEXT) AS end_time
+                    FROM sessions_pane_binding WHERE binding_generation_id = ?
+                    """,
+                arguments: [bindingGenerationId.uuidString]
+            )
+            let row = try #require(fetchedRow)
             return StoredEndFact(
                 reason: row["provider_end_reason"], text: row["provider_end_reason_text"], time: row["end_time"]
             )

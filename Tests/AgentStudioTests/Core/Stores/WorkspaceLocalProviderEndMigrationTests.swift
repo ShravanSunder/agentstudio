@@ -47,11 +47,11 @@ struct WorkspaceLocalProviderEndMigrationTests {
         try WorkspaceLocalMigrations.migrate(database)
 
         try database.write { connection in
-            let row = try #require(
-                Row.fetchOne(
-                    connection, sql: "SELECT * FROM sessions_pane_binding WHERE binding_generation_id = ?",
-                    arguments: [bindingGenerationId.uuidString]
-                ))
+            let fetchedRow = try Row.fetchOne(
+                connection, sql: "SELECT * FROM sessions_pane_binding WHERE binding_generation_id = ?",
+                arguments: [bindingGenerationId.uuidString]
+            )
+            let row = try #require(fetchedRow)
             #expect((row["status"] as String) == "active")
             #expect((row["started_at"] as Double) == 1)
             #expect((row["provider_end_reason"] as String?) == nil)
