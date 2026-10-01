@@ -15,7 +15,8 @@ struct BridgeProductSessionLifecycleHarness {
         deadlineClock: (any Clock<Duration> & Sendable)? = nil,
         producerQueueLimits: BridgeProductProducerQueueLimits = .productContract,
         viewEmissionWaiterRegistrationObserver:
-            BridgeProductSession.ViewEmissionWaiterRegistrationObserver? = nil
+            BridgeProductSession.ViewEmissionWaiterRegistrationObserver? = nil,
+        fileCaptureBatchSealer: BridgeProductSession.FileCaptureBatchSealer? = nil
     ) async throws -> Self {
         let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
         let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
@@ -26,7 +27,8 @@ struct BridgeProductSessionLifecycleHarness {
             maximumMutationWatches: maximumMutationWatches,
             deadlineClock: deadlineClock,
             producerQueueLimits: producerQueueLimits,
-            viewEmissionWaiterRegistrationObserver: viewEmissionWaiterRegistrationObserver
+            viewEmissionWaiterRegistrationObserver: viewEmissionWaiterRegistrationObserver,
+            fileCaptureBatchSealer: fileCaptureBatchSealer
         )
         let harness = try Self(
             capabilityHeader: capabilityHeader,
