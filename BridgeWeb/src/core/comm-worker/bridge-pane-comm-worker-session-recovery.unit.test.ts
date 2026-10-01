@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import pageConfigurationFixture from '../../test-fixtures/bridge-contract-fixtures/valid/bridge-page-configuration.json' with { type: 'json' };
 import {
 	registerBridgeCommWorkerEntry,
 	type BridgeCommWorkerGlobalScope,
@@ -98,6 +99,7 @@ describe('Bridge pane comm worker lost-admission recovery', () => {
 		const replacementReasons: string[] = [];
 		const client = new RecordingPaneCommWorkerClient();
 		const session = new BridgePaneCommWorkerSession({
+			bootstrapTimeoutMilliseconds: pageConfigurationFixture.workerBootstrapDeadlineMilliseconds,
 			requestNativeBootstrap: (reason): void => {
 				replacementReasons.push(reason);
 				replacementRequested.resolve();
