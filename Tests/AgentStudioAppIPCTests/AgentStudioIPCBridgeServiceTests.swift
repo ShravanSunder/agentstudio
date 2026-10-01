@@ -342,7 +342,7 @@ struct AgentStudioIPCBridgeServiceTests {
 @Suite("AgentStudioIPCBridgeRenderDiagnosticsTests", .serialized)
 struct AgentStudioIPCBridgeRenderDiagnosticsTests {
     @Test("Bridge render state preserves bounded native activity diagnostics through JSON-RPC")
-    func bridgeRenderStatePreservesBoundedNativeActivityDiagnosticsThroughJSONRPC() throws {
+    func bridgeRenderStatePreservesBoundedNativeActivityDiagnosticsThroughJSONRPC() async throws {
         let paneId = UUID()
         let fixtureResult = try JSONDecoder().decode(
             IPCBridgeRenderStateResult.self,
@@ -382,39 +382,41 @@ struct AgentStudioIPCBridgeRenderDiagnosticsTests {
                 """.utf8
             )
         )
-        let fixture = try LiveServerFixture(
-            accessMode: .unsafeDebug,
-            channel: .debug,
-            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
-            bridgePort: FakeBridgePort(paneId: paneId, renderStateResult: fixtureResult)
-        )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
+        try await withLiveServer(
+            makeFixture: {
+                try LiveServerFixture(
+                    accessMode: .unsafeDebug,
+                    channel: .debug,
+                    panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
+                    bridgePort: FakeBridgePort(paneId: paneId, renderStateResult: fixtureResult)
+                )
+            },
+            body: { fixture in
+                try fixture.server.start()
 
-        let response = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(72),
-                method: "bridge.diff.renderState",
-                params: .object(["handle": .string("pane:1")])
-            )
-        )
+                let response = try sendRequest(
+                    socketPath: fixture.paths.socketURL.path,
+                    request: JSONRPCClientRequest(
+                        id: .number(72),
+                        method: "bridge.diff.renderState",
+                        params: .object(["handle": .string("pane:1")])
+                    )
+                )
 
-        #expect(response.id == .number(72))
-        #expect(response.error == nil)
-        guard case .object(let result)? = response.result,
-            case .object(let diagnostics)? = result["diagnostics"]
-        else {
-            Issue.record("expected Bridge render-state diagnostics object")
-            return
-        }
-        #expect(diagnostics["nativeActivity"] == .string("loadedHidden"))
-        #expect(diagnostics["foregroundWorkEpoch"] == .number(7))
-        #expect(diagnostics["dirtyFactPresent"] == .bool(true))
-        #expect(diagnostics["activeRefreshPassPresent"] == .bool(false))
-        #expect(diagnostics["refreshPassCount"] == .number(3))
+                #expect(response.id == .number(72))
+                #expect(response.error == nil)
+                guard case .object(let result)? = response.result,
+                    case .object(let diagnostics)? = result["diagnostics"]
+                else {
+                    Issue.record("expected Bridge render-state diagnostics object")
+                    return
+                }
+                #expect(diagnostics["nativeActivity"] == .string("loadedHidden"))
+                #expect(diagnostics["foregroundWorkEpoch"] == .number(7))
+                #expect(diagnostics["dirtyFactPresent"] == .bool(true))
+                #expect(diagnostics["activeRefreshPassPresent"] == .bool(false))
+                #expect(diagnostics["refreshPassCount"] == .number(3))
+            })
     }
 
 }
@@ -422,45 +424,47 @@ struct AgentStudioIPCBridgeRenderDiagnosticsTests {
 @Suite("AgentStudioIPCBridgeSearchModeTests", .serialized)
 struct AgentStudioIPCBridgeSearchModeTests {
     @Test("debug unsafe no-auth preserves semantic Bridge Search mode")
-    func debugUnsafeNoAuthPreservesSemanticBridgeSearchMode() throws {
+    func debugUnsafeNoAuthPreservesSemanticBridgeSearchMode() async throws {
         let paneId = UUIDv7.generate()
         let correlationId = UUIDv7.generate()
         let searchModeInvocationRecorder = BridgeSearchModeInvocationRecorder()
-        let fixture = try LiveServerFixture(
-            accessMode: .unsafeDebug,
-            channel: .debug,
-            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
-            bridgePort: FakeBridgePort(
-                paneId: paneId,
-                searchModeInvocationRecorder: searchModeInvocationRecorder
-            )
-        )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
+        try await withLiveServer(
+            makeFixture: {
+                try LiveServerFixture(
+                    accessMode: .unsafeDebug,
+                    channel: .debug,
+                    panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
+                    bridgePort: FakeBridgePort(
+                        paneId: paneId,
+                        searchModeInvocationRecorder: searchModeInvocationRecorder
+                    )
+                )
+            },
+            body: { fixture in
+                try fixture.server.start()
 
-        let response = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(74),
-                method: "bridge.fileTree.search",
-                params: .object([
-                    "handle": .string("pane:1"),
-                    "searchText": .string("BridgePaneController"),
-                    "searchMode": .object(["kind": .string("regex")]),
-                    "correlationId": .string(correlationId.uuidString),
-                ])
-            )
-        )
+                let response = try sendRequest(
+                    socketPath: fixture.paths.socketURL.path,
+                    request: JSONRPCClientRequest(
+                        id: .number(74),
+                        method: "bridge.fileTree.search",
+                        params: .object([
+                            "handle": .string("pane:1"),
+                            "searchText": .string("BridgePaneController"),
+                            "searchMode": .object(["kind": .string("regex")]),
+                            "correlationId": .string(correlationId.uuidString),
+                        ])
+                    )
+                )
 
-        let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
-        #expect(result.paneId == paneId)
-        #expect(result.method == "bridge.fileTree.search")
-        #expect(result.status == "accepted")
-        #expect(result.treeSearchText == "BridgePaneController")
-        #expect(searchModeInvocationRecorder.snapshot() == [.regex])
-        #expect(result.correlationId == correlationId)
+                let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
+                #expect(result.paneId == paneId)
+                #expect(result.method == "bridge.fileTree.search")
+                #expect(result.status == "accepted")
+                #expect(result.treeSearchText == "BridgePaneController")
+                #expect(searchModeInvocationRecorder.snapshot() == [.regex])
+                #expect(result.correlationId == correlationId)
+            })
     }
 
 }
@@ -527,38 +531,40 @@ struct AgentStudioIPCBridgeNonBridgeTargetTests {
 @Suite("AgentStudioIPCBridgeDiagnosticTargetTests", .serialized)
 struct AgentStudioIPCBridgeDiagnosticTargetTests {
     @Test("diagnostic Bridge reads reject non-Bridge pane targets")
-    func diagnosticBridgeReadsRejectNonBridgePaneTargets() throws {
+    func diagnosticBridgeReadsRejectNonBridgePaneTargets() async throws {
         let paneId = UUID()
-        let fixture = try LiveServerFixture(
-            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .terminal)]
-        )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-        let token = fixture.installDebugCredential()
-        let connection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-        )
-        defer {
-            connection.close()
-        }
-        var frameReader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 91, reader: &frameReader)
+        try await withLiveServer(
+            makeFixture: {
+                try LiveServerFixture(
+                    panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .terminal)]
+                )
+            },
+            body: { fixture in
+                try fixture.server.start()
+                let token = fixture.installDebugCredential()
+                let connection = try UnixSocketClient.connect(
+                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+                )
+                defer {
+                    connection.close()
+                }
+                var frameReader = TestFrameReader()
+                try login(connection: connection, token: token, requestId: 91, reader: &frameReader)
 
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(92),
-                method: "bridge.diff.getPackage",
-                params: .object(["handle": .string("pane:1")])
-            )
-        )
+                try sendRequest(
+                    connection: connection,
+                    request: JSONRPCClientRequest(
+                        id: .number(92),
+                        method: "bridge.diff.getPackage",
+                        params: .object(["handle": .string("pane:1")])
+                    )
+                )
 
-        let response = try frameReader.receiveResponse(connection: connection)
-        #expect(response.error?.code == -32_003)
-        #expect(response.error?.message == "unsupported target")
-        #expect(response.result == nil)
+                let response = try frameReader.receiveResponse(connection: connection)
+                #expect(response.error?.code == -32_003)
+                #expect(response.error?.message == "unsupported target")
+                #expect(response.result == nil)
+            })
     }
 
 }
@@ -797,67 +803,69 @@ private func bridgeReviewFilterParams(handle: String, correlationId: UUID) -> JS
 @Suite("AgentStudioIPCBridgeRejectedControlTests", .serialized)
 struct AgentStudioIPCBridgeRejectedControlTests {
     @Test("rejected Bridge page-control commands do not publish file selection notifications")
-    func rejectedBridgePageControlCommandsDoNotPublishFileSelectionNotifications() throws {
+    func rejectedBridgePageControlCommandsDoNotPublishFileSelectionNotifications() async throws {
         let paneId = UUID()
-        let fixture = try LiveServerFixture(
-            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
-            bridgePort: FakeBridgePort(
-                paneId: paneId,
-                pageControlStatus: "rejected",
-                pageControlReason: "missing_item"
-            )
-        )
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-        let token = fixture.installDebugCredential()
-        let connection = try UnixSocketClient.connect(
-            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
-        )
-        defer {
-            connection.close()
-        }
-        var frameReader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 93, reader: &frameReader)
-        let subscriptionCorrelationId = UUIDv7.generate()
-        let correlationId = UUIDv7.generate()
+        try await withLiveServer(
+            makeFixture: {
+                try LiveServerFixture(
+                    panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
+                    bridgePort: FakeBridgePort(
+                        paneId: paneId,
+                        pageControlStatus: "rejected",
+                        pageControlReason: "missing_item"
+                    )
+                )
+            },
+            body: { fixture in
+                try fixture.server.start()
+                let token = fixture.installDebugCredential()
+                let connection = try UnixSocketClient.connect(
+                    endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+                )
+                defer {
+                    connection.close()
+                }
+                var frameReader = TestFrameReader()
+                try login(connection: connection, token: token, requestId: 93, reader: &frameReader)
+                let subscriptionCorrelationId = UUIDv7.generate()
+                let correlationId = UUIDv7.generate()
 
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(94),
-                method: "events.subscribe",
-                params: .object([
-                    "eventNames": .array([.string(IPCEventName.bridgeFileSelected.rawValue)]),
-                    "correlationId": .string(subscriptionCorrelationId.uuidString),
-                ])
-            )
-        )
-        let subscriptionResponse = try frameReader.receiveResponse(connection: connection)
-        try #require(subscriptionResponse.error == nil)
-        let subscription = try decodeResponseResult(IPCEventSubscriptionResult.self, from: subscriptionResponse)
-        #expect(subscription.eventNames == [.bridgeFileSelected])
+                try sendRequest(
+                    connection: connection,
+                    request: JSONRPCClientRequest(
+                        id: .number(94),
+                        method: "events.subscribe",
+                        params: .object([
+                            "eventNames": .array([.string(IPCEventName.bridgeFileSelected.rawValue)]),
+                            "correlationId": .string(subscriptionCorrelationId.uuidString),
+                        ])
+                    )
+                )
+                let subscriptionResponse = try frameReader.receiveResponse(connection: connection)
+                try #require(subscriptionResponse.error == nil)
+                let subscription = try decodeResponseResult(IPCEventSubscriptionResult.self, from: subscriptionResponse)
+                #expect(subscription.eventNames == [.bridgeFileSelected])
 
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(95),
-                method: "bridge.diff.scrollToFile",
-                params: .object([
-                    "handle": .string("pane:1"),
-                    "itemId": .string("missing-item"),
-                    "correlationId": .string(correlationId.uuidString),
-                ])
-            )
-        )
+                try sendRequest(
+                    connection: connection,
+                    request: JSONRPCClientRequest(
+                        id: .number(95),
+                        method: "bridge.diff.scrollToFile",
+                        params: .object([
+                            "handle": .string("pane:1"),
+                            "itemId": .string("missing-item"),
+                            "correlationId": .string(correlationId.uuidString),
+                        ])
+                    )
+                )
 
-        let response = try frameReader.receiveResponse(connection: connection)
-        let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
-        #expect(result.status == "rejected")
-        #expect(result.reason == "missing_item")
-        #expect(result.correlationId == correlationId)
-        #expect(!frameReader.hasBufferedFrame(containing: "events.notification"))
+                let response = try frameReader.receiveResponse(connection: connection)
+                let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
+                #expect(result.status == "rejected")
+                #expect(result.reason == "missing_item")
+                #expect(result.correlationId == correlationId)
+                #expect(!frameReader.hasBufferedFrame(containing: "events.notification"))
+            })
     }
 
 }
