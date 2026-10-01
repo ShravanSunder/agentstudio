@@ -43,6 +43,9 @@ struct IPCTestHarnessCanonicalDatastoreTests {
 
     private func verifySharedWrites(store: WorkspaceStore, appDelegate: AppDelegate) async throws {
         let ipcDatastore = try #require(appDelegate.workspaceSQLiteDatastore)
+        // The first load deliberately replays the prepared startup image.
+        // Consume it before writing so the observation reads the committed DB.
+        _ = await ipcDatastore.loadWorkspaceSnapshot()
         store.identityAtom.setWorkspaceName("Written through WorkspaceStore")
         #expect(await store.flushAsync() == .persisted)
 
