@@ -51,6 +51,38 @@ struct HarnessReceiptTests {
             #expect(try #require(metadata.caseID).isEmpty == false)
         }
     }
+
+    @Test("first-arrival success and misuse keep their terminal receipt outcomes")
+    func arrivedAndThrownWaitsRecordSettlement() async throws {
+        let logURL = try makeReceiptLogURL()
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        let eventLog = HeldStepEventLog(path: logURL.path)
+        let arrived = HeldStep<Int>("arrived receipt", eventLog: eventLog)
+        arrived.release()
+        try await arrived.arrive(7)
+        #expect(try await arrived.firstArrival() == 7)
+        let rejected = HeldStep<Int>("thrown receipt", eventLog: eventLog)
+        #expect(throws: HeldStepBlockingArrivalInsideTask.self) { try rejected.arriveBlocking(8) }
+        await #expect(throws: HeldStepBlockingArrivalInsideTask.self) { try await rejected.firstArrival() }
+
+        let settlements = try readReceiptRecords(logURL).filter { $0.fields.first == "wait_settled" }
+        #expect(settlements.count == 2)
+        #expect(settlements.first { $0.fields[1] == String(arrived.instanceID) }?.fields[3] == "arrived")
+        #expect(settlements.first { $0.fields[1] == String(rejected.instanceID) }?.fields[3] == "threw")
+    }
+
+    @Test("an off-pool arrival keeps the case identity captured by its step")
+    func dedicatedThreadArrivalKeepsOwnerIdentity() async throws {
+        let logURL = try makeReceiptLogURL()
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        let step = HeldStep<Int>("thread receipt", eventLog: HeldStepEventLog(path: logURL.path))
+        step.release()
+        try await valueFromDedicatedThread { try step.arriveBlocking(1) }
+
+        let arrival = try #require(readReceiptRecords(logURL).first { $0.fields.first == "arrived" })
+        #expect(arrival.metadata?.testID == String(describing: try #require(Test.current).id))
+        #expect(try #require(arrival.metadata?.caseID).isEmpty == false)
+    }
 }
 
 @Suite("Harness parameterized receipt identity", ParameterizedReceiptScope())
