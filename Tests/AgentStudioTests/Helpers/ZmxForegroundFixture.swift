@@ -1,0 +1,269 @@
+import AgentStudioInfrastructure
+import AgentStudioTestHarness
+import Darwin
+import Foundation
+import GRDB
+import Synchronization
+import Testing
+
+@testable import AgentStudioCore
+@testable import AgentStudioTerminal
+@testable import AgentStudioTestSupport
+
+struct ZmxForegroundFixture: Sendable {
+    let paneId: UUID
+    let sessionId: ZmxSessionID
+    let generationId: UUID
+    let repository: SQLitePaneForegroundObservationRepository
+    let observer: PaneForegroundObserver<TestPushClock>
+    let probe: DarwinTerminalForegroundProbe
+    let probeGate: ZmxForegroundProbeGate
+    let facts: FactRecorder<ForegroundObserverFactScope, ForegroundObserverFact>
+    let inputWriter: ForegroundFIFOHandle
+    let agentOutputReader: ForegroundFIFOHandle
+    let shellReadyPath: String
+    let successorInputPath: String?
+    let successorOutputPath: String?
+    let successorHandles: ForegroundFIFOGroup
+    let identity: Data
+    let harness: ZmxTestHarness
+
+    static func make(harness: ZmxTestHarness, backend: ZmxBackend, provider: String, successorProgram: Bool = false)
+        async throws -> Self
+    {
+        let root = URL(fileURLWithPath: harness.zmxDir)
+        let sessionId = ZmxSessionID.generateUUIDv7()
+        let paneId = UUIDv7.generate()
+        let generationId = UUIDv7.generate()
+        let launchId = UUIDv7.generate()
+        let binary = root.appending(path: provider)
+        let inputPath = root.appending(path: "agent-input-\(sessionId.rawValue)").path
+        let outputPath = root.appending(path: "agent-output-\(sessionId.rawValue)").path
+        let shellPath = root.appending(path: "shell-ready-\(sessionId.rawValue)").path
+        let successorInput = successorProgram ? root.appending(path: "other-input-\(sessionId.rawValue)").path : nil
+        let successorOutput = successorProgram ? root.appending(path: "other-output-\(sessionId.rawValue)").path : nil
+        try FileManager.default.copyItem(atPath: "/bin/cat", toPath: binary.path)
+        for path in [inputPath, outputPath, shellPath] {
+            guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        }
+        for path in [successorInput, successorOutput].compactMap({ $0 }) {
+            guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        }
+        let successor: String
+        if let successorInput, let successorOutput {
+            successor = "exec /bin/cat <\(quoteForegroundPath(successorInput)) >\(quoteForegroundPath(successorOutput))"
+        } else {
+            successor = "printf shell-ready >\(quoteForegroundPath(shellPath)); exec /bin/sh -i"
+        }
+        let command =
+            "\(quoteForegroundPath(binary.path)) <\(quoteForegroundPath(inputPath)) >\(quoteForegroundPath(outputPath)); \(successor)"
+        let zmxPath = try #require(harness.zmxPath)
+        _ = try await harness.spawnZmxSession(
+            zmxPath: zmxPath, sessionId: sessionId.rawValue,
+            commandArgs: ["/bin/sh", "-i", "-c", command])
+        let writer = ForegroundFIFOHandle(try await openForegroundFIFO(path: inputPath, flags: O_WRONLY))
+        var reader: ForegroundFIFOHandle?
+        do {
+            let outputReader = ForegroundFIFOHandle(try await openForegroundFIFO(path: outputPath, flags: O_RDONLY))
+            reader = outputReader
+            let marker = Data("agent-ready".utf8)
+            try await writeForegroundFIFO(descriptor: writer.descriptor(), bytes: marker)
+            try await requireForegroundBytes(descriptor: outputReader.descriptor(), expected: marker)
+            let observed = try await backend.observeSessionIdentity(sessionId)
+            let identity = try #require(observed)
+            let bootId = try ZmxSessionIdentity.decode(identity).bootID
+            let database = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "zmx-foreground-observation")
+            try WorkspaceLocalMigrations.migrate(database)
+            try await seedZmxForegroundBinding(database: database, paneId: paneId, generationId: generationId)
+            let sessions = [paneId: sessionId]
+            let repository = SQLitePaneForegroundObservationRepository(
+                databaseWriter: database, observerLaunchId: launchId, paneSessions: { sessions })
+            let source = LocalFactSource(
+                vocabulary: FactVocabulary<ForegroundObserverFactScope, ForegroundObserverFact>(
+                    describeScope: { "\($0.paneId)/\($0.operationId)" }, describeFact: { String(describing: $0) },
+                    isClosing: { _, fact in if case .closed = fact { true } else { false } }))
+            let facts = try source.attach()
+            let probe = DarwinTerminalForegroundProbe(sessionDirectory: harness.zmxDir, bootId: bootId)
+            let probeGate = ZmxForegroundProbeGate(probe: probe)
+            let observer = PaneForegroundObserver(
+                clock: TestPushClock(),
+                policy: .init(lookSettleDelay: .seconds(5), lookMaxDelay: .seconds(60), quitLookDeadline: .seconds(1)),
+                repository: repository, probe: probeGate, exitWatcher: DarwinProcessExitWatcher(),
+                observerLaunchId: launchId,
+                factSink: source.sink)
+            return Self(
+                paneId: paneId, sessionId: sessionId, generationId: generationId, repository: repository,
+                observer: observer, probe: probe, probeGate: probeGate, facts: facts, inputWriter: writer,
+                agentOutputReader: outputReader,
+                shellReadyPath: shellPath, successorInputPath: successorInput, successorOutputPath: successorOutput,
+                successorHandles: ForegroundFIFOGroup(), identity: identity, harness: harness)
+        } catch {
+            writer.closeOnce()
+            reader?.closeOnce()
+            throw error
+        }
+    }
+
+    func initialLook() async throws -> UUID {
+        await observer.note(.bindingChanged, pane: paneId)
+        let pane = paneId
+        let demand = try await facts.expectNextOperation(
+            matching: { $0.paneId == pane }, opening: { $0 == .scheduled }, "real foreground demand")
+        try await facts.expectNext(in: demand, .scheduled)
+        try await facts.expectNext(in: demand, .closed(.scheduled))
+        let look = try await nextLook(sequence: 1)
+        try await facts.expectNext(in: look, .observation(.admitted))
+        let registered = try await facts.expectNext(
+            in: look, where: { if case .watchRegistered = $0 { true } else { false } }, "real agent watch")
+        try await facts.expectNext(in: look, .closed(.looked))
+        guard case .watchRegistered(let watchId) = registered else { throw ForegroundImplementationMissing.s2 }
+        return watchId
+    }
+
+    func nextLook(sequence: UInt64) async throws -> ForegroundObserverFactScope {
+        let pane = paneId
+        let scope = try await facts.expectNextOperation(
+            matching: { $0.paneId == pane },
+            opening: { $0 == .snapshotStarted(sequence: sequence) }, "real look \(sequence)")
+        try await facts.expectNext(in: scope, .snapshotStarted(sequence: sequence))
+        return scope
+    }
+
+    func letAgentExitIntoShell() async throws {
+        inputWriter.closeOnce()
+        let reader = try await openForegroundFIFO(path: shellReadyPath, flags: O_RDONLY)
+        defer { close(reader) }
+        try await requireForegroundBytes(descriptor: reader, expected: Data("shell-ready".utf8))
+    }
+
+    func letAnotherProgramTakeForeground() async throws {
+        let inputPath = try #require(successorInputPath)
+        let outputPath = try #require(successorOutputPath)
+        inputWriter.closeOnce()
+        let writer = ForegroundFIFOHandle(try await openForegroundFIFO(path: inputPath, flags: O_WRONLY))
+        successorHandles.add(writer)
+        let reader = ForegroundFIFOHandle(try await openForegroundFIFO(path: outputPath, flags: O_RDONLY))
+        successorHandles.add(reader)
+        let marker = Data("other-ready".utf8)
+        try await writeForegroundFIFO(descriptor: writer.descriptor(), bytes: marker)
+        try await requireForegroundBytes(descriptor: reader.descriptor(), expected: marker)
+    }
+
+    func killOwnedSession() async throws {
+        let zmxPath = try #require(harness.zmxPath)
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZMX_DIR"] = harness.zmxDir
+        let output = try await runProcessToExit(
+            executableURL: URL(fileURLWithPath: zmxPath),
+            arguments: ["kill", sessionId.rawValue], environment: environment)
+        #expect(output.terminationStatus == 0)
+    }
+
+    func closeFixture() async throws {
+        await observer.shutdown()
+        inputWriter.closeOnce()
+        agentOutputReader.closeOnce()
+        successorHandles.closeAll()
+        try await facts.finish()
+    }
+}
+
+final class ForegroundFIFOGroup: Sendable {
+    private let handles = Mutex<[ForegroundFIFOHandle]>([])
+    func add(_ handle: ForegroundFIFOHandle) { handles.withLock { $0.append(handle) } }
+    func closeAll() {
+        let owned = handles.withLock { handles in
+            defer { handles.removeAll() }
+            return handles
+        }
+        for handle in owned { handle.closeOnce() }
+    }
+}
+
+final class ForegroundFIFOHandle: Sendable {
+    private let state: Mutex<Int32?>
+    init(_ descriptor: Int32) { state = Mutex(descriptor) }
+    func descriptor() throws -> Int32 {
+        try state.withLock { descriptor in
+            guard let descriptor else { throw POSIXError(.EBADF) }
+            return descriptor
+        }
+    }
+    func closeOnce() {
+        let descriptor = state.withLock { descriptor in
+            defer { descriptor = nil }
+            return descriptor
+        }
+        if let descriptor { close(descriptor) }
+    }
+}
+
+actor ZmxForegroundProbeGate: TerminalForegroundProbing {
+    private let probe: DarwinTerminalForegroundProbe
+    private var nextHold: HeldStep<[ZmxSessionID]>?
+    init(probe: DarwinTerminalForegroundProbe) { self.probe = probe }
+    func holdNext(_ step: HeldStep<[ZmxSessionID]>) { nextHold = step }
+    func probeForeground(of sessions: [ZmxSessionID]) async throws -> [ZmxSessionID: ForegroundSnapshot] {
+        let hold = nextHold
+        nextHold = nil
+        if let hold { try await hold.arrive(sessions) }
+        return try await probe.probeForeground(of: sessions)
+    }
+}
+
+private func quoteForegroundPath(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+private func openForegroundFIFO(path: String, flags: Int32) async throws -> Int32 {
+    try await withoutBlockingCooperativePool {
+        let descriptor = open(path, flags)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return descriptor
+    }
+}
+
+private func writeForegroundFIFO(descriptor: Int32, bytes: Data) async throws {
+    try await withoutBlockingCooperativePool {
+        let count = bytes.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
+        guard count == bytes.count else { throw POSIXError(.EIO) }
+    }
+}
+
+private func requireForegroundBytes(descriptor: Int32, expected: Data) async throws {
+    let actual = try await withoutBlockingCooperativePool {
+        var result = Data()
+        while result.count < expected.count {
+            var bytes = [UInt8](repeating: 0, count: expected.count - result.count)
+            let count = bytes.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
+            guard count > 0 else { throw POSIXError(.EIO) }
+            result.append(contentsOf: bytes.prefix(count))
+        }
+        return result
+    }
+    #expect(actual == expected)
+}
+
+private func seedZmxForegroundBinding(database: DatabaseQueue, paneId: UUID, generationId: UUID) async throws {
+    try await database.write { connection in
+        let conversationId = UUIDv7.generate().uuidString
+        try connection.execute(
+            sql: "INSERT INTO sessions_conversation VALUES (?, 'claude-code', ?, 1, 1)",
+            arguments: [conversationId, UUIDv7.generate().uuidString])
+        try connection.execute(
+            sql: """
+                INSERT INTO sessions_operation(operation_scope,correlation_id,operation_kind,semantic_fingerprint,outcome_kind,created_at)
+                VALUES ('real-proof',?,'bind','proof','binding',1)
+                """, arguments: [UUIDv7.generate().uuidString])
+        try connection.execute(
+            sql: """
+                INSERT INTO sessions_pane_binding(binding_generation_id,pane_id,conversation_id,source_generation_id,
+                    origin,status,transition_occurrence_id,started_at,ended_at,committed_revision)
+                VALUES (?,?,?,?,'reported','active',?,1,NULL,?)
+                """,
+            arguments: [
+                generationId.uuidString, paneId.uuidString, conversationId,
+                UUIDv7.generate().uuidString, UUIDv7.generate().uuidString, connection.lastInsertedRowID,
+            ])
+    }
+}
