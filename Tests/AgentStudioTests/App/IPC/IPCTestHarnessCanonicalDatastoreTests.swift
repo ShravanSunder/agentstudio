@@ -57,7 +57,21 @@ struct IPCTestHarnessCanonicalDatastoreTests {
         #expect(workspace.name == "Written through WorkspaceStore")
 
         workspace.name = "Written through the IPC datastore"
-        try await ipcDatastore.saveWorkspaceSnapshotBundle(WorkspaceSQLiteSaveBundle(workspace: workspace))
+        let saveCapture = WorkspaceSQLiteSaveCoordinator(
+            identityAtom: store.identityAtom,
+            windowMemoryAtom: store.windowMemoryAtom,
+            workspacePaneAtom: store.paneAtom,
+            workspaceTabLayoutAtom: store.tabLayoutAtom,
+            repositoryTopologyAtom: store.repositoryTopologyAtom,
+            sqliteDatastore: ipcDatastore
+        ).captureCurrentSaveState(persistedAt: workspace.updatedAt)
+        try await ipcDatastore.saveWorkspaceSnapshotBundle(
+            WorkspaceSQLiteSaveBundle(
+                workspace: workspace,
+                captureRevision: saveCapture.revision,
+                drawerPresentationRevision: saveCapture.drawerPresentationRevision
+            )
+        )
         guard case .loaded = await store.loadCanonicalComposition() else {
             Issue.record("WorkspaceStore could not reload the IPC datastore's committed snapshot")
             return
