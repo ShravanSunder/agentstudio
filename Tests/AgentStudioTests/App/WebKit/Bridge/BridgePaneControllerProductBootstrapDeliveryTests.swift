@@ -628,3 +628,123 @@ extension WebKitSerializedTests {
         }
     }
 }
+
+private actor BridgeProductBootstrapDeliverySuspension {
+    private var deliveryIsSuspended = false
+    private var deliverySuspendedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var deliveryResumeContinuation: CheckedContinuation<Void, Never>?
+
+    func suspendDelivery() async {
+        deliveryIsSuspended = true
+        let waiters = deliverySuspendedWaiters
+        deliverySuspendedWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            deliveryResumeContinuation = continuation
+        }
+    }
+
+    func waitUntilDeliveryIsSuspended() async {
+        guard !deliveryIsSuspended else { return }
+        await withCheckedContinuation { continuation in
+            deliverySuspendedWaiters.append(continuation)
+        }
+    }
+
+    func resumeDelivery() {
+        deliveryResumeContinuation?.resume()
+        deliveryResumeContinuation = nil
+    }
+}
+
+@MainActor
+private func openBootstrapReviewReplaySubscription(
+    controller: BridgePaneController,
+    installation: BridgeProductSessionInstallation,
+    productProvider: BridgePaneProductSchemeProvider
+) async throws -> BootstrapReviewReplaySubscription {
+    let productAdmission = try #require(controller.productAdmissionGate.acquire())
+    let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
+        installation.capabilityBytes
+    )
+    let controlDispatcher = BridgeProductSchemeControlDispatcher(
+        session: installation.session,
+        provider: productProvider,
+        productAdmission: productAdmission
+    )
+    let workerOpenRequest = try bootstrapReviewWorkerOpenRequest(installation: installation)
+    let workerOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(workerOpenRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .workerSessionAccepted = workerOpenResponse else {
+        throw BootstrapReviewReplayError.expectedWorkerSessionAccepted
+    }
+
+    let metadataRequest = try bootstrapReviewMetadataRequest(installation: installation)
+    let registration = await installation.session.registerMetadataProducer(
+        request: metadataRequest,
+        productAdmission: productAdmission
+    ) { lease in
+        await productProvider.runMetadataProducer(
+            request: metadataRequest,
+            lease: lease,
+            productAdmission: productAdmission,
+            session: installation.session
+        )
+    }
+    let metadataLease = try bridgeProductAcceptedLease(registration)
+    let metadataOpeningFrame = try bootstrapReviewMetadataFrame(
+        from: try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: metadataLease,
+                from: installation.session,
+                productAdmission: productAdmission
+            )
+        )
+    )
+    guard case .metadataStreamAccepted = metadataOpeningFrame else {
+        throw BootstrapReviewReplayError.expectedMetadataStreamAccepted
+    }
+
+    let reviewOpenRequest = try bootstrapReviewSubscriptionOpenRequest(
+        installation: installation
+    )
+    var metadataStreamIsReady = false
+    for _ in 0..<1000 {
+        if case .subscriptionOpenAccepted = await productProvider.response(for: reviewOpenRequest) {
+            metadataStreamIsReady = true
+            break
+        }
+        await Task.yield()
+    }
+    #expect(metadataStreamIsReady)
+    let reviewOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(reviewOpenRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .subscriptionOpenAccepted = reviewOpenResponse else {
+        Issue.record("Expected Review open acceptance, received \(String(describing: reviewOpenResponse))")
+        throw BootstrapReviewReplayError.expectedReviewSubscriptionAccepted
+    }
+    try await consumeBootstrapReviewSubscriptionAcceptance(
+        metadataLease: metadataLease,
+        installation: installation,
+        productAdmission: productAdmission
+    )
+    try await admitBootstrapReviewViewScope(
+        dispatcher: controlDispatcher, installation: installation, capabilityHeader: capabilityHeader
+    )
+    return BootstrapReviewReplaySubscription(
+        lease: metadataLease,
+        productAdmission: productAdmission
+    )
+}
