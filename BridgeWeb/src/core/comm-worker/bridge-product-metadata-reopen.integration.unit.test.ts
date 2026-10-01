@@ -7,6 +7,7 @@ import {
 	disposeTransportHarnesses,
 	fileSourceConfiguration,
 	metadataAccepted,
+	requestErrorResponse,
 	subscriptionAccepted,
 	subscriptionReset,
 } from './test-fixtures/bridge-product-transport-metadata.test-support.js';
@@ -20,6 +21,48 @@ afterEach(async (): Promise<void> => {
 });
 
 describe('W2 reopen policy through real control, subscription and metadata codec owners', () => {
+	test('file.refresh.retry rejoins source discovery after failure before any E3', async () => {
+		const harness = createTransportHarness({
+			deadlineClock: { schedule: (): (() => void) => (): void => {} },
+		});
+		let sourceCallCount = 0;
+		harness.server.productCallHandler = (request): Response => {
+			if (request.call.method === 'file.source.current' && ++sourceCallCount === 1)
+				return requestErrorResponse(request, 'internal');
+			return new Response(
+				JSON.stringify({
+					kind: 'call.completed',
+					paneSessionId: request.paneSessionId,
+					requestId: request.requestId,
+					requestSequence: request.requestSequence,
+					wireVersion: request.wireVersion,
+					workerInstanceId: request.workerInstanceId,
+					call: {
+						method: request.call.method,
+						result:
+							request.call.method === 'file.source.current'
+								? { status: 'available', source: fileSourceConfiguration() }
+								: null,
+					},
+				}),
+				{ headers: { 'Content-Type': 'application/json' } },
+			);
+		};
+		const controller = new BridgeCommWorkerProductController({
+			productTransport: harness.transport,
+		});
+		await expect(controller.ensureFileSource()).rejects.toThrow();
+		expect(
+			harness.server.controlRequests.some((request) => request.kind === 'subscription.open'),
+		).toBe(false);
+		await controller.sendProductControl({ method: 'file.refresh.retry', params: {} });
+		expect(sourceCallCount).toBe(2);
+		const stream = await harness.server.waitForMetadataStreamOpened();
+		harness.server.emitMetadata(metadataAccepted(stream, 0));
+		const opening = await harness.server.waitForControlRequest('subscription.open');
+		expect(opening.kind).toBe('subscription.open');
+	});
+
 	test('repeated producer resets exhaust the cross-E3 policy and explicit Retry opens a successor', async () => {
 		const statuses: string[] = [];
 		const harness = createTransportHarness({

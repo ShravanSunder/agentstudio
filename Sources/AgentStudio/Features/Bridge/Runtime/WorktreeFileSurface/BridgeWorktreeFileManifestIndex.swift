@@ -33,6 +33,7 @@ struct BridgeWorktreeFileRetainedDescriptorLease: Sendable {
 }
 
 struct BridgeWorktreeFileKeyedSnapshot: Equatable, Sendable {
+    let isEnumerationComplete: Bool
     let memberStatus: BridgeWorktreeFileKeyedMemberStatus
     let records: [BridgeWorktreeFileKeyedRecord]
     let targetRevision: Int
@@ -122,6 +123,7 @@ actor BridgeWorktreeFileManifestIndex {
             )
         }
         return .init(
+            isEnumerationComplete: isEnumerationComplete,
             memberStatus: .init(record: memberStatus, revision: memberStatusRevision),
             records: records,
             targetRevision: nextRevision,
@@ -146,10 +148,12 @@ actor BridgeWorktreeFileManifestIndex {
         guard owningProductAdmission.matches(productAdmission),
             productAdmission.withValidAdmission({ true }) == true
         else { return false }
+        let publishedStatus: BridgeProductFileMemberStatus =
+            !isEnumerationComplete && (state == .ready || state == .stale) ? .loading : state
         let preservesLastGood = state == .stale || state == .failed
         let next = try BridgeProductFileMemberStatusRecord(
             source: memberStatus.source,
-            status: state,
+            status: publishedStatus,
             branchName: preservesLastGood ? memberStatus.branchName : branchName,
             ahead: preservesLastGood ? memberStatus.ahead : ahead,
             behind: preservesLastGood ? memberStatus.behind : behind,

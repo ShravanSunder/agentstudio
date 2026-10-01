@@ -170,6 +170,7 @@ actor CoordinatorFileMetadataSource: BridgePaneProductFileMetadataProducing {
             )
         else { return nil }
         return .init(
+            isEnumerationComplete: true,
             memberStatus: .init(record: .init(source: source), revision: 1),
             records: [],
             targetRevision: 1,

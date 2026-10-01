@@ -34,6 +34,15 @@ struct BridgeWorktreeFileManifestRevisionTests {
                 untracked: 5,
                 productAdmission: fixture.productAdmission.context
             ))
+        let prepared = await index.captureKeyedSnapshot()
+        #expect(prepared.memberStatus.record.status == .loading)
+        #expect(!prepared.isEnumerationComplete)
+        let foreground = await BridgePaneRefreshWorkAdmissionTestContext.foreground().admission
+        #expect(
+            await index.markEnumerationComplete(
+                productAdmission: fixture.productAdmission.context,
+                foregroundWorkAdmission: foreground
+            ))
         #expect(
             try await index.updateMemberStatus(
                 state: .stale,

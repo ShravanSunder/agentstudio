@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
+import { page } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import './bridge-app.css';
@@ -25,6 +26,34 @@ const candidateIdentity = {
 } as const;
 
 describe('Bridge Review refresh header chrome', () => {
+	test('an ordinary installation failure exposes Retry without semantic attention or a spinner', async () => {
+		const rendered = await renderRefreshHeader(
+			{
+				activeIdentity: null,
+				candidate: null,
+				failure: {
+					kind: 'installation',
+					identity: candidateIdentity,
+					presentationClass: { kind: 'ordinary' },
+					retryable: true,
+					affectedStableFileIdentities: [],
+				},
+			},
+			[],
+		);
+		await expect.element(rendered.getByRole('button', { name: 'Retry' })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-refresh-header-group'))
+			.toHaveTextContent('Update unavailable');
+		expect(
+			rendered
+				.getByTestId('bridge-review-refresh-header-group')
+				.element()
+				.querySelector('.lucide-loader-circle'),
+		).toBeNull();
+		await page.screenshot({ path: '../../../tmp/C14-installation-failure-header.png' });
+	});
+
 	test('keeps ordinary, replacement, and unaffected promoted candidates silent', async () => {
 		for (const refreshPresentation of [
 			candidatePresentation({
@@ -260,6 +289,7 @@ function failurePresentation(retryable: boolean): BridgeMainReviewRefreshPresent
 		activeIdentity,
 		candidate: null,
 		failure: {
+			kind: 'promotedRefresh',
 			affectedStableFileIdentities: ['item-1'],
 			identity: candidateIdentity,
 			presentationClass: { kind: 'promoted', reason: 'commits' },

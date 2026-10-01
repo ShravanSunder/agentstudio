@@ -33,6 +33,7 @@ import {
 	createBridgeProductTransport,
 	type BridgeProductIdentifierPurpose,
 } from '../bridge-product-transport.js';
+import { bridgeProductViewAcknowledgementRequestSchema } from '../bridge-product-view-control-wire-contracts.js';
 
 export interface TransportHarness {
 	readonly server: TestProductServer;
@@ -161,6 +162,11 @@ export class TestProductServer {
 	readonly #operationIdByRequestId = new Map<string, string>();
 	#nextOperationOrdinal = 1;
 	readonly frameAcknowledgements: BridgeProductFrameAcknowledgementRequest[] = [];
+	productCallHandler:
+		| ((
+				request: Extract<BridgeProductControlRequest, { kind: 'product.call' }>,
+		  ) => Promise<Response> | Response)
+		| null = null;
 	metadataFetchCount = 0;
 	metadataReaderCancelCount = 0;
 	nextAcknowledgementStatus = 204;
@@ -369,6 +375,10 @@ export class TestProductServer {
 
 	async #handleControl(body: unknown): Promise<Response> {
 		if (typeof body === 'object' && body !== null && 'kind' in body) {
+			if (body.kind === 'subscription.acknowledge') {
+				const request = bridgeProductViewAcknowledgementRequestSchema.parse(body);
+				return jsonResponse({ ...request, kind: 'subscription.acknowledged' });
+			}
 			if (body.kind === 'operation.result') {
 				const request = bridgeProductOperationResultRequestSchema.parse(body);
 				if (!this.#operationResults.has(request.operationId)) {
@@ -471,6 +481,7 @@ export class TestProductServer {
 			case 'workerSession.open':
 				return jsonResponse({ ...identity, kind: 'workerSession.accepted', result: null });
 			case 'product.call':
+				if (this.productCallHandler !== null) return await this.productCallHandler(request);
 				return jsonResponse({
 					...identity,
 					call: {

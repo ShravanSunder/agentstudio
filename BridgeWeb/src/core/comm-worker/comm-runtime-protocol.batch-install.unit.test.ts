@@ -66,6 +66,7 @@ describe('live worker typed batch sink', () => {
 		if (begin.kind !== 'subscription.batchBegin') throw new Error('File batch begin missing.');
 		const installation: BridgeProductViewInstallation = {
 			certified: true,
+			staleRecords: [],
 			begin,
 			domain: 'default',
 			records: [
@@ -154,6 +155,7 @@ describe('live worker typed batch sink', () => {
 		if (sinkCapture.current === null) throw new Error('Typed batch sink was not registered.');
 		await sinkCapture.current.install({
 			certified: true,
+			staleRecords: [],
 			begin,
 			domain: 'default',
 			records: [
@@ -216,6 +218,7 @@ describe('live worker typed batch sink', () => {
 		if (sinkCapture.current === null) throw new Error('Typed batch sink was not registered.');
 		await sinkCapture.current.install({
 			certified: true,
+			staleRecords: [],
 			begin,
 			domain: 'default',
 			records: [

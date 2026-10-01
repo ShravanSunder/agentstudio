@@ -454,6 +454,7 @@ export function makeCommentCatalogInstallation(props: {
 	if (begin.kind !== 'subscription.batchBegin') throw new Error('Comment batch begin missing.');
 	return {
 		certified: true,
+		staleRecords: [],
 		begin,
 		domain: 'default',
 		records: props.entries.map((entry) => {

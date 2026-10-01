@@ -18,6 +18,7 @@ export interface BridgeProductViewInstallation {
 	readonly certified: boolean;
 	readonly domain: string;
 	readonly records: readonly InstalledRecord[];
+	readonly staleRecords: readonly InstalledRecord[];
 }
 
 interface StagedBatch {
@@ -94,9 +95,7 @@ export class BridgeProductViewBatchReceiver {
 			this.#completedInstallations.length,
 			...this.#completedInstallations.filter((installation) => installation.domain !== domain),
 		);
-		if (existing !== undefined && existing.recordsByKey.size > 0) {
-			this.#staleRecordsByDomain.set(domain, new Map(existing.recordsByKey));
-		}
+		if (existing !== undefined) this.#retainStaleRecords(domain, existing.recordsByKey.values());
 		this.#domains.set(domain, {
 			cursor: 0,
 			expiredBatchId: null,
@@ -121,12 +120,16 @@ export class BridgeProductViewBatchReceiver {
 		this.#scopeRevision = scopeRevision;
 		if (!filterChanged) return false;
 		this.#completedInstallations.length = 0;
-		for (const domain of this.#domains.values()) {
-			domain.stage = null;
-			domain.expiredBatchId = null;
-			domain.receivedPartSequences.clear();
-			domain.receivedThroughDeliverySequence = 0;
-			domain.receiptBaselinePending = true;
+		for (const [domain, state] of this.#domains) {
+			if (!state.hasCertifiedSnapshot) {
+				this.#retainStaleRecords(domain, state.recordsByKey.values());
+				state.recordsByKey.clear();
+			}
+			state.stage = null;
+			state.expiredBatchId = null;
+			state.receivedPartSequences.clear();
+			state.receivedThroughDeliverySequence = 0;
+			state.receiptBaselinePending = true;
 		}
 		return true;
 	}
@@ -136,15 +139,21 @@ export class BridgeProductViewBatchReceiver {
 			this.setScope(scope, scopeRevision);
 			return;
 		}
-		this.#staleRecordsByDomain.clear();
 		this.#completedInstallations.length = 0;
 		for (const [domain, state] of this.#domains) {
-			this.#staleRecordsByDomain.set(domain, new Map(state.recordsByKey));
+			this.#retainStaleRecords(domain, state.recordsByKey.values());
 		}
 		this.#domains.clear();
 		this.#handle = handle;
 		this.#scope = scope;
 		this.#scopeRevision = scopeRevision;
+	}
+
+	#retainStaleRecords(domain: string, records: Iterable<InstalledRecord>): void {
+		const staleRecords =
+			this.#staleRecordsByDomain.get(domain) ?? new Map<string, InstalledRecord>();
+		for (const record of records) staleRecords.set(record.key, record);
+		if (staleRecords.size > 0) this.#staleRecordsByDomain.set(domain, staleRecords);
 	}
 
 	accept(
@@ -224,10 +233,16 @@ export class BridgeProductViewBatchReceiver {
 		if (domainState.lastInstalledBatchId === frame.batchId) return { kind: 'ignored' };
 		if (frame.streamSequence <= domainState.lastInstalledCompleteStreamSequence)
 			return { kind: 'ignored' };
-		if (!domainState.hasCertifiedSnapshot && frame.mode !== 'snapshot')
+		if (!domainState.hasCertifiedSnapshot && frame.mode === 'change')
 			return { kind: 'resnapshot', domain: frame.domain };
 		if (frame.targetRevision < domainState.cursor) return { kind: 'ignored' };
-		if (frame.mode !== 'snapshot' && frame.baseRevision < domainState.cursor)
+		const initialCumulativeCoverage =
+			!domainState.hasCertifiedSnapshot && frame.mode === 'coverage' && frame.baseRevision === 0;
+		if (
+			frame.mode !== 'snapshot' &&
+			!initialCumulativeCoverage &&
+			frame.baseRevision < domainState.cursor
+		)
 			return { kind: 'ignored' };
 		if (frame.mode !== 'snapshot' && frame.baseRevision > domainState.cursor) {
 			domainState.stage = null;
@@ -378,6 +393,7 @@ export class BridgeProductViewBatchReceiver {
 	): BridgeProductBatchAcceptance {
 		const nextRecords = new Map(state.recordsByKey);
 		const nextTombstones = new Map(state.tombstoneRevisionByKey);
+		const nextStaleRecords = new Map(this.#staleRecordsByDomain.get(domain));
 		const includedKeys = new Set<string>();
 		for (let index = 0; index < stage.begin.partCount; index += 1) {
 			const part = stage.partsByIndex.get(index)?.part;
@@ -385,19 +401,21 @@ export class BridgeProductViewBatchReceiver {
 			includedKeys.add(part.key);
 			if (part.operation === 'evict') {
 				nextRecords.delete(part.key);
+				nextStaleRecords.delete(part.key);
 				continue;
 			}
 			let priorRevision = Math.max(
 				nextRecords.get(part.key)?.revision ?? 0,
 				nextTombstones.get(part.key) ?? 0,
 			);
-			if (stage.begin.mode === 'change') {
+			if (stage.begin.mode !== 'snapshot') {
 				const floor = state.certifiedAbsenceFloorsByScope.get(viewFilterKey(stage.begin.scope));
 				if (floor !== undefined && this.#coversKey(floor.coveredScope, part.key)) {
 					priorRevision = Math.max(priorRevision, floor.revision);
 				}
 			}
 			if (part.revision <= priorRevision) continue;
+			nextStaleRecords.delete(part.key);
 			if (part.operation === 'delete') {
 				nextRecords.delete(part.key);
 				nextTombstones.set(part.key, part.revision);
@@ -427,6 +445,10 @@ export class BridgeProductViewBatchReceiver {
 				(stage.begin.mode === 'snapshot' || state.hasCertifiedSnapshot),
 			domain,
 			records: [...nextRecords.values()],
+			staleRecords:
+				stage.begin.mode === 'coverage'
+					? [...nextStaleRecords.values()].filter((record) => !nextRecords.has(record.key))
+					: [],
 		};
 		try {
 			verifyInstallation?.(installation);
@@ -441,14 +463,14 @@ export class BridgeProductViewBatchReceiver {
 				revision: stage.begin.targetRevision,
 			});
 		}
-		const staleRecords = this.#staleRecordsByDomain.get(domain);
-		if (staleRecords !== undefined && stage.begin.mode === 'snapshot') {
+		if (stage.begin.mode === 'snapshot') {
 			const coveredScope = stage.complete?.coveredScope ?? stage.begin.scope;
-			for (const key of staleRecords.keys()) {
-				if (this.#coversKey(coveredScope, key)) staleRecords.delete(key);
+			for (const key of nextStaleRecords.keys()) {
+				if (this.#coversKey(coveredScope, key)) nextStaleRecords.delete(key);
 			}
-			if (staleRecords.size === 0) this.#staleRecordsByDomain.delete(domain);
 		}
+		if (nextStaleRecords.size === 0) this.#staleRecordsByDomain.delete(domain);
+		else this.#staleRecordsByDomain.set(domain, nextStaleRecords);
 		state.recordsByKey.clear();
 		for (const [key, record] of nextRecords) state.recordsByKey.set(key, record);
 		state.tombstoneRevisionByKey.clear();
