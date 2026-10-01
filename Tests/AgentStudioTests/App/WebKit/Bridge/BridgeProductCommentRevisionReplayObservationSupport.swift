@@ -34,6 +34,7 @@ actor CommentRevisionReplayProducerObservationReader {
 
     func nextOpenedProducerID(handle: String) async -> UUID? {
         for await event in events {
+            recordCommentProducerObservation(event, stage: "opened")
             guard case .opened(let observedHandle, let producerID) = event,
                 observedHandle == handle
             else { continue }
@@ -47,6 +48,7 @@ actor CommentRevisionReplayProducerObservationReader {
         producerID: UUID
     ) async -> CommentRevisionReplayProducerBatchOutcome {
         for await event in events {
+            recordCommentProducerObservation(event, stage: "sealed")
             switch event {
             case .opened:
                 continue
@@ -68,6 +70,7 @@ actor CommentRevisionReplayProducerObservationReader {
         producerID: UUID
     ) async -> CommentRevisionReplayHandoffDecision? {
         for await event in events {
+            recordCommentProducerObservation(event, stage: "handoff")
             switch event {
             case .waitingForRetirement(let observedHandle, let observedProducerID, let predecessorID)
             where observedHandle == handle && observedProducerID == producerID:
@@ -81,6 +84,27 @@ actor CommentRevisionReplayProducerObservationReader {
         }
         return nil
     }
+}
+
+private func recordCommentProducerObservation(
+    _ event: BridgePaneAnnotationProducerObservation,
+    stage: String
+) {
+    let detail: String
+    switch event {
+    case .opened(let handle, let producerID):
+        detail = "opened handle=\(handle) producer=\(producerID)"
+    case .waitingForRetirement(let handle, let producerID, let predecessorID):
+        detail = "waiting handle=\(handle) producer=\(producerID) predecessor=\(predecessorID)"
+    case .publisherInstalled(let handle, let producerID):
+        detail = "installed handle=\(handle) producer=\(producerID)"
+    case .sealed(let handle, let producerID, let batch):
+        detail =
+            "sealed handle=\(handle) producer=\(producerID) base=\(batch.baseRevision) target=\(batch.targetRevision) scope=\(batch.scopeRevision) puts=\(batch.puts.count) deletes=\(batch.deletes.count)"
+    case .finished(let handle, let producerID, let reason):
+        detail = "finished handle=\(handle) producer=\(producerID) reason=\(reason)"
+    }
+    print("C11_PRODUCER[\(stage)] \(detail)")
 }
 
 func requireSealedBatch(
