@@ -365,6 +365,7 @@ extension BridgePaneProductMetadataCoordinator {
         )
         guard completedCurrentTask else {
             if let fileSurfaceAttemptContext {
+                await fileSurfaceReconciler.builderCancelled(fileSurfaceAttemptContext.attempt)
                 await fileSurfaceReconciler.retirementCompleted(fileSurfaceAttemptContext.attempt)
             }
             return
@@ -415,6 +416,13 @@ extension BridgePaneProductMetadataCoordinator {
                     retiringAttemptFinished: true
                 )
             }
+        }
+        if completion == .interrupted,
+            let fileSurfaceAttemptContext,
+            activeStream?.lease == fileSurfaceAttemptContext.activeStream.lease,
+            fileSurfaceAttemptContext.productAdmission.withValidAdmission({ true }) == true
+        {
+            await resumeForegroundWork()
         }
         if completion == .resetEnqueued {
             await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
