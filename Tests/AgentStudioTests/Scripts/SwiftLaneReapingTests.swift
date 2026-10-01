@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Swift lane process-group reaping")
 struct SwiftLaneReapingTests {
-    @Test("a timed out child that ignores TERM is still reaped, and the report is still written")
+    @Test("SIGINT reaps a timed out child that ignores TERM, and the report is still written")
     func timedOutChildThatIgnoresTermIsStillReaped() async throws {
         let workDirectory = NSTemporaryDirectory() + "agentstudio-s2e-reap-\(UUIDv7.generate())"
         defer { try? FileManager.default.removeItem(atPath: workDirectory) }
@@ -28,6 +28,7 @@ struct SwiftLaneReapingTests {
             printf '%s\n' "$$" >"$child_pid_file"
             exec /usr/bin/perl -MFcntl=:flock -e '
               $| = 1;
+              $SIG{INT} = "DEFAULT";
               my ($lock_path, $arm_path, $release_path) = @ARGV;
               open(my $lock, ">>", $lock_path) or die $!;
               flock($lock, LOCK_EX) or die $!;
@@ -76,7 +77,7 @@ struct SwiftLaneReapingTests {
         #expect(laneOutput.contains("CHILD_ALIVE=no"))
         // One immediate nonblocking probe checks the same flock primitive SwiftPM uses.
         #expect(laneOutput.contains("LOCK_AVAILABLE=yes"))
-        #expect(laneOutput.contains("timeout_reap=killed"))
+        #expect(laneOutput.contains("timeout_reap=sigint_cancelled"))
         #expect(laneOutput.contains("ERROR: no output progress from 'reap probe'"))
         #expect(laneOutput.contains("RETURNED=124"))
     }
@@ -91,7 +92,7 @@ struct SwiftLaneReapingTests {
                 + "export LANE_EVENT_STREAM_DIR='\(workDirectory)/ci-runs'; "
                 + "source scripts/swift-test-helpers.sh; set +e; "
                 + "run_swift_with_timeout 'orphan probe' 2 /bin/bash -c "
-                + #"'( exec /usr/bin/perl -e "\$SIG{TERM} = q{IGNORE}; open(my \$release, q{<}, shift) or die \$!; <\$release>;" "\#(workDirectory)/orphan.release" ) & "#
+                + #"'( exec /usr/bin/perl -e "\$SIG{INT} = q{DEFAULT}; \$SIG{TERM} = q{IGNORE}; open(my \$release, q{<}, shift) or die \$!; <\$release>;" "\#(workDirectory)/orphan.release" ) & "#
                 + "echo $! > '\(workDirectory)/orphan.pid'; exit 0' "
                 + "|| returned=$?; echo \"RETURNED=${returned:-0}\"; "
                 + "orphan_pid=$(cat '\(workDirectory)/orphan.pid' 2>/dev/null || echo 0); "
@@ -103,7 +104,7 @@ struct SwiftLaneReapingTests {
 
         #expect(!laneOutput.contains("ORPHAN_PID=0"))
         #expect(laneOutput.contains("ORPHAN_ALIVE=no"))
-        #expect(laneOutput.contains("timeout_reap=killed"))
+        #expect(laneOutput.contains("timeout_reap=sigint_cancelled"))
         #expect(laneOutput.contains("RETURNED=124"))
     }
 
