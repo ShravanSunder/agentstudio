@@ -261,6 +261,13 @@ jobs:
       - name: Verify BridgeWeb fixtures
         run: bash scripts/bridge-web-sync-fixtures.sh
 
+      - name: Run BridgeWeb lanes
+        run: |
+          # Keep CPU-heavy test lanes sequential on this runner.
+          pnpm --dir BridgeWeb run check
+          pnpm --dir BridgeWeb run test:unit
+          pnpm --dir BridgeWeb run test:browser:integration
+
       - parallel:
           - name: BridgeWeb packaged build
             run: pnpm --dir BridgeWeb run build
@@ -298,16 +305,8 @@ jobs:
                 [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
               fi
 
-      - parallel:
-          - name: Run BridgeWeb lanes
-            run: |
-              # Keep JS lanes sequential while the independent Swift product builds.
-              pnpm --dir BridgeWeb run check
-              pnpm --dir BridgeWeb run test:unit
-              pnpm --dir BridgeWeb run test:browser:integration
-
-          - name: Build BridgeWeb Swift development backend
-            run: pnpm --dir BridgeWeb run build:swift-dev-server
+      - name: Build BridgeWeb Swift development backend
+        run: pnpm --dir BridgeWeb run build:swift-dev-server
 
       - name: Test BridgeWeb Swift integration
         run: pnpm --dir BridgeWeb run test:integration:node:prepared
