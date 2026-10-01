@@ -55,7 +55,7 @@ struct HarnessReceiptTests {
 
 @Suite("Harness parameterized receipt identity", ParameterizedReceiptScope())
 struct HarnessParameterizedReceiptTests {
-    @Test("each framework case supplies its own receipt identity", arguments: ["left", "right"])
+    @Test("equal arguments still have distinct framework case identities", arguments: ["same", "same"])
     func recordsFromParameterizedCases(label: String) throws {
         let logURL = try #require(ParameterizedReceiptContext.logURL)
         let log = ExpectationLog(path: logURL.path)
@@ -77,6 +77,7 @@ private struct ParameterizedReceiptScope: SuiteTrait, TestScoping {
         }
         let pending = try readReceiptRecords(logURL).filter { $0.fields.first == "expecting" }
         #expect(pending.count == 2)
+        #expect(Set(pending.map { $0.fields[3] }).count == 1)
         let identities = try pending.map { try #require($0.metadata?.caseID) }
         #expect(Set(identities).count == 2)
         #expect(Set(pending.compactMap { $0.metadata?.testID }).count == 1)
