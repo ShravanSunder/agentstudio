@@ -50,6 +50,21 @@ struct CISwiftBuildInputsScriptTests {
         #expect(sourceChange.digest != original.digest)
     }
 
+    @Test("a test lane inventory registration preserves compilation compatibility")
+    func laneInventoryRegistrationPreservesCompilationCompatibility() async throws {
+        let fixture = try SwiftInputFixture()
+        defer { fixture.remove() }
+        let original = try await fixture.inventory("original")
+        let helper = fixture.root.appendingPathComponent("prebuild-helper.sh")
+        let helperText = try String(contentsOf: helper, encoding: .utf8)
+        try (helperText + "\nlarge|InventoryRegistrationExampleTests|concurrent\n")
+            .write(to: helper, atomically: true, encoding: .utf8)
+
+        let registered = try await fixture.inventory("registered")
+
+        #expect(registered.prefix == original.prefix)
+    }
+
     @Test("build and compiler statistics outputs do not change compatibility")
     func generatedOutputsDoNotChangeFingerprint() async throws {
         let fixture = try SwiftInputFixture()
