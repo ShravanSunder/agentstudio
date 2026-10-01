@@ -496,6 +496,7 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
             )
             defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
+            // fire-and-forget: this fixture asserts Review package admission, not the transition handle.
             _ = fixture.controller.applyBridgePaneActivity(.foreground)
             guard
                 await showReviewPageAndAwaitInitialPackage(
