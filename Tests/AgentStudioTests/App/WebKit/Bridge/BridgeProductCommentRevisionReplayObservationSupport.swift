@@ -104,7 +104,32 @@ private func recordCommentProducerObservation(
     case .finished(let handle, let producerID, let reason):
         detail = "finished handle=\(handle) producer=\(producerID) reason=\(reason)"
     }
-    print("C11_PRODUCER[\(stage)] \(detail)")
+    FileHandle.standardError.write(Data("C11_PRODUCER[\(stage)] \(detail)\n".utf8))
+}
+
+@MainActor
+func withCommentProducerDiagnostics<TValue>(
+    source: BridgePaneAnnotationNotificationSource,
+    operation: @MainActor () async throws -> TValue
+) async throws -> TValue {
+    let observation = await source.observeProducerEvents()
+    let diagnosticTask = Task { @MainActor in
+        for await event in observation.events {
+            recordCommentProducerObservation(event, stage: "live")
+        }
+    }
+    do {
+        let result = try await operation()
+        await source.stopObservingProducerEvents(id: observation.id)
+        diagnosticTask.cancel()
+        await diagnosticTask.value
+        return result
+    } catch {
+        await source.stopObservingProducerEvents(id: observation.id)
+        diagnosticTask.cancel()
+        await diagnosticTask.value
+        throw error
+    }
 }
 
 func requireSealedBatch(
