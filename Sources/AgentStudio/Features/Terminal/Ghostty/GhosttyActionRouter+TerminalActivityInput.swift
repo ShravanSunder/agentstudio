@@ -44,7 +44,13 @@ package final class GhosttyTerminalActivityInputBinding {
     /// 13: "activation waits for the router's bound fact ... and then
     /// arms"). Cancellation-safe: a cancelled waiter resumes immediately
     /// instead of leaking, leaving `sink` nil for the caller to observe.
-    func awaitBound() async {
+    ///
+    /// `onWaiterRegistered` (F7, review round 1): fires synchronously, still
+    /// inside the continuation's own setup closure, the instant this
+    /// waiter's continuation is actually stored in `boundWaitersByID` — a
+    /// real registration fact a test can wait on instead of guessing with a
+    /// yield. `nil` in every production call.
+    func awaitBound(onWaiterRegistered: (@Sendable () -> Void)? = nil) async {
         guard sink == nil else { return }
         let waiterID = UUID()
         await withTaskCancellationHandler {
@@ -54,6 +60,7 @@ package final class GhosttyTerminalActivityInputBinding {
                     return
                 }
                 boundWaitersByID[waiterID] = continuation
+                onWaiterRegistered?()
             }
         } onCancel: {
             Task { @MainActor in

@@ -252,6 +252,12 @@ final class ZmxTestHarness: @unchecked Sendable {
         URL(fileURLWithPath: zmxDir).appendingPathComponent(sessionId).path
     }
 
+    /// F7 (review round 1): `timeout` now only reaches `fallbackWaitForSessionSocket`,
+    /// the rare `open(2)`-failure path with no vnode source to register at
+    /// all. The common path, `awaitSessionSocketEvent`, no longer races a
+    /// timer against the real event -- see its own doc comment. Kept as a
+    /// parameter with its existing default so every current call site stays
+    /// source-compatible.
     func waitForSessionSocket(
         sessionId: String,
         exists expectedExists: Bool,
@@ -274,8 +280,7 @@ final class ZmxTestHarness: @unchecked Sendable {
         return await awaitSessionSocketEvent(
             fileDescriptor: directoryFileDescriptor,
             sessionSocketPath: sessionSocketPath,
-            exists: expectedExists,
-            timeout: timeout
+            exists: expectedExists
         )
     }
 
@@ -388,6 +393,47 @@ final class ZmxTestHarness: @unchecked Sendable {
         return process
     }
 
+    /// F7 (review round 1): the general form of
+    /// `spawnShellCommandWithoutWaitingForSettlement`, for R1's option-A
+    /// zmx-e2e cases that must read the attach client's own real output
+    /// (the restore notice a fallback script prints) instead of polling
+    /// `zmx history`. Confirmed against zmx's own source at the pinned
+    /// commit: `history` reads no file -- it answers over the session's
+    /// control socket from the daemon's in-memory terminal state
+    /// (main.zig:1377-1437 `fetchHistory`, loop.zig:1129-1146
+    /// `handleHistory`) -- so there is no filesystem event to watch for it,
+    /// and repolling it is the only alternative to reading real output.
+    ///
+    /// A separate variant rather than a parameter on the shared helper, so
+    /// every inherited caller of `spawnShellCommandWithoutWaitingForSettlement`
+    /// keeps its stdout nulled exactly as before.
+    ///
+    /// The returned process must be awaited by callers through `cleanup()`.
+    func spawnShellCommandCapturingOutput(_ commandLine: String) throws -> (process: Process, standardOutput: Pipe) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", commandLine]
+        let standardOutputPipe = Pipe()
+        process.standardOutput = standardOutputPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = Pipe()
+        var env = ProcessInfo.processInfo.environment
+        env["ZMX_DIR"] = zmxDir
+        env["ZMX_SESSION"] = ""
+        env["ZMX_SESSION_PREFIX"] = ""
+        process.environment = env
+        try process.run()
+
+        let processID = process.processIdentifier
+        spawnedProcesses.append(
+            SpawnedProcess(
+                process: process,
+                processID: processID
+            ))
+
+        return (process, standardOutputPipe)
+    }
+
     func sessionHistory(sessionId: String) async throws -> String {
         guard let zmxPath else { return "" }
         let result = try await executor.execute(
@@ -397,23 +443,6 @@ final class ZmxTestHarness: @unchecked Sendable {
             environment: ["ZMX_DIR": zmxDir]
         )
         return result.stdout
-    }
-
-    func waitForSessionHistory(
-        sessionId: String,
-        containing expectedContent: String,
-        timeout: Duration = .seconds(5)
-    ) async -> Bool {
-        let deadline = clock.now.advanced(by: timeout)
-        while clock.now < deadline {
-            if let history = try? await sessionHistory(sessionId: sessionId),
-                history.contains(expectedContent)
-            {
-                return true
-            }
-            try? await clock.sleep(for: .milliseconds(50))
-        }
-        return false
     }
 
     /// Blocks until a freshly spawned session's terminal leader has
@@ -462,11 +491,21 @@ final class ZmxTestHarness: @unchecked Sendable {
             // more time before the first connect; this harness wait has no
             // such head start, so it matches the broader, already-proven
             // tolerance instead.
+            //
+            // F7 (review round 1): exhausting the backoff schedule must not
+            // throw -- that would fail this wait on elapsed time alone,
+            // which the production discoverer
+            // (`ColdStartObserver.attemptDiscoveryConnect`) never does for
+            // this same failure: exhausting its own identical schedule
+            // just leaves the window "discovering," resolved only by a
+            // later real fact. This harness has no later event source to
+            // lean on for this specific transient case, so past the
+            // schedule's own last entry it keeps retrying at that entry's
+            // cadence -- bounded only by the suite's runner-owned hang
+            // bound, never by a time budget of its own.
             let delaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
-            guard retryIndex < delaysMilliseconds.count else {
-                throw failure
-            }
-            try? await clock.sleep(for: .milliseconds(delaysMilliseconds[retryIndex]))
+            let delayIndex = min(retryIndex, delaysMilliseconds.count - 1)
+            try? await clock.sleep(for: .milliseconds(delaysMilliseconds[delayIndex]))
             return try await resolveSettledDiscovery(socketPath: socketPath, bootID: bootID, retryIndex: retryIndex + 1)
         case .failure(let failure):
             throw failure
@@ -553,16 +592,22 @@ final class ZmxTestHarness: @unchecked Sendable {
         return try settled.get()
     }
 
+    /// F7 (review round 1): no more a timed race. A real-time `clock.sleep`
+    /// racing the real vnode event made this return `false` ("never
+    /// appeared") whenever the daemon was merely slow, not actually broken
+    /// -- "wrapping a timeout in HeldStep does not change what determines
+    /// its verdict." Register-then-check against the real event alone now;
+    /// a socket that genuinely never appears is caught by the suite's own
+    /// runner-owned hang bound, which names this step
+    /// ("session socket event") as what was awaited. A caller that needs a
+    /// true negative result (not just a hang) must race this against a
+    /// correlated real fact of its own -- the zmx process it expected to
+    /// create the socket exiting -- not against time.
     private func awaitSessionSocketEvent(
         fileDescriptor: Int32,
         sessionSocketPath: String,
-        exists expectedExists: Bool,
-        timeout: Duration
+        exists expectedExists: Bool
     ) async -> Bool {
-        // `HeldStep` already guarantees only the first arrival settles the
-        // wait (the former hand-kept `CompletionGate` added nothing beyond
-        // that), and its own race between an event and a timeout arrival is
-        // exactly this function's shape.
         let step = HeldStep<Bool>("session socket event")
         let eventSource = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fileDescriptor,
@@ -581,26 +626,14 @@ final class ZmxTestHarness: @unchecked Sendable {
         eventSource.resume()
 
         // Register-then-check: this call runs on the caller's own Task, so
-        // it must not touch `arriveBlocking` -- an already-true result
-        // short-circuits directly, before ever starting the timeout task.
+        // it must not touch `arriveBlocking`.
         if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
             eventSource.cancel()
             return true
         }
 
-        let timeoutTask = Task {
-            do {
-                try await self.clock.sleep(for: timeout)
-            } catch {
-                return
-            }
-            // Inside a Task, unlike the GCD callback above: the async seam.
-            try? await step.arrive(false)
-        }
-
         let result = (try? await step.firstArrival()) ?? false
         step.release()
-        timeoutTask.cancel()
         eventSource.cancel()
         return result
     }

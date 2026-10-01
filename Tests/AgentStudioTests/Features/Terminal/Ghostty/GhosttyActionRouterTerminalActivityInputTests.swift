@@ -17,16 +17,17 @@ struct GhosttyActivityInputBindingRestorePhaseTests {
     func awaitBoundResumesOnlyAfterBind() async {
         let binding = GhosttyTerminalActivityInputBinding()
         let log = OrderedEventLog()
+        let registered = WaiterRegistrationSignal()
 
+        // F7 (review round 1): a single `Task.yield()` only claims `waitTask`
+        // reached registration — Swift's scheduler makes no such promise.
+        // `onWaiterRegistered` fires synchronously at the real registration
+        // point, so awaiting its signal is a fact, not a guess.
         let waitTask = Task { @MainActor in
-            await binding.awaitBound()
+            await binding.awaitBound(onWaiterRegistered: { registered.fire() })
             log.record("resumed")
         }
-        // Let `waitTask` reach its continuation registration before this
-        // test body proceeds — `awaitBound`'s body up to that point is
-        // entirely synchronous, so one yield is sufficient and
-        // deterministic, not a polling re-check.
-        await Task.yield()
+        await registered.wait()
         log.record("before-bind")
         #expect(!binding.isBound)
 
@@ -55,11 +56,12 @@ struct GhosttyActivityInputBindingRestorePhaseTests {
     @MainActor
     func cancelledWaitResumesWithoutBinding() async {
         let binding = GhosttyTerminalActivityInputBinding()
+        let registered = WaiterRegistrationSignal()
 
         let waitTask = Task { @MainActor in
-            await binding.awaitBound()
+            await binding.awaitBound(onWaiterRegistered: { registered.fire() })
         }
-        await Task.yield()
+        await registered.wait()
         waitTask.cancel()
         await waitTask.value
 
@@ -71,6 +73,38 @@ struct GhosttyActivityInputBindingRestorePhaseTests {
 private final class OrderedEventLog {
     private(set) var events: [String] = []
     func record(_ event: String) { events.append(event) }
+}
+
+/// F7: a one-shot, thread-safe "fire now, await later" signal for a
+/// synchronous production callback (`onWaiterRegistered`) a test needs to
+/// await from an async context. Not `HeldStep`: nothing here needs to hold
+/// the firing call open for a later `release()` — it already returns
+/// immediately on its own, and the real suspension these tests care about is
+/// `awaitBound`'s own continuation, already in place by the time it fires.
+private final class WaiterRegistrationSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hasFired = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func fire() {
+        let resuming: CheckedContinuation<Void, Never>? = lock.withLock {
+            hasFired = true
+            defer { continuation = nil }
+            return continuation
+        }
+        resuming?.resume()
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let shouldResumeNow = lock.withLock { () -> Bool in
+                if hasFired { return true }
+                self.continuation = continuation
+                return false
+            }
+            if shouldResumeNow { continuation.resume() }
+        }
+    }
 }
 
 /// Exercises `Ghostty.ActionRouter.armRestorePhase` against the real shared

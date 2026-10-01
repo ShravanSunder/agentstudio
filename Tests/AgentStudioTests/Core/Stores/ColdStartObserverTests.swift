@@ -47,16 +47,38 @@ struct ColdStartObserverTests {
         /// specific call count through the typed-fact harness, rather than
         /// a hand-built continuation waiter.
         var observeSessionCallFactSink: (@Sendable (String, Int) -> Void)?
+        /// F7 (review round 1): the same technique as `observeSessionCallFactSink`,
+        /// for a test that must prove a syscall swap happens strictly after a
+        /// specific `readProcessArgumentsBuffer` call has already read the
+        /// prior value -- not merely that the swap occurred at some point
+        /// before settlement.
+        var processArgumentsCallFactSink: (@Sendable (String, Int) -> Void)?
 
         private let lock = NSLock()
         private var callCount = 0
+        private var processArgumentsReadCount = 0
 
         func openDirectoryForWatching(path: String) -> Result<Int32, POSIXErrorNumber> {
             directoryOpenResult
         }
 
         func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber> {
-            processArgumentsResult
+            lock.lock()
+            processArgumentsReadCount += 1
+            let count = processArgumentsReadCount
+            let result = processArgumentsResult
+            lock.unlock()
+            processArgumentsCallFactSink?(Self.processArgumentsScope, count)
+            return result
+        }
+
+        static let processArgumentsScope = "readProcessArgumentsBuffer"
+
+        /// The typed-fact vocabulary for `processArgumentsCallFactSink`.
+        static func processArgumentsCallFactVocabulary() -> FactVocabulary<String, Int> {
+            FactVocabulary(
+                describeScope: { $0 }, describeFact: { "readProcessArgumentsBuffer call #\($0)" },
+                isClosing: { _, _ in false })
         }
 
         func leaderState(of incarnation: ZmxProcessIncarnation) -> ColdStartLeaderState {
@@ -81,6 +103,12 @@ struct ColdStartObserverTests {
             lock.lock()
             defer { lock.unlock() }
             return callCount
+        }
+
+        var processArgumentsCallCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return processArgumentsReadCount
         }
 
         static let observeSessionScope = "observeSession"
@@ -853,7 +881,17 @@ struct ColdStartObserverTests {
     /// argv read races a later exit. Held at a real FIFO so the leader-state
     /// swap below happens-before the real leader's own exec, and that
     /// exec's real `NOTE_EXEC` happens-before the check that must see the
-    /// swapped values -- not a timing guess.
+    /// swapped values.
+    ///
+    /// F7 (review round 1): the swap used to follow `async let` directly,
+    /// with no synchronization proving the observer's immediate check had
+    /// already read the token-present value first -- so this test could
+    /// pass via that immediate check settling it, never reaching the real
+    /// `NOTE_EXEC` path it claims to prove. `processArgumentsCallFactSink`
+    /// makes "the immediate check already read it" a fact this test waits
+    /// on (`expectNext ... 1`) before swapping, so the swap is now
+    /// guaranteed to happen strictly after that first read and strictly
+    /// before the real leader's exec (gated behind the FIFO release below).
     @Test("an exec event whose own argv read races a later exit also settles failed, not just the immediate check")
     func execEventArgvReadRacingALaterExitSettlesFailed() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
@@ -892,6 +930,10 @@ struct ColdStartObserverTests {
         // must wait here, not settle.
         syscalls.processArgumentsResult = .success(
             makeArgumentVectorBuffer(execPath: "/bin/sh", argv: [attemptID.startupToken]))
+        let processArgumentsCallSource = LocalFactSource(
+            vocabulary: ScriptedSyscalls.processArgumentsCallFactVocabulary())
+        let processArgumentsCallRecorder = try processArgumentsCallSource.attach()
+        syscalls.processArgumentsCallFactSink = processArgumentsCallSource.sink
         let observer = ColdStartObserver(syscalls: syscalls)
 
         async let outcome = observer.observeColdStart(
@@ -900,6 +942,10 @@ struct ColdStartObserverTests {
             bootID: "test-boot-id",
             attemptID: attemptID
         )
+
+        // Wait for the immediate post-registration check's own read before
+        // swapping -- a fact, not a guess about how far `async let` got.
+        try await processArgumentsCallRecorder.expectNext(in: ScriptedSyscalls.processArgumentsScope, 1)
 
         // Swap before releasing: happens-before the real leader's own exec,
         // which happens-before the real NOTE_EXEC event this swap must be
@@ -912,5 +958,9 @@ struct ColdStartObserverTests {
         let settledOutcome = await outcome
 
         #expect(settledOutcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
+        // The real NOTE_EXEC event's own check read the swapped values --
+        // confirms this settled through the event path, not the immediate
+        // check alone.
+        #expect(syscalls.processArgumentsCallCount == 2)
     }
 }

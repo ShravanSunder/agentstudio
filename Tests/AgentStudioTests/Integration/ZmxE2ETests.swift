@@ -634,7 +634,7 @@ extension E2ESerializedTests {
                 // spawnColdRestoreSession would just time out on the socket
                 // wait instead of exercising this test's own intent.
                 let process = try harness.spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
-                process.waitUntilExit()
+                _ = try await awaitAlreadyRunningProcessExit(process)
                 #expect(process.terminationStatus != 0, "the missing zmxExecutable must genuinely fail to run")
                 await observer.reportAttachClientExited()
 
@@ -709,7 +709,8 @@ extension E2ESerializedTests {
                 _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                let baselineIdentity = try await observeSessionIdentityOnRealEvent(
+                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // Simulate app restart replacing the daemon under the exact
                 // same session id, including within the same second.
@@ -718,7 +719,8 @@ extension E2ESerializedTests {
                 _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                let replacementIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                let replacementIdentity = try await observeSessionIdentityOnRealEvent(
+                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
 
                 #expect(replacementIdentity != baselineIdentity)
                 let result = PaneRecreationChecker.checkForRecreation(
@@ -749,7 +751,8 @@ extension E2ESerializedTests {
                 _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                let baselineIdentity = try await observeSessionIdentityOnRealEvent(
+                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // The same still-live daemon, observed again after the
                 // attach settles -- no replacement in between.
@@ -788,7 +791,8 @@ extension E2ESerializedTests {
                 _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                let baselineIdentity = try await observeSessionIdentityOnRealEvent(
+                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // Act — reconnect with the exact fallback plan S4b now
                 // attaches to a warm/unverified kind.
@@ -820,7 +824,8 @@ extension E2ESerializedTests {
                 _ = try await harness.spawnZmxSession(
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
-                let baselineIdentity = try await waitForObservedSessionIdentity(sessionID, backend: backend)
+                let baselineIdentity = try await observeSessionIdentityOnRealEvent(
+                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // The session dies between the check (above) and the
                 // reconnect (below) -- the exact race S4b closes.
@@ -828,11 +833,14 @@ extension E2ESerializedTests {
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: false))
 
                 let plan = makeE2EFallbackPlan(harness: harness, zmxPath: zmxPath, sessionID: sessionID)
-                _ = try await harness.spawnColdRestoreSession(plan: plan)
+                let (_, standardOutput) = try harness.spawnShellCommandCapturingOutput(
+                    ZmxBackend.buildColdRestoreCommand(plan))
 
-                let noticePrinted = await harness.waitForSessionHistory(
-                    sessionId: sessionID.rawValue, containing: "Restored after restart")
-                #expect(noticePrinted, "a dead warm session's fallback script must run and print its restore notice")
+                try await awaitMarkerInProcessOutput(pipe: standardOutput, marker: "Restored after restart")
+                let noticeInHistory = try await harness.sessionHistory(sessionId: sessionID.rawValue)
+                #expect(
+                    noticeInHistory.contains("Restored after restart"),
+                    "a dead warm session's fallback script must run and print its restore notice")
 
                 let recreatedIdentity = try await backend.observeSessionIdentity(sessionID)
                 let result = PaneRecreationChecker.checkForRecreation(
@@ -888,12 +896,12 @@ extension E2ESerializedTests {
                 }
                 let unverifiedCommand = try #require(builtCommand)
 
-                _ = try harness.spawnShellCommandWithoutWaitingForSettlement(unverifiedCommand)
+                let (_, standardOutput) = try harness.spawnShellCommandCapturingOutput(unverifiedCommand)
 
-                let noticePrinted = await harness.waitForSessionHistory(
-                    sessionId: sessionID.rawValue, containing: "Restored after restart")
+                try await awaitMarkerInProcessOutput(pipe: standardOutput, marker: "Restored after restart")
+                let noticeInHistory = try await harness.sessionHistory(sessionId: sessionID.rawValue)
                 #expect(
-                    noticePrinted,
+                    noticeInHistory.contains("Restored after restart"),
                     "a dead unverified session's real startupCommand must run its fallback script and print the restore notice"
                 )
             }
