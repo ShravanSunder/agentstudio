@@ -45,421 +45,417 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             try await selectReviewItemPath(hostedController.page, path: "tracked.txt")
             let provider = try #require(controller.productSchemeProvider)
             let coordinator = await provider.metadataCoordinator
-            try await withCommentProducerDiagnostics(source: coordinator.annotationSource) {
-                let producerObservations = await coordinator.annotationSource.observeProducerEvents()
-                let producerObservationReader = CommentRevisionReplayProducerObservationReader(
-                    producerObservations.events
-                )
+            let producerObservations = await coordinator.annotationSource.observeProducerEvents()
+            let producerObservationReader = CommentRevisionReplayProducerObservationReader(
+                producerObservations.events
+            )
 
-                let seed = try await reviewCommentSeed(controller: controller, repositoryURL: repositoryURL)
-                recordCommentFixtureDiagnostic(
-                    "C11_SEED worktree=\(seed.fingerprint.worktreeID) metadata=\(controller.runtime.metadata.worktreeId?.uuidString.lowercased() ?? "nil")"
-                )
-                let rootBody = "RR4 retained root comment"
-                let deletedDraftBody = "RR4 draft removed during restart"
-                let replayReplyBody = "RR4 reply delivered after replay"
+            let seed = try await reviewCommentSeed(controller: controller, repositoryURL: repositoryURL)
 
-                let rootDraft = try await annotationStore.createRootDraft(
-                    rootDraftProps(
-                        seed: seed,
-                        admission: .implicitOrSingle,
-                        body: rootBody,
-                        editToken: "rr4-root-editor",
-                        now: 10
-                    )
-                )
-                let rootMessage = try #require(rootDraft.threads.first?.messages.first)
-                let savedRoot = try await annotationStore.saveDraft(
-                    .init(
-                        sessionID: rootDraft.session.id,
-                        messageID: rootMessage.id,
-                        editToken: "rr4-root-editor",
-                        expectedMessageRevision: rootMessage.semanticRevision,
-                        expectedDraftRevision: try #require(rootMessage.draft?.draftRevision),
-                        now: Date(timeIntervalSince1970: 11)
-                    )
-                )
-                let rootThread = try #require(savedRoot.threads.first?.thread)
+            let rootBody = "RR4 retained root comment"
+            let deletedDraftBody = "RR4 draft removed during restart"
+            let replayReplyBody = "RR4 reply delivered after replay"
 
-                let deletionDraft = try await annotationStore.createRootDraft(
-                    rootDraftProps(
-                        seed: seed,
-                        admission: .selected(savedRoot.session.id),
-                        body: deletedDraftBody,
-                        editToken: "rr4-delete-editor",
-                        now: 12
-                    )
+            let rootDraft = try await annotationStore.createRootDraft(
+                rootDraftProps(
+                    seed: seed,
+                    admission: .implicitOrSingle,
+                    body: rootBody,
+                    editToken: "rr4-root-editor",
+                    now: 10
                 )
-                let originalThreadIDs = Set(savedRoot.threads.map(\.thread.id))
-                let deletedThread = try #require(
-                    deletionDraft.threads.first { !originalThreadIDs.contains($0.thread.id) }
+            )
+            let rootMessage = try #require(rootDraft.threads.first?.messages.first)
+            let savedRoot = try await annotationStore.saveDraft(
+                .init(
+                    sessionID: rootDraft.session.id,
+                    messageID: rootMessage.id,
+                    editToken: "rr4-root-editor",
+                    expectedMessageRevision: rootMessage.semanticRevision,
+                    expectedDraftRevision: try #require(rootMessage.draft?.draftRevision),
+                    now: Date(timeIntervalSince1970: 11)
                 )
-                let deletedMessage = try #require(deletedThread.messages.first)
+            )
+            let rootThread = try #require(savedRoot.threads.first?.thread)
 
-                try await waitForEnabledAnnotationsButton(hostedController.page)
-                try await clickAccessibleButton(hostedController.page, label: "Annotations")
-                try await selectAllCommentReplayShareScope(hostedController.page)
-                let pageDiagnostics = try await CommentRevisionReplayPageDiagnosticObserver.start(
-                    page: hostedController.page,
-                    diagnostics: replayDiagnostics
+            let deletionDraft = try await annotationStore.createRootDraft(
+                rootDraftProps(
+                    seed: seed,
+                    admission: .selected(savedRoot.session.id),
+                    body: deletedDraftBody,
+                    editToken: "rr4-delete-editor",
+                    now: 12
                 )
-                do {
-                    let activeInstallation = try #require(await controller.productSessionOwner.activeInstallation)
-                    for (subscriptionID, handle) in await coordinator.commentViewHandleBySubscriptionId {
-                        let subscription = await activeInstallation.session.subscriptionSnapshot(
-                            subscriptionId: subscriptionID
-                        )
-                        recordCommentFixtureDiagnostic(
-                            "C11_SETUP_VIEW subscription=\(subscriptionID) handle=\(handle) kind=\(String(describing: subscription?.subscriptionKind))"
-                        )
-                    }
-                    try await waitForAnnotationBodies(
-                        hostedController.page,
-                        // isCurrentSaved excludes unsaved drafts; prove draft keys in the catalog seal below.
-                        required: [rootBody]
-                    )
-                } catch {
-                    await pageDiagnostics.stop()
-                    throw error
-                }
-                await pageDiagnostics.stop()
+            )
+            let originalThreadIDs = Set(savedRoot.threads.map(\.thread.id))
+            let deletedThread = try #require(
+                deletionDraft.threads.first { !originalThreadIDs.contains($0.thread.id) }
+            )
+            let deletedMessage = try #require(deletedThread.messages.first)
 
-                let installation = try #require(await controller.productSessionOwner.activeInstallation)
-                let reviewView = try await requireCommentReplayReviewView(
-                    coordinator: coordinator, session: installation.session
-                )
-                let subscriptionID = reviewView.subscriptionID
-                let viewHandle = reviewView.handle
-                let acceptedScope = try #require(
-                    await installation.session.acceptedViewScope(subscriptionId: subscriptionID)
-                )
-                #expect(acceptedScope.handle == viewHandle)
-                let seededKeys: Set<WorktreeAnnotationCatalogKey> = [
-                    .session(savedRoot.session.id), .thread(rootThread.id), .message(rootMessage.id),
-                    .thread(deletedThread.thread.id), .message(deletedMessage.id),
-                ]
-                let initialCapture = try await producerObservationReader.firstSealedCapture(
-                    handle: viewHandle, containing: seededKeys
-                )
-                let initialProducerID = initialCapture.producerID
-                let initialBatch = initialCapture.batch
-                #expect(
-                    seededKeys.isSubset(
-                        of: Set(initialBatch.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) })))
-                #expect(initialBatch.targetRevision > 0)
-
-                let resolvedCursorDetail = try await annotationStore.setThreadResolution(
-                    .init(
-                        sessionID: savedRoot.session.id,
-                        threadID: rootThread.id,
-                        resolution: .resolved,
-                        expectedThreadRevision: rootThread.semanticRevision,
-                        now: Date(timeIntervalSince1970: 13)
-                    )
-                )
-                try await waitForAnnotationThreadResolution(
-                    hostedController.page,
-                    threadID: rootThread.id,
-                    resolution: "resolved"
-                )
-                let resolvedBatch = try requireSealedBatch(
-                    await producerObservationReader.nextSealedBatch(
-                        handle: viewHandle,
-                        producerID: initialProducerID,
-                        matching: { batch in
-                            batch.puts.contains { record in
-                                guard case .session(let session) = record.entry else { return false }
-                                return session.sessionID == savedRoot.session.id
-                                    && session.semanticRevision >= resolvedCursorDetail.session.semanticRevision
-                            }
-                        }
-                    ),
-                    milestone: "catalog invalidation after resolving the root thread"
-                )
-                #expect(resolvedBatch.targetRevision > initialBatch.targetRevision)
-
-                let resolvedThread = try #require(
-                    resolvedCursorDetail.threads.first { $0.thread.id == rootThread.id }?.thread
-                )
-                let reopenedCursorDetail = try await annotationStore.setThreadResolution(
-                    .init(
-                        sessionID: resolvedCursorDetail.session.id,
-                        threadID: resolvedThread.id,
-                        resolution: .open,
-                        expectedThreadRevision: resolvedThread.semanticRevision,
-                        now: Date(timeIntervalSince1970: 14)
-                    )
-                )
-                try await waitForAnnotationThreadResolution(
-                    hostedController.page,
-                    threadID: rootThread.id,
-                    resolution: "open"
-                )
-                let cursorAdvancedBatch = try requireSealedBatch(
-                    await producerObservationReader.nextSealedBatch(
-                        handle: viewHandle,
-                        producerID: initialProducerID,
-                        matching: { batch in
-                            batch.puts.contains { record in
-                                guard case .session(let session) = record.entry else { return false }
-                                return session.sessionID == savedRoot.session.id
-                                    && session.semanticRevision >= reopenedCursorDetail.session.semanticRevision
-                            }
-                        }
-                    ),
-                    milestone: "catalog invalidation after reopening the root thread"
-                )
-                #expect(cursorAdvancedBatch.targetRevision > resolvedBatch.targetRevision)
-                var previousCursor = cursorAdvancedBatch.targetRevision
-
-                try await installCommentReplayPageObserver(
-                    hostedController.page,
-                    changedBody: replayReplyBody,
-                    removedBody: deletedDraftBody
-                )
-                let pageInstallationWaiter = Task { @MainActor in
-                    try? await hostedController.page.callJavaScript(
-                        "return await globalThis.__rr4CommentReplayInstallPromise;"
-                    ) as? String
-                }
-
-                await readGate.armReads(readerCount: reviewView.liveCatalogViewCount)
-                let replyDraft = try await annotationStore.createReplyDraft(
-                    .init(
-                        sessionID: savedRoot.session.id,
-                        threadID: rootThread.id,
-                        expectedThreadRevision: try #require(
-                            reopenedCursorDetail.threads.first { $0.thread.id == rootThread.id }?.thread
-                                .semanticRevision
-                        ),
-                        body: replayReplyBody,
-                        editToken: "rr4-replay-reply-editor",
-                        now: Date(timeIntervalSince1970: 15)
-                    )
-                )
-                let replyMessage = try #require(
-                    replyDraft.threads.first { $0.thread.id == rootThread.id }?.messages.last
-                )
-                let afterReplySave = try await annotationStore.saveDraft(
-                    .init(
-                        sessionID: replyDraft.session.id,
-                        messageID: replyMessage.id,
-                        editToken: "rr4-replay-reply-editor",
-                        expectedMessageRevision: replyMessage.semanticRevision,
-                        expectedDraftRevision: try #require(replyMessage.draft?.draftRevision),
-                        now: Date(timeIntervalSince1970: 16)
-                    )
-                )
-                let currentDeletedMessage = try #require(
-                    afterReplySave.threads.first { $0.thread.id == deletedThread.thread.id }?
-                        .messages.first { $0.id == deletedMessage.id }
-                )
-                _ = try await annotationStore.revertDraft(
-                    .init(
-                        sessionID: afterReplySave.session.id,
-                        messageID: currentDeletedMessage.id,
-                        editToken: "rr4-delete-editor",
-                        expectedMessageRevision: currentDeletedMessage.semanticRevision,
-                        expectedDraftRevision: try #require(currentDeletedMessage.draft?.draftRevision),
-                        now: Date(timeIntervalSince1970: 17)
-                    )
-                )
-                #expect(try await readGate.waitUntilCatalogReadersAreHeld() == reviewView.liveCatalogViewCount)
-
-                let suspension = try #require(controller.applyBridgePaneActivity(.loadedHidden))
-                #expect(try await readGate.waitUntilCancellationObserved() == reviewView.liveCatalogViewCount)
-                let foregroundTransition = controller.applyBridgePaneActivity(.foreground)
-                #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
-                let foregroundAdmission = try #require(provider.refreshWorkAdmissionSource.acquire())
-                #expect(foregroundAdmission.withValidAdmission({ true }) == true)
-
-                await coordinator.replaySubscriptionsForInstalledStream()
-                let replayProducerID = try #require(
-                    await producerObservationReader.nextOpenedProducerID(handle: viewHandle)
-                )
-                let handoffDecision = try #require(
-                    await producerObservationReader.nextHandoffDecision(
-                        handle: viewHandle,
-                        producerID: replayProducerID
-                    )
-                )
-                // Every preceding seal has been observed before this correlated handoff decision.
-                previousCursor = try #require(
-                    await producerObservationReader.lastSealedBatch(handle: viewHandle, producerID: initialProducerID)
-                ).targetRevision
-                let replayProducerInstalledBeforeP0Retired: Bool
-                let preRetirementReplayBatch: BridgeProductCommentCatalogBatch?
-                switch handoffDecision {
-                case .waitingForRetirement(let predecessorID):
-                    replayProducerInstalledBeforeP0Retired = false
-                    preRetirementReplayBatch = nil
-                    #expect(predecessorID == initialProducerID)
-                case .publisherInstalled:
-                    replayProducerInstalledBeforeP0Retired = true
-                    #expect(Bool(false), "Replay installed P1 before P0 captured continuity")
-                    let preRetirementOutcome = await producerObservationReader.nextSealedBatch(
-                        handle: viewHandle,
-                        producerID: replayProducerID
-                    )
-                    switch preRetirementOutcome {
-                    case .sealed(let batch):
-                        preRetirementReplayBatch = batch
-                    case .finished(let reason):
-                        #expect(Bool(false), "P1 finished before its pre-retirement seal: \(reason)")
-                        await readGate.releaseHeldRead()
-                        await suspension.value
-                        if let foregroundTransition { await foregroundTransition.value }
-                        _ = try? await hostedController.page.callJavaScript(
-                            "globalThis.__rr4ResolveCommentReplayInstall('producer-finished');"
-                        )
-                        _ = await pageInstallationWaiter.value
-                        await coordinator.suspendForegroundWork()
-                        await coordinator.annotationSource.stopObservingProducerEvents(
-                            id: producerObservations.id
-                        )
-                        return
-                    case .streamEnded:
-                        #expect(Bool(false), "Producer observation stream ended before P1's pre-retirement seal")
-                        await readGate.releaseHeldRead()
-                        await suspension.value
-                        if let foregroundTransition { await foregroundTransition.value }
-                        _ = try? await hostedController.page.callJavaScript(
-                            "globalThis.__rr4ResolveCommentReplayInstall('producer-stream-ended');"
-                        )
-                        _ = await pageInstallationWaiter.value
-                        await coordinator.suspendForegroundWork()
-                        await coordinator.annotationSource.stopObservingProducerEvents(
-                            id: producerObservations.id
-                        )
-                        return
-                    }
-                }
-
-                await readGate.releaseHeldRead()
-                await suspension.value
-                if let foregroundTransition { await foregroundTransition.value }
-
-                let replayBatch: BridgeProductCommentCatalogBatch
-                if replayProducerInstalledBeforeP0Retired {
-                    replayBatch = try #require(
-                        preRetirementReplayBatch,
-                        "P1's pre-retirement seal was observed before P0 retired"
-                    )
-                } else {
-                    let replayOutcome = await producerObservationReader.nextSealedBatch(
-                        handle: viewHandle,
-                        producerID: replayProducerID
-                    )
-                    switch replayOutcome {
-                    case .sealed(let batch):
-                        replayBatch = batch
-                    case .finished(let reason):
-                        #expect(Bool(false), "Replayed producer finished before native sealing: \(reason)")
-                        _ = try? await hostedController.page.callJavaScript(
-                            "globalThis.__rr4ResolveCommentReplayInstall('producer-finished');"
-                        )
-                        _ = await pageInstallationWaiter.value
-                        await coordinator.suspendForegroundWork()
-                        await coordinator.annotationSource.stopObservingProducerEvents(
-                            id: producerObservations.id
-                        )
-                        return
-                    case .streamEnded:
-                        #expect(Bool(false), "Producer observation stream ended before replay sealing")
-                        _ = try? await hostedController.page.callJavaScript(
-                            "globalThis.__rr4ResolveCommentReplayInstall('producer-stream-ended');"
-                        )
-                        _ = await pageInstallationWaiter.value
-                        await coordinator.suspendForegroundWork()
-                        await coordinator.annotationSource.stopObservingProducerEvents(
-                            id: producerObservations.id
-                        )
-                        return
-                    }
-                }
-                let replayPutKey = WorktreeAnnotationCatalogKey.message(replyMessage.id).recordKey
-                let expectedDeletedKeys: Set<String> = [
-                    WorktreeAnnotationCatalogKey.thread(deletedThread.thread.id).recordKey,
-                    WorktreeAnnotationCatalogKey.message(deletedMessage.id).recordKey,
-                ]
-                let replayPutKeys = Set(replayBatch.puts.map(\.recordKey))
-                let replayDeletedKeys = Set(replayBatch.deletes.map { $0.key.recordKey })
-                let sealedBatchContinuesInstalledCursor =
-                    replayBatch.baseRevision == previousCursor
-                    && replayBatch.targetRevision > previousCursor
-                    && replayBatch.puts.allSatisfy { $0.revision > previousCursor }
-                    && replayBatch.deletes.allSatisfy { $0.revision > previousCursor }
-                    && replayPutKeys.contains(replayPutKey)
-                    && replayDeletedKeys == expectedDeletedKeys
-                #expect(
-                    sealedBatchContinuesInstalledCursor,
-                    "Native sealing did not preserve the W4 cursor, changed put, and deletion tombstones"
-                )
-                if !sealedBatchContinuesInstalledCursor {
-                    _ = try? await hostedController.page.callJavaScript(
-                        "globalThis.__rr4ResolveCommentReplayInstall('stale-sealed-batch');"
-                    )
-                }
-                let pageInstallationResult = await pageInstallationWaiter.value
-                #expect(
-                    pageInstallationResult == "installed",
-                    "Replay page installation ended with \(pageInstallationResult ?? "nil")"
-                )
-                guard sealedBatchContinuesInstalledCursor else {
-                    await coordinator.suspendForegroundWork()
-                    await coordinator.annotationSource.stopObservingProducerEvents(id: producerObservations.id)
-                    return
-                }
-                let replayedScope = try #require(
-                    await installation.session.acceptedViewScope(subscriptionId: subscriptionID)
-                )
-                #expect(replayedScope.handle == viewHandle)
-
-                await coordinator.annotationSource.releaseProducerBatchScope(
-                    handle: viewHandle,
-                    producerID: initialProducerID
-                )
-                let postCleanupBody = "P1 route survived P0 cleanup"
-                let postCleanupDraft = try await annotationStore.createRootDraft(
-                    rootDraftProps(
-                        seed: seed,
-                        admission: .selected(savedRoot.session.id),
-                        body: postCleanupBody,
-                        editToken: "rr4-post-cleanup-editor",
-                        now: 18
-                    )
-                )
-                let postCleanupMessage = try #require(postCleanupDraft.threads.first?.messages.first)
-                _ = try await annotationStore.saveDraft(
-                    .init(
-                        sessionID: postCleanupDraft.session.id,
-                        messageID: postCleanupMessage.id,
-                        editToken: "rr4-post-cleanup-editor",
-                        expectedMessageRevision: postCleanupMessage.semanticRevision,
-                        expectedDraftRevision: try #require(postCleanupMessage.draft?.draftRevision),
-                        now: Date(timeIntervalSince1970: 19)
-                    )
-                )
-                let postCleanupBatch = try requireSealedBatch(
-                    await producerObservationReader.nextSealedBatch(
-                        handle: viewHandle,
-                        producerID: replayProducerID
-                    ),
-                    milestone: "catalog invalidation after P0 cleanup"
-                )
-                #expect(postCleanupBatch.targetRevision > replayBatch.targetRevision)
-                #expect(
-                    postCleanupBatch.puts.contains {
-                        $0.recordKey == WorktreeAnnotationCatalogKey.message(postCleanupMessage.id).recordKey
-                    }
-                )
+            try await waitForEnabledAnnotationsButton(hostedController.page)
+            try await clickAccessibleButton(hostedController.page, label: "Annotations")
+            try await selectAllCommentReplayShareScope(hostedController.page)
+            let pageDiagnostics = try await CommentRevisionReplayPageDiagnosticObserver.start(
+                page: hostedController.page,
+                diagnostics: replayDiagnostics
+            )
+            do {
                 try await waitForAnnotationBodies(
                     hostedController.page,
-                    required: [rootBody, replayReplyBody, postCleanupBody]
+                    // isCurrentSaved excludes unsaved drafts; prove draft keys in the catalog seal below.
+                    required: [rootBody]
                 )
+            } catch {
+                await pageDiagnostics.stop()
+                throw error
+            }
+            await pageDiagnostics.stop()
+
+            let installation = try #require(await controller.productSessionOwner.activeInstallation)
+            let reviewView = try await requireCommentReplayReviewView(
+                coordinator: coordinator, session: installation.session
+            )
+            let subscriptionID = reviewView.subscriptionID
+            let viewHandle = reviewView.handle
+            let acceptedScope = try #require(
+                await installation.session.acceptedViewScope(subscriptionId: subscriptionID)
+            )
+            #expect(acceptedScope.handle == viewHandle)
+            let seededKeys: Set<WorktreeAnnotationCatalogKey> = [
+                .session(savedRoot.session.id), .thread(rootThread.id), .message(rootMessage.id),
+                .thread(deletedThread.thread.id), .message(deletedMessage.id),
+            ]
+            let initialCapture = try await producerObservationReader.firstSealedCapture(
+                handle: viewHandle, containing: seededKeys
+            )
+            let initialProducerID = initialCapture.producerID
+            let initialBatch = initialCapture.batch
+            #expect(
+                seededKeys.isSubset(
+                    of: Set(initialBatch.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) })))
+            #expect(initialBatch.targetRevision > 0)
+
+            let resolvedCursorDetail = try await annotationStore.setThreadResolution(
+                .init(
+                    sessionID: savedRoot.session.id,
+                    threadID: rootThread.id,
+                    resolution: .resolved,
+                    expectedThreadRevision: rootThread.semanticRevision,
+                    now: Date(timeIntervalSince1970: 13)
+                )
+            )
+            try await waitForAnnotationThreadResolution(
+                hostedController.page,
+                threadID: rootThread.id,
+                resolution: "resolved"
+            )
+            let resolvedBatch = try requireSealedBatch(
+                await producerObservationReader.nextSealedBatch(
+                    handle: viewHandle,
+                    producerID: initialProducerID,
+                    matching: { batch in
+                        batch.puts.contains { record in
+                            guard case .session(let session) = record.entry else { return false }
+                            return session.sessionID == savedRoot.session.id
+                                && session.semanticRevision >= resolvedCursorDetail.session.semanticRevision
+                        }
+                    }
+                ),
+                milestone: "catalog invalidation after resolving the root thread"
+            )
+            #expect(resolvedBatch.targetRevision > initialBatch.targetRevision)
+
+            let resolvedThread = try #require(
+                resolvedCursorDetail.threads.first { $0.thread.id == rootThread.id }?.thread
+            )
+            let reopenedCursorDetail = try await annotationStore.setThreadResolution(
+                .init(
+                    sessionID: resolvedCursorDetail.session.id,
+                    threadID: resolvedThread.id,
+                    resolution: .open,
+                    expectedThreadRevision: resolvedThread.semanticRevision,
+                    now: Date(timeIntervalSince1970: 14)
+                )
+            )
+            try await waitForAnnotationThreadResolution(
+                hostedController.page,
+                threadID: rootThread.id,
+                resolution: "open"
+            )
+            let cursorAdvancedBatch = try requireSealedBatch(
+                await producerObservationReader.nextSealedBatch(
+                    handle: viewHandle,
+                    producerID: initialProducerID,
+                    matching: { batch in
+                        batch.puts.contains { record in
+                            guard case .session(let session) = record.entry else { return false }
+                            return session.sessionID == savedRoot.session.id
+                                && session.semanticRevision >= reopenedCursorDetail.session.semanticRevision
+                        }
+                    }
+                ),
+                milestone: "catalog invalidation after reopening the root thread"
+            )
+            #expect(cursorAdvancedBatch.targetRevision > resolvedBatch.targetRevision)
+            var previousCursor = cursorAdvancedBatch.targetRevision
+
+            try await installCommentReplayPageObserver(
+                hostedController.page,
+                changedBody: replayReplyBody,
+                removedBody: deletedDraftBody
+            )
+            let pageInstallationWaiter = Task { @MainActor in
+                try? await hostedController.page.callJavaScript(
+                    "return await globalThis.__rr4CommentReplayInstallPromise;"
+                ) as? String
+            }
+
+            await readGate.armReads(readerCount: reviewView.liveCatalogViewCount)
+            let replyDraft = try await annotationStore.createReplyDraft(
+                .init(
+                    sessionID: savedRoot.session.id,
+                    threadID: rootThread.id,
+                    expectedThreadRevision: try #require(
+                        reopenedCursorDetail.threads.first { $0.thread.id == rootThread.id }?.thread
+                            .semanticRevision
+                    ),
+                    body: replayReplyBody,
+                    editToken: "rr4-replay-reply-editor",
+                    now: Date(timeIntervalSince1970: 15)
+                )
+            )
+            let replyMessage = try #require(
+                replyDraft.threads.first { $0.thread.id == rootThread.id }?.messages.last
+            )
+            let afterReplySave = try await annotationStore.saveDraft(
+                .init(
+                    sessionID: replyDraft.session.id,
+                    messageID: replyMessage.id,
+                    editToken: "rr4-replay-reply-editor",
+                    expectedMessageRevision: replyMessage.semanticRevision,
+                    expectedDraftRevision: try #require(replyMessage.draft?.draftRevision),
+                    now: Date(timeIntervalSince1970: 16)
+                )
+            )
+            let currentDeletedMessage = try #require(
+                afterReplySave.threads.first { $0.thread.id == deletedThread.thread.id }?
+                    .messages.first { $0.id == deletedMessage.id }
+            )
+            _ = try await annotationStore.revertDraft(
+                .init(
+                    sessionID: afterReplySave.session.id,
+                    messageID: currentDeletedMessage.id,
+                    editToken: "rr4-delete-editor",
+                    expectedMessageRevision: currentDeletedMessage.semanticRevision,
+                    expectedDraftRevision: try #require(currentDeletedMessage.draft?.draftRevision),
+                    now: Date(timeIntervalSince1970: 17)
+                )
+            )
+            #expect(try await readGate.waitUntilCatalogReadersAreHeld() == reviewView.liveCatalogViewCount)
+
+            let suspension = try #require(controller.applyBridgePaneActivity(.loadedHidden))
+            #expect(try await readGate.waitUntilCancellationObserved() == reviewView.liveCatalogViewCount)
+            let foregroundTransition = controller.applyBridgePaneActivity(.foreground)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
+            let foregroundAdmission = try #require(provider.refreshWorkAdmissionSource.acquire())
+            #expect(foregroundAdmission.withValidAdmission({ true }) == true)
+
+            await coordinator.replaySubscriptionsForInstalledStream()
+            let replayProducerID = try #require(
+                await producerObservationReader.nextOpenedProducerID(handle: viewHandle)
+            )
+            let handoffDecision = try #require(
+                await producerObservationReader.nextHandoffDecision(
+                    handle: viewHandle,
+                    producerID: replayProducerID
+                )
+            )
+            // Every preceding seal has been observed before this correlated handoff decision.
+            previousCursor = try #require(
+                await producerObservationReader.lastSealedBatch(handle: viewHandle, producerID: initialProducerID)
+            ).targetRevision
+            let replayProducerInstalledBeforeP0Retired: Bool
+            let preRetirementReplayBatch: BridgeProductCommentCatalogBatch?
+            switch handoffDecision {
+            case .waitingForRetirement(let predecessorID):
+                replayProducerInstalledBeforeP0Retired = false
+                preRetirementReplayBatch = nil
+                #expect(predecessorID == initialProducerID)
+            case .publisherInstalled:
+                replayProducerInstalledBeforeP0Retired = true
+                #expect(Bool(false), "Replay installed P1 before P0 captured continuity")
+                let preRetirementOutcome = await producerObservationReader.nextSealedBatch(
+                    handle: viewHandle,
+                    producerID: replayProducerID
+                )
+                switch preRetirementOutcome {
+                case .sealed(let batch):
+                    preRetirementReplayBatch = batch
+                case .finished(let reason):
+                    #expect(Bool(false), "P1 finished before its pre-retirement seal: \(reason)")
+                    await readGate.releaseHeldRead()
+                    await suspension.value
+                    if let foregroundTransition { await foregroundTransition.value }
+                    _ = try? await hostedController.page.callJavaScript(
+                        "globalThis.__rr4ResolveCommentReplayInstall('producer-finished');"
+                    )
+                    _ = await pageInstallationWaiter.value
+                    await coordinator.suspendForegroundWork()
+                    await coordinator.annotationSource.stopObservingProducerEvents(
+                        id: producerObservations.id
+                    )
+                    return
+                case .streamEnded:
+                    #expect(Bool(false), "Producer observation stream ended before P1's pre-retirement seal")
+                    await readGate.releaseHeldRead()
+                    await suspension.value
+                    if let foregroundTransition { await foregroundTransition.value }
+                    _ = try? await hostedController.page.callJavaScript(
+                        "globalThis.__rr4ResolveCommentReplayInstall('producer-stream-ended');"
+                    )
+                    _ = await pageInstallationWaiter.value
+                    await coordinator.suspendForegroundWork()
+                    await coordinator.annotationSource.stopObservingProducerEvents(
+                        id: producerObservations.id
+                    )
+                    return
+                }
+            }
+
+            await readGate.releaseHeldRead()
+            await suspension.value
+            if let foregroundTransition { await foregroundTransition.value }
+
+            let replayBatch: BridgeProductCommentCatalogBatch
+            if replayProducerInstalledBeforeP0Retired {
+                replayBatch = try #require(
+                    preRetirementReplayBatch,
+                    "P1's pre-retirement seal was observed before P0 retired"
+                )
+            } else {
+                let replayOutcome = await producerObservationReader.nextSealedBatch(
+                    handle: viewHandle,
+                    producerID: replayProducerID
+                )
+                switch replayOutcome {
+                case .sealed(let batch):
+                    replayBatch = batch
+                case .finished(let reason):
+                    #expect(Bool(false), "Replayed producer finished before native sealing: \(reason)")
+                    _ = try? await hostedController.page.callJavaScript(
+                        "globalThis.__rr4ResolveCommentReplayInstall('producer-finished');"
+                    )
+                    _ = await pageInstallationWaiter.value
+                    await coordinator.suspendForegroundWork()
+                    await coordinator.annotationSource.stopObservingProducerEvents(
+                        id: producerObservations.id
+                    )
+                    return
+                case .streamEnded:
+                    #expect(Bool(false), "Producer observation stream ended before replay sealing")
+                    _ = try? await hostedController.page.callJavaScript(
+                        "globalThis.__rr4ResolveCommentReplayInstall('producer-stream-ended');"
+                    )
+                    _ = await pageInstallationWaiter.value
+                    await coordinator.suspendForegroundWork()
+                    await coordinator.annotationSource.stopObservingProducerEvents(
+                        id: producerObservations.id
+                    )
+                    return
+                }
+            }
+            let replayPutKey = WorktreeAnnotationCatalogKey.message(replyMessage.id).recordKey
+            let expectedDeletedKeys: Set<String> = [
+                WorktreeAnnotationCatalogKey.thread(deletedThread.thread.id).recordKey,
+                WorktreeAnnotationCatalogKey.message(deletedMessage.id).recordKey,
+            ]
+            let replayPutKeys = Set(replayBatch.puts.map(\.recordKey))
+            let replayDeletedKeys = Set(replayBatch.deletes.map { $0.key.recordKey })
+            let sealedBatchContinuesInstalledCursor =
+                replayBatch.baseRevision == previousCursor
+                && replayBatch.targetRevision > previousCursor
+                && replayBatch.puts.allSatisfy { $0.revision > previousCursor }
+                && replayBatch.deletes.allSatisfy { $0.revision > previousCursor }
+                && replayPutKeys.contains(replayPutKey)
+                && replayDeletedKeys == expectedDeletedKeys
+            #expect(
+                sealedBatchContinuesInstalledCursor,
+                "Native sealing did not preserve the W4 cursor, changed put, and deletion tombstones"
+            )
+            if !sealedBatchContinuesInstalledCursor {
+                _ = try? await hostedController.page.callJavaScript(
+                    "globalThis.__rr4ResolveCommentReplayInstall('stale-sealed-batch');"
+                )
+            }
+            let pageInstallationResult = await pageInstallationWaiter.value
+            #expect(
+                pageInstallationResult == "installed",
+                "Replay page installation ended with \(pageInstallationResult ?? "nil")"
+            )
+            guard sealedBatchContinuesInstalledCursor else {
                 await coordinator.suspendForegroundWork()
                 await coordinator.annotationSource.stopObservingProducerEvents(id: producerObservations.id)
+                return
             }
+            let replayedScope = try #require(
+                await installation.session.acceptedViewScope(subscriptionId: subscriptionID)
+            )
+            #expect(replayedScope.handle == viewHandle)
+
+            await coordinator.annotationSource.releaseProducerBatchScope(
+                handle: viewHandle,
+                producerID: initialProducerID
+            )
+            let postCleanupBody = "P1 route survived P0 cleanup"
+            let priorThreadIDs = Set(afterReplySave.threads.map(\.thread.id))
+            let postCleanupDraft = try await annotationStore.createRootDraft(
+                rootDraftProps(
+                    seed: seed,
+                    admission: .selected(savedRoot.session.id),
+                    body: postCleanupBody,
+                    editToken: "rr4-post-cleanup-editor",
+                    now: 18
+                )
+            )
+            let postCleanupThread = try #require(
+                postCleanupDraft.threads.first { !priorThreadIDs.contains($0.thread.id) }
+            )
+            let postCleanupMessage = try #require(postCleanupThread.messages.first)
+            _ = try await annotationStore.saveDraft(
+                .init(
+                    sessionID: postCleanupDraft.session.id,
+                    messageID: postCleanupMessage.id,
+                    editToken: "rr4-post-cleanup-editor",
+                    expectedMessageRevision: postCleanupMessage.semanticRevision,
+                    expectedDraftRevision: try #require(postCleanupMessage.draft?.draftRevision),
+                    now: Date(timeIntervalSince1970: 19)
+                )
+            )
+            let postCleanupBatch = try requireSealedBatch(
+                await producerObservationReader.nextSealedBatch(
+                    handle: viewHandle,
+                    producerID: replayProducerID,
+                    matching: { batch in
+                        batch.puts.contains {
+                            $0.recordKey == WorktreeAnnotationCatalogKey.message(postCleanupMessage.id).recordKey
+                        }
+                    }
+                ),
+                milestone: "catalog invalidation after P0 cleanup"
+            )
+            #expect(postCleanupBatch.targetRevision > replayBatch.targetRevision)
+            #expect(
+                postCleanupBatch.puts.contains {
+                    $0.recordKey == WorktreeAnnotationCatalogKey.message(postCleanupMessage.id).recordKey
+                }
+            )
+            try await waitForAnnotationBodies(
+                hostedController.page,
+                required: [rootBody, replayReplyBody, postCleanupBody]
+            )
+            await coordinator.suspendForegroundWork()
+            await coordinator.annotationSource.stopObservingProducerEvents(id: producerObservations.id)
         }
         #expect(run.teardownSnapshot.hasZeroResidue)
     }

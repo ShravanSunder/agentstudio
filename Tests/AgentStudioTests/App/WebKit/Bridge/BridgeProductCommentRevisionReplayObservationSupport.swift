@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 import Testing
 
 @testable import AgentStudio
@@ -67,7 +66,6 @@ actor CommentRevisionReplayProducerObservationReader {
     func nextOpenedProducerID(handle: String) async -> UUID? {
         for await event in events {
             rememberSealedBatch(event)
-            recordCommentProducerObservation(event, stage: "opened")
             guard case .opened(let observedHandle, let producerID) = event,
                 observedHandle == handle
             else { continue }
@@ -83,7 +81,6 @@ actor CommentRevisionReplayProducerObservationReader {
     ) async -> CommentRevisionReplayProducerBatchOutcome {
         for await event in events {
             rememberSealedBatch(event)
-            recordCommentProducerObservation(event, stage: "sealed")
             switch event {
             case .opened:
                 continue
@@ -106,7 +103,6 @@ actor CommentRevisionReplayProducerObservationReader {
     ) async -> CommentRevisionReplayHandoffDecision? {
         for await event in events {
             rememberSealedBatch(event)
-            recordCommentProducerObservation(event, stage: "handoff")
             switch event {
             case .waitingForRetirement(let observedHandle, let observedProducerID, let predecessorID)
             where observedHandle == handle && observedProducerID == producerID:
@@ -127,7 +123,6 @@ actor CommentRevisionReplayProducerObservationReader {
     ) async throws -> CommentRevisionReplaySealedCapture {
         for await event in events {
             rememberSealedBatch(event)
-            recordCommentProducerObservation(event, stage: "initial")
             switch event {
             case .sealed(let observedHandle, let producerID, let batch) where observedHandle == handle:
                 let keys = Set(batch.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) })
@@ -153,70 +148,6 @@ actor CommentRevisionReplayProducerObservationReader {
             batch.targetRevision > (lastSealedBatchByProducerID[producerID]?.targetRevision ?? 0)
         else { return }
         lastSealedBatchByProducerID[producerID] = batch
-    }
-}
-
-private func recordCommentProducerObservation(
-    _ event: BridgePaneAnnotationProducerObservation,
-    stage: String
-) {
-    let detail: String
-    switch event {
-    case .opened(let handle, let producerID):
-        detail = "opened handle=\(handle) producer=\(producerID)"
-    case .waitingForRetirement(let handle, let producerID, let predecessorID):
-        detail = "waiting handle=\(handle) producer=\(producerID) predecessor=\(predecessorID)"
-    case .publisherInstalled(let handle, let producerID):
-        detail = "installed handle=\(handle) producer=\(producerID)"
-    case .sealed(let handle, let producerID, let batch):
-        detail =
-            "sealed handle=\(handle) producer=\(producerID) base=\(batch.baseRevision) target=\(batch.targetRevision) scope=\(batch.scopeRevision) puts=\(batch.puts.count) deletes=\(batch.deletes.count)"
-    case .finished(let handle, let producerID, let reason):
-        detail = "finished handle=\(handle) producer=\(producerID) reason=\(reason)"
-    }
-    recordCommentFixtureDiagnostic("C11_PRODUCER[\(stage)] \(detail)")
-}
-
-private let commentDiagnosticWriteLock = Mutex(())
-
-func recordCommentFixtureDiagnostic(_ line: String) {
-    guard let ledgerPath = ProcessInfo.processInfo.environment["AGENTSTUDIO_HELD_STEP_LOG"] else { return }
-    let logURL = URL(fileURLWithPath: ledgerPath).deletingPathExtension()
-        .appendingPathExtension("producer-observations.log")
-    commentDiagnosticWriteLock.withLock { _ in
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            _ = FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        }
-        guard let file = try? FileHandle(forWritingTo: logURL) else { return }
-        defer { try? file.close() }
-        _ = try? file.seekToEnd()
-        try? file.write(contentsOf: Data("\(line)\n".utf8))
-    }
-}
-
-@MainActor
-func withCommentProducerDiagnostics<TValue>(
-    source: BridgePaneAnnotationNotificationSource,
-    operation: @MainActor () async throws -> TValue
-) async throws -> TValue {
-    let observation = await source.observeProducerEvents()
-    recordCommentFixtureDiagnostic("C11_TAP_STARTED sourceWorktree=\(await source.admittedWorktreeID() ?? "nil")")
-    let diagnosticTask = Task { @MainActor in
-        for await event in observation.events {
-            recordCommentProducerObservation(event, stage: "live")
-        }
-    }
-    do {
-        let result = try await operation()
-        await source.stopObservingProducerEvents(id: observation.id)
-        diagnosticTask.cancel()
-        await diagnosticTask.value
-        return result
-    } catch {
-        await source.stopObservingProducerEvents(id: observation.id)
-        diagnosticTask.cancel()
-        await diagnosticTask.value
-        throw error
     }
 }
 
