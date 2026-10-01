@@ -18,7 +18,7 @@ import Testing
 @Suite("Cold start observer")
 struct ColdStartObserverTests {
     /// Not `private` (test-file split, Lead 2026-10-01): shared with
-    /// `ColdStartObserverProcessWatchOwnershipTests`, which the repo's
+    /// `ColdStartObserverWatchSourceOwnershipTests`, which the repo's
     /// line-length ceiling split out of this file.
     final class ScriptedSyscalls: ColdStartObserverSyscalls, @unchecked Sendable {
         var directoryOpenResult: Result<Int32, POSIXErrorNumber> = .failure(POSIXErrorNumber(EACCES))
@@ -59,7 +59,38 @@ struct ColdStartObserverTests {
         private var processArgumentsReadCount = 0
 
         func openDirectoryForWatching(path: String) -> Result<Int32, POSIXErrorNumber> {
-            directoryOpenResult
+            lock.lock()
+            directoryOpenCallCount += 1
+            let count = directoryOpenCallCount
+            lock.unlock()
+            // Lead 2026-10-01 (R1 gate failure 1): fired synchronously, from
+            // inside `beginDiscovery`'s own actor-isolated, non-suspending
+            // body -- a test awaiting this fact before calling `cancel()`
+            // is guaranteed the directory watch source already exists by
+            // the time `cancel()` can even enter the actor, since the
+            // actor's serial executor cannot interleave `cancel()`'s
+            // request until this synchronous call stack either completes
+            // or hits a real suspension point (it has none between here
+            // and `source.resume()`).
+            directoryOpenCallFactSink?(Self.directoryOpenScope, count)
+            return directoryOpenResult
+        }
+
+        /// F7 follow-up (Lead 2026-10-01, R1 gate failure 1): same
+        /// technique as `processArgumentsCallFactSink`, for a test that
+        /// must prove the directory watch source already exists -- not
+        /// merely that `observeColdStart` was called -- before racing it
+        /// against `cancel()`.
+        var directoryOpenCallFactSink: (@Sendable (String, Int) -> Void)?
+        private var directoryOpenCallCount = 0
+
+        static let directoryOpenScope = "openDirectoryForWatching"
+
+        /// The typed-fact vocabulary for `directoryOpenCallFactSink`.
+        static func directoryOpenCallFactVocabulary() -> FactVocabulary<String, Int> {
+            FactVocabulary(
+                describeScope: { $0 }, describeFact: { "openDirectoryForWatching call #\($0)" },
+                isClosing: { _, _ in false })
         }
 
         func readProcessArgumentsBuffer(pid: Int32) -> Result<[UInt8], POSIXErrorNumber> {
@@ -675,75 +706,6 @@ struct ColdStartObserverTests {
 
         let settledOutcome = await outcome
         #expect(settledOutcome == .failed(.exitedBeforeHandoff(exitStatus: nil)))
-    }
-
-    /// A4 (important, advisor review 2026-10-01; test technique corrected
-    /// by the Lead 2026-10-01 to avoid saturating a shared queue): proves
-    /// the watched directory's file descriptor stays open until the
-    /// directory watch's own `DispatchSource` cancellation has actually
-    /// completed, never before. `dispatch_source_cancel` is asynchronous
-    /// (SDK source.h:512); its cancel handler is the documented boundary
-    /// for when the handle is safe to close (source.h:449 -- closing
-    /// earlier permits the descriptor's reuse while the source may still
-    /// reference it).
-    ///
-    /// Injects a private, test-owned, serial `DispatchQueue` as the
-    /// observer's `targetQueue` (same seam as A2's proof) and suspends it
-    /// before activation, so cancellation can be requested but the cancel
-    /// handler that must run the actual `close()` cannot. After resuming,
-    /// `testQueue.sync {}` -- a serial queue's own FIFO guarantee, not a
-    /// timing wait -- returns only once every block already queued ahead
-    /// of it (the cancel handler) has completed, off the cooperative pool
-    /// via the repo's own `withoutBlockingCooperativePool` helper.
-    ///
-    /// Before this fix, `teardownWatches`/`discoverySettled` close the
-    /// descriptor as a plain, synchronous actor-isolated call -- wholly
-    /// unaffected by the suspended queue, so it is already closed by the
-    /// time `cancel()` returns, failing the first assertion below. After
-    /// the fix, only the cancel handler closes it, and that handler cannot
-    /// run until this test resumes the queue.
-    @Test("the watched directory descriptor stays open until source cancellation actually completes")
-    func directoryDescriptorStaysOpenUntilCancellationCompletes() async throws {
-        let temporaryDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "cold-start-observer-a4-fd-lifetime-\(UUIDv7.generate().uuidString)")
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
-        let watchedDescriptor = try openRealDirectoryDescriptor(at: temporaryDirectory.path)
-
-        let testQueue = DispatchQueue(label: "cold-start-observer-a4-test-queue", qos: .userInitiated)
-        testQueue.suspend()
-
-        let syscalls = ScriptedSyscalls()
-        syscalls.directoryOpenResult = .success(watchedDescriptor)
-        let observer = ColdStartObserver(syscalls: syscalls, targetQueue: testQueue)
-
-        // Act
-        async let outcome = observer.observeColdStart(
-            zmxDirectory: temporaryDirectory,
-            socketPath: temporaryDirectory.appending(path: "session").path,
-            bootID: "test-boot-id",
-            attemptID: ColdRestoreAttemptID.generate()
-        )
-        await observer.cancel()
-
-        // Assert: cancellation was requested, but the queue that must run
-        // the cancel handler is still suspended -- the descriptor must
-        // still be open.
-        #expect(fcntl(watchedDescriptor, F_GETFD) != -1, "the descriptor must stay open while cancellation is pending")
-
-        // Free the queue, then wait for it to actually drain the cancel
-        // handler -- a serial queue's own FIFO guarantee, not a sleep.
-        testQueue.resume()
-        await withoutBlockingCooperativePool {
-            testQueue.sync {}
-        }
-
-        // Assert: the cancel handler has now closed it, exactly once.
-        #expect(fcntl(watchedDescriptor, F_GETFD) == -1)
-        #expect(errno == EBADF)
-
-        // Cleanup: already settled by the explicit cancel() above.
-        _ = await outcome
     }
 
     /// Event-driven wait for a real process's own `NOTE_EXIT`, so a test can

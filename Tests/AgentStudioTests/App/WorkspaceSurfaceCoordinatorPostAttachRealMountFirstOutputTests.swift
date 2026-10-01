@@ -46,8 +46,20 @@ struct WorkspaceSurfacePostAttachRealMountTests {
     /// .SucceedingRestoreSurfaceManager` (A5): every surface it hands back
     /// is a real `Ghostty.SurfaceView` with no native `ghostty_surface_t` --
     /// this suite never sends real input through one.
+    ///
+    /// R1 gate FAIL 2 (Lead 2026-10-01): this copy's own `attach` was a
+    /// stub returning `nil` unconditionally, not actually tracking what
+    /// `createSurface` built -- a fixture gap, not an A6 wiring bug.
+    /// `attachTopologyIndependentSurface` (WorkspaceSurfaceCoordinator
+    /// +ViewLifecycle.swift:378) treats a `nil` from `attach` as a genuine
+    /// attachment failure and returns `.failed(.surfaceAttachmentFailed)`,
+    /// so `mountPreparedTerminalContent` could never reach `.ready` here --
+    /// confirmed by tracing that exact call chain. `surfacesByID` now
+    /// mirrors A5's own copy exactly.
     @MainActor
     private final class SucceedingRealMountSurfaceManager: WorkspaceSurfaceManaging {
+        private var surfacesByID: [UUID: Ghostty.SurfaceView] = [:]
+
         func syncFocus(activeSurfaceId: UUID?) {}
         func retainSurfacesForUndo(forPaneIDs paneIDs: Set<UUID>) {}
         func retireActiveAndHiddenSurfaces(forPaneIDs paneIDs: Set<UUID>) {}
@@ -62,11 +74,12 @@ struct WorkspaceSurfacePostAttachRealMountTests {
                 managedSurfaceID: surfaceID,
                 appCommandDispatcher: RealMountNoOpAppCommandDispatcher()
             )
+            surfacesByID[surfaceID] = surface
             return .success(ManagedSurface(id: surfaceID, surface: surface, metadata: metadata))
         }
 
         @discardableResult
-        func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? { nil }
+        func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? { surfacesByID[surfaceId] }
         func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
         func undoClose(forPaneId paneId: UUID) -> ManagedSurface? { nil }
         func destroy(_ surfaceId: UUID) {}
