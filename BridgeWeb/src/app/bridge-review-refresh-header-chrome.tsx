@@ -2,6 +2,7 @@ import { TriangleAlertIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import type { BridgeMainReviewRefreshPresentation } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type { BridgeRegionSurfaceStatus } from './bridge-region-presentation-state.js';
 import { BridgeRegionUpdatingIndicator } from './bridge-region-presentation.js';
 import { bridgeReviewRegionDisplaySpec } from './bridge-review-region-display-spec.js';
 import { BridgeViewerButton } from './bridge-viewer-button.js';
@@ -16,6 +17,17 @@ export type BridgeReviewRefreshHeaderPresentation =
 	| { readonly action: 'applyNow'; readonly statusText: 'Update ready' }
 	| { readonly action: 'retry'; readonly statusText: 'Update unavailable' }
 	| { readonly action: null; readonly statusText: 'Update unavailable' };
+
+export function bridgeReviewRegionRefreshHeaderPresentation(props: {
+	readonly isActive: boolean;
+	readonly surface: BridgeRegionSurfaceStatus;
+}): BridgeReviewRefreshHeaderPresentation {
+	if (!props.isActive || props.surface.kind !== 'updating' || props.surface.rest === 'hidden')
+		return { action: null, statusText: null };
+	return props.surface.rest === 'held'
+		? { action: 'applyNow', statusText: 'Update ready' }
+		: { action: null, statusText: 'Updating…' };
+}
 
 export function bridgeReviewRefreshHeaderPresentation(props: {
 	readonly attentionItemIds: readonly string[];

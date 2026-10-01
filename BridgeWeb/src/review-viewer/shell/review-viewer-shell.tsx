@@ -142,7 +142,6 @@ export interface ReviewViewerShellProps {
 	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[];
 	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
-	readonly reviewRefreshStatusText?: string | null;
 }
 
 export type BridgeReviewCanvasLoadingReason = 'content';
