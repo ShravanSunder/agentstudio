@@ -1,0 +1,380 @@
+import Foundation
+import Testing
+
+@testable import AgentStudio
+@testable import AgentStudioBridge
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
+
+struct BootstrapCommittedReviewFixture {
+    let committedHandle: BridgeContentHandle
+    let headEndpoint: BridgeSourceEndpoint
+    let sourceProvider: BridgeReviewSourceProviderFake
+}
+
+func makeBootstrapCommittedReviewFixture() -> BootstrapCommittedReviewFixture {
+    let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
+    let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
+    let changedFile = makeBridgeEndpointChangedFile(
+        fileId: "committed-review",
+        path: "Sources/App/CommittedReview.swift",
+        sizeBytes: 100
+    )
+    let committedHandle = BridgeReviewPackageBuilder.contentHandle(
+        for: changedFile,
+        endpoint: headEndpoint,
+        role: .head,
+        reviewGeneration: 1
+    )
+    return BootstrapCommittedReviewFixture(
+        committedHandle: committedHandle,
+        headEndpoint: headEndpoint,
+        sourceProvider: BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: [changedFile]
+            ),
+            contentByHandleId: [:]
+        )
+    )
+}
+
+enum BootstrapSurfaceSelectionReplayError: Error {
+    case expectedSurfaceSelectionFrame
+}
+
+func consumeBootstrapSurfaceSelectionRequest(
+    producerLease: BridgeProductProducerLease,
+    installation: BridgeProductSessionInstallation,
+    productAdmission: BridgeProductAdmissionContext
+) async throws -> BridgeProductPaneSurfaceSelectionRequestedFrame {
+    let decoder = try BridgeProductMetadataFrameDecoder()
+    for _ in 0..<8 {
+        guard (await installation.session.producerSnapshot()).queuedFrameCount > 0 else {
+            break
+        }
+        let queuedFrame = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: producerLease,
+                from: installation.session,
+                productAdmission: productAdmission
+            )
+        )
+        for frame in try decoder.append(queuedFrame.data) {
+            if case .paneSurfaceSelectionRequested(let request) = frame {
+                return request
+            }
+        }
+    }
+    throw BootstrapSurfaceSelectionReplayError.expectedSurfaceSelectionFrame
+}
+
+actor BridgeProductBootstrapDeliverySuspension {
+    private var deliveryIsSuspended = false
+    private var deliverySuspendedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var deliveryResumeContinuation: CheckedContinuation<Void, Never>?
+
+    func suspendDelivery() async {
+        deliveryIsSuspended = true
+        let waiters = deliverySuspendedWaiters
+        deliverySuspendedWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            deliveryResumeContinuation = continuation
+        }
+    }
+
+    func waitUntilDeliveryIsSuspended() async {
+        guard !deliveryIsSuspended else { return }
+        await withCheckedContinuation { continuation in
+            deliverySuspendedWaiters.append(continuation)
+        }
+    }
+
+    func resumeDelivery() {
+        deliveryResumeContinuation?.resume()
+        deliveryResumeContinuation = nil
+    }
+}
+
+@MainActor
+final class BootstrapReplacementOverlapState {
+    weak var controller: BridgePaneController?
+    var deliveredInstallations: [BridgeProductSessionInstallation] = []
+    var replacementMetadataProducer: BridgeProductProducerLease?
+}
+
+struct BootstrapReviewReplaySubscription {
+    let lease: BridgeProductProducerLease
+    let productAdmission: BridgeProductAdmissionContext
+}
+
+enum BootstrapReviewReplayError: Error {
+    case expectedMetadataStreamAccepted
+    case expectedReviewSubscriptionAccepted
+    case expectedReviewBatchPublication
+    case expectedSingleMetadataFrame
+    case expectedWorkerSessionAccepted
+}
+
+@MainActor
+func openBootstrapReviewReplaySubscription(
+    controller: BridgePaneController,
+    installation: BridgeProductSessionInstallation,
+    productProvider: BridgePaneProductSchemeProvider
+) async throws -> BootstrapReviewReplaySubscription {
+    let productAdmission = try #require(controller.productAdmissionGate.acquire())
+    let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
+        installation.capabilityBytes
+    )
+    let controlDispatcher = BridgeProductSchemeControlDispatcher(
+        session: installation.session,
+        provider: productProvider,
+        productAdmission: productAdmission
+    )
+    let workerOpenRequest = try bootstrapReviewWorkerOpenRequest(installation: installation)
+    let workerOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(workerOpenRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .workerSessionAccepted = workerOpenResponse else {
+        throw BootstrapReviewReplayError.expectedWorkerSessionAccepted
+    }
+
+    let metadataRequest = try bootstrapReviewMetadataRequest(installation: installation)
+    let registration = await installation.session.registerMetadataProducer(
+        request: metadataRequest,
+        productAdmission: productAdmission
+    ) { lease in
+        await productProvider.runMetadataProducer(
+            request: metadataRequest,
+            lease: lease,
+            productAdmission: productAdmission,
+            session: installation.session
+        )
+    }
+    let metadataLease = try bridgeProductAcceptedLease(registration)
+    let metadataOpeningFrame = try bootstrapReviewMetadataFrame(
+        from: try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: metadataLease,
+                from: installation.session,
+                productAdmission: productAdmission
+            )
+        )
+    )
+    guard case .metadataStreamAccepted = metadataOpeningFrame else {
+        throw BootstrapReviewReplayError.expectedMetadataStreamAccepted
+    }
+
+    let reviewOpenRequest = try bootstrapReviewSubscriptionOpenRequest(
+        installation: installation
+    )
+    var metadataStreamIsReady = false
+    for _ in 0..<1000 {
+        if case .subscriptionOpenAccepted = await productProvider.response(for: reviewOpenRequest) {
+            metadataStreamIsReady = true
+            break
+        }
+        await Task.yield()
+    }
+    #expect(metadataStreamIsReady)
+    let reviewOpenResponse = try await readAdmittedBridgeProductControlResponse(
+        try await controlDispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(reviewOpenRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .subscriptionOpenAccepted = reviewOpenResponse else {
+        Issue.record("Expected Review open acceptance, received \(String(describing: reviewOpenResponse))")
+        throw BootstrapReviewReplayError.expectedReviewSubscriptionAccepted
+    }
+    try await consumeBootstrapReviewSubscriptionAcceptance(
+        metadataLease: metadataLease,
+        installation: installation,
+        productAdmission: productAdmission
+    )
+    try await admitBootstrapReviewViewScope(
+        dispatcher: controlDispatcher, installation: installation, capabilityHeader: capabilityHeader
+    )
+    return BootstrapReviewReplaySubscription(
+        lease: metadataLease,
+        productAdmission: productAdmission
+    )
+}
+
+@MainActor
+func admitBootstrapReviewViewScope(
+    dispatcher: BridgeProductSchemeControlDispatcher,
+    installation: BridgeProductSessionInstallation,
+    capabilityHeader: String
+) async throws {
+    let scopeRequest = try bootstrapReviewControlRequest([
+        "kind": "subscription.setScope",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+        "wireVersion": BridgeProductWireContract.version,
+        "requestId": "request-bootstrap-review-scope",
+        "requestSequence": 3,
+        "subscriptionId": "bootstrap-review-replay-subscription",
+        "subscriptionKind": "review.metadata",
+        "domain": "default",
+        "handle": "bootstrap-review-replay-handle",
+        "incarnation": "bootstrap-review-replay-incarnation",
+        "scopeRevision": 1,
+        "scope": ["kind": "review", "interests": []],
+    ])
+    let scopeResponse = try await readAdmittedBridgeProductControlResponse(
+        try await dispatcher.dispatch(
+            exactRequestBytes: try bootstrapReviewControlRequestBytes(scopeRequest),
+            presentedCapability: capabilityHeader
+        ),
+        installation: installation,
+        capabilityHeader: capabilityHeader
+    )
+    guard case .viewAccepted = scopeResponse else {
+        throw BootstrapReviewReplayError.expectedReviewBatchPublication
+    }
+}
+
+func consumeBootstrapReviewSubscriptionAcceptance(
+    metadataLease: BridgeProductProducerLease,
+    installation: BridgeProductSessionInstallation,
+    productAdmission: BridgeProductAdmissionContext
+) async throws {
+    for _ in 0..<16 {
+        guard
+            let producerFrame = await consumeNextBridgeProductProducerFrame(
+                for: metadataLease,
+                from: installation.session,
+                productAdmission: productAdmission
+            )
+        else { break }
+        let metadataFrame = try bootstrapReviewMetadataFrame(from: producerFrame)
+        if case .subscriptionAccepted = metadataFrame { return }
+    }
+    throw BootstrapReviewReplayError.expectedReviewSubscriptionAccepted
+}
+
+func bootstrapReviewWorkerOpenRequest(
+    installation: BridgeProductSessionInstallation
+) throws -> BridgeProductControlRequest {
+    try bootstrapReviewControlRequest([
+        "kind": "workerSession.open",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "request": NSNull(),
+        "requestId": "request-open-bootstrap-review-replay",
+        "requestSequence": 1,
+        "wireVersion": BridgeProductWireContract.version,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+    ])
+}
+
+func bootstrapReviewSubscriptionOpenRequest(
+    installation: BridgeProductSessionInstallation
+) throws -> BridgeProductControlRequest {
+    try bootstrapReviewControlRequest([
+        "kind": "subscription.open",
+        "paneSessionId": installation.bootstrap.paneSessionId,
+        "requestId": "request-open-bootstrap-review-subscription",
+        "requestSequence": 2,
+        "subscription": ["subscriptionKind": "review.metadata"],
+        "subscriptionId": "bootstrap-review-replay-subscription",
+        "wireVersion": BridgeProductWireContract.version,
+        "workerDerivationEpoch": 1,
+        "workerInstanceId": installation.bootstrap.workerInstanceId,
+    ])
+}
+
+func bootstrapReviewMetadataRequest(
+    installation: BridgeProductSessionInstallation
+) throws -> BridgeProductMetadataStreamRequest {
+    try BridgeProductStrictJSON.decode(
+        BridgeProductMetadataStreamRequest.self,
+        from: JSONSerialization.data(
+            withJSONObject: [
+                "kind": "metadataStream.open",
+                "metadataStreamId": "bootstrap-review-replay-stream",
+                "paneSessionId": installation.bootstrap.paneSessionId,
+                "resumeFromStreamSequence": NSNull(),
+                "wireVersion": BridgeProductWireContract.version,
+                "workerInstanceId": installation.bootstrap.workerInstanceId,
+            ],
+            options: [.sortedKeys]
+        )
+    )
+}
+
+func bootstrapReviewControlRequest(
+    _ object: [String: Any]
+) throws -> BridgeProductControlRequest {
+    try BridgeProductStrictJSON.decode(
+        BridgeProductControlRequest.self,
+        from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    )
+}
+
+func bootstrapReviewControlRequestBytes(
+    _ request: BridgeProductControlRequest
+) throws -> Data {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    return try encoder.encode(request)
+}
+
+func bootstrapReviewMetadataFrame(
+    from queuedFrame: BridgeProductQueuedProducerFrame
+) throws -> BridgeProductMetadataFrame {
+    let decoder = try BridgeProductMetadataFrameDecoder()
+    let frames = try decoder.append(queuedFrame.data)
+    guard frames.count == 1, let frame = frames.first else {
+        throw BootstrapReviewReplayError.expectedSingleMetadataFrame
+    }
+    return frame
+}
+
+func consumeBootstrapReviewPublication(
+    subscription: BootstrapReviewReplaySubscription,
+    installation: BridgeProductSessionInstallation
+) async throws -> BridgeProductReviewBatchPublicationRecord {
+    var publication: BridgeProductReviewBatchPublicationRecord?
+    while true {
+        let frame = try bootstrapReviewMetadataFrame(
+            from: try #require(
+                await consumeNextBridgeProductProducerFrame(
+                    for: subscription.lease,
+                    from: installation.session,
+                    productAdmission: subscription.productAdmission
+                )
+            )
+        )
+        switch frame {
+        case .batch(.begin(let begin)):
+            #expect(begin.mode == .snapshot)
+            #expect(begin.identity.subscriptionId == "bootstrap-review-replay-subscription")
+        case .batch(.part(let part)):
+            guard case .put(_, _, let value) = part.part else { continue }
+            let record = try JSONDecoder().decode(
+                BridgeProductReviewBatchRecord.self,
+                from: JSONEncoder().encode(value)
+            )
+            if case .publication(let receivedPublication) = record {
+                publication = receivedPublication
+            }
+        case .batch(.complete):
+            return try #require(publication)
+        case .panePresentation:
+            continue
+        default:
+            throw BootstrapReviewReplayError.expectedReviewBatchPublication
+        }
+    }
+}
