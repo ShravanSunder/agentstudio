@@ -48,7 +48,7 @@ struct BridgeProductSchemeAdapter: Sendable {
         session: BridgeProductSession,
         provider: any BridgeProductSchemeProvider,
         productAdmissionGate: BridgeProductAdmissionGate,
-        installationAdmissionGate: BridgeProductAdmissionGate = BridgeProductAdmissionGate(),
+        installationAdmissionGate: BridgeProductAdmissionGate,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) {
         self.session = session

@@ -137,7 +137,8 @@ struct BridgeProductSchemeAdapterTranscriptHarness {
             adapter: .init(
                 session: session,
                 provider: provider,
-                productAdmissionGate: productAdmissionGate
+                productAdmissionGate: productAdmissionGate,
+                installationAdmissionGate: BridgeProductAdmissionGate()
             ),
             capabilityHeader: capabilityHeader,
             provider: provider,
