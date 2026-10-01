@@ -18,7 +18,7 @@ flowchart TD
     M4 -->|no| M5[save seed: build path + manifest + provenance]
     M4 -->|yes| M7[skip save]
     M5 --> M6[prune job: confirm new key, delete strictly older owned seeds]
-    M5 --> M8[all Swift test lanes run; their results do not gate the seed]
+    M5 --> M8[job ends: no test lanes on push; the full suite runs nightly]
     M7 --> M8
   end
   subgraph pr["pull request: never saves"]
@@ -47,7 +47,7 @@ SwiftPM and the Swift driver skip an input whose modification time **equals** th
 | `prune-swift-build-cache` job (main push only, ubuntu, `actions: write`) | separate job, needs the Swift job | The only deleter: consumes the save disposition and key, confirms, deletes strictly older owned entries |
 | Prebuild and receipts (`swift-test-helpers.sh:511–527`) | unchanged | Building; receipts that name the tested commit |
 
-Serialization: `ci.yml`'s existing group `${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}` never cancels main runs and allows one running main workflow at a time. Publication and pruning therefore never interleave across main runs. This dependency is explicit, and a contract test guards it.
+Serialization: `ci.yml`'s group is partitioned by event, `${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}`. It never cancels main push runs and allows one running main push workflow at a time, and the nightly full run sits in its own partition, so it can never hold up the push publisher. Publication and pruning therefore never interleave across main runs. This dependency is explicit, and a contract test guards it.
 
 ## Inputs
 
@@ -93,7 +93,7 @@ After restore, before any compilation:
 ## Main publication and pruning (O1, O4, O5)
 
 - The main job inventories inputs before the cold build and verifies them again right after the prebuild, before any test lane starts. If anything changed, or the prebuild failed, it doesn't publish.
-- Test results don't gate publication. A build cache is valid for its verified inputs whatever the tests say, and a red main must not stop the seed from following main. Gating on green used to leave PRs on a seed hours old, recompiling main's changes. Every Swift test lane still runs on main.
+- Test results don't gate publication. A build cache is valid for its verified inputs whatever the tests say, and a red main must not stop the seed from following main. Gating on green used to leave PRs on a seed hours old, recompiling main's changes. A main push runs no test lanes (owner decision 2026-09-30): each PR already tested its merge onto main, the cold prebuild still catches a compile break between two back-to-back merges, and the nightly full run on main catches a behavioral one.
 - The prune job runs with `always()`, so a later failing lane can't suppress it. It still acts only on a `saved` or `skipped-budget` disposition.
 - Each PR run reports its restored seed commit, the merge tree it tested, and how many Swift inputs differ between them. A warm run that still rebuilt a lot therefore explains itself.
 - Skip-if-newer: list owned main-ref entries (paginated, run numbers parsed as integers, across all compatibility families). Skip saving if any has a higher run number.
@@ -129,6 +129,6 @@ Permanent behavior tests (fixture trees and a fake cache listing) for the verifi
 - restore runs only on PRs;
 - publishing requires `push` to `main`;
 - only the prune job holds `actions: write`, and the publisher holds `actions: read`;
-- the concurrency group is unchanged.
+- the concurrency group partitions push, schedule and dispatch runs (owner decision 2026-09-30); a main push still serializes with other main pushes.
 
 After merge: the first publication's zstd size, the prune result, and the next PR's restore, verify, stamp and build times get reported to the owner.

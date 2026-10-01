@@ -700,6 +700,7 @@ swift_test_command_accepts_event_stream() {
 swift_test_suite_lane_inventory() {
   cat <<'EOF'
 fast|AgentStudioFileViewStartupDiagnosticTests|concurrent
+fast|AgentStudioIPCCursorHookProjectionTests|concurrent
 large|AgentStudioGitDependencyTests|concurrent
 large|AgentStudioIPCPhaseASmokeScriptTests|concurrent
 large|AgentStudioOTLPBootstrapSmokeTests|process-global
@@ -712,6 +713,7 @@ large|ArchitectureSwiftLintRulesTests|concurrent
 large|AtomLibCompileFailureScriptTests|concurrent
 large|BridgeBrowserNativeRPCCutoverSourceScanTests|concurrent
 large|BridgeCapacityIntegrationTests|concurrent
+large|BridgeDevelopmentServerBuildScriptTests|concurrent
 large|BridgeFullPyramidSmokeVerifierScriptTests|concurrent
 large|BridgeHeadlessManifestVerifierScriptTests|concurrent
 large|BridgeObservabilitySmokeReviewSourceProviderTests|concurrent
@@ -732,6 +734,7 @@ large|CIFirstAttemptGateWorkflowTests|concurrent
 large|CISwiftBuildCachePublishScriptTests|concurrent
 large|CISwiftBuildInputsScriptTests|concurrent
 benchmark|CommandBarSearchBenchmarkTests|process-global
+large|CrossTabMoveRendererIntegrationTests|process-global
 large|CursorPackageInstallerTests|concurrent
 large|DarwinCompositeFSEventContinuityTests|process-global
 large|DarwinFSEventStreamClientTests|process-global
