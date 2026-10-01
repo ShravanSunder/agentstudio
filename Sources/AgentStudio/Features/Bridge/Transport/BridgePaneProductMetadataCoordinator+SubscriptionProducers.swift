@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 private struct BridgeWorktreeAnnotationSubscriptionOpenRequest {
@@ -178,6 +179,7 @@ extension BridgePaneProductMetadataCoordinator {
     private func openWorktreeAnnotationSubscription(
         _ request: BridgeWorktreeAnnotationSubscriptionOpenRequest
     ) async throws {
+        let producerID = UUIDv7.generate()
         guard let worktreeID = await annotationSource.admittedWorktreeID(),
             let view = await request.activeStream.session.awaitAcceptedViewScope(
                 subscriptionId: request.subscription.subscriptionId
@@ -196,7 +198,7 @@ extension BridgePaneProductMetadataCoordinator {
         let productAdmission = request.productAdmission
         let foregroundWorkAdmission = request.foregroundWorkAdmission
         do {
-            try await annotationSource.openBatch(handle: view.handle) { catalogBatch, mode in
+            try await annotationSource.openBatch(handle: view.handle, producerID: producerID) { catalogBatch, mode in
                 guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
                     throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
                 }
@@ -208,6 +210,11 @@ extension BridgePaneProductMetadataCoordinator {
                         productAdmission: productAdmission
                     )
                 else { throw WorktreeAnnotationServiceError.staleSourceEpoch }
+                await annotationSource.recordSealedCommentCatalogBatch(
+                    handle: view.handle,
+                    producerID: producerID,
+                    batch: catalogBatch
+                )
                 switch await session.awaitViewEmissionCompletion(for: view.viewDomain, handle: view.handle) {
                 case .completed, .resnapshotRequired:
                     return
@@ -216,10 +223,10 @@ extension BridgePaneProductMetadataCoordinator {
                 }
             }
         } catch {
-            await annotationSource.releaseProducerBatchScope(handle: view.handle)
+            await annotationSource.releaseProducerBatchScope(handle: view.handle, producerID: producerID)
             throw error
         }
-        await annotationSource.releaseProducerBatchScope(handle: view.handle)
+        await annotationSource.releaseProducerBatchScope(handle: view.handle, producerID: producerID)
     }
 
     private func openFileMetadataSubscription(
