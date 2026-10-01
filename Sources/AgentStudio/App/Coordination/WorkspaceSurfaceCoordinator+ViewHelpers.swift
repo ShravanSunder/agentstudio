@@ -382,13 +382,25 @@ extension WorkspaceSurfaceCoordinator {
             let preservedRestorePhaseLatch = viewRegistry.terminalView(for: paneId)?.ghosttySurface?
                 .restorePhaseLatch
             teardownView(for: paneId, shouldUnregisterRuntime: false)
-            guard let repairedView = createViewForRepair(for: pane) else {
+            guard createViewForRepair(for: pane) != nil else {
                 Self.logger.error("repair recreateSurface failed for pane \(paneId)")
                 return
             }
+            // `createViewForRepair` returns the bare content view (a
+            // `TerminalPaneMountView` as `NSView`), not the `PaneHostView`
+            // wrapper `mountedContent(as:)` is declared on
+            // (`PaneHostView.swift:139`) -- that wrapper is a different
+            // object, built and registered inside `registerHostedView`
+            // (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:53-58`),
+            // which every terminal creation path this repair can reach
+            // (`createTopologyIndependentTerminalView`'s own success case,
+            // confirmed by reading it directly) already calls before
+            // returning. Re-apply through the same registry lookup the
+            // capture above used, symmetric with it, instead of downcasting
+            // this function's own return value.
             if let preservedRestorePhaseLatch {
-                repairedView.mountedContent(as: TerminalPaneMountView.self)?.ghosttySurface?
-                    .restorePhaseLatch = preservedRestorePhaseLatch
+                viewRegistry.terminalView(for: paneId)?.ghosttySurface?.restorePhaseLatch =
+                    preservedRestorePhaseLatch
             }
             Self.logger.info("Repaired view for pane \(paneId)")
 
