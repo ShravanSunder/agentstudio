@@ -304,10 +304,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 request: request
             )
         case .fileSourceCurrent:
-            return try .callCompleted(
-                correlating: request,
-                result: .fileSourceCurrent(await fileMetadataSource.currentSource())
-            )
+            return try await fileSourceCurrentResponse(for: request, source: fileMetadataSource)
         case .fileRefreshRetry:
             return try .callCompleted(correlating: request, result: .fileRefreshRetry)
         case .fileActiveViewerModeUpdate:

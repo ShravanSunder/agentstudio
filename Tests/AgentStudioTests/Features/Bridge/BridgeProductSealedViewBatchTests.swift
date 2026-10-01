@@ -581,9 +581,11 @@ struct BridgeProductSealedViewBatchTests {
         )
         let snapshot = try nineRowFileSnapshot()
         try #require(
-            try await harness.session.sealFileSnapshot(
+            try await harness.session.sealFileCapture(
                 subscriptionId: scopeRequest.subscriptionId,
                 snapshot: snapshot,
+                scope: try #require(
+                    await harness.session.acceptedViewScope(subscriptionId: scopeRequest.subscriptionId)),
                 productAdmission: harness.productAdmission.context
             )
         )

@@ -224,9 +224,10 @@ private actor BridgeRefreshDriverSessionPublisher {
         operationCorrelationIDs.append(operationCorrelationID)
         operationStageAttempts.append(operationStageAttempt)
         do {
-            let sealed = try await session.sealFileSnapshot(
+            let sealed = try await session.sealFileCapture(
                 subscriptionId: subscriptionId,
                 snapshot: try sessionIntegrationFileSnapshot(generation: attemptCount),
+                scope: try #require(await session.acceptedViewScope(subscriptionId: subscriptionId)),
                 productAdmission: productAdmission
             )
             guard sealed else {

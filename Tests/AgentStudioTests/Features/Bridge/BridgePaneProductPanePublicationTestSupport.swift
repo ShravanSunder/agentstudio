@@ -150,7 +150,9 @@ actor PanePublicationFileSource: BridgePaneProductFileMetadataProducing {
 
     init(source: BridgePaneProductFileMetadataSource) { self.source = source }
     func holdPublication(_ step: HeldStep<BridgeProductAdmissionContext>) { heldPublication = step }
-    func currentSource() async -> BridgeProductFileSourceCurrentResult { await source.currentSource() }
+    func currentSource() async throws(BridgeWorktreeFileRootAccessError) -> BridgeProductFileSourceCurrentResult {
+        try await source.currentSource()
+    }
     func open(
         subscription: BridgeProductSubscriptionSnapshot, productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission, emit: @escaping BridgePaneProductFileMetadataEventSink

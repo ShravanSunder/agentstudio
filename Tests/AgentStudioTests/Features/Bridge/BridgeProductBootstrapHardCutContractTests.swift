@@ -34,11 +34,15 @@ struct BridgeProductBootstrapHardCutContractTests {
         // Arrange
         let repoId = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
         let worktreeId = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "bridge-product-startup-contract-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
         let worktree = Worktree(
             id: worktreeId,
             repoId: repoId,
             name: "startup-contract",
-            path: URL(fileURLWithPath: "/tmp/bridge-product-startup-contract")
+            path: rootURL
         )
         let activeModeRecorder = BridgeProductStartupActiveModeRecorder()
         let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()

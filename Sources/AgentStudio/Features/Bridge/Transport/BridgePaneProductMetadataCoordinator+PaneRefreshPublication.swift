@@ -94,7 +94,7 @@ extension BridgePaneProductMetadataCoordinator {
                         stream, producerAdmission: producerAdmission,
                         foregroundWorkAdmission: foregroundWorkAdmission)
                 else { return .stale }
-                _ = try await publishFileViewSnapshot(
+                _ = try await publishFileViewCapture(
                     subscriptionId: subscriptionId, productAdmission: stream.productAdmission)
                 guard
                     isCurrentPanePublicationStream(

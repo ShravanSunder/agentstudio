@@ -207,6 +207,7 @@ package enum AppPolicies {
         package static let fileRetainedDescriptorMaximumCount: Int = 128
         package static let fileRetainedDescriptorMaximumEncodedBytes: Int = 256 * 1024
         package static let fileRefreshMaximumAutomaticRetryCount: Int = 1
+        package static let fileSurfaceMaximumUnchangedInputSupersessions: Int = 1
         /// Observability-only custody for pairing Bridge lifecycle starts and
         /// terminals. This never controls product work or retry behavior.
         package static let operationLifecycleTerminalWindow: Duration = .seconds(30)

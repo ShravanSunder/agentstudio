@@ -192,9 +192,11 @@ func sealRefreshAdmissionFileProofBatch(
         absenceFloorRevisionByRange: [:]
     )
     #expect(
-        try await installation.session.sealFileSnapshot(
+        try await installation.session.sealFileCapture(
             subscriptionId: "file-subscription-refresh-admission",
             snapshot: snapshot,
+            scope: try #require(
+                await installation.session.acceptedViewScope(subscriptionId: "file-subscription-refresh-admission")),
             productAdmission: fixture.productAdmission
         )
     )
