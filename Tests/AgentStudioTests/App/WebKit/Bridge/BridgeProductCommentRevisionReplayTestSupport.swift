@@ -457,8 +457,8 @@ final class CommentRevisionReplayPageDiagnosticObserver {
 }
 
 @MainActor
-func waitForAnnotationBodies(_ page: WebPage, required: [String]) async throws {
-    _ = try await WebPageEventWaits.waitForOpenShadowRootValue(
+func waitForAnnotationBodies(_ page: WebPage, required: [String]) async throws -> String {
+    let observedBodies = try await WebPageEventWaits.waitForOpenShadowRootValue(
         page,
         reader: """
             const collect = root => {
@@ -476,6 +476,7 @@ func waitForAnnotationBodies(_ page: WebPage, required: [String]) async throws {
         milestone: "retained Review annotation bodies rendered",
         lastObservation: "return globalThis.__rr4CommentPageDiagnostic?.snapshots.at(-1) ?? 'no page snapshot';"
     )
+    return try #require(observedBodies as? String)
 }
 
 actor CommentRevisionReplayCatalogReadGate {

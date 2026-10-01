@@ -41,7 +41,8 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
         ) { hostedController in
             hostedController.loadApp()
             await WebPageEventWaits.waitForNavigationToFinish(hostedController.page)
-            try await waitForReviewReady(controller: controller, page: hostedController.page)
+            let reviewIsReady = try await waitForReviewReady(controller: controller, page: hostedController.page)
+            #expect(reviewIsReady)
             try await selectReviewItemPath(hostedController.page, path: "tracked.txt")
             let provider = try #require(controller.productSchemeProvider)
             let coordinator = await provider.metadataCoordinator
@@ -93,7 +94,8 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             )
             let deletedMessage = try #require(deletedThread.messages.first)
 
-            try await waitForEnabledAnnotationsButton(hostedController.page)
+            let annotationsButtonIsEnabled = try await waitForEnabledAnnotationsButton(hostedController.page)
+            #expect(annotationsButtonIsEnabled)
             try await clickAccessibleButton(hostedController.page, label: "Annotations")
             try await selectAllCommentReplayShareScope(hostedController.page)
             let pageDiagnostics = try await CommentRevisionReplayPageDiagnosticObserver.start(
@@ -101,11 +103,12 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 diagnostics: replayDiagnostics
             )
             do {
-                try await waitForAnnotationBodies(
+                let initialAnnotationBodies = try await waitForAnnotationBodies(
                     hostedController.page,
                     // isCurrentSaved excludes unsaved drafts; prove draft keys in the catalog seal below.
                     required: [rootBody]
                 )
+                #expect(initialAnnotationBodies.contains(rootBody))
             } catch {
                 await pageDiagnostics.stop()
                 throw error
@@ -145,11 +148,12 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     now: Date(timeIntervalSince1970: 13)
                 )
             )
-            try await waitForAnnotationThreadResolution(
+            let threadIsResolved = try await waitForAnnotationThreadResolution(
                 hostedController.page,
                 threadID: rootThread.id,
                 resolution: "resolved"
             )
+            #expect(threadIsResolved)
             let resolvedBatch = try requireSealedBatch(
                 await producerObservationReader.nextSealedBatch(
                     handle: viewHandle,
@@ -178,11 +182,12 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     now: Date(timeIntervalSince1970: 14)
                 )
             )
-            try await waitForAnnotationThreadResolution(
+            let threadIsOpen = try await waitForAnnotationThreadResolution(
                 hostedController.page,
                 threadID: rootThread.id,
                 resolution: "open"
             )
+            #expect(threadIsOpen)
             let cursorAdvancedBatch = try requireSealedBatch(
                 await producerObservationReader.nextSealedBatch(
                     handle: viewHandle,
@@ -450,10 +455,11 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     $0.recordKey == WorktreeAnnotationCatalogKey.message(postCleanupMessage.id).recordKey
                 }
             )
-            try await waitForAnnotationBodies(
+            let finalAnnotationBodies = try await waitForAnnotationBodies(
                 hostedController.page,
                 required: [rootBody, replayReplyBody, postCleanupBody]
             )
+            #expect([rootBody, replayReplyBody, postCleanupBody].allSatisfy(finalAnnotationBodies.contains))
             await coordinator.suspendForegroundWork()
             await coordinator.annotationSource.stopObservingProducerEvents(id: producerObservations.id)
         }
@@ -462,8 +468,8 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 }
 
 @MainActor
-private func waitForReviewReady(controller: BridgePaneController, page: WebPage) async throws {
-    _ = try await WebPageEventWaits.waitForDocumentValue(
+private func waitForReviewReady(controller: BridgePaneController, page: WebPage) async throws -> Bool {
+    let observedReadiness = try await WebPageEventWaits.waitForDocumentValue(
         page,
         reader: """
             const shell = document.querySelector('[data-testid="review-viewer-shell"]');
@@ -477,11 +483,12 @@ private func waitForReviewReady(controller: BridgePaneController, page: WebPage)
     else {
         throw WorktreeAnnotationServiceError.unavailable
     }
+    return try #require(observedReadiness as? Bool)
 }
 
 @MainActor
-private func waitForEnabledAnnotationsButton(_ page: WebPage) async throws {
-    _ = try await WebPageEventWaits.waitForDocumentValue(
+private func waitForEnabledAnnotationsButton(_ page: WebPage) async throws -> Bool {
+    let observedEnablement = try await WebPageEventWaits.waitForDocumentValue(
         page,
         reader: """
             const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
@@ -493,6 +500,7 @@ private func waitForEnabledAnnotationsButton(_ page: WebPage) async throws {
             return button instanceof HTMLButtonElement && !button.disabled ? true : null;
             """
     )
+    return try #require(observedEnablement as? Bool)
 }
 
 @MainActor
@@ -520,8 +528,8 @@ private func waitForAnnotationThreadResolution(
     _ page: WebPage,
     threadID: WorktreeAnnotationThreadID,
     resolution: String
-) async throws {
-    _ = try await WebPageEventWaits.waitForOpenShadowRootValue(
+) async throws -> Bool {
+    let observedResolution = try await WebPageEventWaits.waitForOpenShadowRootValue(
         page,
         reader: """
             const findThread = root => {
@@ -548,6 +556,7 @@ private func waitForAnnotationThreadResolution(
             "resolution": resolution,
         ]
     )
+    return try #require(observedResolution as? Bool)
 }
 
 @MainActor
