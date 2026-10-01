@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Darwin
 import Foundation
@@ -61,7 +62,7 @@ struct VendorConsumerWiringScriptTests {
         try writeExecutable(
             at: fakeBin.appending(path: "xcrun"), source: "#!/bin/bash\nprintf called > \"$STRIP_MARKER\"\n")
         let result = try await RunToExitProcessExecutor().execute(
-            command: "/usr/bin/python3", args: [helper.path], cwd: root,
+            command: try await TestToolResolver.resolved().python3.path, args: [helper.path], cwd: root,
             environment: ["PATH": "\(fakeBin.path):/usr/bin:/bin", "STRIP_MARKER": stripMarker.path]
         )
         #expect(try Data(contentsOf: sentinel) == sentinelBytes)

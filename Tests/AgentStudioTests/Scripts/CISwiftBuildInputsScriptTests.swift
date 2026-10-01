@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -366,6 +367,7 @@ private final class SwiftInputFixture {
     func remove() { try? FileManager.default.removeItem(at: root) }
 
     func trackOnlySourceFile() async throws {
+        let git = try await TestToolResolver.resolved().git
         let rootPath = root.path
         let gitCommands = [
             ["-C", rootPath, "init", "-q"],
@@ -374,10 +376,11 @@ private final class SwiftInputFixture {
         let exitCodes = try await withoutBlockingCooperativePool {
             try gitCommands.map { arguments in
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+                process.executableURL = git
                 process.arguments = arguments
-                try process.run()
+                try TestToolResolver.launch(process)
                 process.waitUntilExit()
+                TestToolResolver.recordFailedExit(process)
                 return process.terminationStatus
             }
         }
@@ -480,19 +483,21 @@ private final class SwiftInputFixture {
 
     func setUnrepresentableSeedTime(_ manifest: URL) async throws {
         let manifestPath = manifest.path
+        let python = try await TestToolResolver.resolved().python3
         let exitCode = try await withoutBlockingCooperativePool {
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.executableURL = python
             process.arguments = [
-                "python3", "-c",
+                "-c",
                 "import hashlib,json,sys; p=sys.argv[1]; m=json.load(open(p)); "
                     + "next(r for r in m['records'] if r['path']=='Sources/Example.swift')['mtime_ns']=9223372036854775808; "
                     + "m['manifest_digest']=hashlib.sha256(json.dumps(m['records'],sort_keys=True,separators=(',',':'),ensure_ascii=True).encode()).hexdigest(); "
                     + "json.dump(m,open(p,'w'))",
                 manifestPath,
             ]
-            try process.run()
+            try TestToolResolver.launch(process)
             process.waitUntilExit()
+            TestToolResolver.recordFailedExit(process)
             return process.terminationStatus
         }
         #expect(exitCode == 0)
