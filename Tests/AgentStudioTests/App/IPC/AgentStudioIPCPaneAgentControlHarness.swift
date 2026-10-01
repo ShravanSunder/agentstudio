@@ -173,23 +173,26 @@ struct PaneAgentControlHarness {
         method: String,
         params: JSONValue
     ) async throws -> JSONRPCResponseMessage {
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
+        let endpoint = UnixSocketEndpoint(path: socketPath)
+        let connection = try await withoutBlockingCooperativePool { try UnixSocketClient.connect(endpoint: endpoint) }
         defer { connection.close() }
         var reader = SessionsVerticalFrameReader()
-        try send(
+        try await send(
             connection: connection,
             request: try JSONRPCClientRequest(
                 id: .number(1), method: "auth.login", params: .object(["token": .string(token.rawValue)])))
         let login = try await reader.receiveResponse(connection: connection)
         try #require(login.error == nil)
-        try send(
+        try await send(
             connection: connection, request: try JSONRPCClientRequest(id: .number(2), method: method, params: params))
         return try await reader.receiveResponse(connection: connection)
     }
 
-    private func send(connection: UnixSocketConnection, request: JSONRPCClientRequest) throws {
-        try connection.send(
-            try NDJSONFrameEncoder.encode(JSONRPCCodec.encodeRequest(request), maxFrameBytes: 65_536))
+    private func send(connection: UnixSocketConnection, request: JSONRPCClientRequest) async throws {
+        try await withoutBlockingCooperativePool {
+            try connection.send(
+                try NDJSONFrameEncoder.encode(JSONRPCCodec.encodeRequest(request), maxFrameBytes: 65_536))
+        }
     }
 }
 
