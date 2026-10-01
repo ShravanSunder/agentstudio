@@ -315,7 +315,16 @@ export function createBridgeMainRenderSnapshotStore(
 	};
 	const promoteReviewCandidate = (identity: BridgeMainReviewPublicationIdentity): boolean => {
 		const candidate = reviewCandidateBankOwner.promote(identity);
-		if (candidate === null) return false;
+		if (candidate === null) {
+			// Metadata recovery supersedes an admitted candidate that never reached page installation.
+			if (
+				reviewCandidateBankOwner.currentPresentation.candidate?.role === 'installing' &&
+				reviewCandidateBankOwner.currentCandidateSourceDiagnostic?.status === 'stale'
+			) {
+				discardReviewCandidate(identity);
+			}
+			return false;
+		}
 		publishBridgeMainListeners(reviewCandidateSourceListeners);
 		const previousSnapshot = snapshot;
 		const previousItemIds = Object.keys(previousSnapshot.reviewItemById);

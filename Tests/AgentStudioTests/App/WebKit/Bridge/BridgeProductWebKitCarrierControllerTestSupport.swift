@@ -1,4 +1,3 @@
-import AgentStudioTestHarness
 import Foundation
 import Testing
 
@@ -22,9 +21,7 @@ final class BridgeProductWebKitCarrierControllerTarget {
 
     weak var controller: BridgePaneController?
     private(set) var applicationReceipts: [BridgeProductWebKitCarrierApplicationReceipt] = []
-    private let firstApplication = FactRecorder<String, BridgeProductWebKitCarrierApplicationReceipt>(
-        vocabulary: .init(describeScope: { $0 }, describeFact: { String(describing: $0) }, isClosing: { _, _ in false })
-    )
+    let firstApplication = BridgeProductWebKitFirstApplicationRecorder()
     private(set) var reviewContentSource: BridgePaneProductReviewContentSource?
     private var nextApplicationReceiptWaiterID: UInt64 = 0
     private var applicationReceiptWaiters: [UInt64: ApplicationReceiptWaiter] = [:]
@@ -56,11 +53,11 @@ final class BridgeProductWebKitCarrierControllerTarget {
         )
     }
 
-    func isCurrentPublication(
+    func isCurrentCanonicalPublication(
         _ publicationId: UUID,
         productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
-        controller?.reviewPublicationCoordinator.isCurrentPublication(
+        controller?.reviewPublicationCoordinator.isCurrentCanonicalPublication(
             publicationId: publicationId,
             productAdmission: productAdmission
         ) == true
@@ -82,15 +79,13 @@ final class BridgeProductWebKitCarrierControllerTarget {
             publicationId: publicationId
         )
         applicationReceipts.append(receipt)
-        firstApplication.append(scope: "first application receipt", fact: receipt)
+        firstApplication.record(.receipt(receipt))
         resumeApplicationReceiptWaitersIfReady()
         return result
     }
 
-    func waitForFirstApplicationReceipt() async -> BridgeProductWebKitCarrierApplicationReceipt? {
-        if let first = applicationReceipts.first { return first }
-        return try? await firstApplication.expectNext(
-            in: "first application receipt", where: { _ in true }, "application receipt")
+    func waitForFirstApplicationReceipt() async throws -> BridgeProductWebKitFirstApplicationOutcome {
+        try await firstApplication.wait()
     }
 
     func waitForAcceptedApplication(
