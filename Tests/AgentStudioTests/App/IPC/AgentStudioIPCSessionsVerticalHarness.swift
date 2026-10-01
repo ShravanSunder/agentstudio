@@ -429,6 +429,7 @@ struct SessionsVerticalHarnessTrait: SuiteTrait, TestScoping {
         case defaultProfiles
         case shipped
         case claudeCode
+        case claudeCodeAndCodex
     }
 
     let providerProfiles: ProviderProfiles
@@ -469,6 +470,10 @@ final class SessionsVerticalHarnessBox {
                 providerProfiles: SessionsProviderProfile.shippedProfiles)
         case .claudeCode:
             harness = try await SessionsVerticalHarness.make(
+                additionalProviderProfiles: [.claudeCodeCommandLine])
+        case .claudeCodeAndCodex:
+            harness = try await SessionsVerticalHarness.make(
+                providerProfiles: SessionsProviderProfile.shippedProfiles,
                 additionalProviderProfiles: [.claudeCodeCommandLine])
         }
         return Self(harness: harness)

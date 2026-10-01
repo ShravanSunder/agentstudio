@@ -9,7 +9,7 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("App IPC lifecycle end fact", .serialized, SessionsVerticalHarnessTrait(providerProfiles: .shipped))
+@Suite("App IPC lifecycle end fact", .serialized, SessionsVerticalHarnessTrait(providerProfiles: .claudeCodeAndCodex))
 struct AgentStudioIPCLifecycleEndFactTests {
     @Test(
         "a projected provider end reaches its binding with reason classification and exact text",
