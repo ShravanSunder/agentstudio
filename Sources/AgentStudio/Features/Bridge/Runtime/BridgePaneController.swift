@@ -228,6 +228,9 @@ package final class BridgePaneController {
                     reviewContentLoaderCache: resolvedReviewContentLoaderCache,
                     reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
                     refreshWorkAdmissionSource: resolvedRefreshAdmissionCoordinator.workAdmissionSource,
+                    recordCurrentFileRefreshFailure: { failure in
+                        resolvedRefreshAdmissionCoordinator.recordCurrentFileRefreshFailure(failure)
+                    },
                     initialProductPresentation: resolvedRefreshAdmissionCoordinator.productPresentationSnapshot,
                     telemetryRecorder: telemetryDependencies.recorder,
                     reviewSourceProvider: resolvedReviewSourceProvider,

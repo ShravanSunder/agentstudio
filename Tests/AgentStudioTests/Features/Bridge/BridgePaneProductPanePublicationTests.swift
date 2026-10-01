@@ -56,6 +56,79 @@ struct BridgePaneProductPanePublicationTests {
         await fixture.close()
     }
 
+    @Test("initial missing File root reports retryable surface failure without resetting E3")
+    func initialMissingFileRootRetainsRetryableSurfaceAndSubscription() async throws {
+        let fixture = try await PanePublicationFixture.make()
+        let rootURL = fixture.fileFixture.rootURL
+        let displacedRootURL = rootURL.deletingLastPathComponent()
+            .appending(path: "\(rootURL.lastPathComponent)-temporarily-unavailable")
+        try FileManager.default.moveItem(at: rootURL, to: displacedRootURL)
+        defer {
+            if !FileManager.default.fileExists(atPath: rootURL.path),
+                FileManager.default.fileExists(atPath: displacedRootURL.path)
+            {
+                try? FileManager.default.moveItem(at: displacedRootURL, to: rootURL)
+            }
+        }
+
+        let bootstrap = try await fixture.openFileSubscription()
+
+        #expect(bootstrap.result == .failure)
+        #expect(
+            fixture.refresh.diagnosticSnapshot.fileRefreshFailure
+                == .init(rootAccessFailure: .missingRoot)
+        )
+        #expect(fixture.refresh.diagnosticSnapshot.dirtyFact == nil)
+        #expect((await fixture.harness.session.producerSnapshot()).queuedFrameCount == 0)
+        #expect(await fixture.harness.session.subscriptionSnapshot(subscriptionId: "file-subscription-1") != nil)
+        #expect(await fixture.coordinator.activeStream?.lease == fixture.lease)
+
+        try FileManager.default.moveItem(at: displacedRootURL, to: rootURL)
+        await fixture.close()
+    }
+
+    @Test("Retry after restoring the File root rebuilds on the same E3 and clears Failed")
+    func retryAfterRestoringFileRootRebuildsAndClearsFailure() async throws {
+        let fixture = try await PanePublicationFixture.make()
+        let rootURL = fixture.fileFixture.rootURL
+        let displacedRootURL = rootURL.deletingLastPathComponent()
+            .appending(path: "\(rootURL.lastPathComponent)-temporarily-unavailable")
+        try FileManager.default.moveItem(at: rootURL, to: displacedRootURL)
+        defer {
+            if !FileManager.default.fileExists(atPath: rootURL.path),
+                FileManager.default.fileExists(atPath: displacedRootURL.path)
+            {
+                try? FileManager.default.moveItem(at: displacedRootURL, to: rootURL)
+            }
+        }
+
+        let failedBootstrap = try await fixture.openFileSubscription()
+        #expect(failedBootstrap.result == .failure)
+        #expect(
+            fixture.refresh.diagnosticSnapshot.fileRefreshFailure
+                == .init(rootAccessFailure: .missingRoot)
+        )
+        let subscriptionBeforeRetry = await fixture.harness.session.subscriptionSnapshot(
+            subscriptionId: "file-subscription-1"
+        )
+        #expect(subscriptionBeforeRetry != nil)
+
+        try FileManager.default.moveItem(at: displacedRootURL, to: rootURL)
+        let retryBootstrapCount = await fixture.trace.count(for: .fileMetadata) + 1
+        try await fixture.retryFileSurfaceWithCommittedControlCall()
+        let retriedBootstrap = try await fixture.trace.finished(.fileMetadata, count: retryBootstrapCount)
+        #expect(retriedBootstrap.result == .success)
+        #expect(fixture.refresh.diagnosticSnapshot.fileRefreshFailure == nil)
+        #expect(fixture.refresh.diagnosticSnapshot.dirtyFact == nil)
+        #expect(await fixture.harness.session.subscriptionSnapshot(subscriptionId: "file-subscription-1") != nil)
+        #expect(await fixture.coordinator.activeStream?.lease == fixture.lease)
+
+        try await fixture.acceptFileViewScope(requestSequence: 4)
+        let installedBatch = try await fixture.nextBatch()
+        #expect(!installedBatch.isEmpty)
+        await fixture.close()
+    }
+
     @Test(
         "File source work carries captured E1 and close refuses both snapshot publications", arguments: [false, true])
     func fileCloseDuringSourceWork(statusOnly: Bool) async throws {
