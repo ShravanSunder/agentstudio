@@ -15,15 +15,59 @@ actor HeldLifecycleReportIntake: LifecycleReportIntaking {
         "historical lifecycle intake before readiness publication", cancellation: .holdThroughCancellation)
     private(set) var capturedBoundaries = 0
     private(set) var takenBoundaries: [LifecycleReportBoundary] = []
-    init(boundary: LifecycleReportBoundary = .noStore) { self.boundary = boundary }
+    private let arrivalSink: @Sendable (LifecycleReportBoundary) -> Void
+    init(
+        boundary: LifecycleReportBoundary = .noStore,
+        arrivalSink: @escaping @Sendable (LifecycleReportBoundary) -> Void = { _ in }
+    ) {
+        self.boundary = boundary
+        self.arrivalSink = arrivalSink
+    }
     func captureListenerReadyBoundary() async throws -> LifecycleReportBoundary {
         capturedBoundaries += 1
         return boundary
     }
     func takeIn(through boundary: LifecycleReportBoundary) async throws {
         takenBoundaries.append(boundary)
+        arrivalSink(boundary)
         try await hold.arrive(boundary)
     }
+}
+
+enum ResumeIntakeOperationFact: Equatable, Sendable {
+    case arrived(LifecycleReportBoundary)
+    case initializationFinished
+}
+
+enum ResumeClassificationOperationFact: Equatable, Sendable { case publishedKinds, mountFinished }
+
+struct ResumeClassificationProbe: Sendable {
+    private let scope = UUIDv7.generate()
+    private let source: LocalFactSource<UUID, ResumeClassificationOperationFact>
+    private let facts: FactRecorder<UUID, ResumeClassificationOperationFact>
+    private let held = HeldStep<Void>("classification after ready kind publication")
+
+    init() throws {
+        source = LocalFactSource(
+            vocabulary: .init(
+                describeScope: { $0.uuidString }, describeFact: { String(describing: $0) },
+                isClosing: { _, fact in fact == .mountFinished }))
+        facts = try source.attach()
+    }
+
+    func holdAfterPublication() async throws {
+        source.sink(scope, .publishedKinds)
+        try await held.arrive(())
+    }
+    func mountCompleted() { source.sink(scope, .mountFinished) }
+    func expectPublishedKinds() async throws -> ResumeClassificationOperationFact {
+        let fact = try await facts.expectNext(in: scope, where: { $0 == .publishedKinds }, "classified kinds published")
+        _ = try await held.firstArrival()
+        return fact
+    }
+    func release() { held.release() }
+    func retire() { held.retire() }
+    func finish() async throws { try await facts.finish() }
 }
 
 struct ResumeReadinessFixture: Sendable {
@@ -33,6 +77,8 @@ struct ResumeReadinessFixture: Sendable {
     let readiness: RestoreResumeReadiness<TestPushClock>
     let intake: HeldLifecycleReportIntake
     let events: ResumeReadinessEventLedger
+    private let intakeOperationSource: LocalFactSource<UUID, ResumeIntakeOperationFact>
+    private let intakeOperationFacts: FactRecorder<UUID, ResumeIntakeOperationFact>
 
     init(boundary: LifecycleReportBoundary = .noStore) throws {
         let events = ResumeReadinessEventLedger()
@@ -53,17 +99,29 @@ struct ResumeReadinessFixture: Sendable {
                 events.record(fact)
                 source.sink(scope, fact)
             })
-        intake = HeldLifecycleReportIntake(boundary: boundary)
+        let intakeSource = LocalFactSource<UUID, ResumeIntakeOperationFact>(
+            vocabulary: .init(
+                describeScope: { $0.uuidString }, describeFact: { String(describing: $0) },
+                isClosing: { _, fact in fact == .initializationFinished }))
+        intakeOperationSource = intakeSource
+        intakeOperationFacts = try intakeSource.attach()
+        let launch = launchId
+        intake = HeldLifecycleReportIntake(
+            boundary: boundary, arrivalSink: { intakeSource.sink(launch, .arrived($0)) })
     }
 
     func start(prepareForLaunch: @escaping @Sendable () async throws -> Void = {}) -> Task<Void, Never> {
         Task {
+            defer { initializationCompleted() }
             await AppIPCDeferredInitialization.prepareResumeReadiness(
                 readiness: readiness, intake: intake, prepareForLaunch: prepareForLaunch)
         }
     }
+    func initializationCompleted() { intakeOperationSource.sink(launchId, .initializationFinished) }
     @discardableResult
     func expectIntakeHeld() async throws -> LifecycleReportBoundary {
+        _ = try await intakeOperationFacts.expectNext(
+            in: launchId, where: { if case .arrived = $0 { true } else { false } }, "historical intake arrival")
         let boundary = try await intake.hold.firstArrival()
         try await facts.expectNext(in: launchId, .listenerReady)
         try await facts.expectNext(in: launchId, .boundaryRead(boundary))
@@ -77,6 +135,7 @@ struct ResumeReadinessFixture: Sendable {
         await readiness.shutdown()
         await initialization.value
         try await facts.finish()
+        try await intakeOperationFacts.finish()
     }
 }
 

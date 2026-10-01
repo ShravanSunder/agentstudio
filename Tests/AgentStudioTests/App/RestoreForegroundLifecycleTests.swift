@@ -29,13 +29,14 @@ struct RestoreForegroundLifecycleTests {
             await fixture.observer.note(.bindingChanged, pane: fixture.paneId)
             let firstWatch = try await fixture.expectLook(sequence: 1)
             delegate.applicationDidBecomeActive(Notification(name: NSApplication.didBecomeActiveNotification))
-            let secondWatch = try await fixture.expectLook(sequence: 2)
-            #expect(secondWatch != firstWatch)
             delegate.applicationDidResignActive(Notification(name: NSApplication.didResignActiveNotification))
             delegate.applicationDidBecomeActive(Notification(name: NSApplication.didBecomeActiveNotification))
             ingress.continuation.finish()
             await relay.value
-            #expect(fixture.counts.scheduled() == 2)
+            try #require(
+                fixture.counts.scheduled() == 2, "the lifecycle relay must request a fresh look before closing")
+            let secondWatch = try await fixture.expectLook(sequence: 2)
+            #expect(secondWatch != firstWatch)
             #expect(fixture.watcher.watchIds().count == 2)
             #expect(fixture.watcher.cancelled().filter { $0 == firstWatch }.count == 1)
             #expect(await fixture.observer.currentWatch(paneId: fixture.paneId)?.watchId == secondWatch)

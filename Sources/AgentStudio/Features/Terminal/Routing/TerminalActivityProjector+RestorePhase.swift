@@ -3,10 +3,17 @@ import Foundation
 
 extension TerminalActivityProjector {
     /// A newer restore generation replaces the previous arm for this pane.
-    func armRestorePhase(paneID: UUID, generation: RestoreGeneration) {
+    func armRestorePhase(paneID: UUID, generation: RestoreGeneration, resumeInvocation: ResumeInvocation? = nil) {
+        // S3 RED stand-in: preserve the existing generation arm, ignoring resume metadata.
+        _ = resumeInvocation
         recordRestorePhaseGeneration(generation, for: paneID)
         discardOpenActivityWindowsForRestorePhaseArm(for: paneID)
     }
+
+    // S3 RED stand-in: no provider start can match resume metadata yet.
+    package func matchingResumeRestoreGeneration(
+        paneID: UUID, providerIdentifier: String, providerSessionId: String
+    ) -> RestoreGeneration? { nil }
 
     /// Only a matching generation ends suppression and establishes a fresh
     /// activity baseline. A stale or duplicate end has no effect.

@@ -180,8 +180,11 @@ package actor TerminalActivityProjector {
         continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
         wallNow: @escaping @Sendable () -> Date = Date.init,
         activitySink: (@Sendable (PaneActivityOccurrence) -> Void)? = nil,
-        closeReadDurationSink: (@Sendable (Duration) -> Void)? = nil
+        closeReadDurationSink: (@Sendable (Duration) -> Void)? = nil,
+        foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil
     ) {
+        // S3 RED stand-in: ignore foreground edges without changing existing compact/activity projection.
+        _ = foregroundLookSink
         self.unseenQuietDuration = unseenQuietDuration
         self.agentSettledQuietDuration = agentSettledQuietDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep

@@ -8,6 +8,12 @@ import Foundation
 /// (`@MainActor`), this has no MainActor dependency, so the off-main restore
 /// decision (`TerminalRestoreKindResolver`, App) can call it directly.
 package enum TerminalColdRestorePlanBuilder {
+    // S3 RED stand-in: leave the existing plan unchanged for every verdict.
+    package static func applyingResumeEvidence(
+        _ evidence: ResumeEvidence, providerIdentifier: String, providerSessionId: String,
+        to plan: TerminalColdRestorePlan
+    ) -> TerminalColdRestorePlan { plan }
+
     /// `zmxExecutablePath`, `zmxDirectoryPath` and `loginShellPath` are the
     /// same values `TerminalRestoreRuntime` already resolves for today's warm
     /// attach — passed in rather than re-resolved, so this stays a pure

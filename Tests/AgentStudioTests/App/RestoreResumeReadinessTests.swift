@@ -107,7 +107,7 @@ struct RestoreResumeReadinessTests {
             unverified
             ? .unverified(.sessionUnresponsive, fallback: warmPlan)
             : .warm(identity: Data("warm".utf8), fallback: warmPlan)
-        let classification = HeldStep<Void>("classification after ready kind publication")
+        let classification = try ResumeClassificationProbe()
         defer { classification.retire() }
         let window = WindowLifecycleAtom()
         let invocation = ResumeInvocation(
@@ -124,7 +124,7 @@ struct RestoreResumeReadinessTests {
             classifyTerminalRestoreKinds: { _, publish in
                 await publish(cold.paneID, .cold(base))
                 await publish(warm.paneID, readyKind)
-                try? await classification.arrive(())
+                try? await classification.holdAfterPublication()
             },
             resolveColdResumePlan: { paneId, plan in
                 let ready = await fixture.readiness.wait(paneId: paneId.uuid)
@@ -134,19 +134,23 @@ struct RestoreResumeReadinessTests {
             })
         await coordinator.installTerminalGeometryAvailability(Set(entries.map(\.paneID)))
         await coordinator.holdTerminalActivationUntilReleased()
-        let mount = Task { await coordinator.mount() }
+        let mount = Task {
+            defer { classification.mountCompleted() }
+            return await coordinator.mount()
+        }
         let initialization = Task {
-            await AppIPCDeferredInitialization.run(windowLifecycleStore: window) {
+            defer { fixture.initializationCompleted() }
+            _ = await AppIPCDeferredInitialization.run(windowLifecycleStore: window) {
                 await AppIPCDeferredInitialization.prepareResumeReadiness(
                     readiness: fixture.readiness, intake: fixture.intake, prepareForLaunch: {})
             }
         }
         do {
-            _ = try await classification.firstArrival()
-            try await fixture.facts.expectNext(in: cold.paneID.uuid, .waiting)
             window.recordFirstInteractiveFramePublished(source: .presented)
             #expect(await window.waitUntilFirstInteractiveFramePublished() == .completed)
             await coordinator.releaseTerminalActivation()
+            _ = try await classification.expectPublishedKinds()
+            try await fixture.facts.expectNext(in: cold.paneID.uuid, .waiting)
             try await fixture.expectIntakeHeld()
             try await port.expectStartAndFinish(warm.paneID)
             #expect(port.admissions.map(\.descriptor.paneID) == [warm.paneID])
@@ -163,9 +167,9 @@ struct RestoreResumeReadinessTests {
             } else {
                 Issue.record("expected the decided cold plan after readiness")
             }
-            await fixture.readiness.shutdown()
+            try await fixture.close(initialization: initialization)
+            try await classification.finish()
             try await port.facts.finish()
-            try await fixture.facts.finish()
         } catch {
             classification.retire()
             fixture.intake.hold.retire()
@@ -175,8 +179,9 @@ struct RestoreResumeReadinessTests {
             await coordinator.releaseTerminalActivation()
             _ = await initialization.value
             _ = await mount.value
+            try? await fixture.close(initialization: initialization)
+            try? await classification.finish()
             try? await port.facts.finish()
-            try? await fixture.facts.finish()
             throw error
         }
     }

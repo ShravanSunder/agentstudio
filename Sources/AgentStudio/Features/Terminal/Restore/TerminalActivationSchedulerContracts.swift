@@ -64,6 +64,9 @@ package enum TerminalActivationRetry: Equatable, Sendable {
 }
 
 package enum TerminalActivationMemberState: Equatable, Sendable {
+    // S3 RED stand-in: declared outcomes are never produced by the scheduler.
+    case awaitingResumeReadiness
+    case retired
     /// Held before this pane's geometry eligibility is installed (SPEC R5,
     /// the R1 deferral half). Not a candidate for admission and not
     /// promotable — distinct from `queued`, which has already entered the
@@ -80,9 +83,9 @@ package enum TerminalActivationMemberState: Equatable, Sendable {
 
     var isTerminal: Bool {
         switch self {
-        case .waitingForGeometry, .queued, .attaching:
+        case .waitingForGeometry, .queued, .attaching, .awaitingResumeReadiness:
             return false
-        case .ready, .failedTerminal, .cancelledReplaced:
+        case .ready, .failedTerminal, .cancelledReplaced, .retired:
             return true
         }
     }

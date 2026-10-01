@@ -5,6 +5,9 @@ import Foundation
 /// Latest-state demand and future deadlines live here, off MainActor. A look
 /// never absorbs a later trigger, and exit facts can only request fresh looks.
 package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.Duration == Duration {
+    // S3 RED stand-in: ignore launch/quit ingress; existing per-pane S2 triggers are unchanged.
+    package func noteLifecycle(_ trigger: ForegroundLookTrigger) {}
+
     private struct Demand {
         var dueAt: ObserverClock.Instant
         let maxAt: ObserverClock.Instant

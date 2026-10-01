@@ -59,6 +59,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var terminalActivityRouter: TerminalActivityRouter!
     var paneActivityClock: PaneActivityClock?
+    // S3 RED stand-in: lifecycle callbacks never invoke this sink.
+    var restoreForegroundTriggerSink: (@Sendable (ForegroundLookTrigger) -> Void)?
     var traceRuntime: AgentStudioTraceRuntime!
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!

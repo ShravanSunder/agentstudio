@@ -139,8 +139,11 @@ package actor TerminalActivationScheduler {
         admissionPort: any TerminalActivationAdmissionPort,
         releaseSignal: any TerminalActivationReleaseSignal = TerminalActivationReleaseGate(
             isReleased: true
-        )
+        ),
+        requiresRestoreClassification: Set<PaneId> = []
     ) {
+        // S3 RED stand-in: classification/readiness does not affect existing admission.
+        _ = requiresRestoreClassification
         let paneIDs = cohort.input.entries.map(\.paneID)
         precondition(Set(paneIDs).count == paneIDs.count, "terminal activation cohort contains duplicate panes")
 
@@ -162,6 +165,13 @@ package actor TerminalActivationScheduler {
             }
         )
     }
+
+    // S3 RED stand-in: ignore each classified kind.
+    package func enqueueRestoreKind(_ kind: TerminalRestoreKind?, for paneID: PaneId) {}
+    // S3 RED stand-in: ignore the already-decided readiness release.
+    package func releaseAwaitingResumeReadiness(_ decided: [PaneId: TerminalColdRestorePlan]) {}
+    // S3 RED stand-in: ignore pending-member retirement.
+    package func retireAwaitingResumeReadiness(_ paneID: PaneId) {}
 
     package func activate() async -> TerminalActivationSettlement {
         switch lifecycle {

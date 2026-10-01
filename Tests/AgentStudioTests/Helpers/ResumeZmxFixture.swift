@@ -73,6 +73,8 @@ struct ResumeZmxFixture: Sendable {
     }
 
     func launch() async throws -> ResumeZmxProcessDriver {
+        try #require(plan.resume == invocation, "the candidate plan must carry its invocation before native launch")
+        try #require(!invocation.argv.isEmpty, "resume arguments must exist before waiting for the real CLI")
         var environment = ProcessInfo.processInfo.environment
         environment["ZMX_DIR"] = harness.zmxDir
         environment["ZDOTDIR"] = dotDirectory.path

@@ -78,8 +78,16 @@ final class WorkspacePreparedContentMountCoordinator {
         nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort,
         placeholderTransitionHandler: @escaping (Pane, TerminalStatusPlaceholderMode) -> Void = { _, _ in },
         resolveTerminalRestoreKinds: @escaping ([TerminalActivationDescriptor]) async -> [PaneId: TerminalRestoreKind] =
-            WorkspacePreparedContentMountCoordinator.noRestoreKindsResolved
+            WorkspacePreparedContentMountCoordinator.noRestoreKindsResolved,
+        classifyTerminalRestoreKinds: (
+            @Sendable ([TerminalActivationDescriptor], @Sendable (PaneId, TerminalRestoreKind) async -> Void) async ->
+                Void
+        )? = nil,
+        resolveColdResumePlan: (@Sendable (PaneId, TerminalColdRestorePlan) async -> TerminalColdRestorePlan)? = nil
     ) {
+        // S3 RED stand-in: ignore the settled per-member classification and decided-plan handoffs.
+        _ = classifyTerminalRestoreKinds
+        _ = resolveColdResumePlan
         // Hidden nonterminal panes stay outside the startup ledger so later
         // demand falls through to the existing steady-state content mount
         // owner. Terminals remain in the startup cohort — foreground and

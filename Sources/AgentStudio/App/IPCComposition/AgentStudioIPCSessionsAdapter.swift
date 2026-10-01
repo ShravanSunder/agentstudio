@@ -3,6 +3,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
+import AgentStudioTerminal
 import Foundation
 
 /// Whether one projected provider event earned a Sessions mutation, and the
@@ -50,8 +51,13 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         admissionFreshness: SessionsEvidenceFreshness = .live,
         now: @escaping @Sendable () -> Date = { Date() },
         continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
-        activityClock: PaneActivityClock? = nil
+        activityClock: PaneActivityClock? = nil,
+        foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil,
+        resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)? = nil
     ) {
+        // S3 RED stand-in: accept but never call the foreground and matched-start sinks.
+        _ = foregroundLookSink
+        _ = resumedSessionStartSink
         self.ingestion = ingestion
         self.providerRegistry = providerRegistry
         self.admissionFreshness = admissionFreshness

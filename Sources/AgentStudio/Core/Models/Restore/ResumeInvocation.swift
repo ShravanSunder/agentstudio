@@ -1,23 +1,37 @@
 import Foundation
 
-/// The agent-resume argv a cold-restore script runs inside the fresh login
-/// shell before handing off interactively (Program Design choice 2's script
-/// step 5: `-c '<argv>; exec <shell> -i -l'`).
-///
-/// This is a minimal placeholder for the R3 resume vocabulary. R3's exact
-/// shape (`ResumeProvider`, `ProviderSessionId`, the fixed per-provider
-/// argument templates) is explicitly pending the owner's auto-resume policy
-/// decision (Program Design "Open" #1) and is not this slice's to invent. R1
-/// never produces a non-nil `ResumeInvocation`: `TerminalColdRestorePlan.resume`
-/// is always `nil` here, and the cold script always takes its
-/// not-resuming branch (`exec <loginShell> -i -l`). This type exists only so
-/// `TerminalColdRestorePlan`'s shape matches Program Design item 2 now,
-/// ahead of R3 filling in how it's produced.
+// S3 RED stand-in: the closed provider vocabulary has no provider admission yet.
+package enum ResumeProvider: Equatable, Sendable {
+    case claudeCode, codex
+
+    package init?(providerIdentifier: String) { nil }
+}
+
+// S3 RED stand-in: keep the input without validating its UUID shape.
+package struct ProviderSessionId: Equatable, Hashable, Sendable {
+    package let rawValue: String
+
+    package init(rawValue: String) throws { self.rawValue = rawValue }
+    fileprivate init(unvalidatedRawValue: String) { rawValue = unvalidatedRawValue }
+}
+
+// The agent-resume argv run before the fresh login shell's interactive handoff.
+// S3 RED stand-in: typed invocations produce no command; the existing R1 argv oracle remains unchanged.
 package struct ResumeInvocation: Equatable, Sendable {
     /// The command line the shell runs before the interactive handoff.
     package let argv: [String]
+    package let provider: ResumeProvider
+    package let sessionId: ProviderSessionId
+
+    package init(provider: ResumeProvider, sessionId: ProviderSessionId) {
+        self.provider = provider
+        self.sessionId = sessionId
+        argv = []
+    }
 
     package init(argv: [String]) {
         self.argv = argv
+        provider = .codex
+        sessionId = ProviderSessionId(unvalidatedRawValue: argv.last ?? "")
     }
 }
