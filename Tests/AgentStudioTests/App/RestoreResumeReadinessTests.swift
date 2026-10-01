@@ -153,7 +153,8 @@ struct RestoreResumeReadinessTests {
             try await fixture.facts.expectNext(in: cold.paneID.uuid, .waiting)
             try await fixture.expectIntakeHeld()
             try await port.expectStartAndFinish(warm.paneID)
-            #expect(port.admissions.map(\.descriptor.paneID) == [warm.paneID])
+            let admittedPaneIds = port.admissions.map { $0.descriptor.paneID }
+            #expect(admittedPaneIds == [warm.paneID])
             #expect(!fixture.events.snapshot().contains(.published(.ready)))
             classification.release()
             await fixture.releaseIntake()

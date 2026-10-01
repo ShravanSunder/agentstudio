@@ -39,7 +39,8 @@ struct TerminalColdResumePlanTests {
             .knownExited(reason),
             providerIdentifier: "claude-code", providerSessionId: UUIDv7.generate().uuidString, to: base)
         #expect(plan.resume == nil)
-        #expect(plan.notice.linesByCandidateIndex.allSatisfy(\.isEmpty))
+        let everyCandidateNoticeIsEmpty = plan.notice.linesByCandidateIndex.allSatisfy { $0.isEmpty }
+        #expect(everyCandidateNoticeIsEmpty)
         #expect(plan.folderCandidates == base.folderCandidates)
         #expect(plan.attemptID == base.attemptID)
     }

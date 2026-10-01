@@ -39,7 +39,8 @@ struct ResumeReadinessSchedulerTests {
             try await port.expectFinish(cold.paneID)
             _ = await mount.value
             #expect(port.maximumActive == 1)
-            #expect(port.admissions.map(\.descriptor.paneID) == [ready.paneID, cold.paneID])
+            let admittedPaneIds = port.admissions.map { $0.descriptor.paneID }
+            #expect(admittedPaneIds == [ready.paneID, cold.paneID])
             try await port.facts.finish()
         } catch {
             await scheduler.cancelAndReplace(with: .init())
@@ -77,7 +78,8 @@ struct ResumeReadinessSchedulerTests {
                 try await port.expectFinish(descriptor.paneID)
             }
             _ = await mount.value
-            #expect(port.admissions.map(\.descriptor.paneID) == [active.paneID, visible.paneID, hidden.paneID])
+            let admittedPaneIds = port.admissions.map { $0.descriptor.paneID }
+            #expect(admittedPaneIds == [active.paneID, visible.paneID, hidden.paneID])
             #expect(port.maximumActive == 1)
             #expect(await scheduler.diagnostics().maximumSimultaneousAdmissions == 1)
             try await port.facts.finish()

@@ -40,7 +40,8 @@ struct RestoreSessionsProducerTests {
                 try await adapter.recordProviderEvent(
                     paneId: fixture.paneId, params: endParams, provenance: .matchingPane
                 ).disposition == .admitted)
-            #expect(ledger.snapshot().map(\.kind) == [.bindingChanged, .bindingChanged])
+            let lifecycleTriggerKinds = ledger.snapshot().map { $0.kind }
+            #expect(lifecycleTriggerKinds == [.bindingChanged, .bindingChanged])
             #expect(ledger.snapshot().last?.ended == true)
             await ingestion.finish()
         } catch {
@@ -64,7 +65,8 @@ struct RestoreSessionsProducerTests {
                 handle: fixture.paneId.uuidString, text: "turn complete", correlationId: UUIDv7.generate())
             _ = try await adapter.recordAgentMessage(paneId: fixture.paneId, params: message)
             let afterCommit = ledger.snapshot()
-            #expect(afterCommit.map(\.kind) == [.bindingChanged, .agentMessage])
+            let committedTriggerKinds = afterCommit.map { $0.kind }
+            #expect(committedTriggerKinds == [.bindingChanged, .agentMessage])
             #expect(afterCommit.last?.messages == 1)
             _ = try await adapter.recordAgentMessage(paneId: fixture.paneId, params: message)
             #expect(ledger.snapshot() == afterCommit)
@@ -91,7 +93,8 @@ struct RestoreSessionsProducerTests {
                     .disposition == .admitted)
             let after = try await fixture.snapshot()
             #expect(after.currentBinding?.bindingGenerationId == before.currentBinding?.bindingGenerationId)
-            #expect(ledger.snapshot().map(\.kind) == [.bindingChanged, .agentMessage])
+            let activityTriggerKinds = ledger.snapshot().map { $0.kind }
+            #expect(activityTriggerKinds == [.bindingChanged, .agentMessage])
             await ingestion.finish()
         } catch {
             await ingestion.finish()
