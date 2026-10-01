@@ -17,7 +17,7 @@ extension BridgePaneController {
             traceContext: packageTraceContext,
             contentRegisterStart: contentRegisterStart
         )
-        guard retainedViewerSurface == .review else { return .stale }
+        guard isReviewShownByPage else { return .stale }
         let disposition = await commitReviewPackageLoad(
             load,
             expectedReviewGeneration: refreshGeneration,
@@ -67,7 +67,7 @@ extension BridgePaneController {
                 candidatePackage: load.package
             )
         }
-        guard retainedViewerSurface == .review,
+        guard isReviewShownByPage,
             !Task.isCancelled,
             foregroundWorkAdmission.withValidAdmission({ true }) == true,
             productAdmission.withValidAdmission({ true }) == true,

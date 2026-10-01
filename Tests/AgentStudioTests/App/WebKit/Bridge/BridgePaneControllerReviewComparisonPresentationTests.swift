@@ -66,13 +66,15 @@ extension WebKitSerializedTests {
                 provider: makeContributionProvider(comparison: comparison),
                 contributionTargetCommit: nil
             )
-            _ = controller.surfaceSelectionAuthority.retainIntent(surface: .review)
             let fixture = try await makeBridgeReviewComparisonControlFixture(controller: controller)
             defer {
                 fixture.releaseAllHeldEffects()
                 _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
             }
             try await fixture.openWorkerSession()
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
 
             let dispatch = try await fixture.dispatchComparisonUpdate(
                 target: requestedTarget,
@@ -130,6 +132,9 @@ extension WebKitSerializedTests {
                 _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
             }
             try await fixture.openWorkerSession()
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
 
             let effectADispatch = try await fixture.dispatchComparisonUpdate(
                 target: targetA,
@@ -196,7 +201,6 @@ extension WebKitSerializedTests {
                     return .unchanged(lastGoodState)
                 }
             )
-            _ = controller.surfaceSelectionAuthority.retainIntent(surface: .review)
             let fixture = try await makeBridgeReviewComparisonControlFixture(
                 controller: controller,
                 heldRequestSequences: [2, 3]
@@ -207,14 +211,9 @@ extension WebKitSerializedTests {
             }
             try await fixture.openWorkerSession()
 
-            let initialLoadResult = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
-            guard case .success = initialLoadResult
-            else {
-                Issue.record(
-                    "Expected the last-good Review package before newer intents; got \(String(describing: initialLoadResult))"
-                )
-                return
-            }
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
             let lastGoodPackageId = try #require(controller.paneState.diff.packageMetadata?.packageId)
 
             let effectADispatch = try await fixture.dispatchComparisonUpdate(
@@ -274,7 +273,6 @@ extension WebKitSerializedTests {
                     return .unchanged(mainState)
                 }
             )
-            _ = controller.surfaceSelectionAuthority.retainIntent(surface: .review)
             let fixture = try await makeBridgeReviewComparisonControlFixture(controller: controller)
             defer {
                 fixture.releaseAllHeldEffects()
@@ -282,11 +280,9 @@ extension WebKitSerializedTests {
             }
             try await fixture.openWorkerSession()
 
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
-            else {
-                Issue.record("Expected the last good Review package before the target mismatch")
-                return
-            }
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
             let acceptedADispatch = try await fixture.dispatchComparisonUpdate(
                 target: targetA,
                 requestSequence: 2,
@@ -722,4 +718,20 @@ private func admitReviewComparisonIntent(
             productAdmission: productAdmission
         )
     }
+}
+
+@MainActor
+private func showReviewPageAndAwaitInitialPackage(
+    _ fixture: BridgeReviewComparisonControlFixture
+) async -> Bool {
+    await sendPageActiveViewerMode(
+        .review,
+        controller: fixture.controller,
+        productAdmission: fixture.productAdmission,
+        sequence: 1
+    )
+    if let initialBuild = fixture.controller.activeReviewRefreshTask {
+        await initialBuild.value
+    }
+    return fixture.controller.paneState.diff.packageMetadata != nil
 }
