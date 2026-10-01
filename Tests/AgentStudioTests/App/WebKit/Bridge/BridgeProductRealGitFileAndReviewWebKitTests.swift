@@ -40,7 +40,7 @@ extension WebKitSerializedTests {
             case successorReviewPublicationMissing
         }
 
-        private struct TransactionalPublicationHarness {
+        struct TransactionalPublicationHarness {
             let controller: BridgePaneController
             let controllerTarget: BridgeProductWebKitCarrierControllerTarget
             let fileMetadataSource: BridgeWebKitTrackingFileMetadataSource
@@ -50,7 +50,7 @@ extension WebKitSerializedTests {
             let traceRecorder: BridgeProductWebKitCarrierTraceRecorder
         }
 
-        private struct FirstPublicationCheckpoint {
+        struct FirstPublicationCheckpoint {
             let fileSnapshot: BridgeProductWebKitCarrierFileSubscriptionSnapshot
             let nativeSnapshot: BridgeProductWebKitCarrierNativeSnapshot
             let publication: BridgeReviewCommittedPublication
@@ -216,7 +216,7 @@ extension WebKitSerializedTests {
             BridgeProductWebKitSurfaceJourneyTestSupport.assertProof(proof)
         }
 
-        private func makeTransactionalPublicationHarness(
+        func makeTransactionalPublicationHarness(
             repoURL: URL
         ) -> TransactionalPublicationHarness {
             let paneId = UUIDv7.generate()
@@ -435,7 +435,7 @@ extension WebKitSerializedTests {
             }
         }
 
-        private func waitForMetadataSubscriptions(
+        func waitForMetadataSubscriptions(
             _ harness: TransactionalPublicationHarness
         ) async throws {
             guard
@@ -452,7 +452,7 @@ extension WebKitSerializedTests {
             }
         }
 
-        private func prepareFirstPublicationCheckpoint(
+        func prepareFirstPublicationCheckpoint(
             controller: BridgePaneController,
             harness: TransactionalPublicationHarness
         ) async throws -> FirstPublicationCheckpoint {
@@ -637,7 +637,7 @@ extension WebKitSerializedTests {
             #expect(run.teardownSnapshot.hasZeroResidue)
         }
 
-        private func seedMultiWindowReviewChanges(at repoURL: URL) throws {
+        func seedMultiWindowReviewChanges(at repoURL: URL) throws {
             for index in 0..<70 {
                 let filename = String(format: "bridge-window-%03d.txt", index)
                 try "publication A \(index)\n".write(
