@@ -398,12 +398,73 @@ jobs:
           echo "lane-report bridge_swift_product_build_seconds=$build_seconds"
           echo "BridgeWeb Swift product build: ${build_seconds}s (cold median: 494s)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: "TEMPORARY PROBE — DO NOT MERGE: record staged server response"
+        run: |
+          pnpm --dir BridgeWeb exec node --input-type=module <<'NODE'
+          import { createServer as createViteServer } from 'vite';
+          import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+          import { tmpdir } from 'node:os';
+          import { join, resolve } from 'node:path';
+          import { execFile } from 'node:child_process';
+          import { promisify } from 'node:util';
+          import { uuidv7 } from 'uuidv7';
+
+          const expectedServerName = 'agentstudio-bridge-dev-server-warm-probe';
+          const repoRootPath = resolve(process.cwd(), '..');
+          const evidenceDirectory = join(repoRootPath, 'tmp/plan-workflows/ci-runs');
+          const dataRootPath = await mkdtemp(join(tmpdir(), 'bridge-cache-probe-'));
+          const moduleLoader = await createViteServer({
+            configFile: false,
+            optimizeDeps: { noDiscovery: true },
+            server: { hmr: false, middlewareMode: true },
+          });
+          let server;
+          let observed;
+          try {
+            const { startOwnedBridgeDevelopmentServer } = await moduleLoader.ssrLoadModule(
+              '/scripts/dev-server/bridge-development-server-process.ts',
+            );
+            server = await startOwnedBridgeDevelopmentServer({
+              dataRootPath,
+              initialTarget: 'HEAD',
+              paneId: uuidv7(),
+              repoRootPath,
+              worktreeRoot: repoRootPath,
+            });
+            // The launcher awaits the stdout readiness fact and PID/port ownership.
+            // Swift main starts the runtime before starting the HTTP listener.
+            const response = await fetch(new URL('/__bridge-product/health', server.origin));
+            observed = {
+              status: response.status,
+              server: response.headers.get('server'),
+              body: await response.text(),
+            };
+            if (observed.status !== 204 || observed.server !== expectedServerName || observed.body !== '') {
+              throw new Error(`Unexpected staged-server response: ${JSON.stringify(observed)}`);
+            }
+          } finally {
+            const cleanup = server === undefined ? undefined : await server.stop();
+            await moduleLoader.close();
+            await mkdir(evidenceDirectory, { recursive: true });
+            const git = promisify(execFile);
+            const commit = (await git('git', ['rev-parse', 'HEAD'], { cwd: repoRootPath })).stdout.trim();
+            const tree = (await git('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRootPath })).stdout.trim();
+            await writeFile(join(evidenceDirectory, 'warm-probe-runtime.json'), JSON.stringify({
+              commit, tree, event: process.env.GITHUB_EVENT_NAME, expectedServerName, observed, cleanup,
+            }, null, 2));
+            if (cleanup?.ownedProcessAliveAfterStop === true || cleanup?.forcedTerminationRequired === true) {
+              throw new Error('The probe server did not complete owned cleanup');
+            }
+          }
+          NODE
+
       - name: Upload BridgeWeb Swift cache receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bridge-swift-cache-${{ github.run_id }}
           path: |
+            tmp/plan-workflows/ci-runs/warm-probe-runtime.json
             tmp/plan-workflows/ci-runs/swift-inputs-before.json
             tmp/plan-workflows/ci-runs/compiler-stats/**
             .build-ci/ci-swift-build-seed.json

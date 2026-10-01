@@ -16,7 +16,7 @@ struct BridgeDevelopmentServerConfiguration: Sendable {
     var applicationConfiguration: ApplicationConfiguration {
         .init(
             address: .hostname("127.0.0.1", port: port),
-            serverName: "agentstudio-bridge-dev-server"
+            serverName: "agentstudio-bridge-dev-server-warm-probe"
         )
     }
 
