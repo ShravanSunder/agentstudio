@@ -643,6 +643,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             else { return .stale }
             if case .success = result { return .succeeded }
+            guard !Task.isCancelled,
+                foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                refreshAdmissionCoordinator.isRefreshPassCurrent(reservation)
+            else { return .stale }
             return .failed
         }
         let currentPackage = currentPublication.package
@@ -667,7 +671,16 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
         } catch is CancellationError {
-            return .stale
+            return failCurrentReviewComparisonRefresh(
+                refreshGeneration,
+                failureKind: Self.reviewPackageLoadFailureSummary(
+                    for: CancellationError(),
+                    stage: "package"
+                ),
+                reservation: reservation,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                productAdmission: productAdmission
+            )
         } catch {
             return failCurrentReviewComparisonRefresh(
                 refreshGeneration,
@@ -768,51 +781,18 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 packageTraceContext: packageTraceContext,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
-        } catch BridgeProviderFailure.providerUnavailable {
-            bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
-            return failCurrentReviewComparisonRefresh(
-                refreshGeneration,
-                failureKind: "providerUnavailable",
-                reservation: reservation,
-                foregroundWorkAdmission: foregroundWorkAdmission,
-                productAdmission: productAdmission
-            )
-        } catch is CancellationError {
-            return .stale
         } catch {
             bridgeDiffCommandLogger.debug(
                 "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
             )
             return failCurrentReviewComparisonRefresh(
                 refreshGeneration,
-                failureKind: Self.reviewPackageLoadFailureSummary(for: error, stage: "package"),
+                failureKind: Self.reviewPackageRefreshFailureKind(for: error),
                 reservation: reservation,
                 foregroundWorkAdmission: foregroundWorkAdmission,
                 productAdmission: productAdmission
             )
         }
-    }
-
-    func failCurrentReviewComparisonRefresh(
-        _ reviewGeneration: BridgeReviewGeneration,
-        failureKind: String,
-        reservation: BridgePaneRefreshCatchUpReservation,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        productAdmission: BridgeProductAdmissionContext
-    ) -> BridgePaneRefreshCatchUpOutcome {
-        guard
-            !Task.isCancelled,
-            foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            productAdmission.withValidAdmission({ true }) == true,
-            refreshAdmissionCoordinator.isRefreshPassCurrent(reservation),
-            reviewGeneration == nextReviewGeneration
-        else { return .stale }
-        failReviewComparisonAttempt(
-            reviewGeneration: reviewGeneration,
-            failureKind: failureKind,
-            retryable: true
-        )
-        return .failed
     }
 
     private func settleReviewComparisonAttempt(
@@ -826,20 +806,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 reviewGeneration: package.reviewGeneration.rawValue,
                 revision: package.revision
             )
-        )
-        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
-        _ = scheduleProductPresentationPublication()
-    }
-
-    private func failReviewComparisonAttempt(
-        reviewGeneration: BridgeReviewGeneration,
-        failureKind: String,
-        retryable: Bool
-    ) {
-        refreshAdmissionCoordinator.failReviewComparisonAttempt(
-            reviewGeneration: reviewGeneration.rawValue,
-            failureKind: failureKind,
-            retryable: retryable
         )
         // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
