@@ -56,7 +56,7 @@ struct SessionsVerticalHarness {
         debugCredentialEscrowURL: URL? = nil,
         installActivityClock: Bool = false
     ) async throws -> Self {
-        let commandHarness = makeHarness()
+        let (commandHarness, datastore) = try makeCanonicalIPCWorkspaceCommandHarness()
         let appDelegate = AppDelegate()
         var createdRootDirectory: URL?
         do {
@@ -69,10 +69,6 @@ struct SessionsVerticalHarness {
             let workspaceWindowId = UUIDv7.generate()
             commandHarness.windowLifecycleStore.recordWindowRegistered(workspaceWindowId)
 
-            let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(
-                workspaceId: commandHarness.store.identityAtom.workspaceId
-            )
-            let datastore = try preparedWorkspaceSQLiteDatastore(from: sqliteFixture.backend)
             guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else {
                 throw SessionsVerticalHarnessError.optionalSchemaUnavailable
             }
