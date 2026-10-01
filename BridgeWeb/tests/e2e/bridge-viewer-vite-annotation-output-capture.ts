@@ -149,6 +149,7 @@ export async function verifyAnnotationOutputCaptures(
 	});
 	await completedHistory.waitFor({ state: 'visible', timeout: props.timeoutMilliseconds });
 	await completedHistory.click();
+	expect(await completedHistory.getAttribute('aria-expanded')).toBe('true');
 	await markOutputNotHandled(props.page, 'jsonFile');
 	await waitForPendingCommentCount(props.page, props.timeoutMilliseconds, (count) => count > 0);
 	expect(
