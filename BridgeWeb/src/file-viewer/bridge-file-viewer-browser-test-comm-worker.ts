@@ -523,7 +523,8 @@ function createBrowserTestProductTransport(props: {
 					props.onFileSourceDiscoveryCompleted();
 				}
 			}
-			if (method === 'file.activeViewerMode.update') return null as never;
+			if (method === 'file.activeViewerMode.update' || method === 'file.refresh.retry')
+				return null as never;
 			throw new Error(`Unexpected browser-test product call: ${method}.`);
 		},
 		openContent: (descriptor, signal): never => {
@@ -637,7 +638,7 @@ function createBrowserTestProductTransport(props: {
 	};
 }
 
-function defaultBrowserTestCurrentSource(): BridgeProductCallResult<'file.source.current'> {
+export function defaultBrowserTestCurrentSource(): BridgeProductCallResult<'file.source.current'> {
 	return {
 		status: 'available',
 		source: {
