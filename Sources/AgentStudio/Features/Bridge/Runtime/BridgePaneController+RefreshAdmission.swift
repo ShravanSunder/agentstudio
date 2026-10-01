@@ -40,7 +40,8 @@ extension BridgePaneController {
         reservation: BridgePaneRefreshCatchUpReservation,
         packageTraceContext: BridgeTraceContext?
     ) -> Bool {
-        !Task.isCancelled
+        retainedViewerSurface == .review
+            && !Task.isCancelled
             && foregroundWorkAdmission.withValidAdmission({ true }) == true
             && refreshAdmissionCoordinator.isRefreshPassCurrent(reservation)
             && refreshGeneration == nextReviewGeneration
@@ -147,6 +148,19 @@ extension BridgePaneController {
     }
 
     private func scheduleReviewCatchUpIfPossible() {
+        guard let dirtyFact = refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact,
+            dirtyFact.requiresReviewRefresh
+        else { return }
+        let hiddenInput = BridgePaneReviewBuildAdmissionInput.filesystemCatchUp(
+            batchSequence: dirtyFact.latestBatchSequence
+        )
+        guard retainedViewerSurface == .review else {
+            recordReviewBuildAdmissionFact(
+                .deferredHidden(input: hiddenInput),
+                scope: .hiddenInput(hiddenInput)
+            )
+            return
+        }
         guard activeReviewRefreshTask == nil,
             !hasCurrentReviewPackageLoad,
             pendingComparisonReviewGeneration == nil,
@@ -156,6 +170,8 @@ extension BridgePaneController {
         // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
         _ = scheduleProductPresentationPublication()
         let taskId = UUIDv7.generate()
+        let factScope: BridgePaneReviewBuildAdmissionScope = .attempt(taskId)
+        recordReviewBuildAdmissionFact(.admitted(attempt: taskId), scope: factScope)
         activeReviewRefreshTaskId = taskId
         activeReviewRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -205,6 +221,25 @@ extension BridgePaneController {
                 guard outcome == .succeeded else { break }
             }
             self.retiringReviewRefreshTaskById.removeValue(forKey: taskId)
+            let admissionOutcome: BridgePaneReviewBuildAttemptOutcome
+            if Task.isCancelled {
+                admissionOutcome = .cancelled
+            } else {
+                switch finalOutcome {
+                case .succeeded:
+                    admissionOutcome = .succeeded
+                case .failed:
+                    admissionOutcome = .failed
+                case .stale:
+                    admissionOutcome = .stale
+                case .streamReset:
+                    admissionOutcome = .streamReset
+                }
+            }
+            self.recordReviewBuildAdmissionFact(
+                .attemptEnded(attempt: taskId, outcome: admissionOutcome),
+                scope: factScope
+            )
             guard self.activeReviewRefreshTaskId == taskId else { return }
             self.activeReviewRefreshTask = nil
             self.activeReviewRefreshTaskId = nil

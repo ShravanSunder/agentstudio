@@ -129,6 +129,7 @@ package final class BridgePaneController {
     let telemetryScopeGate: BridgeTelemetryScopeGate
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     let traceContextFactory: BridgeTraceContextFactory
+    let reviewBuildAdmissionFactSink: BridgePaneReviewBuildAdmissionFactSink
     var lastReviewPackageTraceContext: BridgeTraceContext?
 
     // MARK: - Init
@@ -169,7 +170,8 @@ package final class BridgePaneController {
         initialContributionTargetCommit:
             (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil,
         contributionTargetCommit:
-            (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
+            (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil,
+        reviewBuildAdmissionFactSink: @escaping BridgePaneReviewBuildAdmissionFactSink = { _, _ in }
     ) {
         (self.paneId, self.bridgePaneState) = (paneId, state)
         let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(state: state)
@@ -186,6 +188,7 @@ package final class BridgePaneController {
         self.telemetryRecorder = telemetryDependencies.recorder
         self.telemetrySessionOwner = telemetryDependencies.sessionDependencies?.owner
         self.traceContextFactory = traceContextFactory
+        self.reviewBuildAdmissionFactSink = reviewBuildAdmissionFactSink
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
         self.reviewSourceProvider = resolvedReviewSourceProvider
         self.initialContributionTargetCommit = initialContributionTargetCommit
