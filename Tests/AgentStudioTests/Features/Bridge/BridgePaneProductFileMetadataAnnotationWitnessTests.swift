@@ -12,7 +12,7 @@ struct FileAnnotationSourceWitnessTests {
         defer { fixture.remove() }
         let source = fixture.makeSource()
         let snapshot = try fixture.openSnapshot()
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         try await source.open(subscription: snapshot, productAdmission: fixture.productAdmission.context) { _ in }
         do {
             try await source.applyViewDemand(
@@ -20,11 +20,11 @@ struct FileAnnotationSourceWitnessTests {
                 demand: fixture.viewDemand(),
                 productAdmission: fixture.productAdmission.context,
                 forceRecapture: false
-            ) { await collector.append($0) }
+            ) { await collector.append($0, source: source) }
             let payload = try #require(
                 (await collector.events).compactMap { event -> BridgeProductFileDescriptorReadyPayload? in
                     guard case .descriptorReady(let ready) = event else { return nil }
-                    return ready.payload
+                    return ready
                 }.first)
             guard case .available(let descriptor) = payload.availability else {
                 Issue.record("Expected available file descriptor")
@@ -94,14 +94,14 @@ struct FileAnnotationSourceWitnessTests {
         try await FilesystemTestGitRepo.runGit(at: fixture.rootURL, args: ["init"])
         let source = fixture.makeSource()
         let snapshot = try fixture.openSnapshot()
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         do {
             try await source.open(
                 subscription: snapshot,
                 productAdmission: fixture.productAdmission.context
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
             }
             let existentialSource: any BridgePaneProductFileMetadataProducing = source
             let fingerprint = try await existentialSource.currentWorktreeAnnotationFingerprint(

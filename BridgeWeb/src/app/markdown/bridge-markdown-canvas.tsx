@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 	type ReactElement,
+	type ReactNode,
 	type RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -68,6 +69,7 @@ export interface BridgeMarkdownCanvasProps {
 	readonly isActive: boolean;
 	readonly presentationState: BridgeMarkdownPresentationState;
 	readonly surfaceStatus?: BridgeRegionSurfaceStatus | undefined;
+	readonly surfaceRetry?: ReactNode;
 	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 	readonly retry: () => void;
 	readonly mermaidRenderer?: BridgeMermaidRenderer;
@@ -86,7 +88,13 @@ export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactEle
 				region="markdown"
 				shape="markdown"
 				emptyCopy={{ noSelection: 'Select a Markdown file', certified: 'Document is empty' }}
-				retry={<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />}
+				retry={
+					presentationState.kind === 'failed' && presentationState.failure.scope === 'surface' ? (
+						props.surfaceRetry
+					) : (
+						<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />
+					)
+				}
 				state={presentationState}
 			/>
 		);
@@ -101,6 +109,7 @@ export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactEle
 			isActive={props.isActive}
 			mermaidRenderer={props.mermaidRenderer}
 			surfaceStatus={props.surfaceStatus}
+			surfaceRetry={props.surfaceRetry}
 			presentation={props.presentationState}
 			{...(props.renderFulfillment === undefined
 				? {}
@@ -119,6 +128,7 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 	readonly mermaidRenderer: BridgeMermaidRenderer | undefined;
 	readonly presentation: Extract<BridgeMarkdownPresentationState, { readonly status: 'ready' }>;
 	readonly surfaceStatus?: BridgeRegionSurfaceStatus | undefined;
+	readonly surfaceRetry?: ReactNode;
 	readonly renderFulfillment?: BridgeMarkdownRenderFulfillment;
 }): ReactElement {
 	const [presentation, setPresentation] = useState(props.presentation);
@@ -324,7 +334,13 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 			region="markdown"
 			shape="markdown"
 			state={regionState}
-			retry={<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />}
+			retry={
+				regionState.kind === 'failed' && regionState.failure.scope === 'surface' ? (
+					props.surfaceRetry
+				) : (
+					<BridgeViewerRecoveryRetryButton surface="markdown" onClick={props.retry} />
+				)
+			}
 		>
 			<div
 				className="bridge-scrollbar relative h-full min-h-0 overflow-auto bg-background"

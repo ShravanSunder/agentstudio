@@ -45,6 +45,7 @@ private struct BridgeDevelopmentProductProviderDependencies {
     let applyReviewComparisonUpdate:
         @MainActor @Sendable (
             BridgeProductReviewComparisonUpdateRequest,
+            Int,
             BridgeProductAdmissionContext
         ) async -> Void
     let applyFileRefreshRetry: @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void
@@ -122,9 +123,10 @@ extension BridgeDevelopmentProductHost {
                     worktreeID: input.source.worktreeID.uuidString.lowercased()
                 ),
                 applyWorktreeAnnotationCommand: annotationCommandHandler,
-                applyReviewComparisonUpdate: { request, productAdmission in
+                applyReviewComparisonUpdate: { request, workerDerivationEpoch, productAdmission in
                     await committedCallTarget.applyReviewComparisonUpdate(
                         request,
+                        workerDerivationEpoch: workerDerivationEpoch,
                         productAdmission: productAdmission
                     )
                 },

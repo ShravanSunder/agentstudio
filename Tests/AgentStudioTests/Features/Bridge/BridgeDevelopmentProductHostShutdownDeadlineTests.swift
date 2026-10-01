@@ -48,8 +48,14 @@ struct BridgeDevelopmentProductHostShutdownDeadlineTests {
         let comparisonGate = BridgeComparisonGate()
         await provider.setComparisonGate(comparisonGate)
         let productAdmission = await host.productAdmission
+        await admitDevelopmentReviewComparisonIntent(
+            host: host,
+            workerDerivationEpoch: 1,
+            productAdmission: productAdmission
+        )
         await host.applyCommittedReviewComparisonUpdate(
             BridgeProductReviewComparisonUpdateRequest(target: .branch(name: "stack/base")),
+            workerDerivationEpoch: 1,
             productAdmission: productAdmission
         )
         await comparisonGate.waitForStartedComparisonCount(1)

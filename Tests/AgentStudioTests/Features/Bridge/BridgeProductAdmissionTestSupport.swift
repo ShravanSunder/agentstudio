@@ -57,7 +57,7 @@ extension BridgePaneProductFileMetadataSource {
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
         productAdmission: BridgeProductAdmissionContext,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         let foregroundWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
             .admission
@@ -74,7 +74,7 @@ extension BridgePaneProductFileMetadataSource {
         demand: BridgePaneProductFileViewDemand,
         productAdmission: BridgeProductAdmissionContext,
         forceRecapture: Bool,
-        emit: @escaping BridgePaneProductFileMetadataEventSink
+        emit: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         let foregroundWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
             .admission

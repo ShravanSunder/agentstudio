@@ -38,10 +38,56 @@ struct BridgeActiveViewerModeSignalState: Equatable, Sendable {
     var acceptedSignal: BridgeActiveViewerModeAcceptedSignal?
 }
 
-enum BridgeReviewPackageBuildReason: String, Sendable {
+package enum BridgeReviewPackageBuildReason: String, Hashable, Sendable {
     case initialIntake = "initial_intake"
     case productResync = "product_resync"
     case filesystemRefresh = "filesystem_refresh"
+}
+
+package enum BridgePaneReviewBuildAdmissionInput: Hashable, Sendable {
+    case initialIntake
+    case productResync
+    case explicitTarget
+    case retainedPackageBuild
+    case filesystemCatchUp(batchSequence: UInt64)
+}
+
+enum BridgePaneReviewComparisonEffectDisposition: Equatable, Sendable {
+    case applied
+    case superseded
+    case rejected
+}
+
+package enum BridgePaneReviewBuildAdmissionScope: Hashable, Sendable {
+    case hiddenInput(BridgePaneReviewBuildAdmissionInput)
+    case attempt(UUID)
+}
+
+package enum BridgePaneReviewBuildAttemptOutcome: Equatable, Sendable {
+    case succeeded
+    case failed
+    case stale
+    case cancelled
+    case streamReset
+}
+
+package enum BridgePaneReviewBuildAdmissionFact: Equatable, Sendable {
+    case admitted(attempt: UUID)
+    case deferredHidden(input: BridgePaneReviewBuildAdmissionInput)
+    case attemptEnded(attempt: UUID, outcome: BridgePaneReviewBuildAttemptOutcome)
+}
+
+package typealias BridgePaneReviewBuildAdmissionFactSink =
+    @Sendable (BridgePaneReviewBuildAdmissionScope, BridgePaneReviewBuildAdmissionFact) -> Void
+
+@MainActor
+extension BridgePaneController {
+    func recordReviewBuildAdmissionFact(
+        _ fact: BridgePaneReviewBuildAdmissionFact,
+        scope: BridgePaneReviewBuildAdmissionScope
+    ) {
+        reviewBuildAdmissionFactSink(scope, fact)
+    }
 }
 
 enum BridgeError: Error, LocalizedError, Sendable {

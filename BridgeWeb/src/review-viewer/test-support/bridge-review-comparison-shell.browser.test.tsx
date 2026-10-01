@@ -71,7 +71,7 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 		await expect.element(rendered.getByTestId('bridge-review-empty-canvas')).toBeVisible();
 		await expect.element(rendered.getByText('Nothing to review')).toBeVisible();
 		expect(rendered.getByText('Waiting for review metadata').query()).toBeNull();
-		expect(rendered.getByTestId('bridge-review-comparison-initial-shell').query()).toBeNull();
+		expect(rendered.getByTestId('bridge-review-metadata-loading-shell').query()).toBeNull();
 		expect(
 			rendered
 				.getByTestId('bridge-review-sidebar')
@@ -97,14 +97,21 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 			</div>,
 		);
 
-		await expect
-			.element(rendered.getByRole('status'))
-			.toHaveTextContent('Loading comparison with feature/new-target');
+		expect(
+			document
+				.querySelector('[data-bridge-region="review-content"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('loading');
+		expect(
+			document
+				.querySelector('[data-bridge-region="review-tree"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('loading');
 		expect(rendered.getByTestId('bridge-review-comparison-loading-spinner').query()).toBeNull();
 		expect(rendered.getByTestId('bridge-review-comparison-status-region').query()).toBeNull();
 		expect(rendered.getByRole('progressbar').query()).toBeNull();
 		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-initial-shell'))
+			.element(rendered.getByTestId('bridge-review-metadata-loading-shell'))
 			.toBeVisible();
 		const contextSwitcher = rendered.getByRole('button', { name: 'Files and Review' }).element();
 		expect(
@@ -176,9 +183,12 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 				requestedTargetLabel: 'feature/new-target',
 			}),
 		);
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-loading-status'))
-			.toHaveTextContent('Loading comparison with feature/new-target');
+		expect(
+			document
+				.querySelector('[data-bridge-region="review-content"]')
+				?.getAttribute('data-presentation-state'),
+		).toBe('updating');
+		expect(document.querySelector('.animate-spin')).toBeNull();
 		const loadingGeometry = loadedReviewViewportGeometry(rendered);
 		expectLoadedReviewViewportFillsContentFrame(loadingGeometry);
 		expect(Math.abs(loadingGeometry.viewportTop - settledGeometry.viewportTop)).toBeLessThanOrEqual(
@@ -189,11 +199,14 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 			reviewShell({
 				displayedTargetLabel: 'origin/main',
 				kind: 'failedPrevious',
+				failureKind: 'targetNotFound',
 				requestedTargetLabel: 'feature/new-target',
 				retryTarget: null,
 			}),
 		);
-		await expect.element(rendered.getByRole('alert')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-canvas').getByRole('alert'))
+			.toBeVisible();
 		const failedGeometry = loadedReviewViewportGeometry(rendered);
 		expectLoadedReviewViewportFillsContentFrame(failedGeometry);
 

@@ -8,6 +8,7 @@ import type {
 	BridgeWorkerRuntimeRecoverySource,
 } from '../../foundation/diagnostics/bridge-worker-replacement-reason.js';
 import { bridgeWorkerPierreRenderPolicy } from '../demand/bridge-content-demand-policy.js';
+import type { BridgePaneFailedStartFact } from '../models/bridge-pane-failed-start.js';
 import { encodeBridgeWorkerRenderDispositionCommand } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
 import {
@@ -92,6 +93,9 @@ export interface BridgePaneClient {
 }
 
 export interface BridgePaneRuntime {
+	readonly setPaneFailedStartHandler: (
+		handler: ((fact: BridgePaneFailedStartFact) => void) | null,
+	) => void;
 	readonly lifecycleStore: BridgeWorkerRpcLifecycleStore;
 	readonly paneClient: BridgePaneClient;
 	readonly dispose: () => void;
@@ -135,6 +139,8 @@ export function createBridgePaneRuntime(
 	>();
 	const workerReplacementListeners = new Set<() => void>();
 	let isDisposed = false;
+	let paneFailedStartFact: BridgePaneFailedStartFact | null = null;
+	let paneFailedStartHandler: ((fact: BridgePaneFailedStartFact) => void) | null = null;
 	let nativeBootstrapInstalled = false;
 	let nativeBootstrapReplacementRequested = false;
 	let nativeBootstrapInstallAcceptedCount = 0;
@@ -382,6 +388,7 @@ export function createBridgePaneRuntime(
 		});
 	}
 	session.setReplacementBootstrapExhaustionHandler?.((): void => {
+		let hasRecordedView = false;
 		for (const kind of [
 			'file.metadata',
 			'file.annotations',
@@ -393,6 +400,7 @@ export function createBridgePaneRuntime(
 			)?.renderStore;
 			const current = store?.getViewRecoveryStatus(kind);
 			if (current === null || current === undefined) continue;
+			hasRecordedView = true;
 			workerUnavailableViews.set(kind, current.view);
 			publishViewRecoveryStatus({
 				direction: 'serverWorkerToMain',
@@ -402,6 +410,14 @@ export function createBridgePaneRuntime(
 				view: current.view,
 				wireVersion: 1,
 			});
+		}
+		if (
+			!hasRecordedView &&
+			nativeBootstrapInstallAcceptedCount === 0 &&
+			paneFailedStartFact === null
+		) {
+			paneFailedStartFact = { kind: 'failedStart', cause: 'bootstrapBudgetExhausted' };
+			paneFailedStartHandler?.(paneFailedStartFact);
 		}
 	});
 	const paneRpcClient = createBridgeWorkerRpcClient({
@@ -440,6 +456,7 @@ export function createBridgePaneRuntime(
 			surfaceClients.clear();
 			renderStores.clear();
 			workerReplacementListeners.clear();
+			paneFailedStartHandler = null;
 			dispatcher.dispose();
 			session.dispose();
 		},
@@ -496,6 +513,11 @@ export function createBridgePaneRuntime(
 				prepareRuntimeForWorkerReplacement();
 				requester(reason);
 			});
+		},
+		setPaneFailedStartHandler: (handler): void => {
+			if (isDisposed) return;
+			paneFailedStartHandler = handler;
+			if (handler !== null && paneFailedStartFact !== null) handler(paneFailedStartFact);
 		},
 		surfaceClient: (surface): BridgePaneSurfaceClient => {
 			const client = surfaceClients.get(surface);

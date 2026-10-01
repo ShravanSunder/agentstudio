@@ -47,7 +47,7 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
         subscription _: BridgeProductSubscriptionSnapshot,
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {
         await metadataProducerGate?.holdIgnoringCancellation()
     }
@@ -58,7 +58,7 @@ actor RefreshAdmissionTrackingFileMetadataSource: BridgePaneProductFileMetadataP
         productAdmission _: BridgeProductAdmissionContext,
         foregroundWorkAdmission _: BridgePaneRefreshWorkAdmission,
         forceRecapture _: Bool,
-        emit _: @escaping BridgePaneProductFileMetadataEventSink
+        emit _: @escaping BridgePaneProductFileSourceFactSink
     ) async throws {}
 
     func cancel(subscriptionId _: String) {}

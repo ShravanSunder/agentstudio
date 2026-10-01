@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { act, type ReactElement } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
@@ -101,7 +101,7 @@ describe('Bridge Review refresh header chrome', () => {
 				.getByTestId('bridge-review-refresh-header-group')
 				.element()
 				.querySelector('.lucide-loader-circle'),
-		).not.toBeNull();
+		).toBeNull();
 		expect(refreshPresentation.candidate?.startDisposition).toMatchObject({
 			presentationClass: { kind: 'ordinary' },
 		});
@@ -210,8 +210,10 @@ describe('Bridge Review refresh header chrome', () => {
 			rendered.getByTestId('bridge-review-refresh-header-group').element().className,
 		).toContain('text-warning');
 		const retry = rendered.getByRole('button', { name: 'Retry' });
-		retry.element().focus();
-		await retry.click();
+		await act(async (): Promise<void> => {
+			retry.element().focus();
+			await retry.click();
+		});
 		expect(onRetry).toHaveBeenCalledOnce();
 		expect(document.activeElement).toBe(retry.element());
 

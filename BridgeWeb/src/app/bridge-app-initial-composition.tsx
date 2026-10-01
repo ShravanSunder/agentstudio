@@ -47,11 +47,7 @@ export function BridgeAppInitialComposition(
 			<BridgeViewerAppShell
 				appOwner="BridgeApp"
 				mode={props.viewerMode ?? 'review'}
-				pageReadyFailure={{
-					kind: 'configuration_error',
-					message: 'Bridge page configuration is missing or invalid.',
-					requestId: null,
-				}}
+				paneFailedStart={{ kind: 'failedStart', cause: 'configurationUnavailable' }}
 				{...(props.paneReloadPort === undefined ? {} : { paneReloadPort: props.paneReloadPort })}
 			>
 				{null}

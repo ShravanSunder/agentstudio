@@ -3,9 +3,13 @@ import { useEffect, useState } from 'react';
 import type { AnimationEvent, ReactElement } from 'react';
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '../components/ui/alert.js';
-import { Button } from '../components/ui/button.js';
 import type { BridgeReviewComparisonPaneState } from './bridge-review-comparison-pane-state.js';
 import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
+import {
+	bridgeReviewFailureDisplaySpec,
+	bridgeReviewRegionDisplaySpec,
+} from './bridge-review-region-display-spec.js';
+import { BridgeViewerRecoveryRetryButton } from './bridge-viewer-recovery-retry-button.js';
 
 type VisibleComparisonPaneState = Extract<
 	BridgeReviewComparisonPaneState,
@@ -84,7 +88,12 @@ function renderComparisonStatus(
 		case 'failedPrevious':
 			return (
 				<ComparisonFailureAlert
-					description={`Couldn’t load ${state.requestedTargetLabel}. Showing the previous comparison with ${state.displayedTargetLabel}.`}
+					message={bridgeReviewFailureDisplaySpec(state.failureKind).message}
+					description={
+						state.failureKind === 'refreshUnavailable'
+							? bridgeReviewRegionDisplaySpec.stale
+							: `Couldn’t load ${state.requestedTargetLabel}. Showing the previous comparison with ${state.displayedTargetLabel}.`
+					}
 					onRetry={props.onRetry}
 					retryTarget={state.retryTarget}
 				/>
@@ -92,6 +101,7 @@ function renderComparisonStatus(
 		case 'failedInitial':
 			return (
 				<ComparisonFailureAlert
+					message={bridgeReviewFailureDisplaySpec(state.failureKind).message}
 					description={`Couldn’t load ${state.requestedTargetLabel}.`}
 					onRetry={props.onRetry}
 					retryTarget={state.retryTarget}
@@ -103,6 +113,7 @@ function renderComparisonStatus(
 }
 
 function ComparisonFailureAlert(props: {
+	readonly message: string;
 	readonly description: string;
 	readonly onRetry: (target: BridgeReviewComparisonTarget) => void;
 	readonly retryTarget: BridgeReviewComparisonTarget | null;
@@ -115,18 +126,14 @@ function ComparisonFailureAlert(props: {
 			variant="destructive"
 		>
 			<TriangleAlertIcon aria-hidden="true" />
-			<AlertTitle>Comparison unavailable</AlertTitle>
+			<AlertTitle>{props.message}</AlertTitle>
 			<AlertDescription>{props.description}</AlertDescription>
 			{retryTarget === null ? null : (
 				<AlertAction>
-					<Button
+					<BridgeViewerRecoveryRetryButton
+						surface="review"
 						onClick={(): void => props.onRetry(retryTarget)}
-						size="xs"
-						type="button"
-						variant="outline"
-					>
-						Retry
-					</Button>
+					/>
 				</AlertAction>
 			)}
 		</Alert>

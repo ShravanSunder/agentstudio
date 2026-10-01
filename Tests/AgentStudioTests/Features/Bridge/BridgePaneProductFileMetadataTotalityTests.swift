@@ -18,7 +18,7 @@ struct BridgePaneProductFileMetadataTotalityTests {
             subscription: openSnapshot,
             productAdmission: fixture.productAdmission.context
         ) { _ in }
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         // Act
         try await source.applyViewDemand(
@@ -27,7 +27,7 @@ struct BridgePaneProductFileMetadataTotalityTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         // Assert
@@ -54,7 +54,7 @@ struct BridgePaneProductFileMetadataTotalityTests {
             at: fixture.demandedFileURL,
             withIntermediateDirectories: false
         )
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
 
         // Act
         try await source.applyViewDemand(
@@ -63,7 +63,7 @@ struct BridgePaneProductFileMetadataTotalityTests {
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
 
         // Assert

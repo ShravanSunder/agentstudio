@@ -14,7 +14,7 @@ struct BridgePaneProductFileProgressiveCaptureTests {
         firstProgress.release()
         let descriptorHeld = HeldStep<String>("File descriptor materialization after inventory")
         defer { descriptorHeld.release() }
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         let source = fixture.makeSource(
             sharedSnapshotBuilder: { request, preparation, publisher in
                 try await publisher.publishPreparation(preparation)
@@ -45,13 +45,13 @@ struct BridgePaneProductFileProgressiveCaptureTests {
             try await source.open(
                 subscription: subscription, productAdmission: fixture.productAdmission.context
             ) { event in
-                await collector.append(event)
+                await collector.append(event, source: source)
                 // Admit the real selected-path demand before enumeration discovers that path.
                 if case .sourceAccepted = event {
                     try await source.applyViewDemand(
                         subscriptionId: subscription.subscriptionId, demand: demand,
                         productAdmission: fixture.productAdmission.context, forceRecapture: false
-                    ) { demandEvent in await collector.append(demandEvent) }
+                    ) { demandEvent in await collector.append(demandEvent, source: source) }
                 }
             }
             if let inventory = await source.captureKeyedSnapshot(
@@ -67,7 +67,7 @@ struct BridgePaneProductFileProgressiveCaptureTests {
             try await source.applyViewDemand(
                 subscriptionId: subscription.subscriptionId, demand: demand,
                 productAdmission: fixture.productAdmission.context, forceRecapture: true
-            ) { event in await collector.append(event) }
+            ) { event in await collector.append(event, source: source) }
         }
         let progress = try await firstProgress.firstArrival()
         #expect(progress == .inventoryCertified(rowCount: 3, mode: .snapshot))
@@ -122,8 +122,8 @@ struct BridgePaneProductFileProgressiveCaptureTests {
             try await source.open(
                 subscription: subscription, productAdmission: fixture.productAdmission.context
             ) { event in
-                if case .treeWindow(let window) = event, window.startIndex == 0 {
-                    try await firstWindowReceived.arrive(window.rows.map(\.path))
+                if case .inventoryProgress(let window) = event, window.updatedPaths.contains(fixture.demandedPath) {
+                    try await firstWindowReceived.arrive(window.updatedPaths.sorted())
                 }
             }
         }

@@ -92,7 +92,8 @@ struct BridgePaneProductFileBootstrapSuspensionTests {
                 await lifecycleRecorder.waitForResumeDispatch() == .sourceReopen,
                 "Foreground return must reopen an accepted File source whose initial enumeration was cancelled"
             )
-            let resumedTree = try await pullResumedFileTree(from: pump)
+            let resumedSource = try #require(await sourceAcceptedIterator.next())
+            let resumedTree = try await pullResumedFileTree(from: pump, source: resumedSource)
             await lifecycleRecorder.waitForFileProducerFinished(count: 2)
 
             // Assert
@@ -104,15 +105,7 @@ struct BridgePaneProductFileBootstrapSuspensionTests {
             #expect(resumedTree.complete.identity.batchId == resumedTree.begin.identity.batchId)
             #expect(resumedTree.rows.count == 3)
             #expect(resumedTree.rows.contains { $0.displayKey == fixture.demandedPath })
-            #expect(
-                await fileMetadataSource.diagnosticSnapshot()
-                    == .init(
-                        descriptorCount: 0,
-                        inFlightDescriptorCount: 0,
-                        manifestRowCount: 3,
-                        subscriptionCount: 1
-                    )
-            )
+            await expectResumedFileSourceRetained(fileMetadataSource)
         } catch {
             await snapshotBuilderGate.release(invocation: 1)
             await coordinator.uninstall(lease: lease)
@@ -488,7 +481,8 @@ private func fileBootstrapViewScopeRequest() throws -> BridgeProductViewScopeReq
 }
 
 private func pullResumedFileTree(
-    from pump: BridgeProductSchemeFramePump
+    from pump: BridgeProductSchemeFramePump,
+    source expectedSource: BridgeProductFileSourceIdentity
 ) async throws -> ResumedFileTree {
     var begin: BridgeProductBatchBeginFrame?
     var resumedSource: BridgeProductFileSourceIdentity?
@@ -499,6 +493,8 @@ private func pullResumedFileTree(
         switch batch {
         case .begin(let receivedBegin):
             begin = receivedBegin
+            resumedSource = nil
+            rows.removeAll(keepingCapacity: true)
         case .part(let receivedPart):
             guard case .put(let key, _, let value) = receivedPart.part else { continue }
             let encodedValue = try JSONEncoder().encode(value)
@@ -511,7 +507,9 @@ private func pullResumedFileTree(
                 rows.append(try JSONDecoder().decode(BridgeProductFileBatchRow.self, from: encodedValue))
             }
         case .complete(let complete):
-            if let begin, begin.identity.batchId == complete.identity.batchId {
+            if let begin, begin.identity.batchId == complete.identity.batchId,
+                begin.mode == .snapshot, resumedSource == expectedSource
+            {
                 return ResumedFileTree(
                     source: try #require(resumedSource),
                     begin: begin,
@@ -525,4 +523,16 @@ private func pullResumedFileTree(
 
 private enum FileBootstrapSuspensionTestError: Error {
     case expectedSourceAcceptance
+}
+
+private func expectResumedFileSourceRetained(_ source: BridgePaneProductFileMetadataSource) async {
+    #expect(
+        await source.diagnosticSnapshot()
+            == .init(
+                descriptorCount: 0,
+                inFlightDescriptorCount: 0,
+                manifestRowCount: 3,
+                subscriptionCount: 1
+            )
+    )
 }

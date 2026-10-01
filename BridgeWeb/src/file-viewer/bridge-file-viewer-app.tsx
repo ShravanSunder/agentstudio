@@ -493,6 +493,7 @@ export function BridgeFileViewerAppImplementation(
 			}
 		>
 			<FileViewerShell
+				paneFailedStart={props.paneFailedStart ?? null}
 				recoveryFailed={
 					renderSnapshotController.fileViewRecoveryStatus?.status === 'failedRetryable'
 				}

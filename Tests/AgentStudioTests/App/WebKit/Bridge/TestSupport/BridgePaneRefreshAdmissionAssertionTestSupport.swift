@@ -6,19 +6,16 @@ import Testing
 
 @testable import AgentStudioBridge
 
-func refreshAdmissionFileSourceAcceptedEvent() throws -> BridgeProductFileMetadataEvent {
+func refreshAdmissionFileSourceAcceptedEvent() throws -> BridgePaneProductFileSourceFact {
     .sourceAccepted(
-        .init(
-            source: try .init(
-                repoId: "00000000-0000-4000-8000-000000000001",
-                rootRevisionToken: "root-token-refresh-admission",
-                sourceCursor: "source-cursor-refresh-admission",
-                sourceId: "file-source-refresh-admission",
-                subscriptionGeneration: 1,
-                worktreeId: "00000000-0000-4000-8000-000000000002"
-            )
-        )
-    )
+        try .init(
+            repoId: "00000000-0000-4000-8000-000000000001",
+            rootRevisionToken: "root-token-refresh-admission",
+            sourceCursor: "source-cursor-refresh-admission",
+            sourceId: "file-source-refresh-admission",
+            subscriptionGeneration: 1,
+            worktreeId: "00000000-0000-4000-8000-000000000002"
+        ))
 }
 
 func waitForRefreshAdmissionQueuedMetadataFrame(
@@ -183,7 +180,7 @@ func sealRefreshAdmissionFileProofBatch(
     let snapshot = BridgeWorktreeFileKeyedSnapshot(
         isEnumerationComplete: true,
         memberStatus: .init(
-            record: BridgeProductFileMemberStatusRecord(source: accepted.source),
+            record: BridgeProductFileMemberStatusRecord(source: accepted),
             revision: 1
         ),
         records: [],

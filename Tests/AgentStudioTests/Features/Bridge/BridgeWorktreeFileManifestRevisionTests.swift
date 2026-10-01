@@ -332,19 +332,19 @@ struct BridgeWorktreeFileManifestRevisionTests {
             subscription: openSnapshot,
             productAdmission: fixture.productAdmission.context
         ) { _ in }
-        let collector = ProductFileMetadataEventCollector()
+        let collector = ProductFileSourceFactCollector()
         try await source.applyViewDemand(
             subscriptionId: openSnapshot.subscriptionId,
             demand: fixture.viewDemand(),
             productAdmission: fixture.productAdmission.context,
             forceRecapture: false
         ) { event in
-            await collector.append(event)
+            await collector.append(event, source: source)
         }
         let firstDescriptor = try #require(
             (await collector.events).compactMap { event -> BridgeProductFileContentDescriptor? in
                 guard case .descriptorReady(let ready) = event,
-                    case .available(let descriptor) = ready.payload.availability
+                    case .available(let descriptor) = ready.availability
                 else { return nil }
                 return descriptor
             }.first

@@ -64,7 +64,7 @@ describe('Bridge File viewer render snapshot controller Browser Mode', () => {
 		expect(dispatchedMessages.map(({ command }) => command)).toEqual(['fileDisplayResync']);
 	});
 
-	test('shows one Retry per failed File region, dispatches both jobs, and keeps actual last good bytes', async () => {
+	test('shows one Retry for the failed File surface, dispatches both jobs, and keeps actual last good bytes', async () => {
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
 		const existingFileContent = 'Last good file contents stay visible.';
 		const descriptor = await makeBrowserFileDescriptorOutcomeForContent({
@@ -113,7 +113,9 @@ describe('Bridge File viewer render snapshot controller Browser Mode', () => {
 		for (const region of ['file-tree', 'file-content']) {
 			const element = document.querySelector(`[data-bridge-region="${region}"]`);
 			expect(element?.getAttribute('data-presentation-state')).toBe('failed');
-			expect(element?.querySelectorAll('button[aria-label="Retry"]')).toHaveLength(1);
+			expect(element?.querySelectorAll('button[aria-label="Retry"]')).toHaveLength(
+				region === 'file-content' ? 1 : 0,
+			);
 			expect(element?.querySelector('[data-slot="skeleton"]')).toBeNull();
 		}
 		await actUpdateAndWaitForBridgeFileViewerWorkerPublication((): void => {

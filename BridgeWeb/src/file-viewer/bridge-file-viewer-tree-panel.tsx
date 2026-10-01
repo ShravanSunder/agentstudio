@@ -33,6 +33,7 @@ import { useBridgeFileViewerPierreTreeRuntime } from './bridge-file-viewer-pierr
 
 export interface BridgeFileViewerTreePanelProps {
 	readonly presentationState?: BridgeRegionPresentationState;
+	readonly failureControl?: 'primary' | 'summary';
 	readonly retryControl?: ReactNode;
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly filterMode: BridgeFileViewerFilterMode;
@@ -107,6 +108,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				ariaLabel: 'Files',
 				body: (
 					<BridgeRegionPresentation
+						failureControl={props.failureControl ?? 'primary'}
 						keepContentMounted
 						region="file-tree"
 						shape="tree"

@@ -2,7 +2,6 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
-	type BridgePageReadyError,
 	type BridgePageHandshakeSession,
 	installBridgePageHandshakeSession,
 } from '../bridge/bridge-page-handshake.js';
@@ -81,6 +80,7 @@ import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
 import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
 import { useBridgeViewerContextFocusHandoff } from './bridge-viewer-context-focus-handoff.js';
 import { useBridgeCommWorkerSessionTelemetry } from './use-bridge-comm-worker-session-telemetry.js';
+import { useBridgePaneFailedStart } from './use-bridge-pane-failed-start.js';
 
 export interface BridgeAppProps {
 	readonly paneReloadPort?: BridgePaneReloadPort;
@@ -136,7 +136,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 function BridgeAppRuntimeContent(
 	props: BridgeAppProps & { readonly paneRuntime: BridgePaneRuntime },
 ): ReactElement {
-	const [pageReadyFailure, setPageReadyFailure] = useState<BridgePageReadyError | null>(null);
 	const paneRuntimeHostRef = useRef<BridgePaneRuntimeHost | null>(null);
 	paneRuntimeHostRef.current ??= createBridgePaneRuntimeHost(props.paneRuntime);
 	const paneRuntimeHost = paneRuntimeHostRef.current;
@@ -201,6 +200,16 @@ function BridgeAppRuntimeContent(
 	const handshakeSessionRef = useRef<BridgePageHandshakeSession | null>(null);
 	const isBridgeReadyGateOpenRef = useRef(false);
 	const isBridgeReadyRef = useRef(false);
+	const handlePaneFailedStart = useCallback((): void => {
+		recordBridgePageReadyState('failed');
+		isBridgeReadyRef.current = false;
+		isBridgeReadyGateOpenRef.current = false;
+	}, []);
+	const {
+		failedStart: paneFailedStart,
+		getFailedStart,
+		reportReadyError,
+	} = useBridgePaneFailedStart(paneRuntimeHost.runtime, handlePaneFailedStart);
 	const bridgeReadyCallbacksRef = useRef<Set<() => void>>(new Set());
 	const activeViewerModeWorkerEpochRef = useRef(0);
 	const activeViewerModeRequestResolversRef = useRef<Map<string, (didSend: boolean) => void>>(
@@ -464,7 +473,7 @@ function BridgeAppRuntimeContent(
 				paneRuntimeHost.runtime.handleNativeBootstrapFailure();
 			},
 			onReady: (): void => {
-				setPageReadyFailure(null);
+				if (getFailedStart() !== null) return;
 				recordBridgePageReadyState('ready');
 				isBridgeReadyRef.current = true;
 				isBridgeReadyGateOpenRef.current = true;
@@ -477,12 +486,7 @@ function BridgeAppRuntimeContent(
 					}
 				});
 			},
-			onReadyError: (error): void => {
-				setPageReadyFailure(error);
-				recordBridgePageReadyState('failed');
-				isBridgeReadyRef.current = false;
-				isBridgeReadyGateOpenRef.current = false;
-			},
+			onReadyError: reportReadyError,
 			onTelemetryConfig: configureTelemetryRecorder,
 			onTelemetrySessionBootstrap: (result): void => {
 				const currentConfig = handshakeSessionRef.current?.getTelemetryConfig() ?? null;
@@ -518,7 +522,7 @@ function BridgeAppRuntimeContent(
 				void drainTelemetrySession(telemetryWorkerSession);
 			}
 		};
-	}, [paneRuntimeHost, target]);
+	}, [paneRuntimeHost, target, getFailedStart, reportReadyError]);
 	const publishActiveViewerModeWorkerMessages = useCallback(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
 			for (const message of messages) {
@@ -835,7 +839,11 @@ function BridgeAppRuntimeContent(
 		<BridgeViewerAppShell
 			appOwner="BridgeApp"
 			mode={activeViewerMode}
-			pageReadyFailure={pageReadyFailure}
+			paneFailedStart={paneFailedStart}
+			retainsContent={
+				paneRuntimeHost.fileViewClient.renderStore.getSnapshot().fileDisplayFreshness !== null ||
+				paneRuntimeHost.reviewClient.renderStore.getSnapshot().reviewSourceSlice !== null
+			}
 			{...(props.paneReloadPort === undefined ? {} : { paneReloadPort: props.paneReloadPort })}
 		>
 			<WorktreeAnnotationNavigationProvider controller={annotationNavigation}>
@@ -854,6 +862,7 @@ function BridgeAppRuntimeContent(
 					>
 						<BridgeFileViewerMode
 							{...props}
+							paneFailedStart={paneFailedStart}
 							fileViewerProps={{
 								...props.fileViewerProps,
 								...(viewerActivation?.viewer === 'file'
@@ -904,6 +913,7 @@ function BridgeAppRuntimeContent(
 					>
 						<BridgeReviewViewerMode
 							{...props}
+							paneFailedStart={paneFailedStart}
 							{...(viewerActivation?.viewer === 'review'
 								? {
 										activationCause: viewerActivation.cause,
