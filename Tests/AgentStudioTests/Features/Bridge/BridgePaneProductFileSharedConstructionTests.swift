@@ -43,7 +43,7 @@ struct BridgePaneProductFileSharedConstructionTests {
         #expect(firstEstimate == secondEstimate)
     }
 
-    @Test("empty worktree emits exactly one final tree window")
+    @Test("empty worktree emits inventory progress and its completing notification")
     func emptyWorktreeEmitsOneFinalWindow() async throws {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 0)
@@ -67,10 +67,13 @@ struct BridgePaneProductFileSharedConstructionTests {
 
         // Assert
         let windows = (await collector.events).fileTreeWindows
-        #expect(windows.count == 1)
+        #expect(windows.count == 2)
         #expect(windows[0].finalWindow)
         #expect(windows[0].rows.isEmpty)
         #expect(windows[0].inventoryRowCount == 0)
+        #expect(windows[1].finalWindow)
+        #expect(windows[1].rows.isEmpty)
+        #expect(windows[1].inventory?.isEnumerationComplete == true)
         await source.cancel(subscriptionId: subscription.subscriptionId)
         await assertSharedFileConstructionDrained(coordinator)
     }
@@ -129,88 +132,6 @@ struct BridgePaneProductFileSharedConstructionTests {
         #expect(firstEvents.fileTreePaths.count == 260)
         await firstSource.cancel(subscriptionId: subscription.subscriptionId)
         await secondSource.cancel(subscriptionId: subscription.subscriptionId)
-        await assertSharedFileConstructionDrained(coordinator)
-    }
-
-    @Test("selected File becomes usable before the complete tree commits")
-    func selectedFileBecomesUsableBeforeCompleteTreeCommit() async throws {
-        // Arrange
-        let fixture = try ProductFileSourceFixture(fileCount: 300)
-        defer { fixture.remove() }
-        let coordinator = BridgeWorktreeProductConstructionCoordinator()
-        let preparationProbe = SharedFilePreparationProbe()
-        let buildGate = SharedFileBuildWindowGate()
-        let sourceAcceptedGate = ProductFileMaterializationGate()
-        let descriptorReadyGate = ProductFileMaterializationGate()
-        let source = fixture.makeSource(
-            constructionCoordinator: coordinator,
-            sourceAcceptedObserver: { _ in
-                await sourceAcceptedGate.markStarted()
-                await sourceAcceptedGate.waitUntilReleased()
-            },
-            snapshotPreparationLoader: preparationProbe.load,
-            sharedSnapshotBuilder: buildGate.build
-        )
-        let collector = ProductFileSourceFactCollector()
-        let openSnapshot = try fixture.openSnapshot()
-        let openTask = Task {
-            try await source.open(
-                subscription: openSnapshot,
-                productAdmission: fixture.productAdmission.context
-            ) { event in
-                await collector.append(event, source: source)
-                if case .descriptorReady = event {
-                    await descriptorReadyGate.markStarted()
-                }
-            }
-        }
-        await sourceAcceptedGate.waitUntilStarted()
-        try await source.applyViewDemand(
-            subscriptionId: openSnapshot.subscriptionId,
-            demand: fixture.viewDemand(),
-            productAdmission: fixture.productAdmission.context,
-            forceRecapture: false
-        ) { event in
-            await collector.append(event, source: source)
-        }
-
-        // Act
-        await sourceAcceptedGate.release()
-        await buildGate.waitUntilFirstWindowPublished()
-        await descriptorReadyGate.waitUntilStarted()
-        let eventsBeforeFinalWindow = await collector.events
-        let completedBuildsBeforeFinalWindow = await buildGate.completedBuildCount
-        await buildGate.releaseBuilder()
-        try await openTask.value
-        let completedEvents = await collector.events
-
-        // Assert
-        let earlyTreeWindows = eventsBeforeFinalWindow.fileTreeWindows
-        #expect(earlyTreeWindows.count == 1)
-        #expect(earlyTreeWindows.first?.finalWindow == false)
-        #expect(earlyTreeWindows.first?.rows.contains { $0.path == fixture.demandedPath } == true)
-        #expect(
-            eventsBeforeFinalWindow.contains {
-                if case .descriptorReady = $0 { true } else { false }
-            }
-        )
-        #expect(
-            eventsBeforeFinalWindow.contains {
-                if case .statusChanged = $0 { true } else { false }
-            }
-        )
-        #expect(completedBuildsBeforeFinalWindow == 0)
-
-        let completedTreeWindows = completedEvents.fileTreeWindows
-        #expect(completedTreeWindows.count == 2)
-        #expect(completedTreeWindows.last?.finalWindow == true)
-        #expect(completedTreeWindows.last?.inventoryRowCount == 300)
-        #expect(
-            completedEvents.filter {
-                if case .statusChanged = $0 { true } else { false }
-            }.count == 1
-        )
-        await source.cancel(subscriptionId: openSnapshot.subscriptionId)
         await assertSharedFileConstructionDrained(coordinator)
     }
 
@@ -451,7 +372,7 @@ private func makeSharedFileStatus() -> GitWorkingTreeStatus {
     )
 }
 
-private func assertSharedFileConstructionDrained(
+func assertSharedFileConstructionDrained(
     _ coordinator: BridgeWorktreeProductConstructionCoordinator
 ) async {
     let snapshot = await coordinator.snapshot()
