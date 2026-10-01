@@ -2,6 +2,7 @@ import AgentStudioPrimitives
 import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudioCLIStore
@@ -10,7 +11,7 @@ import Testing
 struct CLIStoreCleanupTests {
     @Test("only old handled rows are purged; unread rows survive any age")
     func cleanupKeepsRecentAndUnreadRows() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreCleanupFixture()
             defer { fixture.removeFiles() }
             let writer = try fixture.openWriter()
@@ -19,50 +20,60 @@ struct CLIStoreCleanupTests {
             let recentHandled = try fixture.append(to: writer)
             let unread = try fixture.append(to: writer, createdAt: fixture.originDate)
             fixture.clock.advance(by: .seconds(43_201))
-
-            let removed = try writer.purgeHandledOutbox(
+            let firstRemoved = try writer.purgeHandledOutbox(
                 expectedStoreID: writer.identity.storeID, through: recentHandled.id, now: fixture.now
             ).get()
-
-            #expect(removed == 1)
-            #expect(try writer.readOutbox(after: 0).get().entries == [recentHandled, unread])
-            #expect(oldHandled.id < recentHandled.id)
+            let firstRows = try writer.readOutbox(after: 0).get().entries
             fixture.clock.advance(by: .seconds(30 * 86_400))
-            #expect(
-                try writer.purgeHandledOutbox(
-                    expectedStoreID: writer.identity.storeID, through: recentHandled.id, now: fixture.now
-                ).get() == 1)
-            #expect(try writer.readOutbox(after: 0).get().entries == [unread])
+            let laterRemoved = try writer.purgeHandledOutbox(
+                expectedStoreID: writer.identity.storeID, through: recentHandled.id, now: fixture.now
+            ).get()
+            let laterRows = try writer.readOutbox(after: 0).get().entries
+            return (
+                oldHandled: oldHandled, recentHandled: recentHandled, unread: unread,
+                firstRemoved: firstRemoved, firstRows: firstRows, laterRemoved: laterRemoved, laterRows: laterRows
+            )
         }
+        #expect(observed.firstRemoved == 1)
+        #expect(observed.firstRows == [observed.recentHandled, observed.unread])
+        #expect(observed.oldHandled.id < observed.recentHandled.id)
+        #expect(observed.laterRemoved == 1)
+        #expect(observed.laterRows == [observed.unread])
     }
 
     @Test("a handled row is kept at one day and removed only once older")
     func cleanupUsesStrictRetentionBoundary() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreCleanupFixture()
             defer { fixture.removeFiles() }
             let writer = try fixture.openWriter()
             let entry = try fixture.append(to: writer)
             fixture.clock.advance(by: .seconds(86_400))
-            #expect(
-                try writer.purgeHandledOutbox(
-                    expectedStoreID: writer.identity.storeID, through: entry.id, now: fixture.now
-                ).get() == 0)
-            #expect(try writer.readOutbox(after: 0).get().entries == [entry])
+            let atBoundary = try writer.purgeHandledOutbox(
+                expectedStoreID: writer.identity.storeID, through: entry.id, now: fixture.now
+            ).get()
+            let boundaryRows = try writer.readOutbox(after: 0).get().entries
             fixture.clock.advance(by: .seconds(1))
-            #expect(
-                try writer.purgeHandledOutbox(
-                    expectedStoreID: writer.identity.storeID, through: entry.id, now: fixture.now
-                ).get() == 1)
-            #expect(try writer.readOutbox(after: 0).get().entries.isEmpty)
+            let afterBoundary = try writer.purgeHandledOutbox(
+                expectedStoreID: writer.identity.storeID, through: entry.id, now: fixture.now
+            ).get()
+            let laterRows = try writer.readOutbox(after: 0).get().entries
+            return (
+                entry: entry, atBoundary: atBoundary, boundaryRows: boundaryRows,
+                afterBoundary: afterBoundary, laterRows: laterRows
+            )
         }
+        #expect(observed.atBoundary == 0)
+        #expect(observed.boundaryRows == [observed.entry])
+        #expect(observed.afterBoundary == 1)
+        #expect(observed.laterRows.isEmpty)
     }
 
     @Test(
         "foreign or replaced stores with overlapping ids cannot consume another store's mark",
         arguments: [false, true])
     func cleanupRefusesAnotherStoreIdentity(replacedFile: Bool) async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreCleanupFixture()
             defer { fixture.removeFiles() }
             let original = try fixture.openWriter()
@@ -80,51 +91,72 @@ struct CLIStoreCleanupTests {
             let writer = try CLIStore.openWriter(url: writerURL, channel: .debug).get()
             let unread = try fixture.append(to: writer)
             fixture.clock.advance(by: .seconds(2 * 86_400))
-            #expect(writer.identity.storeID != appStoreID)
-            #expect(unread.id == appRead.id)
-
-            #expect(
-                try writer.purgeHandledOutbox(
-                    expectedStoreID: appStoreID, through: appRead.id, now: fixture.now
-                ).get() == 0)
-            #expect(try writer.readOutbox(after: 0).get().entries == [unread])
+            let removed = try writer.purgeHandledOutbox(
+                expectedStoreID: appStoreID, through: appRead.id, now: fixture.now
+            ).get()
+            let rows = try writer.readOutbox(after: 0).get().entries
+            return (
+                writerStoreID: writer.identity.storeID, appStoreID: appStoreID,
+                unread: unread, appRead: appRead, removed: removed, rows: rows
+            )
         }
+        #expect(observed.writerStoreID != observed.appStoreID)
+        #expect(observed.unread.id == observed.appRead.id)
+        #expect(observed.removed == 0)
+        #expect(observed.rows == [observed.unread])
     }
 
     @Test("an empty handled prefix never deletes old unread notices")
     func zeroReadThroughKeepsUnreadRows() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreCleanupFixture()
             defer { fixture.removeFiles() }
             let writer = try fixture.openWriter()
             let unread = try fixture.append(to: writer)
             fixture.clock.advance(by: .seconds(60 * 86_400))
-            #expect(
-                try writer.purgeHandledOutbox(
-                    expectedStoreID: writer.identity.storeID, through: 0, now: fixture.now
-                ).get() == 0)
-            #expect(try writer.readOutbox(after: 0).get().entries == [unread])
+            let removed = try writer.purgeHandledOutbox(
+                expectedStoreID: writer.identity.storeID, through: 0, now: fixture.now
+            ).get()
+            let rows = try writer.readOutbox(after: 0).get().entries
+            return (unread: unread, removed: removed, rows: rows)
         }
+        #expect(observed.removed == 0)
+        #expect(observed.rows == [observed.unread])
     }
 
     @Test("the app's readonly handle cannot purge even a fully handled old row")
     func readonlyStoreCannotPurge() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreCleanupFixture()
             defer { fixture.removeFiles() }
             let writer = try fixture.openWriter()
+            let writableControl = try fixture.append(to: writer)
             let entry = try fixture.append(to: writer)
-            let reader = try CLIStore.openReader(url: fixture.storeURL, expectedChannel: .debug).get()
             fixture.clock.advance(by: .seconds(2 * 86_400))
-            let result = reader.purgeHandledOutbox(
+            let writableRemoved = try writer.purgeHandledOutbox(
+                expectedStoreID: writer.identity.storeID, through: writableControl.id, now: fixture.now
+            ).get()
+            let reader = try CLIStore.openReader(url: fixture.storeURL, expectedChannel: .debug).get()
+            let readonlyResult = reader.purgeHandledOutbox(
                 expectedStoreID: writer.identity.storeID, through: entry.id, now: fixture.now)
-            if case .failure(let failure) = result {
-                #expect(failure == .readOnly)
-            } else {
-                Issue.record("App readonly handle purged CLI-owned rows")
+            let sqlError: DatabaseError?
+            do {
+                try reader.databaseQueue.write { database in try database.execute(sql: "DELETE FROM cli_outbox") }
+                sqlError = nil
+            } catch let error as DatabaseError {
+                sqlError = error
             }
-            #expect(try reader.readOutbox(after: 0).get().entries == [entry])
+            let rows = try reader.readOutbox(after: 0).get().entries
+            return (
+                writableRemoved: writableRemoved, readonlyResult: readonlyResult,
+                sqlError: sqlError, rows: rows, entry: entry
+            )
         }
+        #expect(observed.writableRemoved == 1)
+        #expect(observed.readonlyResult == .failure(.readOnly))
+        let sqlError = try #require(observed.sqlError)
+        #expect(sqlError.resultCode == .SQLITE_READONLY)
+        #expect(observed.rows == [observed.entry])
     }
 }
 

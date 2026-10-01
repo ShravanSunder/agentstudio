@@ -49,6 +49,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let methodRegistry: AppIPCMethodRegistry
     private let authenticator: AgentStudioIPCAuthenticator
     private let credentialPersistenceLane: AgentStudioIPCCredentialPersistenceLane
+    private let cliStoreReadThroughPort: (any AppIPCCLIStoreReadThroughPort)?
     let authorizationService: AuthorizationService
     let permissionBroker: PermissionBroker
     private let peerCredentialProvider: any PeerCredentialProviding
@@ -81,7 +82,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         maxResponseFrameBytes: Int = IPCFramePolicy.maximumResponseFrameBytes
     ) {
         self.service = service
-        // S3 red stand-in: the required port is not read until red is verified.
+        self.cliStoreReadThroughPort = cliStoreReadThroughPort
         self.paths = paths
         self.channel = channel
         self.methodRegistry = service.methodRegistry
@@ -356,9 +357,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                         schedulePersistence(of: [candidate])
                     }
                     let principal = authenticatedContext.principal
+                    let readThrough = await cliStoreReadThroughPort?.readThrough()
                     return .authenticated(
                         principalId: principal.principalId, runtimeId: principal.runtimeId,
-                        accessMode: principal.accessMode)
+                        accessMode: principal.accessMode, cliStoreReadThrough: readThrough)
                 } catch {
                     if let rejected = connectionState.rejectAuthentication() {
                         principalRegistry.releaseLease(rejected)
@@ -368,6 +370,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 }
             },
             authenticationStatus: {
+                // Status is the connection-local principal snapshot. Login
+                // supplies the separately read store cursor for call cleanup.
                 guard let principal = connectionState.principal else { return .unauthenticated }
                 return .authenticated(
                     principalId: principal.principalId, runtimeId: principal.runtimeId, accessMode: principal.accessMode

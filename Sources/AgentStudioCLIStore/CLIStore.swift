@@ -231,8 +231,24 @@ package final class CLIStore: Sendable {
         through lastHandledID: Int64,
         now: Date
     ) -> Result<Int, CLIStoreFailure> {
-        // S3 red stand-in: no deletion before retention/identity red proof.
-        .failure(.unavailable)
+        guard !databaseQueue.configuration.readonly else { return .failure(.readOnly) }
+        guard expectedStoreID == identity.storeID, lastHandledID > 0 else { return .success(0) }
+        let cutoff = now.addingTimeInterval(-CLIStorePolicy.handledRetention)
+        guard
+            let cutoffMilliseconds = Int64(
+                exactly: (cutoff.timeIntervalSince1970 * CLIStorePolicy.millisecondsPerSecond).rounded(.up))
+        else { return .failure(.unavailable) }
+        do {
+            let removed = try databaseQueue.write { database in
+                let currentIdentity = try Self.readIdentity(database, expectedChannel: identity.channel)
+                guard currentIdentity.storeID == expectedStoreID else { return 0 }
+                try database.execute(
+                    sql: "DELETE FROM cli_outbox WHERE id <= ? AND created_at < ?",
+                    arguments: [lastHandledID, cutoffMilliseconds])
+                return database.changesCount
+            }
+            return .success(removed)
+        } catch { return .failure(Self.classifyFailure(error)) }
     }
 
     private static func readIdentity(

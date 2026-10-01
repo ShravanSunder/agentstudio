@@ -160,22 +160,24 @@ package enum IPCAuthStatusResult: Codable, Equatable, Sendable, IPCSchemaProvidi
     package init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let authenticated = try container.decode(Bool.self, forKey: .authenticated)
-        let suppliedKeys = Set(container.allKeys)
+        let suppliedKeys = Set(try decoder.container(keyedBy: AuthStatusCodingKey.self).allKeys.map(\.stringValue))
         if authenticated {
-            guard suppliedKeys == Set(CodingKeys.allCases) else {
+            guard suppliedKeys == Set(CodingKeys.allCases.map(\.rawValue)) else {
                 throw DecodingError.dataCorrupted(
                     .init(
                         codingPath: decoder.codingPath,
-                        debugDescription: "Authenticated status requires exact principal fields")
+                        debugDescription: "Authenticated status requires exact fields including CLI store read-through")
                 )
             }
             self = .authenticated(
                 principalId: try container.decode(UUID.self, forKey: .principalId),
                 runtimeId: try container.decode(UUID.self, forKey: .runtimeId),
-                accessMode: try container.decode(IPCAccessMode.self, forKey: .accessMode)
+                accessMode: try container.decode(IPCAccessMode.self, forKey: .accessMode),
+                cliStoreReadThrough: try container.decodeIfPresent(
+                    IPCCLIStoreReadThrough.self, forKey: .cliStoreReadThrough)
             )
         } else {
-            guard suppliedKeys == [.authenticated] else {
+            guard suppliedKeys == [CodingKeys.authenticated.rawValue] else {
                 throw DecodingError.dataCorrupted(
                     .init(
                         codingPath: decoder.codingPath,
@@ -191,11 +193,16 @@ package enum IPCAuthStatusResult: Codable, Equatable, Sendable, IPCSchemaProvidi
         switch self {
         case .unauthenticated:
             try container.encode(false, forKey: .authenticated)
-        case .authenticated(let principalId, let runtimeId, let accessMode, _):
+        case .authenticated(let principalId, let runtimeId, let accessMode, let cliStoreReadThrough):
             try container.encode(true, forKey: .authenticated)
             try container.encode(principalId, forKey: .principalId)
             try container.encode(runtimeId, forKey: .runtimeId)
             try container.encode(accessMode, forKey: .accessMode)
+            if let cliStoreReadThrough {
+                try container.encode(cliStoreReadThrough, forKey: .cliStoreReadThrough)
+            } else {
+                try container.encodeNil(forKey: .cliStoreReadThrough)
+            }
         }
     }
 
@@ -216,6 +223,9 @@ package enum IPCAuthStatusResult: Codable, Equatable, Sendable, IPCSchemaProvidi
                 .init(
                     name: "accessMode", description: "Authenticated IPC access mode",
                     schema: try IPCAccessMode.ipcSchema()),
+                .init(
+                    name: "cliStoreReadThrough", description: "Store-bound handled prefixes, or null when unavailable",
+                    schema: .oneOf([try IPCCLIStoreReadThrough.ipcSchema(), .null])),
             ]),
         ])
     }
@@ -225,6 +235,20 @@ package enum IPCAuthStatusResult: Codable, Equatable, Sendable, IPCSchemaProvidi
         case principalId
         case runtimeId
         case accessMode
+        case cliStoreReadThrough
+    }
+}
+
+private struct AuthStatusCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = nil
+    }
+    init?(intValue: Int) {
+        stringValue = String(intValue)
+        self.intValue = intValue
     }
 }
 

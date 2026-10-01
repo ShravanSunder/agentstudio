@@ -95,7 +95,8 @@ package struct AgentPackageCommandRunner: Sendable {
                     environment: props.environment,
                     standardInput: props.standardInput,
                     correlationIdProvider: props.correlationIdProvider,
-                    delivery: .liveIPC(exampleIdentifierProvider: props.exampleIdentifierProvider),
+                    delivery: .liveIPC(
+                        exampleIdentifierProvider: props.exampleIdentifierProvider, environment: props.environment),
                     standardErrorSink: props.standardErrorSink
                 )
             )

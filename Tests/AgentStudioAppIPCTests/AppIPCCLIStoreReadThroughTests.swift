@@ -124,6 +124,9 @@ struct AppIPCCLIStoreReadThroughTests {
     func foreignChannelReaderReturnsNoMark() async throws {
         let storage = try await valueFromDedicatedThread { try ReadThroughStorageFixture(cursor: 2) }
         defer { storage.removeFiles() }
+        #expect(
+            await storage.reader.readThrough()
+                == IPCCLIStoreReadThrough(storeId: storage.writer.identity.storeID, outbox: 2))
         let reader = AppCLIStoreReadThroughReader(
             storeURL: storage.storeURL, expectedChannel: .beta, datastore: storage.datastore)
         #expect(await reader.readThrough() == nil)
@@ -135,6 +138,9 @@ struct AppIPCCLIStoreReadThroughTests {
     func readonlyReadThroughDoesNotCreateAStore() async throws {
         let storage = try await valueFromDedicatedThread { try ReadThroughStorageFixture(cursor: 2) }
         defer { storage.removeFiles() }
+        #expect(
+            await storage.reader.readThrough()
+                == IPCCLIStoreReadThrough(storeId: storage.writer.identity.storeID, outbox: 2))
         let absentURL = storage.rootURL.appending(path: "missing/cli.sqlite")
         let reader = AppCLIStoreReadThroughReader(
             storeURL: absentURL, expectedChannel: .debug, datastore: storage.datastore)

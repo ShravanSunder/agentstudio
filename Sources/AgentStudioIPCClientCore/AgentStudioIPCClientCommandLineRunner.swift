@@ -67,7 +67,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             let offlineHandler = PaneNotificationOfflineHandler(environment: props.environment)
             let examples = IPCBuiltInMethodExampleContext(illustrativeIdentifier: props.identifierGenerator())
             let bootstrap = try IPCBuiltInMethodCatalog.bootstrapDescriptors(examples: examples)
-            let discoveryClient = AgentStudioIPCClient(configuration: global.configuration, descriptors: bootstrap)
+            let discoveryClient = makeClient(configuration: global.configuration, descriptors: bootstrap)
             if global.methodArguments == ["system.capabilities"] {
                 try write(JSONEncoder().encode(discoveryClient.discoverCatalog()))
                 return 0
@@ -122,7 +122,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             }
             try deliver(
                 invocation: invocation,
-                client: AgentStudioIPCClient(
+                client: makeClient(
                     configuration: global.configuration, descriptors: descriptors),
                 commandCatalog: commandCatalog,
                 offlineHandler: offlineHandler
@@ -204,7 +204,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         let discovery = try IPCCommandDiscovery(methodCatalog: catalog)
         let authenticationDescriptors = bootstrap.filter { $0.metadata.name == "auth.login" }
         guard authenticationDescriptors.count == 1 else { throw CLIExit.rejected }
-        let listClient = AgentStudioIPCClient(
+        let listClient = makeClient(
             configuration: global.configuration,
             descriptors: authenticationDescriptors + [discovery.commandListInvocation.descriptor]
         )
@@ -249,7 +249,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         else {
             throw unreachable
         }
-        let client = AgentStudioIPCClient(configuration: global.configuration, descriptors: descriptors)
+        let client = makeClient(configuration: global.configuration, descriptors: descriptors)
         try queueWhileOffline(
             invocation: invocation, handler: handler,
             requestLine: { try client.requestFrame(invocation) }, unreachable: unreachable
@@ -270,6 +270,17 @@ package struct AgentStudioIPCClientCommandLineRunner {
         case .notQueued:
             throw unreachable
         }
+    }
+
+    private func makeClient(configuration: AgentStudioIPCClientConfiguration, descriptors: [IPCAnyMethodDescriptor])
+        -> AgentStudioIPCClient
+    {
+        let cleanup = CLIStoreCleanupHandler(
+            environment: props.environment, now: props.now,
+            diagnosticSink: props.standardErrorSink)
+        return AgentStudioIPCClient(
+            configuration: configuration, descriptors: descriptors,
+            onCallCompletion: { cleanup.handle(readThrough: $0) })
     }
 
     /// Provider hooks and the package installer are not IPC methods, so they
