@@ -34,12 +34,14 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
             #expect(after.admitted == nil)
             #expect(harness.controllerTarget.applicationReceipts.count == receiptCountBefore + 1)
             #expect(
-                harness.controllerTarget.applicationReceipts == [
-                    BridgeProductWebKitCarrierApplicationReceipt(
-                        accepted: true, publicationId: checkpoint.publication.publicationId
+                harness.controllerTarget.applicationReceipts.last
+                    == BridgeProductWebKitCarrierApplicationReceipt(
+                        applicationResult: .duplicate, publicationId: checkpoint.publication.publicationId
                     )
-                ],
-                "a valid duplicate A must not count as a second displayed advancement"
+            )
+            assertReviewApplicationReceiptAdvances(
+                harness.controllerTarget.applicationReceipts,
+                expectedPublicationIds: [checkpoint.publication.publicationId]
             )
             #expect(controller.reviewPublicationCoordinator.settleContentLease(checkpoint.retiringLease))
         }
