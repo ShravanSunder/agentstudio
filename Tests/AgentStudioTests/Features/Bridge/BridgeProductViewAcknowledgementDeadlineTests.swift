@@ -412,6 +412,7 @@ private actor DeadlineFileMetadataSource: BridgePaneProductFileMetadataProducing
         captures.append(scope: captureCount, fact: captureCount)
         let path = "Captured.swift"
         return .init(
+            isEnumerationComplete: true,
             memberStatus: .init(record: .init(source: source), revision: captureCount),
             records: [
                 .init(
@@ -556,6 +557,7 @@ private func sealDeadlineTestBatch(
         )
     }
     let snapshot = BridgeWorktreeFileKeyedSnapshot(
+        isEnumerationComplete: true,
         memberStatus: .init(record: .init(source: source), revision: 1),
         records: records,
         targetRevision: 1,

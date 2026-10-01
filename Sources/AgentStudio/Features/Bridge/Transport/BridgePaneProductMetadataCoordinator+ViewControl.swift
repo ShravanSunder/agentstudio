@@ -161,7 +161,12 @@ extension BridgePaneProductMetadataCoordinator {
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission,
             forceRecapture: forceRecapture
-        ) { _ in }
+        ) { _ in
+            _ = try await self.publishFileViewSnapshot(
+                subscriptionId: subscriptionId,
+                productAdmission: productAdmission
+            )
+        }
         _ = try? await publishFileViewSnapshot(
             subscriptionId: subscriptionId,
             productAdmission: productAdmission

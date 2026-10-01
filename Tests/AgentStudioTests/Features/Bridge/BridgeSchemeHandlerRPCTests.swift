@@ -565,6 +565,7 @@ private func sealSchemeHandlerFileBatch(
         worktreeId: "00000000-0000-4000-8000-000000000002"
     )
     let snapshot = BridgeWorktreeFileKeyedSnapshot(
+        isEnumerationComplete: true,
         memberStatus: .init(record: .init(source: source), revision: 1),
         records: (1...9).map { ordinal in
             let path = "file-\(ordinal).swift"

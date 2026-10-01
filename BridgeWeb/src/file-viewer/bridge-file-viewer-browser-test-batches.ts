@@ -209,6 +209,7 @@ export function makeBrowserFileBatch(props: {
 		throw new Error('Expected browser File batch begin.');
 	return {
 		certified: true,
+		staleRecords: [],
 		begin,
 		domain: 'default',
 		records: [

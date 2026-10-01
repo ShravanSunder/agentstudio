@@ -215,3 +215,29 @@ struct ProductFileSourceFixture {
         )
     }
 }
+
+func sealProductFileSourceCapture(
+    _ capture: BridgeWorktreeFileKeyedSnapshot,
+    demand: BridgePaneProductFileViewDemand
+) throws -> BridgeProductSealedViewBatch {
+    let encodedDemand = try JSONEncoder().encode(demand.state)
+    guard case .object(var scope) = try JSONDecoder().decode(BridgeProductJSONValue.self, from: encodedDemand)
+    else { throw ProductFileSourceFixtureError.invalidControlRequest }
+    scope["kind"] = .string("file")
+    scope["changeFilter"] = .object(["kind": .string("none")])
+    return try BridgeProductFileViewBatchFactory.sealSnapshot(
+        .init(
+            viewDomain: .init(viewId: "file-subscription-1", domain: .singleDomain, incarnation: "file-incarnation"),
+            handle: demand.handle, scopeRevision: demand.scopeRevision, scope: .object(scope),
+            firstDeliverySequence: 1, snapshot: capture))
+}
+
+func productFileBatchDescriptorCount(_ batch: BridgeProductSealedViewBatch) -> Int {
+    batch.parts.filter { part in
+        guard case .put(_, _, let value) = part,
+            case .object(let fields) = value,
+            let descriptor = fields["readDescriptor"]
+        else { return false }
+        return descriptor != .null
+    }.count
+}

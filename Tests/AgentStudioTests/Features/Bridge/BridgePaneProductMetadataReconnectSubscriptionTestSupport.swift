@@ -111,6 +111,7 @@ actor ReconnectFileMetadataSource: BridgePaneProductFileMetadataProducing {
             )
         else { return nil }
         return .init(
+            isEnumerationComplete: true,
             memberStatus: .init(record: .init(source: source), revision: publicationCallCount + 1),
             records: [],
             targetRevision: publicationCallCount + 1,

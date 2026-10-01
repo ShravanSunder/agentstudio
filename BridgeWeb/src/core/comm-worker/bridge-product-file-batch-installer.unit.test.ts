@@ -24,6 +24,7 @@ function fixtureInstallation(): BridgeProductViewInstallation {
 		throw new Error('File batch begin fixture missing.');
 	return {
 		certified: true,
+		staleRecords: [],
 		begin,
 		domain: 'default',
 		records: [

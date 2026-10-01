@@ -22,6 +22,7 @@ describe('certified File batch runtime application', () => {
 		if (begin.kind !== 'subscription.batchBegin') throw new Error('Expected File batch begin.');
 		const view = installBridgeProductFileBatch({
 			certified: true,
+			staleRecords: [],
 			begin,
 			domain: 'default',
 			records: [

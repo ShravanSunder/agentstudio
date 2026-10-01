@@ -321,6 +321,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				...sinks,
 				install: async (installation): Promise<void> => {
 					await sinks.install(installation);
+					if (installation.begin.mode !== 'snapshot') return;
 					this.#viewScopeOwner.recordCertifiedInstall(installation.begin);
 					this.#metadataRecoveryAttemptedSinceProgress = false;
 					sinks.certifiedInstallCompleted?.(installation.begin);
