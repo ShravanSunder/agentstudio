@@ -103,6 +103,7 @@ package final class BridgePaneController {
     let productSessionBootstrapSink: BridgeProductSessionBootstrapSink
     let productSessionBootstrapFailureSink: BridgeProductSessionBootstrapFailureSink
     let productSessionBootstrapDelay: AsyncDelay
+    let reviewConstructionProgress: BridgeReviewConstructionProgressWaitOwner
     let telemetrySessionBootstrapSink: BridgeTelemetrySessionBootstrapSink
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
@@ -165,6 +166,7 @@ package final class BridgePaneController {
         productSessionBootstrapFailureSink: @escaping BridgeProductSessionBootstrapFailureSink =
             BridgePaneController.dispatchProductSessionBootstrapFailure,
         productSessionBootstrapDelay: AsyncDelay = .taskSleep,
+        reviewConstructionProgress: BridgeReviewConstructionProgressWaitOwner = .init(),
         telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
             BridgePaneController.dispatchTelemetrySessionBootstrap,
         initialContributionTargetCommit:
@@ -262,6 +264,7 @@ package final class BridgePaneController {
         self.productSessionBootstrapSink = productSessionBootstrapSink
         self.productSessionBootstrapFailureSink = productSessionBootstrapFailureSink
         self.productSessionBootstrapDelay = productSessionBootstrapDelay
+        self.reviewConstructionProgress = reviewConstructionProgress
         self.telemetrySessionBootstrapSink = telemetrySessionBootstrapSink
         self.bootstrapScript = pageComposition.bootstrapScript
         self.page = pageComposition.page

@@ -18,6 +18,7 @@ package actor BridgeWorktreeProductConstructionCoordinator {
     func acquire(
         key: BridgeWorktreeProductConstructionKey,
         expectedEpoch: BridgeWorktreeFreshnessEpoch? = nil,
+        reviewProgress: BridgeReviewConstructionProgressSink? = nil,
         build:
             @escaping @Sendable (BridgeWorktreeProductConstructionContext) async throws
             -> BridgeWorktreeProductConstructionArtifact
@@ -39,6 +40,7 @@ package actor BridgeWorktreeProductConstructionCoordinator {
                     leaseNonce: leaseNonce,
                     cancellationState: cancellationState,
                     continuation: continuation,
+                    reviewProgress: reviewProgress,
                     build: build
                 )
             }
@@ -168,6 +170,7 @@ package actor BridgeWorktreeProductConstructionCoordinator {
         leaseNonce: UInt64,
         cancellationState: BridgeConstructionCancellationState,
         continuation: CheckedContinuation<BridgeWorktreeProductConstructionLease, any Error>,
+        reviewProgress: BridgeReviewConstructionProgressSink?,
         build:
             @escaping @Sendable (BridgeWorktreeProductConstructionContext) async throws
             -> BridgeWorktreeProductConstructionArtifact
@@ -186,7 +189,8 @@ package actor BridgeWorktreeProductConstructionCoordinator {
                 let waiter = BridgeConstructionWaiter(
                     leaseNonce: leaseNonce,
                     cancellationState: cancellationState,
-                    continuation: continuation
+                    continuation: continuation,
+                    reviewProgress: reviewProgress
                 )
                 entry.waiters[leaseNonce] = waiter
                 entryNonceByWaiterNonce[leaseNonce] = entryNonce
@@ -219,7 +223,8 @@ package actor BridgeWorktreeProductConstructionCoordinator {
         let waiter = BridgeConstructionWaiter(
             leaseNonce: leaseNonce,
             cancellationState: cancellationState,
-            continuation: continuation
+            continuation: continuation,
+            reviewProgress: reviewProgress
         )
         let entry = BridgeConstructionEntry(
             identity: identity,
@@ -241,7 +246,10 @@ package actor BridgeWorktreeProductConstructionCoordinator {
         let context = BridgeWorktreeProductConstructionContext(
             key: identity.key,
             epoch: identity.epoch,
-            entryNonce: entryNonce
+            entryNonce: entryNonce,
+            reviewProgress: { [weak self] phase in
+                await self?.reportReviewProgress(phase, entryNonce: entryNonce, epoch: identity.epoch)
+            }
         )
         // Construction must not inherit this coordinator's actor isolation.
         // swiftlint:disable:next no_task_detached

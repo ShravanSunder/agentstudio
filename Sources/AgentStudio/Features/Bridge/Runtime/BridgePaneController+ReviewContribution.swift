@@ -16,10 +16,13 @@ extension BridgePaneController {
         guard productAdmission.withValidAdmission({ true }) == true else { return .rejected }
         guard let contributionTargetCommit
         else {
-            reviewGitRefreshSeedHolder.retire()
-            productAdmissionGate.close()
-            refreshAdmissionCoordinator.close()
-            return .rejected
+            return failCurrentReviewComparisonTarget(
+                request.target,
+                workerDerivationEpoch: workerDerivationEpoch,
+                productAdmission: productAdmission,
+                failureKind: "targetCommitUnavailable",
+                retryable: true
+            )
         }
         guard
             let targetAdmission = productAdmission.withValidAdmission({
@@ -52,17 +55,18 @@ extension BridgePaneController {
             replacedLineage = false
         case .paneMissing, .notBridgePane, .notWorkspaceSource:
             reviewGitRefreshSeedHolder.retire()
-            productAdmissionGate.close()
-            refreshAdmissionCoordinator.close()
             return .rejected
         }
         guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
             canonicalBaseline?.contributionTarget == request.target
         else {
-            reviewGitRefreshSeedHolder.retire()
-            productAdmissionGate.close()
-            refreshAdmissionCoordinator.close()
-            return .rejected
+            return failCurrentReviewComparisonTarget(
+                request.target,
+                workerDerivationEpoch: workerDerivationEpoch,
+                productAdmission: productAdmission,
+                failureKind: "targetMismatch",
+                retryable: false
+            )
         }
 
         guard
@@ -92,6 +96,39 @@ extension BridgePaneController {
         refreshAdmissionCoordinator.advanceAuthority(for: .review)
         retireActiveReviewRefreshTask()
         scheduleRetainedReviewPackageBuildIfPossible(admissionInput: .explicitTarget)
+        return .applied
+    }
+
+    private func failCurrentReviewComparisonTarget(
+        _ target: WorkspaceReviewContributionTarget,
+        workerDerivationEpoch: Int,
+        productAdmission: BridgeProductAdmissionContext,
+        failureKind: String,
+        retryable: Bool
+    ) -> BridgePaneReviewComparisonEffectDisposition {
+        let didFailCurrentTarget =
+            productAdmission.withValidAdmission {
+                refreshAdmissionCoordinator.workAdmissionSource.withCurrentReviewComparisonIntent(
+                    workerDerivationEpoch: workerDerivationEpoch,
+                    productAdmission: productAdmission
+                ) {
+                    let reviewGeneration = nextReviewGeneration.next()
+                    nextReviewGeneration = reviewGeneration
+                    refreshAdmissionCoordinator.beginAndFailReviewComparisonAttempt(
+                        activeTarget: target,
+                        reviewGeneration: reviewGeneration.rawValue,
+                        failureKind: failureKind,
+                        retryable: retryable
+                    )
+                    return true
+                } ?? false
+            } ?? false
+        guard didFailCurrentTarget else { return .superseded }
+        reviewGitRefreshSeedHolder.retire()
+        refreshAdmissionCoordinator.advanceAuthority(for: .review)
+        retireActiveReviewRefreshTask()
+        // fire-and-forget: publication joins the presentation tail; closeAndDrain awaits it
+        _ = scheduleProductPresentationPublication()
         return .applied
     }
 
@@ -176,17 +213,25 @@ extension BridgePaneController {
         return resolvedDefaultTarget
     }
 
-    func resolveContributionRequestIfNeeded(
-        _ request: BridgeReviewPipelineRequest
+    func captureContributionResolutionContext() -> BridgeReviewContributionResolutionContext {
+        .init(
+            source: bridgePaneState.source, provider: reviewSourceProvider, reviewedSubjectLabel: reviewedSubjectLabel)
+    }
+
+    @concurrent
+    nonisolated static func resolveContributionRequestIfNeeded(
+        _ request: BridgeReviewPipelineRequest,
+        context: BridgeReviewContributionResolutionContext,
+        progress: BridgeReviewConstructionProgressSink
     ) async throws -> BridgeReviewPipelineRequest {
-        guard case .workspace(_, let baseline) = bridgePaneState.source else { return request }
+        guard case .workspace(_, let baseline) = context.source else { return request }
         guard let baseline else {
             throw BridgeProviderFailure.providerFailed(
                 message: "Contribution target selection required"
             )
         }
         guard let symbolicTarget = baseline.contributionTarget else { return request }
-        let capture = try await reviewSourceProvider.captureContributionComparison(
+        let capture = try await context.provider.captureContributionComparison(
             BridgeContributionComparisonRequest(
                 symbolicTarget: symbolicTarget,
                 baseEndpoint: request.baseEndpoint,
@@ -197,12 +242,14 @@ extension BridgePaneController {
                 gitRefreshSeed: request.gitRefreshSeed
             )
         )
-        return try BridgeResolvedContributionRequestBuilder.build(
+        let resolved = try BridgeResolvedContributionRequestBuilder.build(
             request: request,
             symbolicTarget: symbolicTarget,
             capture: capture,
-            reviewedSubjectLabel: reviewedSubjectLabel
+            reviewedSubjectLabel: context.reviewedSubjectLabel
         )
+        progress(.contributionResolved)
+        return resolved
     }
 
     private var reviewedSubjectLabel: String? {
@@ -216,4 +263,10 @@ extension BridgePaneController {
         else { return nil }
         return normalized
     }
+}
+
+struct BridgeReviewContributionResolutionContext: Sendable {
+    let source: BridgePaneSource?
+    let provider: any BridgeReviewSourceProvider
+    let reviewedSubjectLabel: String?
 }

@@ -3,6 +3,10 @@ import Foundation
 
 @MainActor
 extension BridgePaneController {
+    var isReviewShownByPage: Bool {
+        activeViewerModeSignalState.acceptedMode == .review
+    }
+
     func handleCommittedProductActiveViewerModeUpdate(
         sessionId: String,
         sequence: Int,
@@ -31,6 +35,7 @@ extension BridgePaneController {
                     activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
                         sessionId: sessionId,
                         lastSequence: nil,
+                        acceptedMode: nil,
                         acceptedSignal: nil
                     )
                 }
@@ -42,6 +47,7 @@ extension BridgePaneController {
                 }
 
                 activeViewerModeSignalState.lastSequence = sequence
+                activeViewerModeSignalState.acceptedMode = mode
                 didAcceptSequence = true
                 guard let activeSource else {
                     activeViewerModeSignalState.acceptedSignal = nil
@@ -104,7 +110,7 @@ extension BridgePaneController {
                 activeSource: activeSource
             )
         }
-        if rejectionReasons.isEmpty, didAcceptSequence, mode == .review {
+        if didAcceptSequence, activeViewerModeSignalState.acceptedMode == .review {
             scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
             scheduleRetainedReviewPackageBuildIfPossible()
             scheduleWorktreeProductCatchUpIfPossible()

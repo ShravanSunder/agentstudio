@@ -55,46 +55,51 @@ extension WebKitSerializedTests {
             #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
         }
 
-        @Test("noncanonical committed comparison result closes pane admission")
-        func noncanonicalCommittedComparisonResultClosesPaneAdmission() async throws {
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .branch(name: "main"))
-                ),
-                appRootURL: testBridgeAppRootURL(),
-                initialPaneActivity: .dormant,
-                contributionTargetCommit: { _ in
-                    .unchanged(
-                        BridgePaneState(
-                            panelKind: .diffViewer,
-                            source: .workspace(
-                                rootPath: "/tmp/worktree",
-                                baseline: .branch(name: "different-target")
-                            )
-                        )
-                    )
-                }
+        @Test("unavailable comparison commit owner publishes a retryable Review failure")
+        func unavailableComparisonCommitOwnerPublishesRetryableFailure() async throws {
+            let currentTarget = WorkspaceReviewContributionTarget.branch(name: "review-a")
+            let requestedTarget = WorkspaceReviewContributionTarget.branch(name: "review-b")
+            let comparison = makeComparison()
+            let controller = makeController(
+                target: currentTarget,
+                comparison: comparison,
+                provider: makeContributionProvider(comparison: comparison),
+                contributionTargetCommit: nil
             )
-            defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let fixture = try await makeBridgeReviewComparisonControlFixture(controller: controller)
+            defer {
+                fixture.releaseAllHeldEffects()
+                _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
+            }
+            try await fixture.openWorkerSession()
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
 
-            admitReviewComparisonIntent(
-                workerDerivationEpoch: 1,
-                controller: controller,
-                productAdmission: productAdmission
+            let dispatch = try await fixture.dispatchComparisonUpdate(
+                target: requestedTarget,
+                requestSequence: 2,
+                workerDerivationEpoch: 2
             )
+            let operationResult = try await fixture.readOperationResult(for: dispatch)
 
-            let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
-                BridgeProductReviewComparisonUpdateRequest(target: .branch(name: "stack/base")),
-                workerDerivationEpoch: 1,
-                productAdmission: productAdmission
-            )
+            let comparisonAfterFailure = controller.refreshAdmissionCoordinator
+                .productPresentationSnapshot.reviewComparison
+            #expect(operationResult.outcome == .succeeded)
+            #expect(comparisonAfterFailure?.activeTarget == requestedTarget)
+            if let attempt = comparisonAfterFailure?.attempt,
+                case .unavailable(let failureKind, let retryable) = attempt
+            {
+                #expect(failureKind == "targetCommitUnavailable")
+                #expect(retryable)
+            } else {
+                Issue.record("Expected a retryable typed failure when the Review target commit owner is unavailable")
+            }
+            #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed)
 
-            #expect(didAdopt == .rejected)
+            await fixture.finish()
             #expect(!controller.productAdmissionGate.diagnosticSnapshot.isOpen)
-            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .closed)
         }
 
         @Test("late completed comparison effect cannot overwrite the latest Review target")
@@ -127,6 +132,9 @@ extension WebKitSerializedTests {
                 _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
             }
             try await fixture.openWorkerSession()
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
 
             let effectADispatch = try await fixture.dispatchComparisonUpdate(
                 target: targetA,
@@ -193,7 +201,6 @@ extension WebKitSerializedTests {
                     return .unchanged(lastGoodState)
                 }
             )
-            _ = controller.surfaceSelectionAuthority.retainIntent(surface: .review)
             let fixture = try await makeBridgeReviewComparisonControlFixture(
                 controller: controller,
                 heldRequestSequences: [2, 3]
@@ -204,14 +211,9 @@ extension WebKitSerializedTests {
             }
             try await fixture.openWorkerSession()
 
-            let initialLoadResult = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
-            guard case .success = initialLoadResult
-            else {
-                Issue.record(
-                    "Expected the last-good Review package before newer intents; got \(String(describing: initialLoadResult))"
-                )
-                return
-            }
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
             let lastGoodPackageId = try #require(controller.paneState.diff.packageMetadata?.packageId)
 
             let effectADispatch = try await fixture.dispatchComparisonUpdate(
@@ -249,6 +251,109 @@ extension WebKitSerializedTests {
             await fixture.finish()
         }
 
+        @Test("a mismatched target fails only Review and a later target remains admitted")
+        func mismatchedTargetDoesNotClosePaneAdmission() async throws {
+            let targetA = WorkspaceReviewContributionTarget.branch(name: "review-a")
+            let mismatchedTarget = WorkspaceReviewContributionTarget.branch(name: "review-b")
+            let wrongCanonicalTarget = WorkspaceReviewContributionTarget.branch(name: "unexpected")
+            let mainTarget = WorkspaceReviewContributionTarget.branch(name: "main")
+            let stateA = paneState(for: targetA)
+            let mismatchedState = paneState(for: wrongCanonicalTarget)
+            let mainState = paneState(for: mainTarget)
+            let comparison = makeComparison()
+            let sourceProvider = makeContributionProvider(comparison: comparison)
+            let controller = makeController(
+                target: targetA,
+                comparison: comparison,
+                provider: sourceProvider,
+                contributionTargetCommit: { target in
+                    if target == targetA { return .applied(stateA) }
+                    if target == mismatchedTarget { return .unchanged(mismatchedState) }
+                    if target == mainTarget { return .applied(mainState) }
+                    return .unchanged(mainState)
+                }
+            )
+            let fixture = try await makeBridgeReviewComparisonControlFixture(controller: controller)
+            defer {
+                fixture.releaseAllHeldEffects()
+                _ = controller.beginTeardown()  // fire-and-forget: defer fallback; success awaits finish().
+            }
+            try await fixture.openWorkerSession()
+
+            let pageReviewBuilt = await showReviewPageAndAwaitInitialPackage(fixture)
+            #expect(pageReviewBuilt)
+            guard pageReviewBuilt else { return }
+            let acceptedADispatch = try await fixture.dispatchComparisonUpdate(
+                target: targetA,
+                requestSequence: 2,
+                workerDerivationEpoch: 2
+            )
+            let acceptedAResult = try await fixture.readOperationResult(for: acceptedADispatch)
+            #expect(acceptedAResult.outcome == .succeeded)
+            let acceptedATargetBuild = try #require(controller.activeReviewRefreshTask)
+            await acceptedATargetBuild.value
+            let packageA = try #require(controller.paneState.diff.packageMetadata)
+            let lastGoodIdentity = BridgePaneReviewDisplayedSnapshotIdentity(
+                packageId: packageA.packageId,
+                reviewGeneration: packageA.reviewGeneration.rawValue,
+                revision: packageA.revision
+            )
+
+            let mismatchDispatch = try await fixture.dispatchComparisonUpdate(
+                target: mismatchedTarget,
+                requestSequence: 3,
+                workerDerivationEpoch: 3
+            )
+            guard case .response(let mismatchAdmissionBytes) = mismatchDispatch else {
+                Issue.record("Expected the mismatched target operation admission")
+                return
+            }
+            let mismatchAdmission = try BridgeProductStrictJSON.decode(
+                BridgeProductOperationAdmittedResponse.self,
+                from: mismatchAdmissionBytes
+            )
+            await fixture.session.waitForOperationExecution(operationId: mismatchAdmission.operationId)
+            let comparisonAfterMismatch = controller.refreshAdmissionCoordinator
+                .productPresentationSnapshot.reviewComparison
+            #expect(comparisonAfterMismatch?.activeTarget == mismatchedTarget)
+            #expect(controller.bridgePaneState == stateA)
+            if let attempt = comparisonAfterMismatch?.attempt,
+                case .unavailable(let failureKind, let retryable) = attempt
+            {
+                #expect(failureKind == "targetMismatch")
+                #expect(!retryable)
+            } else {
+                Issue.record("Expected a target-scoped typed failure for the mismatched Review target")
+            }
+            #expect(comparisonAfterMismatch?.displayedSnapshot == .stale(lastGoodIdentity))
+            #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed)
+            // File and Comments share pane admission; a fresh token must remain available.
+            #expect(controller.productAdmissionGate.acquire()?.withValidAdmission({ true }) == true)
+
+            let mainDispatch = try await fixture.dispatchComparisonUpdate(
+                target: mainTarget,
+                requestSequence: 4,
+                workerDerivationEpoch: 4
+            )
+            if case .response = mainDispatch {
+                let mainResult = try await fixture.readOperationResult(for: mainDispatch)
+                let mainTargetBuild = try #require(controller.activeReviewRefreshTask)
+                await mainTargetBuild.value
+                #expect(mainResult.outcome == .succeeded)
+                #expect(controller.bridgePaneState == mainState)
+                #expect(controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+                #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed)
+            } else {
+                Issue.record("Expected main to remain admitted after a Review target mismatch")
+            }
+
+            await fixture.finish()
+            // finish tears the pane down; actual removal still ends E1.
+            #expect(!controller.productAdmissionGate.diagnosticSnapshot.isOpen)
+            #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .closed)
+        }
+
         @Test("contribution load publishes pending then exact settled snapshot identity")
         func contributionLoadPublishesPendingThenSettledSnapshotIdentity() async throws {
             let target = WorkspaceReviewContributionTarget.branch(name: "stack/base")
@@ -260,12 +365,23 @@ extension WebKitSerializedTests {
                 provider: provider
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let contributionCaptureGate = BridgeContributionCaptureGate()
+            await provider.setContributionCaptureGate(contributionCaptureGate)
             let initialPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
-            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            await sendPageActiveViewerMode(
+                .review,
+                controller: controller,
+                productAdmission: productAdmission,
+                sequence: 1
+            )
+            await contributionCaptureGate.waitForStart()
+            await contributionCaptureGate.releaseAll()
+            await waitForActiveReviewRefreshTaskToFinish(controller)
             let settledPresentation = controller.refreshAdmissionCoordinator.productPresentationSnapshot
 
-            guard case .success = result else {
+            guard controller.paneState.diff.packageMetadata != nil else {
                 Issue.record("Expected contribution load to succeed")
                 return
             }
@@ -309,7 +425,12 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    controller,
+                    productAdmission: productAdmission
+                )
             else {
                 Issue.record("Expected predecessor load to succeed")
                 return
@@ -327,7 +448,6 @@ extension WebKitSerializedTests {
                     baseOID: "replacement-base"
                 )
             )
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
             admitReviewComparisonIntent(
                 workerDerivationEpoch: 1,
                 controller: controller,
@@ -376,7 +496,17 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
             )
             defer { _ = fixture.controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            try await fixture.loadInitialReviewPackage()
+            // fire-and-forget: this fixture asserts Review package admission, not the transition handle.
+            _ = fixture.controller.applyBridgePaneActivity(.foreground)
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    fixture.controller,
+                    productAdmission: fixture.productAdmission
+                )
+            else {
+                Issue.record("Expected the shown Review page to build the initial package")
+                return
+            }
             _ = try await fixture.consumeQueuedMetadataFrames()
             let contributionCaptureGate = BridgeContributionCaptureGate()
             await fixture.reviewProvider.setContributionCaptureGate(contributionCaptureGate)
@@ -432,7 +562,12 @@ extension WebKitSerializedTests {
                 provider: provider
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    controller,
+                    productAdmission: productAdmission
+                )
             else {
                 Issue.record("Expected initial contribution load to succeed")
                 return
@@ -489,7 +624,12 @@ extension WebKitSerializedTests {
                 contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
             )
             defer { _ = controller.beginTeardown() }  // fire-and-forget: defer cannot await; cleanup only
-            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            guard
+                await showReviewPageAndAwaitInitialPackage(
+                    controller,
+                    productAdmission: productAdmission
+                )
             else {
                 Issue.record("Expected initial contribution load to succeed")
                 return
@@ -501,7 +641,6 @@ extension WebKitSerializedTests {
             let defaultTargetGate = BridgeContributionCaptureGate()
             await provider.setRepositoryDefaultTarget(successorDefaultTarget)
             await provider.setDefaultTargetGate(defaultTargetGate)
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
             admitReviewComparisonIntent(
                 workerDerivationEpoch: 1,
                 controller: controller,
@@ -613,4 +752,31 @@ private func admitReviewComparisonIntent(
             productAdmission: productAdmission
         )
     }
+}
+
+@MainActor
+private func showReviewPageAndAwaitInitialPackage(
+    _ fixture: BridgeReviewComparisonControlFixture
+) async -> Bool {
+    await showReviewPageAndAwaitInitialPackage(
+        fixture.controller,
+        productAdmission: fixture.productAdmission
+    )
+}
+
+@MainActor
+private func showReviewPageAndAwaitInitialPackage(
+    _ controller: BridgePaneController,
+    productAdmission: BridgeProductAdmissionContext
+) async -> Bool {
+    await sendPageActiveViewerMode(
+        .review,
+        controller: controller,
+        productAdmission: productAdmission,
+        sequence: 1
+    )
+    if let initialBuild = controller.activeReviewRefreshTask {
+        await initialBuild.value
+    }
+    return controller.paneState.diff.packageMetadata != nil
 }

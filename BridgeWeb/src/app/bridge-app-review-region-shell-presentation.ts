@@ -50,7 +50,6 @@ export function bridgeReviewRegionShellPresentation(props: {
 	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
 	readonly renderFulfillmentCoordinator: BridgePaneSurfaceClient['renderFulfillmentCoordinator'];
 	readonly reviewSourceSlice: BridgeReviewRenderSnapshotController['reviewSourceSlice'];
-	readonly reviewRefreshStatusText: string | null;
 	readonly selectedCodeViewItem: BridgeReviewRenderSnapshotController['selectedCodeViewItem'];
 	readonly selectedContentAvailability: BridgeReviewRenderSnapshotController['selectedContentAvailability'];
 	readonly selectedItemId: string | null;
@@ -143,7 +142,6 @@ export function bridgeReviewRegionShellPresentation(props: {
 			onTreeVisibleItemIdsChange: props.setReviewViewportItemIds,
 			projection: props.presentationSnapshot.projection,
 			reviewPackage: props.presentationSnapshot.reviewPackage,
-			reviewRefreshStatusText: props.reviewRefreshStatusText,
 			reviewTreeRows: props.presentationSnapshot.reviewTreeRows,
 			selectedCanvasLoadingReason: selectedContentIsLoading ? 'content' : null,
 			selectedCodeViewItem: props.selectedCodeViewItem,

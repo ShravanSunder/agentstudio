@@ -492,7 +492,8 @@ private struct HeldProviderSessionHarness {
             adapter: BridgeProductSchemeAdapter(
                 session: session,
                 provider: provider,
-                productAdmissionGate: BridgeProductAdmissionGate()
+                productAdmissionGate: BridgeProductAdmissionGate(),
+                installationAdmissionGate: BridgeProductAdmissionGate()
             ),
             capabilityHeader: BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes),
             clock: clock,

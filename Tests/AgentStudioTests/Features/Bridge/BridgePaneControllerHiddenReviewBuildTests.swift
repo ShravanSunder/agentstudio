@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioGit
+import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
@@ -14,11 +15,14 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("hidden Review retains initial intake and builds once on show")
+    @Test("hidden Review defers its progress deadline and builds within the window on show")
     func hiddenReviewRetainsInitialIntakeUntilShown() async throws {
         // Arrange
         let facts = try BridgePaneReviewBuildAdmissionTrace()
+        let progressClock = TestPushClock()
+        let progressOwner = BridgeReviewConstructionProgressWaitOwner(clock: progressClock)
         let fixture = try await makeRefreshAdmissionIntegrationFixture(
+            reviewConstructionProgress: progressOwner,
             reviewBuildAdmissionFactSink: facts.source.sink
         )
         await bringPaneToForeground(fixture)
@@ -50,12 +54,49 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 0)
         #expect(fixture.controller.activeReviewRefreshTask == nil)
         #expect(fixture.controller.pendingReviewPackageBuildReasons.contains(.initialIntake))
+        #expect(progressOwner.activeWaitCount() == 0)
+        #expect(progressOwner.physicalTaskHandles().isEmpty)
+        #expect(progressClock.pendingSleepCount == 0)
+        progressClock.advance(by: AppPolicies.Bridge.reviewBuildProgressDeadline * 2)
+        #expect(progressClock.pendingSleepCount == 0)
+        #expect(progressOwner.activeWaitCount() == 0)
+        #expect(fixture.controller.paneState.diff.status != .error)
 
         // Act: the accepted Review-mode signal releases one build at the latest input.
-        await acceptReviewViewerMode(fixture, sequence: 2, requiresCommittedSource: false)
+        let shownComparison = HeldStep<Void>(
+            "shown Review comparison after hidden deadline window", cancellation: .holdThroughCancellation)
+        defer { shownComparison.release() }
+        await fixture.reviewProvider.setComparisonStep(shownComparison)
+        let didAdmitShownBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 2,
+            requiresCommittedSource: false
+        )
+        #expect(didAdmitShownBuild)
+        guard didAdmitShownBuild else {
+            shownComparison.release()
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
+        try await shownComparison.firstArrival()
+        let progressWaitStarted = progressOwner.activeWaitCount() == 1
+        #expect(progressWaitStarted)
+        guard progressWaitStarted else {
+            shownComparison.release()
+            _ = try await facts.nextAttemptOutcome()
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
+        await progressClock.waitForPendingSleepCount(atLeast: 1)
+        progressClock.advance(by: AppPolicies.Bridge.reviewBuildProgressDeadline - .seconds(1))
+        shownComparison.release()
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
 
         // Assert
+        #expect(progressOwner.activeWaitCount() == 0)
+        #expect(progressClock.pendingSleepCount == 0)
         #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 1)
         #expect(
             fixture.controller.paneState.diff.packageMetadata?.orderedItemIds
@@ -73,10 +114,25 @@ struct BridgePaneControllerHiddenReviewBuildTests {
             reviewBuildAdmissionFactSink: facts.source.sink
         )
         await bringPaneToForeground(fixture)
-        await acceptReviewViewerMode(fixture, sequence: 1, requiresCommittedSource: false)
+        let didAdmitInitialBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 1,
+            requiresCommittedSource: false
+        )
+        #expect(didAdmitInitialBuild)
+        guard didAdmitInitialBuild else {
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
         #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 1)
-        await acceptReviewViewerMode(fixture, sequence: 2, requiresCommittedSource: true)
+        let didAdmitDuplicateReviewBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 2,
+            requiresCommittedSource: true
+        )
+        #expect(!didAdmitDuplicateReviewBuild)
 
         await acceptFileViewerMode(fixture, sequence: 3)
         await setLatestComparison(fixture, fileId: "latest-resync")
@@ -108,7 +164,17 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         #expect(fixture.controller.pendingReviewPackageBuildReasons.contains(.productResync))
 
         // Act: select the visible Review source that matches the committed package.
-        await acceptReviewViewerMode(fixture, sequence: 4, requiresCommittedSource: true)
+        let didAdmitResyncBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 4,
+            requiresCommittedSource: true
+        )
+        #expect(didAdmitResyncBuild)
+        guard didAdmitResyncBuild else {
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
 
         // Assert
@@ -176,7 +242,17 @@ struct BridgePaneControllerHiddenReviewBuildTests {
 
         // Act: a newer target input arrives before Review becomes visible.
         await setLatestContributionCapture(fixture, fileId: "latest-target")
-        await acceptReviewViewerMode(fixture, sequence: 2, requiresCommittedSource: false)
+        let didAdmitExplicitTargetBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 2,
+            requiresCommittedSource: false
+        )
+        #expect(didAdmitExplicitTargetBuild)
+        guard didAdmitExplicitTargetBuild else {
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
 
         // Assert
@@ -197,10 +273,25 @@ struct BridgePaneControllerHiddenReviewBuildTests {
             reviewBuildAdmissionFactSink: facts.source.sink
         )
         await bringPaneToForeground(fixture)
-        await acceptReviewViewerMode(fixture, sequence: 1, requiresCommittedSource: false)
+        let didAdmitInitialBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 1,
+            requiresCommittedSource: false
+        )
+        #expect(didAdmitInitialBuild)
+        guard didAdmitInitialBuild else {
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
         #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 1)
-        await acceptReviewViewerMode(fixture, sequence: 2, requiresCommittedSource: true)
+        let didAdmitDuplicateReviewBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 2,
+            requiresCommittedSource: true
+        )
+        #expect(!didAdmitDuplicateReviewBuild)
 
         await acceptFileViewerMode(fixture, sequence: 3)
         await setLatestComparison(fixture, fileId: "intermediate-catch-up")
@@ -252,7 +343,17 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         )
 
         // Act: showing Review admits the retained catch-up at the latest provider input.
-        await acceptReviewViewerMode(fixture, sequence: 4, requiresCommittedSource: true)
+        let didAdmitCatchUp = await acceptReviewViewerMode(
+            fixture,
+            sequence: 4,
+            requiresCommittedSource: true
+        )
+        #expect(didAdmitCatchUp)
+        guard didAdmitCatchUp else {
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
 
         // Assert
@@ -283,7 +384,18 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         )
         await fixture.reviewProvider.setComparisonStep(heldBuildInput)
         await setLatestComparison(fixture, fileId: "captured-before-hide")
-        await acceptReviewViewerMode(fixture, sequence: 1, requiresCommittedSource: false)
+        let didAdmitInitialBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 1,
+            requiresCommittedSource: false
+        )
+        #expect(didAdmitInitialBuild)
+        guard didAdmitInitialBuild else {
+            heldBuildInput.release()
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
         let activeBuildAttempt = try await facts.nextAdmittedAttempt()
         let buildingReviewTask = fixture.controller.activeReviewRefreshTask
         #expect(buildingReviewTask != nil)
@@ -341,7 +453,17 @@ struct BridgePaneControllerHiddenReviewBuildTests {
         )
 
         // Act: showing Review starts one build against the latest desired input.
-        await acceptReviewViewerMode(fixture, sequence: 3, requiresCommittedSource: false)
+        let didAdmitLatestBuild = await acceptReviewViewerMode(
+            fixture,
+            sequence: 3,
+            requiresCommittedSource: false
+        )
+        #expect(didAdmitLatestBuild)
+        guard didAdmitLatestBuild else {
+            await fixture.finish()
+            try await facts.finish()
+            return
+        }
         #expect(try await facts.nextAttemptOutcome() == .succeeded)
 
         // Assert
@@ -365,16 +487,11 @@ private func acceptFileViewerMode(
     _ fixture: RefreshAdmissionIntegrationFixture,
     sequence: Int
 ) async {
-    await retainDesiredViewerSurface(.file, for: fixture)
-    await acceptViewerMode(
-        fixture,
-        sequence: sequence,
-        mode: .file,
-        activeSource: BridgeActiveViewerSource(
-            protocolId: .worktreeFile,
-            streamId: "file:\(fixture.controller.paneId.uuidString)",
-            generation: 1
-        )
+    await sendPageActiveViewerMode(
+        .file,
+        controller: fixture.controller,
+        productAdmission: fixture.productAdmission,
+        sequence: sequence
     )
 }
 
@@ -383,8 +500,9 @@ private func acceptReviewViewerMode(
     _ fixture: RefreshAdmissionIntegrationFixture,
     sequence: Int,
     requiresCommittedSource: Bool
-) async {
-    await retainDesiredViewerSurface(.review, for: fixture)
+) async -> Bool {
+    let comparisonRequestCountBefore = await fixture.reviewProvider.recordedComparisonRequestsCount()
+    let contributionRequestCountBefore = await fixture.reviewProvider.recordedContributionRequests()
     let activeSource: BridgeActiveViewerSource?
     if requiresCommittedSource,
         let publication = fixture.controller.reviewPublicationCoordinator
@@ -399,40 +517,20 @@ private func acceptReviewViewerMode(
         activeSource = nil
     }
     #expect(!requiresCommittedSource || activeSource != nil)
-    await acceptViewerMode(
-        fixture,
+    await sendPageActiveViewerMode(
+        .review,
+        controller: fixture.controller,
+        productAdmission: fixture.productAdmission,
         sequence: sequence,
-        mode: .review,
         activeSource: activeSource
     )
-}
-
-@MainActor
-private func retainDesiredViewerSurface(
-    _ surface: BridgeProductSurface,
-    for fixture: RefreshAdmissionIntegrationFixture
-) async {
-    guard fixture.controller.retainedViewerSurface != surface else { return }
-    #expect(fixture.controller.requestViewerSurface(surface))
-    let selectionTransition = fixture.controller.surfaceSelectionTransitionTail
-    #expect(await selectionTransition?.value == true)
-    #expect(fixture.controller.retainedViewerSurface == surface)
-}
-
-@MainActor
-private func acceptViewerMode(
-    _ fixture: RefreshAdmissionIntegrationFixture,
-    sequence: Int,
-    mode: BridgeActiveViewerMode,
-    activeSource: BridgeActiveViewerSource?
-) async {
-    await fixture.controller.handleCommittedProductActiveViewerModeUpdate(
-        sessionId: fixture.controller.paneId.uuidString,
-        sequence: sequence,
-        mode: mode,
-        activeSource: activeSource,
-        productAdmission: fixture.productAdmission
-    )
+    if fixture.controller.activeReviewRefreshTask != nil {
+        return true
+    }
+    let comparisonRequestCountAfter = await fixture.reviewProvider.recordedComparisonRequestsCount()
+    let contributionRequestCountAfter = await fixture.reviewProvider.recordedContributionRequests()
+    return comparisonRequestCountAfter > comparisonRequestCountBefore
+        || contributionRequestCountAfter.count > contributionRequestCountBefore.count
 }
 
 @MainActor
@@ -499,123 +597,4 @@ private func postFilesystemEvent(
     )
     await fixture.controller.worktreeRefreshDriver.awaitActiveFileOperations()
     await fixture.controller.worktreeRefreshDriver.awaitRetiringFileOperations()
-}
-
-private struct BridgePaneReviewBuildAdmissionTrace {
-    let source:
-        LocalFactSource<
-            BridgePaneReviewBuildAdmissionScope,
-            BridgePaneReviewBuildAdmissionFact
-        >
-    let recorder:
-        FactRecorder<
-            BridgePaneReviewBuildAdmissionScope,
-            BridgePaneReviewBuildAdmissionFact
-        >
-
-    init() throws {
-        let vocabulary = FactVocabulary<
-            BridgePaneReviewBuildAdmissionScope,
-            BridgePaneReviewBuildAdmissionFact
-        >(
-            describeScope: { String(describing: $0) },
-            describeFact: { String(describing: $0) },
-            isClosing: isReviewBuildAdmissionFactClosing
-        )
-        let source = LocalFactSource<
-            BridgePaneReviewBuildAdmissionScope,
-            BridgePaneReviewBuildAdmissionFact
-        >(vocabulary: vocabulary)
-        self.source = source
-        recorder = try source.attach()
-    }
-
-    func expectNoAdmission(
-        for input: BridgePaneReviewBuildAdmissionInput,
-        from opening: OpeningPosition<BridgePaneReviewBuildAdmissionScope>
-    ) async -> Bool {
-        do {
-            try await recorder.expectNone(
-                of: { fact in
-                    if case .admitted = fact { true } else { false }
-                },
-                "Review build admission while hidden",
-                from: opening,
-                closedBy: { $0 == .deferredHidden(input: input) }
-            )
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    func nextAdmittedAttempt() async throws -> UUID {
-        let scope = try await recorder.expectNextOperation(
-            matching: { if case .attempt = $0 { true } else { false } },
-            opening: { if case .admitted = $0 { true } else { false } },
-            "Review package build admission"
-        )
-        guard case .attempt(let attempt) = scope else {
-            throw BridgePaneReviewBuildAdmissionTraceError.expectedAttemptScope
-        }
-        guard
-            case .admitted(attempt) = try await recorder.expectNext(
-                in: scope,
-                where: { $0 == .admitted(attempt: attempt) },
-                "admitted Review package build"
-            )
-        else {
-            throw BridgePaneReviewBuildAdmissionTraceError.expectedAdmission
-        }
-        return attempt
-    }
-
-    func nextAttemptOutcome() async throws -> BridgePaneReviewBuildAttemptOutcome {
-        let attempt = try await nextAdmittedAttempt()
-        return try await attemptOutcome(for: attempt)
-    }
-
-    func attemptOutcome(
-        for attempt: UUID
-    ) async throws -> BridgePaneReviewBuildAttemptOutcome {
-        guard
-            case .attemptEnded(_, let outcome) = try await recorder.expectNext(
-                in: .attempt(attempt),
-                where: {
-                    if case .attemptEnded(let endedAttempt, _) = $0 { endedAttempt == attempt } else { false }
-                },
-                "Review package build attempt end"
-            )
-        else {
-            throw BridgePaneReviewBuildAdmissionTraceError.expectedAttemptEnd
-        }
-        return outcome
-    }
-
-    func finish() async throws {
-        source.end()
-        try await recorder.finish()
-    }
-}
-
-private func isReviewBuildAdmissionFactClosing(
-    scope: BridgePaneReviewBuildAdmissionScope,
-    fact: BridgePaneReviewBuildAdmissionFact
-) -> Bool {
-    switch (scope, fact) {
-    case (.hiddenInput(let input), .deferredHidden(let closedInput)):
-        input == closedInput
-    case (.hiddenInput, .attemptEnded):
-        true
-    case (.attempt(let scopeAttempt), .attemptEnded(let attempt, _)):
-        scopeAttempt == attempt
-    default:
-        false
-    }
-}
-
-private enum BridgePaneReviewBuildAdmissionTraceError: Error {
-    case expectedAttemptScope
-    case expectedAdmission
-    case expectedAttemptEnd
 }

@@ -227,7 +227,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             case .committed(let deliveryDisposition) =
                 await commitReviewPackageLoadAndPublishDiffLoaded(commit)
         else {
-            if retainedViewerSurface != .review {
+            if !isReviewShownByPage {
                 retainReviewPackageBuildReasonIfCurrent(
                     reset: commit.reset,
                     productAdmission: commit.productAdmission
@@ -297,7 +297,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) -> Bool {
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission {
-                guard retainedViewerSurface == .review,
+                guard isReviewShownByPage,
                     reset.reviewGeneration == nextReviewGeneration,
                     reset.reviewAuthorityGeneration
                         == refreshAdmissionCoordinator.currentAuthorityGeneration(for: .review)
@@ -315,7 +315,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) -> Bool {
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission {
-                retainedViewerSurface == .review
+                isReviewShownByPage
                     && reset.reviewGeneration == nextReviewGeneration
                     && reset.reviewAuthorityGeneration
                         == refreshAdmissionCoordinator.currentAuthorityGeneration(for: .review)
@@ -326,7 +326,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     private func commitReviewPackageLoadAndPublishDiffLoaded(
         _ request: ReviewPackageLoadCommit
     ) async -> BridgeReviewPackageLoadCommitDisposition {
-        guard retainedViewerSurface == .review else { return .rejected }
+        guard isReviewShownByPage else { return .rejected }
         let commitDisposition = await commitReviewPackageLoad(
             request.load,
             expectedReviewGeneration: request.reset.reviewGeneration,
@@ -416,8 +416,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         let packageBuildStart = ContinuousClock.now
         let constructionResult: BridgeReviewPackageConstructionResult
         reviewLoadStage = "package"
-        let request = try await resolveContributionRequestIfNeeded(unresolvedRequest)
-        constructionResult = try await acquireReviewPackage(request)
+        constructionResult = try await acquireReviewPackage(unresolvedRequest)
         await recordSwiftTelemetry(
             name: "performance.bridge.swift.package_build",
             phase: "package_build",
@@ -563,7 +562,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneRefreshCatchUpOutcome {
-        guard retainedViewerSurface == .review,
+        guard isReviewShownByPage,
             foregroundWorkAdmission.withValidAdmission({ true }) == true,
             refreshAdmissionCoordinator.isRefreshPassCurrent(reservation)
         else { return .stale }
@@ -676,7 +675,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             guard
                 !Task.isCancelled,
-                retainedViewerSurface == .review,
+                isReviewShownByPage,
                 foregroundWorkAdmission.withValidAdmission({ true }) == true,
                 refreshAdmissionCoordinator.isRefreshPassCurrent(reservation),
                 refreshGeneration == nextReviewGeneration,
@@ -770,59 +769,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 return nextReviewGeneration
             }
         }.flatMap { $0 }.flatMap { $0 }
-    }
-
-    private func loadReviewPackageForRefresh(
-        _ currentPackage: BridgeReviewPackage,
-        reviewGeneration: BridgeReviewGeneration,
-        reservation: BridgePaneRefreshCatchUpReservation
-    ) async throws -> (
-        result: BridgeReviewPackageConstructionResult,
-        traceContext: BridgeTraceContext?
-    ) {
-        let packageTraceContext = makeRootTraceContext()
-        let packageBuildStart = ContinuousClock.now
-        let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
-        let unresolvedRequest = makeReviewRefreshPipelineRequest(
-            currentPackage: currentPackage,
-            reviewGeneration: reviewGeneration,
-            reservation: reservation
-        )
-        let request = try await resolveContributionRequestIfNeeded(unresolvedRequest)
-        let result = try await acquireReviewPackage(request)
-        await recordSwiftTelemetry(
-            name: "performance.bridge.swift.package_build",
-            phase: "package_build",
-            priorityHint: .cold,
-            traceContext: packageTraceContext,
-            stringAttributes: [
-                "agentstudio.bridge.package_build.reason": buildReason.rawValue
-            ],
-            durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                from: packageBuildStart.duration(to: ContinuousClock.now)
-            )
-        )
-        return (result, packageTraceContext)
-    }
-
-    private func makeReviewRefreshPipelineRequest(
-        currentPackage: BridgeReviewPackage,
-        reviewGeneration: BridgeReviewGeneration,
-        reservation: BridgePaneRefreshCatchUpReservation
-    ) -> BridgeReviewPipelineRequest {
-        BridgeReviewPipelineRequest(
-            packageId: currentPackage.packageId,
-            query: currentPackage.query,
-            baseEndpoint: currentPackage.baseEndpoint,
-            headEndpoint: currentPackage.headEndpoint,
-            checkpointIds: currentPackage.groups.map(\.groupId),
-            reviewGeneration: reviewGeneration,
-            generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000),
-            reviewAttemptAuthorityGeneration: reservation.authorityGeneration,
-            gitRefreshScope:
-                reservation.reviewRefreshScope ?? .complete(reason: .nonExactInput),
-            gitRefreshSeed: reviewGitRefreshSeedHolder.activeSeed
-        )
     }
 
     private static func isUnchangedSameLineageLoad(

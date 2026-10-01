@@ -43,6 +43,18 @@ final class BridgeSchemeHandlerRPCTests {
             ),
             encoding: .utf8
         )
+        let handlerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Transport/BridgeSchemeHandler.swift"
+            ),
+            encoding: .utf8
+        )
+        let claimSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Transport/BridgeProductSchemeSessionRouter.swift"
+            ),
+            encoding: .utf8
+        )
 
         // Act
         let relaysAdapterSequence = relaySource.contains(
@@ -55,11 +67,33 @@ final class BridgeSchemeHandlerRPCTests {
         // Assert
         #expect(!relaysAdapterSequence)
         #expect(!adapterCreatesNestedReplyChannel)
+        let normalizedHandler = handlerSource.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let normalizedRelay = relaySource.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let normalizedClaim = claimSource.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let normalizedAdapter = adapterSource.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let physicalStreamFactory = "AsyncThrowingStream<URLSchemeTaskResult, any Error> {"
+        let physicalStreamConstruction = physicalStreamFactory + " continuation in"
+        #expect(normalizedHandler.components(separatedBy: physicalStreamConstruction).count == 2)
+        #expect(normalizedHandler.contains("startProductReplyTask(request: request, continuation: continuation)"))
         #expect(
-            relaySource.contains(
-                "productAdmission: transportClaim.productAdmission"
-            )
+            normalizedRelay.components(separatedBy: "await transportClaim.route(").count == 2,
+            "The one physical continuation is routed once through its captured claim"
         )
+        #expect(normalizedRelay.contains("await transportClaim.route( request, continuation: continuation )"))
+        #expect(
+            normalizedClaim.contains(
+                "await adapter.route( request, productAdmission: productAdmission, continuation: continuation,"),
+            "The claim carries the same response continuation and original admission into the adapter"
+        )
+        #expect(normalizedClaim.components(separatedBy: "await adapter.route(").count == 2)
+        for forwardingSource in [normalizedRelay, normalizedClaim, normalizedAdapter] {
+            #expect(!forwardingSource.contains(physicalStreamFactory))
+            #expect(!forwardingSource.contains("BridgeProductURLSchemeReplyChannel<URLSchemeTaskResult>()"))
+            #expect(
+                !forwardingSource.contains(".reply(for:"), "Forwarding must not introduce a nested physical reply relay"
+            )
+            #expect(!forwardingSource.contains(".reply( for:"))
+        }
     }
 
     @Test

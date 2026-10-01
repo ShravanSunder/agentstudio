@@ -35,6 +35,7 @@ struct BridgeActiveViewerModeAcceptedSignal: Equatable, Sendable {
 struct BridgeActiveViewerModeSignalState: Equatable, Sendable {
     var sessionId: String?
     var lastSequence: Int?
+    var acceptedMode: BridgeActiveViewerMode?
     var acceptedSignal: BridgeActiveViewerModeAcceptedSignal?
 }
 
