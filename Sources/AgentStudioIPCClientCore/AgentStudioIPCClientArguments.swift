@@ -10,6 +10,7 @@ package struct IPCClientGlobalArguments: Sendable {
     package let configuration: AgentStudioIPCClientConfiguration
     package let methodArguments: [String]
     package let consumesTokenInput: Bool
+    package let reloadCatalog: Bool
     /// The endpoint came from the debug escrow file rather than a flag, the pane
     /// environment or runtime metadata. A stale escrow names a socket nobody is
     /// listening on, and that reads as "the debug app is gone", not as a
@@ -20,11 +21,13 @@ package struct IPCClientGlobalArguments: Sendable {
         configuration: AgentStudioIPCClientConfiguration,
         methodArguments: [String],
         consumesTokenInput: Bool,
-        endpointCameFromDebugEscrow: Bool = false
+        endpointCameFromDebugEscrow: Bool = false,
+        reloadCatalog: Bool = false
     ) {
         self.configuration = configuration
         self.methodArguments = methodArguments
         self.consumesTokenInput = consumesTokenInput
+        self.reloadCatalog = reloadCatalog
         self.endpointCameFromDebugEscrow = endpointCameFromDebugEscrow
     }
 }
@@ -39,6 +42,7 @@ package enum AgentStudioIPCClientArguments {
         var explicitSocketPath: String?
         var metadataURL: URL?
         var consumesTokenInput = false
+        var reloadCatalog = false
         while index < arguments.count, arguments[index].hasPrefix("--") {
             let option = arguments[index]
             index += 1
@@ -47,6 +51,9 @@ package enum AgentStudioIPCClientArguments {
                 explicitSocketPath = try takeValue(arguments, index: &index)
             case "--metadata":
                 metadataURL = URL(fileURLWithPath: try takeValue(arguments, index: &index))
+            case "--reload-catalog":
+                guard !reloadCatalog else { throw invalidArguments() }
+                reloadCatalog = true
             case "--token-stdin":
                 guard !consumesTokenInput else { throw invalidArguments() }
                 consumesTokenInput = true
@@ -80,7 +87,7 @@ package enum AgentStudioIPCClientArguments {
         return IPCClientGlobalArguments(
             configuration: .init(socketPath: socket, authToken: token),
             methodArguments: methodArguments, consumesTokenInput: consumesTokenInput,
-            endpointCameFromDebugEscrow: debugEscrowCredential != nil
+            endpointCameFromDebugEscrow: debugEscrowCredential != nil, reloadCatalog: reloadCatalog
         )
     }
 

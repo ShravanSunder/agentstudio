@@ -62,17 +62,37 @@ package struct IPCBuiltInMethodRelationshipInputs: Sendable {
     }
 }
 
+/// The app supplies its policy; local clients leave the upper limit to that app.
+package enum IPCTerminalWaitUpperBound: Sendable {
+    case policy(maximumSeconds: Double)
+    case enforcedByServer
+
+    var parameterSchema: IPCJSONSchema {
+        switch self {
+        case .policy(let maximumSeconds): .number(minimum: 0, maximum: maximumSeconds)
+        case .enforcedByServer: .number(minimum: 0)
+        }
+    }
+
+    var exampleTimeoutSeconds: Double {
+        switch self {
+        case .policy(let maximumSeconds): min(1, maximumSeconds)
+        case .enforcedByServer: 1
+        }
+    }
+}
+
 package struct IPCBuiltInMethodCatalogInputs: Sendable {
-    package let terminalWaitMaximumSeconds: Double
+    package let terminalWaitUpperBound: IPCTerminalWaitUpperBound
     package let relationships: IPCBuiltInMethodRelationshipInputs
     package let examples: IPCBuiltInMethodExampleContext
 
     package init(
-        terminalWaitMaximumSeconds: Double,
+        terminalWaitUpperBound: IPCTerminalWaitUpperBound,
         relationships: IPCBuiltInMethodRelationshipInputs,
         examples: IPCBuiltInMethodExampleContext
     ) {
-        self.terminalWaitMaximumSeconds = terminalWaitMaximumSeconds
+        self.terminalWaitUpperBound = terminalWaitUpperBound
         self.relationships = relationships
         self.examples = examples
     }

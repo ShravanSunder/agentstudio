@@ -11,7 +11,7 @@ struct AppIPCCLILocalResolutionTests {
         arguments: [
             ["terminal.status", "--handle", "self"],
             ["pane.close", "--handle", "self"],
-            ["drawer.toggle", "--parentPaneHandle", "self"],
+            ["drawer.toggle", "--parent-pane-handle", "self"],
             ["session.query", "--handle", "self"],
             ["system.identify"],
         ])

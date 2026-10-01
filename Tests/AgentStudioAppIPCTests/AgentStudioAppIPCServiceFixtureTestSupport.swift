@@ -408,7 +408,7 @@ private func makeLiveServerBuiltInCatalog(
     let illustrativeId = UUIDv7.generate()
     return try IPCBuiltInMethodCatalog(
         inputs: IPCBuiltInMethodCatalogInputs(
-            terminalWaitMaximumSeconds: 86_400,
+            terminalWaitUpperBound: .policy(maximumSeconds: 86_400),
             relationships: IPCBuiltInMethodRelationshipInputs(
                 paneFocus: .noInteractiveIdentity,
                 paneClose: .noInteractiveIdentity,

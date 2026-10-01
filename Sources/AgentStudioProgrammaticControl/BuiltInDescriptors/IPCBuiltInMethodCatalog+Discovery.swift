@@ -37,13 +37,23 @@ extension IPCBuiltInMethodCatalog {
     /// composes and the provider hooks that call these methods run under short
     /// timeouts several times a turn.
     ///
-    /// `command.list` and `command.execute` are deliberately absent: their
-    /// arguments are defined by the running app, not by this binary.
+    /// All static method contracts are present. Limits remain server-owned:
+    /// the local wait descriptor accepts finite nonnegative durations without
+    /// copying the app's maximum. App command relationships are presentation
+    /// metadata, so local dispatch needs no interactive command identity.
+    /// `command.list` and `command.execute` remain live-catalog operations.
     package static func locallyResolvableDescriptors(
         examples: IPCBuiltInMethodExampleContext
     ) throws -> [IPCAnyMethodDescriptor] {
-        try bootstrapDescriptors(examples: examples)
-            + IPCSessionMethodDescriptors(examples: examples).erased
+        try IPCBuiltInMethodCatalog(
+            inputs: .init(
+                terminalWaitUpperBound: .enforcedByServer,
+                relationships: .init(
+                    paneFocus: .noInteractiveIdentity, paneClose: .noInteractiveIdentity,
+                    drawerToggle: .noInteractiveIdentity, drawerAddPane: .noInteractiveIdentity,
+                    bridgeDiffLoad: .noInteractiveIdentity, bridgeFileViewOpen: .noInteractiveIdentity),
+                examples: examples)
+        ).erasedDescriptors
     }
 
     /// Whether these arguments name one of `descriptors`, either by method name
@@ -82,7 +92,7 @@ extension IPCBuiltInMethodCatalog {
             maximumWait = 0
         }
         let inputs = IPCBuiltInMethodCatalogInputs(
-            terminalWaitMaximumSeconds: maximumWait,
+            terminalWaitUpperBound: .policy(maximumSeconds: maximumWait),
             relationships: .init(
                 paneFocus: methods["pane.focus"]?.commandRelationship ?? .noInteractiveIdentity,
                 paneClose: methods["pane.close"]?.commandRelationship ?? .noInteractiveIdentity,

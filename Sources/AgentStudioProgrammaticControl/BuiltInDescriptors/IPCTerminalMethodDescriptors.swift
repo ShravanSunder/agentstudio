@@ -84,13 +84,13 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         let waitParameters = IPCTerminalWaitParams(
             handle: "self",
             condition: .titleChanged,
-            timeoutSeconds: min(1, inputs.terminalWaitMaximumSeconds),
+            timeoutSeconds: inputs.terminalWaitUpperBound.exampleTimeoutSeconds,
             afterSequence: nil
         )
         return try IPCMethodDescriptor(
             name: "terminal.wait",
             description: "Wait for one bounded terminal condition.",
-            parameterSchema: try Self.waitParameterSchema(maximumSeconds: inputs.terminalWaitMaximumSeconds),
+            parameterSchema: try Self.waitParameterSchema(upperBound: inputs.terminalWaitUpperBound),
             resultSchema: try IPCTerminalWaitResult.ipcSchema(),
             examples: [
                 .init(
@@ -145,7 +145,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         ]
     }
 
-    private static func waitParameterSchema(maximumSeconds: Double) throws -> IPCJSONSchema {
+    private static func waitParameterSchema(upperBound: IPCTerminalWaitUpperBound) throws -> IPCJSONSchema {
         .object(fields: [
             IPCRequestSchemaFields.pane(),
             .init(
@@ -153,7 +153,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
                 schema: try IPCTerminalWaitCondition.ipcSchema()),
             .init(
                 name: "timeoutSeconds", description: "Finite bounded wait duration in seconds",
-                schema: .number(minimum: 0, maximum: maximumSeconds)),
+                schema: upperBound.parameterSchema),
             .optional(
                 "afterSequence", description: "Observe only events after this terminal sequence",
                 schema: IPCSchemaScalars.unsignedInteger),

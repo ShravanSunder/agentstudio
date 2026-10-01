@@ -353,6 +353,10 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
     /// client, answers them: a pane agent hears `notYetAllowed` by name.
     private let recognizedUnexposedIdentifiers: Set<IPCCommandIdentifier>
 
+    var commandDescriptors: [IPCCommandDescriptor] {
+        commandsByIdentifier.values.sorted { $0.id.rawValue < $1.id.rawValue }
+    }
+
     fileprivate init(
         commands: [IPCCommandDescriptor],
         recognizedUnexposedCommands: [IPCRecognizedUnexposedName],

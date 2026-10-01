@@ -157,6 +157,50 @@ struct IPCBuiltInMethodCatalogTests {
         #expect(properties["timeoutSeconds"]?["maximum"] as? Double == suppliedMaximum)
     }
 
+    @Test("the server policy keeps the previously advertised wait schema bytes")
+    func serverWaitSchemaRemainsByteIdentical() throws {
+        let descriptor = try makeCatalog(waitMaximum: 9).terminal.terminalWait
+        let previousSchema = IPCJSONSchema.object(fields: [
+            IPCRequestSchemaFields.pane(),
+            .init(
+                name: "condition", description: "Terminal condition to observe",
+                schema: try IPCTerminalWaitCondition.ipcSchema()),
+            .init(
+                name: "timeoutSeconds", description: "Finite bounded wait duration in seconds",
+                schema: .number(minimum: 0, maximum: 9)),
+            .optional(
+                "afterSequence", description: "Observe only events after this terminal sequence",
+                schema: IPCSchemaScalars.unsignedInteger),
+        ])
+
+        #expect(try descriptor.contract.parameterSchema.jsonSchemaData() == previousSchema.jsonSchemaData())
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        #expect(try encoder.encode(descriptor.contract.parameterSchema) == encoder.encode(previousSchema))
+    }
+
+    @Test("local wait leaves the upper bound to the server while rejecting negative input")
+    func localWaitUpperBoundIsEnforcedByServer() throws {
+        let local = try #require(
+            IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: fixtureContext)
+                .first { $0.metadata.name == "terminal.wait" })
+        let abovePolicy = Data(#"{"handle":"self","condition":"titleChanged","timeoutSeconds":10}"#.utf8)
+
+        _ = try local.normalizeParameters(abovePolicy)
+        #expect(throws: IPCSchemaValidationError.self) {
+            try makeCatalog(waitMaximum: 9).terminal.terminalWait.decodeParameters(from: abovePolicy)
+        }
+        #expect(throws: IPCSchemaValidationError.self) {
+            try local.normalizeParameters(
+                Data(#"{"handle":"self","condition":"titleChanged","timeoutSeconds":-1}"#.utf8))
+        }
+        guard case .object(let fields) = local.metadata.parameterSchema else {
+            Issue.record("local wait parameters must be an object")
+            return
+        }
+        #expect(fields.first { $0.name == "timeoutSeconds" }?.schema == .number(minimum: 0))
+    }
+
     @Test("terminal wait documents timeout and replay-gap runtime failures")
     func terminalWaitDocumentsTimeoutAndReplayGap() throws {
         let catalog = try makeCatalog(waitMaximum: 9)
@@ -279,7 +323,7 @@ struct IPCBuiltInMethodCatalogTests {
     private func makeCatalog(waitMaximum: Double) throws -> IPCBuiltInMethodCatalog {
         try IPCBuiltInMethodCatalog(
             inputs: .init(
-                terminalWaitMaximumSeconds: waitMaximum,
+                terminalWaitUpperBound: .policy(maximumSeconds: waitMaximum),
                 relationships: relationships,
                 examples: fixtureContext
             )
