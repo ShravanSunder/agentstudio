@@ -2,8 +2,9 @@ import AgentStudioCore
 import Foundation
 
 extension BridgePaneProductFileMetadataSource {
-    func currentSource() -> BridgeProductFileSourceCurrentResult {
-        .available(
+    func currentSource() async throws(BridgeWorktreeFileRootAccessError) -> BridgeProductFileSourceCurrentResult {
+        try await BridgeWorktreeFileRootAccess.validateRoot(authority.worktree.path)
+        return .available(
             BridgeProductFileSourceSpec(
                 currentAuthorityRepoId: authority.worktree.repoId,
                 currentAuthorityRootPathToken: authority.worktree.stableKey,

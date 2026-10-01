@@ -187,8 +187,8 @@ actor BridgeWebKitTrackingFileMetadataSource:
         self.source = source
     }
 
-    func currentSource() async -> BridgeProductFileSourceCurrentResult {
-        await source.currentSource()
+    func currentSource() async throws(BridgeWorktreeFileRootAccessError) -> BridgeProductFileSourceCurrentResult {
+        try await source.currentSource()
     }
 
     func captureKeyedSnapshot(

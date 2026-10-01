@@ -52,7 +52,7 @@ struct BridgeFileMetadataSourceDiagnostics: Equatable, Sendable {
 }
 
 protocol BridgePaneProductFileMetadataProducing: Sendable {
-    func currentSource() async -> BridgeProductFileSourceCurrentResult
+    func currentSource() async throws(BridgeWorktreeFileRootAccessError) -> BridgeProductFileSourceCurrentResult
     func captureKeyedSnapshot(
         subscriptionId: String,
         demand: BridgePaneProductFileViewDemand,
