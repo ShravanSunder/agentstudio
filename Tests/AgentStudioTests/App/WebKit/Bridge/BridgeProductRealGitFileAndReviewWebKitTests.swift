@@ -87,8 +87,6 @@ extension WebKitSerializedTests {
 
         private enum TransactionalPublicationTestError: Error {
             case initialPublicationDidNotApply
-            case initialPublicationEnded(String)
-            case metadataSubscriptionsDidNotOpen
             case publicationFailureDidNotReopenReview
             case replayDidNotApply
         }
@@ -401,7 +399,7 @@ extension WebKitSerializedTests {
                 ),
                 gitReadContext: gitReadContext,
                 telemetryRuntimePolicy: .live,
-                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
+                telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
                 telemetryRecorder: input.traceRecorder,
                 initialPaneActivity: .foreground,
                 productSessionDependencies: BridgePaneProductSessionDependencies(
@@ -426,7 +424,11 @@ extension WebKitSerializedTests {
                 harness.controller
             ) { controller in
                 controller.loadApp()
-                let openedSubscriptions = try await waitForMetadataSubscriptions(harness)
+                let openedSubscriptions = try await BridgeProductWebKitReplayStartup.prepare(
+                    .init(
+                        controller: controller, controllerTarget: harness.controllerTarget,
+                        fileSource: harness.fileMetadataSource, reviewSource: harness.reviewMetadataSource,
+                        traceRecorder: harness.traceRecorder))
                 #expect(!openedSubscriptions.file.subscriptionId.isEmpty)
                 #expect(!openedSubscriptions.review.subscriptionId.isEmpty)
                 let firstCheckpoint = try await prepareFirstPublicationCheckpoint(
@@ -442,34 +444,13 @@ extension WebKitSerializedTests {
             }
         }
 
-        private func waitForMetadataSubscriptions(
-            _ harness: TransactionalPublicationHarness
-        ) async throws -> (
-            file: BridgeProductWebKitCarrierSubscriptionIdentity,
-            review: BridgeProductWebKitCarrierSubscriptionIdentity
-        ) {
-            async let fileOpen = harness.fileMetadataSource.waitForFirstOpen()
-            async let reviewOpen = harness.reviewMetadataSource.waitForFirstOpen()
-            guard let file = await fileOpen, let review = await reviewOpen else {
-                throw TransactionalPublicationTestError.metadataSubscriptionsDidNotOpen
-            }
-            return (file, review)
-        }
-
         private func prepareFirstPublicationCheckpoint(
             controller: BridgePaneController,
             harness: TransactionalPublicationHarness
         ) async throws -> FirstPublicationCheckpoint {
-            let outcome = try await harness.controllerTarget.waitForFirstApplicationReceipt()
-            guard case .receipt(let firstReceipt) = outcome, firstReceipt.accepted else {
-                throw TransactionalPublicationTestError.initialPublicationEnded(
-                    await BridgeProductWebKitFirstApplicationDiagnostic.capture(
-                        .init(
-                            controller: controller, outcome: outcome, source: harness.reviewMetadataSource,
-                            traceRecorder: harness.traceRecorder))
-                )
-            }
             guard
+                let firstReceipt = harness.controllerTarget.applicationReceipts.first,
+                firstReceipt.accepted,
                 harness.controllerTarget.applicationReceipts.count == 1,
                 let publication = harness.controllerTarget.committedPublication(
                     productAdmission: harness.productAdmission
