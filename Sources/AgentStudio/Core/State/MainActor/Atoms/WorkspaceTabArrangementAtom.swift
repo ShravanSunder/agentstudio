@@ -567,7 +567,7 @@ package final class WorkspaceTabArrangementAtom {
                 continue
             }
             if drawerView.activeChildId == drawerPaneId {
-                drawerView.activeChildId = drawerView.layout.paneIds.first
+                drawerView.activeChildId = drawerView.layout.paneIds.first { !drawerView.minimizedPaneIds.contains($0) }
             }
             arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         }
