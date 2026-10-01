@@ -823,6 +823,7 @@ describe('Bridge comm worker runtime protocol Review preparation', () => {
 			'reviewCandidateStarted',
 			'reviewDisplayPatch',
 			'reviewCandidateReady',
+			'fileDisplayPatch',
 			'slicePatch',
 			'health',
 		]);

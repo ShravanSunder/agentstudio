@@ -591,6 +591,53 @@ describe('Bridge pane comm worker session', () => {
 		}
 	});
 
+	test('initial bootstrap failures exhaust the bounded budget and end in failed start', () => {
+		const snapshots: ExpectedBridgePaneCommWorkerSessionDiagnosticSnapshot[] = [];
+		const nativeBootstrapRequests: string[] = [];
+		const workerFactory = vi.fn<() => Worker>(() => new RecordingPaneCommWorker());
+		const client = new RecordingPaneCommWorkerClient();
+		const session = new BridgePaneCommWorkerSession({
+			workerFactory,
+			recordDiagnosticSnapshot: (snapshot): void => {
+				snapshots.push(snapshot);
+			},
+			requestNativeBootstrap: (reason): void => {
+				nativeBootstrapRequests.push(reason);
+			},
+		});
+		const dispatcher = session.createDispatcher({
+			bootstrapRequest: makeRuntimeBootstrapRequest('initial-failed-start'),
+			publishWorkerMessages: client.publish,
+		});
+		try {
+			dispatcher.dispatch(makeSelectCommand('before-initial-failure', 1, 'item-1', 'review'));
+			session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toEqual(['workerReplacement']);
+			for (let failureReply = 0; failureReply < 4; failureReply += 1)
+				session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toHaveLength(4);
+			expect(snapshots.at(-1)).toMatchObject({
+				state: 'failed',
+				failureReason: 'bootstrapBudgetExhausted',
+				nativeBootstrapInstallCount: 0,
+				queuedCommandCount: 0,
+			});
+			expect(workerFactory).not.toHaveBeenCalled();
+			expect(client.messages).toContainEqual(
+				expect.objectContaining({
+					requestId: 'before-initial-failure',
+					errorKind: 'workerUnavailable',
+				}),
+			);
+			session.handleNativeBootstrapFailure();
+			expect(nativeBootstrapRequests).toHaveLength(4);
+			expect(snapshots.at(-1)?.state).toBe('failed');
+		} finally {
+			dispatcher.dispose();
+			session.dispose();
+		}
+	});
+
 	test('re-requests native bootstrap after a failure reply within a bounded budget per replacement', async () => {
 		// Arrange
 		const firstWorker = new RecordingPaneCommWorker();
@@ -611,9 +658,6 @@ describe('Bridge pane comm worker session', () => {
 			publishWorkerMessages: (): void => {},
 		});
 		try {
-			// A failure reply with no replacement pending is not a request to retry.
-			session.handleNativeBootstrapFailure();
-			expect(nativeBootstrapRequests).toEqual([]);
 			session.installNativeBootstrap(makeNativeBootstrap('bounded-first-worker'));
 			await flushMicrotasks();
 			firstWorker.dispatchEvent(new Event('error'));

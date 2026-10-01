@@ -178,7 +178,7 @@ const bridgeWorkerFileStatusDisplayPayloadSchema = z.discriminatedUnion('state',
 			untracked: bridgeProductNonnegativeSequenceSchema.nullable(),
 		})
 		.strict(),
-	z.object({ state: z.literal('stale') }).strict(),
+	z.object({ state: z.enum(['loading', 'stale', 'failed', 'noSource']) }).strict(),
 ]);
 
 const bridgeWorkerFileStatusDisplayPatchSchema = z.discriminatedUnion('operation', [

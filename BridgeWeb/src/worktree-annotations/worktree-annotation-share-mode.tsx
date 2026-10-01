@@ -62,6 +62,7 @@ export function WorktreeAnnotationShareTrigger(props: {
 }
 
 export function WorktreeAnnotationShareModeRow(props: {
+	readonly regionIndicator?: ReactNode;
 	readonly children?: ReactNode | undefined;
 	readonly error: string | null;
 	readonly errorCanChooseFolder?: boolean | undefined;
@@ -117,6 +118,7 @@ export function WorktreeAnnotationShareModeRow(props: {
 			<DrawerHeader>
 				<div className="flex items-center justify-between gap-2">
 					<DrawerTitle>Annotations</DrawerTitle>
+					{props.regionIndicator}
 					<WorktreeAnnotationShareActionButton
 						ariaLabel="Close Annotations"
 						size="icon-sm"

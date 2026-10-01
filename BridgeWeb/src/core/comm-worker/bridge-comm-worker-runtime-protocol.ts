@@ -756,6 +756,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
 			},
 			onFileSourceUnavailable: (): void => {
+				const displayProjection = fileQueryProjection.applyDisplayPatches([
+					{ operation: 'upsert', payload: { state: 'noSource' }, slice: 'fileStatus' },
+				]);
+				for (const message of fileDisplayEventAuthority.publish({
+					epoch: productTransport.workerDerivationEpoch('file'),
+					patches: displayProjection.patches,
+				}))
+					port.postMessage(message);
 				requestReviewBackgroundWarmup('file-source-unavailable');
 			},
 			onFileMetadataFailure: (_error, workerDerivationEpoch): void => {
@@ -768,7 +776,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				latestSelectedFilePreparationRequest = null;
 				// A failed delivery retires preparation authority, not the last complete display.
 				const displayProjection = fileQueryProjection.applyDisplayPatches([
-					{ operation: 'upsert', payload: { state: 'stale' }, slice: 'fileStatus' },
+					{ operation: 'upsert', payload: { state: 'failed' }, slice: 'fileStatus' },
 				]);
 				for (const message of fileDisplayEventAuthority.publish({
 					epoch: workerDerivationEpoch,
