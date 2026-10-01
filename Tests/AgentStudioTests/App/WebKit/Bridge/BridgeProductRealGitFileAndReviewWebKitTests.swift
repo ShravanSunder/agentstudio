@@ -87,6 +87,7 @@ extension WebKitSerializedTests {
 
         private enum TransactionalPublicationTestError: Error {
             case initialPublicationDidNotApply
+            case initialPublicationEnded(String)
             case metadataSubscriptionsDidNotOpen
             case publicationFailureDidNotReopenReview
             case replayDidNotApply
@@ -225,8 +226,9 @@ extension WebKitSerializedTests {
             let paneId = UUIDv7.generate()
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
-            let traceRecorder = BridgeProductWebKitCarrierTraceRecorder()
             let controllerTarget = BridgeProductWebKitCarrierControllerTarget()
+            let traceRecorder = BridgeProductWebKitCarrierTraceRecorder(
+                firstApplication: controllerTarget.firstApplication)
             let fileMetadataSource = makeTrackingFileMetadataSource(
                 paneId: paneId,
                 repoId: repoId,
@@ -458,8 +460,16 @@ extension WebKitSerializedTests {
             controller: BridgePaneController,
             harness: TransactionalPublicationHarness
         ) async throws -> FirstPublicationCheckpoint {
-            guard let firstReceipt = await harness.controllerTarget.waitForFirstApplicationReceipt(),
-                firstReceipt.accepted,
+            let outcome = try await harness.controllerTarget.waitForFirstApplicationReceipt()
+            guard case .receipt(let firstReceipt) = outcome, firstReceipt.accepted else {
+                throw TransactionalPublicationTestError.initialPublicationEnded(
+                    await BridgeProductWebKitFirstApplicationDiagnostic.capture(
+                        .init(
+                            controller: controller, outcome: outcome, source: harness.reviewMetadataSource,
+                            traceRecorder: harness.traceRecorder))
+                )
+            }
+            guard
                 harness.controllerTarget.applicationReceipts.count == 1,
                 let publication = harness.controllerTarget.committedPublication(
                     productAdmission: harness.productAdmission

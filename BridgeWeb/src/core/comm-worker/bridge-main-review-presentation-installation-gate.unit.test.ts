@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest';
-import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 
 import {
 	FakeCandidateStore,
@@ -15,6 +14,7 @@ import {
 	createBridgeMainReviewPresentationInstallationGate as createBridgeMainReviewPresentationInstallationGateImpl,
 	type BridgeMainReviewRefreshLifecycleEvent,
 } from './bridge-main-review-presentation-installation-gate.js';
+import { createBridgeProductDeferred } from './bridge-product-async-queue.js';
 
 const ACTIVE = identity(1, '11');
 const CANDIDATE = identity(2, '12');
@@ -634,9 +634,15 @@ describe('Bridge main Review presentation installation gate', () => {
 			}
 			await sendReceipt(installedIdentity);
 		};
-		const gate = createBridgeMainReviewPresentationInstallationGate({ installationPort: port, store });
+		const gate = createBridgeMainReviewPresentationInstallationGate({
+			installationPort: port,
+			store,
+		});
 		try {
-			const firstInstall = gate.handleCandidateReady(candidateReady(CANDIDATE, 'ordinary', []), attention([]));
+			const firstInstall = gate.handleCandidateReady(
+				candidateReady(CANDIDATE, 'ordinary', []),
+				attention([]),
+			);
 			await receiptEntered.promise;
 			expect(store.presentation.activeIdentity).toEqual(CANDIDATE);
 			store.replaceCandidate(SUCCESSOR);
