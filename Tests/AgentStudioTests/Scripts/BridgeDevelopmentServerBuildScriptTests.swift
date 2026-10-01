@@ -23,6 +23,7 @@ struct BridgeDevelopmentServerBuildScriptTests {
             prebuild_swift_tests
             """, environment: environment)
         #expect(producer.exitCode == 0, "\(producer.output)")
+        #expect(!producer.output.contains("invocation_observation=unavailable"), "\(producer.output)")
         var producerArguments = try fixture.compilationArguments()
         producerArguments.removeAll { $0 == "--build-tests" }
 
@@ -120,7 +121,10 @@ private struct BridgeDevelopmentBuildFixture {
             at: projectRoot.appending(path: "scripts/swift-compilation-policy.sh"),
             to: buildSlot.rootURL.appending(path: "scripts/swift-compilation-policy.sh")
         )
-        for helperName in ["swift-test-helpers.sh", "xcb-helpers.sh", "filter-known-linker-warnings.sh"] {
+        for helperName in [
+            "swift-test-helpers.sh", "xcb-helpers.sh", "filter-known-linker-warnings.sh",
+            "swift-test-invocation-receipts.sh", "swift-test-invocation-receipts.pl",
+        ] {
             try FileManager.default.copyItem(
                 at: projectRoot.appending(path: "scripts/\(helperName)"),
                 to: buildSlot.rootURL.appending(path: "scripts/\(helperName)"))

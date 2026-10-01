@@ -15,8 +15,30 @@
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 # shellcheck source=scripts/swift-package-sandbox.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swift-package-sandbox.sh"
-# shellcheck source=scripts/swift-test-invocation-receipts.sh
-source "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.sh"
+# Observation support is optional to execution, but an incomplete installation
+# must be visible. Keep the original launcher and legacy hang evidence usable.
+if [ -r "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.sh" ] && \
+  [ -r "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.pl" ] && \
+  source "$(dirname "${BASH_SOURCE[0]}")/swift-test-invocation-receipts.sh"
+then
+  :
+else
+  echo "[${LOG_PREFIX:-test}] warning: invocation_observation=unavailable receipt support could not be loaded" >&2
+  swift_test_f2_begin_receipt() { :; }
+  swift_test_f2_collect_events() { :; }
+  swift_test_f2_finalize_resources() { :; }
+  swift_test_f2_attach_receipt() { :; }
+  swift_test_f2_begin_lane_accounting() { :; }
+  swift_test_f2_report_resource_table() { :; }
+  swift_test_f2_print_pending_waits() {
+    print_held_steps_unarrived_at_timeout "$2" "$3"
+  }
+  swift_test_f2_launch_command_group() {
+    shift # The receipt stem is irrelevant when observation support is absent.
+    swift_test_launch_command_group /bin/bash -c \
+      'unset SWIFT_TEST_F2_SIDECAR_LIST; exec "$@"' swift-test-no-receipts "$@"
+  }
+fi
 
 # Maximum test cases Swift Testing may run concurrently inside one test process.
 # OPT-IN, WITH NO DEFAULT, ON PURPOSE.
