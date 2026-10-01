@@ -457,6 +457,67 @@ struct SwiftLaneRunnerReportTests {
         #expect(result.output.contains("FAIL_CHILD_STATUS=7"))
     }
 
+    @Test("concurrent child streams keep long multibyte output lines intact")
+    func concurrentChildStreamsKeepMultibyteLinesIntact() async throws {
+        let fixtureDirectory = NSTemporaryDirectory() + "agentstudio-concurrent-lane-output-\(UUIDv7.generate())"
+        defer { try? FileManager.default.removeItem(atPath: fixtureDirectory) }
+
+        let command = #"""
+            set -euo pipefail
+            source scripts/swift-test-helpers.sh
+            LOG_PREFIX=writer-probe
+            TIMEOUT_SECONDS=60
+            BUILD_PATH='\#(fixtureDirectory)/build'
+            LANE_EVENT_STREAM_DIR='\#(fixtureDirectory)/events'
+            _XCB_BYPASS=1
+            export BUILD_PATH LANE_EVENT_STREAM_DIR _XCB_BYPASS
+            mkdir -p "$BUILD_PATH" "$LANE_EVENT_STREAM_DIR"
+
+            run_swift_with_timeout 'writer A' 60 /usr/bin/perl -e \
+              'my $glyph = "\xE2\x82\xAC"; my $body = $glyph x 65536; print "WRITER_A_START$body:WRITER_A_END\n";' build &
+            writer_a_pid=$!
+            run_swift_with_timeout 'writer B' 60 /usr/bin/perl -e \
+              'my $glyph = "\xE2\x82\xAC"; my $body = $glyph x 65536; print "WRITER_B_START$body:WRITER_B_END\n";' build &
+            writer_b_pid=$!
+
+            writer_a_status=0
+            wait "$writer_a_pid" || writer_a_status=$?
+            writer_b_status=0
+            wait "$writer_b_pid" || writer_b_status=$?
+            [ "$writer_a_status" -eq 0 ] && [ "$writer_b_status" -eq 0 ]
+            printf 'WRITER_TEST_COMPLETE\n'
+            """#
+
+        // Mise consumes the lane through a pipe. A regular-file capture shares
+        // one file offset across forked writers and can hide pipe interleaving.
+        let (exitCode, outputData) = try await withoutBlockingCooperativePool {
+            let outputPipe = Pipe()
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", command]
+            process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            process.standardOutput = outputPipe
+            process.standardError = outputPipe
+            try process.run()
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return (process.terminationStatus, outputData)
+        }
+        let output = String(data: outputData, encoding: .utf8)
+        #expect(exitCode == 0)
+        #expect(output != nil)
+        guard let output else { return }
+
+        let outputLines = output.split(separator: "\n")
+        let writerALines = outputLines.filter { $0.hasPrefix("WRITER_A_START") && $0.hasSuffix(":WRITER_A_END") }
+        let writerBLines = outputLines.filter { $0.hasPrefix("WRITER_B_START") && $0.hasSuffix(":WRITER_B_END") }
+        #expect(writerALines.count == 1)
+        #expect(writerBLines.count == 1)
+        #expect(writerALines.first?.filter { $0 == "€" }.count == 65_536)
+        #expect(writerBLines.first?.filter { $0 == "€" }.count == 65_536)
+        #expect(output.contains("WRITER_TEST_COMPLETE"))
+    }
+
     @Test("signal names are resolved only for signalled exits")
     func signalNamesAreResolvedOnlyForSignalledExits() async throws {
         let names = try await runBash(
