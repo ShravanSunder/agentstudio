@@ -107,7 +107,7 @@ See the [Architecture Overview](docs/architecture/README.md) for the full system
 
 ## Development
 
-[DeepWiki: Agent Studio](https://deepwiki.com/getagentstudio/agentstudio)
+[DeepWiki: Agent Studio](https://deepwiki.com/ShravanSunder/agentstudio)
 
 ### Prerequisites
 
