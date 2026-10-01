@@ -145,9 +145,8 @@ body:has([data-finale-state="ready"]) [data-topology-terminal-route] {
 }
 
 .chapter-caption__copy {
+  flex: 1;
   min-width: 0;
-  width: max(72ch, 60%);
-  max-width: calc(100% - 32px);
 }
 
 .chapter-caption__copy p,

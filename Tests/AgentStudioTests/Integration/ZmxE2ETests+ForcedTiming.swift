@@ -1,4 +1,5 @@
 import AgentStudioInfrastructure
+import AgentStudioTestHarness
 import Darwin
 import Foundation
 import Testing
@@ -40,20 +41,29 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// events on its own kqueue registration, separate from the real
     /// observer under test, so a test can assert on what the leader's argv
     /// looked like at each real exec without relying on the observer's own
-    /// settlement as the only signal. Event-driven: `waitForNextObservation`
-    /// suspends on a `CheckedContinuation` queue, never polls.
+    /// settlement as the only signal. Event-driven, through the typed-fact
+    /// harness: the DispatchSource callback appends each observation to a
+    /// `LocalFactSource` synchronously (matching `FactRecorder.append`'s own
+    /// "the owner calls this synchronously; it never creates a task"
+    /// contract), never a hand-built continuation queue.
     private final class IndependentLeaderExecWitness: @unchecked Sendable {
+        private static let scope = "leaderExec"
         private let source: any DispatchSourceProtocol
-        private let lock = NSLock()
-        private var pendingObservations: [LeaderExecObservation] = []
-        private var waiters: [CheckedContinuation<LeaderExecObservation, Never>] = []
+        private let recorder: FactRecorder<String, LeaderExecObservation>
 
-        init(terminalPID: Int32, startupToken: String) {
+        init(terminalPID: Int32, startupToken: String) throws {
+            let factSource = LocalFactSource(
+                vocabulary: FactVocabulary<String, LeaderExecObservation>(
+                    describeScope: { $0 },
+                    describeFact: { "tokenPresent=\($0.tokenPresent) exited=\($0.exited)" },
+                    isClosing: { _, fact in fact.exited }
+                ))
+            recorder = try factSource.attach()
+            let sink = factSource.sink
             let source = DispatchSource.makeProcessSource(
                 identifier: terminalPID, eventMask: [.exit, .exec], queue: .global(qos: .userInitiated))
             self.source = source
-            source.setEventHandler { [weak self] in
-                guard let self else { return }
+            source.setEventHandler {
                 let exited = source.data.contains(.exit)
                 let tokenPresent: Bool
                 if exited {
@@ -62,7 +72,7 @@ extension E2ESerializedTests.ZmxE2ETests {
                     let arguments = E2ESerializedTests.ZmxE2ETests.currentArgumentVector(forPID: terminalPID)
                     tokenPresent = arguments?.contains(startupToken) ?? false
                 }
-                self.record(LeaderExecObservation(tokenPresent: tokenPresent, exited: exited))
+                sink(Self.scope, LeaderExecObservation(tokenPresent: tokenPresent, exited: exited))
             }
             source.setCancelHandler {}
             source.resume()
@@ -72,49 +82,25 @@ extension E2ESerializedTests.ZmxE2ETests {
             source.cancel()
         }
 
-        private func record(_ observation: LeaderExecObservation) {
-            lock.lock()
-            if !waiters.isEmpty {
-                let waiter = waiters.removeFirst()
-                lock.unlock()
-                waiter.resume(returning: observation)
-                return
-            }
-            pendingObservations.append(observation)
-            lock.unlock()
-        }
-
-        /// Waits for the next real exec/exit event on the watched pid.
-        func waitForNextObservation() async -> LeaderExecObservation {
-            await withCheckedContinuation { continuation in
-                self.lock.lock()
-                if !self.pendingObservations.isEmpty {
-                    let observation = self.pendingObservations.removeFirst()
-                    self.lock.unlock()
-                    continuation.resume(returning: observation)
-                    return
-                }
-                self.waiters.append(continuation)
-                self.lock.unlock()
-            }
-        }
-
         /// Waits for the first definitive event: either the token gone (the
         /// real handoff exec) or the leader exiting. Registration can race
         /// macOS's own `/bin/sh`->bash internal re-exec -- if that fires as
-        /// a live, separately-queued event before the exec this test cares
-        /// about, a single `waitForNextObservation()` would return that
+        /// a live, separately-recorded fact before the exec this test cares
+        /// about, consuming just the next fact would return that
         /// still-token-present observation instead. Draining past any such
-        /// intermediate, still-token-present exec keeps the assertion on
+        /// intermediate, still-token-present exec (each drain step its own
+        /// `expectNext`, consuming exactly one fact) keeps the assertion on
         /// the one exec that actually matters, regardless of exactly when
         /// this witness happened to register relative to that internal
         /// re-exec.
-        func waitForDefinitiveObservation() async -> LeaderExecObservation {
-            var observation = await waitForNextObservation()
-            while observation.tokenPresent, !observation.exited {
-                observation = await waitForNextObservation()
+        func waitForDefinitiveObservation() async throws -> LeaderExecObservation {
+            while true {
+                let observation = try await recorder.expectNext(
+                    in: Self.scope, where: { _ in true }, "the next leader exec/exit observation")
+                guard observation.tokenPresent, !observation.exited else {
+                    return observation
+                }
             }
-            return observation
         }
     }
 
@@ -291,7 +277,7 @@ extension E2ESerializedTests.ZmxE2ETests {
             // the identity).
             _ = try await harness.spawnColdRestoreSession(plan: plan)
             let identity = try ZmxSessionControl.observe(path: socketPath, bootID: bootID)
-            let witness = IndependentLeaderExecWitness(
+            let witness = try IndependentLeaderExecWitness(
                 terminalPID: identity.terminalLeader.pid, startupToken: attemptID.startupToken)
 
             async let outcome = observer.observeColdStart(
@@ -325,7 +311,7 @@ extension E2ESerializedTests.ZmxE2ETests {
             // Confirm independently, off the real observer's own path, that
             // the very next real exec on this pid is the one that drops the
             // token.
-            let finalExecObservation = await witness.waitForDefinitiveObservation()
+            let finalExecObservation = try await witness.waitForDefinitiveObservation()
             #expect(finalExecObservation == LeaderExecObservation(tokenPresent: false, exited: false))
         }
     }
@@ -367,7 +353,7 @@ extension E2ESerializedTests.ZmxE2ETests {
 
             _ = try await harness.spawnColdRestoreSession(plan: plan)
             let identity = try ZmxSessionControl.observe(path: socketPath, bootID: bootID)
-            let witness = IndependentLeaderExecWitness(
+            let witness = try IndependentLeaderExecWitness(
                 terminalPID: identity.terminalLeader.pid, startupToken: attemptID.startupToken)
 
             let writeDescriptor = try await openFIFOForWriting(atPath: holdFIFOPath)
@@ -375,7 +361,7 @@ extension E2ESerializedTests.ZmxE2ETests {
 
             // Event-driven wait for the real, independent proof that the
             // handoff exec has already happened -- no observer exists yet.
-            let finalExecObservation = await witness.waitForDefinitiveObservation()
+            let finalExecObservation = try await witness.waitForDefinitiveObservation()
             #expect(finalExecObservation == LeaderExecObservation(tokenPresent: false, exited: false))
 
             // Only now construct and start the observer: the handoff is

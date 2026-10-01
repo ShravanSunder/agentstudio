@@ -1,3 +1,4 @@
+import AgentStudioTestHarness
 import Darwin
 import Foundation
 
@@ -495,65 +496,61 @@ final class ZmxTestHarness: @unchecked Sendable {
         socketPath: String,
         bootID: String
     ) async throws -> ZmxSessionIdentity {
-        final class SettlementGate: @unchecked Sendable {
-            private let lock = NSLock()
-            private var completed = false
+        // `HeldStep` itself already guarantees only the first arrival is
+        // returned by `firstArrival()` -- a later arrival is simply
+        // recorded and ignored, so the former hand-kept `SettlementGate`
+        // added nothing `HeldStep` doesn't already provide.
+        let step = HeldStep<Result<ZmxSessionIdentity, any Error>>(
+            "zmx setsid watch settlement")
+        let source = DispatchSource.makeProcessSource(
+            identifier: terminalPID,
+            eventMask: [.exit, .exec],
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
 
-            func tryComplete() -> Bool {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !completed else { return false }
-                completed = true
-                return true
+        // Pure: nil means "not settled yet, stays armed." Shared by the GCD
+        // callback and the immediate register-then-check below, since only
+        // the former may call `arriveBlocking` -- the latter runs on this
+        // async function's own Task and would misuse it.
+        func outcome(exitFired: Bool) -> Result<ZmxSessionIdentity, any Error>? {
+            if exitFired {
+                return .failure(SessionSettlementError.terminalLeaderExitedBeforeSetsid(terminalPID: terminalPID))
+            }
+            switch ZmxSessionControl.observeForDiscovery(path: socketPath, bootID: bootID) {
+            case .identity(let identity):
+                return .success(identity)
+            case .pendingSetsid:
+                return nil  // not settled yet; the watch stays armed for the next event
+            case .terminalLeaderGone:
+                return .failure(SessionSettlementError.terminalLeaderConfirmedGone)
+            case .failure(let failure):
+                return .failure(failure)
             }
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let gate = SettlementGate()
-            let source = DispatchSource.makeProcessSource(
-                identifier: terminalPID,
-                eventMask: [.exit, .exec],
-                queue: DispatchQueue.global(qos: .userInitiated)
-            )
-
-            // `gate` protects only the continuation's single resume, checked
-            // right at each resume point -- a still-`.pendingSetsid` read
-            // touches nothing and simply leaves the watch armed for the
-            // next event, the same shape as `awaitSessionSocketEvent`'s own
-            // `CompletionGate`/`finish` below.
-            func checkAndAdvance(exitFired: Bool) {
-                if exitFired {
-                    guard gate.tryComplete() else { return }
-                    source.cancel()
-                    continuation.resume(
-                        throwing: SessionSettlementError.terminalLeaderExitedBeforeSetsid(terminalPID: terminalPID))
-                    return
-                }
-                switch ZmxSessionControl.observeForDiscovery(path: socketPath, bootID: bootID) {
-                case .identity(let identity):
-                    guard gate.tryComplete() else { return }
-                    source.cancel()
-                    continuation.resume(returning: identity)
-                case .pendingSetsid:
-                    break  // not settled yet; the watch stays armed for the next event
-                case .terminalLeaderGone:
-                    guard gate.tryComplete() else { return }
-                    source.cancel()
-                    continuation.resume(throwing: SessionSettlementError.terminalLeaderConfirmedGone)
-                case .failure(let failure):
-                    guard gate.tryComplete() else { return }
-                    source.cancel()
-                    continuation.resume(throwing: failure)
-                }
+        source.setEventHandler {
+            if let result = outcome(exitFired: source.data.contains(.exit)) {
+                source.cancel()
+                // A raw GCD callback on .global(), not inside a Swift Task.
+                try? step.arriveBlocking(result)
             }
-
-            source.setEventHandler {
-                checkAndAdvance(exitFired: source.data.contains(.exit))
-            }
-            source.setCancelHandler {}
-            source.resume()
-            checkAndAdvance(exitFired: false)
         }
+        source.setCancelHandler {}
+        source.resume()
+
+        // Register-then-check: setsid (and the exec after it) may already
+        // have completed by the time this registers. An already-settled
+        // result here short-circuits directly, cancelling the source
+        // before any `firstArrival()` wait is even needed -- this call runs
+        // on the caller's own Task, so it must not touch `arriveBlocking`.
+        if let immediateResult = outcome(exitFired: false) {
+            source.cancel()
+            return try immediateResult.get()
+        }
+
+        let settled = try await step.firstArrival()
+        step.release()
+        return try settled.get()
     }
 
     private func awaitSessionSocketEvent(
@@ -562,59 +559,50 @@ final class ZmxTestHarness: @unchecked Sendable {
         exists expectedExists: Bool,
         timeout: Duration
     ) async -> Bool {
-        final class CompletionGate: @unchecked Sendable {
-            private let lock = NSLock()
-            private var completed = false
-
-            func tryComplete() -> Bool {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !completed else { return false }
-                completed = true
-                return true
-            }
-        }
-
-        return await withCheckedContinuation { continuation in
-            let completionGate = CompletionGate()
-            let eventSource = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fileDescriptor,
-                eventMask: [.write, .rename, .delete],
-                queue: DispatchQueue.global(qos: .userInitiated)
-            )
-            let timeoutTask = Task {
-                do {
-                    try await self.clock.sleep(for: timeout)
-                } catch {
-                    return
-                }
-                if completionGate.tryComplete() {
-                    eventSource.cancel()
-                    continuation.resume(returning: false)
-                }
-            }
-
-            let finish: @Sendable (Bool) -> Void = { result in
-                guard completionGate.tryComplete() else { return }
-                timeoutTask.cancel()
-                eventSource.cancel()
-                continuation.resume(returning: result)
-            }
-
-            eventSource.setEventHandler {
-                let currentExists = FileManager.default.fileExists(atPath: sessionSocketPath)
-                if currentExists == expectedExists {
-                    finish(true)
-                }
-            }
-            eventSource.setCancelHandler {}
-            eventSource.resume()
-
+        // `HeldStep` already guarantees only the first arrival settles the
+        // wait (the former hand-kept `CompletionGate` added nothing beyond
+        // that), and its own race between an event and a timeout arrival is
+        // exactly this function's shape.
+        let step = HeldStep<Bool>("session socket event")
+        let eventSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .rename, .delete],
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        eventSource.setEventHandler {
             let currentExists = FileManager.default.fileExists(atPath: sessionSocketPath)
             if currentExists == expectedExists {
-                finish(true)
+                eventSource.cancel()
+                // A raw GCD callback on .global(), not inside a Swift Task.
+                try? step.arriveBlocking(true)
             }
         }
+        eventSource.setCancelHandler {}
+        eventSource.resume()
+
+        // Register-then-check: this call runs on the caller's own Task, so
+        // it must not touch `arriveBlocking` -- an already-true result
+        // short-circuits directly, before ever starting the timeout task.
+        if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
+            eventSource.cancel()
+            return true
+        }
+
+        let timeoutTask = Task {
+            do {
+                try await self.clock.sleep(for: timeout)
+            } catch {
+                return
+            }
+            // Inside a Task, unlike the GCD callback above: the async seam.
+            try? await step.arrive(false)
+        }
+
+        let result = (try? await step.firstArrival()) ?? false
+        step.release()
+        timeoutTask.cancel()
+        eventSource.cancel()
+        return result
     }
 
     private func fallbackWaitForSessionSocket(

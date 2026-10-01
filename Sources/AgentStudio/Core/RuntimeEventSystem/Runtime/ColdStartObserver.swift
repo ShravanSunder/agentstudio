@@ -279,7 +279,18 @@ package actor ColdStartObserver {
         source.resume()
 
         // Register first, then check: setsid (and the exec after it) may
-        // already have completed by the time this registers.
+        // already have completed by the time this registers. That's safe
+        // for the exit case specifically -- confirmed 2026-09-30 with a
+        // standalone kqueue probe against a real already-zombied process --
+        // but only because libdispatch's DispatchSource synthesizes a
+        // NOTE_EXIT for an already-zombie pid at registration time; a raw
+        // kevent EV_ADD EVFILT_PROC on a zombie pid returns EV_ERROR/ESRCH
+        // instead, so it is DispatchSource doing the work here, not the
+        // kernel replaying or latching the exit itself. NOTE_EXEC has no
+        // such synthesis: an exec that already happened before registration
+        // is simply never seen, which is exactly the race
+        // pendingSetsidReobservesAtRealExecAndDiscovers now removes with a
+        // FIFO hold instead of tolerating it.
         checkForSetsidAndAdvance(
             terminalPID: terminalPID, socketPath: socketPath, bootID: bootID, attemptID: attemptID, exitFired: false)
     }
