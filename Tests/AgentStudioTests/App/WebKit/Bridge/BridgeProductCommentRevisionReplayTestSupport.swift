@@ -479,32 +479,41 @@ func waitForAnnotationBodies(_ page: WebPage, required: [String]) async throws {
 }
 
 actor CommentRevisionReplayCatalogReadGate {
-    private var shouldHoldNextRead = false
-    private let heldRead = HeldStep<Void>(
-        "comment replay catalog range read",
-        cancellation: .holdThroughCancellation
-    )
+    private var remainingReadsToHold = 0
+    private var heldReads: [HeldStep<Void>] = []
+    private let allReadersHeld = HeldStep<Int>("every live comment catalog reader is held")
 
-    func armNextRead() {
-        shouldHoldNextRead = true
+    func armReads(readerCount: Int) {
+        precondition(readerCount > 0 && heldReads.isEmpty)
+        remainingReadsToHold = readerCount
     }
 
     func holdNextRead() async throws {
-        guard shouldHoldNextRead else { return }
-        shouldHoldNextRead = false
+        guard remainingReadsToHold > 0 else { return }
+        remainingReadsToHold -= 1
+        let heldRead = HeldStep<Void>(
+            "comment replay catalog reader \(heldReads.count + 1)",
+            cancellation: .holdThroughCancellation
+        )
+        heldReads.append(heldRead)
+        if remainingReadsToHold == 0 {
+            allReadersHeld.release()
+            try await allReadersHeld.arrive(heldReads.count)
+        }
         try await heldRead.arrive(())
         try Task.checkCancellation()
     }
 
-    func waitUntilHeldReadBegins() async {
-        _ = try? await heldRead.firstArrival()
+    func waitUntilCatalogReadersAreHeld() async throws -> Int {
+        try await allReadersHeld.firstArrival()
     }
 
-    func waitUntilCancellationObserved() async {
-        try? await heldRead.cancellationObserved()
+    func waitUntilCancellationObserved() async throws -> Int {
+        for read in heldReads { try await read.cancellationObserved() }
+        return heldReads.count
     }
 
     func releaseHeldRead() {
-        heldRead.release()
+        for read in heldReads { read.release() }
     }
 }

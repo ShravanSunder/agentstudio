@@ -8,6 +8,24 @@ enum CommentRevisionReplaySelectionError: Error {
 }
 
 @MainActor
+func selectAllCommentReplayShareScope(_ page: WebPage) async throws {
+    _ = try await WebPageEventWaits.waitForDocumentValue(
+        page,
+        reader: """
+            const share = Array.from(document.querySelectorAll('[data-testid="worktree-annotation-share-mode"]'))
+              .find(candidate => candidate.getClientRects().length !== 0);
+            const button = Array.from(share?.querySelectorAll('button') ?? []).find(
+              candidate => candidate.getAttribute('aria-label')?.startsWith('All comments, ')
+            );
+            if (!(button instanceof HTMLButtonElement) || button.disabled) return null;
+            button.click();
+            return true;
+            """,
+        milestone: "All comments scope selected"
+    )
+}
+
+@MainActor
 func selectReviewItemPath(_ page: WebPage, path: String) async throws {
     _ = try await WebPageEventWaits.waitForOpenShadowRootValue(
         page,

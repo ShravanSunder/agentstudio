@@ -98,6 +98,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
 
                 try await waitForEnabledAnnotationsButton(hostedController.page)
                 try await clickAccessibleButton(hostedController.page, label: "Annotations")
+                try await selectAllCommentReplayShareScope(hostedController.page)
                 let pageDiagnostics = try await CommentRevisionReplayPageDiagnosticObserver.start(
                     page: hostedController.page,
                     diagnostics: replayDiagnostics
@@ -114,7 +115,8 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     }
                     try await waitForAnnotationBodies(
                         hostedController.page,
-                        required: [rootBody, deletedDraftBody]
+                        // isCurrentSaved excludes unsaved drafts; prove draft keys in the catalog seal below.
+                        required: [rootBody]
                     )
                 } catch {
                     await pageDiagnostics.stop()
@@ -122,24 +124,28 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 }
                 await pageDiagnostics.stop()
 
-                let (subscriptionID, viewHandle) = try #require(
-                    await coordinator.commentViewHandleBySubscriptionId.first
-                )
                 let installation = try #require(await controller.productSessionOwner.activeInstallation)
+                let reviewView = try await requireCommentReplayReviewView(
+                    coordinator: coordinator, session: installation.session
+                )
+                let subscriptionID = reviewView.subscriptionID
+                let viewHandle = reviewView.handle
                 let acceptedScope = try #require(
                     await installation.session.acceptedViewScope(subscriptionId: subscriptionID)
                 )
                 #expect(acceptedScope.handle == viewHandle)
-                let initialProducerID = try #require(
-                    await producerObservationReader.nextOpenedProducerID(handle: viewHandle)
+                let seededKeys: Set<WorktreeAnnotationCatalogKey> = [
+                    .session(savedRoot.session.id), .thread(rootThread.id), .message(rootMessage.id),
+                    .thread(deletedThread.thread.id), .message(deletedMessage.id),
+                ]
+                let initialCapture = try await producerObservationReader.firstSealedCapture(
+                    handle: viewHandle, containing: seededKeys
                 )
-                let initialBatch = try requireSealedBatch(
-                    await producerObservationReader.nextSealedBatch(
-                        handle: viewHandle,
-                        producerID: initialProducerID
-                    ),
-                    milestone: "initial catalog snapshot"
-                )
+                let initialProducerID = initialCapture.producerID
+                let initialBatch = initialCapture.batch
+                #expect(
+                    seededKeys.isSubset(
+                        of: Set(initialBatch.puts.map { WorktreeAnnotationCatalogKey(entry: $0.entry) })))
                 #expect(initialBatch.targetRevision > 0)
 
                 let resolvedCursorDetail = try await annotationStore.setThreadResolution(
@@ -159,7 +165,14 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 let resolvedBatch = try requireSealedBatch(
                     await producerObservationReader.nextSealedBatch(
                         handle: viewHandle,
-                        producerID: initialProducerID
+                        producerID: initialProducerID,
+                        matching: { batch in
+                            batch.puts.contains { record in
+                                guard case .session(let session) = record.entry else { return false }
+                                return session.sessionID == savedRoot.session.id
+                                    && session.semanticRevision >= resolvedCursorDetail.session.semanticRevision
+                            }
+                        }
                     ),
                     milestone: "catalog invalidation after resolving the root thread"
                 )
@@ -185,12 +198,19 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                 let cursorAdvancedBatch = try requireSealedBatch(
                     await producerObservationReader.nextSealedBatch(
                         handle: viewHandle,
-                        producerID: initialProducerID
+                        producerID: initialProducerID,
+                        matching: { batch in
+                            batch.puts.contains { record in
+                                guard case .session(let session) = record.entry else { return false }
+                                return session.sessionID == savedRoot.session.id
+                                    && session.semanticRevision >= reopenedCursorDetail.session.semanticRevision
+                            }
+                        }
                     ),
                     milestone: "catalog invalidation after reopening the root thread"
                 )
                 #expect(cursorAdvancedBatch.targetRevision > resolvedBatch.targetRevision)
-                let previousCursor = cursorAdvancedBatch.targetRevision
+                var previousCursor = cursorAdvancedBatch.targetRevision
 
                 try await installCommentReplayPageObserver(
                     hostedController.page,
@@ -203,7 +223,7 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                     ) as? String
                 }
 
-                await readGate.armNextRead()
+                await readGate.armReads(readerCount: reviewView.liveCatalogViewCount)
                 let replyDraft = try await annotationStore.createReplyDraft(
                     .init(
                         sessionID: savedRoot.session.id,
@@ -244,10 +264,10 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                         now: Date(timeIntervalSince1970: 17)
                     )
                 )
-                await readGate.waitUntilHeldReadBegins()
+                #expect(try await readGate.waitUntilCatalogReadersAreHeld() == reviewView.liveCatalogViewCount)
 
                 let suspension = try #require(controller.applyBridgePaneActivity(.loadedHidden))
-                await readGate.waitUntilCancellationObserved()
+                #expect(try await readGate.waitUntilCancellationObserved() == reviewView.liveCatalogViewCount)
                 let foregroundTransition = controller.applyBridgePaneActivity(.foreground)
                 #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
                 let foregroundAdmission = try #require(provider.refreshWorkAdmissionSource.acquire())
@@ -263,6 +283,10 @@ extension WebKitSerializedTests.BridgeProductRealGitFileAndReviewWebKitTests {
                         producerID: replayProducerID
                     )
                 )
+                // Every preceding seal has been observed before this correlated handoff decision.
+                previousCursor = try #require(
+                    await producerObservationReader.lastSealedBatch(handle: viewHandle, producerID: initialProducerID)
+                ).targetRevision
                 let replayProducerInstalledBeforeP0Retired: Bool
                 let preRetirementReplayBatch: BridgeProductCommentCatalogBatch?
                 switch handoffDecision {
@@ -516,7 +540,12 @@ private func waitForAnnotationThreadResolution(
               return null;
             };
             const thread = findThread(document);
-            return thread?.getAttribute('data-annotation-resolution') === resolution ? true : null;
+            if (thread?.getAttribute('data-annotation-resolution') === resolution) return true;
+            const shareThread = Array.from(document.querySelectorAll(`[data-thread-id="${threadID}"]`))
+              .find(candidate => candidate.getClientRects().length !== 0);
+            if (shareThread === undefined) return null;
+            const isResolved = shareThread.querySelector('[aria-label="Resolved conversation"]') !== null;
+            return isResolved === (resolution === 'resolved') ? true : null;
             """,
         arguments: [
             "threadID": threadID.rawValue.uuidString.lowercased(),
