@@ -32,6 +32,12 @@ actor BridgeProductWebKitCarrierTraceRecorder: BridgePerformanceTraceRecording {
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano _: UInt64) {
         samples.append(sample)
         firstApplication?.observe(sample)
+        if firstApplication != nil {
+            let attributes = sample.stringAttributes
+            print(
+                "C15 fixture telemetry name=\(sample.name) phase=\(attributes["agentstudio.bridge.phase"] ?? "none") result=\(attributes["agentstudio.bridge.result"] ?? "none") reason=\(attributes["agentstudio.bridge.result_reason"] ?? "none") protocol=\(attributes["agentstudio.bridge.protocol"] ?? "none")"
+            )
+        }
         let trace = scrubbedTrace()
         for condition in [TraceCondition.reviewPublication, .canonicalSubscriptionsAndReviewPublication] {
             if condition.isSatisfied(by: trace) { traces.append(scope: String(describing: condition), fact: trace) }

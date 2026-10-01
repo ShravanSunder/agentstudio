@@ -326,12 +326,17 @@ extension WebKitSerializedTests {
                     )
                 },
                 admitReviewPublicationInstallation: { request, correlation, productAdmission in
-                    controllerTarget.controller?.reviewPublicationCoordinator.admitDisplayInstallation(
-                        expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
-                        candidatePublicationId: request.candidatePublicationId,
-                        workerInstanceId: correlation.workerInstanceId,
-                        productAdmission: productAdmission
-                    ) ?? .rejected
+                    let result =
+                        controllerTarget.controller?.reviewPublicationCoordinator.admitDisplayInstallation(
+                            expectedDisplayedPublicationId: request.expectedDisplayedPublicationId,
+                            candidatePublicationId: request.candidatePublicationId,
+                            workerInstanceId: correlation.workerInstanceId,
+                            productAdmission: productAdmission
+                        ) ?? .rejected
+                    print(
+                        "C15 fixture admission candidate=\(request.candidatePublicationId) predecessor=\(String(describing: request.expectedDisplayedPublicationId)) result=\(result)"
+                    )
+                    return result
                 },
                 recordReviewPublicationApplication: { publicationId, correlation, productAdmission in
                     controllerTarget.recordApplication(
@@ -346,9 +351,14 @@ extension WebKitSerializedTests {
                     }
                 },
                 handleReviewIntakeReady: { request, productAdmission in
+                    print("C15 fixture Review intake started")
                     await committedCallTarget.applyReviewIntakeReady(
                         request,
                         productAdmission: productAdmission
+                    )
+                    let publication = controllerTarget.committedPublication(productAdmission: productAdmission)
+                    print(
+                        "C15 fixture Review intake returned publication=\(String(describing: publication?.publicationId)) items=\(String(describing: publication?.package.orderedItemIds.count))"
                     )
                 },
                 applyActiveViewerModeUpdate: { call, correlation, productAdmission in
