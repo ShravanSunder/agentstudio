@@ -53,6 +53,7 @@ describe('Bridge product source retirement through the real transport', () => {
 			);
 
 			// Act: the worker explicitly rotates this surface. Native acknowledges
+			await harness.server.waitForControlKind('subscription.setScope');
 			// the cancel but withholds the cancelled frame.
 			harness.transport.advanceWorkerDerivationEpoch(surface);
 			await retired.promise;
@@ -61,6 +62,7 @@ describe('Bridge product source retirement through the real transport', () => {
 
 			// Assert: the replacement opened at the next epoch without that frame.
 			await harness.server.waitForControlKind('subscription.open', 2);
+			await harness.server.waitForControlKind('subscription.setScope', 2);
 			expect(
 				harness.server.controlRequests.map((request) =>
 					request.kind === 'subscription.open' || request.kind === 'subscription.cancel'
