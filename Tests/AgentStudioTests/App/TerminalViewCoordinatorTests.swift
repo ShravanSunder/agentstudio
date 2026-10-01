@@ -302,8 +302,9 @@ extension WebKitSerializedTests {
                 activeInstallation: initialInstallation
             )
             var deliveredRequestIds: [String] = []
+            let schemeRouter = await owner.schemeRouter
             let handler = BridgeSchemeHandler(
-                paneId: paneId, appRootURL: testBridgeAppRootURL(), productSessionRouter: owner.schemeRouter
+                paneId: paneId, appRootURL: testBridgeAppRootURL(), productSessionRouter: schemeRouter
             )
             var deliveredInstallations: [BridgeProductSessionInstallation] = []
             let controller = BridgePaneController(

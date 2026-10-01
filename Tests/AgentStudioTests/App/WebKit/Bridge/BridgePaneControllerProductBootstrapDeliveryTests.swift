@@ -74,7 +74,7 @@ extension WebKitSerializedTests {
                 installation: initialInstallation,
                 handler: BridgeSchemeHandler(
                     paneId: paneId, appRootURL: testBridgeAppRootURL(),
-                    productSessionRouter: controller.productSessionOwner.schemeRouter
+                    productSessionRouter: await controller.productSessionOwner.schemeRouter
                 )
             )
             let productProvider = try #require(controller.productSchemeProvider)
