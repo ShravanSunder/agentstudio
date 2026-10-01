@@ -460,8 +460,12 @@ extension AppDelegate {
                 self?.requestTraceIdentityRefresh()
             }
         )
+        let scrollbackBackend = ZmxBackend(configuration: workspaceSurfaceCoordinator.sessionConfig)
+        if let backend = scrollbackBackend {
+            installScrollbackSnapshotter(using: backend)
+        }
         workspaceSurfaceCoordinator.installUndoJournalRecovery(undoRecovery)
-        if let backend = ZmxBackend(configuration: workspaceSurfaceCoordinator.sessionConfig) {
+        if let backend = scrollbackBackend {
             workspaceSurfaceCoordinator.startTerminalSessionCleanup(
                 using: backend,
                 canRetire: { sessionID in !SurfaceManager.shared.hasNativeAttachments(for: sessionID) })

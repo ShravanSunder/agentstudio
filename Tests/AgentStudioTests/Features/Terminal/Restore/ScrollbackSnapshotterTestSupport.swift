@@ -86,7 +86,7 @@ struct ScrollbackSnapshotterFixture {
 }
 
 actor ScrollbackCaptureFixtureBackend {
-    let bindings: [ScrollbackPaneBinding]
+    private var bindings: [ScrollbackPaneBinding]
     private var inventory: ZmxSessionInventory
     private var results: [ZmxSessionID: ScrollbackCaptureResult]
     private let heldCaptures: [ZmxSessionID: HeldStep<ZmxSessionID>]
@@ -110,6 +110,14 @@ actor ScrollbackCaptureFixtureBackend {
     func discoverInventory() -> ZmxSessionInventory { inventory }
     func paneBindings() -> [ScrollbackPaneBinding] { bindings }
     func replaceResult(sessionID: ZmxSessionID, result: ScrollbackCaptureResult) { results[sessionID] = result }
+    func addLiveBinding(_ binding: ScrollbackPaneBinding, result: ScrollbackCaptureResult) {
+        bindings.append(binding)
+        results[binding.sessionID] = result
+        if case .complete(var entries) = inventory {
+            entries[binding.sessionID] = .alive(wrapperPid: 1)
+            inventory = .complete(entries)
+        }
+    }
     func callCount(for sessionID: ZmxSessionID) -> Int { callsBySession[sessionID, default: 0] }
     func peakConcurrency() -> Int { maximumActiveCount }
     func activeCaptureCount() -> Int { activeCount }

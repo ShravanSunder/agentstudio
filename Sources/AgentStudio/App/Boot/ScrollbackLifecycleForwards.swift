@@ -2,16 +2,23 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTerminal
 
-/// Compile-only S3 first-frame boundary; no startup work is installed yet.
+/// Uses the existing first-frame gate and preserves its fallback outcome.
+/// Scheduling and fact emission remain on the snapshotter actor.
 @MainActor
 func startScrollbackAfterFirstFrame(
-    windowLifecycleStore: WindowLifecycleAtom, snapshotter: ScrollbackSnapshotter
+    windowLifecycleStore: WindowLifecycleAtom, snapshotter: ScrollbackSnapshotter?
 ) async -> StartupDeferralOutcome {
-    .cancelled
+    await snapshotter?.announceFirstFrameWait()
+    let outcome = await windowLifecycleStore.waitUntilFirstInteractiveFramePublished()
+    guard outcome != .cancelled else { return outcome }
+    await snapshotter?.startAfterFirstFrame()
+    return outcome
 }
 
-/// Compile-only S3 quit boundary; neither capture nor shutdown is called yet.
 @MainActor
 func captureScrollbackBeforeSurfaceShutdown(
     snapshotter: ScrollbackSnapshotter, budget: Duration, shutdown: () async -> Void
-) async {}
+) async {
+    _ = await snapshotter.captureForQuit(requestID: UUIDv7.generate(), budget: budget)
+    await shutdown()
+}

@@ -175,6 +175,48 @@ struct ScrollbackSnapshotterTests {
         }
     }
 
+    @Test("quit joins the periodic capture and also captures a newly created live pane")
+    func quitIncludesBindingCreatedDuringPeriodicPass() async throws {
+        let fixture = try ScrollbackSnapshotterFixture()
+        let original = makeBinding()
+        let added = makeBinding()
+        let hold = HeldStep<ZmxSessionID>("original capture held while a new live pane is created")
+        defer { hold.release() }
+        let backend = ScrollbackCaptureFixtureBackend(
+            bindings: [original],
+            results: [original.sessionID: .accepted(Data("original pane".utf8))],
+            heldCaptures: [original.sessionID: hold])
+        let snapshotter = makeSnapshotter(fixture, backend: backend)
+        let releaseCaptures: @Sendable () -> Void = { hold.release() }
+        try await withSnapshotter(snapshotter, fixture: fixture, releaseHolds: releaseCaptures) {
+            await snapshotter.start()
+            try await fixture.recorder.expectNext(in: .scheduler, .scheduled)
+            await fixture.clock.waitForPendingSleepCount(exactly: 1)
+            fixture.clock.advance(by: AppPolicies.Restore.captureInterval)
+            let periodicPass = try await fixture.nextPass(reason: .periodic)
+            let originalCapture = try await fixture.nextCapture(original)
+            _ = try await hold.firstArrival()
+            await backend.addLiveBinding(added, result: .accepted(Data("new pane".utf8)))
+            let requestID = UUIDv7.generate()
+            async let quit = snapshotter.captureForQuit(requestID: requestID, budget: .seconds(1))
+            let quitPass = try await fixture.nextPass(reason: .quit)
+            try await fixture.recorder.expectNext(in: quitPass, .captureJoined(original))
+            hold.release()
+            try await fixture.recorder.expectNext(in: originalCapture, .captureFinished(.written))
+            try await fixture.finishPass(periodicPass, count: 1)
+            let addedCapture = try await fixture.nextCapture(added)
+            try await fixture.recorder.expectNext(in: addedCapture, .captureFinished(.written))
+            try await fixture.finishPass(quitPass, count: 2)
+            let quitOutcome = await quit
+            #expect(quitOutcome == .completed)
+            #expect(await backend.callCount(for: original.sessionID) == 1)
+            #expect(await backend.callCount(for: added.sessionID) == 1)
+            #expect(
+                await fixture.store.load(paneId: added.paneID)
+                    == .present(ScrollbackStore.resetPrefix + Data("new pane".utf8)))
+        }
+    }
+
     @Test("quit deadline cancels a held capture, keeps old bytes, and joins work")
     func quitDeadlineCancelsCapture() async throws {
         let fixture = try ScrollbackSnapshotterFixture()

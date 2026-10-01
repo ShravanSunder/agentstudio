@@ -201,6 +201,8 @@ extension AppDelegate {
             appLogger.warning("IPC drain timed out at termination; continuing shutdown")
         }
 
+        await captureScrollbackForTermination()
+
         await runTerminationDrain("trace flush") { [weak self] in
             do {
                 try await self?.traceRuntime?.flush()

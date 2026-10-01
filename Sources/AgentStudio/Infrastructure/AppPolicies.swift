@@ -302,6 +302,9 @@ package enum AppPolicies {
         /// Shorter than zmx's own 5s history timeout and the existing 2s quit
         /// drain. The outer drain still owns the whole fleet's quit budget.
         package static let captureDeadline: Duration = .seconds(1)
+        /// Includes inventory, capture and persistence; cancellation then
+        /// joins the fleet inside the existing two-second termination drain.
+        package static let quitCaptureBudget: Duration = .seconds(1)
         /// Bounds raw capture memory before the persisted 2 MiB suffix cap.
         package static let captureByteCeiling: Int = 8 * 1024 * 1024
         package static let maximumConcurrentCaptures: Int = 4
