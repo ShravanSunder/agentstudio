@@ -53,11 +53,11 @@ final class BridgeProductWebKitCarrierControllerTarget {
         )
     }
 
-    func isCurrentPublication(
+    func isCurrentCanonicalPublication(
         _ publicationId: UUID,
         productAdmission: BridgeProductAdmissionContext
     ) -> Bool {
-        controller?.reviewPublicationCoordinator.isCurrentPublication(
+        controller?.reviewPublicationCoordinator.isCurrentCanonicalPublication(
             publicationId: publicationId,
             productAdmission: productAdmission
         ) == true
