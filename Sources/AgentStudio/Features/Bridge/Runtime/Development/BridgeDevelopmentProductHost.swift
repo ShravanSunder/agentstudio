@@ -841,10 +841,12 @@ final class BridgeDevelopmentProductCommittedCallTarget {
 
     func applyReviewComparisonUpdate(
         _ request: BridgeProductReviewComparisonUpdateRequest,
+        workerDerivationEpoch: Int,
         productAdmission: BridgeProductAdmissionContext
     ) async {
-        await host?.applyCommittedReviewComparisonUpdate(
+        _ = await host?.applyCommittedReviewComparisonUpdate(
             request,
+            workerDerivationEpoch: workerDerivationEpoch,
             productAdmission: productAdmission
         )
     }

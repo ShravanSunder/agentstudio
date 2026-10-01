@@ -10,6 +10,10 @@ enum BridgePaneSurfaceSelectionStreamAbsenceDisposition: Equatable, Sendable {
 
 // swiftlint:disable type_body_length
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
+    nonisolated var reviewIntentAdmissionSource: BridgePaneRefreshWorkAdmissionSource? {
+        refreshWorkAdmissionSource
+    }
+
     let admitReviewPublicationInstallation:
         @MainActor @Sendable (
             BridgeProductReviewInstallAdmissionRequest,
@@ -25,6 +29,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     let applyReviewComparisonUpdate:
         @MainActor @Sendable (
             BridgeProductReviewComparisonUpdateRequest,
+            Int,
             BridgeProductAdmissionContext
         ) async -> Void
     let applyFileRefreshRetry: @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void
@@ -112,8 +117,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         applyReviewComparisonUpdate:
             @escaping @MainActor @Sendable (
                 BridgeProductReviewComparisonUpdateRequest,
+                Int,
                 BridgeProductAdmissionContext
-            ) async -> Void = { _, _ in },
+            ) async -> Void = { _, _, _ in },
         applyFileRefreshRetry:
             @escaping @MainActor @Sendable (BridgeProductAdmissionContext) async -> Void = { _ in },
         applyWorktreeAnnotationCommand:

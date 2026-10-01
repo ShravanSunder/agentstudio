@@ -44,6 +44,12 @@ enum BridgeReviewPackageBuildReason: String, Sendable {
     case filesystemRefresh = "filesystem_refresh"
 }
 
+enum BridgePaneReviewComparisonEffectDisposition: Equatable, Sendable {
+    case applied
+    case superseded
+    case rejected
+}
+
 enum BridgeError: Error, LocalizedError, Sendable {
     case encoding(String)
 

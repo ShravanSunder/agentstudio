@@ -450,7 +450,8 @@ actor BridgeProductSession {
     func beginControl(
         exactRequestBytes: Data,
         presentedCapability: String,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        reviewIntentAdmissionSource: BridgePaneRefreshWorkAdmissionSource? = nil
     ) -> BridgeProductSessionControlAdmission {
         guard capabilityMatches(presentedCapability) else { return .rejected(.unauthorized) }
         guard
@@ -479,7 +480,8 @@ actor BridgeProductSession {
             beginValidatedControl(
                 exactRequestBytes: exactRequestBytes,
                 request: request,
-                productAdmission: productAdmission
+                productAdmission: productAdmission,
+                reviewIntentAdmissionSource: reviewIntentAdmissionSource
             )
         } ?? .admissionClosed
     }
@@ -487,7 +489,8 @@ actor BridgeProductSession {
     private func beginValidatedControl(
         exactRequestBytes: Data,
         request: BridgeProductControlRequest,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        reviewIntentAdmissionSource: BridgePaneRefreshWorkAdmissionSource?
     ) -> BridgeProductSessionControlAdmission {
         guard lifecycle != .revoked else { return .rejected(.revoked) }
         if pendingControl != nil {
@@ -540,7 +543,13 @@ actor BridgeProductSession {
                     .init(reason: streamProgressRejection, request: request)
                 )
             }
-            guard let deferredResyncEpochs = prepare(request: request) else {
+            guard
+                let deferredResyncEpochs = prepare(
+                    request: request,
+                    productAdmission: productAdmission,
+                    reviewIntentAdmissionSource: reviewIntentAdmissionSource
+                )
+            else {
                 try? controlReplay.abandon(token: token)
                 return rejectionForUnpreparedRequest(request)
             }
@@ -731,7 +740,9 @@ actor BridgeProductSession {
     }
 
     private func prepare(
-        request: BridgeProductControlRequest
+        request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext,
+        reviewIntentAdmissionSource: BridgePaneRefreshWorkAdmissionSource?
     ) -> [BridgeProductSurface: Int]? {
         switch request {
         case .workerSessionOpen:
@@ -768,6 +779,15 @@ actor BridgeProductSession {
                 surface: surface,
                 workerDerivationEpoch: workerDerivationEpoch
             )
+            if case .productCall(let productCallRequest) = request,
+                case .reviewComparisonUpdate = productCallRequest.call,
+                surface == .review
+            {
+                reviewIntentAdmissionSource?.admitReviewComparisonIntent(
+                    workerDerivationEpoch: workerDerivationEpoch,
+                    productAdmission: productAdmission
+                )
+            }
             return [:]
         }
     }
@@ -824,42 +844,6 @@ actor BridgeProductSession {
             abandonProducerFrameDelivery(for: staleLease)
         }
         _ = producerRegistry.requestStop(staleLeases)
-    }
-
-    private func rejectionForUnpreparedRequest(
-        _ request: BridgeProductControlRequest
-    ) -> BridgeProductSessionControlAdmission {
-        if case .workerSessionResync(let resyncRequest) = request,
-            lifecycle == .active,
-            resyncRequest.lastAcceptedRequestSequence + 1 != request.requestSequence
-        {
-            return .rejected(
-                .init(
-                    reason: .sequenceConflict(
-                        nextExpectedRequestSequence: controlReplay.snapshot.nextExpectedRequestSequence
-                    ),
-                    request: request
-                )
-            )
-        }
-        guard let surface = request.surface,
-            let workerDerivationEpoch = request.workerDerivationEpoch
-        else {
-            return .rejected(.init(reason: .inactiveSession, request: request))
-        }
-        let currentEpoch = workerDerivationEpochBySurface[surface, default: 0]
-        guard workerDerivationEpoch < currentEpoch else {
-            return .rejected(.init(reason: .inactiveSession, request: request))
-        }
-        return .rejected(
-            .init(
-                reason: .staleDerivationEpoch(
-                    currentWorkerDerivationEpoch: currentEpoch,
-                    surface: surface
-                ),
-                request: request
-            )
-        )
     }
 
 }

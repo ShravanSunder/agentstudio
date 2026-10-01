@@ -60,6 +60,33 @@ struct BridgePaneRefreshWorkAdmission: Sendable {
 struct BridgePaneRefreshWorkAdmissionSource: Sendable {
     fileprivate let gate: BridgePaneRefreshWorkAdmissionGate
 
+    /// Mirror the Review epoch accepted by BridgeProductSession.prepare.
+    /// Call while the matching product admission is valid so source updates and
+    /// canonical target commits share the product-admission → intent-lock order.
+    func admitReviewComparisonIntent(
+        workerDerivationEpoch: Int,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        gate.admitReviewComparisonIntent(
+            workerDerivationEpoch: workerDerivationEpoch,
+            productAdmission: productAdmission
+        )
+    }
+
+    /// Keep the floor lock held through the synchronous target mutation so a
+    /// newer admitted Review intent cannot slip between validation and commit.
+    func withCurrentReviewComparisonIntent<MutationResult>(
+        workerDerivationEpoch: Int,
+        productAdmission: BridgeProductAdmissionContext,
+        perform mutation: () throws -> MutationResult
+    ) rethrows -> MutationResult? {
+        try gate.withCurrentReviewComparisonIntent(
+            workerDerivationEpoch: workerDerivationEpoch,
+            productAdmission: productAdmission,
+            perform: mutation
+        )
+    }
+
     func acquire() -> BridgePaneRefreshWorkAdmission? {
         gate.acquire(validity: .foregroundOnly)
     }
@@ -701,6 +728,11 @@ final class BridgePaneRefreshAdmissionCoordinator {
 }
 
 private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
+    private struct ReviewComparisonIntent {
+        let productAdmission: BridgeProductAdmissionContext
+        var workerDerivationEpoch: Int
+    }
+
     fileprivate enum Validity: Sendable {
         case foregroundOnly
         case foregroundOrLoadedHidden
@@ -730,12 +762,14 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
     }
 
     private let lock = NSLock()
+    private let reviewComparisonIntentLock = NSLock()
     private let identity = Identity()
     private var activity: BridgePaneActivity
     private var foregroundEpoch: UInt64 = 0
     private var reviewContinuationEpoch: UInt64 = 0
     private var authorityGenerationByLane: [BridgePaneRefreshLane: UInt64] = [:]
     private var invalidationHandlerById: [UUID: InvalidationHandler] = [:]
+    private var reviewComparisonIntent: ReviewComparisonIntent?
 
     init(initialActivity: BridgePaneActivity) {
         activity = initialActivity
@@ -743,6 +777,40 @@ private final class BridgePaneRefreshWorkAdmissionGate: @unchecked Sendable {
 
     var diagnosticSnapshot: DiagnosticSnapshot {
         lock.withLock { DiagnosticSnapshot(epoch: foregroundEpoch) }
+    }
+
+    func admitReviewComparisonIntent(
+        workerDerivationEpoch: Int,
+        productAdmission: BridgeProductAdmissionContext
+    ) {
+        reviewComparisonIntentLock.withLock {
+            guard var currentIntent = reviewComparisonIntent,
+                currentIntent.productAdmission.matches(productAdmission)
+            else {
+                reviewComparisonIntent = ReviewComparisonIntent(
+                    productAdmission: productAdmission,
+                    workerDerivationEpoch: workerDerivationEpoch
+                )
+                return
+            }
+            guard workerDerivationEpoch >= currentIntent.workerDerivationEpoch else { return }
+            currentIntent.workerDerivationEpoch = workerDerivationEpoch
+            reviewComparisonIntent = currentIntent
+        }
+    }
+
+    func withCurrentReviewComparisonIntent<MutationResult>(
+        workerDerivationEpoch: Int,
+        productAdmission: BridgeProductAdmissionContext,
+        perform mutation: () throws -> MutationResult
+    ) rethrows -> MutationResult? {
+        try reviewComparisonIntentLock.withLock {
+            guard let currentIntent = reviewComparisonIntent,
+                currentIntent.productAdmission.matches(productAdmission),
+                workerDerivationEpoch >= currentIntent.workerDerivationEpoch
+            else { return nil }
+            return try mutation()
+        }
     }
 
     func acquire(
