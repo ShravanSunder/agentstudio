@@ -120,7 +120,10 @@ struct LiveServerFixture: Sendable {
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
         canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,
-        ownPaneScopes: [AppIPCOwnPaneScope] = []
+        ownPaneScopes: [AppIPCOwnPaneScope] = [],
+        additionalRegistrations: [AnyAppIPCMethodRegistration] = [],
+        eventBroker: IPCEventBroker = IPCEventBroker(),
+        makeConnectionIO: @escaping @Sendable (UnixSocketConnection) -> AppIPCConnectionIO = AppIPCConnectionIO.live
     ) throws {
         let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
         testCredentialResolver = resolvedCredentialResolver as? IPCFixtureCredentialResolver
@@ -152,7 +155,6 @@ struct LiveServerFixture: Sendable {
                 ownPaneScopePort: StaticOwnPaneScopePort(scopes: ownPaneScopes),
                 agentAuthorizationTelemetry: RecordingAgentAuthorizationTelemetry()
             )
-            let eventBroker = IPCEventBroker()
             let catalog = try makeLiveServerBuiltInCatalog(
                 runtimeId: runtimeId,
                 paneId: panes.first?.id ?? boundPaneId
@@ -171,6 +173,7 @@ struct LiveServerFixture: Sendable {
                     port: commandPort
                 )
             }
+            registrations += additionalRegistrations
             let methodRegistry = try makeTestAppIPCMethodRegistry(
                 registrations: registrations,
                 recognizedCommands: (commandComposition?.commands ?? []).map {
@@ -207,7 +210,8 @@ struct LiveServerFixture: Sendable {
                     paths: paths,
                     channel: channel,
                     principalRegistry: principalRegistry,
-                    credentialContinuityPort: credentialContinuityPort
+                    credentialContinuityPort: credentialContinuityPort,
+                    makeConnectionIO: makeConnectionIO
                 )
             )
         } catch {

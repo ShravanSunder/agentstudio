@@ -55,6 +55,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let peerCredentialGate: AgentStudioIPCPeerCredentialGate
     private let maxRequestFrameBytes: Int
     private let maxResponseFrameBytes: Int
+    private let makeConnectionIO: @Sendable (UnixSocketConnection) -> AppIPCConnectionIO
     private let lifecycleLock = NSLock()
     private var isRunning = false
     private var activeConnections: [ObjectIdentifier: UnixSocketConnection] = [:]
@@ -77,7 +78,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         peerCredentialProvider: any PeerCredentialProviding = DarwinPeerCredentialProvider(),
         currentUserIdentifier: uid_t = getuid(),
         maxRequestFrameBytes: Int = IPCFramePolicy.maximumRequestFrameBytes,
-        maxResponseFrameBytes: Int = IPCFramePolicy.maximumResponseFrameBytes
+        maxResponseFrameBytes: Int = IPCFramePolicy.maximumResponseFrameBytes,
+        makeConnectionIO: @escaping @Sendable (UnixSocketConnection) -> AppIPCConnectionIO = AppIPCConnectionIO.live
     ) {
         self.service = service
         self.paths = paths
@@ -107,6 +109,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.peerCredentialGate = AgentStudioIPCPeerCredentialGate(currentUserIdentifier: currentUserIdentifier)
         self.maxRequestFrameBytes = maxRequestFrameBytes
         self.maxResponseFrameBytes = maxResponseFrameBytes
+        self.makeConnectionIO = makeConnectionIO
     }
 
     public func start(
@@ -235,8 +238,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             return
         }
 
+        let io = makeConnectionIO(connection)
         let writer = AgentStudioAppIPCConnectionWriter(
-            connection: connection, maxFrameBytes: maxResponseFrameBytes
+            io: io, maxFrameBytes: maxResponseFrameBytes
         )
         let socketSubscriber = AgentStudioAppIPCSocketEventSubscriber(writer: writer)
         var decoder = NDJSONFrameDecoder(maxFrameBytes: maxRequestFrameBytes)
@@ -244,7 +248,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
         while true {
             do {
-                let data = try await receiveFrameData(from: connection)
+                let data = try await receiveFrameData(from: io)
                 guard !data.isEmpty else { return }
                 let frames = try decoder.append(data)
                 for frame in frames {
@@ -545,12 +549,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         lifecycleLock.withLock { connectionHandlerTasks.count }
     }
 
-    private func receiveFrameData(from connection: UnixSocketConnection) async throws -> Data {
+    private func receiveFrameData(from io: AppIPCConnectionIO) async throws -> Data {
         let readLimit = min(maxRequestFrameBytes, 16_384)
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 do {
-                    continuation.resume(returning: try connection.receive(maxBytes: readLimit))
+                    continuation.resume(returning: try io.receive(readLimit))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -625,45 +629,6 @@ private final class AgentStudioAppIPCConnectionState: @unchecked Sendable {
             storedAuthenticationFailed = true
             return rejected
         }
-    }
-}
-
-private actor AgentStudioAppIPCConnectionWriter {
-    private let connection: UnixSocketConnection
-    private let maxFrameBytes: Int
-
-    init(connection: UnixSocketConnection, maxFrameBytes: Int) {
-        self.connection = connection
-        self.maxFrameBytes = maxFrameBytes
-    }
-
-    func sendResponse(_ response: JSONRPCResponse) throws {
-        try sendFrame(JSONRPCCodec.encodeResponse(response))
-    }
-
-    func sendError(id: JSONRPCIdentifier?, code: Int, message: String, data: JSONValue? = nil) throws {
-        try sendResponse(
-            JSONRPCResponse.failure(
-                id: id,
-                error: JSONRPCErrorPayload(code: code, message: message, data: data)
-            ))
-    }
-
-    func sendFrame(_ frame: String) throws {
-        try connection.send(try NDJSONFrameEncoder.encode(frame, maxFrameBytes: maxFrameBytes))
-    }
-}
-
-private actor AgentStudioAppIPCSocketEventSubscriber: IPCEventSubscriber {
-    private let writer: AgentStudioAppIPCConnectionWriter
-
-    init(writer: AgentStudioAppIPCConnectionWriter) {
-        self.writer = writer
-    }
-
-    func deliver(_ frame: String) async throws -> IPCEventDeliveryResult {
-        try await writer.sendFrame(frame)
-        return .delivered
     }
 }
 

@@ -701,6 +701,10 @@ swift_test_suite_lane_inventory() {
   cat <<'EOF'
 fast|AgentStudioFileViewStartupDiagnosticTests|concurrent
 fast|AgentStudioIPCCursorHookProjectionTests|concurrent
+large|AgentStudioAppIPCConnectionAdmissionTests|concurrent
+large|AgentStudioAppIPCConnectionWaitingTests|concurrent
+large|AgentStudioAppIPCConnectionOutputTests|concurrent
+large|AgentStudioAppIPCShutdownIdempotenceTests|concurrent
 large|AgentStudioGitDependencyTests|concurrent
 large|AgentStudioIPCPhaseASmokeScriptTests|concurrent
 large|AgentStudioOTLPBootstrapSmokeTests|process-global
