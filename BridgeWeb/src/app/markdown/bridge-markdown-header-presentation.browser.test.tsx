@@ -49,7 +49,7 @@ test('composes the held document and local Apply failure into one existing heade
 	const candidate = async (contents: string, version: number): Promise<ReactElement> =>
 		harness.wrap(
 			<BridgeViewerContextPanelProvider>
-				<div style={{ height: 500, width: 800 }}>
+				<div style={{ height: 500, width: '100%' }}>
 					<EditorPreparation prepare={prepare} />
 					{cloneElement(await markdownCanvas(contents, version), { renderRegion })}
 				</div>
@@ -62,6 +62,9 @@ test('composes the held document and local Apply failure into one existing heade
 		.getBoundingClientRect().top;
 	const header = rendered.getByTestId('bridge-viewer-content-topbar').element();
 	const headerHeight = header.getBoundingClientRect().height;
+	const viewport = rendered.getByTestId('markdown-header-proof-viewport').element();
+	expect(header.getBoundingClientRect().left).toBe(viewport.getBoundingClientRect().left);
+	expect(header.getBoundingClientRect().right).toBe(viewport.getBoundingClientRect().right);
 	await rendered.rerender(await candidate('Latest document', 2));
 	await expect.element(rendered.getByRole('status', { name: 'File changed' })).toBeVisible();
 	expect(header.contains(rendered.getByRole('status').element())).toBe(true);
@@ -73,10 +76,13 @@ test('composes the held document and local Apply failure into one existing heade
 		articleTop,
 	);
 	expect(header.getBoundingClientRect().height).toBe(headerHeight);
+	expect(header.getBoundingClientRect().right).toBe(viewport.getBoundingClientRect().right);
 	await act(async (): Promise<void> => {
 		await rendered.getByRole('button', { name: 'Update Markdown file' }).click();
 	});
-	await expect.element(rendered.getByRole('status', { name: 'Update failed' })).toBeVisible();
+	await expect
+		.element(rendered.getByRole('status', { name: "Couldn't apply update" }))
+		.toBeVisible();
 	expect(
 		rendered.container
 			.querySelector('[data-bridge-region="markdown"]')

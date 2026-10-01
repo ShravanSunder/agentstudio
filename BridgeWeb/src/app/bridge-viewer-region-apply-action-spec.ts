@@ -16,9 +16,9 @@ export function bridgeViewerRegionApplyActionSpec(
 		accessibleName: surface === 'file' ? 'Update file' : 'Update Markdown file',
 		label: 'Apply now',
 		icon: RefreshCwIcon,
-		statusLabel: failed ? 'Update failed' : 'File changed',
+		statusLabel: failed ? "Couldn't apply update" : 'File changed',
 		tooltip: failed
-			? 'Finish or cancel the open annotation, then retry.'
+			? 'Save or close the protected annotation editor, then apply again.'
 			: 'Keep the draft and load the latest file.',
 	};
 }

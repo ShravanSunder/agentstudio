@@ -282,7 +282,7 @@ test('keeps the old document when preparation fails and retries the same update'
 		await screen.getByRole('button', { name: 'Update Markdown file' }).click();
 	});
 	await expect.element(screen.getByText('Original document', { exact: true })).toBeVisible();
-	await expect.element(screen.getByRole('status', { name: 'Update failed' })).toBeVisible();
+	await expect.element(screen.getByRole('status', { name: "Couldn't apply update" })).toBeVisible();
 	expect(preparationCount).toBe(preparationCountBeforeUpdate + 1);
 	preparationSucceeds = true;
 	await act(async (): Promise<void> => {
@@ -290,7 +290,7 @@ test('keeps the old document when preparation fails and retries the same update'
 	});
 	await expect.element(screen.getByText('Updated document', { exact: true })).toBeVisible();
 	await expect
-		.element(screen.getByRole('status', { name: 'Update failed' }))
+		.element(screen.getByRole('status', { name: "Couldn't apply update" }))
 		.not.toBeInTheDocument();
 	await expect
 		.element(screen.getByRole('status', { name: 'File changed' }))
@@ -317,7 +317,7 @@ test('does not carry a failed update label into a later file change', async (): 
 	await act(async (): Promise<void> => {
 		await screen.getByRole('button', { name: 'Update Markdown file' }).click();
 	});
-	await expect.element(screen.getByRole('status', { name: 'Update failed' })).toBeVisible();
+	await expect.element(screen.getByRole('status', { name: "Couldn't apply update" })).toBeVisible();
 
 	preparationSucceeds = true;
 	await screen.rerender(harness.wrap(await renderCandidate('Recovered document', 2, false)));
@@ -327,7 +327,7 @@ test('does not carry a failed update label into a later file change', async (): 
 
 	await expect.element(screen.getByRole('status', { name: 'File changed' })).toBeVisible();
 	await expect
-		.element(screen.getByRole('status', { name: 'Update failed' }))
+		.element(screen.getByRole('status', { name: "Couldn't apply update" }))
 		.not.toBeInTheDocument();
 	await expect.element(screen.getByText('Recovered document', { exact: true })).toBeVisible();
 });
@@ -384,7 +384,7 @@ test('does not carry an update failure to a different file', async (): Promise<v
 	await act(async (): Promise<void> => {
 		await screen.getByRole('button', { name: 'Update Markdown file' }).click();
 	});
-	await expect.element(screen.getByRole('status', { name: 'Update failed' })).toBeVisible();
+	await expect.element(screen.getByRole('status', { name: "Couldn't apply update" })).toBeVisible();
 
 	// Act: the same canvas moves to another file with no editor holding it.
 	await screen.rerender(
