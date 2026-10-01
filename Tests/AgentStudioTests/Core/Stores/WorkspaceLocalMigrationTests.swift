@@ -297,8 +297,7 @@ struct WorkspaceLocalMigrationTests {
         // local_repo_explorer_preferences.grouping_mode; local_window_state does not yet have
         // repo_grouping_mode. Simulate that exact shape by migrating only through 004, then
         // manually reproducing the legacy column and a seeded All Panes / By Tab selection, so the
-        // upgrade path is proven to preserve it rather than silently reset every existing user to
-        // By Repo.
+        // upgrade path is proven to preserve it rather than silently reset every existing user to By Repo.
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrator.migrate(
             databaseQueue,
@@ -796,6 +795,7 @@ private let expectedFullLocalMigrationIdentifiers =
         "012_create_ipc_credential_schema",
         "013_create_opaque_pane_credential_records",
         "014_ipc_credentials_pane_only",
+        "016_add_binding_provider_end_fact",
     ]
 
 private struct Migration007Scenario: Sendable {
