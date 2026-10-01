@@ -843,6 +843,7 @@ large|SwiftLaneHangEvidenceTests|concurrent
 large|SwiftLaneIsolationListGateTests|concurrent
 large|SwiftLaneReceiptTests|concurrent
 large|SwiftLaneReapingTests|concurrent
+large|SwiftLaneOutputRelayTests|concurrent
 large|SwiftLaneRunnerReportTests|concurrent
 large|SwiftPackageSandboxScriptTests|concurrent
 large|TerminalActivityAgentSettledHeuristicTests|process-global
@@ -1569,10 +1570,10 @@ dispatch_isolated_suites() {
   local lane_status=0 timing_eligible_ms dispatch_dir fifo_path
   if [ "$lane_kind" = webkit ]; then
     concurrency="$(swift_test_webkit_process_concurrency)"
-    echo "[$LOG_PREFIX] WebKit process-global concurrency: $concurrency"
+    swift_test_output_message "[$LOG_PREFIX] WebKit process-global concurrency: $concurrency"
   else
     concurrency="$(swift_test_isolated_process_concurrency)"
-    echo "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
+    swift_test_output_message "[$LOG_PREFIX] isolated process-global concurrency: $concurrency"
   fi
   timing_eligible_ms="$(lane_timing_now_ms 2>/dev/null || true)"
   mkdir -p "$LANE_EVENT_STREAM_DIR"
@@ -2033,7 +2034,7 @@ swift_test_launch_command_group() {
   # group ownership does not depend on Bash job control or who launched the lane.
   # A child that calls setsid can escape this group; the event-token sweep below
   # remains an additional fallback where pgrep is available.
-  perl -e 'setpgrp(0, 0) or die $!; exec @ARGV or die $!' "$@" &
+  perl -e 'use POSIX (); setpgrp(0, 0) or die $!; POSIX::close(94); exec @ARGV or die $!' "$@" &
   group_pid=$!
   if ! swift_test_register_active_command_group "$group_pid"; then
     swift_test_signal_command_group KILL "$group_pid"
@@ -2041,6 +2042,146 @@ swift_test_launch_command_group() {
     return 1
   fi
   SWIFT_TEST_STARTED_COMMAND_GROUP_PID="$group_pid"
+}
+
+swift_test_output_relay_prepare_paths() {
+  local script_directory lock_directory absolute_build_directory worktree_key
+
+  if [ -n "${SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH:-}" ] &&
+    [ -n "${SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH:-}" ]
+  then
+    return 0
+  fi
+
+  script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return 1
+  SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH="$script_directory/swift-test-output-relay.pl"
+
+  if [ -n "${BUILD_PATH:-}" ]; then
+    if ! mkdir -p "$BUILD_PATH"; then
+      echo "swift-test-output-relay: cannot create build directory $BUILD_PATH" >&2
+      return 1
+    fi
+    absolute_build_directory="$(cd "$BUILD_PATH" && pwd -P)" || return 1
+    lock_directory="$absolute_build_directory"
+  else
+    mkdir -p "${TMPDIR:-/tmp}" || return 1
+    worktree_key="$(printf '%s\n' "$PWD" | /usr/bin/cksum | /usr/bin/awk '{ print $1 }')" || return 1
+    lock_directory="${TMPDIR:-/tmp}/agentstudio-swift-test-output-$worktree_key"
+    if ! mkdir -p "$lock_directory"; then
+      echo "swift-test-output-relay: cannot create TMPDIR fallback $lock_directory" >&2
+      return 1
+    fi
+    echo "[${LOG_PREFIX:-test}] warning: BUILD_PATH unset; output relay lock uses TMPDIR fallback" >&2
+  fi
+
+  SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH="$lock_directory/.swift-test-output.lock"
+  if ! : >>"$SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH"; then
+    echo "swift-test-output-relay: cannot create lock $SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH" >&2
+    return 1
+  fi
+  if [ ! -r "$SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH" ]; then
+    echo "swift-test-output-relay: missing relay $SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH" >&2
+    return 1
+  fi
+
+  export SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH
+}
+
+# A lane-level source for dispatcher messages. Per-command and per-pipeline
+# relays use the same permanent build-slot lock, so no process writes a
+# multi-writer lane stream directly.
+swift_test_output_relay_begin_dispatcher() {
+  [ "${SWIFT_TEST_OUTPUT_RELAY_DISPATCH_ACTIVE:-0}" = "1" ] && return 0
+  swift_test_output_relay_prepare_paths || return $?
+
+  local relay_directory relay_fifo relay_pid
+  relay_directory="$(mktemp -d "${TMPDIR:-/tmp}/agentstudio-dispatch-output.XXXXXX")" || return 1
+  relay_fifo="$relay_directory/messages"
+  if ! mkfifo "$relay_fifo"; then
+    rmdir "$relay_directory" 2>/dev/null || true
+    return 1
+  fi
+
+  /usr/bin/perl "$SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH" \
+    "$SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH" dispatcher <"$relay_fifo" &
+  relay_pid="$!"
+  if ! { exec 94>"$relay_fifo"; } 2>/dev/null; then
+    kill -TERM "$relay_pid" 2>/dev/null || true
+    /bin/rm -f "$relay_fifo"
+    rmdir "$relay_directory" 2>/dev/null || true
+    echo "swift-test-output-relay: cannot open dispatcher channel" >&2
+    return 1
+  fi
+
+  SWIFT_TEST_OUTPUT_RELAY_DISPATCH_DIRECTORY="$relay_directory"
+  SWIFT_TEST_OUTPUT_RELAY_DISPATCH_FIFO="$relay_fifo"
+  SWIFT_TEST_OUTPUT_RELAY_DISPATCH_PID="$relay_pid"
+  SWIFT_TEST_OUTPUT_RELAY_DISPATCH_ACTIVE=1
+}
+
+swift_test_output_message() {
+  local message="$*"
+  if [ "${SWIFT_TEST_OUTPUT_RELAY_DISPATCH_ACTIVE:-0}" = "1" ]; then
+    printf '%s\n' "$message" >&94
+  else
+    printf '%s\n' "$message"
+  fi
+}
+
+swift_test_output_relay_finish_dispatcher() {
+  local relay_status=0
+  [ "${SWIFT_TEST_OUTPUT_RELAY_DISPATCH_ACTIVE:-0}" = "1" ] || return 0
+
+  exec 94>&-
+  wait "$SWIFT_TEST_OUTPUT_RELAY_DISPATCH_PID" || relay_status=$?
+  /bin/rm -f "$SWIFT_TEST_OUTPUT_RELAY_DISPATCH_FIFO"
+  rmdir "$SWIFT_TEST_OUTPUT_RELAY_DISPATCH_DIRECTORY" 2>/dev/null || true
+  unset SWIFT_TEST_OUTPUT_RELAY_DISPATCH_DIRECTORY SWIFT_TEST_OUTPUT_RELAY_DISPATCH_FIFO
+  unset SWIFT_TEST_OUTPUT_RELAY_DISPATCH_PID SWIFT_TEST_OUTPUT_RELAY_DISPATCH_ACTIVE
+  return "$relay_status"
+}
+
+swift_test_output_relay_begin_command() {
+  swift_test_output_relay_prepare_paths || return $?
+
+  local relay_directory relay_fifo relay_pid
+  relay_directory="$(mktemp -d "${TMPDIR:-/tmp}/agentstudio-command-output.XXXXXX")" || return 1
+  relay_fifo="$relay_directory/messages"
+  if ! mkfifo "$relay_fifo"; then
+    rmdir "$relay_directory" 2>/dev/null || true
+    return 1
+  fi
+
+  exec 99>&1
+  /usr/bin/perl "$SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH" \
+    "$SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH" command <"$relay_fifo" &
+  relay_pid="$!"
+  if ! { exec 1>"$relay_fifo"; } 2>/dev/null; then
+    exec 99>&-
+    kill -TERM "$relay_pid" 2>/dev/null || true
+    /bin/rm -f "$relay_fifo"
+    rmdir "$relay_directory" 2>/dev/null || true
+    echo "swift-test-output-relay: cannot open command channel" >&2
+    return 1
+  fi
+
+  SWIFT_TEST_OUTPUT_RELAY_COMMAND_DIRECTORY="$relay_directory"
+  SWIFT_TEST_OUTPUT_RELAY_COMMAND_FIFO="$relay_fifo"
+  SWIFT_TEST_OUTPUT_RELAY_COMMAND_PID="$relay_pid"
+}
+
+swift_test_output_relay_finish_command() {
+  local relay_status=0
+  [ -n "${SWIFT_TEST_OUTPUT_RELAY_COMMAND_PID:-}" ] || return 0
+
+  exec 1>&99
+  exec 99>&-
+  wait "$SWIFT_TEST_OUTPUT_RELAY_COMMAND_PID" || relay_status=$?
+  /bin/rm -f "$SWIFT_TEST_OUTPUT_RELAY_COMMAND_FIFO"
+  rmdir "$SWIFT_TEST_OUTPUT_RELAY_COMMAND_DIRECTORY" 2>/dev/null || true
+  unset SWIFT_TEST_OUTPUT_RELAY_COMMAND_DIRECTORY SWIFT_TEST_OUTPUT_RELAY_COMMAND_FIFO
+  unset SWIFT_TEST_OUTPUT_RELAY_COMMAND_PID
+  return "$relay_status"
 }
 
 swift_test_run_pipeline_child() {
@@ -2057,8 +2198,14 @@ swift_test_run_pipeline_child() {
   fi
   command_start_ms="$(lane_timing_now_ms 2>/dev/null || true)"
   set +e
+  # The test stream has its own long-lived line relay after xcb. Shell messages
+  # stay on the command relay, and both writers serialize on the slot-local lock.
+  # Close relay descriptors in upstream children so they cannot prolong either
+  # relay after their command has exited.
   # shellcheck disable=SC2086
-  "$@" 2>&1 | tee "$output_file" | $xcb_pipe
+  "$@" 2>&1 94>&- 99>&- | tee "$output_file" 94>&- 99>&- | $xcb_pipe 94>&- 99>&- | \
+    /usr/bin/perl "$SWIFT_TEST_OUTPUT_RELAY_SCRIPT_PATH" \
+      "$SWIFT_TEST_OUTPUT_RELAY_LOCK_PATH" stream 94>&- 1>&99
   pipeline_result=$? pipeline_status=("${PIPESTATUS[@]}")
   command_exit_ms="$(lane_timing_now_ms 2>/dev/null || true)"
   printf '%s %s %s\n' "$command_start_ms" "$command_exit_ms" "${pipeline_status[0]}" \
@@ -2066,7 +2213,7 @@ swift_test_run_pipeline_child() {
   exit "$pipeline_result"
 }
 
-run_swift_with_timeout() {
+swift_test_run_with_timeout_body() {
   local timing_dispatch_ms
   timing_dispatch_ms="$(lane_timing_now_ms 2>/dev/null || true)"
   local label="$1"
@@ -2291,6 +2438,34 @@ run_swift_with_timeout() {
 
 # The signal that killed a child, or `none` when the status is an ordinary exit
 # code. Shells report a signalled child as 128 + signal number.
+run_swift_with_timeout() {
+  local parent_errexit=0 command_status=0 relay_status=0
+  case "$-" in
+    *e*) parent_errexit=1 ;;
+  esac
+
+  swift_test_output_relay_begin_command || return $?
+  set +e
+  (
+    if [ "$parent_errexit" = "1" ]; then
+      set -e
+    else
+      set +e
+    fi
+    swift_test_run_with_timeout_body "$@"
+  )
+  command_status=$?
+  if [ "$parent_errexit" = "1" ]; then
+    set -e
+  fi
+
+  swift_test_output_relay_finish_command || relay_status=$?
+  if [ "$command_status" -eq 0 ] && [ "$relay_status" -ne 0 ]; then
+    command_status="$relay_status"
+  fi
+  return "$command_status"
+}
+
 swift_test_signal_name() {
   local status="${1:-0}"
 
@@ -2574,7 +2749,7 @@ run_webkit_suite() {
   swift_testing_helper="$(swift_testing_helper_path)"
   testing_framework_path="$(swift_testing_framework_path)"
 
-  echo "[webkit] running $filter"
+  swift_test_output_message "[webkit] running $filter"
   # Use the already-built helper directly, as in the other isolated phases.
   # Concurrent `swift test --skip-build` calls contend for SwiftPM's build lock.
   # Preserve raw output so a signalled helper remains visible in the receipt.
@@ -2597,7 +2772,7 @@ run_webkit_suite() {
       2>&1) || command_status=$?
   fi
   unset _XCB_BYPASS
-  echo "$output"
+  swift_test_output_message "$output"
 
   if [ "$command_status" -ne 0 ]; then
     local signal_name
