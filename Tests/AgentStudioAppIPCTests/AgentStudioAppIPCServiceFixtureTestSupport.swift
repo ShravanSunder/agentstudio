@@ -120,7 +120,8 @@ struct LiveServerFixture: Sendable {
         credentialResolver: (any AgentStudioIPCCredentialResolving)? = nil,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort = TestCredentialContinuityPort(),
         canonicalPaneMembership: (@MainActor @Sendable (UUID, UUID) -> Bool)? = nil,
-        ownPaneScopes: [AppIPCOwnPaneScope] = []
+        ownPaneScopes: [AppIPCOwnPaneScope] = [],
+        cliStoreReadThroughPort: (any AppIPCCLIStoreReadThroughPort)? = nil
     ) throws {
         let resolvedCredentialResolver = credentialResolver ?? IPCFixtureCredentialResolver()
         testCredentialResolver = resolvedCredentialResolver as? IPCFixtureCredentialResolver
@@ -207,7 +208,8 @@ struct LiveServerFixture: Sendable {
                     paths: paths,
                     channel: channel,
                     principalRegistry: principalRegistry,
-                    credentialContinuityPort: credentialContinuityPort
+                    credentialContinuityPort: credentialContinuityPort,
+                    cliStoreReadThroughPort: cliStoreReadThroughPort
                 )
             )
         } catch {

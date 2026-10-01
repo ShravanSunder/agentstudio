@@ -520,7 +520,7 @@ private struct ReusableCredentialFixture {
         let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         let version = try decodeResponseResult(IPCSystemVersionResult.self, from: response)
         #expect(!version.appVersion.isEmpty)
-        guard case .authenticated(let principalID, let runtimeID, let accessMode) = loginStatus else {
+        guard case .authenticated(let principalID, let runtimeID, let accessMode, _) = loginStatus else {
             throw ReusableCredentialTestError.unauthenticated
         }
         return .init(principalID: principalID, runtimeID: runtimeID, accessMode: accessMode)

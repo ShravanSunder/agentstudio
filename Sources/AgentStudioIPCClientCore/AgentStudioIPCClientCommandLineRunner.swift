@@ -20,6 +20,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
         package let identifierGenerator: @Sendable () -> UUID
         package let standardOutputSink: @Sendable (String) -> Void
         package let standardErrorSink: @Sendable (String) -> Void
+        package let now: @Sendable () -> Date
 
         package init(
             arguments: [String],
@@ -29,7 +30,8 @@ package struct AgentStudioIPCClientCommandLineRunner {
             standardInput: @escaping @Sendable () -> Data,
             identifierGenerator: @escaping @Sendable () -> UUID,
             standardOutputSink: @escaping @Sendable (String) -> Void,
-            standardErrorSink: @escaping @Sendable (String) -> Void
+            standardErrorSink: @escaping @Sendable (String) -> Void,
+            now: @escaping @Sendable () -> Date = { Date() }
         ) {
             self.arguments = arguments
             self.environment = environment
@@ -39,6 +41,7 @@ package struct AgentStudioIPCClientCommandLineRunner {
             self.identifierGenerator = identifierGenerator
             self.standardOutputSink = standardOutputSink
             self.standardErrorSink = standardErrorSink
+            self.now = now
         }
     }
 

@@ -185,7 +185,10 @@ extension AppDelegate {
         }
 
         do {
-            guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else { return }
+            guard
+                let composition = try await makeAppIPCServer(
+                    sessionsIngestion: sessionsIngestion, datastore: workspaceSQLiteDatastore)
+            else { return }
             try composition.server.start()
             appIPCServer = composition.server
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
@@ -384,7 +387,8 @@ extension AppDelegate {
     }
 
     private func makeAppIPCServer(
-        sessionsIngestion: SessionsIngestion
+        sessionsIngestion: SessionsIngestion,
+        datastore: WorkspaceSQLiteDatastoreActor
     ) async throws -> (server: AgentStudioAppIPCServer, socketURL: URL)? {
         let runtimeId = appIPCRuntimeID!
         let accessMode = Self.appIPCAccessMode()
@@ -467,7 +471,9 @@ extension AppDelegate {
                 paths: paths,
                 channel: appIPCServerChannel,
                 principalRegistry: appIPCPrincipalRegistry,
-                credentialContinuityPort: appIPCContinuityRepository
+                credentialContinuityPort: appIPCContinuityRepository,
+                cliStoreReadThroughPort: AppCLIStoreReadThroughReader(
+                    storeURL: paths.cliStoreURL, expectedChannel: cliStoreChannel, datastore: datastore)
             ),
             paths.socketURL
         )

@@ -153,7 +153,9 @@ package struct IPCAuthLoginParams: Codable, Equatable, Sendable, IPCSchemaProvid
 
 package enum IPCAuthStatusResult: Codable, Equatable, Sendable, IPCSchemaProviding {
     case unauthenticated
-    case authenticated(principalId: UUID, runtimeId: UUID, accessMode: IPCAccessMode)
+    case authenticated(
+        principalId: UUID, runtimeId: UUID, accessMode: IPCAccessMode,
+        cliStoreReadThrough: IPCCLIStoreReadThrough? = nil)
 
     package init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -189,7 +191,7 @@ package enum IPCAuthStatusResult: Codable, Equatable, Sendable, IPCSchemaProvidi
         switch self {
         case .unauthenticated:
             try container.encode(false, forKey: .authenticated)
-        case .authenticated(let principalId, let runtimeId, let accessMode):
+        case .authenticated(let principalId, let runtimeId, let accessMode, _):
             try container.encode(true, forKey: .authenticated)
             try container.encode(principalId, forKey: .principalId)
             try container.encode(runtimeId, forKey: .runtimeId)

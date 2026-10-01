@@ -73,6 +73,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         channel: AgentStudioIPCChannel,
         principalRegistry: AgentStudioIPCPrincipalRegistry,
         credentialContinuityPort: any AgentStudioIPCCredentialContinuityPort,
+        cliStoreReadThroughPort: (any AppIPCCLIStoreReadThroughPort)?,
         approvalPolicyStore: any ApprovalPolicyStore = StaticApprovalPolicyStore(),
         peerCredentialProvider: any PeerCredentialProviding = DarwinPeerCredentialProvider(),
         currentUserIdentifier: uid_t = getuid(),
@@ -80,6 +81,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         maxResponseFrameBytes: Int = IPCFramePolicy.maximumResponseFrameBytes
     ) {
         self.service = service
+        // S3 red stand-in: the required port is not read until red is verified.
         self.paths = paths
         self.channel = channel
         self.methodRegistry = service.methodRegistry

@@ -226,6 +226,15 @@ package final class CLIStore: Sendable {
         }
     }
 
+    package func purgeHandledOutbox(
+        expectedStoreID: UUID,
+        through lastHandledID: Int64,
+        now: Date
+    ) -> Result<Int, CLIStoreFailure> {
+        // S3 red stand-in: no deletion before retention/identity red proof.
+        .failure(.unavailable)
+    }
+
     private static func readIdentity(
         _ database: Database,
         expectedChannel: CLIStoreChannel

@@ -609,12 +609,15 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 "AgentStudioAppIPC",
+                "AgentStudioCLIStore",
+                "AgentStudioCore",
                 "AgentStudioIPCClientCore",
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioInfrastructure",
                 "AgentStudioTestHarness",
                 "AgentStudioTestSupport",
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Tests/AgentStudioAppIPCTests",
             swiftSettings: [
