@@ -15,6 +15,19 @@ struct IPCBuiltInMethodCatalogTests {
         #expect(names == names.sorted())
     }
 
+    @Test("the CLI resolves every compiled static method without a discovered catalog")
+    func cliLocallyResolvesExactStaticSurface() throws {
+        let descriptors = try IPCBuiltInMethodCatalog.locallyResolvableDescriptors(examples: fixtureContext)
+        let names = descriptors.map(\.metadata.name)
+
+        #expect(Set(names) == Set(expectedStaticMethodNames))
+        #expect(names.count == Set(names).count)
+        for name in expectedStaticMethodNames {
+            #expect(IPCBuiltInMethodCatalog.resolvesLocally([name], descriptors: descriptors), "method: \(name)")
+        }
+        #expect(!IPCBuiltInMethodCatalog.resolvesLocally(["terminal.sned"], descriptors: descriptors))
+    }
+
     @Test("every static descriptor carries at least one validated typed example")
     func everyDescriptorHasTypedExamples() throws {
         let catalog = try makeCatalog(waitMaximum: 9)
