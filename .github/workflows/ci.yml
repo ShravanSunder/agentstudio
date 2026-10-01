@@ -7,9 +7,12 @@ on:
   # Every base, not only main: a stacked PR targets the branch below it and
   # still has to pass the same gates before the stack merges.
   pull_request:
+  # Full cold verification runs nightly; main pushes publish the cold prebuild.
+  schedule:
+    - cron: "0 9 * * *"
 
 concurrency:
-  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+  group: "${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -178,6 +181,7 @@ jobs:
 
   bridge-web:
     name: BridgeWeb
+    if: github.event_name != 'push'
     runs-on: macos-26
     env:
       SWIFT_BUILD_DIR: .build-ci
@@ -452,6 +456,7 @@ jobs:
       # Setup mise installs the pinned SwiftLint that the contract tests run.
       # No Swift test runs swift-format, so this job does not build it.
       - name: Verify SwiftLint on PATH
+        if: github.event_name != 'push'
         run: |
           echo "swiftlint resolves to: $(command -v swiftlint || echo missing)"
           echo "mise pin installs at: $(mise where swiftlint@0.65.1)"
@@ -567,7 +572,7 @@ jobs:
       - *swift-cache-verify-step
 
       - name: Inventory main Swift inputs before cold build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request'
         run: |
           test "${{ steps.swift-cache-inventory-before.outputs.valid }}" = true
           test ! -e .build-ci
@@ -656,6 +661,7 @@ jobs:
           echo "Swift cache publication: $planned"
 
       - name: Test fast lane
+        if: github.event_name != 'push'
         env:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
@@ -663,6 +669,7 @@ jobs:
         run: mise run --skip-deps --raw test:swift:fast
 
       - name: Test large lane
+        if: github.event_name != 'push'
         env:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
@@ -670,6 +677,7 @@ jobs:
         run: mise run --skip-deps --raw test:swift:large
 
       - name: Test WebKit lane
+        if: github.event_name != 'push'
         env:
           # WebKit teardown can crash swiftpm-testing-helper after assertions pass;
           # this lane isolates real WebKit runtime suites, one process each. A crash
@@ -680,6 +688,7 @@ jobs:
         run: mise run --skip-deps test:swift:webkit
 
       - name: Verify release-script contract
+        if: github.event_name != 'push'
         run: mise run lint:release-scripts
 
       - name: Upload test results

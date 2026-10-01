@@ -29,7 +29,9 @@ struct PaneAgentControlHarness {
 
     static func make(channel: AgentStudioIPCChannel) async throws -> Self {
         let workspaceWindowId = UUIDv7.generate()
-        let commandHarness = makeHarness(workspaceWindowId: workspaceWindowId)
+        let (commandHarness, datastore) = try makeCanonicalIPCWorkspaceCommandHarness(
+            workspaceWindowId: workspaceWindowId
+        )
         let appDelegate = AppDelegate()
         var createdRootDirectory: URL?
         do {
@@ -50,8 +52,6 @@ struct PaneAgentControlHarness {
                 runtimesByPaneId[paneId] = runtime
             }
 
-            let sqliteFixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: store.identityAtom.workspaceId)
-            let datastore = try preparedWorkspaceSQLiteDatastore(from: sqliteFixture.backend)
             guard case .ready = await datastore.prepareOptionalApplicationLocalSchema() else {
                 throw PaneAgentControlHarnessError.optionalSchemaUnavailable
             }

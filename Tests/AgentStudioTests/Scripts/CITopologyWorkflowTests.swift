@@ -3,6 +3,59 @@ import Testing
 
 @Suite("CI topology workflow")
 struct CITopologyWorkflowTests {
+    @Test("main pushes publish a cold prebuild while nightly and pull requests run both macOS jobs")
+    func workflowEventsSelectTheirMacOSTopology() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let bridgeJob = try topologyJob(named: "bridge-web", in: workflow)
+        let swiftJob = try topologyJob(named: "swift-test-suite", in: workflow)
+        #expect(workflow.contains("  schedule:\n    - cron: \"0 9 * * *\""))
+        #expect(workflow.contains("  workflow_dispatch:"))
+        #expect(workflow.components(separatedBy: "runs-on: macos-26").count == 3)
+        let bridgeHeader = try topologyBlock(startingWith: "  bridge-web:\n", endingBefore: "    steps:", in: bridgeJob)
+        let swiftHeader = try topologyBlock(
+            startingWith: "  swift-test-suite:\n", endingBefore: "    steps:", in: swiftJob)
+        #expect(bridgeHeader.contains("    if: github.event_name != 'push'\n"))
+        #expect(!swiftHeader.contains("\n    if:"))
+        #expect(!swiftHeader.contains("\n    needs:"))
+        #expect(!swiftJob.contains("needs.bridge-web"))
+        for stepName in ["Compute Swift cache compatibility prefix", "Inventory Swift build inputs before prebuild"] {
+            let step = try topologyBlock(
+                startingWith: "      - name: \(stepName)\n", endingBefore: "\n      - ", in: swiftJob)
+            #expect(!step.contains("\n        if:"))
+        }
+        let macOSJobs = [("bridge-web", bridgeHeader), ("swift-test-suite", swiftHeader)]
+        for eventName in ["push", "pull_request", "schedule", "workflow_dispatch"] {
+            let activeJobs: Set<String> =
+                eventName == "push" ? ["swift-test-suite"] : ["bridge-web", "swift-test-suite"]
+            let selectedJobs = Set(
+                macOSJobs.compactMap { jobName, jobHeader -> String? in
+                    if jobHeader.contains("    if: github.event_name != 'push'\n"), eventName == "push" { return nil }
+                    return jobName
+                })
+            #expect(selectedJobs == activeJobs, "\(eventName) macOS topology changed")
+        }
+        for stepName in ["Test fast lane", "Test large lane", "Test WebKit lane", "Verify release-script contract"] {
+            let step = try topologyBlock(
+                startingWith: "      - name: \(stepName)\n", endingBefore: "\n      - ", in: swiftJob)
+            #expect(step.contains("        if: github.event_name != 'push'\n"))
+        }
+        let coldStart = try topologyBlock(
+            startingWith: "      - name: Inventory main Swift inputs before cold build\n",
+            endingBefore: "\n      - ", in: swiftJob)
+        #expect(coldStart.contains("if: github.event_name != 'pull_request'"))
+        #expect(coldStart.contains("test ! -e .build-ci"))
+        let prebuild = try topologyBlock(
+            startingWith: "      - name: Prebuild Swift test bundles\n", endingBefore: "\n      - ", in: swiftJob)
+        #expect(!prebuild.contains("        if:"))
+        #expect(prebuild.contains("mise run --skip-deps test:swift:prebuild"))
+        let benchmarkWorkflow = try String(contentsOfFile: ".github/workflows/benchmarks.yml", encoding: .utf8)
+        let benchmarkTriggers = try topologyBlock(
+            startingWith: "on:\n", endingBefore: "\npermissions:", in: benchmarkWorkflow)
+        #expect(!benchmarkTriggers.contains("  push:"))
+        #expect(benchmarkTriggers.contains("  schedule:"))
+        #expect(benchmarkTriggers.contains("  workflow_dispatch:"))
+    }
+
     @Test("BridgeWeb consumes the shared verified seed after setup without publishing")
     func bridgeWebUsesSharedSwiftSeed() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
@@ -119,7 +172,7 @@ struct CITopologyWorkflowTests {
 
         #expect(
             concurrency.contains(
-                "group: \"${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}\""
+                "group: \"${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}\""
             )
         )
         #expect(concurrency.contains("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"))
