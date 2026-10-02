@@ -32,6 +32,12 @@ package struct CLIStoreCleanupHandler: Sendable {
             {
                 record(failure)
             }
+            if let mark = readThrough.lifecycleReport,
+                case .failure(let failure) = writer.purgeHandledLifecycleReports(
+                    expectedStoreID: readThrough.storeId, through: mark, now: now())
+            {
+                record(failure)
+            }
         }
     }
 

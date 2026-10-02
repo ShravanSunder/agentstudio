@@ -103,6 +103,17 @@ extension IPCSessionEventIdentity: IPCSchemaProviding {
     }
 }
 
+extension IPCLifecycleReportPosition: IPCSchemaProviding {
+    package static func ipcSchema() throws -> IPCJSONSchema {
+        .object(fields: [
+            .init(name: "storeId", description: "CLI store identity", schema: IPCSchemaScalars.uuid),
+            .init(
+                name: "sequence", description: "Committed lifecycle report sequence",
+                schema: .integer(minimum: 1, maximum: IPCSchemaScalars.maximumExactInteger)),
+        ])
+    }
+}
+
 extension IPCSessionEventParams: IPCSchemaProviding {
     package static func ipcSchema() throws -> IPCJSONSchema {
         .object(fields: [
@@ -113,6 +124,9 @@ extension IPCSessionEventParams: IPCSchemaProviding {
             .init(
                 name: "event", description: "Projected provider lifecycle event",
                 schema: try IPCSessionEventIdentity.ipcSchema()),
+            .optional(
+                "lifecycleReport", description: "Durable lifecycle report receipt",
+                schema: try IPCLifecycleReportPosition.ipcSchema()),
             IPCRequestSchemaFields.correlation,
         ])
     }

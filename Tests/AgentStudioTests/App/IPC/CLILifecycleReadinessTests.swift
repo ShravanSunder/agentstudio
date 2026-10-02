@@ -28,8 +28,6 @@ struct CLILifecycleReadinessTests {
         let storeID = try await valueFromDedicatedThread {
             let writer = try CLIStore.openWriter(url: storeURL, channel: .debug).get()
             try writer.databaseQueue.write { database in
-                // Test-owned schema while RED; GREEN must use the real migration.
-                try database.execute(sql: intakeTestLifecycleSchema)
                 try database.execute(
                     sql: """
                         INSERT INTO cli_lifecycle_report
@@ -58,6 +56,75 @@ struct CLILifecycleReadinessTests {
                 arguments: [storeID.uuidString])
         }
         #expect(mark == 1)
+    }
+
+    @Test(
+        "historical intake uses App's canonical membership, including non-zmx and unflushed panes",
+        arguments: LifecycleMembershipCase.allCases)
+    func canonicalMembershipOwnsHistoricalAdmission(scenario: LifecycleMembershipCase) async throws {
+        // Separate store identity keeps these membership rows independent of the authenticated receipt case.
+        try await withLifecycleIntakeFixture { fixture in
+            let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
+            let app = harness.appDelegate
+            let datastore = try #require(app.workspaceSQLiteDatastore)
+            let ingestion = try #require(app.appIPCSessionsIngestion)
+            let workspaceID = app.store.identityAtom.workspaceId
+            // Atom insertion deliberately does not schedule a persistence flush.
+            let pane = app.store.paneAtom.createPane(
+                title: "Lifecycle membership",
+                provider: scenario == .nonZmx ? .ghostty : .zmx, zmxSessionID: .generateUUIDv7())
+            let paneID = pane.id
+            if scenario == .unflushed {
+                let persisted = try await datastore.liveZmxSessionsByPane(workspaceId: workspaceID)
+                #expect(persisted[paneID] == nil)
+                let membership = app.makeCanonicalPaneMembership()
+                #expect(membership(paneID, workspaceID))
+            }
+            if scenario == .removed { #expect(app.store.paneAtom.graphAtom.deletePaneAndOwnedDrawerChildren(paneID)) }
+            if scenario == .retired { app.appIPCPrincipalRegistry.finalRevokePane(paneID) }
+            let storeURL = fixture.storeURL
+            let record = CLILifecycleReportRecord(
+                reportID: UUIDv7.generate(), paneID: paneID,
+                providerIdentifier: "codex", providerVersion: "0.154.0", providerMode: "cli", event: .sessionStart,
+                conversationID: UUIDv7.generate().uuidString, correlationID: UUIDv7.generate(),
+                recordedAt: Date(), bootSessionID: "test-boot")
+            let saved = try await valueFromDedicatedThread {
+                let writer = try CLIStore.openWriter(url: storeURL, channel: .debug).get()
+                return (writer.identity.storeID, try writer.appendLifecycleReport(record).get())
+            }
+            let registry = app.appIPCPrincipalRegistry!
+            let access = WorkspaceSessionsSQLiteAccess(datastore: datastore)
+            let intake = CLILifecycleReportIntake(
+                storeURL: storeURL, expectedChannel: .debug,
+                admission: AgentStudioIPCSessionsAdapter(
+                    ingestion: ingestion,
+                    providerRegistry: .init(profiles: [.codexCommandLine])),
+                sqliteAccess: access, workspaceID: scenario == .foreignWorkspace ? UUIDv7.generate() : workspaceID,
+                paneExists: app.makeCanonicalPaneMembership(),
+                finalRevokedPaneIDs: { registry.finalRevokedPaneIDsSnapshot() })
+            do {
+                let before = try await lifecycleMembershipCounts(datastore: datastore, paneID: paneID, storeID: saved.0)
+                let boundary = try await intake.captureListenerReadyBoundary()
+                try await intake.takeIn(through: boundary)
+                let snapshot = try await ingestion.snapshot(.pane(paneID, page: .init(limit: 10, after: nil)))
+                let after = try await lifecycleMembershipCounts(datastore: datastore, paneID: paneID, storeID: saved.0)
+                #expect(after.mark == saved.1.sequence)
+                if scenario.isRefused {
+                    #expect(snapshot.currentBinding == nil)
+                    #expect(after.bindings == before.bindings)
+                    #expect(after.operations == before.operations)
+                } else {
+                    #expect(snapshot.currentBinding?.providerConversationId == record.conversationID)
+                    #expect(snapshot.currentBinding?.startedFromHistoricalReport == true)
+                    #expect(after.bindings == before.bindings + 1)
+                    #expect(after.operations == before.operations + 1)
+                }
+            } catch {
+                await intake.finish()
+                throw error
+            }
+            await intake.finish()
+        }
     }
 
     @Test("newer or corrupt CLI files make readiness unavailable", arguments: [false, true])
@@ -122,12 +189,13 @@ struct CLILifecycleReadinessTests {
             let ingestion = SessionsIngestion(
                 repository: SessionsRepository(sqliteAccess: access),
                 limits: .init(maximumPendingPerPane: 16, maximumPendingGlobal: 32), probe: { _ in })
+            let adapter = AgentStudioIPCSessionsAdapter(
+                ingestion: ingestion, providerRegistry: .init(profiles: [.codexCommandLine]), now: { fixture.now })
+            let intake = CLILifecycleReportIntake(
+                storeURL: fixture.storeURL, expectedChannel: .debug, admission: adapter, sqliteAccess: access,
+                workspaceID: fixture.workspaceID,
+                paneExists: { pane, _ in pane == fixture.paneID })
             do {
-                let adapter = AgentStudioIPCSessionsAdapter(
-                    ingestion: ingestion, providerRegistry: .init(profiles: [.codexCommandLine]), now: { fixture.now })
-                let intake = CLILifecycleReportIntake(
-                    storeURL: fixture.storeURL, expectedChannel: .debug, admission: adapter, sqliteAccess: access,
-                    paneExists: { $0 == fixture.paneID })
                 let row = try await fixture.seed(fixture.record())
                 let boundary = try await intake.captureListenerReadyBoundary()
                 try await intake.takeIn(through: boundary)
@@ -151,8 +219,10 @@ struct CLILifecycleReadinessTests {
                 #expect(through?.storeId == fixture.storeID)
                 #expect(through?.outbox == 0)
                 #expect(through?.lifecycleReport == row.sequence)
+                await intake.finish()
                 await ingestion.finish()
             } catch {
+                await intake.finish()
                 await ingestion.finish()
                 throw error
             }
@@ -249,4 +319,25 @@ private func prepareLifecycleDatastore(fixture: LifecycleIntakeFileFixture) asyn
     }
     return try await preparedWorkspaceSQLiteDatastore(
         coreRepository: prepared.0, preparedApplicationLocalRepository: prepared.1)
+}
+
+enum LifecycleMembershipCase: CaseIterable, Sendable {
+    case present, removed, retired, foreignWorkspace, nonZmx, unflushed
+    var isRefused: Bool { self == .removed || self == .retired || self == .foreignWorkspace }
+}
+
+private func lifecycleMembershipCounts(datastore: WorkspaceSQLiteDatastoreActor, paneID: UUID, storeID: UUID)
+    async throws -> (mark: Int64, bindings: Int, operations: Int)
+{
+    try await datastore.performApplicationLocalRead { database in
+        (
+            try CLILifecycleCursorCommitParticipant.mark(in: database, storeID: storeID),
+            try Int.fetchOne(
+                database, sql: "SELECT COUNT(*) FROM sessions_pane_binding WHERE pane_id=?",
+                arguments: [paneID.uuidString]) ?? 0,
+            try Int.fetchOne(
+                database, sql: "SELECT COUNT(*) FROM sessions_operation WHERE operation_scope=?",
+                arguments: ["pane:" + paneID.uuidString]) ?? 0
+        )
+    }
 }

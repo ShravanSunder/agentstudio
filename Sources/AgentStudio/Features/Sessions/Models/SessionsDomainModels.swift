@@ -200,36 +200,6 @@ package struct SessionsExplicitModelBindInput: Sendable, Equatable {
     }
 }
 
-package struct SessionsBindMutation: Sendable, Codable, Equatable {
-    package let paneId: UUID
-    package let providerIdentifier: String
-    package let providerVersion: String
-    package let providerMode: String
-    package let providerConversationId: String
-    package let sourceId: String
-    package let sourceGenerationId: UUID
-    package let transition: SessionsBindTransition
-    package let freshness: SessionsEvidenceFreshness
-    package let reportedAt: Date
-
-    package static func explicitModelBind(
-        _ input: SessionsExplicitModelBindInput
-    ) -> Self {
-        Self(
-            paneId: input.paneId,
-            providerIdentifier: input.providerIdentifier,
-            providerVersion: input.providerVersion,
-            providerMode: input.providerMode,
-            providerConversationId: input.providerConversationId,
-            sourceId: input.sourceId,
-            sourceGenerationId: input.sourceGenerationId,
-            transition: .explicitModelBind(occurrenceId: input.occurrenceId),
-            freshness: .live,
-            reportedAt: input.reportedAt
-        )
-    }
-}
-
 package enum SessionsReportContext: Sendable, Codable, Equatable {
     case currentPaneBinding(paneId: UUID)
     case sourceGeneration(paneId: UUID, sourceGenerationId: UUID)

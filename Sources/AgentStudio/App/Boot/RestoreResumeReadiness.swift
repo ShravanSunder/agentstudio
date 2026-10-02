@@ -95,7 +95,7 @@ actor RestoreResumeReadiness<ReadinessClock: Clock> where ReadinessClock.Duratio
 extension AppIPCDeferredInitialization {
     @concurrent nonisolated static func prepareResumeReadiness<ReadinessClock: Clock>(
         readiness: RestoreResumeReadiness<ReadinessClock>,
-        intake: any LifecycleReportIntaking = NoStoreLifecycleReportIntake(),
+        intake: any LifecycleReportIntaking,
         prepareForLaunch: @escaping @Sendable () async throws -> Void
     ) async where ReadinessClock.Duration == Duration {
         await readiness.record(.listenerReady)

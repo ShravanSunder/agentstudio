@@ -13,6 +13,7 @@ import Synchronization
 struct LifecycleIntakeFileFixture: Sendable {
     let rootURL: URL
     let storeURL: URL
+    let workspaceID = UUIDv7.generate()
     let paneID: UUID
     let storeID: UUID
     let access: LifecycleTestSQLiteAccess
@@ -20,6 +21,7 @@ struct LifecycleIntakeFileFixture: Sendable {
     let ingestion: SessionsIngestion
     let members: LifecyclePaneMembership
     let refusals: LifecycleRefusalLedger
+    let intakes = LifecycleIntakeOwnerLedger()
     let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     static func make(rootURL existingRoot: URL? = nil, paneID: UUID = UUIDv7.generate()) async throws -> Self {
@@ -32,16 +34,6 @@ struct LifecycleIntakeFileFixture: Sendable {
             let writer = try CLIStore.openWriter(url: storeURL, channel: .debug).get()
             let local = try DatabaseQueue(path: root.appending(path: "local.sqlite").path)
             try WorkspaceLocalMigrations.migrate(local)
-            // S4 RED test-owned schema stand-ins isolate intake from the missing migrations.
-            try writer.databaseQueue.write { try $0.execute(sql: intakeTestLifecycleSchema) }
-            try local.write {
-                try $0.execute(
-                    sql: """
-                        CREATE TABLE IF NOT EXISTS sessions_cli_report_cursor (
-                            store_id TEXT PRIMARY KEY NOT NULL, last_handled_sequence INTEGER NOT NULL
-                        )
-                        """)
-            }
             return (root, storeURL, writer.identity.storeID, local)
         }
         let access = LifecycleTestSQLiteAccess(queue: prepared.3)
@@ -58,10 +50,13 @@ struct LifecycleIntakeFileFixture: Sendable {
     func intake() -> CLILifecycleReportIntake {
         let members = members
         let refusals = refusals
-        return CLILifecycleReportIntake(
+        let intake = CLILifecycleReportIntake(
             storeURL: storeURL, expectedChannel: .debug, admission: adapter(), sqliteAccess: access,
-            paneExists: { pane in members.contains(pane) },
+            workspaceID: workspaceID,
+            paneExists: { pane, _ in members.contains(pane) },
             refusalProbe: { reason in refusals.record(reason) })
+        intakes.record(intake)
+        return intake
     }
 
     func adapter() -> AgentStudioIPCSessionsAdapter {
@@ -178,7 +173,10 @@ struct LifecycleIntakeFileFixture: Sendable {
                 inventory: .complete([:])))
     }
 
-    func close() async { await ingestion.finish() }
+    func close() async {
+        for intake in intakes.snapshot() { await intake.finish() }
+        await ingestion.finish()
+    }
     func remove() { try? FileManager.default.removeItem(at: rootURL) }
 }
 
@@ -250,11 +248,8 @@ final class LifecycleTestSQLiteAccess: SessionsSQLiteAccess, Sendable {
     }
 }
 
-let intakeTestLifecycleSchema = """
-    CREATE TABLE IF NOT EXISTS cli_lifecycle_report (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, pane_id TEXT NOT NULL,
-        provider_identifier TEXT NOT NULL, provider_version TEXT NOT NULL, provider_mode TEXT NOT NULL,
-        event_name TEXT NOT NULL, conversation_id TEXT NOT NULL, end_reason TEXT, correlation_id TEXT NOT NULL,
-        recorded_at INTEGER NOT NULL, boot_session_id TEXT NOT NULL
-    )
-    """
+final class LifecycleIntakeOwnerLedger: Sendable {
+    private let intakes = Mutex<[CLILifecycleReportIntake]>([])
+    func record(_ intake: CLILifecycleReportIntake) { intakes.withLock { $0.append(intake) } }
+    func snapshot() -> [CLILifecycleReportIntake] { intakes.withLock { $0 } }
+}

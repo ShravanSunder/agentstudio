@@ -53,6 +53,9 @@ struct CLILifecycleReportIntakeTests {
             let state = try await fixture.state()
             #expect(state.mark == row.sequence)
             #expect(state.activeSources == 0)
+            let query = try await fixture.adapter().readSessionState(
+                paneId: fixture.paneID, params: .init(handle: "self"))
+            #expect(query.sourceHealth == .ended)
             #expect(try await fixture.sameProviderLookVerdict() == .unknown(.startedFromHistoricalReport))
         }
     }

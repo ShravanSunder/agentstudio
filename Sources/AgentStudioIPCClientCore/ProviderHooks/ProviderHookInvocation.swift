@@ -129,12 +129,10 @@ package enum ProviderHookInvocation {
         }
         do {
             try props.delivery.deliver(
-                IPCSessionEventParams(
-                    handle: "self",
-                    provider: projected.provider,
-                    event: projected.event,
-                    correlationId: props.correlationIdProvider()
-                ),
+                ProviderLifecycleRecorder.recording(
+                    IPCSessionEventParams(
+                        handle: "self", provider: projected.provider, event: projected.event,
+                        correlationId: props.correlationIdProvider()), environment: props.environment),
                 configuration
             )
         } catch let failure as ProviderHookFailure {

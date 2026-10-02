@@ -76,7 +76,8 @@ package enum ClaudeCodeHookInvocation {
                 reportIdentifier: inputs.identifierGenerator()
             )
             guard case .projected(let params) = outcome else { return }
-            try send(params: params, environment: inputs.environment)
+            let recorded = ProviderLifecycleRecorder.recording(params, environment: inputs.environment)
+            try send(params: recorded, environment: inputs.environment)
         } catch {
             inputs.diagnosticSink("agentstudio hook claude: \(announcedEvent) not reported")
         }

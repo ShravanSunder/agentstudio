@@ -86,9 +86,7 @@ extension AppDelegate {
         let registry = AgentStudioIPCPrincipalRegistry(
             runtimeId: runtimeID,
             credentialResolver: resolver,
-            canonicalPaneMembership: { [store] paneID, workspaceID in
-                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
-            }
+            canonicalPaneMembership: makeCanonicalPaneMembership()
         )
         appIPCRuntimeID = runtimeID
         appIPCPaths = paths
@@ -103,9 +101,7 @@ extension AppDelegate {
             cliStoreChannel: cliStoreChannel,
             cliExecutableURL: Bundle.main.bundleURL
                 .appending(path: "Contents/Helpers/agentstudio"),
-            canonicalPaneMembership: { [store] paneID, workspaceID in
-                store.identityAtom.workspaceId == workspaceID && store.paneAtom.pane(paneID) != nil
-            }
+            canonicalPaneMembership: makeCanonicalPaneMembership()
         )
     }
 
@@ -192,13 +188,7 @@ extension AppDelegate {
             else { return }
             try composition.server.start()
             appIPCServer = composition.server
-            if let readiness = restoreResumeReadiness {
-                await AppIPCDeferredInitialization.prepareResumeReadiness(readiness: readiness) {
-                    _ = try await sessionsIngestion.prepareForLaunch(at: Date())
-                }
-            } else {
-                _ = try await sessionsIngestion.prepareForLaunch(at: Date())
-            }
+            await initializeLifecycleIntake(composition.intake, ingestion: sessionsIngestion)
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
             startPaneCLIOutboxDrain(sessionsIngestion: sessionsIngestion, datastore: workspaceSQLiteDatastore)
@@ -320,12 +310,6 @@ extension AppDelegate {
         return ingestion
     }
 
-    private func finishAppIPCSessionsIngestion() async {
-        guard let ingestion = appIPCSessionsIngestion else { return }
-        appIPCSessionsIngestion = nil
-        await ingestion.finish()
-    }
-
     /// Ends IPC ingress and nothing else. No durable write happens here and
     /// nothing waits for one, so this runs before the workspace flush: it
     /// closes the window in which a late `command.execute` or Bridge open could
@@ -386,7 +370,7 @@ extension AppDelegate {
     private func makeAppIPCServer(
         sessionsIngestion: SessionsIngestion,
         datastore: WorkspaceSQLiteDatastoreActor
-    ) async throws -> (server: AgentStudioAppIPCServer, socketURL: URL)? {
+    ) async throws -> (server: AgentStudioAppIPCServer, socketURL: URL, intake: CLILifecycleReportIntake)? {
         let runtimeId = appIPCRuntimeID!
         let accessMode = Self.appIPCAccessMode()
         let paths = appIPCPaths!
@@ -401,6 +385,7 @@ extension AppDelegate {
             shellCommandHandler: self
         )
         let commandCatalogProjectionInputs = commandPort.commandCatalogProjectionInputs()
+        let intake = makeCLILifecycleReportIntake(ingestion: sessionsIngestion, datastore: datastore)
         let ports = AgentStudioAppIPCPorts(
             queryPort: AgentStudioIPCQueryAdapter(
                 runtimeId: runtimeId,
@@ -441,7 +426,8 @@ extension AppDelegate {
                 ),
                 activityClock: paneActivityClock,
                 foregroundLookSink: makeRestoreForegroundLookSink(),
-                resumedSessionStartSink: terminalActivityRouter?.resumedSessionStartSink
+                resumedSessionStartSink: terminalActivityRouter?.resumedSessionStartSink,
+                lifecycleReportSink: { paneID, params in try await intake.recordLive(paneId: paneID, params: params) }
             ),
             permissionApprovalPort: AgentStudioIPCHumanApprovalPort(),
             ownPaneScopePort: WorkspaceOwnPaneScopePort(
@@ -474,7 +460,8 @@ extension AppDelegate {
                 cliStoreReadThroughPort: AppCLIStoreReadThroughReader(
                     storeURL: paths.cliStoreURL, expectedChannel: cliStoreChannel, datastore: datastore)
             ),
-            paths.socketURL
+            paths.socketURL,
+            intake
         )
     }
 
@@ -547,14 +534,6 @@ extension AppDelegate {
                 return .beta
             }
         #endif
-    }
-
-    private var cliStoreChannel: CLIStoreChannel {
-        switch appIPCServerChannel {
-        case .stable: .stable
-        case .beta: .beta
-        case .debug: .debug
-        }
     }
 
     private static func appIPCAccessMode() -> IPCAccessMode {

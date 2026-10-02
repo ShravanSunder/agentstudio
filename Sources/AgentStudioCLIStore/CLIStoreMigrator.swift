@@ -36,8 +36,25 @@ enum CLIStoreMigrator {
                     )
                     """)
         }
-        // S4 RED stand-in: register the schema frontier without creating its table.
-        migrator.registerMigration(lifecycleMigration) { _ in }
+        migrator.registerMigration(lifecycleMigration) { database in
+            try database.execute(
+                sql: """
+                    CREATE TABLE cli_lifecycle_report (
+                        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                        report_id TEXT NOT NULL UNIQUE,
+                        pane_id TEXT NOT NULL,
+                        provider_identifier TEXT NOT NULL,
+                        provider_version TEXT NOT NULL,
+                        provider_mode TEXT NOT NULL,
+                        event_name TEXT NOT NULL,
+                        conversation_id TEXT NOT NULL,
+                        end_reason TEXT,
+                        correlation_id TEXT NOT NULL,
+                        recorded_at INTEGER NOT NULL,
+                        boot_session_id TEXT NOT NULL
+                    )
+                    """)
+        }
         return migrator
     }
 }

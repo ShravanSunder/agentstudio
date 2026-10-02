@@ -45,10 +45,11 @@ extension SessionsEvidenceReducer {
             providerEndReason: nil,
             providerEndReasonText: nil,
             providerEndedAt: nil,
-            startedFromHistoricalReport: false,
+            startedFromHistoricalReport: mutation.startedFromHistoricalReport,
             evidenceUnordered: false,
             unorderedFenceSequence: nil
         )
+        // A recorded historical start retains a historical source identity, never an active generation.
         let newSource = SessionsSourceRecord(
             id: UUIDv7.generate(),
             bindingGenerationId: newBinding.bindingGenerationId,
@@ -58,10 +59,10 @@ extension SessionsEvidenceReducer {
             providerVersion: mutation.providerVersion,
             providerMode: mutation.providerMode,
             qualification: "qualified",
-            status: .active,
+            status: mutation.startedFromHistoricalReport ? .ended : .active,
             lastCursor: nil,
             startedAt: mutation.reportedAt,
-            endedAt: nil
+            endedAt: mutation.startedFromHistoricalReport ? mutation.reportedAt : nil
         )
         var bindingChanges = [newBinding]
         var sourceChanges = [newSource]
@@ -92,7 +93,7 @@ extension SessionsEvidenceReducer {
     ) -> SessionsRepositoryReduction? {
         let isNonLiveProviderBind: Bool
         if case .qualifiedSessionStart = mutation.transition {
-            isNonLiveProviderBind = mutation.freshness != .live
+            isNonLiveProviderBind = mutation.freshness != .live && !mutation.startedFromHistoricalReport
         } else {
             isNonLiveProviderBind = false
         }

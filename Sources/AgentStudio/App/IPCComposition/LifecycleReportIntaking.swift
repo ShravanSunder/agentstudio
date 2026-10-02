@@ -11,9 +11,3 @@ protocol LifecycleReportIntaking: Sendable {
     func captureListenerReadyBoundary() async throws -> LifecycleReportBoundary
     func takeIn(through boundary: LifecycleReportBoundary) async throws
 }
-
-// Planned S4 dependency: no-store intake has no historical rows; replace when the CLI store lands.
-struct NoStoreLifecycleReportIntake: LifecycleReportIntaking {
-    func captureListenerReadyBoundary() async throws -> LifecycleReportBoundary { .noStore }
-    func takeIn(through boundary: LifecycleReportBoundary) async throws {}
-}

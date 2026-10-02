@@ -42,6 +42,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     private let continuousNow: @Sendable () -> ContinuousClock.Instant
     private let activityClock: PaneActivityClock?
     private let foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)?
+    private let lifecycleReportSink: (@Sendable (UUID, IPCSessionEventParams) async throws -> IPCSessionEventResult)?
     private let resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)?
 
     /// The live IPC server admits messages as `.live`. The offline spool drainer
@@ -55,8 +56,10 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         continuousNow: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now },
         activityClock: PaneActivityClock? = nil,
         foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil,
-        resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)? = nil
+        resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)? = nil,
+        lifecycleReportSink: (@Sendable (UUID, IPCSessionEventParams) async throws -> IPCSessionEventResult)? = nil
     ) {
+        self.lifecycleReportSink = lifecycleReportSink
         self.foregroundLookSink = foregroundLookSink
         self.resumedSessionStartSink = resumedSessionStartSink
         self.ingestion = ingestion
@@ -180,10 +183,23 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         params: IPCSessionEventParams,
         provenance: IPCSessionEventProvenance
     ) async throws -> IPCSessionEventResult {
+        if let lifecycleReportSink, params.event.name == .sessionStart || params.event.name == .sessionEnd {
+            return try await lifecycleReportSink(paneId, params)
+        }
+        return try await admitProviderEvent(paneId: paneId, params: params, provenance: provenance)
+    }
+
+    /// Live and stored lifecycle envelopes share exact provider qualification and reduction.
+    func admitProviderEvent(
+        paneId: UUID, params: IPCSessionEventParams, provenance: IPCSessionEventProvenance,
+        historicalStart: Bool = false, reportedAt: Date? = nil,
+        commitParticipant: (any SessionsCommitParticipant)? = nil
+    ) async throws -> IPCSessionEventResult {
         let admission = try await providerAdmission(
             paneId: paneId,
             params: params,
-            snapshot: try await paneSnapshot(paneId: paneId)
+            snapshot: try await paneSnapshot(paneId: paneId),
+            historicalStart: historicalStart, reportedAt: reportedAt
         )
         guard case .admitted(let mutation) = admission else {
             guard case .rejected(let disposition) = admission else {
@@ -209,7 +225,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         do {
             let submission = try await ingestion.submitWithCommitDisposition(
                 correlationId: params.correlationId,
-                mutation: mutation
+                mutation: mutation, commitParticipant: commitParticipant
             )
             if submission.disposition == .inserted {
                 if let activityOccurrence { activityClock?.submit(activityOccurrence) }
@@ -218,7 +234,9 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                 case .recordEvidence: await foregroundLookSink?(.agentMessage, paneId)
                 default: break
                 }
-                if params.event.name == .sessionStart, admissionFreshness == .live, provenance == .matchingPane {
+                if params.event.name == .sessionStart, !historicalStart, admissionFreshness == .live,
+                    provenance == .matchingPane
+                {
                     await resumedSessionStartSink?(
                         paneId, params.provider.identifier, params.event.conversationId)
                 }
@@ -281,7 +299,7 @@ extension AgentStudioIPCSessionsAdapter {
     fileprivate func providerAdmission(
         paneId: UUID,
         params: IPCSessionEventParams,
-        snapshot: SessionsSnapshot
+        snapshot: SessionsSnapshot, historicalStart: Bool, reportedAt: Date?
     ) async throws -> SessionsProviderEventAdmissionOutcome {
         let provider = SessionsProviderIdentity(
             providerIdentifier: params.provider.identifier,
@@ -298,7 +316,7 @@ extension AgentStudioIPCSessionsAdapter {
         guard case .qualified = qualification else {
             return .rejected(Self.rejectedDisposition(qualification))
         }
-        let occurredAt = now()
+        let occurredAt = reportedAt ?? now()
         guard params.event.name != .sessionStart else {
             let admission = SessionsQualifiedSessionStartAdmission(
                 provider: provider,
@@ -306,7 +324,7 @@ extension AgentStudioIPCSessionsAdapter {
                     paneId: paneId,
                     providerConversationId: params.event.conversationId,
                     sourceId: params.event.conversationId,
-                    sourceGenerationId: UUIDv7.generate(),
+                    sourceGenerationId: historicalStart ? params.event.occurrenceId : UUIDv7.generate(),
                     occurrenceId: params.event.occurrenceId
                 ),
                 freshness: .live,
@@ -315,7 +333,7 @@ extension AgentStudioIPCSessionsAdapter {
             guard let bind = providerRegistry.qualifiedSessionStartBind(admission) else {
                 return .rejected(.unqualified)
             }
-            return .admitted(.bind(bind))
+            return .admitted(.bind(historicalStart ? bind.recordingHistoricalStart() : bind))
         }
         let generation = try await eventGeneration(
             paneId: paneId,
@@ -517,7 +535,7 @@ extension AgentStudioIPCSessionsAdapter {
         _ binding: SessionsBindingRecord?
     ) -> IPCSessionSourceHealth {
         guard let binding else { return .unbound }
-        return binding.status == .active ? .live : .ended
+        return binding.status == .active && !binding.startedFromHistoricalReport ? .live : .ended
     }
 
     fileprivate static func portError(from error: any Error) -> any Error {
