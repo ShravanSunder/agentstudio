@@ -16,9 +16,7 @@ package enum AppIPCCommandMethodRegistrations {
                 },
                 connectionHandler: { _, _, _ in composition.catalogResult },
                 cachedTransportResult: AppIPCCachedTransportResult {
-                    try JSONDecoder().decode(
-                        JSONValue.self,
-                        from: try composition.list.encodeResult(composition.catalogResult))
+                    try composition.list.encodeResult(composition.catalogResult)
                 }
             ).erase(),
             AppIPCTypedMethodRegistration(

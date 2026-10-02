@@ -276,7 +276,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                             connectionState: connectionState,
                             socketSubscriber: socketSubscriber
                         )
-                        try await writer.sendResult(id: id, value: result.value, cache: result.cache)
+                        try await writer.sendResult(id: id, result: result)
                     } catch let error as AgentStudioAppIPCRequestError {
                         try await writer.sendError(id: id, code: error.code, message: error.message, data: error.data)
                     } catch {
@@ -297,7 +297,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         connectionId: UUID,
         connectionState: AgentStudioAppIPCConnectionState,
         socketSubscriber: any IPCEventSubscriber
-    ) async throws -> (value: JSONValue, cache: AppIPCCachedTransportResult?) {
+    ) async throws -> AppIPCInvocationResult {
         guard serverIsRunning() else { throw AgentStudioAppIPCRequestError.unauthenticated }
         let registration = methodRegistry.registration(named: request.method)
         guard registration != nil || methodRegistry.recognizesMethod(named: request.method) else {
@@ -381,13 +381,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         let tools = AppIPCTargetResolutionTools { [self] rawHandle in
             try await canonicalHandle(fromRawHandle: rawHandle, principal: context.principal)
         }
-        let value = try await registration.invoke(
+        return try await registration.invoke(
             parameters: request.params ?? .object([:]), connectionContext: context, targetResolutionTools: tools,
             authorize: { [self] principal, authorization in
                 try await authorizationService.authorize(principal: principal, request: authorization)
             }
         )
-        return (value, registration.cachedTransportResult)
     }
 
     private func schedulePersistence(of credentials: [AgentStudioIPCIssuedPaneCredential]) {
@@ -644,12 +643,12 @@ private actor AgentStudioAppIPCConnectionWriter {
         self.maxFrameBytes = maxFrameBytes
     }
 
-    func sendResult(id: JSONRPCIdentifier, value: JSONValue, cache: AppIPCCachedTransportResult?) throws {
-        if let cache {
+    func sendResult(id: JSONRPCIdentifier, result: AppIPCInvocationResult) throws {
+        switch result {
+        case .encoded(let bytes):
             try connection.send(
-                JSONRPCCodec.encodeResponseBytes(
-                    id: id, encodedResult: cache.encodedValue(), maxFrameBytes: maxFrameBytes))
-        } else {
+                JSONRPCCodec.encodeResponseBytes(id: id, encodedResult: bytes, maxFrameBytes: maxFrameBytes))
+        case .value(let value):
             try sendResponse(JSONRPCResponse.success(id: id, result: value))
         }
     }

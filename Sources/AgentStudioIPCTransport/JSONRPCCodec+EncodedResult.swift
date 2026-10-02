@@ -5,13 +5,6 @@ extension JSONRPCCodec {
     package static func encodeResponseBytes(
         id: JSONRPCIdentifier, encodedResult: Data, maxFrameBytes: Int
     ) throws -> Data {
-        precondition(maxFrameBytes > 0, "maxFrameBytes must be positive")
-        guard String(data: encodedResult, encoding: .utf8) != nil else {
-            throw NDJSONFrameError(reason: .invalidUTF8)
-        }
-        guard !encodedResult.contains(0x0a), !encodedResult.contains(0x0d) else {
-            throw NDJSONFrameError(reason: .embeddedNewline)
-        }
         var frame = Data("{\"jsonrpc\":\"2.0\",\"id\":".utf8)
         frame.append(try JSONEncoder().encode(id))
         frame.append(Data(",\"result\":".utf8))

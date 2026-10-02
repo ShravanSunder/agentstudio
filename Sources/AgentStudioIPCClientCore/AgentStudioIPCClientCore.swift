@@ -173,14 +173,22 @@ package struct AgentStudioIPCClient: Sendable {
         var reader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxResponseFrameBytes)
         readThrough = try authenticateIfNeeded(exchange, connection: connection, reader: &reader)
         try submit(frame, connection: connection)
-        let response = try receiveResponse(id: commandID, connection: connection, reader: &reader)
+        let responseFrame: String
+        do { responseFrame = try reader.receiveFrame(connection: connection) } catch {
+            throw failure(.deliveryUncertain, .commandResponseMissing)
+        }
+        let response: JSONRPCDiscoveryResponse
+        do { response = try JSONRPCCodec.decodeDiscoveryResponse(responseFrame) } catch {
+            throw failure(.deliveryUncertain, .invalidResponse)
+        }
+        guard response.id == .number(commandID) else { throw failure(.deliveryUncertain, .responseIDMismatch) }
         if let error = response.error {
             throw IPCDescriptorRemoteFailureDecoder.decode(error, descriptor: nil)
         }
-        guard let result = response.result else {
+        guard let result = response.resultBytes else {
             throw failure(.deliveryUncertain, .invalidResponse)
         }
-        do { return try JSONEncoder().encode(result) } catch { throw failure(.deliveryUncertain, .invalidResponse) }
+        return result
     }
 
     private func prepareExchange(_ invocation: IPCDescriptorInvocation, requestID: Int) throws

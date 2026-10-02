@@ -66,7 +66,7 @@ struct AgentStudioIPCCatalogFrameTransportTests {
             )
 
             // Startup composition already validated the catalog bytes; the cache has not
-            // materialized their JSONValue projection yet.
+            // materialized its cached byte result yet.
             #expect(capabilitiesCache.compositionCount == 0)
             #expect(!capabilitiesCache.hasComposedValue)
 
@@ -75,7 +75,7 @@ struct AgentStudioIPCCatalogFrameTransportTests {
             let thirdFrame = try await harness.responseFrame(method: "system.capabilities", params: .object([:]))
 
             // The answer, not its byte layout: JSON object key order is not part of
-            // the contract, and the transport re-serializes the cached value.
+            // the contract, and the transport frames the cached bytes.
             let firstResult = try JSONRPCCodec.decodeResponse(firstFrame).result
             let secondResult = try JSONRPCCodec.decodeResponse(secondFrame).result
             let thirdResult = try JSONRPCCodec.decodeResponse(thirdFrame).result

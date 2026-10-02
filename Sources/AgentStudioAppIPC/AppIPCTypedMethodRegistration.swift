@@ -106,7 +106,7 @@ package struct AppIPCTypedMethodRegistration<
     private let prepareAndHandle:
         @Sendable (
             Parameters, UUID?, AppIPCConnectionContext, AppIPCTargetResolutionTools, AppIPCTypedMethodAuthorization
-        ) async throws -> JSONValue
+        ) async throws -> AppIPCInvocationResult
 
     /// Ordinary methods keep their existing typed resolver and use identity preparation.
     package init(
@@ -171,10 +171,10 @@ package struct AppIPCTypedMethodRegistration<
                         commandId: resolution.commandId, agentArgumentRule: resolution.agentArgumentRule))
             }
             // Fixed runtime answers retain all access and authorization gates.
-            if let cachedTransportResult { return try cachedTransportResult.value() }
+            if let cachedTransportResult { return try .encoded(cachedTransportResult.encodedValue()) }
             let result = try await connectionHandler(resolution.parameters, context, resolution.target)
             let encoded = try descriptor.encodeResult(result)
-            do { return try JSONDecoder().decode(JSONValue.self, from: encoded) } catch {
+            do { return try .value(JSONDecoder().decode(JSONValue.self, from: encoded)) } catch {
                 throw AppIPCTypedMethodRegistrationError.resultTransportDecodingFailed
             }
         }
@@ -287,7 +287,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
             AppIPCConnectionContext,
             AppIPCTargetResolutionTools,
             AppIPCTypedMethodAuthorization
-        ) async throws -> JSONValue
+        ) async throws -> AppIPCInvocationResult
 
     fileprivate init(
         descriptor: IPCAnyMethodDescriptor,
@@ -298,7 +298,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
                 AppIPCConnectionContext,
                 AppIPCTargetResolutionTools,
                 AppIPCTypedMethodAuthorization
-            ) async throws -> JSONValue
+            ) async throws -> AppIPCInvocationResult
     ) {
         self.descriptor = descriptor
         self.cachedTransportResult = cachedTransportResult
@@ -314,7 +314,7 @@ package struct AnyAppIPCMethodRegistration: Sendable {
                 IPCPrincipal,
                 AppIPCMethodAuthorizationRequest
             ) async throws -> Void
-    ) async throws -> JSONValue {
+    ) async throws -> AppIPCInvocationResult {
         try await invocation(
             parameters,
             connectionContext,
@@ -347,4 +347,11 @@ private struct AppIPCTypedMethodAuthorization: Sendable {
 
 private struct AppIPCRequiredCorrelationEnvelope: Decodable {
     let correlationId: UUID
+}
+
+/// Ordinary results keep their existing transport projection; fixed runtime
+/// results cross the writer boundary as validated bytes without a JSONValue tree.
+package enum AppIPCInvocationResult: Sendable {
+    case value(JSONValue)
+    case encoded(Data)
 }

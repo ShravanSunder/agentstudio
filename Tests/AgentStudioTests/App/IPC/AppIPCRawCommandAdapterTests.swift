@@ -225,7 +225,12 @@ struct AppIPCRawCommandAdapterTests {
                     if refusesAuthorization { throw RawCommandAuthorizationDenied() }
                 })
         }
-        return try JSONDecoder().decode(IPCCommandExecutionResult.self, from: JSONEncoder().encode(result))
+        let resultData: Data
+        switch result {
+        case .value(let value): resultData = try JSONEncoder().encode(value)
+        case .encoded(let bytes): resultData = bytes
+        }
+        return try JSONDecoder().decode(IPCCommandExecutionResult.self, from: resultData)
     }
 }
 
