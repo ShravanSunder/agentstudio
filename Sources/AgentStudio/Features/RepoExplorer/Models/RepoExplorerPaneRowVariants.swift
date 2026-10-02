@@ -49,7 +49,8 @@ struct RepoExplorerPaneRowVariants: Equatable, Sendable {
         isActive: Bool,
         agentLine: AgentLineDetail? = nil,
         sessionStatus: AgentSessionStatus? = nil,
-        messageCount: Int = 0
+        messageCount: Int = 0,
+        hasPullRequestSummary: Bool = false
     ) -> Self {
         let candidates: [RepoExplorerPaneLineKind: RepoExplorerPaneRowLine?] = [
             .title: .title(title),
@@ -66,7 +67,9 @@ struct RepoExplorerPaneRowVariants: Equatable, Sendable {
 
         var compactChips: [RepoExplorerPaneChipKind] = []
         if isDrawer { compactChips.append(.drawer) }
-        if let branchStatus,
+        if hasPullRequestSummary {
+            compactChips.append(.gitPR)
+        } else if let branchStatus,
             SidebarPullRequestChipSpec.presentation(
                 branchStatus: branchStatus,
                 usesPanesLoadingChip: true

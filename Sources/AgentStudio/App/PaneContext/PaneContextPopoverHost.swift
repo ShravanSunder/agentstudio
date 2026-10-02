@@ -69,6 +69,10 @@ struct PaneContextPopoverHost: View {
                     count: count, tone: includeInformational ? chip.toneIncludingInformational : chip.tone,
                     control: Self.controls.messages, octiconLoader: octiconLoader, onOpen: requestOpen)
             }
+        case .pullRequests(let chip):
+            GitPRSummaryChip(
+                presentation: chip.presentation, control: chip.control, octiconLoader: octiconLoader,
+                onOpen: requestOpen)
         case .agentLine(let line):
             Button(action: requestOpen) {
                 RepoExplorerPaneContextLineView(line: line, isAgentLine: true, octiconLoader: octiconLoader)
@@ -98,6 +102,16 @@ struct PaneContextPopoverHost: View {
                     actions: PaneContextPopoverHostActions.messages(
                         controller: controller, readers: readers, onGoToPane: onGoToPane))
                 if let note = controller.unavailableNote { Text(note).foregroundStyle(.secondary) }
+            case .pullRequests:
+                if let chip = state.pullRequestSummaryChip {
+                    GitPRSummaryPopover(
+                        model: chip.model, presentation: chip.presentation, controls: Self.controls,
+                        feedback: controller.linkFeedback, onGoToPane: { onGoToPane(paneId.uuid) },
+                        onRemoveMember: removeMemberAction(controller))
+                } else {
+                    PopoverPanel { Text(LocalActionSpec.panePullRequestSummaryStatus(.noInfo).actionSpec.label) }
+                }
+                if let note = controller.unavailableNote { Text(note).foregroundStyle(.secondary) }
             case .agentLine:
                 if let line = state.agentLine {
                     AgentLinePopover(
@@ -112,6 +126,16 @@ struct PaneContextPopoverHost: View {
             PopoverPanel { Text(note).foregroundStyle(.secondary) }
         } else {
             PopoverPanel { Text("Loading…").foregroundStyle(.secondary) }
+        }
+    }
+    private func removeMemberAction(_ controller: PaneContextPopoverController) -> (@MainActor (UUID) -> Void)? {
+        guard readers.membershipProvider() != nil else { return nil }
+        return { worktree in
+            Task {
+                guard controller.useCurrentService(readers.serviceProvider()) else { return }
+                controller.useCurrentMembership(readers.membershipProvider())
+                await controller.removeMember(worktree)
+            }
         }
     }
     private func requestOpen() {

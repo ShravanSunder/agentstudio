@@ -93,6 +93,7 @@ package enum LocalActionSpec {
     case loadMoreMessageSources
     case showAllPaneMessages
     case filterPaneMessages(AgentMessageAttentionType)
+    case panePullRequestSummaryStatus(PullRequestSummaryState)
     case showPanePullRequestSummary
 
     case quickOpen
@@ -210,6 +211,15 @@ package enum LocalActionSpec {
                 return ActionSpec(
                     label: "Information", helpText: "Show informational messages", icon: .system(.docText))
             }
+        case .panePullRequestSummaryStatus(let state):
+            let label =
+                switch state {
+                case .needsAttention(let count): "Needs attention (\(count))"
+                case .running: "Running"
+                case .allGood: "All good"
+                case .noInfo: "No PR info"
+                }
+            return ActionSpec(label: label, helpText: label, icon: .octicon(.gitPullRequest))
         case .showPanePullRequestSummary:
             return ActionSpec(
                 label: "Pull requests", helpText: "Show this pane's pull request summary",

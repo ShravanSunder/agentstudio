@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AgentStudioSessions
 import AgentStudioSharedComponents
 import AgentStudioTestHarness
@@ -138,6 +139,94 @@ struct PaneContextPopoverHostNativeTests {
             #expect(await ports.requests == [.init(paneId: paneId, page: .first)])
             #expect(controller?.state?.messages.partitions.needsApproval.first?.sourceLabel == "Review drawer")
             #expect(controller?.state?.messages.partitions.needsApproval.first?.rows.first?.id == message.id.uuid)
+            controller?.close()
+            try await completed.finish()
+            try await ports.finish()
+        }
+    }
+    @Test
+    func nativeSummaryPressOpensTheSharedPopoverThroughTheLazyReader() async throws {
+        try await withAsyncTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology, graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout)
+            let pane = store.createPane(title: "PR pane")
+            let paneId = PaneId(existingUUID: pane.id)
+            let firstWorktree = UUIDv7.generate()
+            let secondWorktree = UUIDv7.generate()
+            let summary = PullRequestSummaryDetail.summary(
+                .init(
+                    state: .needsAttention(count: 1),
+                    members: [
+                        .pullRequest(
+                            worktreeId: firstWorktree, number: 7, checks: .failed, review: .changesRequested),
+                        .noPullRequest(worktreeId: secondWorktree),
+                    ]))
+            let chip = try #require(RepoExplorerPanePullRequestProjection.make(summary))
+            let ports = PaneContextPopoverTestPorts(
+                PaneContextPopoverShapingTests.detail(paneId: paneId, pullRequests: summary))
+            let adapter = PaneContextUIAdapter(reader: ports, person: ports)
+            let readers = PaneContextUIReaders(
+                sessionStatus: SessionStatusAtom(), presentation: atoms.paneContextPresentation,
+                pane: { store.paneAtom.pane($0.uuid) }, serviceProvider: { adapter })
+            let completed = FactRecorder<Int, PopoverReleaseFact>(
+                vocabulary: .init(
+                    describeScope: { "summary open \($0)" }, describeFact: { String(describing: $0) },
+                    isClosing: { _, _ in true }))
+            var controller: PaneContextPopoverController?
+            let host = NSHostingView(
+                rootView: PaneContextPopoverHost(
+                    paneId: paneId, presentation: .pullRequests(chip),
+                    location: .sidebar, readers: readers, octiconLoader: makeTestOcticonLoader(), onGoToPane: { _ in },
+                    onOpenCompleted: { value in
+                        controller = value
+                        completed.append(scope: 0, fact: .released)
+                    }))
+            host.frame = CGRect(x: 0, y: 0, width: 200, height: 60)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            window.makeKeyAndOrderFront(nil)
+            defer {
+                controller?.close()
+                window.contentView = nil
+                window.close()
+            }
+            host.layoutSubtreeIfNeeded()
+            var visited = Set<ObjectIdentifier>()
+            let button = try #require(
+                Self.find(host, identifier: chip.control.identifier, visited: &visited) as? AccessibilityPressBridgeView
+            )
+            #expect(button.accessibilityLabel() == LocalActionSpec.showPanePullRequestSummary.actionSpec.label)
+            #expect(button.accessibilityPerformPress())
+            try await completed.expectNext(in: 0, .released)
+            #expect(await ports.requests == [.init(paneId: paneId, page: .first)])
+            #expect(controller?.state?.pullRequestSummaryChip?.presentation.header == "Needs attention (1)")
+            #expect(controller?.state?.pullRequestSummaryChip?.presentation.chipText == "2 ✗")
+            #expect(readers.membershipProvider() == nil)
+            var goToPanePresent = false
+            var removalPresent = false
+            let controls = PaneContextPopoverControlProjection.controls()
+            for candidate in NSApp.windows {
+                guard let content = candidate.contentView else { continue }
+                content.layoutSubtreeIfNeeded()
+                var visited = Set<ObjectIdentifier>()
+                if Self.find(content, identifier: controls.goToPane.identifier, visited: &visited) != nil {
+                    goToPanePresent = true
+                }
+                for worktree in [firstWorktree, secondWorktree] {
+                    visited.removeAll()
+                    if Self.find(
+                        content, identifier: controls.removeLink.identifier(in: worktree.uuidString), visited: &visited)
+                        != nil
+                    {
+                        removalPresent = true
+                    }
+                }
+            }
+            #expect(goToPanePresent, "The shared popover must be rendered before asserting an absent removal control")
+            #expect(!removalPresent)
+
             controller?.close()
             try await completed.finish()
             try await ports.finish()

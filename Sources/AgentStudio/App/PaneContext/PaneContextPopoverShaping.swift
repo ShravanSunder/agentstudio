@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioRepoExplorer
 import AgentStudioSharedComponents
 import Foundation
 
@@ -10,6 +11,7 @@ struct PaneContextPopoverShape: Sendable, Equatable {
     let agentLine: AgentLinePopoverModel?
     let providerPrompts: ProviderPromptsModel?
     let pullRequests: GitPRSummaryPopoverModel?
+    let pullRequestSummaryChip: GitPRSummaryChipModel?
 }
 
 /// Only immutable snapshots cross this boundary. The controller assigns its result.
@@ -37,6 +39,7 @@ enum PaneContextPopoverShaping {
             } ?? [],
             remainingLiveSources: detail.truncation?.remainingLiveSources ?? 0,
             nextSourcesAfter: detail.truncation?.nextSourcesAfter?.uuid)
+        let summaryChip = RepoExplorerPanePullRequestProjection.make(detail.pullRequests)
         return PaneContextPopoverShape(
             paneId: detail.paneId, revision: detail.revision, agentTitle: detail.agentTitle, messages: messages,
             agentLine: detail.agentLine.map(line),
@@ -47,7 +50,7 @@ enum PaneContextPopoverShaping {
                             reason: reason($0.reason), observedAt: $0.observedAt, summary: $0.summary)
                     }, omittedPromptCount: $0.omittedPromptCount)
             },
-            pullRequests: pullRequests(detail.pullRequests))
+            pullRequests: summaryChip?.model, pullRequestSummaryChip: summaryChip)
     }
 
     private nonisolated static func message(_ detail: AgentMessageDetail, label: String) -> MessageRowModel {
@@ -147,41 +150,4 @@ enum PaneContextPopoverShaping {
             writer: sender(detail.writer), updatedAt: detail.updatedAt, lifetime: lifetime, stale: detail.stale)
     }
 
-    private nonisolated static func pullRequests(_ detail: PullRequestSummaryDetail) -> GitPRSummaryPopoverModel? {
-        switch detail {
-        case .notApplicable: return nil
-        case .summary(let summary):
-            let state: PullRequestSummaryStateModel
-            switch summary.state {
-            case .needsAttention(let count): state = .needsAttention(count: count)
-            case .running: state = .running
-            case .allGood: state = .allGood
-            case .noInfo: state = .noInfo
-            }
-            return GitPRSummaryPopoverModel(
-                state: state,
-                members: summary.members.map { row in
-                    switch row {
-                    case .noPullRequest(let id): return .noPullRequest(worktreeId: id)
-                    case .unknown(let id): return .unknown(worktreeId: id)
-                    case .pullRequest(let id, let number, let checks, let review):
-                        let mappedChecks: PullRequestChecksModel
-                        switch checks {
-                        case .passed: mappedChecks = .passed
-                        case .running: mappedChecks = .running
-                        case .failed: mappedChecks = .failed
-                        case .unknown: mappedChecks = .unknown
-                        }
-                        let mappedReview: PullRequestReviewModel
-                        switch review {
-                        case .approved: mappedReview = .approved
-                        case .changesRequested: mappedReview = .changesRequested
-                        case .reviewRequired: mappedReview = .reviewRequired
-                        case .unknown: mappedReview = .unknown
-                        }
-                        return .pullRequest(worktreeId: id, number: number, checks: mappedChecks, review: mappedReview)
-                    }
-                })
-        }
-    }
 }

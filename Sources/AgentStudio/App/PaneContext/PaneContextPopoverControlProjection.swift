@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioRepoExplorer
 import AgentStudioSharedComponents
 
 enum PaneContextPopoverControlProjection {
@@ -51,29 +52,6 @@ enum PaneContextPopoverControlProjection {
     nonisolated static func pullRequestPresentation(
         _ model: GitPRSummaryPopoverModel
     ) -> GitPRSummaryPresentationModel {
-        let header: String
-        let glyph: String?
-        let tone: PaneContextChipTone
-        switch model.state {
-        case .needsAttention(let count):
-            header = "Needs attention (\(count))"
-            glyph = "✗"
-            tone = .danger
-        case .running:
-            header = "Running"
-            glyph = "◌"
-            tone = .info
-        case .allGood:
-            header = "All good"
-            glyph = "✓"
-            tone = .success
-        case .noInfo:
-            header = "No PR info"
-            glyph = nil
-            tone = .neutral
-        }
-        return GitPRSummaryPresentationModel(
-            header: header, glyph: glyph, tone: tone, memberCount: model.members.count,
-            chipText: "\(model.members.count)\(glyph.map { " " + $0 } ?? "")")
+        RepoExplorerPanePullRequestProjection.presentation(model)
     }
 }
