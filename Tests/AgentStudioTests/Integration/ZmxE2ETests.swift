@@ -707,7 +707,7 @@ extension E2ESerializedTests {
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let baselineIdentity = try await awaitSessionIdentityOnRealEvent(
-                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
+                    sessionID, harness: harness, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // Simulate app restart replacing the daemon under the exact
                 // same session id, including within the same second.
@@ -717,7 +717,7 @@ extension E2ESerializedTests {
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let replacementIdentity = try await awaitSessionIdentityOnRealEvent(
-                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
+                    sessionID, harness: harness, backend: backend, zmxDirectory: harness.zmxDir)
 
                 #expect(replacementIdentity != baselineIdentity)
                 let result = PaneRecreationChecker.checkForRecreation(
@@ -749,7 +749,7 @@ extension E2ESerializedTests {
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let baselineIdentity = try await awaitSessionIdentityOnRealEvent(
-                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
+                    sessionID, harness: harness, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // The same still-live daemon, observed again after the
                 // attach settles -- no replacement in between.
@@ -789,7 +789,7 @@ extension E2ESerializedTests {
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let baselineIdentity = try await awaitSessionIdentityOnRealEvent(
-                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
+                    sessionID, harness: harness, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // Act — reconnect with the exact fallback plan S4b now
                 // attaches to a warm/unverified kind.
@@ -822,7 +822,7 @@ extension E2ESerializedTests {
                     zmxPath: zmxPath, sessionId: sessionID.rawValue, commandArgs: ["/bin/sleep", "300"])
                 try #require(await harness.waitForSessionSocket(sessionId: sessionID.rawValue, exists: true))
                 let baselineIdentity = try await awaitSessionIdentityOnRealEvent(
-                    sessionID, backend: backend, zmxDirectory: harness.zmxDir)
+                    sessionID, harness: harness, backend: backend, zmxDirectory: harness.zmxDir)
 
                 // The session dies between the check (above) and the
                 // reconnect (below) -- the exact race S4b closes.

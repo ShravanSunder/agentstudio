@@ -491,10 +491,9 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// real repairs instead of one:
     /// 1. a first `executeRepair(.recreateSurface)` against
     ///    `FailingFirstRepairSurfaceManager` (its second
-    ///    `createSurface` call, which fails) -- asserts no real surface is
-    ///    left behind (the registered view, if any, is a "failed to
-    ///    start" placeholder, not the torn-down pane's old content), and
-    ///    that the generation survived into
+    ///    `createSurface` call, which fails) -- asserts the registered
+    ///    view is the "failed to start" placeholder, not the torn-down
+    ///    pane's old content, and that the generation survived into
     ///    `pendingRestorePhaseLatchesByPaneID` rather than being silently
     ///    dropped;
     /// 2. a second `executeRepair(.recreateSurface)` (the manager's third
@@ -570,11 +569,16 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
         // afterward (the placeholder, with its own retry/dismiss affordance
         // for the person), just never the real terminal content; this is
         // what actually proves "no view holds the generation on" without
-        // claiming the registry entry itself is gone.
+        // claiming the registry entry itself is gone. Asserted the
+        // strongest true observable, the same way the sibling
+        // `WorkspaceSurfaceCoordinatorHardeningTests+Restoration.swift
+        // .repairCreateMissingView_failedPlaceholderRetriesCreation` does:
+        // the registered view IS the `.failedToStart` placeholder, not
+        // merely "has no surface."
         coordinator.executeRepair(.recreateSurface(paneId: pane.id))
         #expect(
-            coordinator.viewRegistry.terminalView(for: pane.id)?.ghosttySurface == nil,
-            "a failed replacement must leave no real surface behind to hold the generation on"
+            coordinator.viewRegistry.terminalStatusPlaceholderView(for: pane.id)?.mode == .failedToStart,
+            "a failed replacement must register the failed-to-start placeholder, not hold a real surface"
         )
         #expect(
             coordinator.pendingRestorePhaseLatchesByPaneID[pane.id] == generation,

@@ -559,8 +559,15 @@ final class ZmxTestHarness: @unchecked Sendable {
     /// call this before returning, so every zmx-e2e test that spawns
     /// through them starts from a session whose leader is already past the
     /// setsid race window.
+    ///
+    /// R2-5 item 2 (Lead decision 2026-10-02, option c): widened from
+    /// `private` so `ZmxE2ETests+RealEventWaits.swift`'s
+    /// `awaitSessionIdentityOnRealEvent` can reuse this exact settle wait
+    /// for its own transient-connect-failure case, instead of its own
+    /// polling loop -- the one architecture-debt-ledger-tracked polling
+    /// instance in this file stays the only one; no new retry site.
     @discardableResult
-    private func waitUntilSessionSettled(sessionId: String) async throws -> ZmxSessionIdentity {
+    func waitUntilSessionSettled(sessionId: String) async throws -> ZmxSessionIdentity {
         guard try await waitForSessionSocket(sessionId: sessionId, exists: true) else {
             throw SessionSettlementError.socketNeverAppeared(sessionId: sessionId)
         }

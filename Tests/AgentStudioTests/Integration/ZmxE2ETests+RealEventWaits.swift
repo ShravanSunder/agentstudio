@@ -46,30 +46,34 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// function returns it directly and every caller asserts on that
     /// returned identity.
     ///
-    /// R2-4 item 3 (review round 2, Lead 2026-10-01): two separate residuals
-    /// corrected here:
-    /// 1. the FD-lifetime defect A4 already fixed once in production and
-    ///    this file's own `awaitAlreadyRunningProcessExit`/
-    ///    `awaitMarkerInProcessOutput` never had -- a bare `defer { close(
-    ///    directoryFileDescriptor) }` races `eventSource.cancel()`'s
-    ///    asynchronous request (source.h:512) rather than running from its
-    ///    cancel handler, the SDK's own documented safe point;
-    /// 2. waiting for the next directory event after one of the four
-    ///    transient connect failures below. `ZmxBackend.observeSessionIdentity`
-    ///    only returns `nil` while the socket file is genuinely absent
-    ///    (confirmed by reading it directly: every one of these four is
-    ///    thrown only after that absence check already failed) -- so by the
-    ///    time this catches one, the socket already exists, and `listen`,
-    ///    `setsid` and process-readiness finishing do not necessarily
-    ///    produce another write/rename on this directory. A failed read
-    ///    could wait past a daemon that is already answering correctly.
-    ///    Retried instead with the identical backoff schedule
-    ///    `ColdStartObserver.attemptDiscoveryConnect` and
-    ///    `ZmxTestHarness.resolveSettledDiscovery` already use for the same
-    ///    failure class, bounded only by the suite's own runner-owned hang
-    ///    bound, never a private time budget. The directory watch itself is
-    ///    unchanged for the genuinely-absent case below: the socket file
-    ///    appearing IS a write/rename on this directory.
+    /// R2-4 item 3 (review round 2, Lead 2026-10-01): the FD-lifetime
+    /// defect A4 already fixed once in production and this file's own
+    /// `awaitAlreadyRunningProcessExit`/`awaitMarkerInProcessOutput` never
+    /// had -- a bare `defer { close(directoryFileDescriptor) }` races
+    /// `eventSource.cancel()`'s asynchronous request (source.h:512) rather
+    /// than running from its cancel handler, the SDK's own documented safe
+    /// point.
+    ///
+    /// R2-5 item 2 (Lead decision 2026-10-02, option c): one of the four
+    /// transient connect failures below means the socket file already
+    /// exists -- `ZmxBackend.observeSessionIdentity` only returns `nil`
+    /// while it's genuinely absent (confirmed by reading it directly:
+    /// every one of these four is thrown only after that absence check
+    /// already failed) -- so `listen`, `setsid` and process-readiness
+    /// finishing do not necessarily produce another write/rename on this
+    /// directory; waiting for the next directory event here could wait
+    /// past a daemon that is already answering correctly. This function
+    /// must not own its own retry loop for that gap, though: it calls
+    /// `harness.waitUntilSessionSettled`, which already handles it through
+    /// the identical backoff schedule `ColdStartObserver.attemptDiscoveryConnect`
+    /// uses, via `resolveSettledDiscovery` -- the one
+    /// architecture-debt-ledger-tracked polling instance left in
+    /// `ZmxTestHarness.swift`, not a second one here. A transient failure
+    /// that recurs on the one `observeSessionIdentity` attempt made right
+    /// after settling is a real failure, propagated typed, not retried
+    /// again. The directory watch itself is unchanged for the
+    /// genuinely-absent case below: the socket file appearing IS a
+    /// write/rename on this directory.
     ///
     /// N1 (advisor review round 2, Lead 2026-10-02): `backend` widened from
     /// the concrete `ZmxBackend` to `any ZmxSessionRestoreProbing` -- the
@@ -91,6 +95,7 @@ extension E2ESerializedTests.ZmxE2ETests {
     /// fixed for the production observer).
     func awaitSessionIdentityOnRealEvent(
         _ sessionID: ZmxSessionID,
+        harness: ZmxTestHarness,
         backend: any ZmxSessionRestoreProbing,
         zmxDirectory: String,
         queue: DispatchQueue = .global(qos: .userInitiated),
@@ -166,9 +171,6 @@ extension E2ESerializedTests.ZmxE2ETests {
         eventSource.resume()
         defer { eventSource.cancel() }
 
-        let clock = ContinuousClock()
-        let transientConnectRetryDelaysMilliseconds = AppPolicies.Restore.discoveryConnectRetryDelays
-        var transientConnectRetryIndex = 0
         while true {
             do {
                 if let identity = try await backend.observeSessionIdentity(sessionID) {
@@ -181,10 +183,21 @@ extension E2ESerializedTests.ZmxE2ETests {
             } catch ZmxSessionControlFailure.unavailable, ZmxSessionControlFailure.connectionRefused,
                 ZmxSessionControlFailure.processUnverifiable, ZmxSessionControlFailure.timeout
             {
-                let delayIndex = min(
-                    transientConnectRetryIndex, transientConnectRetryDelaysMilliseconds.count - 1)
-                try await clock.sleep(for: .milliseconds(transientConnectRetryDelaysMilliseconds[delayIndex]))
-                transientConnectRetryIndex += 1
+                // The socket exists (that's the only way this catch is
+                // reached), so the daemon simply isn't answering yet --
+                // exactly the harness's own settle wait already handles.
+                // No retry loop of this function's own: settle once, then
+                // make exactly one more attempt. Thrown, not caught again,
+                // if that attempt still fails transiently -- a transient
+                // failure after settling is a real failure.
+                try await harness.waitUntilSessionSettled(sessionId: sessionID.rawValue)
+                if let identity = try await backend.observeSessionIdentity(sessionID) {
+                    return identity
+                }
+                // Settled but still absent is not expected; fall back to
+                // the same directory-event wait as the initial absence
+                // case above.
+                _ = try await recorder.expectNext(in: scope, where: { _ in true }, "zmx directory event")
             }
         }
     }

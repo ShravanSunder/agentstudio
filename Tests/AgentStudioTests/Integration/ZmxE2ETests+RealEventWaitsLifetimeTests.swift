@@ -42,6 +42,15 @@ extension E2ESerializedTests.ZmxE2ETests {
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 
+        // R2-5 item 2 (Lead decision 2026-10-02, option c):
+        // `awaitSessionIdentityOnRealEvent` now takes a `harness` to reuse
+        // its existing settle wait on a transient connect failure. This
+        // fake probe never throws one, so this harness is never actually
+        // called into -- constructed only to satisfy the parameter, and
+        // cleaned up the same way `withRealBackend` does.
+        let harness = await ZmxTestHarness()
+        defer { Task { await harness.cleanup() } }
+
         let testQueue = DispatchQueue(label: "zmx-e2e-n1-test-queue", qos: .userInitiated)
         testQueue.suspend()
 
@@ -55,6 +64,7 @@ extension E2ESerializedTests.ZmxE2ETests {
         let task = Task {
             try await self.awaitSessionIdentityOnRealEvent(
                 .generateUUIDv7(),
+                harness: harness,
                 backend: AlwaysAbsentSessionRestoreProbe(),
                 zmxDirectory: temporaryDirectory.path,
                 queue: testQueue,
