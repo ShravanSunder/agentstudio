@@ -477,8 +477,7 @@ extension E2ESerializedTests {
                 // Assert
                 let gone = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
-                    exists: false,
-                    timeout: .seconds(5)
+                    exists: false
                 )
                 #expect(gone, "Session should be gone after destroySessionById")
             }
@@ -520,8 +519,7 @@ extension E2ESerializedTests {
                 try await recreatedBackend.destroySessionByID(handle.id)
                 let gone = try await harness.waitForSessionSocket(
                     sessionId: handle.id.rawValue,
-                    exists: false,
-                    timeout: .seconds(5)
+                    exists: false
                 )
                 #expect(gone, "Session should be gone after kill from recreated backend")
             }
