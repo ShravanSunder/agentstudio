@@ -35,6 +35,22 @@ package enum TerminalColdRestorePlanBuilder {
             replayFile: plan.replayFile, resume: invocation, attemptID: plan.attemptID)
     }
 
+    /// Applies when a cold pane never had a current binding to report on and
+    /// readiness itself could not be checked in time (SR12 defect fix). With
+    /// no binding there is no real provider or session id to name, so unlike
+    /// `applyingResumeEvidence` this never invents one: every candidate gets
+    /// the same honest, unattributed notice, and resume stays nil because
+    /// there is nothing to resume into.
+    package static func applyingUncheckedAgentStateNotice(to plan: TerminalColdRestorePlan) -> TerminalColdRestorePlan {
+        let notice =
+            "Agent state couldn't be checked before restore; if an agent was running here, resume it manually."
+        return TerminalColdRestorePlan(
+            zmxExecutable: plan.zmxExecutable, zmxDirectory: plan.zmxDirectory, sessionID: plan.sessionID,
+            loginShell: plan.loginShell, folderCandidates: plan.folderCandidates,
+            notice: .init(linesByCandidateIndex: plan.folderCandidates.map { _ in notice }),
+            replayFile: plan.replayFile, resume: nil, attemptID: plan.attemptID)
+    }
+
     /// `zmxExecutablePath`, `zmxDirectoryPath` and `loginShellPath` are the
     /// same values `TerminalRestoreRuntime` already resolves for today's warm
     /// attach — passed in rather than re-resolved, so this stays a pure

@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 
 package protocol SessionResumeResolving: Sendable {
     func resumeEvidence(for input: ResumeEvidenceInput) async -> ResumeEvidence
@@ -6,12 +7,30 @@ package protocol SessionResumeResolving: Sendable {
 
 package struct SessionsResumeResolver: SessionResumeResolving {
     private let repository: SessionsRepository
-    package init(repository: SessionsRepository) { self.repository = repository }
+    /// Restore R3 "decide" cost phase: the real synchronous work is the
+    /// classification below `classify`, after the one genuine suspension
+    /// (`repository.snapshot`) has already resolved.
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+
+    package init(repository: SessionsRepository, performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil) {
+        self.repository = repository
+        self.performanceTraceRecorder = performanceTraceRecorder
+    }
 
     @concurrent nonisolated package func resumeEvidence(for input: ResumeEvidenceInput) async -> ResumeEvidence {
-        guard let snapshot = try? await repository.snapshot(.pane(input.paneId, page: .init(limit: 1, after: nil))),
-            let binding = snapshot.currentBinding
-        else { return .unknown(.noObservation) }
+        let snapshot = try? await repository.snapshot(.pane(input.paneId, page: .init(limit: 1, after: nil)))
+        let start = ContinuousClock.now
+        let executedOnMainThread = Thread.isMainThread
+        let evidence = Self.classify(snapshot: snapshot, input: input)
+        performanceTraceRecorder?.recordRestorePhaseDuration(
+            .restoreResumeDecide, duration: start.duration(to: .now), executedOnMainThread: executedOnMainThread)
+        return evidence
+    }
+
+    /// Pure classification, no suspensions — everything `resumeEvidence`
+    /// does once its one real await has already resolved.
+    private static func classify(snapshot: SessionsSnapshot?, input: ResumeEvidenceInput) -> ResumeEvidence {
+        guard let snapshot, let binding = snapshot.currentBinding else { return .unknown(.noObservation) }
         if binding.providerEndedAt != nil { return .knownExited(binding.providerEndReason ?? .notGiven) }
         if binding.startedFromHistoricalReport { return .unknown(.startedFromHistoricalReport) }
         if binding.evidenceUnordered { return .unknown(.evidenceUnordered) }

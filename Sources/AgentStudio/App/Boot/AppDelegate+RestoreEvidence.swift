@@ -20,18 +20,29 @@ extension AppDelegate {
             await readiness.publish(.unavailable)
             return
         }
+        // `performanceTraceRecorder` is `AppDelegate`'s `!`-typed property;
+        // read with an explicit Optional type so a not-yet-ready recorder
+        // reads as nil here instead of force-unwrapping. The escaping
+        // `paneSessions` closure captures it explicitly, not `self`, for the
+        // same reason `workspaceId` is captured as a local above.
+        let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = performanceTraceRecorder
         let repository = SQLitePaneForegroundObservationRepository(
             access: WorkspaceForegroundObservationSQLiteAccess(datastore: datastore), observerLaunchId: launchId,
-            paneSessions: { try await datastore.liveZmxSessionsByPane(workspaceId: workspaceId) })
-        let watcher = DarwinProcessExitWatcher()
+            paneSessions: { [performanceTraceRecorder] in
+                try await datastore.liveZmxSessionsByPane(
+                    workspaceId: workspaceId, performanceTraceRecorder: performanceTraceRecorder)
+            })
+        let watcher = DarwinProcessExitWatcher(performanceTraceRecorder: performanceTraceRecorder)
         let observer = PaneForegroundObserver(
             clock: ContinuousClock(),
             policy: .init(
                 lookSettleDelay: AppPolicies.Restore.lookSettleDelay,
                 lookMaxDelay: AppPolicies.Restore.lookMaxDelay, quitLookDeadline: AppPolicies.Restore.quitLookDeadline),
             repository: repository,
-            probe: DarwinTerminalForegroundProbe(sessionDirectory: sessionDirectory, bootId: bootId),
-            exitWatcher: watcher, observerLaunchId: launchId, factSink: { _, _ in })
+            probe: DarwinTerminalForegroundProbe(
+                sessionDirectory: sessionDirectory, bootId: bootId, performanceTraceRecorder: performanceTraceRecorder),
+            exitWatcher: watcher, observerLaunchId: launchId, factSink: { _, _ in },
+            performanceTraceRecorder: performanceTraceRecorder)
         restoreForegroundObserver = observer
         restoreForegroundExitWatcher = watcher
         let (stream, continuation) = AsyncStream.makeStream(
@@ -53,18 +64,33 @@ extension AppDelegate {
         let repository = workspaceSQLiteDatastore.map {
             SessionsRepository(sqliteAccess: WorkspaceSessionsSQLiteAccess(datastore: $0))
         }
+        // Explicit Optional type: `AppDelegate`'s property is `!`-typed, and
+        // a plain `let x = x` here would infer non-Optional and force-unwrap.
+        let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = performanceTraceRecorder
         return { paneId, plan in
             // Take the old evidence before waiting, and before native activation
             // can admit this restored session's first foreground look.
             let observation = try? await observer?.takePreRestoreObservation(paneId: paneId.uuid)
             let state = await readiness?.wait(paneId: paneId.uuid) ?? .unavailable
             let snapshot = try? await repository?.snapshot(.pane(paneId.uuid, page: .init(limit: 1, after: nil)))
-            let binding = snapshot?.currentBinding
+            guard let binding = snapshot?.currentBinding else {
+                // No current binding: there is no real provider or session id
+                // to report on. A ready verdict means the complete inventory
+                // already proved there's nothing to say, so the plan goes
+                // through unchanged; an unavailable verdict means readiness
+                // genuinely could not be checked, so every candidate gets one
+                // honest, unattributed notice instead of an invented
+                // agent/session.
+                guard state != .ready else { return plan }
+                return TerminalColdRestorePlanBuilder.applyingUncheckedAgentStateNotice(to: plan)
+            }
             let evidence: ResumeEvidence
             if state == .ready, let repository, let bootId {
                 // Only positively cold classifications reach this resolver:
                 // the complete inventory already proved this session dead.
-                evidence = await SessionsResumeResolver(repository: repository).resumeEvidence(
+                evidence = await SessionsResumeResolver(
+                    repository: repository, performanceTraceRecorder: performanceTraceRecorder
+                ).resumeEvidence(
                     for: .init(
                         paneId: paneId.uuid, zmxSessionId: plan.sessionID, observation: observation,
                         launchBootId: bootId, inventory: .complete([:])))
@@ -72,9 +98,8 @@ extension AppDelegate {
                 evidence = .unknown(.reportsNotTakenIn)
             }
             return TerminalColdRestorePlanBuilder.applyingResumeEvidence(
-                evidence,
-                providerIdentifier: binding?.providerIdentifier ?? "agent",
-                providerSessionId: binding?.providerConversationId ?? "unknown", to: plan)
+                evidence, providerIdentifier: binding.providerIdentifier,
+                providerSessionId: binding.providerConversationId, to: plan)
         }
     }
 

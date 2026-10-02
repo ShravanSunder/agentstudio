@@ -19,14 +19,21 @@ package struct ForegroundPsPass: Sendable {
 package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
     private let sessionControl: any ZmxSessionControlling
     private let readSamples: (@Sendable () async throws -> ForegroundPsPass)?
+    /// Restore R3 "probe" cost phase: forwarded to the `/bin/ps`
+    /// `DefaultProcessExecutor` call below, scoped so only that call's
+    /// Dispatch-side cost is measured — never the zmx socket round-trips
+    /// above it, which are not part of this approved instrumentation.
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
     package init(
         sessionDirectory: String, bootId: String,
         sessionControl: (any ZmxSessionControlling)? = nil,
-        readSamples: (@Sendable () async throws -> ForegroundPsPass)? = nil
+        readSamples: (@Sendable () async throws -> ForegroundPsPass)? = nil,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.sessionControl = sessionControl ?? ForegroundZmxSessionControl(directory: sessionDirectory, bootId: bootId)
         self.readSamples = readSamples
+        self.performanceTraceRecorder = performanceTraceRecorder
     }
 
     @concurrent nonisolated package func probeForeground(of sessions: [ZmxSessionID]) async throws
@@ -46,7 +53,9 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
         if let readSamples {
             pass = try await readSamples()
         } else {
-            pass = try await Self.readNativeSamples(leaders: identities.values.map { $0.1.terminalLeader })
+            pass = try await Self.readNativeSamples(
+                leaders: identities.values.map { $0.1.terminalLeader },
+                performanceTraceRecorder: performanceTraceRecorder)
         }
         var snapshots: [ZmxSessionID: ForegroundSnapshot] = [:]
         for (sessionId, captured) in identities {
@@ -104,13 +113,15 @@ package struct DarwinTerminalForegroundProbe: TerminalForegroundProbing {
 
     /// Only metadata comes from ps. argv is read solely for the requested
     /// terminal leaders' foreground groups and discarded with this pass.
-    @concurrent nonisolated private static func readNativeSamples(leaders: [ProcessIncarnation]) async throws
-        -> ForegroundPsPass
-    {
+    @concurrent nonisolated private static func readNativeSamples(
+        leaders: [ProcessIncarnation], performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) async throws -> ForegroundPsPass {
         let result: ProcessResult
         do {
-            result = try await DefaultProcessExecutor().execute(
-                command: "/bin/ps", args: ["-axo", "pid=,pgid=,tpgid="], cwd: nil, environment: nil)
+            result = try await AgentStudioPerformanceTraceRecorder.withRestorePhaseScope(.restoreForegroundProbe) {
+                try await DefaultProcessExecutor(performanceTraceRecorder: performanceTraceRecorder).execute(
+                    command: "/bin/ps", args: ["-axo", "pid=,pgid=,tpgid="], cwd: nil, environment: nil)
+            }
         } catch is CancellationError { throw CancellationError() } catch { return .init(samples: [], complete: false) }
         guard result.succeeded else { return .init(samples: [], complete: false) }
         let lines = result.stdout.split(separator: "\n")

@@ -557,6 +557,40 @@ if [ "$state_preferences_mode" = "honor_preferences" ]; then
   done
 fi
 
+# R3 restore cost proof: each of the five owner-measured synchronous restore
+# phases (AgentStudioPerformanceTraceRecorder.Event restoreForeground*/
+# restoreResumeDecide) must have reached VictoriaLogs for this launch. A
+# phase's measured counters can legitimately be zero (e.g. a slice that never
+# ran on the main thread), so this checks for the phase record's presence,
+# never its numeric value — treating a genuinely absent series as the only
+# failure, not a coerced zero.
+if [ "${AGENTSTUDIO_RESTORE_R3_COST_PROOF:-0}" = "1" ]; then
+  restore_cost_phases=(
+    "performance.restore.foreground.gather"
+    "performance.restore.foreground.schedule"
+    "performance.restore.foreground.probe"
+    "performance.restore.foreground.watch"
+    "performance.restore.resume.decide"
+  )
+  restore_cost_fields="_msg,agentstudio.performance.elapsed_ms,agentstudio.performance.restore.execution.count,agentstudio.performance.restore.main_thread.execution.count,agentstudio.performance.restore.main_thread.elapsed_ms"
+  for restore_cost_phase in "${restore_cost_phases[@]}"; do
+    restore_cost_phase_query="$query $(logsql_exact_filter "_msg" "$restore_cost_phase")"
+    restore_cost_response="$(query_logs "$restore_cost_phase_query | fields $restore_cost_fields | limit 1")"
+    if [ -z "$restore_cost_response" ]; then
+      echo "missing restore phase $restore_cost_phase" >&2
+      echo "$restore_cost_phase_query" >&2
+      exit 1
+    fi
+    require_json_fields \
+      "restore phase $restore_cost_phase cost telemetry" \
+      "$restore_cost_response" \
+      agentstudio.performance.elapsed_ms \
+      agentstudio.performance.restore.execution.count \
+      agentstudio.performance.restore.main_thread.execution.count \
+      agentstudio.performance.restore.main_thread.elapsed_ms
+  done
+fi
+
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
 if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
   if [ "$state_activation_mode" != "background" ]; then

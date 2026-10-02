@@ -420,6 +420,12 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repository_lifecycle.changed_family.count",
         "agentstudio.performance.repository_lifecycle.collected_location.count",
         "agentstudio.performance.repository_lifecycle.mainactor_held_ms",
+        // Restore R3 cost telemetry: measured synchronous-slice counters,
+        // never raw pane_id/argv/prompt/raw_path (those stay unlisted so the
+        // identifier/payload filters above continue to drop them).
+        "agentstudio.performance.restore.execution.count",
+        "agentstudio.performance.restore.main_thread.execution.count",
+        "agentstudio.performance.restore.main_thread.elapsed_ms",
         "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms",
         "agentstudio.performance.filesystem.drain_task.count",
         "agentstudio.performance.filesystem.affected_key_request.count",
