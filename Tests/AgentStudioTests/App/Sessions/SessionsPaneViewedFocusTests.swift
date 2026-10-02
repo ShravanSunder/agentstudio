@@ -17,6 +17,8 @@ struct SessionsPaneViewedFocusTests {
             let pane = harness.store.createPane()
             harness.store.appendTab(Tab(paneId: pane.id))
             let host = try attachPaneHost(paneId: pane.id, in: harness, to: window)
+            // A click on the active pane preserves the native click's responder.
+            try #require(window.makeFirstResponder(host))
             _ = mailbox.takeBatch()
             let opening = ContinuousClock.now
             harness.controller.handlePaneFocusTrigger(

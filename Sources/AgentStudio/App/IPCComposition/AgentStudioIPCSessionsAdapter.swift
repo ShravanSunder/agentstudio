@@ -359,7 +359,8 @@ extension AgentStudioIPCSessionsAdapter {
                 sourceGenerationId: matchingActiveBinding?.sourceGenerationId ?? UUIDv7.generate(),
                 occurrenceId: params.event.occurrenceId
             ),
-            freshness: admissionFreshness,
+            // A qualified start establishes its binding; lateness applies to retained reports.
+            freshness: .live,
             reportedAt: admittedAt
         )
         guard var bind = providerRegistry.qualifiedSessionStartBind(admission) else {

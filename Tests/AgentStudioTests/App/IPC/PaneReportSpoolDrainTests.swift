@@ -498,7 +498,7 @@ private final class PaneReportSpoolDrainHarness {
     /// Binds the pane through the same qualified session-start admission the
     /// live IPC path uses, so the generation the spooled lines belong to is real.
     func bindPane(paneId: UUID) async throws {
-        _ = try await admission.recordProviderEvent(
+        let result = try await admission.recordProviderEvent(
             paneId: paneId,
             params: IPCSessionEventParams(
                 handle: paneId.uuidString,
@@ -516,6 +516,10 @@ private final class PaneReportSpoolDrainHarness {
             ),
             provenance: .other
         )
+        #expect(result.disposition == .admitted)
+        let binding = try #require(try await snapshot(paneId: paneId).currentBinding)
+        #expect(binding.status == .active)
+        #expect(binding.paneId == paneId)
     }
 
     /// Launch preparation is exactly what an app relaunch runs before the drain.
