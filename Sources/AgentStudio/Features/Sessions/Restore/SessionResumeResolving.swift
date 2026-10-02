@@ -1,5 +1,6 @@
 import AgentStudioCore
 import AgentStudioInfrastructure
+import Foundation
 
 package protocol SessionResumeResolving: Sendable {
     func resumeEvidence(for input: ResumeEvidenceInput) async -> ResumeEvidence
