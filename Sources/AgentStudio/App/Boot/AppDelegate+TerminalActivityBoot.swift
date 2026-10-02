@@ -17,13 +17,13 @@ extension AppDelegate {
             traceRuntime: traceRuntime,
             startupTraceRecorder: startupTraceRecorder,
             // A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead
-            // decision: push, not pull): the existing `.firstOutput`
+            // decision: push, not pull): the existing `.firstRender`
             // outcome arm's own new callback -- composed here since the
             // coordinator has no reference to this router or its
             // privately-owned projector. No new actor hop: both are
             // `@MainActor`.
-            onFirstOutput: { [weak self] paneID in
-                self?.workspaceSurfaceCoordinator?.receivePostAttachFirstOutput(paneID: paneID)
+            onFirstRender: { [weak self] paneID in
+                self?.workspaceSurfaceCoordinator?.receivePostAttachFirstRender(paneID: paneID)
             },
             isPaneCurrentlyAttended: { [weak self] paneId in
                 self?.isPaneCurrentlyAttendedForTerminalActivity(paneId) ?? false

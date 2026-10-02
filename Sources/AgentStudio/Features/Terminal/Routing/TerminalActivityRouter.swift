@@ -30,17 +30,21 @@ package final class TerminalActivityRouter {
     private let startupTraceRecorder: AgentStudioStartupTraceRecorder?
     /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
     /// not pull): notified beside `startupTraceRecorder?.recordFirstOutput`
-    /// in `consumeProjectionOutcome`'s existing `.firstOutput` arm -- the
+    /// in `consumeProjectionOutcome`'s existing `.firstRender` arm -- the
     /// same raw fact, already unconditional for warm/unverified panes (they
     /// never arm a restore phase, so `consumeAggregateState`'s
     /// `!isInRestorePhase` gate never blocks them). Composed in
     /// `AppDelegate.bootStartTerminalActivityRouter` to notify
-    /// `WorkspaceSurfaceCoordinator.receivePostAttachFirstOutput(paneID:)`.
+    /// `WorkspaceSurfaceCoordinator.receivePostAttachFirstRender(paneID:)`.
     /// Both this router and the coordinator are `@MainActor`, so this adds
     /// no new actor hop over the trace call beside it -- typed
     /// `@MainActor @Sendable`, matching `recordSettledActivityStatus`'s own
-    /// shape below, so the call at the `.firstOutput` arm needs no `await`.
-    private let onFirstOutput: (@MainActor @Sendable (UUID) -> Void)?
+    /// shape below, so the call at the `.firstRender` arm needs no `await`.
+    /// R2-3 (Lead decision 2026-10-02): renamed from `onFirstOutput` --
+    /// `startupTraceRecorder?.recordFirstOutput` beside it is a separate
+    /// consumer (startup-trace telemetry, flagged to the Lead separately)
+    /// and keeps its own name unchanged.
+    private let onFirstRender: (@MainActor @Sendable (UUID) -> Void)?
     private let surfaceIDForPaneID: @MainActor (UUID) -> UUID?
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
     private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
@@ -69,7 +73,7 @@ package final class TerminalActivityRouter {
         attendedPane: AttendedPaneDerived? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         startupTraceRecorder: AgentStudioStartupTraceRecorder? = nil,
-        onFirstOutput: (@MainActor @Sendable (UUID) -> Void)? = nil,
+        onFirstRender: (@MainActor @Sendable (UUID) -> Void)? = nil,
         surfaceIDForPaneID: (@MainActor (UUID) -> UUID?)? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
@@ -99,7 +103,7 @@ package final class TerminalActivityRouter {
         self.attendedPane = attendedPane
         self.traceRuntime = traceRuntime
         self.startupTraceRecorder = startupTraceRecorder
-        self.onFirstOutput = onFirstOutput
+        self.onFirstRender = onFirstRender
         self.surfaceIDForPaneID = surfaceIDForPaneID ?? { SurfaceManager.shared.surfaceId(forPaneId: $0) }
         self.isPaneCurrentlyAttended =
             isPaneCurrentlyAttended
@@ -273,7 +277,7 @@ package final class TerminalActivityRouter {
         case .compactStateChanged(let update):
             surfaceID = update.surfaceID
             paneID = update.paneID
-        case .firstOutput(let outcomeSurfaceID, let outcomePaneID),
+        case .firstRender(let outcomeSurfaceID, let outcomePaneID),
             .paneObservationChanged(let outcomeSurfaceID, let outcomePaneID, _),
             .unseenActivitySettled(let outcomeSurfaceID, let outcomePaneID, _),
             .agentSettledActivityPromoted(let outcomeSurfaceID, let outcomePaneID, _),
@@ -294,9 +298,9 @@ package final class TerminalActivityRouter {
         switch outcome {
         case .compactStateChanged(let update):
             activityAtom.apply(update)
-        case .firstOutput(let surfaceID, let paneID):
+        case .firstRender(let surfaceID, let paneID):
             startupTraceRecorder?.recordFirstOutput(paneID: paneID, surfaceID: surfaceID)
-            onFirstOutput?(paneID)
+            onFirstRender?(paneID)
         case .paneObservationChanged(_, let paneID, let isPinnedToBottom):
             derivedEnvelopes.append(
                 derivedActivityEnvelope(

@@ -104,8 +104,14 @@ struct PostAttachRecreationCheckWiringTests {
         )
     }
 
-    @Test("a matching post-attach identity settles unchanged")
-    func matchingIdentitySettlesUnchanged() async throws {
+    /// R2-3 (Lead decision 2026-10-02) pins the honest semantics: this
+    /// proves the baseline identity still answers when the pane's first
+    /// render arrives, not that the session survived the attach -- attach
+    /// completion itself is not observable through any existing contract.
+    /// See `PaneRecreationCheckOutcome.matchedAtFirstRender`'s own doc
+    /// comment.
+    @Test("a matching post-attach identity settles matched at first render")
+    func matchingIdentitySettlesMatchedAtFirstRender() async throws {
         // Arrange
         let coordinator = try makeCoordinator()
         let source = LocalFactSource(vocabulary: vocabulary())
@@ -122,13 +128,17 @@ struct PostAttachRecreationCheckWiringTests {
             pane: pane,
             restoreKind: .warm(
                 identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unchanged")))
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
-        try await recorder.expectNext(in: pane.id, .unchanged)
+        try await recorder.expectNext(in: pane.id, .matchedAtFirstRender)
         #expect(coordinator.postAttachRecreationCheckTasksByPaneID[pane.id] == nil)
     }
 
+    /// R2-3 (Lead decision 2026-10-02) pins the other half of the honest
+    /// semantics: unlike `matchedAtFirstRender`, `.recreated` is
+    /// definitive whenever it's observed -- a different identity can never
+    /// be the still-alive original session.
     @Test("a different post-attach identity settles recreated")
     func differentIdentitySettlesRecreated() async throws {
         // Arrange
@@ -147,7 +157,7 @@ struct PostAttachRecreationCheckWiringTests {
             restoreKind: .warm(
                 identity: Data([1, 2, 3]),
                 fallback: makeFallbackPlan(sessionIDText: "as-post-attach-recreated")))
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .recreated)
@@ -174,7 +184,7 @@ struct PostAttachRecreationCheckWiringTests {
             restoreKind: .warm(
                 identity: Data([1, 2, 3]),
                 fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unobservable")))
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .uncheckable(.observationFailedUnrecognized))
@@ -202,7 +212,7 @@ struct PostAttachRecreationCheckWiringTests {
             restoreKind: .warm(
                 identity: Data([1, 2, 3]),
                 fallback: makeFallbackPlan(sessionIDText: "as-post-attach-presetsid")))
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .uncheckable(.observationFailed(.unexpectedProcessGroup)))
@@ -226,14 +236,14 @@ struct PostAttachRecreationCheckWiringTests {
             restoreKind: .unverified(
                 .warmIdentityUnobservable,
                 fallback: makeFallbackPlan(sessionIDText: "as-post-attach-unverified")))
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .uncheckable(.missingBaseline))
     }
 
     /// A6 (advisor review 2026-10-01; PD rev 21 item 5): the pane exiting,
-    /// retiring, or unmounting before its first output ever arrives must
+    /// retiring, or unmounting before its first render ever arrives must
     /// settle `.uncheckable` without ever touching the probe -- there is
     /// nothing meaningful left to observe once the pane itself is gone.
     /// `retirePanesPermanently` is the coordinator's one real "this pane is
@@ -241,8 +251,8 @@ struct PostAttachRecreationCheckWiringTests {
     /// through it -- confirmed by reading `WorkspaceSurfaceCoordinator+PaneDiscard.swift`
     /// directly), so this drives the real retirement path rather than a
     /// scripted stand-in.
-    @Test("a pane retired before first output settles uncheckable without ever probing")
-    func paneRetiredBeforeFirstOutputSettlesUncheckableWithoutProbing() async throws {
+    @Test("a pane retired before first render settles uncheckable without ever probing")
+    func paneRetiredBeforeFirstRenderSettlesUncheckableWithoutProbing() async throws {
         // Arrange
         let coordinator = try makeCoordinator()
         let source = LocalFactSource(vocabulary: vocabulary())
@@ -263,21 +273,21 @@ struct PostAttachRecreationCheckWiringTests {
         coordinator.retirePanesPermanently([pane.id])
 
         // Assert
-        try await recorder.expectNext(in: pane.id, .uncheckable(.paneUnavailableBeforeFirstOutput))
+        try await recorder.expectNext(in: pane.id, .uncheckable(.paneUnavailableBeforeFirstRender))
         #expect(probe.observeCallCount == 0)
         #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] == nil)
     }
 
     /// A6 (Lead decision, push design): proves the check genuinely waits
-    /// for `receivePostAttachFirstOutput`, not merely that the two values
+    /// for `receivePostAttachFirstRender`, not merely that the two values
     /// happen to differ -- the probe is still untouched right after
     /// registration (`observeCallCount == 0`, the pane sits in
     /// `pendingPostAttachRecreationChecksByPaneID`), and its baseline-matching
     /// identity is only overwritten with a *different* one strictly between
     /// registration and the simulated push. If the probe had run at
     /// registration time, this would observe the original, still-matching
-    /// identity and settle `.unchanged` instead.
-    @Test("registering then replacing the identity before the first-output push reports recreated")
+    /// identity and settle `.matchedAtFirstRender` instead.
+    @Test("registering then replacing the identity before the first-render push reports recreated")
     func registeringThenReplacingIdentityBeforePushReportsRecreated() async throws {
         // Arrange
         let coordinator = try makeCoordinator()
@@ -300,7 +310,7 @@ struct PostAttachRecreationCheckWiringTests {
         // The session is "recreated" strictly after native mount, before
         // the pane's first output ever arrives.
         probe.observedIdentity = Data([9, 9, 9])
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
         try await recorder.expectNext(in: pane.id, .recreated)
@@ -310,8 +320,8 @@ struct PostAttachRecreationCheckWiringTests {
     /// A6: the same push shape as the recreated case above, but the identity
     /// observed at push time still matches the baseline -- proves the push
     /// mechanism itself doesn't bias the outcome.
-    @Test("registering then pushing with the identity unchanged reports unchanged")
-    func registeringThenPushingWithIdentityUnchangedReportsUnchanged() async throws {
+    @Test("registering then pushing with the identity unchanged reports matched at first render")
+    func registeringThenPushingWithIdentityUnchangedReportsMatchedAtFirstRender() async throws {
         // Arrange
         let coordinator = try makeCoordinator()
         let source = LocalFactSource(vocabulary: vocabulary())
@@ -328,17 +338,17 @@ struct PostAttachRecreationCheckWiringTests {
             pane: pane,
             restoreKind: .warm(
                 identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-push-unchanged")))
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
-        try await recorder.expectNext(in: pane.id, .unchanged)
+        try await recorder.expectNext(in: pane.id, .matchedAtFirstRender)
     }
 
     /// A6: a push for a pane never registered (steady-state, already
     /// checked, already retired) is ignored -- no task started, no fact
     /// emitted.
-    @Test("a first-output push for an unregistered pane is ignored")
-    func firstOutputPushForUnregisteredPaneIsIgnored() throws {
+    @Test("a first-render push for an unregistered pane is ignored")
+    func firstRenderPushForUnregisteredPaneIsIgnored() throws {
         // Arrange
         let coordinator = try makeCoordinator()
         let source = LocalFactSource(vocabulary: vocabulary())
@@ -347,7 +357,7 @@ struct PostAttachRecreationCheckWiringTests {
         let unregisteredPaneID = UUIDv7.generate()
 
         // Act
-        coordinator.receivePostAttachFirstOutput(paneID: unregisteredPaneID)
+        coordinator.receivePostAttachFirstRender(paneID: unregisteredPaneID)
 
         // Assert
         #expect(coordinator.postAttachRecreationCheckTasksByPaneID.isEmpty)
@@ -383,10 +393,10 @@ struct PostAttachRecreationCheckWiringTests {
                 identity: baseline, fallback: makeFallbackPlan(sessionIDText: "as-post-attach-structural-offmain")),
             observeDerivationExecutionContext: { executionContextRecorder.record() }
         )
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert
-        try await recorder.expectNext(in: pane.id, .unchanged)
+        try await recorder.expectNext(in: pane.id, .matchedAtFirstRender)
         #expect(executionContextRecorder.wasOnMainThread == false)
     }
 

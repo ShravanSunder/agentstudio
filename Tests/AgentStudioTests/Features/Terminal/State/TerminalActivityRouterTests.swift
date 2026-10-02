@@ -161,18 +161,18 @@ struct TerminalActivityRouterTests {
     }
 
     /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
-    /// not pull): proves the new `onFirstOutput` callback actually fires
-    /// from a real `.firstOutput` outcome -- the same raw fact
+    /// not pull): proves the new `onFirstRender` callback actually fires
+    /// from a real `.firstRender` outcome -- the same raw fact
     /// `consumeAggregateState` already computes and `consumeProjectionOutcome`'s
-    /// existing `.firstOutput` arm already forwards to `startupTraceRecorder`.
-    /// No new event type or bus case: `.firstOutput` never posts to the
+    /// existing `.firstRender` arm already forwards to `startupTraceRecorder`.
+    /// No new event type or bus case: `.firstRender` never posts to the
     /// bus, so this asserts the callback directly instead of waiting on a
     /// `RecordingSubscriber` envelope.
-    @Test("a real first-output outcome notifies the injected onFirstOutput callback")
-    func realFirstOutputOutcomeNotifiesOnFirstOutputCallback() async {
+    @Test("a real first-render outcome notifies the injected onFirstRender callback")
+    func realFirstRenderOutcomeNotifiesOnFirstRenderCallback() async {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        final class FirstOutputCallbackRecorder: @unchecked Sendable {
+        final class FirstRenderCallbackRecorder: @unchecked Sendable {
             private let lock = NSLock()
             private(set) var notifiedPaneIDs: [UUID] = []
 
@@ -182,11 +182,11 @@ struct TerminalActivityRouterTests {
                 lock.unlock()
             }
         }
-        let recorder = FirstOutputCallbackRecorder()
+        let recorder = FirstRenderCallbackRecorder()
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
-            onFirstOutput: { paneID in recorder.record(paneID) },
+            onFirstRender: { paneID in recorder.record(paneID) },
             surfaceIDForPaneID: { $0 }
         )
         let paneId = PaneId.generateUUIDv7()
@@ -194,7 +194,7 @@ struct TerminalActivityRouterTests {
         await router.start()
         // `consumeTerminalActivityInput` -> `projector.ingest` -> `emit` ->
         // `outcomeSink` -> `consumeProjectionOutcomes` is one unbroken
-        // `await` chain, no detached task in between -- `onFirstOutput` has
+        // `await` chain, no detached task in between -- `onFirstRender` has
         // already been called, synchronously, by the time this returns.
         await ingestActivity(
             paneId: paneId,

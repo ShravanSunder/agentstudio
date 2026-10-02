@@ -151,14 +151,14 @@ final class WorkspaceSurfaceCoordinator {
     lazy var postAttachRecreationProbe: (any ZmxSessionRestoreProbing)? = ZmxBackend(configuration: sessionConfig)
     /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
     /// not pull): panes mounted warm/unverified and still waiting for their
-    /// post-attach recreation check's real first output. `TerminalActivityRouter`'s
-    /// existing `.firstOutput` outcome arm (already unconditional for
+    /// post-attach recreation check's own first render. `TerminalActivityRouter`'s
+    /// existing `.firstRender` outcome arm (already unconditional for
     /// warm/unverified panes -- they never arm a restore phase, so
     /// `consumeAggregateState`'s `!isInRestorePhase` gate never blocks
-    /// them) calls the injected `onFirstOutput` callback it's composed
+    /// them) calls the injected `onFirstRender` callback it's composed
     /// with in `AppDelegate.bootStartTerminalActivityRouter`, which
-    /// forwards here via `receivePostAttachFirstOutput(paneID:)`. A pane
-    /// still present here when it retires never gets output; see
+    /// forwards here via `receivePostAttachFirstRender(paneID:)`. A pane
+    /// still present here when it retires never gets a render; see
     /// `retirePanesPermanently`.
     var pendingPostAttachRecreationChecksByPaneID: [UUID: PendingPostAttachRecreationCheck] = [:]
     /// Ownership shape matches `coldStartObservationTasksByPaneID`:
@@ -565,7 +565,7 @@ final class WorkspaceSurfaceCoordinator {
             // it pending forever (no task to cancel here: nothing has
             // started yet, only a registration).
             if pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneID) != nil {
-                postAttachRecreationCheckFactSink?(paneID, .uncheckable(.paneUnavailableBeforeFirstOutput))
+                postAttachRecreationCheckFactSink?(paneID, .uncheckable(.paneUnavailableBeforeFirstRender))
             }
             // R2-2: a pane retiring permanently with no surface left to
             // reinstall its preserved generation onto never gets one --

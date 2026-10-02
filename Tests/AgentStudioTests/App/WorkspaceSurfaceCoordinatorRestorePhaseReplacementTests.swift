@@ -85,7 +85,7 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// same process -- it crashed alone with "CoreAtomScope.store accessed
     /// before CoreAtomScope.setUp(_:)". Matches the sibling pattern in
     /// `WorkspaceSurfaceCoordinatorPostAttachRecreationCheckTests.swift:22-23`
-    /// and `WorkspaceSurfaceCoordinatorPostAttachRealMountFirstOutputTests.swift:41-42`;
+    /// and `WorkspaceSurfaceCoordinatorPostAttachRealMountFirstRenderTests.swift:47-48`;
     /// `installTestCoreAtomsIfNeeded()` is idempotent per process
     /// (`Tests/AgentStudioTests/TestSupport/TestAtomRegistry.swift:17-21`),
     /// so calling it here never conflicts with a sibling suite calling it
@@ -232,7 +232,7 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     }
 
     /// Lead 2026-10-01 (CI fix): the same shape as
-    /// `WorkspaceSurfaceCoordinatorPostAttachRealMountFirstOutputTests
+    /// `WorkspaceSurfaceCoordinatorPostAttachRealMountFirstRenderTests
     /// .makeFallbackPlan` in this directory -- `zmxExecutable` is `/usr/bin/true`,
     /// a binary every machine has, because `ZmxBackend.buildColdRestoreCommand(plan)`
     /// only interpolates this path into a command *string*

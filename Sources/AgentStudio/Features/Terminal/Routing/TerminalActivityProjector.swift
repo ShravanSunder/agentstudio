@@ -36,7 +36,15 @@ struct TerminalActivityCompactUpdate: Sendable, Equatable {
 
 enum TerminalActivityProjectionOutcome: Sendable, Equatable {
     case compactStateChanged(TerminalActivityCompactUpdate)
-    case firstOutput(surfaceID: UUID, paneID: UUID)
+    /// R2-3 (Lead decision 2026-10-02): named for what this actually is --
+    /// the pane's first scrollbar sample with a positive row total, which
+    /// Ghostty's own renderer emits on its unconditional first frame
+    /// (`PageList.zig:687`'s viewport-sized `total_rows`, `scrollbar()`
+    /// returning it with zero scrollback, `Thread.zig:242-243`'s initial
+    /// wakeup firing independent of the IO thread that owns the PTY) --
+    /// never a claim that the PTY has delivered a byte. Was `.firstOutput`;
+    /// renamed for honesty, not behavior: same trigger, same timing.
+    case firstRender(surfaceID: UUID, paneID: UUID)
     case paneObservationChanged(surfaceID: UUID, paneID: UUID, isPinnedToBottom: Bool)
     case unseenActivitySettled(surfaceID: UUID, paneID: UUID, activity: TerminalSettledActivity)
     case agentSettledActivityPromoted(surfaceID: UUID, paneID: UUID, activity: TerminalSettledActivity)
@@ -135,7 +143,7 @@ package actor TerminalActivityProjector {
         var outputBurst: TerminalOutputBurstState
         var scrollbarState: ScrollbarState?
         var isPinnedToBottom: Bool?
-        var didObserveFirstOutput = false
+        var didObserveFirstRender = false
         var unseenWindow: ActivityWindow?
         var activityWindow: ActivityWindow?
         var agentCandidate: ActivityWindow?
@@ -363,8 +371,8 @@ package actor TerminalActivityProjector {
             state.agentCandidate = nil
         }
 
-        let isFirstOutput = aggregate.latestTotalRows > 0 && !state.didObserveFirstOutput
-        state.didObserveFirstOutput = state.didObserveFirstOutput || aggregate.latestTotalRows > 0
+        let isFirstRender = aggregate.latestTotalRows > 0 && !state.didObserveFirstRender
+        state.didObserveFirstRender = state.didObserveFirstRender || aggregate.latestTotalRows > 0
         paneStates[paneID] = state
         var outcomes: [TerminalActivityProjectionOutcome] = []
         if let replacedSurfaceID {
@@ -385,8 +393,8 @@ package actor TerminalActivityProjector {
                 )
             )
         }
-        if isFirstOutput, !isInRestorePhase {
-            outcomes.append(.firstOutput(surfaceID: surfaceID, paneID: paneID))
+        if isFirstRender, !isInRestorePhase {
+            outcomes.append(.firstRender(surfaceID: surfaceID, paneID: paneID))
         }
         for isPinnedToBottom in observationTransitions {
             outcomes.append(

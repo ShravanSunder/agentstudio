@@ -221,7 +221,7 @@ struct TerminalActivityProjectorRestorePhaseTests {
         #expect(
             !recorder.outcomes.contains { outcome in
                 switch outcome {
-                case .firstOutput(_, let outcomePaneID),
+                case .firstRender(_, let outcomePaneID),
                     .unseenActivitySettled(_, let outcomePaneID, _),
                     .agentSettledActivityPromoted(_, let outcomePaneID, _):
                     return outcomePaneID == paneID
@@ -463,7 +463,7 @@ struct TerminalActivityProjectorRestorePhaseTests {
         #expect(
             !recorder.outcomes.contains { outcome in
                 switch outcome {
-                case .firstOutput(_, let outcomePaneID),
+                case .firstRender(_, let outcomePaneID),
                     .unseenActivitySettled(_, let outcomePaneID, _):
                     return outcomePaneID == paneID
                 default:
@@ -549,7 +549,7 @@ struct TerminalActivityProjectorRestorePhaseTests {
         #expect(await projector.scheduledTimerCount == 1)
         #expect(
             recorder.outcomes.contains { outcome in
-                guard case .firstOutput(_, let outcomePaneID) = outcome else { return false }
+                guard case .firstRender(_, let outcomePaneID) = outcome else { return false }
                 return outcomePaneID == paneID
             })
         await projector.reset()

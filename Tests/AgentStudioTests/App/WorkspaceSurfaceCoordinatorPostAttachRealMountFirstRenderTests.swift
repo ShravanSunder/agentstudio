@@ -19,22 +19,28 @@ import Testing
 /// mechanism's own ordering/retirement proofs). A real
 /// `mountPreparedTerminalContent(.warm(...))` admission, mounted through a
 /// real `Ghostty.SurfaceView`, is what calls `beginPostAttachRecreationCheckIfNeeded`
-/// here -- `TerminalActivityRouter`'s own real `.firstOutput` outcome arm
-/// and its `onFirstOutput` wiring to `receivePostAttachFirstOutput(paneID:)`
+/// here -- `TerminalActivityRouter`'s own real `.firstRender` outcome arm
+/// and its `onFirstRender` wiring to `receivePostAttachFirstRender(paneID:)`
 /// are proven separately and narrowly in `TerminalActivityRouterTests
-/// .realFirstOutputOutcomeNotifiesOnFirstOutputCallback` (a different
+/// .realFirstRenderOutcomeNotifiesOnFirstRenderCallback` (a different
 /// module, `AgentStudioTerminal`, with no reference to this coordinator);
 /// the push itself is simulated here by calling
-/// `receivePostAttachFirstOutput` directly, the same seam that callback
+/// `receivePostAttachFirstRender` directly, the same seam that callback
 /// forwards to.
 ///
 /// Ordering is the entire point of A6: the check must wait for the pane's
-/// real first output *after* native mount before it ever probes, instead of
+/// first render *after* native mount before it ever probes, instead of
 /// firing immediately on mount completion. The session's identity is
 /// replaced strictly between the real mount returning and the simulated
 /// push; if the check raced ahead (today's pre-fix behavior, which fired
 /// immediately on mount), it would observe the original identity and settle
-/// `.unchanged` instead of `.recreated`.
+/// `.matchedAtFirstRender` instead of `.recreated`.
+///
+/// R2-3 (Lead decision 2026-10-02): "the pane's real first output" above
+/// was this test's own original framing; the actual trigger is the pane's
+/// first render, independent of whether the PTY has delivered any byte.
+/// Renamed throughout for honesty, not behavior -- see
+/// `PaneRecreationCheckOutcome.matchedAtFirstRender`'s own doc comment.
 @MainActor
 @Suite("Workspace surface coordinator post-attach check through the real mount trigger", .serialized)
 struct WorkspaceSurfacePostAttachRealMountTests {
@@ -140,7 +146,7 @@ struct WorkspaceSurfacePostAttachRealMountTests {
     }
 
     @Test(
-        "a real mount registers the check and only the simulated first-output push reaches a recreated verdict"
+        "a real mount registers the check and only the simulated first-render push reaches a recreated verdict"
     )
     func realMountRegistersAndOnlyThePushReachesARecreatedVerdict() async throws {
         // Arrange: a real coordinator, a real pane in a real tab.
@@ -189,23 +195,23 @@ struct WorkspaceSurfacePostAttachRealMountTests {
         )
         guard case .ready = mountResult else {
             Issue.record("expected the real mount to succeed, got \(mountResult)")
-            throw RealMountFirstOutputTestFailure.mountDidNotSucceed
+            throw RealMountFirstRenderTestFailure.mountDidNotSucceed
         }
         #expect(coordinator.pendingPostAttachRecreationChecksByPaneID[pane.id] != nil)
         #expect(coordinator.postAttachRecreationCheckTasksByPaneID[pane.id] == nil)
         #expect(probe.observeCallCount == 0)
 
         // The session is recreated strictly after the real mount returns,
-        // before the pane's first output ever arrives.
+        // before the pane's first render ever arrives.
         probe.observedIdentity = Data([9, 9, 9])
 
-        // Act, part 2: the simulated first-output push -- the same seam
-        // `TerminalActivityRouter`'s real `onFirstOutput` callback forwards
-        // to (proven, separately and narrowly, against a real `.firstOutput`
+        // Act, part 2: the simulated first-render push -- the same seam
+        // `TerminalActivityRouter`'s real `onFirstRender` callback forwards
+        // to (proven, separately and narrowly, against a real `.firstRender`
         // outcome in `TerminalActivityRouterTests
-        // .realFirstOutputOutcomeNotifiesOnFirstOutputCallback`, a different
+        // .realFirstRenderOutcomeNotifiesOnFirstRenderCallback`, a different
         // module with no reference to this coordinator).
-        coordinator.receivePostAttachFirstOutput(paneID: pane.id)
+        coordinator.receivePostAttachFirstRender(paneID: pane.id)
 
         // Assert: the check only now reaches its verdict, and it is the
         // *replaced* identity's verdict -- proof the registration, not
@@ -217,7 +223,7 @@ struct WorkspaceSurfacePostAttachRealMountTests {
     }
 }
 
-private enum RealMountFirstOutputTestFailure: Error {
+private enum RealMountFirstRenderTestFailure: Error {
     case mountDidNotSucceed
 }
 

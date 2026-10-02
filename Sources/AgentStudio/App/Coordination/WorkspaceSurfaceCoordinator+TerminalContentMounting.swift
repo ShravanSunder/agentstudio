@@ -12,11 +12,11 @@ struct MountedTerminalContent {
 /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
 /// not pull): one warm/unverified pane's post-attach recreation check,
 /// registered at mount time by `beginPostAttachRecreationCheckIfNeeded` and
-/// started later by `receivePostAttachFirstOutput(paneID:)` once the pane's
-/// real first output arrives. Carries exactly what `resolveRecreationVerdictOffMain`
+/// started later by `receivePostAttachFirstRender(paneID:)` once the pane's
+/// first render arrives. Carries exactly what `resolveRecreationVerdictOffMain`
 /// needs, since the check itself no longer starts at registration time.
 /// `Sendable` so it can cross into the `Task { @MainActor in ... }`
-/// `receivePostAttachFirstOutput` starts, matching `TerminalRestoreKindResolver
+/// `receivePostAttachFirstRender` starts, matching `TerminalRestoreKindResolver
 /// .ZmxPaneCapture`'s own precedent for a capture struct crossing an async
 /// boundary.
 struct PendingPostAttachRecreationCheck: Sendable {
@@ -275,14 +275,25 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     ///
     /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
     /// not pull): registers this pane for its check instead of starting it
-    /// -- "the attach settles" is now the pane's first real terminal output
-    /// after native mount, not native-mount completion itself, and the
-    /// check only starts when `receivePostAttachFirstOutput(paneID:)` is
-    /// notified of that fact (`TerminalActivityRouter`'s existing
-    /// `.firstOutput` outcome arm). A pane that retires, exits or unmounts
-    /// before that notification is removed in `retirePanesPermanently`
-    /// instead, recording `.uncheckable(.paneUnavailableBeforeFirstOutput)`
-    /// without ever probing.
+    /// at native-mount completion, and the check only starts when
+    /// `receivePostAttachFirstRender(paneID:)` is notified of the pane's
+    /// first render (`TerminalActivityRouter`'s existing `.firstRender`
+    /// outcome arm). A pane that retires, exits or unmounts before that
+    /// notification is removed in `retirePanesPermanently` instead,
+    /// recording `.uncheckable(.paneUnavailableBeforeFirstRender)` without
+    /// ever probing.
+    ///
+    /// R2-3 (Lead decision 2026-10-02): first render is not attach
+    /// completion -- Ghostty's renderer emits it unconditionally on its
+    /// first frame, independent of whether the PTY has delivered any byte
+    /// (traced and confirmed against the pinned vendor source). Attach
+    /// completion itself is not observable through any existing contract
+    /// (no zmx attached-client query, no Ghostty PTY event, and the
+    /// handoff-token check can't distinguish "this attach created the
+    /// session" from "a still-alive session's leader never carried our
+    /// token" for a session that was already alive at check time). The
+    /// comparison below is still honest about this: see
+    /// `PaneRecreationCheckOutcome.matchedAtFirstRender`'s own doc comment.
     ///
     /// Not `private`: a dedicated test suite calls this directly with a
     /// scripted `ZmxSessionRestoreProbing` to prove the comparison and
@@ -312,12 +323,12 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
     }
 
     /// A6 (Lead decision, push design): called by `TerminalActivityRouter`'s
-    /// injected `onFirstOutput` callback -- a synchronous set-lookup plus a
+    /// injected `onFirstRender` callback -- a synchronous set-lookup plus a
     /// task start, no new actor hop (both types are `@MainActor`). A pane
     /// not registered here (never mounted warm/unverified, already
     /// checked, or already retired through `retirePanesPermanently`) is
     /// ignored.
-    func receivePostAttachFirstOutput(paneID: UUID) {
+    func receivePostAttachFirstRender(paneID: UUID) {
         guard let pending = pendingPostAttachRecreationChecksByPaneID.removeValue(forKey: paneID) else { return }
         guard let probe = postAttachRecreationProbe else { return }
         // A1 (advisor review 2026-10-01): the comparison itself
@@ -384,7 +395,7 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
         let outcome: PaneRecreationCheckOutcome
         switch comparison {
         case .unchanged:
-            outcome = .unchanged
+            outcome = .matchedAtFirstRender
         case .recreated:
             outcome = .recreated
         case .couldNotCheck:

@@ -7,6 +7,12 @@ import Foundation
 /// the session ... a missing baseline or a failed observation means
 /// 'couldn't check.' A PID or a clock is never a substitute for identity."
 ///
+/// R2-3 (Lead decision 2026-10-02): "after the attach settles" is this
+/// design item's own original framing; the actual trigger wired up is the
+/// pane's first render, and attach completion itself is not observable
+/// through any existing contract. See `PaneRecreationCheckOutcome
+/// .matchedAtFirstRender`'s own doc comment for the honest replacement.
+///
 /// A pure comparison over two already-opaque identity blobs
 /// (`TerminalRestoreKind.warm(identity:fallback:)`'s `identity` payload,
 /// `ZmxSessionIdentity.encoded()`'s deterministic `.sortedKeys` JSON) — no
@@ -42,9 +48,9 @@ package enum PaneRecreationUncheckableReason: Equatable, Sendable {
     /// compare against.
     case missingBaseline
     /// The pane exited, was retired, unmounted, or this check's own task
-    /// was cancelled before the awaited first output after native mount
+    /// was cancelled before the awaited first render after native mount
     /// ever arrived -- the check never got to observe at all.
-    case paneUnavailableBeforeFirstOutput
+    case paneUnavailableBeforeFirstRender
     /// `ZmxSessionRestoreProbing.observeSessionIdentity` threw a recognized
     /// `ZmxSessionControlFailure` -- including the pre-setsid window
     /// immediately after a freshly recreated session
@@ -57,11 +63,22 @@ package enum PaneRecreationUncheckableReason: Equatable, Sendable {
 
 /// A6: the post-attach recreation check's own outer verdict -- wraps
 /// `PaneRecreationCheckResult`, the pure identity comparison, with a typed
-/// reason when no comparison could be made. `unchanged`/`recreated` collapse
-/// directly from the pure result; `uncheckable` replaces its bare
+/// reason when no comparison could be made. `recreated` collapses directly
+/// from the pure result's own `.recreated`: a different identity is
+/// definitive whenever it's observed. `uncheckable` replaces its bare
 /// `.couldNotCheck` with a specific `PaneRecreationUncheckableReason`.
 package enum PaneRecreationCheckOutcome: Equatable, Sendable {
-    case unchanged
+    /// R2-3 (Lead decision 2026-10-02): was `.unchanged`. This means the
+    /// baseline identity still answered when the pane's first render
+    /// arrived -- not that the session survived the attach. Attach
+    /// completion itself is not observable through any existing contract:
+    /// zmx exposes no attached-client query, Ghostty exposes no PTY event,
+    /// and the handoff-token check can't distinguish an attach that
+    /// created the session from a check that simply ran against a session
+    /// already alive (its leader never carried our token either way). A
+    /// session recreated strictly between this observation and real
+    /// attach completion is invisible to this comparison by construction.
+    case matchedAtFirstRender
     case recreated
     case uncheckable(PaneRecreationUncheckableReason)
 }
@@ -71,7 +88,7 @@ package enum PaneRecreationChecker {
     /// stored `identity` for a warm pane, or `nil` for an unverified one (which never
     /// had a baseline to begin with). `observedIdentity` is the result of
     /// one more `ZmxSessionRestoreProbing.observeSessionIdentity(_:)` call
-    /// made after the attach settles — `nil` on any observation failure,
+    /// made at the pane's first render — `nil` on any observation failure,
     /// matching that API's existing `nil`-on-failure convention. "A PID or
     /// a clock is never a substitute for identity": this compares only the
     /// identity blobs themselves.
