@@ -1,5 +1,6 @@
 import AgentStudioInfrastructure
 import AgentStudioTestHarness
+import AgentStudioTestSupport
 import Darwin
 import Dispatch
 import Foundation
