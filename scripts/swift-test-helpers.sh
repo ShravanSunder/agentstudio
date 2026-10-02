@@ -805,6 +805,9 @@ large|PaneContextDetailPagingTests|concurrent
 large|PaneContextMessageTests|concurrent
 large|PaneContextOrderedWriteTests|concurrent
 large|PaneContextRetirementTests|concurrent
+large|PaneContextPresentationServiceTests|concurrent
+large|PaneContextPublicationLaneTests|concurrent
+large|PaneContextUIAdapterTests|concurrent
 large|PaneContextSessionsBridgeTests|concurrent
 large|PrimarySidebarPipelineIntegrationTests|concurrent
 large|ProcessExecutorTests|concurrent

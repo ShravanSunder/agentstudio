@@ -49,6 +49,7 @@ package final class PaneContextMembershipDirectory: PaneContextMembershipReading
     package func commit(changed: [PaneContextMembershipEntry], removed: [PaneId]) {}
     package func contains(paneID: UUID, inWorkspace workspaceID: UUID) -> Bool { false }
     package func view(for paneId: PaneId) -> PaneContextMembershipView? { nil }
+    package func ownerPaneId(for paneId: PaneId) -> PaneId? { nil }
     package func sources(for paneId: PaneId) -> [PaneId]? { nil }
     package func currentOwners() -> [PaneContextMembershipOwner] { [] }
     package func takeAffectedOwners() -> PendingAffectedOwners { .owners([]) }
