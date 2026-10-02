@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 /// `package` (not `private`) so `GhosttyActionRouterTerminalActivityInputTests`
