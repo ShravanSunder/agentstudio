@@ -65,11 +65,12 @@ struct ResumeZmxFixture: Sendable {
         let sessionId = try ProviderSessionId(rawValue: UUIDv7.generate().uuidString)
         invocation = ResumeInvocation(provider: provider, sessionId: sessionId)
         let zmxPath = try #require(harness.zmxPath)
-        // The marker remains on the blocked terminal's screen until the real
-        // attach reads it. Only then may the unmodified cold script print its
-        // notice: zmx otherwise starts the child before attaching the client.
+        // First attach does not replay pre-client output (zmx handleInit).
+        // Read a probe sent through the real attach client's stdin, echo it
+        // after Init, then hold the unchanged cold command behind the FIFO.
         let childGateScript = """
-            printf '%s\n' \(quoteResumeFixturePath(ResumeZmxProcessDriver.startupGateMarker))
+            IFS= read -r startup_probe || exit 1
+            printf '%s\n' "$startup_probe"
             /bin/cat "$1" >/dev/null
             shift
             exec "$@"
@@ -104,6 +105,7 @@ struct ResumeZmxFixture: Sendable {
         let driver = try await ResumeZmxProcessDriver.launch(
             command: ZmxBackend.buildColdRestoreCommand(plan), environment: environment)
         do {
+            try await driver.sendStartupProbe()
             let attached = try await driver.expectStartupGate()
             try #require(attached.contains(ResumeZmxProcessDriver.startupGateMarker))
             try await releaseFIFO(path: startupHoldPath)

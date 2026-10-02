@@ -9,8 +9,9 @@ import Testing
 private enum ResumeOutputFact: Equatable, Sendable {
     case startupGate(String)
     case shellReady(String)
-    case eof
-    case failed(Int32)
+    case eof(String)
+    case failed(Int32, String)
+    case attachExited(Int32, String)
 }
 
 /// Captures real zmx attach output while it is live. EOF, child termination
@@ -35,6 +36,7 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
     private let scope = UUIDv7.generate()
     private let state = Mutex(State())
     private let readSource: any DispatchSourceRead
+    private let readQueue: DispatchQueue
     private let outputFacts: FactRecorder<UUID, ResumeOutputFact>
     private let exitFacts: FactRecorder<UUID, Int32>
     private let cancelFacts: FactRecorder<UUID, Bool>
@@ -47,7 +49,7 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
                 describeFact: { String(describing: $0) },
                 isClosing: { _, fact in
                     switch fact {
-                    case .eof, .failed: true
+                    case .eof, .failed, .attachExited: true
                     default: false
                     }
                 }))
@@ -65,9 +67,9 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         outputSink = output.sink
         let descriptor = pipe.fileHandleForReading.fileDescriptor
         guard fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { throw POSIXError(.EIO) }
-        readSource = DispatchSource.makeReadSource(
-            fileDescriptor: descriptor,
-            queue: DispatchQueue(label: "resume-zmx-output-\(scope.uuidString)", qos: .utility))
+        let readQueue = DispatchQueue(label: "resume-zmx-output-\(scope.uuidString)", qos: .utility)
+        self.readQueue = readQueue
+        readSource = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: readQueue)
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
         process.environment = environment
@@ -75,7 +77,17 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         process.standardError = pipe
         process.standardInput = input
         let scope = scope
-        process.terminationHandler = { exits.sink(scope, $0.terminationStatus) }
+        process.terminationHandler = { [weak self] process in
+            let status = process.terminationStatus
+            exits.sink(scope, status)
+            // Serialize with pipe reads; drain already-written bytes before
+            // publishing the correlated negative close for either marker wait.
+            readQueue.async { [weak self] in
+                self?.readAvailableBytes()
+                guard let self else { return }
+                self.endRead(.attachExited(status, self.capturedOutput()))
+            }
+        }
         readSource.setEventHandler { [weak self] in self?.readAvailableBytes() }
         let reader = pipe.fileHandleForReading
         readSource.setCancelHandler {
@@ -98,18 +110,30 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         }
     }
 
+    func sendStartupProbe() async throws {
+        let inputWriter = input.fileHandleForWriting
+        try await withoutBlockingCooperativePool {
+            try inputWriter.write(contentsOf: Data((Self.startupGateMarker + "\n").utf8))
+        }
+    }
+
     func expectStartupGate() async throws -> String {
         let fact = try await outputFacts.expectNext(
-            in: scope, where: { if case .startupGate = $0 { true } else { false } }, "real zmx attach at startup FIFO")
-        guard case .startupGate(let text) = fact else { throw POSIXError(.EPROTO) }
+            in: scope, where: { _ in true }, "real zmx attach input/output probe")
+        guard case .startupGate(let text) = fact else { throw ResumeOutputWaitFailure(observed: fact) }
         return text
     }
 
     func expectInteractiveShell() async throws -> String {
-        let fact = try await outputFacts.expectNext(
-            in: scope, where: { if case .shellReady = $0 { true } else { false } }, "resume interactive shell output")
-        guard case .shellReady(let text) = fact else { throw POSIXError(.EPROTO) }
+        let fact = try await outputFacts.expectNext(in: scope, where: { _ in true }, "resume interactive shell output")
+        guard case .shellReady(let text) = fact else { throw ResumeOutputWaitFailure(observed: fact) }
         return text
+    }
+
+    private func capturedOutput() -> String {
+        state.withLock {
+            String(data: $0.output, encoding: .utf8) ?? "non-UTF8 attach output (\($0.output.count) bytes)"
+        }
     }
 
     private func readAvailableBytes() {
@@ -136,14 +160,15 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
                 }
                 for fact in observed { outputSink(scope, fact) }
             } else if count == 0 {
-                endRead(.eof)
+                endRead(.eof(capturedOutput()))
                 return
             } else if errno == EINTR {
                 continue
             } else if errno == EAGAIN {
                 return
             } else {
-                endRead(.failed(errno))
+                let failure = errno
+                endRead(.failed(failure, capturedOutput()))
                 return
             }
         }
@@ -188,4 +213,9 @@ final class ResumeZmxProcessDriver: @unchecked Sendable {
         try await exitFacts.finish()
         try await cancelFacts.finish()
     }
+}
+
+private struct ResumeOutputWaitFailure: Error, CustomStringConvertible {
+    let observed: ResumeOutputFact
+    var description: String { "resume output wait closed without its expected marker: \(observed)" }
 }

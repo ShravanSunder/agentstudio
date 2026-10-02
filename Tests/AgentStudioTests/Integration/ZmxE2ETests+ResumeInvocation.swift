@@ -7,6 +7,30 @@ import Testing
 
 extension E2ESerializedTests.ZmxE2ETests {
     @Test(
+        "a missing resume output marker closes on the owned attach exit with captured diagnostics",
+        arguments: [false, true])
+    func missingResumeMarkerClosesOnAttachExit(startup: Bool) async throws {
+        let driver = try await ResumeZmxProcessDriver.launch(
+            command: "printf 'closed-attach-proof\\n'; exit 7", environment: [:])
+        do {
+            do {
+                if startup {
+                    _ = try await driver.expectStartupGate()
+                } else {
+                    _ = try await driver.expectInteractiveShell()
+                }
+                Issue.record("missing marker must fail on the correlated attach close")
+            } catch {
+                #expect(String(describing: error).contains("closed-attach-proof"))
+            }
+            try await driver.stop()
+        } catch {
+            try? await driver.stop()
+            throw error
+        }
+    }
+
+    @Test(
         "a candidate runs its exact UUID as one argument inside the interactive login shell",
         arguments: ["claude-code", "codex"])
     func resumeExactSessionInsideLoginShell(providerIdentifier: String) async throws {

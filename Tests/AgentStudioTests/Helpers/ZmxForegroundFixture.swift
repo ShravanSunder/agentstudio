@@ -43,7 +43,9 @@ struct ZmxForegroundFixture: Sendable {
         let shellPath = root.appending(path: "shell-ready-\(sessionId.rawValue)").path
         let successorInput = successorProgram ? root.appending(path: "other-input-\(sessionId.rawValue)").path : nil
         let successorOutput = successorProgram ? root.appending(path: "other-output-\(sessionId.rawValue)").path : nil
-        try FileManager.default.copyItem(atPath: "/bin/cat", toPath: binary.path)
+        // The probe reads argv[0], so the invocation name supplies the agent
+        // identity. Keep the platform binary at its signed original location.
+        try FileManager.default.createSymbolicLink(atPath: binary.path, withDestinationPath: "/bin/cat")
         for path in [inputPath, outputPath, shellPath] {
             guard mkfifo(path, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
