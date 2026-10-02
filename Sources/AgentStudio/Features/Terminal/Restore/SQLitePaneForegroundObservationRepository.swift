@@ -85,12 +85,18 @@ package actor SQLitePaneForegroundObservationRepository: PaneForegroundObservati
     }
 
     private static func latestBinding(paneId: UUID, in database: Database) throws -> Row? {
+        // Match the Sessions read's first establishing commit, including sweep-ended bindings.
         try Row.fetchOne(
             database,
             sql: """
-                SELECT binding_generation_id, provider_ended_at FROM sessions_pane_binding
-                WHERE pane_id = ?
-                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, started_at DESC, binding_generation_id ASC LIMIT 1
+                SELECT binding.binding_generation_id, binding.provider_ended_at
+                FROM sessions_pane_binding AS binding
+                JOIN sessions_operation AS establishment
+                  ON establishment.binding_generation_id = binding.binding_generation_id
+                 AND establishment.outcome_kind IN ('bindingEstablished', 'bindingReplaced')
+                WHERE binding.pane_id = ?
+                GROUP BY binding.binding_generation_id
+                ORDER BY MIN(establishment.commit_revision) DESC LIMIT 1
                 """, arguments: [paneId.uuidString])
     }
 }

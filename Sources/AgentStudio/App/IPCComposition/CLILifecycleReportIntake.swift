@@ -201,13 +201,20 @@ actor CLILifecycleReportIntake: LifecycleReportIntaking {
             try await refuse(.retiredPane, storeID: storeID, sequence: sequence)
             return refused(paneId: paneID, params: params)
         }
+        // Fence the latest established generation, not whichever old binding was modified last.
         let ordering = try await sqliteAccess.read { database -> (Bool, Int64?) in
             guard
                 let row = try Row.fetchOne(
                     database,
                     sql: """
-                        SELECT evidence_unordered,unordered_fence_sequence FROM sessions_pane_binding WHERE pane_id=?
-                        ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, committed_revision DESC LIMIT 1
+                        SELECT binding.evidence_unordered, binding.unordered_fence_sequence
+                        FROM sessions_pane_binding AS binding
+                        JOIN sessions_operation AS establishment
+                          ON establishment.binding_generation_id = binding.binding_generation_id
+                         AND establishment.outcome_kind IN ('bindingEstablished', 'bindingReplaced')
+                        WHERE binding.pane_id = ?
+                        GROUP BY binding.binding_generation_id
+                        ORDER BY MIN(establishment.commit_revision) DESC LIMIT 1
                         """, arguments: [paneID.uuidString])
             else { return (false, nil) }
             return (

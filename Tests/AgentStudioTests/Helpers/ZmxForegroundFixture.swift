@@ -416,9 +416,10 @@ private func seedZmxForegroundBinding(database: DatabaseQueue, paneId: UUID, gen
             arguments: [conversationId, UUIDv7.generate().uuidString])
         try connection.execute(
             sql: """
-                INSERT INTO sessions_operation(operation_scope,correlation_id,operation_kind,semantic_fingerprint,outcome_kind,created_at)
-                VALUES ('real-proof',?,'bind','proof','binding',1)
-                """, arguments: [UUIDv7.generate().uuidString])
+                INSERT INTO sessions_operation(operation_scope,correlation_id,operation_kind,semantic_fingerprint,
+                    outcome_kind,binding_generation_id,created_at)
+                VALUES ('real-proof',?,'bind','proof','bindingEstablished',?,1)
+                """, arguments: [UUIDv7.generate().uuidString, generationId.uuidString])
         try connection.execute(
             sql: """
                 INSERT INTO sessions_pane_binding(binding_generation_id,pane_id,conversation_id,source_generation_id,

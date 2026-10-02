@@ -137,9 +137,10 @@ struct ForegroundRepositoryFixture: Sendable {
                 arguments: [conversationId, UUIDv7.generate().uuidString])
             try database.execute(
                 sql: """
-                    INSERT INTO sessions_operation(operation_scope,correlation_id,operation_kind,semantic_fingerprint,outcome_kind,created_at)
-                    VALUES ('proof',?,'bind','proof','binding',1)
-                    """, arguments: [UUIDv7.generate().uuidString])
+                    INSERT INTO sessions_operation(operation_scope,correlation_id,operation_kind,semantic_fingerprint,
+                        outcome_kind,binding_generation_id,created_at)
+                    VALUES ('proof',?,'bind','proof','bindingEstablished',?,1)
+                    """, arguments: [UUIDv7.generate().uuidString, bindingGenerationId.uuidString])
             try database.execute(
                 sql: """
                     INSERT INTO sessions_pane_binding(binding_generation_id,pane_id,conversation_id,source_generation_id,
@@ -156,9 +157,27 @@ struct ForegroundRepositoryFixture: Sendable {
 
     func replaceBinding() async throws {
         try await database.write { database in
+            let nextGeneration = UUIDv7.generate().uuidString
             try database.execute(
-                sql: "UPDATE sessions_pane_binding SET binding_generation_id = ? WHERE pane_id = ?",
-                arguments: [UUIDv7.generate().uuidString, paneId.uuidString])
+                sql: "UPDATE sessions_pane_binding SET status = 'ended', ended_at = 2 WHERE pane_id = ?",
+                arguments: [paneId.uuidString])
+            try database.execute(
+                sql: """
+                    INSERT INTO sessions_operation(operation_scope,correlation_id,operation_kind,semantic_fingerprint,
+                        outcome_kind,outcome_entity_id,binding_generation_id,created_at)
+                    VALUES ('proof',?,'bind','proof','bindingReplaced',?,?,1)
+                    """, arguments: [UUIDv7.generate().uuidString, bindingGenerationId.uuidString, nextGeneration])
+            try database.execute(
+                sql: """
+                    INSERT INTO sessions_pane_binding(binding_generation_id,pane_id,conversation_id,source_generation_id,
+                        origin,status,transition_occurrence_id,started_at,ended_at,committed_revision)
+                    SELECT ?,pane_id,conversation_id,?,'reported','active',?,1,NULL,?
+                    FROM sessions_pane_binding WHERE binding_generation_id = ?
+                    """,
+                arguments: [
+                    nextGeneration, UUIDv7.generate().uuidString, UUIDv7.generate().uuidString,
+                    database.lastInsertedRowID, bindingGenerationId.uuidString,
+                ])
         }
     }
 }

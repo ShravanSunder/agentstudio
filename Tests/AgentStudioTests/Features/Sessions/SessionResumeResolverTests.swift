@@ -7,6 +7,57 @@ import Testing
 
 @Suite("Session resume resolver")
 struct SessionResumeResolverTests {
+    @Test(
+        "the latest established binding survives tied or backward reported times, replay aliases and an old end",
+        arguments: [TimeInterval(100), TimeInterval(1)])
+    func establishmentOrderSurvivesSweepReplayAndOldEnd(replacementReportedAt: TimeInterval) async throws {
+        let fixture = try SessionsDatabaseFixture()
+        let repository = fixture.makeRepository()
+        let paneId = UUIDv7.generate()
+        let originalSource = UUIDv7.generate()
+        let originalMutation = makeQualifiedBindMutation(
+            paneId: paneId, providerConversationId: "original",
+            sourceGenerationId: originalSource, reportedAt: 100)
+
+        try await withSessionsIngestion(repository: repository) { ingestion in
+            _ = try await ingestion.submit(correlationId: UUIDv7.generate(), mutation: .bind(originalMutation))
+            let originalSnapshot = try await repository.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            let original = try #require(originalSnapshot.currentBinding)
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .bind(
+                    makeQualifiedBindMutation(
+                        paneId: paneId, providerConversationId: "replacement",
+                        sourceGenerationId: UUIDv7.generate(), reportedAt: replacementReportedAt)))
+            let replacementSnapshot = try await repository.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            let replacement = try #require(replacementSnapshot.currentBinding)
+            #expect(replacement.bindingGenerationId != original.bindingGenerationId)
+            #expect(replacement.providerConversationId == "replacement")
+            _ = try await ingestion.prepareForLaunch(at: Date(timeIntervalSince1970: 101))
+            let swept = try await repository.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(swept.currentBinding?.bindingGenerationId == replacement.bindingGenerationId)
+            #expect(swept.currentBinding?.status == .ended)
+            let replay = try await ingestion.submitWithCommitDisposition(
+                correlationId: UUIDv7.generate(), mutation: .bind(originalMutation))
+            #expect(replay.disposition == .replayed)
+            let replayed = try await repository.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(replayed.currentBinding?.bindingGenerationId == replacement.bindingGenerationId)
+            _ = try await ingestion.submit(
+                correlationId: UUIDv7.generate(),
+                mutation: .sourceEnded(
+                    .init(
+                        paneId: paneId, sourceGenerationId: originalSource,
+                        endedAt: Date(timeIntervalSince1970: 102), providerEndReason: .personExit,
+                        providerEndReasonText: "exit")))
+            let final = try await repository.snapshot(makeSessionsSnapshotQuery(paneId: paneId))
+            #expect(final.currentBinding?.bindingGenerationId == replacement.bindingGenerationId)
+            #expect(final.currentBinding?.providerEndedAt == nil)
+            let originalEnd = try await repository.bindingForProviderConversation(
+                paneId: paneId, providerIdentifier: "qualified-test-provider", providerConversationId: "original")
+            #expect(originalEnd?.providerEndedAt == Date(timeIntervalSince1970: 102))
+        }
+    }
+
     @Test("a matching foreground look resumes the exact closed-provider id", arguments: ["claude-code", "codex"])
     func matchingLookIsCandidate(providerIdentifier: String) async throws {
         let fixture = try ResumeResolverFixture()

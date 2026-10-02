@@ -175,6 +175,9 @@ extension SessionsRepositoryStorage {
 }
 
 extension SessionsRepositoryStorage {
+    // Establishment order is the first immutable bind operation for a generation.
+    // Status, reported time and a binding's last write revision can change or tie;
+    // replay aliases retain the outcome, so MIN also keeps their original order.
     fileprivate static func loadBindings(database: Database, paneId: UUID) throws -> [SessionsBindingRecord] {
         try Row.fetchAll(
             database,
@@ -182,10 +185,12 @@ extension SessionsRepositoryStorage {
                 SELECT binding.*, conversation.provider_identifier, conversation.provider_conversation_id
                 FROM sessions_pane_binding AS binding
                 JOIN sessions_conversation AS conversation ON conversation.id = binding.conversation_id
+                JOIN sessions_operation AS establishment
+                  ON establishment.binding_generation_id = binding.binding_generation_id
+                 AND establishment.outcome_kind IN ('bindingEstablished', 'bindingReplaced')
                 WHERE binding.pane_id = ?
-                ORDER BY CASE binding.status WHEN 'active' THEN 0 ELSE 1 END,
-                         binding.started_at DESC,
-                         binding.binding_generation_id ASC
+                GROUP BY binding.binding_generation_id
+                ORDER BY MIN(establishment.commit_revision) DESC
                 """,
             arguments: [paneId.uuidString]
         ).map(decodeBinding)
@@ -210,12 +215,14 @@ extension SessionsRepositoryStorage {
                 SELECT binding.*, conversation.provider_identifier, conversation.provider_conversation_id
                 FROM sessions_pane_binding AS binding
                 JOIN sessions_conversation AS conversation ON conversation.id = binding.conversation_id
+                JOIN sessions_operation AS establishment
+                  ON establishment.binding_generation_id = binding.binding_generation_id
+                 AND establishment.outcome_kind IN ('bindingEstablished', 'bindingReplaced')
                 WHERE binding.pane_id = ?
                   AND conversation.provider_identifier = ?
                   AND conversation.provider_conversation_id = ?
-                ORDER BY CASE binding.status WHEN 'active' THEN 0 ELSE 1 END,
-                         binding.started_at DESC,
-                         binding.binding_generation_id ASC
+                GROUP BY binding.binding_generation_id
+                ORDER BY MIN(establishment.commit_revision) DESC
                 LIMIT 1
                 """,
             arguments: [paneId.uuidString, providerIdentifier, providerConversationId]
