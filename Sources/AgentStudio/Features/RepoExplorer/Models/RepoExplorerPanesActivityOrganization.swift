@@ -298,7 +298,9 @@ extension RepoExplorerProjection {
             note: note,
             isDrawer: row.isDrawerPane,
             branchStatus: row.branchStatus,
-            isActive: row.isActive
+            isActive: row.isActive,
+            agentLine: facts?.contextDisplay?.agentLine,
+            sessionStatus: facts?.sessionStatus
         )
         return pinnedRow
     }

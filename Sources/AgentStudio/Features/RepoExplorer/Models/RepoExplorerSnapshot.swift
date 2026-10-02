@@ -109,7 +109,7 @@ struct RepoExplorerPaneRowFacts: Equatable, Sendable {
     }
 
     var sidebarTerminalTitle: String {
-        terminalTitle
+        contextDisplay?.agentTitle ?? terminalTitle
     }
 
     private func normalizedSecondaryText(_ text: String?) -> String? {

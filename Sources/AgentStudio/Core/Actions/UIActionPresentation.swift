@@ -76,6 +76,8 @@ extension KeyBinding {
 
 package enum LocalActionSpec {
     case goToMessagePane
+    case showPaneAgentLine(AgentLineWork)
+    case paneSessionStatus(AgentSessionStatus)
     case showPaneMessages
     case showPaneMessageDetails
     case answerPaneMessage
@@ -151,6 +153,10 @@ package enum LocalActionSpec {
 
     package var actionSpec: ActionSpec {
         switch self {
+        case .showPaneAgentLine(let work):
+            return PaneContextLineActionSpecs.agentLine(work)
+        case .paneSessionStatus(let status):
+            return PaneContextLineActionSpecs.sessionStatus(status)
         case .goToMessagePane:
             return ActionSpec(label: "Go to pane", helpText: "Focus this message's pane", icon: .system(.terminal))
         case .showPaneMessageDetails:
