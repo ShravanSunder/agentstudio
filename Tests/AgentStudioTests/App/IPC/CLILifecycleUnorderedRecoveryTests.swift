@@ -43,9 +43,9 @@ struct CLILifecycleUnorderedRecoveryTests {
             let old = try await fixture.seed(fixture.record())
             let unordered = fixture.record()
             try await withUnavailableLifecycleStore(fixture) {
-                #expect(
-                    try await intake.recordLive(paneId: fixture.paneID, params: fixture.params(unordered)).disposition
-                        == .admitted)
+                let admission = try await intake.recordLive(
+                    paneId: fixture.paneID, params: fixture.params(unordered))
+                #expect(admission.disposition == .admitted)
             }
             let before = try await fixture.binding()
             #expect(before?.providerConversationId == unordered.conversationID)
