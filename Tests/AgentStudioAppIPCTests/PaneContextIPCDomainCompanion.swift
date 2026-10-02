@@ -119,11 +119,11 @@ final class PaneContextIPCDomainCompanion: Sendable {
         )
     }
 
-    func bind(conversationId: String = "current") async throws -> IPCPaneWriterClaim {
+    func bind(conversationId: String = "current", to targetPaneId: UUID? = nil) async throws -> IPCPaneWriterClaim {
         let provider = SessionsProviderIdentity(
             providerIdentifier: "claude-code", exactVersion: "2.1.286", operatingMode: "interactive")
         let source = SessionsBindingSourceIdentity(
-            paneId: paneId, providerConversationId: conversationId, sourceId: "ipc-pane-tests",
+            paneId: targetPaneId ?? paneId, providerConversationId: conversationId, sourceId: "ipc-pane-tests",
             sourceGenerationId: UUIDv7.generate(), occurrenceId: UUIDv7.generate())
         _ = try await ingestion.submit(
             correlationId: UUIDv7.generate(),
@@ -166,6 +166,32 @@ final class PaneContextIPCDomainCompanion: Sendable {
             identifiers.insert(identifier.uuid)
         }
         return identifiers
+    }
+
+    func seedMessage(in source: PaneId, body: String, writer: IPCPaneWriterClaim? = nil) async throws -> UUID {
+        let sender: AgentMessageSender
+        let shape: PaneMessageSendShape
+        if let writer {
+            let binding = try #require(
+                try await ingestion.bindingForProviderConversation(
+                    paneId: source.uuid, providerIdentifier: writer.provider,
+                    providerConversationId: writer.conversationId))
+            sender = .session(
+                provider: try BridgeAgentProviderName(binding.providerIdentifier),
+                sessionRef: try BridgeAgentSessionRef(binding.providerConversationId),
+                bindingGeneration: binding.bindingGenerationId)
+            shape = .ask(reason: .question, form: .freeText(placeholder: nil), waiting: .nonBlocking)
+        } else {
+            sender = .pane(source)
+            shape = .notice
+        }
+        let messageId = AgentMessageId.generateUUIDv7()
+        try #require(
+            await service.send(
+                PaneMessageSendRequest(
+                    paneId: source, messageId: messageId, sender: sender, sourceOccurredAt: nil,
+                    importance: .attention, body: body, why: nil, actions: [], shape: shape)) == .created(messageId))
+        return messageId.uuid
     }
 
     func shutdown() async throws {
@@ -280,5 +306,86 @@ final class PaneContextIPCTestTime: Sendable {
     var now: Date {
         let elapsed = origin.duration(to: clock.now).components
         return Date(timeIntervalSince1970: 1_800_000_000 + Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
+    }
+}
+
+/// Domain socket setup composes the existing live fixture; it owns no server
+/// teardown. Each wait consumes the correlated response through TestFrameReader.
+func withPaneContextWire(
+    domain: PaneContextIPCDomainCompanion,
+    panes: [IPCPaneSummary]? = nil,
+    maximumEncodedReplyBytes: Int = min(
+        IPCFramePolicy.maximumResponseFrameBytes, AppPolicies.IPC.maximumQueuedOutputBytes - 1),
+    body: (LiveServerFixture, inout PaneContextWireClient) async throws -> Void
+) async throws {
+    try await withLiveServer(
+        makeFixture: {
+            try LiveServerFixture(
+                channel: .stable, panes: panes ?? [makePaneSummary(id: domain.paneId, ordinal: 1)],
+                paneContextPort: domain.adapter(maximumEncodedReplyBytes: maximumEncodedReplyBytes))
+        },
+        releaseHeldWork: { domain.access.releaseHeldWork() },
+        body: { fixture in
+            try fixture.server.start()
+            var client = try await PaneContextWireClient(fixture: fixture, paneId: domain.paneId)
+            defer { client.close() }
+            try await body(fixture, &client)
+        })
+}
+
+struct PaneContextWireClient {
+    private let connection: UnixSocketConnection
+    private var reader = TestFrameReader(
+        decoder: NDJSONFrameDecoder(maxFrameBytes: IPCFramePolicy.maximumResponseFrameBytes))
+    private var nextRequestId = 2
+
+    init(fixture: LiveServerFixture, paneId: UUID) async throws {
+        let token = try fixture.issueTestCredential(
+            for: .pane(paneId: paneId, credentialRecordId: UUIDv7.generate(), status: .registered))
+        connection = try await connectWithoutBlockingCooperativePool(socketPath: fixture.paths.socketURL.path)
+        do {
+            try await loginWithoutBlockingMainActor(
+                connection: connection, token: token, requestId: 1, reader: &reader)
+        } catch {
+            connection.close()
+            throw error
+        }
+    }
+
+    func close() { connection.close() }
+
+    mutating func response<Parameters: Encodable>(method: String, params: Parameters) async throws
+        -> JSONRPCResponseMessage
+    {
+        let requestId = JSONRPCIdentifier.number(nextRequestId)
+        nextRequestId += 1
+        try await sendRequestWithoutBlockingCooperativePool(
+            connection: connection,
+            request: try JSONRPCClientRequest(
+                id: requestId, method: method, params: JSONRPCCodec.encodeJSONValue(params)))
+        let reply = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+        #expect(reply.id == requestId, "The response must close the exact request")
+        return reply
+    }
+
+    mutating func detail(page: IPCPaneContextReadPage = .first) async throws -> IPCPaneContextGetResult {
+        try paneContextWireResult(
+            IPCPaneContextGetResult.self,
+            from: await response(
+                method: "pane.context.get", params: IPCPaneContextGetParams(handle: "self", page: page)))
+    }
+
+    mutating func send(_ params: IPCPaneMessageSendParams) async throws -> IPCPaneMessageSendResult {
+        try paneContextWireResult(
+            IPCPaneMessageSendResult.self, from: await response(method: "pane.message.send", params: params))
+    }
+
+    mutating func changes(writer: IPCPaneWriterClaim?, after: UInt64) async throws -> IPCPaneMessageChangesResult {
+        try paneContextWireResult(
+            IPCPaneMessageChangesResult.self,
+            from: await response(
+                method: "pane.message.changes",
+                params: IPCPaneMessageChangesParams(
+                    handle: "self", writer: writer, after: after, correlationId: UUIDv7.generate())))
     }
 }
