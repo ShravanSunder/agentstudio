@@ -118,18 +118,67 @@ struct CLIStoreTests {
             }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .beta).get()
             return PreviousVersionObservation(
-                storedIdentity: storedIdentity, readerEntries: readerEntries,
+                storedIdentity: storedIdentity, readerIdentity: reader.identity, readerEntries: readerEntries,
                 previousMigrations: previousSchema.migrations, previousHasOutbox: previousSchema.hasOutbox,
                 writerIdentity: writer.identity,
                 writerHasOutbox: try writer.databaseQueue.read { try $0.tableExists("cli_outbox") })
         }
         let originalIdentity = try #require(observed.storedIdentity)
+        #expect(observed.readerIdentity.storeID.uuidString == originalIdentity)
         #expect(observed.readerEntries.isEmpty)
         #expect(observed.previousMigrations == [CLIStoreMigrator.identityMigration])
         #expect(!observed.previousHasOutbox)
         #expect(observed.writerIdentity.storeID.uuidString == originalIdentity)
         #expect(observed.writerIdentity.channel == .beta)
         #expect(observed.writerHasOutbox)
+    }
+
+    @Test("writer WAL commits use synchronous FULL for power-loss durability")
+    func writerUsesFullSynchronization() async throws {
+        let synchronous = try await valueFromDedicatedThread {
+            let fixture = try CLIStoreFileFixture()
+            defer { fixture.remove() }
+            let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
+            return try writer.databaseQueue.read { database in
+                try Int.fetchOne(database, sql: "PRAGMA synchronous")
+            }
+        }
+        #expect(synchronous == 2)
+    }
+
+    @Test("reader refuses an unknown migration without changing the store bytes or modification time")
+    func supersededReaderDoesNotTouchFile() async throws {
+        let observed = try await valueFromDedicatedThread {
+            let fixture = try CLIStoreFileFixture()
+            defer { fixture.remove() }
+            let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
+            try writer.databaseQueue.write { database in
+                try database.execute(
+                    sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)",
+                    arguments: ["003_unknown_cli_migration"])
+            }
+            try writer.databaseQueue.writeWithoutTransaction { database in
+                _ = try database.checkpoint(.truncate)
+            }
+            let beforeBytes = try Data(contentsOf: fixture.databaseURL)
+            let beforeDate =
+                try FileManager.default.attributesOfItem(atPath: fixture.databaseURL.path)[.modificationDate]
+                as? Date
+            let readerFailure = failure(in: CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug))
+            let afterBytes = try Data(contentsOf: fixture.databaseURL)
+            let afterDate =
+                try FileManager.default.attributesOfItem(atPath: fixture.databaseURL.path)[.modificationDate]
+                as? Date
+            return (
+                failure: readerFailure, bytes: (before: beforeBytes, after: afterBytes),
+                dates: (before: beforeDate, after: afterDate)
+            )
+        }
+        #expect(observed.failure == .superseded)
+        #expect(observed.bytes.after == observed.bytes.before)
+        let beforeDate = try #require(observed.dates.before)
+        let afterDate = try #require(observed.dates.after)
+        #expect(afterDate == beforeDate)
     }
 
     @Test("an append round trips a typed immutable notice; the wire payload stays opaque")
@@ -455,6 +504,7 @@ private struct StoreIdentityObservation: Sendable {
 
 private struct PreviousVersionObservation: Sendable {
     let storedIdentity: String?
+    let readerIdentity: CLIStoreIdentity
     let readerEntries: [CLIOutboxEntry]
     let previousMigrations: [String]
     let previousHasOutbox: Bool
