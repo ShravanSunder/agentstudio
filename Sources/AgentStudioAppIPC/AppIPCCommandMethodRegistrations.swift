@@ -50,7 +50,7 @@ package enum AppIPCCommandMethodRegistrations {
         -> @Sendable (IPCRawCommandExecutionRequest, AppIPCConnectionContext, AppIPCTargetResolutionTools)
         async throws(AgentStudioAppIPCRequestError) -> AppIPCPreparedCommand
     {
-        { parameters, context, tools in
+        { parameters, context, tools async throws(AgentStudioAppIPCRequestError) -> AppIPCPreparedCommand in
             guard let principal = context.principal else {
                 throw AgentStudioAppIPCRequestError(AppIPCTypedMethodRegistrationError.authenticationRequired)
             }
