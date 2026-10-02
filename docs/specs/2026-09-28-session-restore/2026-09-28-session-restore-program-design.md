@@ -1,6 +1,8 @@
 # Session restore after a reboot: how it is built
 
-Date: 2026-10-02, revision 24 (R3 as built, amendment 13): a cold pane waits for resume readiness inside the activation scheduler, as a per-pane eligibility checked before a pane can be picked or claimed (items 4 and 10). R2's quit capture and R3's quit look share the one shutdown bound and run concurrently (item 7).
+Date: 2026-10-02, revision 25 (R3 review round 1): item 7's classification decides completeness per pane, not per `ps` pass. A process exiting in one pane no longer turns every pane's look into `.unknown`.
+
+**Revision 24** (R3 as built, amendment 13): a cold pane waits for resume readiness inside the activation scheduler, as a per-pane eligibility checked before a pane can be picked or claimed (items 4 and 10). R2's quit capture and R3's quit look share the one shutdown bound and run concurrently (item 7).
 
 **Revision 23** (R1 as built): item 5's check runs at the pane's first render, and its outcome names exactly what it can see (`matchedAtFirstRender`, `recreated`, `uncheckable(reason)`).
 
@@ -365,6 +367,10 @@ flowchart LR
      - There's no `commandFinished` trigger: shell integration isn't injected into zmx panes by default (advisor report, 2026-09-30).
    - **The quit look** runs in the observer actor. It's bounded by `AppPolicies.Restore.quitLookDeadline`, inside the existing 2 s shutdown bound, and runs before Sessions finishes. R2's quit capture (item 11) runs concurrently with it inside that same bound, never after it. If it doesn't commit in time, the previous look stands, quit proceeds, and the owned task is cancelled.
    - **Classification:** find the foreground job through `tpgid`, then every row whose `pgid == tpgid`. `argv[0]` is read only from those rows and never stored. A group classifies by the first known agent binary in it, otherwise `.other`. An empty or incomplete `ps` gives `.unknown`, never `.shell`. A stopped or background agent isn't in the foreground, so the look reads `.shell`.
+     - **Completeness is per pane** (revision 25). One `ps` pass serves every pane, but each pane is judged only on its own leader and foreground-group rows, so one pane's churn never erases another pane's look:
+       - a `ps` that fails or can't be parsed makes **every** pane `.unknown`;
+       - if a pane's leader, or one of its rows, is unreadable or has changed group since `ps`, that pane is `.unknown`;
+       - a row whose process has exited since `ps` (`ESRCH`) blocks only a **negative** result. A readable known agent in the group still classifies as that agent, but without one the pane is `.unknown`, never `.shell`. An agent's own short-lived tool processes therefore can't erase its look.
    - **Write admission,** atomic in the repository transaction:
      - the pane isn't retired;
      - `bindingGenerationId` equals the pane's latest binding generation, read inside the transaction;
