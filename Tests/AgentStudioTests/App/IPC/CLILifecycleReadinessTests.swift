@@ -2,6 +2,7 @@ import AgentStudioIPCClientCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
+import AgentStudioTerminal
 import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
@@ -17,6 +18,55 @@ import Testing
     "CLI lifecycle readiness and read-through", .serialized,
     SessionsVerticalHarnessTrait(providerProfiles: .claudeCodeAndCodex))
 struct CLILifecycleReadinessTests {
+    @Test("a ready unbound cold pane retains its SR3 plan without an agent notice or invocation")
+    func readyUnboundColdPaneKeepsBasePlan() async throws {
+        let plans = try await resolveUnboundColdPane(readiness: .ready)
+        #expect(plans.decided == plans.base)
+        #expect(plans.decided.resume == nil)
+    }
+
+    @Test("an unbound cold pane with unavailable reports names no invented provider or session")
+    func unavailableUnboundColdPaneHasHonestNotice() async throws {
+        let plans = try await resolveUnboundColdPane(readiness: .unavailable)
+        let expectedNotice =
+            "Agent state couldn't be checked before restore; if an agent was running here, resume it manually."
+        let everyNoticeIsHonest = plans.decided.notice.linesByCandidateIndex.allSatisfy { $0 == expectedNotice }
+        #expect(everyNoticeIsHonest)
+        #expect(plans.decided.resume == nil)
+        #expect(plans.decided.folderCandidates == plans.base.folderCandidates)
+        #expect(plans.decided.sessionID == plans.base.sessionID)
+        #expect(plans.decided.attemptID == plans.base.attemptID)
+    }
+
+    private func resolveUnboundColdPane(readiness result: RestoreResumeReadinessResult) async throws
+        -> (base: TerminalColdRestorePlan, decided: TerminalColdRestorePlan)
+    {
+        let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
+        let delegate = harness.appDelegate
+        let datastore = try #require(delegate.workspaceSQLiteDatastore)
+        let pane = try #require(delegate.store.paneAtom.pane(harness.sparePaneId))
+        let sessionID = try #require(pane.terminalState?.zmxSessionID)
+        let repository = SessionsRepository(sqliteAccess: WorkspaceSessionsSQLiteAccess(datastore: datastore))
+        let snapshot = try await repository.snapshot(.pane(pane.id, page: .init(limit: 1, after: nil)))
+        #expect(snapshot.currentBinding == nil)
+        let base = TerminalColdRestorePlanBuilder.buildPlan(
+            pane: pane, sessionID: sessionID, zmxExecutablePath: "/unused/zmx",
+            zmxDirectoryPath: "/unused/zmx-root", loginShellPath: "/bin/zsh", repositoryMainFolder: nil)
+        let readiness = RestoreResumeReadiness(
+            clock: ContinuousClock(), deadline: .seconds(2), launchId: UUIDv7.generate(), factSink: { _, _ in })
+        await readiness.publish(result)
+        let previousReadiness = delegate.restoreResumeReadiness
+        let previousBootID = delegate.restoreLaunchBootId
+        let clock = try await WorkspaceUndoJournalClock.current()
+        delegate.restoreResumeReadiness = readiness
+        delegate.restoreLaunchBootId = clock.bootID
+        let decided = await delegate.makeColdResumePlanResolver()(PaneId(existingUUID: pane.id), base)
+        delegate.restoreResumeReadiness = previousReadiness
+        delegate.restoreLaunchBootId = previousBootID
+        await readiness.shutdown()
+        return (base, decided)
+    }
+
     @Test("the authenticated session.event route dispositions its real store receipt in the prepared App datastore")
     func liveIPCReceiptReachesPreparedCursor() async throws {
         let harness = try await #require(SessionsVerticalHarnessContext.current).freshPanePair()
