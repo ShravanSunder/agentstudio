@@ -653,6 +653,30 @@ extension E2ESerializedTests {
         /// so the real leader genuinely exits. Proves NOTE_EXIT explains an
         /// otherwise-unreadable argv correctly (`handoffChecked`'s
         /// `.unreadable` branch), not `.unobservable`.
+        ///
+        /// Gate 5 fix (Lead 2026-10-02): the waiting `spawnColdRestoreSession`
+        /// cannot be used here -- it settles through this same
+        /// `ColdStartObserver` discovery/setsid/handoff chain internally
+        /// (`waitUntilSessionSettled` -> `resolveSettledDiscovery`), and
+        /// this test's own leader is designed to die before that chain ever
+        /// reaches a stable identity to settle on; F7's removed retry used
+        /// to paper over that precondition failure. Spawns without waiting
+        /// instead (the same `spawnColdRestoreSessionWithoutWaitingForSettlement`
+        /// the test above this one uses) and lets `observeColdStart` itself
+        /// observe from before the socket exists -- the real production
+        /// path. No created-line wait needed first: unlike the test above
+        /// (no real zmx session at all, so nothing internal to the observer
+        /// would ever learn of that attach client's exit without the
+        /// explicit `reportAttachClientExited()` signal it uses), zmx here
+        /// is real, so discovery's own direct `observeSession` call can
+        /// read `.terminalLeaderGone` and settle `.failed` immediately
+        /// (`attemptDiscoveryConnect`'s own case, ColdStartObserver.swift:324-331),
+        /// or read `.pendingSetsid` and have the subsequent setsid watch's
+        /// own `NOTE_EXIT` settle the same way (`checkForSetsidAndAdvance`'s
+        /// `exitFired` branch) -- confirmed by reading both directly. Every
+        /// timing of the real exec failure relative to this call converges
+        /// on the same outcome through the observer's own watches, with
+        /// nothing external to wait for first.
         @Test("a non-executable final shell settles failed, not unobservable")
         func aNonExecutableFinalShellSettlesFailed() async throws {
             try await withRealBackend { harness, _ in
@@ -681,7 +705,7 @@ extension E2ESerializedTests {
                 let socketPath = "\(harness.zmxDir)/\(sessionID.rawValue)"
                 let observer = ColdStartObserver()
 
-                _ = try await harness.spawnColdRestoreSession(plan: plan)
+                _ = try harness.spawnColdRestoreSessionWithoutWaitingForSettlement(plan: plan)
                 let outcome = await observer.observeColdStart(
                     zmxDirectory: URL(fileURLWithPath: harness.zmxDir),
                     socketPath: socketPath,

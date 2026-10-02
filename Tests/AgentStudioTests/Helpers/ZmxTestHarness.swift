@@ -592,6 +592,25 @@ final class ZmxTestHarness: @unchecked Sendable {
         awaitingSessionCreatedLineFor sessionId: String
     ) -> HeldStep<Result<Void, any Error>> {
         let step = HeldStep<Result<Void, any Error>>("session created line")
+        // Gate 5 fix (Lead 2026-10-02): pre-released the moment the reader
+        // is armed below, not held open for a waiter to release later.
+        // `arriveBlocking` (here and `waitUntilSessionSettled`'s own exit
+        // race, `ZmxTestHarness+SessionSettlement.swift`) parks its caller
+        // until the step ends; with nothing to ever call `release()` before
+        // the step is reached (`...WithoutWaitingForSettlement` callers
+        // discard the returned step entirely), that park is permanent --
+        // the reader stops draining this pipe and a still-live launcher can
+        // block writing to it. `HeldStep`'s own contract ("a terminal call
+        // made before any arrival is kept, so an early release() cannot be
+        // lost," `HeldStep.swift`) and `HeldStepState.admit` (`arrivals.append`
+        // runs before the pre-existing terminal short-circuits the arriving
+        // caller, `HeldStep.swift:361-386`) together mean a pre-release
+        // only ever changes whether the arriving caller itself blocks, not
+        // what `firstArrival()` observes: that still resolves with whichever
+        // real arrival -- this marker, or the exit race's failure -- lands
+        // first, exactly as `releaseBeforeArrivalIsKept` (HeldStepTests)
+        // proves for a single arrival.
+        step.release()
         let markerBytes = Data("session \"\(sessionId)\" created\n".utf8)
         let scan = Mutex(SessionCreatedLineScan())
         pipe.fileHandleForReading.readabilityHandler = { handle in
