@@ -86,11 +86,17 @@ extension AppDelegate {
             repoExplorerSidebarPrefs: atomStore.repoExplorerSidebarPrefs,
             performanceTraceRecorder: performanceTraceRecorder,
             closeTransitionCoordinator: closeTransitionCoordinator,
-            paneContextReaders: PaneContextUIReaders(
-                sessionStatus: atomStore.sessionStatus, presentation: atomStore.paneContextPresentation,
-                pane: { atomStore.core.workspacePane.pane($0.uuid) }),
+            paneContextReaders: makePaneContextUIReaders(),
             sessionsPaneViewedMailbox: atomStore.sessionsPaneViewedMailbox
         )
+    }
+
+    func makePaneContextUIReaders() -> PaneContextUIReaders {
+        let atomStore = atomStore!
+        return PaneContextUIReaders(
+            sessionStatus: atomStore.sessionStatus, presentation: atomStore.paneContextPresentation,
+            pane: { atomStore.core.workspacePane.pane($0.uuid) },
+            serviceProvider: { [weak self] in self?.appIPCPaneContextUIAdapter })
     }
 
     func makeMainWindowController(dependencies: AppDelegateMainWindowCreationDependencies) -> MainWindowController {

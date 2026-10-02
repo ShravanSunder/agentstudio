@@ -77,6 +77,8 @@ struct SessionsVerticalHarness {
             appDelegate.workspaceSQLiteDatastore = datastore
             appDelegate.windowLifecycleStore = commandHarness.windowLifecycleStore
             appDelegate.atomStore = commandHarness.atomRegistry
+            let uiReaders = appDelegate.makePaneContextUIReaders()
+            #expect(uiReaders.serviceProvider() == nil)
             appDelegate.viewRegistry = commandHarness.viewRegistry
             appDelegate.workspaceSurfaceCoordinator = commandHarness.coordinator
             appDelegate.executor = commandHarness.executor
@@ -129,6 +131,7 @@ struct SessionsVerticalHarness {
             guard appDelegate.appIPCServer != nil else {
                 throw SessionsVerticalHarnessError.serverUnavailable(startFailure ?? .initializationCancelled)
             }
+            #expect(uiReaders.serviceProvider() != nil)
             if let debugCredentialEscrowURL {
                 guard let escrowData = try? Data(contentsOf: debugCredentialEscrowURL),
                     let escrow = try? JSONDecoder().decode(
@@ -183,8 +186,10 @@ struct SessionsVerticalHarness {
     /// `withWorkspaceCommandHarness`'s awaited cleanup for the same harness
     /// type.
     func tearDown() async {
+        let uiReaders = appDelegate.makePaneContextUIReaders()
         await appDelegate.stopAcceptingAppIPCConnections()
         await appDelegate.drainAppIPCCredentialPersistence()
+        #expect(uiReaders.serviceProvider() == nil)
         await appDelegate.paneActivityClock?.shutdown()
         await commandHarness.executor.stopAcceptingCommandsAndDrain()
         await commandHarness.coordinator.shutdown()
