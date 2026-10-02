@@ -91,17 +91,31 @@ struct ProviderLifecycleRecordingTests {
         #expect(!observed.2.joined().contains("private reason"))
     }
 
-    @Test("activity hooks never create lifecycle reports", arguments: ["UserPromptSubmit", "Stop", "PreToolUse"])
-    func activityHookIsNeverRecorded(eventName: String) async throws {
+    @Test(
+        "activity hooks never create lifecycle reports",
+        arguments: [
+            ("codex", "UserPromptSubmit"), ("codex", "Stop"), ("codex", "PreToolUse"),
+            ("claude", "UserPromptSubmit"), ("claude", "Stop"), ("claude", "PreToolUse"),
+        ])
+    func activityHookIsNeverRecorded(provider: String, eventName: String) async throws {
         let rows = try await valueFromDedicatedThread {
             let fixture = try LifecycleHookFileFixture()
             defer { fixture.remove() }
             _ = try CLIStore.openWriter(url: fixture.storeURL, channel: .debug).get()
-            _ = ProviderHookInvocation.runCodexHook(
-                .init(
-                    eventName: eventName, environment: fixture.environment,
-                    standardInput: { fixture.payload(eventName: eventName) }, correlationIdProvider: UUIDv7.generate,
-                    delivery: .init { _, _ in }, standardErrorSink: { _ in }))
+            if provider == "codex" {
+                _ = ProviderHookInvocation.runCodexHook(
+                    .init(
+                        eventName: eventName, environment: fixture.environment,
+                        standardInput: { fixture.payload(eventName: eventName) },
+                        correlationIdProvider: UUIDv7.generate,
+                        delivery: .init { _, _ in }, standardErrorSink: { _ in }))
+            } else {
+                _ = ClaudeCodeHookInvocation.handle(
+                    .init(
+                        arguments: ["hook", "claude", eventName], environment: fixture.environment,
+                        standardInput: { fixture.payload(eventName: eventName) }, identifierGenerator: UUIDv7.generate,
+                        diagnosticSink: { _ in }))
+            }
             return try CLIStore.openReader(url: fixture.storeURL, expectedChannel: .debug).get()
                 .readLifecycleReports(after: 0).get().reports
         }

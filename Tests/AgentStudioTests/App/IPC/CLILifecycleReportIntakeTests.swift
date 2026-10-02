@@ -12,6 +12,30 @@ import Testing
 
 @Suite("CLI lifecycle intake prefix and parity")
 struct CLILifecycleReportIntakeTests {
+    @Test(
+        "drained end envelopes preserve absent and unrecognized reasons exactly",
+        arguments: [nil, "private future reason"] as [String?])
+    func drainedReasonParity(reason: String?) async throws {
+        try await withLifecycleIntakeFixture { fixture in
+            let intake = fixture.intake()
+            _ = try await intake.captureListenerReadyBoundary()
+            let start = try await fixture.seed(fixture.record())
+            #expect(
+                try await intake.recordLive(
+                    paneId: fixture.paneID, params: fixture.params(start.record, sequence: start.sequence)
+                ).disposition == .admitted)
+            let end = try await fixture.seed(
+                fixture.record(sessionID: start.record.conversationID, event: .sessionEnd(reason: reason)))
+            try await intake.takeIn(through: .stored(storeId: fixture.storeID, sequence: end.sequence))
+            let fetched = try await fixture.binding()
+            let binding = try #require(fetched)
+            #expect(binding.providerEndReason == (reason == nil ? .notGiven : .unrecognized))
+            #expect(binding.providerEndReasonText == reason)
+            #expect(binding.providerEndedAt != nil)
+            #expect(fixture.refusals.snapshot().isEmpty)
+        }
+    }
+
     @Test("historical start through S0 binds the exact session without an active source generation")
     func historicalStartHasRecordedProvenance() async throws {
         try await withLifecycleIntakeFixture { fixture in
