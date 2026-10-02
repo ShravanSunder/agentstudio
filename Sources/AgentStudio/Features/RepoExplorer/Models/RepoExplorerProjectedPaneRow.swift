@@ -96,6 +96,8 @@ struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
     let recencyTier: RepoExplorerPaneRecencyTier
     let isActive: Bool
     let isDrawerPane: Bool
+    var pullRequestSummaryChip: GitPRSummaryChipModel?
+    var messageChip: PaneMessageChipModel?
     var isPinned = false
     var activitySubgroup: RepoExplorerActivityBucket?
     var variants: RepoExplorerPaneRowVariants?

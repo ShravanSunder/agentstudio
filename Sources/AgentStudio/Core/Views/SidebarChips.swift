@@ -65,6 +65,7 @@ package struct SidebarGitStatusChips: View {
     package let showsDetailedGitChips: Bool
     package let showsDiffChip: Bool
     package let showsSyncChip: Bool
+    package let showsPullRequestChip: Bool
 
     package init(
         branchStatus: GitBranchStatus,
@@ -72,7 +73,8 @@ package struct SidebarGitStatusChips: View {
         usesPanesLoadingChip: Bool = false,
         showsDetailedGitChips: Bool = true,
         showsDiffChip: Bool = true,
-        showsSyncChip: Bool = true
+        showsSyncChip: Bool = true,
+        showsPullRequestChip: Bool = true
     ) {
         self.branchStatus = branchStatus
         self.octiconLoader = octiconLoader
@@ -80,6 +82,7 @@ package struct SidebarGitStatusChips: View {
         self.showsDetailedGitChips = showsDetailedGitChips
         self.showsDiffChip = showsDiffChip
         self.showsSyncChip = showsSyncChip
+        self.showsPullRequestChip = showsPullRequestChip
     }
 
     package nonisolated static func diffDetail(
@@ -104,10 +107,12 @@ package struct SidebarGitStatusChips: View {
     package nonisolated static func hasContent(
         branchStatus: GitBranchStatus,
         usesPanesLoadingChip: Bool = false,
-        showsDetailedGitChips: Bool = true
+        showsDetailedGitChips: Bool = true,
+        showsPullRequestChip: Bool = true
     ) -> Bool {
-        presentationHasContent(branchStatus: branchStatus, usesPanesLoadingChip: usesPanesLoadingChip)
-            || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable
+        showsPullRequestChip
+            && (presentationHasContent(branchStatus: branchStatus, usesPanesLoadingChip: usesPanesLoadingChip)
+                || (branchStatus.prCount ?? 0) > 0 && !branchStatus.pullRequestDataUnavailable)
             || showsDetailedGitChips && diffDetail(branchStatus: branchStatus) != nil
             || showsDetailedGitChips && showsSync(branchStatus: branchStatus)
     }
@@ -142,21 +147,23 @@ package struct SidebarGitStatusChips: View {
 
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-            if usesPanesLoadingChip {
-                if let pullRequestChip = SidebarPullRequestChipSpec.chip(
-                    presentation: SidebarPullRequestChipSpec.presentation(
-                        branchStatus: branchStatus,
-                        usesPanesLoadingChip: true
-                    ),
-                    octiconLoader: octiconLoader
-                ) {
-                    pullRequestChip
+            if showsPullRequestChip {
+                if usesPanesLoadingChip {
+                    if let pullRequestChip = SidebarPullRequestChipSpec.chip(
+                        presentation: SidebarPullRequestChipSpec.presentation(
+                            branchStatus: branchStatus,
+                            usesPanesLoadingChip: true
+                        ),
+                        octiconLoader: octiconLoader
+                    ) {
+                        pullRequestChip
+                    }
+                } else if let prCount = branchStatus.prCount,
+                    prCount > 0,
+                    !branchStatus.pullRequestDataUnavailable
+                {
+                    SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
                 }
-            } else if let prCount = branchStatus.prCount,
-                prCount > 0,
-                !branchStatus.pullRequestDataUnavailable
-            {
-                SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
             }
 
             if showsDetailedGitChips, showsDiffChip,
