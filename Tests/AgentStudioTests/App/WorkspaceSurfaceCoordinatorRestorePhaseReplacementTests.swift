@@ -491,10 +491,12 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
     /// real repairs instead of one:
     /// 1. a first `executeRepair(.recreateSurface)` against
     ///    `FailingFirstRepairSurfaceManager` (its second
-    ///    `createSurface` call, which fails) -- asserts the pane's view is
-    ///    torn down with nothing to replace it, and that the generation
-    ///    survived into `pendingRestorePhaseLatchesByPaneID` rather than
-    ///    being silently dropped;
+    ///    `createSurface` call, which fails) -- asserts no real surface is
+    ///    left behind (the registered view, if any, is a "failed to
+    ///    start" placeholder, not the torn-down pane's old content), and
+    ///    that the generation survived into
+    ///    `pendingRestorePhaseLatchesByPaneID` rather than being silently
+    ///    dropped;
     /// 2. a second `executeRepair(.recreateSurface)` (the manager's third
     ///    call, which succeeds) -- asserts the new surface inherits that
     ///    same generation and the pending entry is cleared, proving the
@@ -559,13 +561,20 @@ struct WorkspaceSurfaceRestorePhaseReplacementTests {
 
         // 2. First repair attempt: the manager's second `createSurface`
         // call, which fails. `executeRepair`'s `.recreateSurface` case tears
-        // down the old view before attempting the replacement, so there is
-        // nothing left in the registry when this returns -- confirmed by
-        // reading that case directly.
+        // down the old view before attempting the replacement, then
+        // `createTopologyIndependentTerminalView`'s own failure branch
+        // (`WorkspaceSurfaceCoordinator+ViewLifecycle.swift:358-369`)
+        // registers a "failed to start" placeholder through
+        // `registerTerminalPlaceholderIfNeeded` before returning `nil` --
+        // confirmed by reading that path directly. So a view IS present
+        // afterward (the placeholder, with its own retry/dismiss affordance
+        // for the person), just never the real terminal content; this is
+        // what actually proves "no view holds the generation on" without
+        // claiming the registry entry itself is gone.
         coordinator.executeRepair(.recreateSurface(paneId: pane.id))
         #expect(
-            coordinator.viewRegistry.terminalView(for: pane.id) == nil,
-            "a failed replacement must leave no view behind to hold the generation on"
+            coordinator.viewRegistry.terminalView(for: pane.id)?.ghosttySurface == nil,
+            "a failed replacement must leave no real surface behind to hold the generation on"
         )
         #expect(
             coordinator.pendingRestorePhaseLatchesByPaneID[pane.id] == generation,

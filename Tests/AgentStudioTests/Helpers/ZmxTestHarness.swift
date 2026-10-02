@@ -84,6 +84,22 @@ final class ZmxTestHarness: @unchecked Sendable {
         // /tmp/zt-<12chars>/ leaves ample room for the app's generated session IDs.
         self.zmxDir = "/tmp/zt-\(shortId)"
         self.scratchHomeDirectory = "/tmp/zt-\(shortId)-home"
+        // R2-5 gate finding (Lead 2026-10-02): `waitForSessionSocket` throws
+        // `sessionDirectoryUnwatchable` instead of polling on an open(2)
+        // failure now (ff3424fc9) -- but the first caller through it, right
+        // after `spawnZmxSession`/`spawnColdRestoreSession`'s `process.run()`
+        // returns, can race the daemon's own startup before it ever creates
+        // this directory itself. Creating it here, at harness construction,
+        // before any zmx process is ever spawned, removes that race
+        // entirely rather than working around it with a poll or a deadline.
+        // Confirmed safe against zmx's own startup: `Cfg.mkdir`'s
+        // `mkdirAll` (vendor/zmx/src/cfg.zig:88-101) treats
+        // `error.PathAlreadyExists` as a no-op for exactly this directory
+        // (`ZMX_DIR`, zmx's own `socket_dir`) -- a daemon spawned against an
+        // already-existing directory is not a new or different code path.
+        try? FileManager.default.createDirectory(
+            atPath: zmxDir, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
         try? FileManager.default.createDirectory(
             atPath: scratchHomeDirectory, withIntermediateDirectories: true)
         // zmx kill and list run to exit with no per-call time limit: a slow runner must not turn a
