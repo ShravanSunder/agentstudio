@@ -3,6 +3,7 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import AgentStudioSessions
+import AgentStudioTerminal
 import CryptoKit
 import Foundation
 import Security
@@ -186,6 +187,13 @@ extension AppDelegate {
             guard let composition = try await makeAppIPCServer(sessionsIngestion: sessionsIngestion) else { return }
             try composition.server.start()
             appIPCServer = composition.server
+            if let readiness = restoreResumeReadiness {
+                await AppIPCDeferredInitialization.prepareResumeReadiness(readiness: readiness) {
+                    _ = try await sessionsIngestion.prepareForLaunch(at: Date())
+                }
+            } else {
+                _ = try await sessionsIngestion.prepareForLaunch(at: Date())
+            }
             appLogger.info("App IPC server started at \(composition.socketURL.path, privacy: .private)")
             publishDebugCredentialEscrow(socketURL: composition.socketURL)
             startPaneReportSpoolDrain(sessionsIngestion: sessionsIngestion)
@@ -258,7 +266,8 @@ extension AppDelegate {
         let lateAdmission = AgentStudioIPCSessionsAdapter(
             ingestion: sessionsIngestion,
             providerRegistry: SessionsProviderAdapterRegistry(profiles: appIPCSessionsProviderProfiles),
-            admissionFreshness: .late
+            admissionFreshness: .late,
+            foregroundLookSink: makeRestoreForegroundLookSink()
         )
         let spool: PaneReportSpool
         do {
@@ -287,8 +296,7 @@ extension AppDelegate {
     }
 
     /// Sessions ingestion is built with the IPC server, not on the first-frame
-    /// or terminal paths. Launch preparation ends the previous run's active
-    /// sources before any live report can reach them.
+    /// or terminal paths. Readiness owns launch preparation after listener/S0 capture.
     private func prepareAppIPCSessionsIngestion(
         datastore: WorkspaceSQLiteDatastoreActor
     ) async -> SessionsIngestion? {
@@ -305,17 +313,6 @@ extension AppDelegate {
             // rules exclude. Counts reach no sink until a scrubbed probe exists.
             probe: { _ in }
         )
-        do {
-            _ = try await ingestion.prepareForLaunch(at: Date())
-        } catch {
-            appLogger.warning(
-                """
-                Sessions ingestion skipped: launch preparation failed: \
-                \(error.localizedDescription, privacy: .private)
-                """
-            )
-            return nil
-        }
         guard !Task.isCancelled else { return nil }
         appIPCSessionsIngestion = ingestion
         return ingestion
@@ -439,7 +436,9 @@ extension AppDelegate {
                 providerRegistry: SessionsProviderAdapterRegistry(
                     profiles: appIPCSessionsProviderProfiles
                 ),
-                activityClock: paneActivityClock
+                activityClock: paneActivityClock,
+                foregroundLookSink: makeRestoreForegroundLookSink(),
+                resumedSessionStartSink: terminalActivityRouter?.resumedSessionStartSink
             ),
             permissionApprovalPort: AgentStudioIPCHumanApprovalPort(),
             ownPaneScopePort: WorkspaceOwnPaneScopePort(

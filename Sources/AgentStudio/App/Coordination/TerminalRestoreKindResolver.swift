@@ -3,27 +3,8 @@ import AgentStudioInfrastructure
 import AgentStudioTerminal
 import Foundation
 
-/// Decides SR1/SR2/SR6's restore kind (E4) for every zmx-provider pane in
-/// one mount, before terminal activation runs (Program Design item 1). Built
-/// once at boot (`AppDelegate+WorkspaceBoot.swift`) and injected into
-/// `WorkspacePreparedContentMountCoordinator`, whose `mount()` awaits
-/// `resolveRestoreKinds(for:)` before its terminal lane activates.
-///
-/// Bridges Core (`ZmxSessionInventory`, `ZmxSessionRestoreProbing`) and
-/// Features (`TerminalRestoreKind`) — neither module may import the other,
-/// so this classification belongs at the App layer, where both are already
-/// visible.
-///
-/// Not `@MainActor`: called from `mount()` (MainActor), it runs on
-/// MainActor throughout except for its leaf I/O calls
-/// (`probe.discoverSessionInventory()`, `probe.observeSessionIdentity(_:)`),
-/// which are `@concurrent nonisolated` on `ZmxBackend` and hop off-main for
-/// their own duration (SE-0461) — matching the Program Design's "What runs
-/// where": the derivation itself needs no actor, only the I/O does. Every
-/// `.alive` session's identity observation runs concurrently, bounded by
-/// `AppPolicies.Restore.maximumConcurrentIdentityObservations`; only the
-/// surrounding map/plan building (`resolveKind`, `buildColdPlan`) stays on
-/// MainActor.
+/// App joins Core's inventory and Terminal's plan vocabulary. Classification
+/// streams off-main; the existing whole-map reader collects that same stream.
 struct TerminalRestoreKindResolver: Sendable {
     private let sessionConfiguration: SessionConfiguration
     /// Nil when zmx couldn't be resolved at boot (`SessionConfiguration
@@ -32,103 +13,78 @@ struct TerminalRestoreKindResolver: Sendable {
     /// resolver were never wired in (matching `TerminalRestoreRuntime
     /// .startupCommand`'s existing `nil`-kind fallback).
     private let probe: (any ZmxSessionRestoreProbing)?
-    private let repositoryMainFolder: @MainActor (Pane) -> URL?
+    private let repositoryMainFolder: @Sendable (Pane) -> URL?
 
     init(
         sessionConfiguration: SessionConfiguration,
         probe: (any ZmxSessionRestoreProbing)?,
-        repositoryMainFolder: @escaping @MainActor (Pane) -> URL?
+        repositoryMainFolder: @escaping @Sendable (Pane) -> URL?
     ) {
         self.sessionConfiguration = sessionConfiguration
         self.probe = probe
         self.repositoryMainFolder = repositoryMainFolder
     }
 
-    @MainActor
-    func resolveRestoreKinds(
+    @concurrent nonisolated func resolveRestoreKinds(
         for descriptors: [TerminalActivationDescriptor]
     ) async -> [PaneId: TerminalRestoreKind] {
-        guard sessionConfiguration.isOperational, let zmxPath = sessionConfiguration.zmxPath, let probe else {
-            return [:]
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: (PaneId, TerminalRestoreKind).self, bufferingPolicy: .unbounded)
+        async let classification: Void = classifyRestoreKinds(for: descriptors) { paneID, kind in
+            continuation.yield((paneID, kind))
         }
-        let zmxPanes: [(paneID: PaneId, pane: Pane, sessionID: ZmxSessionID)] = descriptors.compactMap { descriptor in
+        // The producer is joined before closing the collector stream.
+        await classification
+        continuation.finish()
+        var result: [PaneId: TerminalRestoreKind] = [:]
+        for await (paneID, kind) in stream { result[paneID] = kind }
+        return result
+    }
+
+    @concurrent nonisolated func classifyRestoreKinds(
+        for descriptors: [TerminalActivationDescriptor],
+        publish: @Sendable (PaneId, TerminalRestoreKind) async -> Void
+    ) async {
+        guard sessionConfiguration.isOperational, let zmxPath = sessionConfiguration.zmxPath, let probe else { return }
+        let entries = descriptors.compactMap { descriptor -> (PaneId, Pane, ZmxSessionID)? in
             guard descriptor.pane.provider == .zmx, let sessionID = descriptor.pane.terminalState?.zmxSessionID else {
                 return nil
             }
             return (descriptor.paneID, descriptor.pane, sessionID)
         }
-        guard !zmxPanes.isEmpty else { return [:] }
-
+        guard !entries.isEmpty else { return }
         let inventory = await probe.discoverSessionInventory()
-        let aliveSessionIDs: [ZmxSessionID] = zmxPanes.compactMap { entry in
-            guard case .complete(let entriesBySessionID) = inventory,
-                case .alive = entriesBySessionID[entry.sessionID]
-            else {
-                return nil
-            }
-            return entry.sessionID
-        }
-        let observedIdentitiesBySessionID = await Self.observeIdentitiesConcurrently(
-            sessionIDs: aliveSessionIDs,
-            probe: probe
-        )
-
-        var restoreKindsByPaneID: [PaneId: TerminalRestoreKind] = [:]
-        for entry in zmxPanes {
-            restoreKindsByPaneID[entry.paneID] = resolveKind(
-                pane: entry.pane,
-                sessionID: entry.sessionID,
-                inventory: inventory,
-                zmxPath: zmxPath,
-                observedIdentity: observedIdentitiesBySessionID[entry.sessionID]
-            )
-        }
-        return restoreKindsByPaneID
-    }
-
-    /// The warm baseline's off-main fan-out (choice 1): every `.alive`
-    /// session's `observeSessionIdentity` runs concurrently, bounded by
-    /// `AppPolicies.Restore.maximumConcurrentIdentityObservations` so a large
-    /// pane count never opens unbounded sockets at once. Not `@MainActor` —
-    /// nothing here reads or writes MainActor state; only the caller's
-    /// subsequent `resolveKind` mapping does.
-    private static func observeIdentitiesConcurrently(
-        sessionIDs: [ZmxSessionID],
-        probe: any ZmxSessionRestoreProbing
-    ) async -> [ZmxSessionID: Data] {
-        guard !sessionIDs.isEmpty else { return [:] }
-        var identitiesBySessionID: [ZmxSessionID: Data] = [:]
-        var nextIndex = 0
-        let concurrencyBound = min(
-            AppPolicies.Restore.maximumConcurrentIdentityObservations,
-            sessionIDs.count
-        )
-        await withTaskGroup(of: (ZmxSessionID, Data?).self) { group in
-            func addNextObservation() {
-                guard nextIndex < sessionIDs.count else { return }
-                let sessionID = sessionIDs[nextIndex]
+        await withTaskGroup(of: (PaneId, TerminalRestoreKind).self) { group in
+            var nextIndex = 0
+            func addNextClassification() {
+                guard nextIndex < entries.count else { return }
+                let (paneID, pane, sessionID) = entries[nextIndex]
                 nextIndex += 1
                 group.addTask {
-                    // A failed observation and a successful-but-empty one carry
-                    // the same meaning here (`.warmIdentityUnobservable`), so
-                    // `try?` collapsing the thrown case to `nil` loses nothing
-                    // `resolveKind` needs.
-                    let identity = try? await probe.observeSessionIdentity(sessionID)
-                    return (sessionID, identity)
+                    let identity: Data?
+                    if case .complete(let sessions) = inventory, case .alive = sessions[sessionID] {
+                        identity = try? await probe.observeSessionIdentity(sessionID)
+                    } else {
+                        identity = nil
+                    }
+                    return (
+                        paneID,
+                        resolveKind(
+                            pane: pane, sessionID: sessionID, inventory: inventory,
+                            zmxPath: zmxPath, observedIdentity: identity)
+                    )
                 }
             }
-            for _ in 0..<concurrencyBound { addNextObservation() }
-            while let (sessionID, identity) = await group.next() {
-                if let identity {
-                    identitiesBySessionID[sessionID] = identity
-                }
-                addNextObservation()
+            for _ in 0..<min(entries.count, AppPolicies.Restore.maximumConcurrentIdentityObservations) {
+                addNextClassification()
+            }
+            while let (paneID, kind) = await group.next() {
+                await publish(paneID, kind)
+                addNextClassification()
             }
         }
-        return identitiesBySessionID
     }
 
-    @MainActor
     private func resolveKind(
         pane: Pane,
         sessionID: ZmxSessionID,
@@ -164,7 +120,6 @@ struct TerminalRestoreKindResolver: Sendable {
         }
     }
 
-    @MainActor
     private func buildColdPlan(pane: Pane, sessionID: ZmxSessionID, zmxPath: String) -> TerminalColdRestorePlan {
         TerminalColdRestorePlanBuilder.buildPlan(
             pane: pane,

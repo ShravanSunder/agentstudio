@@ -5,8 +5,30 @@ import Foundation
 /// Latest-state demand and future deadlines live here, off MainActor. A look
 /// never absorbs a later trigger, and exit facts can only request fresh looks.
 package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.Duration == Duration {
-    // S3 RED stand-in: ignore launch/quit ingress; existing per-pane S2 triggers are unchanged.
-    package func noteLifecycle(_ trigger: ForegroundLookTrigger) {}
+    private var didNoteRelaunch = false
+    private var didNoteQuit = false
+    private var quitEnumerationFinished = false
+
+    package func noteLifecycle(_ trigger: ForegroundLookTrigger) async {
+        guard !stopped else { return }
+        switch trigger {
+        case .relaunched:
+            guard !didNoteRelaunch, !didNoteQuit else { return }
+            didNoteRelaunch = true
+        case .appQuitting:
+            guard !didNoteQuit else { return }
+            didNoteQuit = true
+        default: return
+        }
+        let eligible = (try? await repository.eligiblePanes()) ?? []
+        guard !stopped else { return }
+        if case .relaunched = trigger, didNoteQuit { return }
+        for binding in eligible { note(trigger, pane: binding.paneId) }
+        if case .appQuitting = trigger {
+            quitEnumerationFinished = true
+            resolveQuitWaitersIfSettled()
+        }
+    }
 
     private struct Demand {
         var dueAt: ObserverClock.Instant
@@ -46,6 +68,9 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
     private var panes: [UUID: PaneState] = [:]
     private var retiredPanes: Set<UUID> = []
     private var handoffs: Set<UUID> = []
+    private var capturedPreRestorePanes: Set<UUID> = []
+    private var preRestoreObservations: [UUID: PaneForegroundObservation] = [:]
+    private var quitWaiters: [AsyncStream<Void>.Continuation] = []
     private var sequence: UInt64 = 0
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var deadlineTaskId: UUID?
@@ -173,6 +198,7 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
 
     private func executeLooks(_ looks: [UUID: RunningLook]) async {
         do {
+            // Persisted membership may trail a flush: removed sessions yield nothing; added panes join the next look.
             let bindings = try await repository.eligiblePanes().filter { looks[$0.paneId] != nil }
             try Task.checkCancellation()
             let snapshots = try await probe.probeForeground(of: bindings.map(\.sessionId))
@@ -208,6 +234,14 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
             bindingGenerationId: binding.bindingGenerationId, program: snapshot.program,
             observerLaunchId: observerLaunchId, sequence: look.sequence, observedAt: Date())
         do {
+            if !handoffs.contains(binding.paneId), !capturedPreRestorePanes.contains(binding.paneId) {
+                let previous = try await repository.load(paneId: binding.paneId)
+                if let previous, previous.observerLaunchId != observerLaunchId,
+                    !handoffs.contains(binding.paneId), capturedPreRestorePanes.insert(binding.paneId).inserted
+                {
+                    preRestoreObservations[binding.paneId] = previous
+                }
+            }
             let admission = try await repository.admit(observation)
             guard isCurrent(look) else { return }
             factSink(look.scope, .observation(admission))
@@ -297,6 +331,7 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
         }
         panes[paneId] = state
         factSink(look.scope, .closed(look.quitting ? .quit : .looked))
+        resolveQuitWaitersIfSettled()
         rescheduleDeadline()
     }
 
@@ -314,6 +349,7 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
         panes[paneId] = state
         cancelLookIfUnused(taskId)
         factSink(scope, .closed(.quitDeadline))
+        resolveQuitWaitersIfSettled()
     }
 
     package func retire(paneId: UUID) async {
@@ -322,6 +358,9 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
         let scope = panes[paneId]?.running?.scope ?? newScope(paneId)
         let taskId = panes[paneId]?.running?.taskId
         panes[paneId] = nil
+        preRestoreObservations[paneId] = nil
+        capturedPreRestorePanes.remove(paneId)
+        resolveQuitWaitersIfSettled()
         cancelLookIfUnused(taskId)
         try? await repository.retire(paneId: paneId)
         factSink(scope, .closed(.retired))
@@ -330,7 +369,35 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
 
     package func takePreRestoreObservation(paneId: UUID) async throws -> PaneForegroundObservation? {
         guard !retiredPanes.contains(paneId), handoffs.insert(paneId).inserted else { return nil }
+        if capturedPreRestorePanes.contains(paneId) {
+            return preRestoreObservations.removeValue(forKey: paneId)
+        }
         return try await repository.load(paneId: paneId)
+    }
+
+    /// The quit deadline is owned here, so App can join the bounded final look
+    /// concurrently with its other flushes without chaining their budgets.
+    package func finishQuitLooks() async {
+        await noteLifecycle(.appQuitting)
+        guard !stopped,
+            !quitEnumerationFinished || panes.values.contains(where: { !$0.settled && $0.quitDeadline != nil })
+        else { return }
+        let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        quitWaiters.append(continuation)
+        for await _ in stream { break }
+    }
+
+    private func resolveQuitWaitersIfSettled() {
+        guard
+            stopped
+                || (quitEnumerationFinished && !panes.values.contains(where: { !$0.settled && $0.quitDeadline != nil }))
+        else { return }
+        let waiters = quitWaiters
+        quitWaiters.removeAll()
+        for waiter in waiters {
+            waiter.yield(())
+            waiter.finish()
+        }
     }
 
     package func currentWatch(paneId: UUID) -> CurrentExitWatch? { panes[paneId]?.watch?.value }
@@ -341,6 +408,9 @@ package actor PaneForegroundObserver<ObserverClock: Clock> where ObserverClock.D
             return
         }
         stopped = true
+        resolveQuitWaitersIfSettled()
+        preRestoreObservations.removeAll()
+        capturedPreRestorePanes.removeAll()
         deadlineTaskId = nil
         for pane in Array(panes.keys) {
             removeWatch(pane)

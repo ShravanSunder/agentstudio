@@ -69,7 +69,15 @@ final class WorkspacePreparedContentMountCoordinator {
     /// construct this coordinator without restore wiring keep compiling
     /// unchanged; production wiring is assigned at construction in
     /// `AppDelegate+WorkspaceBoot.swift`.
-    private let resolveTerminalRestoreKinds: ([TerminalActivationDescriptor]) async -> [PaneId: TerminalRestoreKind]
+    private let resolveTerminalRestoreKinds:
+        @MainActor @Sendable ([TerminalActivationDescriptor]) async -> [PaneId: TerminalRestoreKind]
+
+    private let classifyTerminalRestoreKinds:
+        (
+            @Sendable ([TerminalActivationDescriptor], @Sendable (PaneId, TerminalRestoreKind) async -> Void) async ->
+                Void
+        )?
+    private let resolveColdResumePlan: (@Sendable (PaneId, TerminalColdRestorePlan) async -> TerminalColdRestorePlan)?
 
     init(
         cohort: WorkspacePreparedContentMountCohort,
@@ -77,7 +85,8 @@ final class WorkspacePreparedContentMountCoordinator {
         terminalAdmissionPort: any TerminalActivationAdmissionPort,
         nonterminalAdmissionPort: any NonterminalContentMountAdmissionPort,
         placeholderTransitionHandler: @escaping (Pane, TerminalStatusPlaceholderMode) -> Void = { _, _ in },
-        resolveTerminalRestoreKinds: @escaping ([TerminalActivationDescriptor]) async -> [PaneId: TerminalRestoreKind] =
+        resolveTerminalRestoreKinds:
+            @escaping @MainActor @Sendable ([TerminalActivationDescriptor]) async -> [PaneId: TerminalRestoreKind] =
             WorkspacePreparedContentMountCoordinator.noRestoreKindsResolved,
         classifyTerminalRestoreKinds: (
             @Sendable ([TerminalActivationDescriptor], @Sendable (PaneId, TerminalRestoreKind) async -> Void) async ->
@@ -85,9 +94,8 @@ final class WorkspacePreparedContentMountCoordinator {
         )? = nil,
         resolveColdResumePlan: (@Sendable (PaneId, TerminalColdRestorePlan) async -> TerminalColdRestorePlan)? = nil
     ) {
-        // S3 RED stand-in: ignore the settled per-member classification and decided-plan handoffs.
-        _ = classifyTerminalRestoreKinds
-        _ = resolveColdResumePlan
+        self.classifyTerminalRestoreKinds = classifyTerminalRestoreKinds
+        self.resolveColdResumePlan = resolveColdResumePlan
         // Hidden nonterminal panes stay outside the startup ledger so later
         // demand falls through to the existing steady-state content mount
         // owner. Terminals remain in the startup cohort — foreground and
@@ -115,7 +123,8 @@ final class WorkspacePreparedContentMountCoordinator {
                 input: startupCohort.terminalActivationInput
             ),
             admissionPort: terminalAdmissionPort,
-            releaseSignal: terminalActivationReleaseGate
+            releaseSignal: terminalActivationReleaseGate,
+            requiresRestoreClassification: Set(startupCohort.terminalActivationInput.entries.map(\.paneID))
         )
         nonterminalPhaseOwners = [false, true].map { selectingDrawerEntries in
             NonterminalContentMountOwner(
@@ -129,6 +138,10 @@ final class WorkspacePreparedContentMountCoordinator {
             )
         }
         viewRegistry.installPreparedContentMountCohort(startupCohort)
+    }
+
+    func retirePendingColdPane(_ paneID: PaneId) async {
+        await terminalScheduler.retireAwaitingResumeReadiness(paneID)
     }
 
     func holdTerminalActivationUntilReleased() async {
@@ -192,15 +205,10 @@ final class WorkspacePreparedContentMountCoordinator {
             lifecycle = .mounting
         }
 
-        // SR1: decided before the terminal lane activates, never after
-        // (`terminalScheduler.activate()` below is what actually attaches).
-        // This costs no extra wall-clock time in practice: that lane already
-        // blocks on the launch-owned release gate until the first
-        // interactive frame is published, so the probe runs inside a window
-        // that was otherwise idle-waiting regardless.
-        let restoreKindsByPaneID = await resolveTerminalRestoreKinds(cohort.terminalActivationInput.entries)
-        terminalAdmissionPort.installRestoreKinds(restoreKindsByPaneID)
-
+        async let classification: Void = Self.classifyAndReleaseTerminals(
+            entries: cohort.terminalActivationInput.entries, scheduler: terminalScheduler,
+            classify: classifyTerminalRestoreKinds, resolveKinds: resolveTerminalRestoreKinds,
+            resolveResume: resolveColdResumePlan)
         async let terminalSettlement = terminalScheduler.activate()
 
         var nonterminalOutcomesByPaneID: [PaneId: NonterminalContentMountOutcome] = [:]
@@ -219,6 +227,7 @@ final class WorkspacePreparedContentMountCoordinator {
                 outcomesByPaneID: nonterminalOutcomesByPaneID
             )
         )
+        await classification
         requireCompleteSettlement(settlement)
         notifyWaitingForGeometryPlaceholders(in: settlement)
         viewRegistry.completeInitialRestore()
@@ -230,6 +239,63 @@ final class WorkspacePreparedContentMountCoordinator {
             waiter.resume(returning: settlement)
         }
         return settlement
+    }
+
+    /// Classification streams independently of readiness. A cold member holds
+    /// no worker slot while its off-main resolver awaits the launch boundary.
+    @concurrent nonisolated private static func classifyAndReleaseTerminals(
+        entries: [TerminalActivationDescriptor], scheduler: TerminalActivationScheduler,
+        classify: (
+            @Sendable ([TerminalActivationDescriptor], @Sendable (PaneId, TerminalRestoreKind) async -> Void) async ->
+                Void
+        )?,
+        resolveKinds:
+            @escaping @MainActor @Sendable ([TerminalActivationDescriptor]) async -> [PaneId: TerminalRestoreKind],
+        resolveResume: (@Sendable (PaneId, TerminalColdRestorePlan) async -> TerminalColdRestorePlan)?
+    ) async {
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: (PaneId, TerminalRestoreKind).self, bufferingPolicy: .unbounded)
+        async let producer: Void = publishClassifications(
+            entries, into: continuation, classify: classify, resolveKinds: resolveKinds)
+        await withTaskGroup(of: Void.self) { group in
+            var classified: Set<PaneId> = []
+            for await (paneID, kind) in stream {
+                guard classified.insert(paneID).inserted else { continue }
+                await scheduler.enqueueRestoreKind(kind, for: paneID)
+                if case .cold(let plan) = kind {
+                    group.addTask {
+                        let decided = await resolveResume?(paneID, plan) ?? plan
+                        await scheduler.releaseAwaitingResumeReadiness([paneID: decided])
+                    }
+                }
+            }
+            for entry in entries where !classified.contains(entry.paneID) {
+                await scheduler.enqueueRestoreKind(nil, for: entry.paneID)
+            }
+        }
+        await producer
+    }
+
+    @concurrent nonisolated private static func publishClassifications(
+        _ entries: [TerminalActivationDescriptor],
+        into continuation: AsyncStream<(PaneId, TerminalRestoreKind)>.Continuation,
+        classify: (
+            @Sendable ([TerminalActivationDescriptor], @Sendable (PaneId, TerminalRestoreKind) async -> Void) async ->
+                Void
+        )?,
+        resolveKinds: @MainActor @Sendable ([TerminalActivationDescriptor]) async -> [PaneId: TerminalRestoreKind]
+    ) async {
+        defer { continuation.finish() }
+        if let classify {
+            await classify(entries) { paneID, kind in
+                continuation.yield((paneID, kind))
+            }
+        } else {
+            let kinds = await resolveKinds(entries)
+            for entry in entries {
+                if let kind = kinds[entry.paneID] { continuation.yield((entry.paneID, kind)) }
+            }
+        }
     }
 
     /// Publishes the accepted restore cohort in stable order without starting

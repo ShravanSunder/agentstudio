@@ -124,7 +124,8 @@ extension WorkspaceSurfaceCoordinator: PreparedTerminalMountHandling {
             let generation = RestoreGenerationAllocator.allocate()
             let acknowledgment = await Ghostty.ActionRouter.armRestorePhase(
                 paneID: pane.id,
-                restoreGeneration: generation
+                restoreGeneration: generation,
+                resumeInvocation: plan.resume
             )
             guard acknowledgment == .armed else {
                 return .failed(

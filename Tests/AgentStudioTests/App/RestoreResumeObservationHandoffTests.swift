@@ -1,6 +1,7 @@
 import AgentStudioInfrastructure
 import AgentStudioTestHarness
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -13,6 +14,94 @@ import Testing
 @Suite("Restore resume observation handoff", .serialized)
 struct RestoreResumeObservationHandoffTests {
     init() { installTestCoreAtomsIfNeeded() }
+
+    @Test("live zmx membership follows persisted additions and removals, excluding other ownership")
+    func persistedLiveMembershipIsCurrentAndScoped() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "live-zmx-membership-\(UUIDv7.generate())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let prepared = try await prepareForegroundFiles(root: root)
+        let workspaceId = UUIDv7.generate()
+        let otherWorkspace = UUIDv7.generate()
+        let paneId = UUIDv7.generate()
+        let sessionId = ZmxSessionID.generateUUIDv7()
+        let undoPaneId = UUIDv7.generate()
+        let undoSessionId = ZmxSessionID.generateUUIDv7()
+        try await prepared.coreQueue.write { database in
+            for workspace in [workspaceId, otherWorkspace] {
+                try database.execute(
+                    sql: "INSERT INTO workspace VALUES (?, 'Membership proof', 1, 1)",
+                    arguments: [workspace.uuidString])
+            }
+            try insertLiveMembershipPane(database, workspaceId: workspaceId, paneId: paneId, sessionId: sessionId)
+            try insertLiveMembershipPane(
+                database, workspaceId: otherWorkspace, paneId: UUIDv7.generate(),
+                sessionId: .generateUUIDv7())
+            try insertLiveMembershipPane(
+                database, workspaceId: workspaceId, paneId: UUIDv7.generate(),
+                sessionId: .generateUUIDv7(), provider: "ghostty")
+            let closeId = UUIDv7.generate()
+            try database.execute(
+                sql: "INSERT INTO workspace_terminal_session_ownership(session_id) VALUES (?)",
+                arguments: [undoSessionId.rawValue])
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace_undo_close(close_id, workspace_id, close_sequence, close_kind,
+                        closed_at, expires_at, state, snapshot_version, snapshot_payload, deadline_boot_id, deadline_uptime_ns)
+                    VALUES (?, ?, 1, 'pane', 100, 400, 'available', 1, ?, 'proof-boot', 400000000000)
+                    """, arguments: [closeId.uuidString, workspaceId.uuidString, Data("{}".utf8)])
+            try database.execute(
+                sql: "INSERT INTO workspace_undo_close_member VALUES (?, ?, ?)",
+                arguments: [closeId.uuidString, undoPaneId.uuidString, undoSessionId.rawValue])
+        }
+        #expect(try await prepared.datastore.liveZmxSessionsByPane(workspaceId: workspaceId) == [paneId: sessionId])
+        let addedPaneId = UUIDv7.generate()
+        let addedSessionId = ZmxSessionID.generateUUIDv7()
+        try await prepared.coreQueue.write {
+            try insertLiveMembershipPane($0, workspaceId: workspaceId, paneId: addedPaneId, sessionId: addedSessionId)
+        }
+        #expect(
+            try await prepared.datastore.liveZmxSessionsByPane(workspaceId: workspaceId)
+                == [paneId: sessionId, addedPaneId: addedSessionId])
+        try await prepared.coreQueue.write {
+            try $0.execute(sql: "DELETE FROM pane WHERE id = ?", arguments: [paneId.uuidString])
+        }
+        #expect(
+            try await prepared.datastore.liveZmxSessionsByPane(workspaceId: workspaceId)
+                == [addedPaneId: addedSessionId])
+    }
+
+    @Test("foreground transactions use the real App adapter over prepared Core files")
+    func preparedDatastoreOwnsObservationTransactions() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "foreground-access-\(UUIDv7.generate())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let datastore = try await prepareForegroundDatastore(root: root)
+        let paneId = UUIDv7.generate()
+        let sessionId = ZmxSessionID.generateUUIDv7()
+        let launchId = UUIDv7.generate()
+        let membership = [paneId: sessionId]
+        let repository = SQLitePaneForegroundObservationRepository(
+            access: WorkspaceForegroundObservationSQLiteAccess(datastore: datastore),
+            observerLaunchId: launchId, paneSessions: { membership })
+        let observation = PaneForegroundObservation(
+            paneId: paneId, zmxSessionId: sessionId,
+            sessionIdentity: try handoffIdentity(bootId: "adapter-proof", daemonPid: 8300),
+            bindingGenerationId: nil, program: .codex, observerLaunchId: launchId,
+            sequence: 1, observedAt: Date(timeIntervalSince1970: 1))
+        #expect(try await repository.admit(observation) == .admitted)
+        #expect(try await repository.load(paneId: paneId) == observation)
+        let storedSequence = try await datastore.performApplicationLocalRead {
+            try Int64.fetchOne(
+                $0, sql: "SELECT sequence FROM terminal_pane_foreground_observation WHERE pane_id = ?",
+                arguments: [paneId.uuidString])
+        }
+        #expect(storedSequence == 1)
+        try await repository.retire(paneId: paneId)
+        #expect(try await repository.load(paneId: paneId) == nil)
+        let retainedRows = try await datastore.performApplicationLocalRead {
+            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM terminal_pane_foreground_observation")
+        }
+        #expect(retainedRows == 0)
+    }
 
     @Test("the old stored look reaches the verdict before native admission can replace it with a new-session look")
     func preRestoreLookIsHandedOffBeforeFirstNewLook() async throws {
@@ -160,12 +249,12 @@ private struct HandoffObservationFixture: Sendable {
             sessionIdentity: oldIdentity, bindingGenerationId: binding.bindingGenerationId, program: .codex,
             observerLaunchId: oldLaunch, sequence: 10, observedAt: Date(timeIntervalSince1970: 1))
         let oldRepository = SQLitePaneForegroundObservationRepository(
-            databaseWriter: sessions.database, observerLaunchId: oldLaunch)
+            access: TestForegroundSQLiteAccess(databaseQueue: sessions.database), observerLaunchId: oldLaunch)
         #expect(try await oldRepository.admit(oldObservation) == .admitted)
         let launch = UUIDv7.generate()
         let membership = [sessions.paneId: sessions.zmxSessionId]
         let repository = SQLitePaneForegroundObservationRepository(
-            databaseWriter: sessions.database, observerLaunchId: launch,
+            access: TestForegroundSQLiteAccess(databaseQueue: sessions.database), observerLaunchId: launch,
             paneSessions: { membership })
         let source = LocalFactSource(
             vocabulary: FactVocabulary<ForegroundObserverFactScope, ForegroundObserverFact>(
@@ -182,4 +271,42 @@ private struct HandoffObservationFixture: Sendable {
             exitWatcher: HandoffNoExitWatcher(), observerLaunchId: launch, factSink: source.sink)
         return Self(repository: repository, observer: observer, facts: facts, launch: launch)
     }
+}
+
+@concurrent nonisolated private func prepareForegroundDatastore(root: URL) async throws -> WorkspaceSQLiteDatastoreActor
+{
+    try await prepareForegroundFiles(root: root).datastore
+}
+
+@concurrent nonisolated private func prepareForegroundFiles(root: URL) async throws
+    -> (datastore: WorkspaceSQLiteDatastoreActor, coreQueue: DatabaseQueue)
+{
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let coreQueue = try DatabaseQueue(path: root.appending(path: "core.sqlite").path)
+    let localQueue = try DatabaseQueue(path: root.appending(path: "local.sqlite").path)
+    let core = WorkspaceCoreRepository(databaseWriter: coreQueue)
+    try core.migrate()
+    try WorkspaceLocalMigrations.migrate(localQueue)
+    let local = WorkspaceLocalRepository(workspaceId: UUIDv7.generate(), databaseWriter: localQueue)
+    let datastore = try await preparedWorkspaceSQLiteDatastore(
+        coreRepository: core, preparedApplicationLocalRepository: local)
+    return (datastore, coreQueue)
+}
+
+private func insertLiveMembershipPane(
+    _ database: Database, workspaceId: UUID, paneId: UUID, sessionId: ZmxSessionID, provider: String = "zmx"
+) throws {
+    try database.execute(
+        sql: """
+            INSERT INTO pane(id, workspace_id, content_type, execution_backend, title,
+                residency_kind, kind, created_at, updated_at)
+            VALUES (?, ?, ?, 'local', 'Membership proof', 'active', 'leaf', 1, 1)
+            """,
+        arguments: [
+            paneId.uuidString, workspaceId.uuidString, SQLitePaneContentTypeStorage.storageValue(for: .terminal),
+        ])
+    try database.execute(
+        sql:
+            "INSERT INTO pane_content_terminal(pane_id, provider, lifetime, zmx_session_id) VALUES (?, ?, 'persistent', ?)",
+        arguments: [paneId.uuidString, provider, sessionId.rawValue])
 }

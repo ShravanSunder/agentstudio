@@ -2,80 +2,6 @@ import AgentStudioCore
 import AgentStudioInfrastructure
 import Foundation
 
-struct TerminalActivityProjectionContext: Sendable, Equatable {
-    let isAttended: Bool
-    let isAgentClassified: Bool
-    let outputBurstThreshold: Int
-}
-
-struct TerminalActivityAggregateInput: Sendable, Equatable {
-    let aggregate: TerminalScrollbarActivityAggregate
-    let latestState: ScrollbarState
-    let context: TerminalActivityProjectionContext
-}
-
-enum TerminalActivityOrderedControl: Sendable, Equatable {
-    case contextChanged(TerminalActivityProjectionContext)
-    case observed
-    case semanticSignal
-    case commandFinished
-    case surfaceClosed
-    /// SR6b, the surface route: the cold `GhosttySurfaceView` latch recorded
-    /// person input under `TerminalLocalActionAccumulator`'s lock, which
-    /// detached the pre-input aggregate ahead of this control (Program
-    /// Design item 13). Gating on `restorePhaseByPane` is Panes' consumer.
-    case restorePhaseEnded(RestoreGeneration)
-}
-
-struct TerminalActivityCompactUpdate: Sendable, Equatable {
-    let surfaceID: UUID
-    let paneID: UUID
-    let scrollbarState: ScrollbarState
-    let outputBurst: TerminalOutputBurstState
-}
-
-enum TerminalActivityProjectionOutcome: Sendable, Equatable {
-    case compactStateChanged(TerminalActivityCompactUpdate)
-    case firstOutput(surfaceID: UUID, paneID: UUID)
-    case paneObservationChanged(surfaceID: UUID, paneID: UUID, isPinnedToBottom: Bool)
-    case unseenActivitySettled(surfaceID: UUID, paneID: UUID, activity: TerminalSettledActivity)
-    case agentSettledActivityPromoted(surfaceID: UUID, paneID: UUID, activity: TerminalSettledActivity)
-    case agentSettledActivityRevoked(surfaceID: UUID, paneID: UUID)
-    case surfaceClosed(surfaceID: UUID, paneID: UUID?)
-}
-
-enum TerminalActivitySourceInput: Sendable, Equatable {
-    case aggregate(
-        surfaceID: UUID,
-        paneID: UUID,
-        input: TerminalActivityAggregateInput
-    )
-    case orderedControl(
-        surfaceID: UUID,
-        paneID: UUID,
-        precedingAggregate: TerminalActivityAggregateInput?,
-        control: TerminalActivityOrderedControl
-    )
-    /// SR6b: terminal activation arms a cold pane's restore phase before
-    /// `createSurface` (Program Design item 13). Pane-keyed, not
-    /// surface-keyed: no surface exists yet at arm time.
-    case restorePhaseArmed(paneID: UUID, restoreGeneration: RestoreGeneration)
-    /// SR6b, the no-surface route: a resumed agent's SessionStart fact can
-    /// end the phase (R3) without going through a surface's ordered ingress.
-    /// Always unused in R1, which never auto-resumes; the case exists now so
-    /// the vocabulary is complete ahead of R3.
-    case restorePhaseEnded(paneID: UUID, restoreGeneration: RestoreGeneration)
-    /// SR6b: permanent pane retirement — `WorkspaceSurfaceCoordinator
-    /// .retirePanesPermanently`, "the shared final-retirement edge for undo
-    /// expiry and committed direct discards" — is pane-keyed and distinct
-    /// from `.surfaceClosed`, which also fires on ordinary surface
-    /// replacement (`consumeAggregateState`'s `replacedSurfaceID` branch).
-    /// Only this input clears `restorePhaseByPane`; a replaced surface keeps
-    /// the pane's restore phase (Panes' consumer, requested via Main
-    /// 2026-09-30).
-    case paneRetiredPermanently(paneID: UUID)
-}
-
 /// Owns terminal activity derivation and quiet timers off MainActor.
 /// Admission is bounded by the upstream per-surface accumulator: its drain awaits
 /// each ingestion, so a live surface can have at most one actor call plus one
@@ -153,6 +79,9 @@ package actor TerminalActivityProjector {
     private let nowMilliseconds: @Sendable () -> Int64
     private let continuousNow: @Sendable () -> ContinuousClock.Instant
     private let wallNow: @Sendable () -> Date
+    private let foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)?
+    private var pendingForegroundEdges: [(ForegroundLookTrigger, UUID)] = []
+    private var resumeInvocationsByPane: [UUID: ResumeInvocation] = [:]
     private let activitySink: (@Sendable (PaneActivityOccurrence) -> Void)?
     private let closeReadDurationSink: (@Sendable (Duration) -> Void)?
     private var outcomeSink: OutcomeSink?
@@ -183,8 +112,7 @@ package actor TerminalActivityProjector {
         closeReadDurationSink: (@Sendable (Duration) -> Void)? = nil,
         foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil
     ) {
-        // S3 RED stand-in: ignore foreground edges without changing existing compact/activity projection.
-        _ = foregroundLookSink
+        self.foregroundLookSink = foregroundLookSink
         self.unseenQuietDuration = unseenQuietDuration
         self.agentSettledQuietDuration = agentSettledQuietDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
@@ -240,6 +168,7 @@ package actor TerminalActivityProjector {
     ) async -> [TerminalActivityProjectionOutcome] {
         guard !isRestorePhaseActive(paneID: paneID) else { return [] }
 
+        queueForegroundClose(paneStates[paneID].flatMap { $0.surfaceID == surfaceID ? $0.activityWindow : nil })
         var closedWindow: ActivityWindow?
         if var state = paneStates[paneID], state.surfaceID == surfaceID,
             let window = state.unseenWindow, window.rowsAdded > 0
@@ -257,6 +186,7 @@ package actor TerminalActivityProjector {
             paneStates[paneID] = state
         }
 
+        await deliverForegroundEdges()
         let lastOutputLine = await resolveLastOutputLine(
             surfaceID: surfaceID,
             paneID: paneID
@@ -296,6 +226,7 @@ package actor TerminalActivityProjector {
         var state: PaneState
         var replacedSurfaceID: UUID?
         if let existingState = paneStates[paneID], existingState.surfaceID != surfaceID {
+            queueForegroundClose(existingState.activityWindow)
             cancelTimers(for: paneID)
             paneStates.removeValue(forKey: paneID)
             replacedSurfaceID = existingState.surfaceID
@@ -442,8 +373,21 @@ package actor TerminalActivityProjector {
     // The restore-phase extension owns the consumer operations. These narrow
     // module-local helpers keep the generation map and PaneState private to
     // this source file.
-    func recordRestorePhaseGeneration(_ generation: RestoreGeneration, for paneID: UUID) {
+    func recordRestorePhaseGeneration(
+        _ generation: RestoreGeneration, for paneID: UUID, resumeInvocation: ResumeInvocation?
+    ) {
         restorePhaseByPane[paneID] = generation
+        resumeInvocationsByPane[paneID] = resumeInvocation
+    }
+
+    func matchingResumeGeneration(paneID: UUID, providerIdentifier: String, providerSessionId: String)
+        -> RestoreGeneration?
+    {
+        guard let invocation = resumeInvocationsByPane[paneID],
+            invocation.provider == ResumeProvider(providerIdentifier: providerIdentifier),
+            invocation.sessionId.rawValue == providerSessionId
+        else { return nil }
+        return restorePhaseByPane[paneID]
     }
 
     func restorePhaseGeneration(for paneID: UUID) -> RestoreGeneration? {
@@ -456,11 +400,13 @@ package actor TerminalActivityProjector {
         generation: RestoreGeneration
     ) -> Bool {
         guard restorePhaseByPane[paneID] == generation else { return false }
+        resumeInvocationsByPane.removeValue(forKey: paneID)
         restorePhaseByPane.removeValue(forKey: paneID)
         return true
     }
 
     func clearRestorePhaseGeneration(for paneID: UUID) {
+        resumeInvocationsByPane.removeValue(forKey: paneID)
         restorePhaseByPane.removeValue(forKey: paneID)
     }
 
@@ -468,6 +414,7 @@ package actor TerminalActivityProjector {
         cancelUnseenWindow(for: paneID)
         cancelAgentCandidate(for: paneID)
         if var state = paneStates[paneID] {
+            queueForegroundClose(state.activityWindow)
             state.unseenWindow = nil
             state.activityWindow = nil
             state.agentCandidate = nil
@@ -494,6 +441,7 @@ package actor TerminalActivityProjector {
     var restorePhaseGenerationsByPane: [UUID: RestoreGeneration] { restorePhaseByPane }
 
     func retirePaneStatePermanently(for paneID: UUID) {
+        queueForegroundClose(paneStates[paneID]?.activityWindow)
         cancelTimers(for: paneID)
         paneStates.removeValue(forKey: paneID)
     }
@@ -540,12 +488,14 @@ package actor TerminalActivityProjector {
 
     private func closeSurfaceState(surfaceID: UUID, paneID: UUID?) {
         if let paneID, paneStates[paneID]?.surfaceID == surfaceID {
+            queueForegroundClose(paneStates[paneID]?.activityWindow)
             cancelTimers(for: paneID)
             paneStates.removeValue(forKey: paneID)
         }
     }
 
     private func emit(_ outcomes: [TerminalActivityProjectionOutcome]) async {
+        await deliverForegroundEdges()
         guard !outcomes.isEmpty, let outcomeSink else { return }
         await outcomeSink(outcomes)
     }
@@ -558,6 +508,7 @@ package actor TerminalActivityProjector {
         agentCloseTasks.removeAll()
         unseenRetirementTasks.removeAll()
         agentRetirementTasks.removeAll()
+        for state in paneStates.values { queueForegroundClose(state.activityWindow) }
         paneStates.removeAll()
         // SR6b: without this, a pane armed when the router stops (e.g. app
         // shutdown mid-restore) would leave its entry in restorePhaseByPane
@@ -565,6 +516,8 @@ package actor TerminalActivityProjector {
         // recreated, so nothing else ever clears it. No `.restorePhaseEnded`
         // is coming for a router that isn't running.
         restorePhaseByPane.removeAll()
+        resumeInvocationsByPane.removeAll()
+        await deliverForegroundEdges()
         outcomeSink = nil
         lastOutputLineReader = nil
         for task in closeTasks { await task.value }
@@ -628,7 +581,7 @@ package actor TerminalActivityProjector {
         latestState: ScrollbarState,
         context: TerminalActivityProjectionContext
     ) -> ActivityWindow? {
-        guard activitySink != nil else { return nil }
+        guard activitySink != nil || foregroundLookSink != nil else { return nil }
         let next = mergeWindow(
             current,
             surfaceID: surfaceID,
@@ -648,6 +601,7 @@ package actor TerminalActivityProjector {
         latestState: ScrollbarState,
         context: TerminalActivityProjectionContext
     ) {
+        let previousActivityWindow = state.activityWindow
         state.activityWindow = admittedActivityWindow(
             current: state.activityWindow,
             surfaceID: surfaceID,
@@ -656,6 +610,9 @@ package actor TerminalActivityProjector {
             latestState: latestState,
             context: context
         )
+        if previousActivityWindow == nil, let window = state.activityWindow, foregroundLookSink != nil {
+            pendingForegroundEdges.append((.outputBegan(burstWindowId: window.id), paneID))
+        }
         if context.isAttended {
             state.unseenWindow = nil
         } else {
@@ -729,8 +686,12 @@ package actor TerminalActivityProjector {
         guard unseenWindow != nil || activityWindow != nil else { return }
         unseenCloseTasks[target.paneID] = nil
         if unseenWindow != nil { state.unseenWindow = nil }
-        if activityWindow != nil { state.activityWindow = nil }
+        if activityWindow != nil {
+            queueForegroundClose(activityWindow)
+            state.activityWindow = nil
+        }
         paneStates[target.paneID] = state
+        await deliverForegroundEdges()
         guard (unseenWindow?.rowsAdded ?? 0) > 0 || (activityWindow?.rowsAdded ?? 0) > 0 else { return }
         let readStartedAt = ContinuousClock.now
         let lastOutputLine = await resolveLastOutputLine(
@@ -891,6 +852,19 @@ package actor TerminalActivityProjector {
             await precedingRetirementTask?.value
             await closeTask.value
         }
+    }
+
+    private func queueForegroundClose(_ window: ActivityWindow?) {
+        guard foregroundLookSink != nil, let window else { return }
+        pendingForegroundEdges.append((.outputSettled(burstWindowId: window.id), window.paneID))
+    }
+
+    func deliverForegroundEdges() async {
+        let pending = pendingForegroundEdges
+        pendingForegroundEdges.removeAll()
+        guard let foregroundLookSink else { return }
+        // State and edge ownership are committed before a possibly held sink.
+        for (trigger, paneID) in pending { await foregroundLookSink(trigger, paneID) }
     }
 
     private static func milliseconds(_ duration: Duration) -> Int {

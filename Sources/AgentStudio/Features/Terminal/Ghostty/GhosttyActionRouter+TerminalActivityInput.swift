@@ -104,7 +104,8 @@ extension Ghostty.ActionRouter {
     @MainActor
     package static func armRestorePhase(
         paneID: UUID,
-        restoreGeneration: RestoreGeneration
+        restoreGeneration: RestoreGeneration,
+        resumeInvocation: ResumeInvocation? = nil
     ) async -> RestorePhaseArmAcknowledgment {
         if !ghosttyTerminalActivityInputBinding.isBound {
             await ghosttyTerminalActivityInputBinding.awaitBound()
@@ -112,7 +113,9 @@ extension Ghostty.ActionRouter {
         guard let sink = ghosttyTerminalActivityInputBinding.sink else {
             return .projectorUnbound
         }
-        await sink(.restorePhaseArmed(paneID: paneID, restoreGeneration: restoreGeneration))
+        await sink(
+            .restorePhaseArmed(paneID: paneID, restoreGeneration: restoreGeneration, resumeInvocation: resumeInvocation)
+        )
         return .armed
     }
 

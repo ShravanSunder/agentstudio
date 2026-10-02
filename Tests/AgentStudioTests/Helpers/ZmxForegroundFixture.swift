@@ -80,7 +80,8 @@ struct ZmxForegroundFixture: Sendable {
             try await seedZmxForegroundBinding(database: database, paneId: paneId, generationId: generationId)
             let sessions = [paneId: sessionId]
             let repository = SQLitePaneForegroundObservationRepository(
-                databaseWriter: database, observerLaunchId: launchId, paneSessions: { sessions })
+                access: TestForegroundSQLiteAccess(databaseQueue: database), observerLaunchId: launchId,
+                paneSessions: { sessions })
             let source = LocalFactSource(
                 vocabulary: FactVocabulary<ForegroundObserverFactScope, ForegroundObserverFact>(
                     describeScope: { "\($0.paneId)/\($0.operationId)" }, describeFact: { String(describing: $0) },
@@ -289,5 +290,15 @@ private func seedZmxForegroundBinding(database: DatabaseQueue, paneId: UUID, gen
                 generationId.uuidString, paneId.uuidString, conversationId,
                 UUIDv7.generate().uuidString, UUIDv7.generate().uuidString, connection.lastInsertedRowID,
             ])
+    }
+}
+
+struct TestForegroundSQLiteAccess: ForegroundObservationSQLiteAccess {
+    let databaseQueue: DatabaseQueue
+    func read<Output: Sendable>(_ operation: @Sendable (Database) throws -> Output) async throws -> Output {
+        try await databaseQueue.read(operation)
+    }
+    func write<Output: Sendable>(_ operation: @Sendable (Database) throws -> Output) async throws -> Output {
+        try await databaseQueue.write(operation)
     }
 }

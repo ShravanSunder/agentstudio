@@ -6,16 +6,16 @@ import Synchronization
 /// Sole writer of foreground evidence. Retirement is a launch-lifetime fence:
 /// pane UUIDs are never reused and later launches enumerate canonical live panes.
 package actor SQLitePaneForegroundObservationRepository: PaneForegroundObservationRepository {
-    private let databaseWriter: any DatabaseWriter
+    private let access: any ForegroundObservationSQLiteAccess
     private let observerLaunchId: UUID
     private let paneSessions: @Sendable () async throws -> [UUID: ZmxSessionID]
     private let retirementFence = ForegroundRetirementFence()
 
     package init(
-        databaseWriter: any DatabaseWriter, observerLaunchId: UUID,
+        access: any ForegroundObservationSQLiteAccess, observerLaunchId: UUID,
         paneSessions: @escaping @Sendable () async throws -> [UUID: ZmxSessionID] = { [:] }
     ) {
-        self.databaseWriter = databaseWriter
+        self.access = access
         self.observerLaunchId = observerLaunchId
         self.paneSessions = paneSessions
     }
@@ -23,7 +23,7 @@ package actor SQLitePaneForegroundObservationRepository: PaneForegroundObservati
     package func eligiblePanes() async throws -> [ForegroundPaneBinding] {
         let sessions = try await paneSessions()
         let retired = retirementFence.snapshot()
-        return try await databaseWriter.read { database in
+        return try await access.read { database in
             try sessions.compactMap { paneId, sessionId in
                 guard !retired.contains(paneId) else { return nil }
                 let row = try Self.latestBinding(paneId: paneId, in: database)
@@ -42,7 +42,7 @@ package actor SQLitePaneForegroundObservationRepository: PaneForegroundObservati
             ForegroundObservationRow.canStore(identity: identity, sequence: observation.sequence)
         else { return .invalidIdentity }
         let retirementFence = retirementFence
-        return try await databaseWriter.write { database in
+        return try await access.write { database in
             try Task.checkCancellation()
             return try retirementFence.withAdmission { retired in
                 guard !retired.contains(observation.paneId) else { return .retiredPane }
@@ -71,13 +71,13 @@ package actor SQLitePaneForegroundObservationRepository: PaneForegroundObservati
 
     package func load(paneId: UUID) async throws -> PaneForegroundObservation? {
         guard !retirementFence.contains(paneId) else { return nil }
-        let observation = try await databaseWriter.read { try ForegroundObservationRow.load(paneId: paneId, in: $0) }
+        let observation = try await access.read { try ForegroundObservationRow.load(paneId: paneId, in: $0) }
         return retirementFence.contains(paneId) ? nil : observation
     }
 
     package func retire(paneId: UUID) async throws {
         retirementFence.retire(paneId)
-        try await databaseWriter.write { database in
+        try await access.write { database in
             try database.execute(
                 sql: "DELETE FROM terminal_pane_foreground_observation WHERE pane_id = ?",
                 arguments: [paneId.uuidString])

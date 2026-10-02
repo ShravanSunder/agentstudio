@@ -64,7 +64,6 @@ package enum TerminalActivationRetry: Equatable, Sendable {
 }
 
 package enum TerminalActivationMemberState: Equatable, Sendable {
-    // S3 RED stand-in: declared outcomes are never produced by the scheduler.
     case awaitingResumeReadiness
     case retired
     /// Held before this pane's geometry eligibility is installed (SPEC R5,

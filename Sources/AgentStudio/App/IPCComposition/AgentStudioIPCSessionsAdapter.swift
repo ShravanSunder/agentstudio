@@ -41,6 +41,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
     private let now: @Sendable () -> Date
     private let continuousNow: @Sendable () -> ContinuousClock.Instant
     private let activityClock: PaneActivityClock?
+    private let foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)?
+    private let resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)?
 
     /// The live IPC server admits messages as `.live`. The offline spool drainer
     /// composes a second adapter over the same ingestion with `.late`, so one
@@ -55,9 +57,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
         foregroundLookSink: (@Sendable (ForegroundLookTrigger, UUID) async -> Void)? = nil,
         resumedSessionStartSink: (@Sendable (UUID, String, String) async -> Void)? = nil
     ) {
-        // S3 RED stand-in: accept but never call the foreground and matched-start sinks.
-        _ = foregroundLookSink
-        _ = resumedSessionStartSink
+        self.foregroundLookSink = foregroundLookSink
+        self.resumedSessionStartSink = resumedSessionStartSink
         self.ingestion = ingestion
         self.providerRegistry = providerRegistry
         self.admissionFreshness = admissionFreshness
@@ -128,7 +129,7 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
             hasLiveBinding ? .currentPaneBinding(paneId: paneId) : .unattributed(paneId: paneId)
         let outcome: SessionsMutationOutcome
         do {
-            outcome = try await ingestion.submit(
+            let submission = try await ingestion.submitWithCommitDisposition(
                 correlationId: params.correlationId,
                 mutation: .message(
                     SessionsMessageMutation(
@@ -139,6 +140,8 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                     )
                 )
             )
+            outcome = submission.outcome
+            if submission.disposition == .inserted { await foregroundLookSink?(.agentMessage, paneId) }
         } catch {
             throw Self.portError(from: error)
         }
@@ -189,8 +192,17 @@ struct AgentStudioIPCSessionsAdapter: AppIPCSessionsPort {
                 correlationId: params.correlationId,
                 mutation: mutation
             )
-            if submission.disposition == .inserted, let activityOccurrence {
-                activityClock?.submit(activityOccurrence)
+            if submission.disposition == .inserted {
+                if let activityOccurrence { activityClock?.submit(activityOccurrence) }
+                switch mutation {
+                case .bind, .sourceEnded: await foregroundLookSink?(.bindingChanged, paneId)
+                case .recordEvidence: await foregroundLookSink?(.agentMessage, paneId)
+                default: break
+                }
+                if params.event.name == .sessionStart, admissionFreshness == .live, provenance == .matchingPane {
+                    await resumedSessionStartSink?(
+                        paneId, params.provider.identifier, params.event.conversationId)
+                }
             }
         } catch {
             throw Self.portError(from: error)

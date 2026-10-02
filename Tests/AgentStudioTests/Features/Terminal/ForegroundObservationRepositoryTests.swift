@@ -49,7 +49,7 @@ struct ForegroundObservationRepositoryTests {
         #expect(try await fixture.repository.admit(previous) == .admitted)
         let nextLaunch = UUIDv7.generate()
         let nextRepository = SQLitePaneForegroundObservationRepository(
-            databaseWriter: fixture.database, observerLaunchId: nextLaunch)
+            access: TestForegroundSQLiteAccess(databaseQueue: fixture.database), observerLaunchId: nextLaunch)
         let current = try fixture.observation(sequence: 1, launchId: nextLaunch, program: .codex)
         #expect(try await nextRepository.admit(current) == .admitted)
         #expect(try await nextRepository.load(paneId: fixture.paneId) == current)
@@ -115,7 +115,8 @@ struct ForegroundRepositoryFixture: Sendable {
         try WorkspaceLocalMigrations.migrate(database)
         let sessions = [paneId: sessionId]
         repository = SQLitePaneForegroundObservationRepository(
-            databaseWriter: database, observerLaunchId: launchId, paneSessions: { sessions })
+            access: TestForegroundSQLiteAccess(databaseQueue: database), observerLaunchId: launchId,
+            paneSessions: { sessions })
     }
 
     func observation(
@@ -159,5 +160,15 @@ struct ForegroundRepositoryFixture: Sendable {
                 sql: "UPDATE sessions_pane_binding SET binding_generation_id = ? WHERE pane_id = ?",
                 arguments: [UUIDv7.generate().uuidString, paneId.uuidString])
         }
+    }
+}
+
+struct TestForegroundSQLiteAccess: ForegroundObservationSQLiteAccess {
+    let databaseQueue: DatabaseQueue
+    func read<Output: Sendable>(_ operation: @Sendable (Database) throws -> Output) async throws -> Output {
+        try await databaseQueue.read(operation)
+    }
+    func write<Output: Sendable>(_ operation: @Sendable (Database) throws -> Output) async throws -> Output {
+        try await databaseQueue.write(operation)
     }
 }

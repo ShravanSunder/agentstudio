@@ -10,6 +10,7 @@ extension AppDelegate {
         self.paneActivityClock = paneActivityClock
         workspaceSurfaceCoordinator?.paneActivityClock = paneActivityClock
         Task { await paneActivityClock.start() }
+        let foregroundObserver = restoreForegroundObserver
         terminalActivityRouter = TerminalActivityRouter(
             bus: bus,
             activityAtom: atomStore.terminalActivity,
@@ -37,7 +38,8 @@ extension AppDelegate {
             },
             closeReadDurationSink: { [performanceTraceRecorder] duration in
                 performanceTraceRecorder?.recordTerminalActivityCloseRead(duration)
-            }
+            },
+            foregroundLookSink: { trigger, paneId in await foregroundObserver?.note(trigger, pane: paneId) }
         )
         Task { @MainActor [weak self] in
             await self?.terminalActivityRouter.start()

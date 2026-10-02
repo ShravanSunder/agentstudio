@@ -389,7 +389,7 @@ extension AppDelegate {
         watchedFolderCommands = pipeline
         repositoryFactUpdateSource = pipeline
         installWorktreeCreationCoordinator(publication: pipeline)
-        bootInstallWorkspaceRuntimeOwners(
+        await bootInstallWorkspaceRuntimeOwners(
             paneRuntimeBus: paneRuntimeBus,
             pipeline: pipeline,
             gitWorkingTreeStatusProvider: gitWorkingTreeStatusProvider,
@@ -431,7 +431,7 @@ extension AppDelegate {
         gitWorkingTreeStatusProvider: AgentStudioGitWorkingTreeStatusProvider,
         gitStatusPhysicalGate: AgentStudioGitStatusPhysicalGate,
         undoRecovery: WorkspaceUndoJournalRecovery
-    ) {
+    ) async {
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         SurfaceManager.shared.setAppCommandDispatcher(AppCommandDispatcher.shared)
         workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
@@ -465,6 +465,11 @@ extension AppDelegate {
             workspaceSurfaceCoordinator.startTerminalSessionCleanup(
                 using: backend,
                 canRetire: { sessionID in !SurfaceManager.shared.hasNativeAttachments(for: sessionID) })
+        }
+        if let workspaceSQLiteDatastore {
+            await installRestoreEvidenceOwners(
+                datastore: workspaceSQLiteDatastore,
+                sessionDirectory: workspaceSurfaceCoordinator.sessionConfig.zmxDir)
         }
         bootInstallPreparedContentMountOwners(coordinator: workspaceSurfaceCoordinator)
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
@@ -604,10 +609,16 @@ extension AppDelegate {
             placeholderTransitionHandler: { [weak coordinator] pane, mode in
                 coordinator?.registerTerminalPlaceholderIfNeeded(for: pane, mode: mode)
             },
-            resolveTerminalRestoreKinds: makeTerminalRestoreKindResolver(
+            classifyTerminalRestoreKinds: makeTerminalRestoreKindResolver(
                 sessionConfiguration: coordinator.sessionConfig
-            ).resolveRestoreKinds(for:)
+            ).classifyRestoreKinds(for:publish:),
+            resolveColdResumePlan: makeColdResumePlanResolver()
         )
+        let observer = restoreForegroundObserver
+        coordinator.restorePaneRetirementSink = { [weak contentMountCoordinator] paneId in
+            await contentMountCoordinator?.retirePendingColdPane(PaneId(existingUUID: paneId))
+            await observer?.retire(paneId: paneId)
+        }
         installWorkspacePreparedContentMountOwners(
             InstalledWorkspacePreparedContentMountOwners(
                 cohort: contentMountCohort,
@@ -646,12 +657,13 @@ extension AppDelegate {
             )
             probe = probeBackend
         }
+        let topology = store.repositoryTopologyAtom.captureReadSnapshot()
         return TerminalRestoreKindResolver(
             sessionConfiguration: sessionConfiguration,
             probe: probe,
-            repositoryMainFolder: { [weak self] pane in
+            repositoryMainFolder: { pane in
                 guard let repoId = pane.repoId else { return nil }
-                return self?.store.repositoryTopologyAtom.repo(repoId)?.repoPath
+                return topology.repo(repoId)?.repoPath
             }
         )
     }

@@ -59,7 +59,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var terminalActivityRouter: TerminalActivityRouter!
     var paneActivityClock: PaneActivityClock?
-    // S3 RED stand-in: lifecycle callbacks never invoke this sink.
+    private var didForwardRestoreQuit = false
+    var restoreForegroundObserver: PaneForegroundObserver<ContinuousClock>?
+    var restoreForegroundExitWatcher: DarwinProcessExitWatcher?
+    var restoreForegroundLifecycleTask: Task<Void, Never>?
+    var restoreForegroundLifecycleContinuation: AsyncStream<ForegroundLookTrigger>.Continuation?
+    var restoreResumeReadiness: RestoreResumeReadiness<ContinuousClock>?
+    var restoreLaunchBootId: String?
     var restoreForegroundTriggerSink: (@Sendable (ForegroundLookTrigger) -> Void)?
     var traceRuntime: AgentStudioTraceRuntime!
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
@@ -298,6 +304,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if !didForwardRestoreQuit {
+            didForwardRestoreQuit = true
+            restoreForegroundTriggerSink?(.appQuitting)
+        }
         #if DEBUG
             sidebarPerformanceProofSession?.completeIdlePopulationForTermination()
         #endif

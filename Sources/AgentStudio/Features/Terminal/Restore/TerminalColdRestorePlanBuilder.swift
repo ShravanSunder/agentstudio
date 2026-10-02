@@ -8,11 +8,32 @@ import Foundation
 /// (`@MainActor`), this has no MainActor dependency, so the off-main restore
 /// decision (`TerminalRestoreKindResolver`, App) can call it directly.
 package enum TerminalColdRestorePlanBuilder {
-    // S3 RED stand-in: leave the existing plan unchanged for every verdict.
     package static func applyingResumeEvidence(
         _ evidence: ResumeEvidence, providerIdentifier: String, providerSessionId: String,
         to plan: TerminalColdRestorePlan
-    ) -> TerminalColdRestorePlan { plan }
+    ) -> TerminalColdRestorePlan {
+        let invocation: ResumeInvocation?
+        let notice: String
+        switch evidence {
+        case .knownExited:
+            invocation = nil
+            notice = ""
+        case .interruptedCandidate(let candidate):
+            invocation = candidate
+            notice =
+                "Resumed \(candidate.provider.displayName) session \(candidate.sessionId.rawValue.prefix(8)) after restart"
+        case .unknown:
+            invocation = nil
+            let provider = ResumeProvider(providerIdentifier: providerIdentifier)?.displayName ?? providerIdentifier
+            notice =
+                "Could not determine whether \(provider) session \(providerSessionId.prefix(8)) exited; resume it manually."
+        }
+        return TerminalColdRestorePlan(
+            zmxExecutable: plan.zmxExecutable, zmxDirectory: plan.zmxDirectory, sessionID: plan.sessionID,
+            loginShell: plan.loginShell, folderCandidates: plan.folderCandidates,
+            notice: .init(linesByCandidateIndex: plan.folderCandidates.map { _ in notice }),
+            replayFile: plan.replayFile, resume: invocation, attemptID: plan.attemptID)
+    }
 
     /// `zmxExecutablePath`, `zmxDirectoryPath` and `loginShellPath` are the
     /// same values `TerminalRestoreRuntime` already resolves for today's warm

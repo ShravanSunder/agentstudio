@@ -25,6 +25,10 @@ package actor TerminalActivationScheduler {
         case terminal(TerminalActivationTerminalOutcome)
     }
 
+    private enum ResumeEligibility {
+        case awaitingClassification, awaitingResumeReadiness, installing, ready, retired
+    }
+
     private struct Member {
         let descriptor: TerminalActivationDescriptor
         let originalOrdinal: Int
@@ -35,6 +39,7 @@ package actor TerminalActivationScheduler {
         /// static initial-visible/background formula: a demoted member
         /// returns to its background rank, never back to "initial visible."
         var promotedRank: QueueRank?
+        var resumeEligibility: ResumeEligibility
     }
 
     /// Placement-aware admission order (SPEC R2 initial order, R3 promotion),
@@ -106,6 +111,7 @@ package actor TerminalActivationScheduler {
     private let admissionPort: any TerminalActivationAdmissionPort
     private let releaseSignal: any TerminalActivationReleaseSignal
     private var lifecycle = Lifecycle.idle
+    private var eligibilityWaiter: AsyncStream<Void>.Continuation?
     private var membersByPaneID: [PaneId: Member]
     private var activationWaiters: [CheckedContinuation<TerminalActivationSettlement, Never>] = []
     private var currentSimultaneousAdmissions = 0
@@ -142,8 +148,6 @@ package actor TerminalActivationScheduler {
         ),
         requiresRestoreClassification: Set<PaneId> = []
     ) {
-        // S3 RED stand-in: classification/readiness does not affect existing admission.
-        _ = requiresRestoreClassification
         let paneIDs = cohort.input.entries.map(\.paneID)
         precondition(Set(paneIDs).count == paneIDs.count, "terminal activation cohort contains duplicate panes")
 
@@ -159,19 +163,84 @@ package actor TerminalActivationScheduler {
                         descriptor: descriptor,
                         originalOrdinal: ordinal,
                         execution: .waitingForGeometry,
-                        promotedRank: nil
+                        promotedRank: nil,
+                        resumeEligibility: requiresRestoreClassification.contains(descriptor.paneID)
+                            ? .awaitingClassification : .ready
                     )
                 )
             }
         )
     }
 
-    // S3 RED stand-in: ignore each classified kind.
-    package func enqueueRestoreKind(_ kind: TerminalRestoreKind?, for paneID: PaneId) {}
-    // S3 RED stand-in: ignore the already-decided readiness release.
-    package func releaseAwaitingResumeReadiness(_ decided: [PaneId: TerminalColdRestorePlan]) {}
-    // S3 RED stand-in: ignore pending-member retirement.
-    package func retireAwaitingResumeReadiness(_ paneID: PaneId) {}
+    package func enqueueRestoreKind(_ kind: TerminalRestoreKind?, for paneID: PaneId) async {
+        guard var member = membersByPaneID[paneID],
+            case .awaitingClassification = member.resumeEligibility,
+            !isTerminalExecution(member.execution)
+        else { return }
+        if case .cold = kind {
+            member.resumeEligibility = .awaitingResumeReadiness
+            membersByPaneID[paneID] = member
+        } else {
+            member.resumeEligibility = .installing
+            membersByPaneID[paneID] = member
+            if let kind { await admissionPort.installRestoreKinds([paneID: kind]) }
+            markResumeEligible(paneID)
+        }
+        eligibilityWaiter?.yield(())
+    }
+
+    package func releaseAwaitingResumeReadiness(_ decided: [PaneId: TerminalColdRestorePlan]) async {
+        var accepted: [PaneId: TerminalRestoreKind] = [:]
+        for (paneID, plan) in decided {
+            guard var member = membersByPaneID[paneID],
+                case .awaitingResumeReadiness = member.resumeEligibility,
+                !isTerminalExecution(member.execution)
+            else { continue }
+            member.resumeEligibility = .installing
+            membersByPaneID[paneID] = member
+            accepted[paneID] = .cold(plan)
+        }
+        guard !accepted.isEmpty else { return }
+        await admissionPort.installRestoreKinds(accepted)
+        for paneID in accepted.keys { markResumeEligible(paneID) }
+        eligibilityWaiter?.yield(())
+    }
+
+    package func retireAwaitingResumeReadiness(_ paneID: PaneId) {
+        guard var member = membersByPaneID[paneID],
+            case .awaitingResumeReadiness = member.resumeEligibility
+        else { return }
+        member.resumeEligibility = .retired
+        member.execution = .terminal(
+            .failedTerminal(
+                failure: .attachmentRejected(code: "pane_retired"), retry: .notRequested(attemptCount: 0)))
+        membersByPaneID[paneID] = member
+        eligibilityWaiter?.yield(())
+    }
+
+    private func markResumeEligible(_ paneID: PaneId) {
+        guard var member = membersByPaneID[paneID], case .installing = member.resumeEligibility,
+            !isTerminalExecution(member.execution)
+        else { return }
+        member.resumeEligibility = .ready
+        membersByPaneID[paneID] = member
+        ensureADrainObservesNewlyQueuedMembers()
+    }
+
+    private func isTerminalExecution(_ execution: MemberExecution) -> Bool {
+        if case .terminal = execution { return true }
+        return false
+    }
+
+    private func hasPendingResumeEligibility() -> Bool {
+        membersByPaneID.values.contains { member in
+            guard !isTerminalExecution(member.execution) else { return false }
+            switch member.resumeEligibility {
+            case .awaitingClassification, .awaitingResumeReadiness, .installing: return true
+            case .ready, .retired: return false
+            }
+        }
+    }
 
     package func activate() async -> TerminalActivationSettlement {
         switch lifecycle {
@@ -205,8 +274,17 @@ package actor TerminalActivationScheduler {
         // actually happens. Checking for a queued member immediately before
         // `makeSettlement()`, with no `await` between the check and the call,
         // is what makes "no unfinished members" a fact instead of a race.
-        while hasQueuedMember() {
-            await drainWithWorkerFleet(count: 1)
+        while hasQueuedMember() || hasPendingResumeEligibility() {
+            if hasQueuedMember() {
+                await drainWithWorkerFleet(count: 1)
+            } else {
+                // Register under this actor before suspending; release cannot be lost.
+                let (stream, continuation) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+                eligibilityWaiter = continuation
+                for await _ in stream { break }
+                continuation.finish()
+                eligibilityWaiter = nil
+            }
         }
 
         let settlement = makeSettlement()
@@ -305,6 +383,10 @@ package actor TerminalActivationScheduler {
 
     func memberState(for paneID: PaneId) -> TerminalActivationMemberState? {
         guard let execution = membersByPaneID[paneID]?.execution else { return nil }
+        if case .retired = membersByPaneID[paneID]?.resumeEligibility { return .retired }
+        if !isTerminalExecution(execution), case .awaitingResumeReadiness = membersByPaneID[paneID]?.resumeEligibility {
+            return .awaitingResumeReadiness
+        }
         return publicState(for: execution)
     }
 
@@ -332,6 +414,7 @@ package actor TerminalActivationScheduler {
             }
         }
 
+        eligibilityWaiter?.yield(())
         if case .idle = lifecycle {
             lifecycle = .settled(makeSettlement())
         }
@@ -405,7 +488,7 @@ package actor TerminalActivationScheduler {
     /// go stale between the check and the settlement it gates.
     private func hasQueuedMember() -> Bool {
         membersByPaneID.values.contains { member in
-            if case .queued = member.execution { return true }
+            if case .ready = member.resumeEligibility, case .queued = member.execution { return true }
             return false
         }
     }
@@ -415,7 +498,9 @@ package actor TerminalActivationScheduler {
     /// a claim was actually granted.
     private func nextQueuedCandidate() -> QueuedCandidate? {
         membersByPaneID.values.compactMap { member -> QueuedCandidate? in
-            guard case .queued(let priority, let attempt) = member.execution else { return nil }
+            guard case .ready = member.resumeEligibility,
+                case .queued(let priority, let attempt) = member.execution
+            else { return nil }
             let rank = member.promotedRank ?? QueueRank(placement: member.descriptor.hostPlacement, priority: priority)
             return QueuedCandidate(
                 paneID: member.descriptor.paneID,

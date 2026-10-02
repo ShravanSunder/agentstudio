@@ -276,10 +276,9 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
         }
         let loginShellInvocation = "\(shellEscape(plan.loginShell.path)) -i -l"
         if let resume = plan.resume {
-            // R3 finalizes the exact resume invocation shape; R1 never
-            // populates it, so this branch never runs today.
             let resumeArgv = resume.argv.map(shellEscape).joined(separator: " ")
-            lines.append("\(resumeArgv); exec \(loginShellInvocation)")
+            let resumeScript = "if \(resumeArgv); then :; else :; fi; exec \(loginShellInvocation)"
+            lines.append("exec \(loginShellInvocation) -c \(shellEscape(resumeScript))")
         } else {
             lines.append("exec \(loginShellInvocation)")
         }
@@ -291,14 +290,15 @@ package final class ZmxBackend: SessionBackend, ZmxSessionControlling, ZmxSessio
         for (index, candidate) in plan.folderCandidates.enumerated() {
             let branchKeyword = index == 0 ? "if" : "elif"
             lines.append("\(branchKeyword) cd \(shellEscape(candidate.path)) 2>/dev/null; then")
-            lines.append("  echo \(shellEscape(plan.notice.linesByCandidateIndex[index]))")
+            let notice = plan.notice.linesByCandidateIndex[index]
+            lines.append(notice.isEmpty ? "  :" : "  echo \(shellEscape(notice))")
         }
         // The home folder (the last candidate) is assumed to always exist;
         // this `else` is reached only if even that `cd` failed, in which case
         // the script stays wherever it already is rather than aborting.
         let finalNoticeLine = plan.notice.linesByCandidateIndex[plan.notice.linesByCandidateIndex.count - 1]
         lines.append("else")
-        lines.append("  echo \(shellEscape(finalNoticeLine))")
+        lines.append(finalNoticeLine.isEmpty ? "  :" : "  echo \(shellEscape(finalNoticeLine))")
         lines.append("fi")
         return lines
     }
