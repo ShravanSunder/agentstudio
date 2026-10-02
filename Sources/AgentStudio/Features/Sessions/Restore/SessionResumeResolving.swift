@@ -20,12 +20,20 @@ package struct SessionsResumeResolver: SessionResumeResolving {
 
     @concurrent nonisolated package func resumeEvidence(for input: ResumeEvidenceInput) async -> ResumeEvidence {
         let snapshot = try? await repository.snapshot(.pane(input.paneId, page: .init(limit: 1, after: nil)))
+        return timedForRestoreDecide { Self.classify(snapshot: snapshot, input: input) }
+    }
+
+    /// Times `body` as one "decide" execution when a recorder was injected.
+    /// `classify` never awaits, so this is a real synchronous slice taken
+    /// after the one genuine suspension (`repository.snapshot`) resolved.
+    private func timedForRestoreDecide<T>(_ body: () -> T) -> T {
+        guard let performanceTraceRecorder else { return body() }
         let start = ContinuousClock.now
         let executedOnMainThread = Thread.isMainThread
-        let evidence = Self.classify(snapshot: snapshot, input: input)
-        performanceTraceRecorder?.recordRestorePhaseDuration(
+        let result = body()
+        performanceTraceRecorder.recordRestorePhaseDuration(
             .restoreResumeDecide, duration: start.duration(to: .now), executedOnMainThread: executedOnMainThread)
-        return evidence
+        return result
     }
 
     /// Pure classification, no suspensions — everything `resumeEvidence`
