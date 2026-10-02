@@ -30,15 +30,20 @@ extension ZmxTestHarness {
     /// hoping the directory becomes openable. No deadline/timeout
     /// parameter remains on this function at all.
     ///
-    /// R1 gate 3 (Lead 2026-10-02): `zmxLauncherProcessID`, when known, races
-    /// the watch below against that launcher exiting -- see
-    /// `awaitSessionSocketEvent`'s doc comment. `nil` (default) leaves every
-    /// other caller, including this file's own `exists: false` checks,
-    /// unchanged.
+    /// R3-N1 hard cutover (advisor round 3, Lead decision 2026-10-02): this
+    /// used to also accept `racingAgainstExitOf`, racing the watch below
+    /// against a named launcher's own exit (R1 gate 3). F7's redesign gave
+    /// `waitUntilSessionSettled` its own dedicated created-line-vs-exit
+    /// race instead, so nothing calls this with that parameter anymore
+    /// (confirmed: every caller, including every direct test-body use of
+    /// this function, passes only `sessionId`/`exists`). Removed rather
+    /// than carried as dead code -- it also carried the exact lost-wakeup
+    /// R3-N1 found (a confirmed exit whose socket state happened to match
+    /// recorded nothing, trusting the file watch to settle a state that
+    /// could still change again before that watch ran).
     func waitForSessionSocket(
         sessionId: String,
-        exists expectedExists: Bool,
-        racingAgainstExitOf zmxLauncherProcessID: Int32? = nil
+        exists expectedExists: Bool
     ) async throws -> Bool {
         let sessionSocketPath = sessionSocketPath(for: sessionId)
         if FileManager.default.fileExists(atPath: sessionSocketPath) == expectedExists {
@@ -61,8 +66,7 @@ extension ZmxTestHarness {
         return await awaitSessionSocketEvent(
             fileDescriptor: directoryFileDescriptor,
             sessionSocketPath: sessionSocketPath,
-            exists: expectedExists,
-            racingAgainstExitOf: zmxLauncherProcessID
+            exists: expectedExists
         )
     }
 
@@ -268,9 +272,21 @@ extension ZmxTestHarness {
             checkAndSettleIfReady(exitFired: false)
         }
         source.resume()
+        // R3-3 item 1 (review round 3, Lead decision 2026-10-02): the
+        // socket sibling (`awaitSessionSocketEvent` above) already cancels
+        // and releases unconditionally; this wait propagated a thrown
+        // `firstArrival()` (task cancellation) straight past both,
+        // leaking the still-armed source and never releasing the step.
+        // `defer` runs on every exit from here, cancellation included --
+        // cancelling an already-settled source is the documented no-op
+        // every other register-then-check wait in this file already
+        // relies on.
+        defer {
+            step.release()
+            source.cancel()
+        }
 
         let settled = try await step.firstArrival()
-        step.release()
         return try settled.get()
     }
 
@@ -279,9 +295,9 @@ extension ZmxTestHarness {
     /// appeared") whenever the daemon was merely slow, not actually broken
     /// -- "wrapping a timeout in HeldStep does not change what determines
     /// its verdict." Register-then-check against the real event alone now;
-    /// a socket that genuinely never appears with no `zmxLauncherProcessID`
-    /// given is caught only by the suite's own runner-owned hang bound,
-    /// which names this step ("session socket event") as what was awaited.
+    /// a socket that genuinely never appears is caught only by the suite's
+    /// own runner-owned hang bound, which names this step
+    /// ("session socket event") as what was awaited.
     ///
     /// R2-4 item 2 (review round 2, Lead 2026-10-01): the prior shape ran
     /// its "register-then-check" synchronously on the caller's own Task
@@ -296,22 +312,19 @@ extension ZmxTestHarness {
     /// reasoning: only the cancel handler is the SDK's documented
     /// safe-to-close point (source.h:449).
     ///
-    /// R1 gate 3 (Lead 2026-10-02): `zmxLauncherProcessID`, when given, races
-    /// this wait against that process exiting -- "the zmx process it
-    /// expected to create the socket exiting," named above but not yet
-    /// built. Confirmed against source: `zmx attach`'s
-    /// `Daemon.ensureSession`/`run` (vendor/zmx/src/loop.zig:741,763-784)
-    /// creates and binds the socket synchronously, before any fork, inside
-    /// this exact launcher; any failure there exits the launcher with no
-    /// socket ever created and nothing under `zmxDir` to watch for. The
-    /// launcher does not exit quickly on success -- `run()`'s
-    /// `error.IsClientProc` branch (loop.zig:769-777) keeps it alive as the
-    /// attached client for the whole session -- so this cannot false-positive.
+    /// R3-N1 hard cutover (advisor round 3, Lead decision 2026-10-02): R1
+    /// gate 3 once raced this against a named launcher's own exit (see
+    /// `waitForSessionSocket`'s doc comment); removed along with that
+    /// parameter, since nothing calls this with one anymore and it carried
+    /// a real lost-wakeup -- a confirmed exit whose socket state happened
+    /// to match recorded nothing, trusting this very watch to settle a
+    /// state that could still change again (zmx deleting its own socket
+    /// during shutdown/error cleanup, vendor/zmx/src/loop.zig:780,:834)
+    /// before it ran.
     private func awaitSessionSocketEvent(
         fileDescriptor: Int32,
         sessionSocketPath: String,
-        exists expectedExists: Bool,
-        racingAgainstExitOf zmxLauncherProcessID: Int32?
+        exists expectedExists: Bool
     ) async -> Bool {
         let step = HeldStep<Bool>("session socket event")
         let eventSource = DispatchSource.makeFileSystemObjectSource(
@@ -348,53 +361,8 @@ extension ZmxTestHarness {
         }
         eventSource.resume()
 
-        // R1 gate 3: the other half of the race, armed only when named.
-        // Mirrors `resolveViaSetsidWatch`'s own register-then-check process
-        // watch, including its `exitFired` shape: a real `NOTE_EXIT` is the
-        // fact once it fires -- not the launcher's reaped status, which
-        // races Foundation's own `Process` reaping it on an unrelated
-        // handler. `kill(pid, 0)` is only the mandatory initial check's own
-        // fallback, for a launcher already gone (and possibly already
-        // reaped) before this watch's kevent was registered to see a real
-        // exit event for it. `HeldStep` guarantees only the first of the
-        // two sources racing here wins.
-        var processExitSource: DispatchSourceProcess?
-        if let zmxLauncherProcessID {
-            let exitSource = DispatchSource.makeProcessSource(
-                identifier: zmxLauncherProcessID,
-                eventMask: [.exit],
-                queue: DispatchQueue.global(qos: .userInitiated)
-            )
-            // Pure: true only once the socket still never matched, and
-            // either the real exit event fired or (registration-time only)
-            // the launcher is independently confirmed gone.
-            func launcherGone(exitFired: Bool) -> Bool {
-                guard FileManager.default.fileExists(atPath: sessionSocketPath) != expectedExists else {
-                    return false
-                }
-                if exitFired { return true }
-                return kill(zmxLauncherProcessID, 0) != 0 && errno == ESRCH
-            }
-            func checkAndSettleIfLauncherGone(exitFired: Bool) {
-                guard launcherGone(exitFired: exitFired) else { return }
-                eventSource.cancel()
-                exitSource.cancel()
-                try? step.arriveBlocking(false)
-            }
-            exitSource.setEventHandler {
-                checkAndSettleIfLauncherGone(exitFired: exitSource.data.contains(.exit))
-            }
-            exitSource.setCancelHandler {}
-            exitSource.setRegistrationHandler {
-                checkAndSettleIfLauncherGone(exitFired: false)
-            }
-            exitSource.resume()
-            processExitSource = exitSource
-        }
-
         let result = (try? await step.firstArrival()) ?? false
         step.release()
-        processExitSource?.cancel()
         // Safety net, not the primary path: if `firstArrival()` returned
         // through external cancellation rather than a matched check above,
         // the source may still be live -- cancelling here is a no-op when
