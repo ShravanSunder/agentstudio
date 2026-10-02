@@ -209,7 +209,10 @@ struct CLILifecycleReportIntakeTests {
     }
 }
 
-func withLifecycleIntakeFixture(_ body: (LifecycleIntakeFileFixture) async throws -> Void) async throws {
+func withLifecycleIntakeFixture(
+    isolation: isolated (any Actor)? = #isolation,
+    _ body: (LifecycleIntakeFileFixture) async throws -> Void
+) async throws {
     let fixture = try await LifecycleIntakeFileFixture.make()
     do {
         try await body(fixture)

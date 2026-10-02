@@ -147,7 +147,9 @@ struct CLILifecycleUnorderedRecoveryTests {
 
 /// Only this fixture's closed CLI connection is moved; local.sqlite remains writable.
 private func withUnavailableLifecycleStore(
-    _ fixture: LifecycleIntakeFileFixture, body: () async throws -> Void
+    _ fixture: LifecycleIntakeFileFixture,
+    isolation: isolated (any Actor)? = #isolation,
+    body: () async throws -> Void
 ) async throws {
     let savedURL = fixture.rootURL.appending(path: "held-cli.sqlite")
     try await valueFromDedicatedThread { try FileManager.default.moveItem(at: fixture.storeURL, to: savedURL) }
