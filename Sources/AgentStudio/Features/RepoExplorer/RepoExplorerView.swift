@@ -71,6 +71,8 @@ package struct RepoExplorerView: View {
         onPerformanceProofReadback:
             @escaping @MainActor @Sendable (RepoExplorerPerformanceProofReadback) -> Void = { _ in },
         latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot = { _ in nil },
+        sessionStatusForPane: @escaping RepoExplorerSessionStatusReader = { _ in nil },
+        contextDisplayForPane: @escaping RepoExplorerContextDisplayReader = { _ in nil },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         recencyNow: @escaping @MainActor @Sendable () -> Date = Date.init,
         recencyDelay: AsyncDelay = .taskSleep,
@@ -109,7 +111,9 @@ package struct RepoExplorerView: View {
                     sidebarCache: atom(\.sidebarCache),
                     coreAtoms: CoreAtomScope.store,
                     bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
-                    latestPaneMessageSnapshot: latestPaneMessageSnapshot
+                    latestPaneMessageSnapshot: latestPaneMessageSnapshot,
+                    sessionStatusForPane: sessionStatusForPane,
+                    contextDisplayForPane: contextDisplayForPane
                 ),
                 performanceTraceRecorder: performanceTraceRecorder,
                 recencyNow: recencyNow,

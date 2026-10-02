@@ -20,6 +20,7 @@ struct AppDelegateMainWindowCreationDependencies {
     let repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    var paneContextReaders: PaneContextUIReaders?
     var sessionsPaneViewedMailbox: SessionsPaneViewedMailbox?
 }
 
@@ -85,6 +86,9 @@ extension AppDelegate {
             repoExplorerSidebarPrefs: atomStore.repoExplorerSidebarPrefs,
             performanceTraceRecorder: performanceTraceRecorder,
             closeTransitionCoordinator: closeTransitionCoordinator,
+            paneContextReaders: PaneContextUIReaders(
+                sessionStatus: atomStore.sessionStatus, presentation: atomStore.paneContextPresentation,
+                pane: { atomStore.core.workspacePane.pane($0.uuid) }),
             sessionsPaneViewedMailbox: atomStore.sessionsPaneViewedMailbox
         )
     }
@@ -101,6 +105,7 @@ extension AppDelegate {
             workspaceWindowId: workspaceWindowId,
             store: dependencies.store,
             octiconLoader: dependencies.octiconLoader,
+            paneContextReaders: dependencies.paneContextReaders,
             workspaceActionExecutor: dependencies.executor,
             runtimeCommandDispatcher: dependencies.workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: dependencies.applicationLifecycleMonitor,
