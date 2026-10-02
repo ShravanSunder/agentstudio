@@ -97,7 +97,7 @@ The row tells the person **where** and **what**. Chips summarize and their popov
 
 - **R11.** The first line MUST show the agent-set title when one exists, otherwise the pane's current name.
 - **R12.** The second line MUST show worktree · branch when the Pane belongs to a worktree.
-- **R13.** The Note line MUST appear only when the person has written a Note. The Agent Line MUST appear only while an Agent Line exists (current or stale). Raw terminal output MUST NOT appear on the row.
+- **R13.** The Note line MUST appear only when the person has written a Note. The Agent Line MUST appear only while an Agent Line exists (current or stale). The Session status line MUST appear only while the Pane has a session status other than `unknown` (E17), including the last status kept after its session ends. Raw terminal output MUST NOT appear on the row.
 - **R14.** The Agent Line MUST show its summary on one line, truncated with an ellipsis, led by a glyph for its state. A stale Agent Line MUST render dimmed.
 - **R15.** Chips changing, appearing or disappearing MUST NOT change the row's height or shift the row's text lines. The chip row is always present (the clock chip is always shown).
 
@@ -110,10 +110,11 @@ Every line of a row uses the same grid: a fixed **icon column** on the left (tod
 | Title | pane icon (drawer icon for drawer panes) | title, semibold; number badge at the trailing edge | always |
 | Worktree · branch | git-branch icon | `repo · branch`, secondary | the pane belongs to a worktree |
 | Note | note (pencil) icon | the person's note, secondary | the person wrote one |
-| Agent Line | **state glyph** (below) | the summary, primary weight, one line, tail-truncated | an Agent Line exists (dimmed when stale) |
+| Agent Line | **work glyph** (below) | the summary, primary weight, one line, tail-truncated | an Agent Line exists (dimmed when stale) |
+| Session status | **status glyph** (below) | the status in words, e.g. `Needs you · approval`, `Working`, `Idle · done`, secondary | the Pane's session status is not `unknown` (R13, R21a) |
 | Chips | empty (reserved, never used for a spinner) | the chip set, in fixed order | always (the clock chip is always shown) |
 
-**Compact and expanded rows (owner, 2026-09-26).** Every row that is not selected is **compact**: title; worktree · branch; ONE context line — the Agent Line while it is current, otherwise the person's note (and nothing when neither exists); then the compact chips: Drawer · git/PR summary · messages · clock · Active. The **selected** row is **expanded**: every line that exists (title, worktree · branch, note, Agent Line) and every chip, adding this checkout's changes and ahead/behind. Exactly one row is expanded at a time; selection moving collapses the previous row and expands the new one, and the no-jump rule keeps the view steady.
+**Every row shows every line (owner, 2026-10-01, provisional: "show all for now; change it if I hate it").** Every row, selected or not, shows every line that exists, in order: title; worktree · branch; note; Agent Line; Session status; then the chips. Selection only adds this checkout's changes and ahead/behind chips. This supersedes the 2026-09-26 one-context-line rule for rows that aren't selected. Which lines show is one presentation table, so a later owner change is a one-row edit. Likely revisits: the Agent Line and Session status saying the same thing, and an ended session's `Idle · ended` line.
 
 **Agent Line work glyph** — shows the agent's own declared work when an Agent Line exists, colored with the existing chip colors:
 
@@ -125,7 +126,15 @@ Every line of a row uses the same grid: a fixed **icon column** on the left (tod
 | done | checkmark | neutral (secondary) |
 | failed | x in an octagon | danger (red) |
 
-**Session status glyph (R21a)** — **PENDING OWNER DECISION** on placement (A: a status badge on the pane icon, always present; B: a status line when no Agent Line exists). Values: needs you (reason in tooltip), failed, working, idle (done / ready / interrupted / ended), unknown = no glyph. Status wins over the work glyph wherever both would show.
+**Session status glyph (R21a)** — on the Session status line, colored with the existing chip colors; the Agent Line keeps the agent's own work glyph, and neither overrides the other:
+
+| Status (E17) | Glyph | Words | Color |
+| --- | --- | --- | --- |
+| needs you | flag | `Needs you · approval` / `· question` / `· blocked` | warning (orange) |
+| failed | x in an octagon | `Failed`, then the summary when present | danger (red) |
+| working | filled dot | `Working` (`· monitoring` when monitoring) | success (green) |
+| idle | checkmark (done) or hollow circle (ready / interrupted / ended) | `Idle · done` / `· ready` / `· interrupted` / `· ended` | neutral (secondary) |
+| unknown | — | no Session status line | — |
 
 **Chips** — each is the existing `SidebarChip` capsule (same height, padding, font and colors), in this order:
 
@@ -154,7 +163,7 @@ Every line of a row uses the same grid: a fixed **icon column** on the left (tod
 - **R19.** The changes and ahead/behind chips stay separate: they describe this pane's own checkout, not its linked work.
 - **R20.** **Messages** — each message (E7) has one attention type, derived from its shape and importance: **needs approval** (a blocking ask), **needs reply** (a non-blocking ask), **attention** (a notice with importance attention or failure), **informational** (a notice with importance info or done). The chip MUST count needs approval + needs reply + attention, tinted by the most urgent type present; informational messages are listed but not counted unless the person turns that on. The popover MUST list open asks first, then notices newest first, and MUST let the person filter by attention type; an approval is never below an informational message. Opening a notice marks it read; the person can dismiss each or all.
 - **R21.** Clicking the Agent Line opens a popover with its summary, state, step, detail, refs, agent and age.
-- **R21a. Status glyph.** The Agent Line's glyph MUST show the pane session's status (E17): needs you (with its reason), failed, working, idle, or unknown. The Agent Line's own text and work state are shown as detail and never override the status. Panes shows no status categories, sections or grouping (U16). A drawer session's status is shown on the drawer's row, not its owner's.
+- **R21a. Session status line.** The row's Session status line MUST show the pane session's status (E17) as a glyph plus words: needs you (with its reason), failed, working, or idle (with done / ready / interrupted / ended); `unknown` shows no line. The Agent Line keeps the agent's own work glyph and text; the two lines never override each other. Panes shows no status categories, sections or grouping (U16). A drawer session's status is shown on the drawer's row, not its owner's.
 - **R22.** Every chip popover MUST offer **Go to pane**. Sidebar popovers inform and allow only removing links, marking notices read and dismissing them; answering asks, opening files and other actions happen in the pane.
 - **R23.** Popovers MUST use the same popover style as the pane arrangement popup.
 
@@ -206,7 +215,7 @@ Rejected writes (wrong pane, missing grant, invalid field) MUST change nothing a
 
 - Activity is best effort: identical repeated lines do not refresh it, and a TUI that redraws with a changed line after focus can register.
 - Activity time does not survive restart; pane context does.
-- No Running, Needs You or Done category, section or grouping appears in Panes; a row's glyph shows its session status (R21a), and notices never change it.
+- No Running, Needs You or Done category, section or grouping appears in Panes; a row's Session status line shows its session status (R21a), and notices never change it.
 - No new keyboard shortcut; no zmx change.
 
 ## Examples
