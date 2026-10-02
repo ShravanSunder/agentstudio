@@ -25,5 +25,6 @@ let expectedFullLocalMigrationIdentifiers =
         "014_ipc_credentials_pane_only",
         "016_add_binding_provider_end_fact",
         "017_create_terminal_pane_foreground_observation",
+        "018_create_sessions_cli_report_cursor",
         "019_create_pane_context_cli_outbox_cursor",
     ]

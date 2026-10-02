@@ -4,7 +4,8 @@ import GRDB
 enum CLIStoreMigrator {
     static let identityMigration = "001_cli_store_identity"
     static let outboxMigration = "002_cli_outbox"
-    static let knownMigrations: Set<String> = [identityMigration, outboxMigration]
+    static let lifecycleMigration = "003_cli_lifecycle_report"
+    static let knownMigrations: Set<String> = [identityMigration, outboxMigration, lifecycleMigration]
 
     static func makeMigrator(channel: CLIStoreChannel) -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
@@ -35,6 +36,8 @@ enum CLIStoreMigrator {
                     )
                     """)
         }
+        // S4 RED stand-in: register the schema frontier without creating its table.
+        migrator.registerMigration(lifecycleMigration) { _ in }
         return migrator
     }
 }

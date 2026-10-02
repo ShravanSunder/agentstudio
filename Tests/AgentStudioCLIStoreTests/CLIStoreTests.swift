@@ -35,7 +35,11 @@ struct CLIStoreTests {
         #expect(observed.first.channel == .debug)
         #expect(observed.identityCount == 1)
         #expect(observed.hasOutbox)
-        #expect(observed.migrations == [CLIStoreMigrator.identityMigration, CLIStoreMigrator.outboxMigration])
+        #expect(
+            observed.migrations == [
+                CLIStoreMigrator.identityMigration, CLIStoreMigrator.outboxMigration,
+                CLIStoreMigrator.lifecycleMigration,
+            ])
     }
 
     @Test("the schema uses only TEXT and INTEGER with no enum CHECK, triggers or foreign keys")

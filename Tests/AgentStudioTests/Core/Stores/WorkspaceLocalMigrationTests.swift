@@ -140,6 +140,7 @@ struct WorkspaceLocalMigrationTests {
             "pane_context_cli_outbox_cursor",
             "local_drawer_presentation",
             "terminal_pane_foreground_observation",
+            "sessions_cli_report_cursor",
         ]
 
         #expect(tableNames == expectedTableNames)
