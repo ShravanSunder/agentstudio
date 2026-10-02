@@ -1804,8 +1804,8 @@ run_selected_fast_shard() {
     LANE_TIMING_BATCH="$shard_number" LANE_TIMING_SLOT="$slot" \
     LANE_TIMING_CONCURRENCY="$concurrency" run_swift_with_timeout \
     "$label" "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" \
-      $(swift_test_parallelization_env_word) DYLD_FRAMEWORK_PATH="$testing_framework_path" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" $(swift_test_parallelization_env_word) \
+      DYLD_FRAMEWORK_PATH="$testing_framework_path" \
       "$swift_testing_helper" --test-bundle-path "$swift_test_bundle" \
       --filter "$suite_filter" "$swift_test_bundle" --testing-library swift-testing || command_status=$?
 

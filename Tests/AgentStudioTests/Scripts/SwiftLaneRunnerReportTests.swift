@@ -370,6 +370,8 @@ struct SwiftLaneRunnerReportTests {
                 "fact_expected",
                 "failed_isolated_suite",
                 "failed_isolated_suites",
+                "fast_shard_command_status",
+                "fast_shard_coverage_status",
                 "head_sha",
                 // The harness steps a hung lane was still waiting on.
                 "held_step_unarrived",
@@ -621,11 +623,14 @@ struct SwiftLaneRunnerReportTests {
             ))
         let webKitInvocation = try shellFunction(named: "run_webkit_suite", in: helperScript)
         #expect(webKitInvocation.contains("--filter \"$filter\""))
-        // Fast skips are generated from exact lane ownership, with the
-        // aggregate isolated suites anchored by their own suite-type filters.
-        #expect(helperScript.contains("--skip \"$fast_lane_skip_pattern\""))
         let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
-        #expect(fastRunner.contains("if ! fast_lane_skip_pattern=\"$(fast_non_webkit_skip_pattern)\"; then"))
+        let fastShardRunner = try shellFunction(named: "run_fast_sharded_native_swift_tests", in: helperScript)
+        let fastShardInvocation = try shellFunction(named: "run_selected_fast_shard", in: helperScript)
+        #expect(fastRunner.contains("run_fast_sharded_native_swift_tests"))
+        #expect(fastShardRunner.contains("swift_test_fast_shard_suite_filter_pattern"))
+        #expect(fastShardRunner.contains("validate \"$manifest_path\" \"$plan_path\""))
+        #expect(fastShardInvocation.contains("--filter \"$suite_filter\""))
+        #expect(!fastShardInvocation.contains("swift test"))
         let skipBuilder = try shellFunction(named: "fast_non_webkit_skip_pattern", in: helperScript)
         #expect(skipBuilder.contains("$(swift_test_lane_fast_concurrent_skip_pattern)"))
         #expect(

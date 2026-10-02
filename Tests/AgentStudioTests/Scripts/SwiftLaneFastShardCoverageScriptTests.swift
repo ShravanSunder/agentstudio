@@ -7,9 +7,9 @@ struct SwiftLaneFastShardCoverageScriptTests {
     @Test("native fast shards use bounded direct helper dispatch and coverage validation")
     func nativeFastShardsUseAcceptedExecutionPath() throws {
         let helperSource = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
-        let shardRunner = try #require(shellFunction(named: "run_fast_sharded_native_swift_tests", in: helperSource))
-        let shardInvocation = try #require(shellFunction(named: "run_selected_fast_shard", in: helperSource))
-        let dispatcher = try #require(shellFunction(named: "dispatch_isolated_suites", in: helperSource))
+        let shardRunner = try laneScriptShellFunction(named: "run_fast_sharded_native_swift_tests", in: helperSource)
+        let shardInvocation = try laneScriptShellFunction(named: "run_selected_fast_shard", in: helperSource)
+        let dispatcher = try laneScriptShellFunction(named: "dispatch_isolated_suites", in: helperSource)
 
         #expect(helperSource.contains("FAST_LANE_SHARD_UNIT_CAPACITY=250"))
         #expect(helperSource.contains("FAST_LANE_SHARD_PROCESS_CONCURRENCY=3"))
@@ -24,6 +24,34 @@ struct SwiftLaneFastShardCoverageScriptTests {
         #expect(shardInvocation.contains("--filter \"$suite_filter\""))
         #expect(!shardInvocation.contains("swift test"))
         #expect(!shardInvocation.contains("--parallel"))
+    }
+
+    @Test("a shard suite filter matches only its exact module-qualified type path")
+    func shardFilterAnchorsTheExactSuiteIdentity() async throws {
+        let output = try await laneBash(
+            """
+            LOG_PREFIX=test TIMEOUT_SECONDS=60 PREBUILD_TIMEOUT_SECONDS=60 BUILD_PATH=.build-agent-1
+            source scripts/swift-test-helpers.sh
+            pattern="$(swift_test_fast_shard_suite_filter_pattern AgentStudioTests.AlphaTests)"
+            printf 'PATTERN=%s\\n' "$pattern"
+            for test_id in \
+              'AgentStudioTests.AlphaTests/ownsItsSuite()/AlphaTests.swift:1:1' \
+              'OtherTests.AlphaTests/ownsItsSuite()/AlphaTests.swift:1:1' \
+              'AgentStudioTests.AlphabetTests/nearPrefix()/AlphabetTests.swift:1:1' \
+              'AgentStudioTests.AlphaTests.swift/nearFileName()/AlphaTests.swift:1:1'; do
+              if printf '%s' "$test_id" | /usr/bin/grep -Eq "$pattern"; then
+                printf 'MATCH\\n'
+              else
+                printf 'NO_MATCH\\n'
+              fi
+            done
+            """)
+
+        #expect(
+            laneOutputLines(output) == [
+                "PATTERN=^AgentStudioTests\\.AlphaTests(/|$)", "MATCH", "NO_MATCH", "NO_MATCH", "NO_MATCH",
+            ]
+        )
     }
 
     @Test("planner counts parameter cases and keeps suites whole under K")
@@ -325,13 +353,6 @@ struct SwiftLaneFastShardCoverageScriptTests {
             let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
             return try #require(String(data: data, encoding: .utf8))
         }
-    }
-
-    private func shellFunction(named name: String, in source: String) -> String? {
-        guard let declaration = source.range(of: "\(name)() {") else { return nil }
-        let functionContentsStart = declaration.upperBound
-        guard let closingBrace = source[functionContentsStart...].range(of: "\n}") else { return nil }
-        return String(source[declaration.lowerBound..<closingBrace.upperBound])
     }
 
 }
