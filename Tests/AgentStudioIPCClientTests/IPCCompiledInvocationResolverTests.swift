@@ -1,7 +1,6 @@
 import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
-import Synchronization
 import Testing
 
 @testable import AgentStudioIPCClientCore
@@ -118,15 +117,18 @@ struct IPCCompiledInvocationResolverTests {
     }
 }
 
-private final class ResolverFactoryObservation: Sendable {
-    private let descriptors = Mutex<[String]>([])
-    private let helpSchemas = Mutex<[String]>([])
-    var descriptorNames: [String] { descriptors.withLock { $0 } }
-    var helpSchemaNames: [String] { helpSchemas.withLock { $0 } }
-    func recordDescriptor(_ name: String) { descriptors.withLock { $0.append(name) } }
-    func recordHelpSchema(_ name: String) { helpSchemas.withLock { $0.append(name) } }
+private final class ResolverFactoryObservation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var descriptors: [String] = []
+    private var helpSchemas: [String] = []
+    var descriptorNames: [String] { lock.withLock { descriptors } }
+    var helpSchemaNames: [String] { lock.withLock { helpSchemas } }
+    func recordDescriptor(_ name: String) { lock.withLock { descriptors.append(name) } }
+    func recordHelpSchema(_ name: String) { lock.withLock { helpSchemas.append(name) } }
     func clear() {
-        descriptors.withLock { $0.removeAll() }
-        helpSchemas.withLock { $0.removeAll() }
+        lock.withLock {
+            descriptors.removeAll()
+            helpSchemas.removeAll()
+        }
     }
 }
