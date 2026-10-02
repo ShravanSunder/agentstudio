@@ -730,6 +730,8 @@ swift_test_command_accepts_event_stream() {
 swift_test_suite_lane_inventory() {
   cat <<'EOF'
 fast|AgentStudioFileViewStartupDiagnosticTests|concurrent
+fast|PaneContextPopoverViewTests|process-global
+fast|PaneContextPopoverActionViewTests|process-global
 fast|AgentStudioIPCCursorHookProjectionTests|concurrent
 large|AgentStudioAppIPCConnectionAdmissionTests|concurrent
 large|AgentStudioAppIPCConnectionWaitingTests|concurrent

@@ -73,7 +73,12 @@ extension PaneContextPopoverShaping {
         switch form {
         case .choice(let options, let allowsMultiple):
             .choice(
-                options: options.map { AskChoiceModel(id: $0.id.value, label: $0.label) },
+                options: options.map {
+                    AskChoiceModel(
+                        id: $0.id.value, label: $0.label,
+                        control: PaneContextPopoverControlProjection.control(
+                            .selectPaneMessageChoice($0), identifier: "pane-context.choice.\($0.id.value)"))
+                },
                 allowsMultiple: allowsMultiple)
         case .freeText(let placeholder): .freeText(placeholder: placeholder)
         case .elicitation(let schema):

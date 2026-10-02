@@ -7,7 +7,18 @@ import Testing
 struct PaneContextPopoverModelTests {
     @Test
     func formsPreserveChoiceMultiplicityAndConstraints() {
-        let choices = [AskChoiceModel(id: "allow", label: "Allow"), AskChoiceModel(id: "deny", label: "Deny")]
+        let choices = [
+            AskChoiceModel(
+                id: "allow", label: "Allow",
+                control: .init(
+                    identifier: "pane-context.choice.allow", label: "Allow", icon: .system("checkmark.circle"),
+                    tooltip: .init(text: "Select Allow", shortcutDisplayText: nil))),
+            AskChoiceModel(
+                id: "deny", label: "Deny",
+                control: .init(
+                    identifier: "pane-context.choice.deny", label: "Deny", icon: .system("checkmark.circle"),
+                    tooltip: .init(text: "Select Deny", shortcutDisplayText: nil))),
+        ]
         #expect(
             AskFormModel.choice(options: choices, allowsMultiple: false)
                 != .choice(options: choices, allowsMultiple: true))

@@ -3,10 +3,12 @@ import Foundation
 package struct AskChoiceModel: Sendable, Equatable {
     package let id: String
     package let label: String
+    package let control: PaneContextControlModel
 
-    package init(id: String, label: String) {
+    package init(id: String, label: String, control: PaneContextControlModel) {
         self.id = id
         self.label = label
+        self.control = control
     }
 
 }

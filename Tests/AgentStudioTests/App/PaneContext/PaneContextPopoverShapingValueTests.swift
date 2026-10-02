@@ -40,11 +40,27 @@ struct PaneContextPopoverShapingValueTests {
         let cases: [FormScenario] = [
             .init(
                 form: .choice(options: [.init(id: choiceId, label: "Allow")], allowsMultiple: false),
-                expectedForm: .choice(options: [.init(id: "allow", label: "Allow")], allowsMultiple: false),
+                expectedForm: .choice(
+                    options: [
+                        .init(
+                            id: "allow", label: "Allow",
+                            control: .init(
+                                identifier: "pane-context.choice.allow", label: "Allow",
+                                icon: .system("checkmark.circle"),
+                                tooltip: .init(text: "Allow", shortcutDisplayText: nil)))
+                    ], allowsMultiple: false),
                 answer: .choices([choiceId]), expectedAnswer: .choices(["allow"])),
             .init(
                 form: .choice(options: [.init(id: choiceId, label: "Allow")], allowsMultiple: true),
-                expectedForm: .choice(options: [.init(id: "allow", label: "Allow")], allowsMultiple: true),
+                expectedForm: .choice(
+                    options: [
+                        .init(
+                            id: "allow", label: "Allow",
+                            control: .init(
+                                identifier: "pane-context.choice.allow", label: "Allow",
+                                icon: .system("checkmark.circle"),
+                                tooltip: .init(text: "Allow", shortcutDisplayText: nil)))
+                    ], allowsMultiple: true),
                 answer: .choices([choiceId]), expectedAnswer: .choices(["allow"])),
             .init(
                 form: .freeText(placeholder: "Reply"), expectedForm: .freeText(placeholder: "Reply"),
