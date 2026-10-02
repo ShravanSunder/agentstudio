@@ -84,13 +84,15 @@ package struct IPCCommandMethodComposition: Sendable {
             commands: commands
         )
         let resultVariants = Self.uniqueResultVariants(in: commands)
-        let methodExamples = try commands.flatMap(\.examples).map {
-            IPCMethodExample(
-                description: $0.description,
-                parameters: try IPCRawCommandExecutionRequest(typedRequest: $0.request),
-                result: $0.result
-            )
-        }
+        let commandExamples: [IPCCommandExample] = commands.flatMap(\.examples)
+        let methodExamples: [IPCMethodExample<IPCRawCommandExecutionRequest, IPCCommandExecutionResult>] =
+            try commandExamples.map {
+                IPCMethodExample(
+                    description: $0.description,
+                    parameters: try IPCRawCommandExecutionRequest(typedRequest: $0.request),
+                    result: $0.result
+                )
+            }
 
         let list = try IPCMethodDescriptor(
             name: "command.list",

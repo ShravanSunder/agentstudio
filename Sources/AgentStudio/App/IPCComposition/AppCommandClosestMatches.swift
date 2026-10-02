@@ -1,10 +1,23 @@
 /// Suggestions contain visible command identifiers only, ordered by distance
 /// then name. The caller's raw identifier is never included as a suggestion.
 enum AppCommandClosestMatches {
+    private struct RankedCommandName {
+        let name: String
+        let distance: Int
+    }
+
+    private static let maximumSuggestionCount = 5
+
     static func find(for identifier: String, visibleNames: [String]) -> [String] {
-        visibleNames.map { (name: $0, distance: editDistance(identifier, $0)) }
-            .sorted { $0.distance == $1.distance ? $0.name < $1.name : $0.distance < $1.distance }
-            .prefix(5).map(\.name)
+        let candidates: [String] = visibleNames.filter { $0 != identifier }
+        let ranked: [RankedCommandName] = candidates.map { name in
+            RankedCommandName(name: name, distance: editDistance(identifier, name))
+        }
+        let ordered: [RankedCommandName] = ranked.sorted { lhs, rhs in
+            if lhs.distance != rhs.distance { return lhs.distance < rhs.distance }
+            return lhs.name < rhs.name
+        }
+        return ordered.prefix(Self.maximumSuggestionCount).map { $0.name }
     }
 
     private static func editDistance(_ first: String, _ second: String) -> Int {

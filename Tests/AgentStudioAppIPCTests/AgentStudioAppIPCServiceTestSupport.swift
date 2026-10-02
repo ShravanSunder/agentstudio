@@ -558,9 +558,11 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
         async throws -> AppIPCPreparedCommand
     {
         guard let command = commands.first(where: { $0.id == rawRequest.commandId }) else {
+            let visibleNames: [String] = commands.map { $0.id.rawValue }
+            let orderedNames: [String] = visibleNames.sorted()
+            let suggestions: [String] = Array(orderedNames.prefix(5))
             throw AgentStudioAppIPCRequestError.unknownCommand(
-                commandId: rawRequest.commandId.rawValue,
-                closestMatches: commands.map { $0.id.rawValue }.sorted().prefix(5).map { $0 })
+                commandId: rawRequest.commandId.rawValue, closestMatches: suggestions)
         }
         let arguments: IPCCommandArguments
         do {
