@@ -16,7 +16,7 @@ import Testing
 struct PaneNotificationOutboxWriterTests {
     @Test("an eligible message stores the exact wire envelope in an owner-only SQLite file")
     func eligibleMessageAppendsTheWireEnvelope() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try PaneNotificationOutboxFixture()
             defer { fixture.remove() }
             let invocation = try fixture.invocation(["message", "deploy finished"])
@@ -26,23 +26,28 @@ struct PaneNotificationOutboxWriterTests {
 
             let outcome = try fixture.handler.handleUnreachableApp(invocation: invocation) { expectedLine }
 
-            #expect(outcome == .queued(reply: "message queued"))
             let entries = try fixture.entries()
-            #expect(entries.count == 1)
-            if let entry = entries.first, case .notice(let notice) = entry {
-                #expect(notice.payloadJSON == expectedLine)
-                #expect(notice.messageID == parameters.correlationId)
-                #expect(notice.paneID == fixture.paneID)
-            }
-            #expect(try fixture.storeFileMode() == 0o600)
-            #expect(!expectedLine.contains(fixture.paneToken))
-            #expect(!FileManager.default.fileExists(atPath: fixture.legacyDirectory.path))
+            return QueuedEnvelopeObservation(
+                outcome: outcome, entries: entries, expectedLine: expectedLine,
+                correlationID: parameters.correlationId, paneID: fixture.paneID,
+                fileMode: try fixture.storeFileMode(), lineContainsToken: expectedLine.contains(fixture.paneToken),
+                legacyDirectoryExists: FileManager.default.fileExists(atPath: fixture.legacyDirectory.path))
         }
+        #expect(observed.outcome == .queued(reply: "message queued"))
+        #expect(observed.entries.count == 1)
+        if let entry = observed.entries.first, case .notice(let notice) = entry {
+            #expect(notice.payloadJSON == observed.expectedLine)
+            #expect(notice.messageID == observed.correlationID)
+            #expect(notice.paneID == observed.paneID)
+        }
+        #expect(observed.fileMode == 0o600)
+        #expect(!observed.lineContainsToken)
+        #expect(!observed.legacyDirectoryExists)
     }
 
     @Test("needs-you and done queue their own replies while clear refuses offline")
     func deliberateVariantsFollowDescriptorEligibility() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try PaneNotificationOutboxFixture()
             defer { fixture.remove() }
 
@@ -50,16 +55,18 @@ struct PaneNotificationOutboxWriterTests {
             let done = try fixture.queue(["done"])
             let clear = try fixture.queue(["needs-you", "--clear"])
 
-            #expect(needsYou == .queued(reply: "needs-you queued"))
-            #expect(done == .queued(reply: "done queued"))
-            #expect(clear == .clearUnavailableWhileOffline)
-            #expect(try fixture.entries().count == 2)
+            return QueuedVariantsObservation(
+                needsYou: needsYou, done: done, clear: clear, entryCount: try fixture.entries().count)
         }
+        #expect(observed.needsYou == .queued(reply: "needs-you queued"))
+        #expect(observed.done == .queued(reply: "done queued"))
+        #expect(observed.clear == .clearUnavailableWhileOffline)
+        #expect(observed.entryCount == 2)
     }
 
     @Test("a pane without store environment keeps the ordinary unreachable failure")
     func missingPaneEnvironmentDoesNotQueue() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try PaneNotificationOutboxFixture()
             defer { fixture.remove() }
             let handler = PaneNotificationOfflineHandler(environment: [:])
@@ -69,14 +76,15 @@ struct PaneNotificationOutboxWriterTests {
                 try fixture.client.requestFrame(invocation)
             }
 
-            #expect(outcome == .notQueued)
-            #expect(!FileManager.default.fileExists(atPath: fixture.storeURL.path))
+            return (outcome: outcome, storeExists: FileManager.default.fileExists(atPath: fixture.storeURL.path))
         }
+        #expect(observed.outcome == .notQueued)
+        #expect(!observed.storeExists)
     }
 
     @Test("a missing or unknown store channel never defaults to stable", arguments: ["", "unknown-channel"])
     func missingOrUnknownChannelDoesNotQueue(channel: String) async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try PaneNotificationOutboxFixture()
             defer { fixture.remove() }
             var environment = fixture.environment
@@ -88,28 +96,30 @@ struct PaneNotificationOutboxWriterTests {
                 try fixture.client.requestFrame(invocation)
             }
 
-            #expect(outcome == .notQueued)
-            #expect(!FileManager.default.fileExists(atPath: fixture.storeURL.path))
+            return (outcome: outcome, storeExists: FileManager.default.fileExists(atPath: fixture.storeURL.path))
         }
+        #expect(observed.outcome == .notQueued)
+        #expect(!observed.storeExists)
     }
 
     @Test("an unwritable store fails explicitly without claiming a queued notification")
     func unwritableStoreFailsWithoutClaimingQueued() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try PaneNotificationOutboxFixture()
             defer { fixture.remove() }
             try fixture.makeStoreDirectoryReadOnly()
             defer { fixture.restorePermissions() }
             let invocation = try fixture.invocation(["message", "unwritable"])
 
-            #expect(throws: CLIStoreFailure.unavailable) {
-                _ = try fixture.handler.handleUnreachableApp(invocation: invocation) {
+            let attempt = Result<PaneNotificationOfflineOutcome, any Error> {
+                try fixture.handler.handleUnreachableApp(invocation: invocation) {
                     try fixture.client.requestFrame(invocation)
                 }
             }
-
-            #expect(!FileManager.default.fileExists(atPath: fixture.storeURL.path))
+            return (attempt: attempt, storeExists: FileManager.default.fileExists(atPath: fixture.storeURL.path))
         }
+        #expect(throws: CLIStoreFailure.unavailable) { _ = try observed.attempt.get() }
+        #expect(!observed.storeExists)
     }
 
     @Test("concurrent writers preserve every durably acknowledged envelope intact")
@@ -137,43 +147,54 @@ struct PaneNotificationOutboxWriterTests {
         #expect(!acknowledged.isEmpty)
         let expected = Set(acknowledged)
         let expectedCount = acknowledged.count
-        try await valueFromDedicatedThread {
+        let payloads = try await valueFromDedicatedThread {
             let entries = try fixture.entries()
-            let payloads = entries.map { entry in
+            return entries.map { entry in
                 switch entry {
                 case .notice(let notice): notice.payloadJSON
                 }
             }
-            #expect(Set(payloads) == expected)
-            #expect(payloads.count == expectedCount)
         }
+        #expect(Set(payloads) == expected)
+        #expect(payloads.count == expectedCount)
     }
 
     @Test("a missing socket path and a refused connection both permit queuing")
     func unreachableEndpointsPermitQueuing() async throws {
-        try await valueFromDedicatedThread {
+        let socket = await valueFromDedicatedThread { makeBoundButUnlistenedSocketPath() }
+        let descriptor = socket.descriptor
+        let pathBytes = socket.pathBytes
+        let bound = socket.bound
+        defer { unlink(socket.path) }
+        try #require(descriptor >= 0)
+        try #require(pathBytes.count < MemoryLayout.size(ofValue: sockaddr_un().sun_path))
+        try #require(bound == 0)
+        let refusedPath = socket.path
+        let observed = try await valueFromDedicatedThread {
             let fixture = try PaneNotificationOutboxFixture()
             defer { fixture.remove() }
             let invocation = try fixture.invocation(["message", "unreachable"])
-            let refusedPath = try makeBoundButUnlistenedSocketPath()
-            defer { unlink(refusedPath) }
             let refusedClient = AgentStudioIPCClient(
                 configuration: .init(socketPath: refusedPath), descriptors: fixture.descriptors)
             let missingClient = AgentStudioIPCClient(
                 configuration: .init(socketPath: temporaryIPCDescriptorClientSocketPath()),
                 descriptors: fixture.descriptors)
 
-            let missing = try captureIPCDescriptorClientFailure { _ = try missingClient.call(invocation, requestID: 1) }
-            let refused = try captureIPCDescriptorClientFailure { _ = try refusedClient.call(invocation, requestID: 1) }
-
-            #expect(missing.permitsOfflineQueue)
-            #expect(refused.permitsOfflineQueue)
+            let missing = Result<Void, any Error> { _ = try missingClient.call(invocation, requestID: 1) }
+            let refused = Result<Void, any Error> { _ = try refusedClient.call(invocation, requestID: 1) }
+            return (missing: missing, refused: refused)
         }
+        // This shared helper records issues on unexpected errors or success;
+        // replaying the captured result here keeps those issues on the test task.
+        let missing = try captureIPCDescriptorClientFailure { try observed.missing.get() }
+        let refused = try captureIPCDescriptorClientFailure { try observed.refused.get() }
+        #expect(missing.permitsOfflineQueue)
+        #expect(refused.permitsOfflineQueue)
     }
 
     @Test("authentication rejection from a live app never permits queuing")
     func authenticationRejectionNeverQueues() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try PaneNotificationOutboxFixture()
             defer { fixture.remove() }
             let endpoint = UnixSocketEndpoint(path: temporaryIPCDescriptorClientSocketPath())
@@ -193,12 +214,13 @@ struct PaneNotificationOutboxWriterTests {
                     socketPath: endpoint.path, authToken: fixture.paneToken, maxRequestFrameBytes: 65_536),
                 descriptors: fixture.descriptors + [try IPCDescriptorClientFixtureCatalog.make().authentication])
 
-            let rejected = try captureIPCDescriptorClientFailure { _ = try client.call(invocation, requestID: 1) }
-
-            #expect(rejected.disposition == .authenticationRejected)
-            #expect(!rejected.permitsOfflineQueue)
-            #expect(!FileManager.default.fileExists(atPath: fixture.storeURL.path))
+            let rejected = Result<Void, any Error> { _ = try client.call(invocation, requestID: 1) }
+            return (rejected: rejected, storeExists: FileManager.default.fileExists(atPath: fixture.storeURL.path))
         }
+        let rejected = try captureIPCDescriptorClientFailure { try observed.rejected.get() }
+        #expect(rejected.disposition == .authenticationRejected)
+        #expect(!rejected.permitsOfflineQueue)
+        #expect(!observed.storeExists)
     }
 }
 
@@ -218,15 +240,44 @@ private func queueOnDedicatedThread(
     }
 }
 
-private func makeBoundButUnlistenedSocketPath() throws -> String {
+private struct QueuedEnvelopeObservation: Sendable {
+    let outcome: PaneNotificationOfflineOutcome
+    let entries: [CLIOutboxEntry]
+    let expectedLine: String
+    let correlationID: UUID
+    let paneID: UUID
+    let fileMode: UInt16
+    let lineContainsToken: Bool
+    let legacyDirectoryExists: Bool
+}
+
+private struct QueuedVariantsObservation: Sendable {
+    let needsYou: PaneNotificationOfflineOutcome
+    let done: PaneNotificationOfflineOutcome
+    let clear: PaneNotificationOfflineOutcome
+    let entryCount: Int
+}
+
+private struct BoundSocketObservation: Sendable {
+    let path: String
+    let descriptor: Int32
+    let pathBytes: [UInt8]
+    let bound: Int32?
+}
+
+private func makeBoundButUnlistenedSocketPath() -> BoundSocketObservation {
     let path = temporaryIPCDescriptorClientSocketPath()
+    let pathBytes = Array(path.utf8)
     let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-    try #require(descriptor >= 0)
+    guard descriptor >= 0 else {
+        return BoundSocketObservation(path: path, descriptor: descriptor, pathBytes: pathBytes, bound: nil)
+    }
     defer { close(descriptor) }
     var address = sockaddr_un()
     address.sun_family = sa_family_t(AF_UNIX)
-    let pathBytes = Array(path.utf8)
-    try #require(pathBytes.count < MemoryLayout.size(ofValue: address.sun_path))
+    guard pathBytes.count < MemoryLayout.size(ofValue: address.sun_path) else {
+        return BoundSocketObservation(path: path, descriptor: descriptor, pathBytes: pathBytes, bound: nil)
+    }
     withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: pathBytes) }
     address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
     let bound = withUnsafePointer(to: &address) { pointer in
@@ -234,8 +285,7 @@ private func makeBoundButUnlistenedSocketPath() throws -> String {
             bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
         }
     }
-    try #require(bound == 0)
-    return path
+    return BoundSocketObservation(path: path, descriptor: descriptor, pathBytes: pathBytes, bound: bound)
 }
 
 private struct PaneNotificationOutboxFixture: Sendable {

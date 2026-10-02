@@ -12,7 +12,7 @@ import Testing
 struct CLIStoreTests {
     @Test("writer migrates an empty file and reopens the same UUIDv7 identity")
     func writerCreatesAndPreservesIdentity() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             // Arrange
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
@@ -21,65 +21,81 @@ struct CLIStoreTests {
             let first = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
             let second = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
 
-            // Assert
-            #expect(UUIDv7.isV7(first.identity.storeID))
-            #expect(first.identity == second.identity)
-            #expect(first.identity.channel == .debug)
-            try first.databaseQueue.read { database throws in
-                #expect(try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_store_identity") == 1)
-                #expect(try database.tableExists("cli_outbox"))
-                #expect(
-                    try CLIStoreMigrator.makeMigrator(channel: .debug).appliedMigrations(database)
-                        == [CLIStoreMigrator.identityMigration, CLIStoreMigrator.outboxMigration])
+            return try first.databaseQueue.read { database in
+                StoreIdentityObservation(
+                    first: first.identity, second: second.identity,
+                    identityCount: try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_store_identity"),
+                    hasOutbox: try database.tableExists("cli_outbox"),
+                    migrations: try CLIStoreMigrator.makeMigrator(channel: .debug).appliedMigrations(database))
             }
         }
+        // Assert in the test task; all database observations were read off-pool.
+        #expect(UUIDv7.isV7(observed.first.storeID))
+        #expect(observed.first == observed.second)
+        #expect(observed.first.channel == .debug)
+        #expect(observed.identityCount == 1)
+        #expect(observed.hasOutbox)
+        #expect(observed.migrations == [CLIStoreMigrator.identityMigration, CLIStoreMigrator.outboxMigration])
     }
 
     @Test("the schema uses only TEXT and INTEGER with no enum CHECK, triggers or foreign keys")
     func schemaPreservesAdditiveEvolution() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let store = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
 
-            try store.databaseQueue.read { database throws in
-                for table in ["cli_store_identity", "cli_outbox"] {
+            return try store.databaseQueue.read { database in
+                let tables = try ["cli_store_identity", "cli_outbox"].map { table in
                     let types = try String.fetchAll(
                         database, sql: "SELECT type FROM pragma_table_info(?)", arguments: [table])
-                    #expect(!types.isEmpty)
-                    #expect(types.allSatisfy { $0 == "TEXT" || $0 == "INTEGER" })
                     let storedSchema = try String.fetchOne(
                         database, sql: "SELECT sql FROM sqlite_master WHERE name = ?", arguments: [table])
-                    let schema = try #require(storedSchema)
-                    #expect(!schema.uppercased().contains("CHECK"))
-                    #expect(!schema.uppercased().contains("REFERENCES"))
+                    return (types: types, storedSchema: storedSchema)
                 }
-                #expect(
-                    try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'") == 0)
+                return (
+                    tables: tables,
+                    triggerCount: try Int.fetchOne(
+                        database, sql: "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'")
+                )
             }
         }
+        for table in observed.tables {
+            #expect(!table.types.isEmpty)
+            #expect(table.types.allSatisfy { $0 == "TEXT" || $0 == "INTEGER" })
+            let schema = try #require(table.storedSchema)
+            #expect(!schema.uppercased().contains("CHECK"))
+            #expect(!schema.uppercased().contains("REFERENCES"))
+        }
+        #expect(observed.triggerCount == 0)
     }
 
     @Test("file connections use WAL and a 50 ms SQLite busy timeout")
     func connectionsUseWALAndShortBusyTimeout() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
             let reader = try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug).get()
 
-            for store in [writer, reader] {
-                try store.databaseQueue.read { database throws in
-                    #expect(try String.fetchOne(database, sql: "PRAGMA journal_mode") == "wal")
-                    #expect(try Int.fetchOne(database, sql: "PRAGMA busy_timeout") == 50)
+            return try [writer, reader].map { store in
+                try store.databaseQueue.read { database in
+                    (
+                        journalMode: try String.fetchOne(database, sql: "PRAGMA journal_mode"),
+                        busyTimeout: try Int.fetchOne(database, sql: "PRAGMA busy_timeout")
+                    )
                 }
             }
+        }
+        for connection in observed {
+            #expect(connection.journalMode == "wal")
+            #expect(connection.busyTimeout == 50)
         }
     }
 
     @Test("a previous-version reader does not migrate; the next writer upgrades without replacing identity")
     func previousVersionIsReadOnlyUntilWriterMigrates() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let previous = try DatabaseQueue(path: fixture.databaseURL.path)
@@ -88,25 +104,33 @@ struct CLIStoreTests {
             let storedIdentity = try previous.read { database in
                 try String.fetchOne(database, sql: "SELECT store_id FROM cli_store_identity")
             }
-            let originalIdentity = try #require(storedIdentity)
-
             let reader = try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .beta).get()
-            #expect(try reader.readOutbox(after: 0).get().entries.isEmpty)
-            try previous.read { database throws in
-                #expect(try migrator.appliedMigrations(database) == [CLIStoreMigrator.identityMigration])
-                #expect(try !database.tableExists("cli_outbox"))
+            let readerEntries = try reader.readOutbox(after: 0).get().entries
+            let previousSchema = try previous.read { database in
+                (
+                    migrations: try migrator.appliedMigrations(database),
+                    hasOutbox: try database.tableExists("cli_outbox")
+                )
             }
-
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .beta).get()
-            #expect(writer.identity.storeID.uuidString == originalIdentity)
-            #expect(writer.identity.channel == .beta)
-            #expect(try writer.databaseQueue.read { try $0.tableExists("cli_outbox") })
+            return PreviousVersionObservation(
+                storedIdentity: storedIdentity, readerEntries: readerEntries,
+                previousMigrations: previousSchema.migrations, previousHasOutbox: previousSchema.hasOutbox,
+                writerIdentity: writer.identity,
+                writerHasOutbox: try writer.databaseQueue.read { try $0.tableExists("cli_outbox") })
         }
+        let originalIdentity = try #require(observed.storedIdentity)
+        #expect(observed.readerEntries.isEmpty)
+        #expect(observed.previousMigrations == [CLIStoreMigrator.identityMigration])
+        #expect(!observed.previousHasOutbox)
+        #expect(observed.writerIdentity.storeID.uuidString == originalIdentity)
+        #expect(observed.writerIdentity.channel == .beta)
+        #expect(observed.writerHasOutbox)
     }
 
     @Test("an append round trips a typed immutable notice; the wire payload stays opaque")
     func noticeRoundTripsWithoutInterpretingPayload() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
@@ -120,20 +144,23 @@ struct CLIStoreTests {
             let reader = try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug).get()
 
             let batch = try reader.readOutbox(after: 0).get()
-            #expect(batch.entries == [inserted])
-            #expect(batch.lastReadID == inserted.id)
-            guard case .notice(let notice) = inserted else { return }
-            #expect(notice.paneID == paneID)
-            #expect(notice.messageID == messageID)
-            #expect(notice.createdAt == createdAt)
-            #expect(notice.payloadJSON == "opaque to the store; decoded only by live admission")
-            #expect(try reader.readOutbox(after: inserted.id).get().entries.isEmpty)
+            return NoticeRoundTripObservation(
+                batch: batch, inserted: inserted, paneID: paneID, messageID: messageID, createdAt: createdAt,
+                laterEntries: try reader.readOutbox(after: inserted.id).get().entries)
         }
+        #expect(observed.batch.entries == [observed.inserted])
+        #expect(observed.batch.lastReadID == observed.inserted.id)
+        guard case .notice(let notice) = observed.inserted else { return }
+        #expect(notice.paneID == observed.paneID)
+        #expect(notice.messageID == observed.messageID)
+        #expect(notice.createdAt == observed.createdAt)
+        #expect(notice.payloadJSON == "opaque to the store; decoded only by live admission")
+        #expect(observed.laterEntries.isEmpty)
     }
 
     @Test("duplicate message ids preserve the first notice without mutating it")
     func duplicateAppendPreservesOriginalNotice() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
@@ -148,14 +175,15 @@ struct CLIStoreTests {
                 createdAt: fixture.createdAt.addingTimeInterval(10)
             ).get()
 
-            #expect(duplicate == original)
-            #expect(try writer.readOutbox(after: 0).get().entries == [original])
+            return (duplicate: duplicate, original: original, entries: try writer.readOutbox(after: 0).get().entries)
         }
+        #expect(observed.duplicate == observed.original)
+        #expect(observed.entries == [observed.original])
     }
 
     @Test("outbox ids keep increasing after every prior row has been purged")
     func deletedPrefixDoesNotReuseIDs() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
@@ -166,63 +194,78 @@ struct CLIStoreTests {
 
             let second = try fixture.append(to: writer)
 
-            #expect(second.id > first.id)
-            #expect(try writer.readOutbox(after: first.id).get().entries == [second])
+            return (first: first, second: second, entries: try writer.readOutbox(after: first.id).get().entries)
         }
+        #expect(observed.second.id > observed.first.id)
+        #expect(observed.entries == [observed.second])
     }
 
     @Test("an actual write through the app reader fails at the SQLite boundary")
     func readerCannotWrite() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
             let original = try fixture.append(to: writer)
             let reader = try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug).get()
 
-            #expect(throws: (any Error).self) {
+            let writeAttempt = Result<Void, any Error> {
                 try reader.databaseQueue.writeWithoutTransaction { database in
                     try database.execute(sql: "DELETE FROM cli_outbox")
                 }
             }
-            #expect(
-                failure(
-                    in: reader.appendNotice(
-                        paneID: UUIDv7.generate(), messageID: UUIDv7.generate(),
-                        payloadJSON: "reader write", createdAt: fixture.createdAt)) == .readOnly)
-            #expect(try writer.readOutbox(after: 0).get().entries == [original])
+            let appendFailure = failure(
+                in: reader.appendNotice(
+                    paneID: UUIDv7.generate(), messageID: UUIDv7.generate(),
+                    payloadJSON: "reader write", createdAt: fixture.createdAt))
+            return (
+                writeAttempt: writeAttempt, appendFailure: appendFailure,
+                contents: (entries: try writer.readOutbox(after: 0).get().entries, original: original)
+            )
         }
+        #expect(throws: (any Error).self) { try observed.writeAttempt.get() }
+        #expect(observed.appendFailure == .readOnly)
+        #expect(observed.contents.entries == [observed.contents.original])
     }
 
     @Test("a reader never creates a missing store or its parent")
     func missingReaderFailsOpenWithoutCreatingFiles() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let missingURL = fixture.rootURL.appending(path: "absent/cli.sqlite")
 
-            #expect(failure(in: CLIStore.openReader(url: missingURL, expectedChannel: .debug)) == .unavailable)
-            #expect(!FileManager.default.fileExists(atPath: missingURL.deletingLastPathComponent().path))
+            return (
+                failure: failure(in: CLIStore.openReader(url: missingURL, expectedChannel: .debug)),
+                parentExists: FileManager.default.fileExists(atPath: missingURL.deletingLastPathComponent().path)
+            )
         }
+        #expect(observed.failure == .unavailable)
+        #expect(!observed.parentExists)
     }
 
     @Test("corruption is fail-open and the original bytes are preserved")
     func corruptStoreFailsOpenWithoutReplacement() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let corrupt = Data("not a SQLite database".utf8)
             try corrupt.write(to: fixture.databaseURL)
 
-            #expect(failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .debug)) == .unavailable)
-            #expect(failure(in: CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug)) == .unavailable)
-            #expect(try Data(contentsOf: fixture.databaseURL) == corrupt)
+            return (
+                writerFailure: failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .debug)),
+                readerFailure: failure(in: CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug)),
+                bytes: (actual: try Data(contentsOf: fixture.databaseURL), expected: corrupt)
+            )
         }
+        #expect(observed.writerFailure == .unavailable)
+        #expect(observed.readerFailure == .unavailable)
+        #expect(observed.bytes.actual == observed.bytes.expected)
     }
 
     @Test("a store from a newer migrator disables writes and preserves its rows")
     func supersededWriterDoesNotTouchRows() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
@@ -233,51 +276,65 @@ struct CLIStoreTests {
             }
             try futureMigrator.migrate(writer.databaseQueue)
 
-            #expect(failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .debug)) == .superseded)
-            #expect(try writer.readOutbox(after: 0).get().entries == [original])
-            #expect(try writer.databaseQueue.read { try $0.tableExists("future_cli_table") })
+            return (
+                failure: failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .debug)),
+                contents: (entries: try writer.readOutbox(after: 0).get().entries, original: original),
+                hasFutureTable: try writer.databaseQueue.read { try $0.tableExists("future_cli_table") }
+            )
         }
+        #expect(observed.failure == .superseded)
+        #expect(observed.contents.entries == [observed.contents.original])
+        #expect(observed.hasFutureTable)
     }
 
     @Test("a held writer lock produces a typed busy outcome without a queued row")
     func heldWriteLockFailsOpen() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let holder = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
             // GRDB owns this transaction's lifetime; leaving a manual BEGIN
             // open across queue calls violates its unsafe-transaction check.
-            try holder.databaseQueue.write { database throws in
+            return try holder.databaseQueue.write { database in
                 let outcome = writer.appendNotice(
                     paneID: UUIDv7.generate(), messageID: UUIDv7.generate(),
                     payloadJSON: "locked", createdAt: fixture.createdAt)
 
-                #expect(failure(in: outcome) == .busy)
-                #expect(try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_outbox") == 0)
+                return (
+                    failure: failure(in: outcome),
+                    rowCount: try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM cli_outbox")
+                )
             }
         }
+        #expect(observed.failure == .busy)
+        #expect(observed.rowCount == 0)
     }
 
     @Test("writer and reader refuse a foreign channel without changing identity")
     func mismatchedChannelIsRefused() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let original = try CLIStore.openWriter(url: fixture.databaseURL, channel: .beta).get()
 
-            #expect(failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .stable)) == .channelMismatch)
-            #expect(
-                failure(in: CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug)) == .channelMismatch)
-            #expect(
-                try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .beta).get().identity
-                    == original.identity)
+            return (
+                writerFailure: failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .stable)),
+                readerFailure: failure(in: CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug)),
+                identities: (
+                    reopened: try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .beta).get().identity,
+                    original: original.identity
+                )
+            )
         }
+        #expect(observed.writerFailure == .channelMismatch)
+        #expect(observed.readerFailure == .channelMismatch)
+        #expect(observed.identities.reopened == observed.identities.original)
     }
 
     @Test("unknown identity channels fail closed instead of defaulting to stable")
     func unknownIdentityChannelIsRefused() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let original = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
@@ -285,15 +342,18 @@ struct CLIStoreTests {
                 try database.execute(sql: "UPDATE cli_store_identity SET channel = 'future-channel'")
             }
 
-            #expect(failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .debug)) == .invalidIdentity)
-            #expect(
-                failure(in: CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug)) == .invalidIdentity)
+            return (
+                writerFailure: failure(in: CLIStore.openWriter(url: fixture.databaseURL, channel: .debug)),
+                readerFailure: failure(in: CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug))
+            )
         }
+        #expect(observed.writerFailure == .invalidIdentity)
+        #expect(observed.readerFailure == .invalidIdentity)
     }
 
     @Test("unknown outbox kinds are skipped and logged with the field, while later notices survive")
     func unknownKindIsSkippedAndLogged() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
@@ -311,16 +371,20 @@ struct CLIStoreTests {
 
             let batch = try reader.readOutbox(after: 0).get()
 
-            #expect(batch.entries == [second])
-            #expect(batch.lastReadID == second.id)
-            #expect(issues.withLock { $0 } == [.init(rowID: first.id, field: .kind)])
-            #expect(try writer.databaseQueue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM cli_outbox") } == 2)
+            return UnknownKindObservation(
+                batch: batch, first: first, second: second, issues: issues.withLock { $0 },
+                rowCount: try writer.databaseQueue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM cli_outbox") }
+            )
         }
+        #expect(observed.batch.entries == [observed.second])
+        #expect(observed.batch.lastReadID == observed.second.id)
+        #expect(observed.issues == [.init(rowID: observed.first.id, field: .kind)])
+        #expect(observed.rowCount == 2)
     }
 
     @Test("a skipped final row remains part of the read prefix")
     func skippedFinalRowStillReportsReadPosition() async throws {
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let fixture = try CLIStoreFileFixture()
             defer { fixture.remove() }
             let writer = try CLIStore.openWriter(url: fixture.databaseURL, channel: .debug).get()
@@ -331,10 +395,11 @@ struct CLIStoreTests {
 
             let batch = try writer.readOutbox(after: 0).get()
 
-            #expect(batch.entries.isEmpty)
-            #expect(batch.lastReadID == last.id)
-            #expect(try writer.readOutbox(after: last.id).get().lastReadID == last.id)
+            return (batch: batch, last: last, nextReadID: try writer.readOutbox(after: last.id).get().lastReadID)
         }
+        #expect(observed.batch.entries.isEmpty)
+        #expect(observed.batch.lastReadID == observed.last.id)
+        #expect(observed.nextReadID == observed.last.id)
     }
 
     @Test("two real CLI writer processes preserve every successful append and monotonic ids")
@@ -368,11 +433,46 @@ struct CLIStoreTests {
         #expect(Set(reportedIDs).count == reportedIDs.count)
         let expectedIDs = reportedIDs.sorted()
         #expect(expectedIDs == Array(Int64(1)...Int64(max(1, expectedIDs.count))))
-        try await valueFromDedicatedThread {
+        let actualIDs = try await valueFromDedicatedThread {
             let reader = try CLIStore.openReader(url: fixture.databaseURL, expectedChannel: .debug).get()
-            #expect(try reader.readOutbox(after: 0).get().entries.map(\.id) == expectedIDs)
+            return try reader.readOutbox(after: 0).get().entries.map(\.id)
         }
+        #expect(actualIDs == expectedIDs)
     }
+}
+
+private struct StoreIdentityObservation: Sendable {
+    let first: CLIStoreIdentity
+    let second: CLIStoreIdentity
+    let identityCount: Int?
+    let hasOutbox: Bool
+    let migrations: [String]
+}
+
+private struct PreviousVersionObservation: Sendable {
+    let storedIdentity: String?
+    let readerEntries: [CLIOutboxEntry]
+    let previousMigrations: [String]
+    let previousHasOutbox: Bool
+    let writerIdentity: CLIStoreIdentity
+    let writerHasOutbox: Bool
+}
+
+private struct NoticeRoundTripObservation: Sendable {
+    let batch: CLIOutboxReadBatch
+    let inserted: CLIOutboxEntry
+    let paneID: UUID
+    let messageID: UUID
+    let createdAt: Date
+    let laterEntries: [CLIOutboxEntry]
+}
+
+private struct UnknownKindObservation: Sendable {
+    let batch: CLIOutboxReadBatch
+    let first: CLIOutboxEntry
+    let second: CLIOutboxEntry
+    let issues: [CLIStoreDecodeIssue]
+    let rowCount: Int?
 }
 
 private func failure<Value>(in result: Result<Value, CLIStoreFailure>) -> CLIStoreFailure? {

@@ -156,7 +156,7 @@ struct PaneIPCIdentityOwnerTests {
         let storeURL = fixture.rootDirectory.appending(path: "ipc/cli.sqlite")
         let legacyDirectory = fixture.spoolDirectory
 
-        try await valueFromDedicatedThread {
+        let observed = try await valueFromDedicatedThread {
             let descriptors = try IPCBuiltInMethodCatalog.offlineNotificationDescriptors(
                 examples: .init(illustrativeIdentifier: UUIDv7.generate()))
             let invocation = try IPCDescriptorInvocationParser.parse(
@@ -171,17 +171,20 @@ struct PaneIPCIdentityOwnerTests {
                 try client.requestFrame(invocation)
             }
 
-            #expect(outcome == .queued(reply: "message queued"))
             let rows = try CLIStore.openReader(url: storeURL, expectedChannel: .debug).get().readOutbox(after: 0).get()
                 .entries
-            #expect(rows.count == 1)
-            if let entry = rows.first, case .notice(let notice) = entry {
-                #expect(notice.paneID == paneID)
-            }
-            #expect(
-                !FileManager.default.fileExists(
-                    atPath: legacyDirectory.appending(path: "\(paneID.uuidString).notifications.ndjson").path))
+            return (
+                outcome: outcome, rows: rows,
+                legacyFileExists: FileManager.default.fileExists(
+                    atPath: legacyDirectory.appending(path: "\(paneID.uuidString).notifications.ndjson").path)
+            )
         }
+        #expect(observed.outcome == .queued(reply: "message queued"))
+        #expect(observed.rows.count == 1)
+        if let entry = observed.rows.first, case .notice(let notice) = entry {
+            #expect(notice.paneID == paneID)
+        }
+        #expect(!observed.legacyFileExists)
     }
 
     private func makeIdentityOwner(
