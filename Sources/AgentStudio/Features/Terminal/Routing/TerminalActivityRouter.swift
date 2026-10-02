@@ -29,17 +29,16 @@ package final class TerminalActivityRouter {
     private let traceRuntime: AgentStudioTraceRuntime?
     private let startupTraceRecorder: AgentStudioStartupTraceRecorder?
     /// A6 (advisor review 2026-10-01; PD rev 21 item 5, Lead decision: push,
-    /// not pull): notified beside `startupTraceRecorder?.recordFirstOutput`
-    /// in `consumeProjectionOutcome`'s existing `.firstRender` arm -- the
-    /// same raw fact, already unconditional for warm/unverified panes (they
-    /// never arm a restore phase, so `consumeAggregateState`'s
-    /// `!isInRestorePhase` gate never blocks them). Composed in
-    /// `AppDelegate.bootStartTerminalActivityRouter` to notify
-    /// `WorkspaceSurfaceCoordinator.receivePostAttachFirstRender(paneID:)`.
+    /// not pull): notified from `consumeProjectionOutcome`'s existing
+    /// `.firstRender` arm -- the same raw fact, already unconditional for
+    /// warm/unverified panes (they never arm a restore phase, so
+    /// `consumeAggregateState`'s `!isInRestorePhase` gate never blocks
+    /// them). Composed in `AppDelegate.bootStartTerminalActivityRouter` to
+    /// notify `WorkspaceSurfaceCoordinator.receivePostAttachFirstRender(paneID:)`.
     /// Both this router and the coordinator are `@MainActor`, so this adds
-    /// no new actor hop over the trace call beside it -- typed
-    /// `@MainActor @Sendable`, matching `recordSettledActivityStatus`'s own
-    /// shape below, so the call at the `.firstRender` arm needs no `await`.
+    /// no new actor hop -- typed `@MainActor @Sendable`, matching
+    /// `recordSettledActivityStatus`'s own shape below, so the call at the
+    /// `.firstRender` arm needs no `await`.
     private let onFirstRender: (@MainActor @Sendable (UUID) -> Void)?
     private let surfaceIDForPaneID: @MainActor (UUID) -> UUID?
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
