@@ -319,7 +319,6 @@ struct IPCBuiltInMethodCatalogTests {
     private func makeCatalog(waitMaximum: Double) throws -> IPCBuiltInMethodCatalog {
         try IPCBuiltInMethodCatalog(
             inputs: .init(
-                terminalWaitUpperBound: .policy(maximumSeconds: waitMaximum),
                 relationships: relationships,
                 examples: fixtureContext
             )

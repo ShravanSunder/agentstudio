@@ -113,13 +113,52 @@ package struct AgentStudioIPCClient: Sendable {
 
     /// Discovery has a concrete metadata decoder; received metadata never creates an invocable descriptor.
     package func discoverCatalog(requestID: Int = 1) throws -> IPCMethodCatalogResult {
-        let authentication = try authenticationExchange(requestID: requestID, forMethod: "system.capabilities")
+        let encodedResult = try callDiscovery(method: "system.capabilities", requestID: requestID)
+        do {
+            return try IPCMethodCatalogDecoder.decode(encodedResult)
+        } catch let correction as IPCSchemaValidationError
+            where
+            correction.fieldPath == "$.compatibility" && correction.reason == .invalidValue
+        {
+            throw failure(.protocolRejected, .unsupportedVersion(correction))
+        } catch {
+            throw failure(.deliveryUncertain, .invalidTypedResult)
+        }
+    }
+
+    package func discoverCommands(requestID: Int = 1) throws -> IPCCommandCatalogResult {
+        let result = try callDiscovery(method: "command.list", requestID: requestID)
+        do {
+            let catalog = try JSONDecoder().decode(IPCCommandCatalogResult.self, from: result)
+            _ = try IPCCommandCatalogResult.schema(compatibility: catalog.compatibility, commands: catalog.commands)
+                .normalize(result)
+            guard Set(catalog.commands.map(\.id)).count == catalog.commands.count else {
+                throw failure(.deliveryUncertain, .invalidTypedResult)
+            }
+            for command in catalog.commands {
+                let reconstructed = try IPCCommandDescriptorFactory.make(
+                    .init(
+                        id: command.id, title: command.title, description: command.description,
+                        exposure: command.exposure,
+                        executionMode: command.executionMode, argumentVariants: command.argumentVariants,
+                        requiredPrivileges: Set(command.requiredPrivileges), dataScope: command.dataScope,
+                        allowedTargetKinds: Set(command.allowedTargetKinds), resultVariants: command.resultVariants,
+                        examples: command.examples, agentEligibility: command.agentEligibility))
+                guard reconstructed == command else { throw failure(.deliveryUncertain, .invalidTypedResult) }
+            }
+            return catalog
+        } catch { throw failure(.deliveryUncertain, .invalidTypedResult) }
+    }
+
+    /// Both explicit discovery methods share the same authenticated exchange.
+    private func callDiscovery(method: String, requestID: Int) throws -> Data {
+        let authentication = try authenticationExchange(requestID: requestID, forMethod: method)
         let commandID = authentication == nil ? requestID : requestID + 1
         let frame: Data
         do {
             frame = try NDJSONFrameEncoder.encode(
                 JSONRPCCodec.encodeRequest(
-                    JSONRPCClientRequest(id: .number(commandID), method: "system.capabilities", params: .object([:]))
+                    JSONRPCClientRequest(id: .number(commandID), method: method, params: .object([:]))
                 ), maxFrameBytes: configuration.maxRequestFrameBytes
             )
         } catch { throw failure(.notSubmitted, .localRequestEncoding) }
@@ -142,16 +181,7 @@ package struct AgentStudioIPCClient: Sendable {
         guard let result = response.result else {
             throw failure(.deliveryUncertain, .invalidResponse)
         }
-        do {
-            return try IPCMethodCatalogDecoder.decode(JSONEncoder().encode(result))
-        } catch let correction as IPCSchemaValidationError
-            where
-            correction.fieldPath == "$.compatibility" && correction.reason == .invalidValue
-        {
-            throw failure(.protocolRejected, .unsupportedVersion(correction))
-        } catch {
-            throw failure(.deliveryUncertain, .invalidTypedResult)
-        }
+        do { return try JSONEncoder().encode(result) } catch { throw failure(.deliveryUncertain, .invalidResponse) }
     }
 
     private func prepareExchange(_ invocation: IPCDescriptorInvocation, requestID: Int) throws

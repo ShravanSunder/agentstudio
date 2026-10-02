@@ -32,7 +32,6 @@ struct BuiltInMethodRegistrationsFixture {
         get throws {
             try IPCBuiltInMethodCatalog(
                 inputs: IPCBuiltInMethodCatalogInputs(
-                    terminalWaitUpperBound: .policy(maximumSeconds: 10),
                     relationships: IPCBuiltInMethodRelationshipInputs(
                         paneFocus: .noInteractiveIdentity,
                         paneClose: .noInteractiveIdentity,

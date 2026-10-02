@@ -29,7 +29,6 @@ struct IPCMethodCatalogDecoderFixture {
         )
         let catalog = try IPCBuiltInMethodCatalog(
             inputs: IPCBuiltInMethodCatalogInputs(
-                terminalWaitUpperBound: .policy(maximumSeconds: 5),
                 relationships: relationships,
                 examples: examples
             )

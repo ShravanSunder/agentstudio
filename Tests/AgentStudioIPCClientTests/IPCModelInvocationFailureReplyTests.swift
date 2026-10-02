@@ -32,7 +32,6 @@ struct IPCModelInvocationFailureReplyTests {
     func replyReasonIsDeclaredBySessionDescriptors() throws {
         let catalog = try IPCBuiltInMethodCatalog(
             inputs: .init(
-                terminalWaitUpperBound: .policy(maximumSeconds: 9),
                 relationships: .init(
                     paneFocus: .noInteractiveIdentity,
                     paneClose: .noInteractiveIdentity,

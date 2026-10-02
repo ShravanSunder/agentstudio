@@ -235,7 +235,6 @@ struct IPCSystemCapabilitiesCompositionTests {
         )
         return try IPCBuiltInMethodCatalog(
             inputs: IPCBuiltInMethodCatalogInputs(
-                terminalWaitUpperBound: .policy(maximumSeconds: 5),
                 relationships: relationships,
                 examples: context
             )

@@ -104,7 +104,6 @@ struct AppIPCCLIHelpAndExitTests {
     private func terminalSendDescription() throws -> String {
         let context = IPCBuiltInMethodExampleContext(illustrativeIdentifier: UUIDv7.generate())
         let inputs = IPCBuiltInMethodCatalogInputs(
-            terminalWaitUpperBound: .policy(maximumSeconds: 9),
             relationships: .init(
                 paneFocus: .noInteractiveIdentity, paneClose: .noInteractiveIdentity,
                 drawerToggle: .noInteractiveIdentity, drawerAddPane: .noInteractiveIdentity,

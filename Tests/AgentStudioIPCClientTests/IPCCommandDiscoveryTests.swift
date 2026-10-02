@@ -83,16 +83,14 @@ struct IPCCommandDiscoveryTests {
             commandId: hiddenCommandId, correlationId: fixture.correlationId, arguments: arguments)
         let payload = try #require(String(data: JSONEncoder().encode(request), encoding: .utf8))
 
-        // Gate 1: the CLI reads the payload with the catalog's envelope, not
-        // with the advertised union, which has no such argument variant.
+        // Gate 1: both wire envelopes accept raw strings; selected-command
+        // variant validation stays in the explicit typed discovery client.
         let parsed = try IPCDescriptorInvocationParser.parse(
             ["command.execute", "--json", payload],
             descriptors: [catalog.requestEnvelopeDescriptor],
             correlationIDGenerator: { UUIDv7.generate() }
         )
-        #expect(throws: (any Error).self) {
-            _ = try catalog.executeDescriptor.normalizeParameters(Data(payload.utf8))
-        }
+        _ = try catalog.executeDescriptor.normalizeParameters(Data(payload.utf8))
         let parsedRequest = try JSONDecoder().decode(
             IPCCommandExecutionRequest.self,
             from: parsed.normalizedParameters.data

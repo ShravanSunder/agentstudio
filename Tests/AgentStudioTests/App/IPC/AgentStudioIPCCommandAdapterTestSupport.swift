@@ -141,7 +141,6 @@ func makeIPCCommandCompositionOffMain(
 
 private func appIPCTestBuiltInMethodCatalogInputs() -> IPCBuiltInMethodCatalogInputs {
     IPCBuiltInMethodCatalogInputs(
-        terminalWaitUpperBound: .policy(maximumSeconds: AppPolicies.IPC.maximumTerminalWaitSeconds),
         relationships: IPCBuiltInMethodRelationshipInputs(
             paneFocus: .appCommand(identifier: AppCommand.focusPane.rawValue),
             paneClose: .appCommand(identifier: AppCommand.closePane.rawValue),

@@ -299,7 +299,10 @@ struct AgentStudioAppIPCServiceTests {
                 #expect(response.error == nil)
                 #expect(runtimePort.lastAfterSequence == 41)
                 #expect(runtimePort.lastHandle == IPCHandle(kind: .pane, reference: .canonicalUUID(paneId)))
-                let result = try decodeResponseResult(IPCTerminalWaitResult.self, from: response)
+                let receipt = try decodeResponseResult(IPCTerminalWaitResponse.self, from: response)
+                let result = receipt.observation
+                #expect(receipt.timeoutSeconds == 1)
+                #expect(receipt.wasClamped == false)
                 #expect(result.paneId == paneId)
                 #expect(result.condition == .commandFinished)
             })
@@ -730,10 +733,10 @@ private final class PreparedCommandRecordingPort: AppIPCCommandPort, @unchecked 
     }
 
     func prepareCommand(
-        _ params: IPCCommandExecutionRequest,
+        _ params: IPCRawCommandExecutionRequest,
         principal: IPCPrincipal,
         tools: AppIPCTargetResolutionTools
-    ) async throws -> AppIPCPreparedCommand {
+    ) async throws(AgentStudioAppIPCRequestError) -> AppIPCPreparedCommand {
         let prepared = try await underlying.prepareCommand(params, principal: principal, tools: tools)
         lock.withLock { preparedRequestsStorage.append(prepared.request) }
         return prepared

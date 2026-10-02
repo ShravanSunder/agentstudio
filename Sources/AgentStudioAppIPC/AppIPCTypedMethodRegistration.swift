@@ -102,113 +102,96 @@ package struct AppIPCTypedMethodRegistration<
     private let descriptor: IPCMethodDescriptor<Parameters, Result>
     private let validatedErasedDescriptor: IPCAnyMethodDescriptor
     private let correlation: AppIPCCorrelation<Parameters>
-    private let resolveTarget:
+    private let prepareAndHandle:
         @Sendable (
-            Parameters,
-            AppIPCConnectionContext,
-            AppIPCTargetResolutionTools
-        ) async throws -> AppIPCTargetResolution<Parameters>
-    private let connectionHandler:
-        @Sendable (Parameters, AppIPCConnectionContext, IPCTargetScope) async throws -> Result
+            Parameters, UUID?, AppIPCConnectionContext, AppIPCTargetResolutionTools, AppIPCTypedMethodAuthorization
+        ) async throws -> JSONValue
 
+    /// Ordinary methods keep their existing typed resolver and use identity preparation.
     package init(
         descriptorRepresentations: IPCMethodDescriptorRepresentations<Parameters, Result>,
         correlation: AppIPCCorrelation<Parameters>,
         resolveTarget:
-            @escaping @Sendable (
-                Parameters,
-                AppIPCConnectionContext,
-                AppIPCTargetResolutionTools
-            ) async throws -> AppIPCTargetResolution<Parameters>,
+            @escaping @Sendable (Parameters, AppIPCConnectionContext, AppIPCTargetResolutionTools) async throws ->
+            AppIPCTargetResolution<Parameters>,
         connectionHandler:
-            @escaping @Sendable (
-                Parameters,
-                AppIPCConnectionContext,
-                IPCTargetScope
-            ) async throws -> Result,
+            @escaping @Sendable (Parameters, AppIPCConnectionContext, IPCTargetScope) async throws -> Result,
         cachedTransportResult: AppIPCCachedTransportResult? = nil
     ) {
-        descriptor = descriptorRepresentations.typedDescriptor
-        validatedErasedDescriptor = descriptorRepresentations.erasedDescriptor
-        self.correlation = correlation
-        self.resolveTarget = resolveTarget
-        self.connectionHandler = connectionHandler
-        self.cachedTransportResult = cachedTransportResult
+        self.init(
+            descriptorRepresentations: descriptorRepresentations, correlation: correlation,
+            preparedCorrelation: correlation, prepare: { parameters, _, _ in parameters },
+            resolveTarget: resolveTarget, connectionHandler: connectionHandler,
+            cachedTransportResult: cachedTransportResult)
     }
 
-    /// Set only for a method whose answer is fixed for the runtime.
-    private let cachedTransportResult: AppIPCCachedTransportResult?
+    /// Wire parameters become a typed prepared value without introducing a
+    /// second invocation or authorization path.
+    package init<PreparedParameters: Sendable>(
+        descriptorRepresentations: IPCMethodDescriptorRepresentations<Parameters, Result>,
+        correlation: AppIPCCorrelation<Parameters>,
+        preparedCorrelation: AppIPCCorrelation<PreparedParameters>,
+        prepare:
+            @escaping @Sendable (Parameters, AppIPCConnectionContext, AppIPCTargetResolutionTools)
+            async throws(AgentStudioAppIPCRequestError) -> PreparedParameters,
+        resolveTarget:
+            @escaping @Sendable (PreparedParameters, AppIPCConnectionContext, AppIPCTargetResolutionTools) async throws
+            -> AppIPCTargetResolution<PreparedParameters>,
+        connectionHandler:
+            @escaping @Sendable (PreparedParameters, AppIPCConnectionContext, IPCTargetScope) async throws -> Result,
+        cachedTransportResult: AppIPCCachedTransportResult? = nil
+    ) {
+        let descriptor = descriptorRepresentations.typedDescriptor
+        self.descriptor = descriptor
+        validatedErasedDescriptor = descriptorRepresentations.erasedDescriptor
+        self.correlation = correlation
+        prepareAndHandle = { parameters, wireCorrelation, context, tools, authorization in
+            switch (descriptor.correlationPolicy, preparedCorrelation) {
+            case (.required, .required), (.optional, .notRequired), (.notAccepted, .notRequired): break
+            default: throw AppIPCTypedMethodRegistrationError.correlationPolicyMismatch
+            }
+            let prepared = try await prepare(parameters, context, tools)
+            try Self.validateCorrelation(in: prepared, using: preparedCorrelation, matches: wireCorrelation)
+            let resolution = try await resolveTarget(prepared, context, tools)
+            try Self.validateCorrelation(
+                in: resolution.parameters, using: preparedCorrelation, matches: wireCorrelation)
+            try Self.validateTarget(resolution.canonicalHandle, allowedKinds: descriptor.allowedTargetKinds)
+            if descriptor.principalAvailability == .authenticated {
+                guard let principal = context.principal else {
+                    throw AppIPCTypedMethodRegistrationError.authenticationRequired
+                }
+                try await authorization.authorize(
+                    principal,
+                    request: AppIPCMethodAuthorizationRequest(
+                        methodName: descriptor.name, requiredPrivileges: descriptor.requiredPrivileges,
+                        dataScope: descriptor.dataScope, target: resolution.target,
+                        additionalScopes: resolution.requiredScopes, resolvedPaneIds: resolution.resolvedPaneIds,
+                        commandId: resolution.commandId, agentArgumentRule: resolution.agentArgumentRule))
+            }
+            // Fixed runtime answers retain all access and authorization gates.
+            if let cachedTransportResult { return try cachedTransportResult.value() }
+            let result = try await connectionHandler(resolution.parameters, context, resolution.target)
+            let encoded = try descriptor.encodeResult(result)
+            do { return try JSONDecoder().decode(JSONValue.self, from: encoded) } catch {
+                throw AppIPCTypedMethodRegistrationError.resultTransportDecodingFailed
+            }
+        }
+    }
 
     package func erase() throws -> AnyAppIPCMethodRegistration {
         try validateCorrelationPolicy()
-        let erasedDescriptor = validatedErasedDescriptor
-
         return AnyAppIPCMethodRegistration(
-            descriptor: erasedDescriptor,
-            invocation: { parameters, connectionContext, tools, authorization in
-                try validateConnectionAccess(connectionContext)
-
+            descriptor: validatedErasedDescriptor,
+            invocation: { parameters, context, tools, authorization in
+                try validateConnectionAccess(context)
                 let parameterData: Data
-                do {
-                    parameterData = try JSONEncoder().encode(parameters)
-                } catch {
+                do { parameterData = try JSONEncoder().encode(parameters) } catch {
                     throw AppIPCTypedMethodRegistrationError.parameterTransportEncodingFailed
                 }
-
-                let validatedParameters = try descriptor.contract.validatedParameters(from: parameterData)
-                let normalizedParameterData = validatedParameters.json.data
-                let typedParameters = validatedParameters.value
-                let normalizedWireCorrelation = try normalizedWireCorrelationId(
-                    from: normalizedParameterData
-                )
-                try validateCorrelation(
-                    in: typedParameters,
-                    matches: normalizedWireCorrelation
-                )
-
-                let resolution = try await resolveTarget(typedParameters, connectionContext, tools)
-                try validateCorrelation(
-                    in: resolution.parameters,
-                    matches: normalizedWireCorrelation
-                )
-                try validateTarget(resolution.canonicalHandle)
-
-                if descriptor.principalAvailability == .authenticated {
-                    guard let principal = connectionContext.principal else {
-                        throw AppIPCTypedMethodRegistrationError.authenticationRequired
-                    }
-                    try await authorization.authorize(
-                        principal,
-                        request: AppIPCMethodAuthorizationRequest(
-                            methodName: descriptor.name,
-                            requiredPrivileges: descriptor.requiredPrivileges,
-                            dataScope: descriptor.dataScope,
-                            target: resolution.target,
-                            additionalScopes: resolution.requiredScopes,
-                            resolvedPaneIds: resolution.resolvedPaneIds,
-                            commandId: resolution.commandId,
-                            agentArgumentRule: resolution.agentArgumentRule
-                        )
-                    )
-                }
-
-                // Every access and authorization gate above still runs. Only
-                // the encoding of an answer that cannot differ between requests
-                // is reused.
-                if let cachedTransportResult {
-                    return try cachedTransportResult.value()
-                }
-                let typedResult = try await connectionHandler(
-                    resolution.parameters,
-                    connectionContext,
-                    resolution.target
-                )
-                let resultData = try descriptor.encodeResult(typedResult)
-                do {
-                    return try JSONDecoder().decode(JSONValue.self, from: resultData)
-                } catch {
-                    throw AppIPCTypedMethodRegistrationError.resultTransportDecodingFailed
-                }
+                let validated = try descriptor.contract.validatedParameters(from: parameterData)
+                let wireCorrelation = try normalizedWireCorrelationId(from: validated.json.data)
+                try Self.validateCorrelation(in: validated.value, using: correlation, matches: wireCorrelation)
+                return try await prepareAndHandle(validated.value, wireCorrelation, context, tools, authorization)
             })
     }
 
@@ -262,8 +245,8 @@ package struct AppIPCTypedMethodRegistration<
         }
     }
 
-    private func validateCorrelation(
-        in parameters: Parameters,
+    private static func validateCorrelation<CheckedParameters: Sendable>(
+        in parameters: CheckedParameters, using correlation: AppIPCCorrelation<CheckedParameters>,
         matches normalizedWireCorrelation: UUID?
     ) throws {
         switch correlation {
@@ -276,16 +259,16 @@ package struct AppIPCTypedMethodRegistration<
         }
     }
 
-    private func validateTarget(_ canonicalHandle: IPCHandle?) throws {
+    private static func validateTarget(_ canonicalHandle: IPCHandle?, allowedKinds: Set<IPCHandleKind>) throws {
         guard let canonicalHandle else {
-            guard descriptor.allowedTargetKinds.isEmpty else {
+            guard allowedKinds.isEmpty else {
                 throw AppIPCTypedMethodRegistrationError.targetKindNotAllowed
             }
             return
         }
 
         guard case .canonicalUUID = canonicalHandle.reference,
-            descriptor.allowedTargetKinds.contains(canonicalHandle.kind)
+            allowedKinds.contains(canonicalHandle.kind)
         else {
             throw AppIPCTypedMethodRegistrationError.targetKindNotAllowed
         }

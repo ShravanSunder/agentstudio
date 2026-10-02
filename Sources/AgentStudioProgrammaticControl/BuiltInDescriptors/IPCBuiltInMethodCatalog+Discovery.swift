@@ -41,13 +41,13 @@ extension IPCBuiltInMethodCatalog {
     /// the local wait descriptor accepts finite nonnegative durations without
     /// copying the app's maximum. App command relationships are presentation
     /// metadata, so local dispatch needs no interactive command identity.
-    /// `command.list` and `command.execute` remain live-catalog operations.
+    /// Command envelopes are resolved separately by the CLI; listing commands
+    /// is an explicit discovery operation.
     package static func locallyResolvableDescriptors(
         examples: IPCBuiltInMethodExampleContext
     ) throws -> [IPCAnyMethodDescriptor] {
         try IPCBuiltInMethodCatalog(
             inputs: .init(
-                terminalWaitUpperBound: .enforcedByServer,
                 relationships: .init(
                     paneFocus: .noInteractiveIdentity, paneClose: .noInteractiveIdentity,
                     drawerToggle: .noInteractiveIdentity, drawerAddPane: .noInteractiveIdentity,
@@ -80,19 +80,7 @@ extension IPCBuiltInMethodCatalog {
             Set(catalog.methods.map(\.name)).count == catalog.methods.count
         else { throw incompatibleCatalog() }
         let methods = Dictionary(uniqueKeysWithValues: catalog.methods.map { ($0.name, $0) })
-        let maximumWait: Double
-        if let wait = methods["terminal.wait"] {
-            guard case .object(let fields) = wait.parameterSchema,
-                case .number(_, let maximum) = fields.first(where: { $0.name == "timeoutSeconds" })?.schema,
-                let maximum
-            else { throw incompatibleCatalog() }
-            maximumWait = maximum
-        } else {
-            // This descriptor is filtered out below; no absent method supplies invocation policy.
-            maximumWait = 0
-        }
         let inputs = IPCBuiltInMethodCatalogInputs(
-            terminalWaitUpperBound: .policy(maximumSeconds: maximumWait),
             relationships: .init(
                 paneFocus: methods["pane.focus"]?.commandRelationship ?? .noInteractiveIdentity,
                 paneClose: methods["pane.close"]?.commandRelationship ?? .noInteractiveIdentity,

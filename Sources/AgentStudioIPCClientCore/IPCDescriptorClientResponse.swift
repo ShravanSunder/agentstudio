@@ -24,6 +24,12 @@ package struct IPCDescriptorRemoteFailure: Error, Sendable {
     package let correction: IPCSchemaValidationError?
     package let requiredScope: IPCPermissionScope?
     package let agentRefusal: IPCAgentRefusal?
+    package var commandCorrection: IPCCommandErrorCorrection?
+}
+
+package enum IPCCommandErrorCorrection: Equatable, Sendable {
+    case invalidArguments(fieldPath: String, expected: String)
+    case unknownCommand(commandId: String, closestMatches: [String])
 }
 
 /// The app refused a pane agent by name. Only the two agent outcomes and a

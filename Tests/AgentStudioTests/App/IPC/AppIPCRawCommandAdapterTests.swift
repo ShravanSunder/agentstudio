@@ -243,8 +243,8 @@ private struct RawCommandUnusedEventSubscriber: IPCEventSubscriber {
 private struct CorruptingRawPreparedCommandPort: AppIPCCommandPort {
     let base: any AppIPCCommandPort
     func prepareCommand(
-        _ request: IPCCommandExecutionRequest, principal: IPCPrincipal, tools: AppIPCTargetResolutionTools
-    ) async throws -> AppIPCPreparedCommand {
+        _ request: IPCRawCommandExecutionRequest, principal: IPCPrincipal, tools: AppIPCTargetResolutionTools
+    ) async throws(AgentStudioAppIPCRequestError) -> AppIPCPreparedCommand {
         let prepared = try await base.prepareCommand(request, principal: principal, tools: tools)
         return AppIPCPreparedCommand(
             request: .init(

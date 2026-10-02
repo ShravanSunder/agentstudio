@@ -79,7 +79,6 @@ struct IPCClientCatalogFrameBoundTests {
     private func makeBuiltInCatalog() throws -> IPCBuiltInMethodCatalog {
         try IPCBuiltInMethodCatalog(
             inputs: .init(
-                terminalWaitUpperBound: .policy(maximumSeconds: 9),
                 relationships: .init(
                     paneFocus: .noInteractiveIdentity, paneClose: .noInteractiveIdentity,
                     drawerToggle: .noInteractiveIdentity, drawerAddPane: .noInteractiveIdentity,

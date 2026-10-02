@@ -28,7 +28,6 @@ struct AppIPCDescriptorCatalogBuilderTests {
     private static func makeBuiltInMethodCatalog() throws -> IPCBuiltInMethodCatalog {
         try IPCBuiltInMethodCatalog(
             inputs: IPCBuiltInMethodCatalogInputs(
-                terminalWaitUpperBound: .policy(maximumSeconds: 10),
                 relationships: IPCBuiltInMethodRelationshipInputs(
                     paneFocus: .noInteractiveIdentity,
                     paneClose: .noInteractiveIdentity,

@@ -13,6 +13,24 @@ package struct AgentStudioAppIPCRequestError: Error, Equatable, Sendable {
         self.data = data
     }
 
+    package static func invalidCommandArguments(_ correction: IPCSchemaValidationError) -> Self {
+        .init(
+            code: -32_602, message: "invalid arguments",
+            data: .object([
+                "reason": .string("invalidArguments"), "fieldPath": .string(correction.fieldPath),
+                "expected": .string(correction.expected),
+            ]))
+    }
+
+    package static func unknownCommand(commandId: String, closestMatches: [String]) -> Self {
+        .init(
+            code: -32_003, message: "unsupported capability",
+            data: .object([
+                "reason": .string("unknownCommand"), "commandId": .string(commandId),
+                "closestMatches": .array(closestMatches.prefix(5).map(JSONValue.string)),
+            ]))
+    }
+
     static let unauthenticated = Self(code: -32_001, message: "unauthenticated")
     static let unauthorized = Self(code: -32_002, message: "unauthorized")
     static let methodNotFound = Self(
@@ -31,6 +49,8 @@ package struct AgentStudioAppIPCRequestError: Error, Equatable, Sendable {
 extension AgentStudioAppIPCRequestError {
     package init(_ error: Error) {
         switch error {
+        case let requestError as Self:
+            self = requestError
         case let authorizationError as AuthorizationError:
             self.init(authorizationError)
         case let queryError as AppIPCQueryError:

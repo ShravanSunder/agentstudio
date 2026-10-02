@@ -4,7 +4,7 @@ package struct IPCTerminalMethodDescriptors: Sendable {
     package let terminalStatus: IPCMethodDescriptor<IPCPaneSelectorParams, IPCTerminalStatusResult>
     package let terminalSend: IPCMethodDescriptor<IPCTerminalSendParams, IPCTerminalSendInputResult>
     package let terminalSnapshot: IPCMethodDescriptor<IPCPaneSelectorParams, IPCTerminalSnapshotResult>
-    package let terminalWait: IPCMethodDescriptor<IPCTerminalWaitParams, IPCTerminalWaitResult>
+    package let terminalWait: IPCMethodDescriptor<IPCTerminalWaitParams, IPCTerminalWaitResponse>
 
     init(inputs: IPCBuiltInMethodCatalogInputs) throws {
         let example = inputs.examples
@@ -80,32 +80,33 @@ package struct IPCTerminalMethodDescriptors: Sendable {
 
     private static func makeWaitDescriptor(
         inputs: IPCBuiltInMethodCatalogInputs
-    ) throws -> IPCMethodDescriptor<IPCTerminalWaitParams, IPCTerminalWaitResult> {
+    ) throws -> IPCMethodDescriptor<IPCTerminalWaitParams, IPCTerminalWaitResponse> {
         let waitParameters = IPCTerminalWaitParams(
             handle: "self",
             condition: .titleChanged,
-            timeoutSeconds: inputs.terminalWaitUpperBound.exampleTimeoutSeconds,
+            timeoutSeconds: 1,
             afterSequence: nil
         )
         return try IPCMethodDescriptor(
             name: "terminal.wait",
             description: "Wait for one bounded terminal condition.",
-            parameterSchema: try Self.waitParameterSchema(upperBound: inputs.terminalWaitUpperBound),
-            resultSchema: try IPCTerminalWaitResult.ipcSchema(),
+            parameterSchema: try Self.waitParameterSchema(),
+            resultSchema: try IPCTerminalWaitResponse.ipcSchema(),
             examples: [
                 .init(
                     description: "Wait for the title to change",
                     parameters: waitParameters,
-                    result: IPCTerminalWaitResult(
-                        paneId: inputs.examples.paneId,
-                        condition: .titleChanged,
-                        eventName: .terminalTitleChanged,
-                        commandId: nil,
-                        correlationId: nil,
-                        exitCode: nil,
-                        duration: nil,
-                        healthy: nil
-                    )
+                    result: IPCTerminalWaitResponse(
+                        observation: IPCTerminalWaitResult(
+                            paneId: inputs.examples.paneId,
+                            condition: .titleChanged,
+                            eventName: .terminalTitleChanged,
+                            commandId: nil,
+                            correlationId: nil,
+                            exitCode: nil,
+                            duration: nil,
+                            healthy: nil
+                        ), timeoutSeconds: 1, wasClamped: false)
                 )
             ],
             exposure: .allChannels,
@@ -145,15 +146,17 @@ package struct IPCTerminalMethodDescriptors: Sendable {
         ]
     }
 
-    private static func waitParameterSchema(upperBound: IPCTerminalWaitUpperBound) throws -> IPCJSONSchema {
+    private static func waitParameterSchema() throws -> IPCJSONSchema {
         .object(fields: [
             IPCRequestSchemaFields.pane(),
             .init(
                 name: "condition", description: "Terminal condition to observe",
                 schema: try IPCTerminalWaitCondition.ipcSchema()),
             .init(
-                name: "timeoutSeconds", description: "Finite bounded wait duration in seconds",
-                schema: upperBound.parameterSchema),
+                name: "timeoutSeconds",
+                description:
+                    "Finite nonnegative wait duration in seconds; the server clamps to its policy maximum and reports the effective timeout",
+                schema: .number(minimum: 0)),
             .optional(
                 "afterSequence", description: "Observe only events after this terminal sequence",
                 schema: IPCSchemaScalars.unsignedInteger),

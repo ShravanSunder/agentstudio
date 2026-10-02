@@ -147,7 +147,7 @@ struct AppIPCDynamicCommandClientTests {
                 )
             )
             #expect(wrongVariantResponse.error?.code == -32_602)
-            #expect(wrongVariantResponse.error?.message == "invalid params")
+            #expect(wrongVariantResponse.error?.message == "invalid arguments")
             #expect(scenario.commandPort.receivedExecutionRequests.isEmpty)
         })
     }
@@ -268,7 +268,7 @@ struct AppIPCDynamicCommandClientTests {
             })
     }
 
-    @Test("built CLI renders an unknown dynamic command correction without reflecting its identifier")
+    @Test("built CLI preserves the app unknown-command identifier and visible suggestions")
     func builtCLIRendersUnknownDynamicCommandCorrection() async throws {
         try await DynamicCommandScenario.withScope(body: { scenario in
             try scenario.fixture.server.start()
@@ -290,11 +290,12 @@ struct AppIPCDynamicCommandClientTests {
             )
             let unknownError = try requireStructuredCLIError(unknown)
             #expect(unknownError.reason == "unknownCommand")
-            #expect(unknownError.fieldPath == "$.commandId")
-            #expect(unknownError.catalogMethod == "command.list")
-            #expect(unknownError.expected == "an identifier advertised by command.list")
+            #expect(unknownError.fieldPath == nil)
+            #expect(unknownError.catalogMethod == nil)
+            #expect(unknownError.commandId == privateMarker)
+            #expect(unknownError.closestMatches == [scenario.commandId.rawValue])
             let standardError = try #require(String(data: unknown.standardError, encoding: .utf8))
-            #expect(!standardError.contains(privateMarker))
+            #expect(standardError.contains(privateMarker))
         })
     }
 
@@ -319,10 +320,10 @@ struct AppIPCDynamicCommandClientTests {
                     environment: makeCLIEnvironment(for: scenario)
                 )
                 let wrongVariantError = try requireStructuredCLIError(wrongVariant)
-                #expect(wrongVariantError.reason == "invalidParams")
+                #expect(wrongVariantError.reason == "invalidArguments")
                 #expect(wrongVariantError.fieldPath == "$.arguments.kind")
-                #expect(wrongVariantError.expected == "an argument variant advertised for the selected command")
-                #expect(wrongVariantError.catalogMethod == "command.list")
+                #expect(wrongVariantError.expected == "one admitted argument kind: noArguments")
+                #expect(wrongVariantError.catalogMethod == nil)
                 let standardError = try #require(String(data: wrongVariant.standardError, encoding: .utf8))
                 #expect(!standardError.contains(privateRepositoryIdentifier.uuidString))
             })
@@ -671,6 +672,8 @@ private struct StructuredCLIError: Decodable {
     let catalogMethod: String?
     let requiredScope: IPCPermissionScope?
     let refusedName: String?
+    let commandId: String?
+    let closestMatches: [String]?
 }
 
 private func makeCLIEnvironment(for scenario: DynamicCommandScenario) -> [String: String] {

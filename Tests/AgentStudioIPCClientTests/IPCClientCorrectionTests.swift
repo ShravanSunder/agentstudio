@@ -243,7 +243,6 @@ private func makeClientBuiltInMethodCatalog() throws -> IPCBuiltInMethodCatalog 
 
     return try IPCBuiltInMethodCatalog(
         inputs: IPCBuiltInMethodCatalogInputs(
-            terminalWaitUpperBound: .policy(maximumSeconds: 9),
             relationships: relationships,
             examples: examples
         )

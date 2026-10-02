@@ -15,6 +15,8 @@ package struct IPCCommandMethodComposition: Sendable {
             description: "The command envelope or selected typed arguments are invalid."
         ),
         IPCMethodErrorCase(
+            reason: "invalidArguments", description: "Raw argument strings do not match the selected command spec."),
+        IPCMethodErrorCase(
             reason: "missingGrant",
             description: "The principal lacks a required canonical command scope."
         ),
@@ -47,11 +49,11 @@ package struct IPCCommandMethodComposition: Sendable {
     package let commands: [IPCCommandDescriptor]
     package let catalogResult: IPCCommandCatalogResult
     package let list: IPCMethodDescriptor<IPCEmptyParams, IPCCommandCatalogResult>
-    package let execute: IPCMethodDescriptor<IPCCommandExecutionRequest, IPCCommandExecutionResult>
+    package let execute: IPCMethodDescriptor<IPCRawCommandExecutionRequest, IPCCommandExecutionResult>
     package let listRepresentations: IPCMethodDescriptorRepresentations<IPCEmptyParams, IPCCommandCatalogResult>
     package let executeRepresentations:
         IPCMethodDescriptorRepresentations<
-            IPCCommandExecutionRequest,
+            IPCRawCommandExecutionRequest,
             IPCCommandExecutionResult
         >
 
@@ -81,12 +83,11 @@ package struct IPCCommandMethodComposition: Sendable {
             compatibility: compatibility,
             commands: commands
         )
-        let argumentVariants = Self.uniqueArgumentVariants(in: commands)
         let resultVariants = Self.uniqueResultVariants(in: commands)
-        let methodExamples = commands.flatMap(\.examples).map {
+        let methodExamples = try commands.flatMap(\.examples).map {
             IPCMethodExample(
                 description: $0.description,
-                parameters: $0.request,
+                parameters: try IPCRawCommandExecutionRequest(typedRequest: $0.request),
                 result: $0.result
             )
         }
@@ -117,8 +118,7 @@ package struct IPCCommandMethodComposition: Sendable {
             agentEligibility: .anyTarget
         )
         let execute = try Self.makeExecute(
-            description: "Execute one available App command through its typed arguments.",
-            argumentVariants: argumentVariants,
+            description: "Execute one available App command with raw strings parsed against its owning spec.",
             resultVariants: resultVariants,
             examples: methodExamples,
             allowedTargetKinds: Set(commands.flatMap(\.allowedTargetKinds))
@@ -139,38 +139,29 @@ package struct IPCCommandMethodComposition: Sendable {
         self.executeRepresentations = executeRepresentations
     }
 
-    /// The `command.execute` shape a client uses for a command the app
-    /// recognizes but this channel hides. The channel's catalog carries no
-    /// descriptor for such a command, so its request is typed against every
-    /// argument variant this build compiles; the app refuses a hidden command
-    /// by name before it validates arguments. A client uses it only for an
-    /// identifier the app listed as recognized and hidden; it is never
-    /// registered by the server.
-    package static func recognizedHiddenExecute() throws
-        -> IPCMethodDescriptor<IPCCommandExecutionRequest, IPCCommandExecutionResult>
+    /// The compiled raw command envelope accepts any command name; only App
+    /// knows its spec, channel visibility and argument validation.
+    package static func compiledExecute() throws
+        -> IPCMethodDescriptor<IPCRawCommandExecutionRequest, IPCCommandExecutionResult>
     {
         try makeExecute(
-            description: "Name one App command this channel hides so the app refuses it by name.",
-            argumentVariants: IPCCommandArgumentVariant.allCases,
-            resultVariants: IPCCommandResultVariant.allCases,
-            examples: [],
-            allowedTargetKinds: Set(IPCHandleKind.allCases)
-        )
+            description: "Execute one App command with raw strings parsed against its owning spec.",
+            resultVariants: IPCCommandResultVariant.allCases, examples: [],
+            allowedTargetKinds: Set(IPCHandleKind.allCases))
     }
 
     // Each command's own `agentEligibility` decides admission; the method
     // itself only carries the pane-scoped class.
     private static func makeExecute(
         description: String,
-        argumentVariants: [IPCCommandArgumentVariant],
         resultVariants: [IPCCommandResultVariant],
-        examples: [IPCMethodExample<IPCCommandExecutionRequest, IPCCommandExecutionResult>],
+        examples: [IPCMethodExample<IPCRawCommandExecutionRequest, IPCCommandExecutionResult>],
         allowedTargetKinds: Set<IPCHandleKind>
-    ) throws -> IPCMethodDescriptor<IPCCommandExecutionRequest, IPCCommandExecutionResult> {
+    ) throws -> IPCMethodDescriptor<IPCRawCommandExecutionRequest, IPCCommandExecutionResult> {
         try IPCMethodDescriptor(
             name: "command.execute",
             description: description,
-            parameterSchema: try IPCCommandExecutionRequest.ipcSchema(allowing: argumentVariants),
+            parameterSchema: try IPCRawCommandExecutionRequest.ipcSchema(),
             resultSchema: try IPCCommandExecutionResult.ipcSchema(allowing: resultVariants),
             examples: examples,
             exposure: .allChannels,
@@ -186,12 +177,6 @@ package struct IPCCommandMethodComposition: Sendable {
             correlationPolicy: .required,
             agentEligibility: .ownPane
         )
-    }
-
-    private static func uniqueArgumentVariants(
-        in commands: [IPCCommandDescriptor]
-    ) -> [IPCCommandArgumentVariant] {
-        Array(Set(commands.flatMap(\.argumentVariants))).sorted { $0.rawValue < $1.rawValue }
     }
 
     private static func uniqueResultVariants(

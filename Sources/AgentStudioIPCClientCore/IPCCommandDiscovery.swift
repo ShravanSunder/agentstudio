@@ -250,7 +250,7 @@ package struct IPCCommandDiscovery: Sendable {
     /// See `IPCDiscoveredCommandCatalog.requestEnvelopeDescriptor`.
     private static func compiledRequestEnvelope() throws -> IPCAnyMethodDescriptor {
         do {
-            return try IPCAnyMethodDescriptor(erasing: IPCCommandMethodComposition.recognizedHiddenExecute())
+            return try IPCAnyMethodDescriptor(erasing: IPCCommandMethodComposition.compiledExecute())
         } catch {
             throw failure(
                 .invalidCommandCatalog,
@@ -418,7 +418,8 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
         through descriptor: IPCAnyMethodDescriptor
     ) throws -> IPCValidatedJSON {
         do {
-            return try descriptor.normalizeParameters(JSONEncoder().encode(request))
+            return try descriptor.normalizeParameters(
+                JSONEncoder().encode(IPCRawCommandExecutionRequest(typedRequest: request)))
         } catch {
             throw IPCCommandDiscovery.failure(
                 .argumentVariantNotAllowed,
@@ -456,11 +457,11 @@ package struct IPCDiscoveredCommandCatalog: Sendable {
                 expected: "the command.execute descriptor used by this live catalog"
             )
         }
-        let request: IPCCommandExecutionRequest
+        let request: IPCRawCommandExecutionRequest
         let result: IPCCommandExecutionResult
         do {
             request = try JSONDecoder().decode(
-                IPCCommandExecutionRequest.self,
+                IPCRawCommandExecutionRequest.self,
                 from: invocation.normalizedParameters.data(
                     validatedFor: executeDescriptor.metadata.parameterSchema
                 )
