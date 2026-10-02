@@ -3,6 +3,9 @@ import Darwin
 import Foundation
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 /// `ZmxTestHarness`'s session-settlement waits, split into their own file
 /// (the repo's line-length ceiling, same precedent as
