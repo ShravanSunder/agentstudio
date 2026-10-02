@@ -88,6 +88,19 @@ struct ForegroundObservationRepositoryTests {
         #expect(columns.allSatisfy { ["TEXT", "INTEGER"].contains($0.type) })
     }
 
+    @Test("the migration carries no non-boolean CHECK on sequence (owner rule: CHECK only for booleans)")
+    func sequenceColumnCarriesNoCheckConstraint() async throws {
+        let fixture = try ForegroundRepositoryFixture()
+        let tableSQL = try await fixture.database.read { database in
+            try String.fetchOne(
+                database,
+                sql:
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'terminal_pane_foreground_observation'"
+            )
+        }
+        #expect(!(tableSQL ?? "").contains("CHECK (sequence"))
+    }
+
     @Test("invalid stored session identity is dropped instead of becoming evidence")
     func corruptedIdentityIsNoObservation() async throws {
         let fixture = try ForegroundRepositoryFixture()

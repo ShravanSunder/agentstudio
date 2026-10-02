@@ -7,6 +7,7 @@ import AgentStudioTestHarness
 import AgentStudioTestSupport
 import Foundation
 import GRDB
+import Synchronization
 import Testing
 
 @testable import AgentStudio
@@ -196,9 +197,16 @@ struct CLILifecycleReadinessTests {
             }
             #expect(readerFailure == (corrupt ? .unavailable : .superseded))
             let readiness = makeLifecycleReadiness()
+            // F1 (review round 1, 2026-10-01): a boundary failure must still
+            // run the launch sweep exactly once, matching main's "the launch
+            // sweep is unchanged" (PD 8) -- it ran unconditionally before the
+            // server existed, not only on the happy path.
+            let prepareForLaunchInvocationCount = Mutex(0)
             await AppIPCDeferredInitialization.prepareResumeReadiness(
-                readiness: readiness, intake: fixture.intake(), prepareForLaunch: {})
+                readiness: readiness, intake: fixture.intake(),
+                prepareForLaunch: { prepareForLaunchInvocationCount.withLock { $0 += 1 } })
             #expect(await readiness.wait(paneId: fixture.paneID) == .unavailable)
+            #expect(prepareForLaunchInvocationCount.withLock { $0 } == 1)
             await readiness.shutdown()
         }
     }

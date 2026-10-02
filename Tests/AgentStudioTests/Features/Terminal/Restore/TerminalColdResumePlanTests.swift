@@ -31,18 +31,76 @@ struct TerminalColdResumePlanTests {
     }
 
     @Test(
-        "known exited produces no resume and no one-line notice",
+        "known exited keeps R1's own notice lines untouched and still carries no resume",
         arguments: [ProviderEndReason.personExit, .providerOther, .notGiven, .unrecognized])
-    func knownExitedIsSilent(reason: ProviderEndReason) throws {
+    func knownExitedKeepsR1sNoticeUntouched(reason: ProviderEndReason) throws {
         let base = try resumeReadinessBasePlan(resumeReadinessDescriptor())
         let plan = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
             .knownExited(reason),
             providerIdentifier: "claude-code", providerSessionId: UUIDv7.generate().uuidString, to: base)
         #expect(plan.resume == nil)
-        let everyCandidateNoticeIsEmpty = plan.notice.linesByCandidateIndex.allSatisfy { $0.isEmpty }
-        #expect(everyCandidateNoticeIsEmpty)
+        // F5 (review round 1, 2026-10-01; RS2, SR3): an empty outcome text
+        // composes onto R1's own line, leaving it exactly as R1 wrote it --
+        // never replacing it with an empty string.
+        #expect(plan.notice.linesByCandidateIndex == base.notice.linesByCandidateIndex)
         #expect(plan.folderCandidates == base.folderCandidates)
         #expect(plan.attemptID == base.attemptID)
+    }
+
+    @Test("the R3 outcome composes onto R1's own notice line instead of replacing it")
+    func outcomeComposesOntoR1sNoticeInsteadOfReplacingIt() throws {
+        // Arrange -- three candidates, including the repository-main-folder
+        // fallback line the review named explicitly, each carrying its own
+        // distinct R1 text so a replacement (instead of a composition)
+        // would be unmistakable.
+        let base = TerminalColdRestorePlan(
+            zmxExecutable: URL(fileURLWithPath: "/unused/zmx"),
+            zmxDirectory: URL(fileURLWithPath: "/unused/zmx-root"),
+            sessionID: try #require(ZmxSessionID(restoring: "as-f5-compose-test")),
+            loginShell: URL(fileURLWithPath: "/bin/zsh"),
+            folderCandidates: [
+                URL(fileURLWithPath: "/tmp/saved"), URL(fileURLWithPath: "/tmp/repo-main"),
+                URL(fileURLWithPath: "/tmp/home"),
+            ],
+            notice: ColdRestoreNotice(linesByCandidateIndex: [
+                "Restored after restart",
+                "Restored after restart (saved folder missing; using the repository's main folder)",
+                "Restored after restart (saved and repository folders missing; using the home folder)",
+            ]),
+            replayFile: nil, resume: nil, attemptID: .generate())
+
+        // Assert -- `.knownExited`: empty outcome text, R1 lines unchanged.
+        let knownExited = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
+            .knownExited(.personExit), providerIdentifier: "claude-code",
+            providerSessionId: UUIDv7.generate().uuidString, to: base)
+        #expect(knownExited.resume == nil)
+        #expect(knownExited.notice.linesByCandidateIndex == base.notice.linesByCandidateIndex)
+
+        // Assert -- `.interruptedCandidate`: "R1 line\noutcome" for every candidate.
+        let text = UUIDv7.generate().uuidString
+        let invocation = ResumeInvocation(provider: .codex, sessionId: try ProviderSessionId(rawValue: text))
+        let interrupted = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
+            .interruptedCandidate(invocation), providerIdentifier: "codex", providerSessionId: text, to: base)
+        let interruptedOutcome = "Resumed Codex session \(text.prefix(8)) after restart"
+        for (index, line) in interrupted.notice.linesByCandidateIndex.enumerated() {
+            #expect(line == "\(base.notice.linesByCandidateIndex[index])\n\(interruptedOutcome)")
+        }
+
+        // Assert -- `.unknown`: "R1 line\noutcome" for every candidate.
+        let unknown = TerminalColdRestorePlanBuilder.applyingResumeEvidence(
+            .unknown(.noObservation), providerIdentifier: "codex", providerSessionId: text, to: base)
+        let unknownOutcome = "Could not determine whether Codex session \(text.prefix(8)) exited; resume it manually."
+        for (index, line) in unknown.notice.linesByCandidateIndex.enumerated() {
+            #expect(line == "\(base.notice.linesByCandidateIndex[index])\n\(unknownOutcome)")
+        }
+
+        // Assert -- the unchecked notice: "R1 line\noutcome" for every candidate.
+        let uncheckedAgentState = TerminalColdRestorePlanBuilder.applyingUncheckedAgentStateNotice(to: base)
+        let uncheckedOutcome =
+            "Agent state couldn't be checked before restore; if an agent was running here, resume it manually."
+        for (index, line) in uncheckedAgentState.notice.linesByCandidateIndex.enumerated() {
+            #expect(line == "\(base.notice.linesByCandidateIndex[index])\n\(uncheckedOutcome)")
+        }
     }
 
     @Test(

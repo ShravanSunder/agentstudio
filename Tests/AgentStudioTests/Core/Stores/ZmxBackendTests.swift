@@ -750,6 +750,31 @@ final class ZmxBackendTests {
         #expect(script.contains("unset"))
     }
 
+    @Test
+    func test_buildColdRestoreCommand_resumeScriptIsShellNeutral() throws {
+        // Arrange -- F4 (review round 1, 2026-10-01; PD 9 template): a plain
+        // `;` sequence works in sh, bash, zsh and fish, and a failing resume
+        // still reaches `exec`. `if ...; then :; else :; fi` is a bashism
+        // that `sh`/`dash` (what `buildColdRestoreCommand` actually `-c`s
+        // into) does not uniformly accept the same way across shells.
+        let text = UUIDv7.generate().uuidString
+        let invocation = ResumeInvocation(provider: .codex, sessionId: try ProviderSessionId(rawValue: text))
+        let plan = makeColdRestorePlan(loginShellPath: "/bin/zsh", resume: invocation)
+
+        // Act
+        let command = ZmxBackend.buildColdRestoreCommand(plan)
+        let script = rawColdRestoreScript(command: command, plan: plan)
+
+        // Assert -- build the expected clause with the same `shellEscape`
+        // the production code uses, rather than re-deriving the quoting.
+        let resumeArgv = invocation.argv.map(ZmxBackend.shellEscape).joined(separator: " ")
+        let loginShellInvocation = "\(ZmxBackend.shellEscape(plan.loginShell.path)) -i -l"
+        let resumeScript = "\(resumeArgv); exec \(loginShellInvocation)"
+        let expectedResumeClause = "exec \(loginShellInvocation) -c \(ZmxBackend.shellEscape(resumeScript))"
+        #expect(script.contains(expectedResumeClause))
+        #expect(!script.contains("then :; else :; fi"))
+    }
+
     /// Extracts and un-escapes `buildColdRestoreCommand`'s inner script from
     /// its full output. The script is itself one shell-escaped argument (its
     /// own internal quoting, e.g. around a folder path, is doubled by that
@@ -787,7 +812,8 @@ final class ZmxBackendTests {
         loginShellPath: String = "/bin/zsh",
         folderCandidates: [URL] = [URL(fileURLWithPath: "/tmp/home")],
         noticeLines: [String] = ["Restored after restart"],
-        attemptID: ColdRestoreAttemptID = .generate()
+        attemptID: ColdRestoreAttemptID = .generate(),
+        resume: ResumeInvocation? = nil
     ) -> TerminalColdRestorePlan {
         TerminalColdRestorePlan(
             zmxExecutable: URL(fileURLWithPath: zmxExecutablePath),
@@ -797,7 +823,7 @@ final class ZmxBackendTests {
             folderCandidates: folderCandidates,
             notice: ColdRestoreNotice(linesByCandidateIndex: noticeLines),
             replayFile: nil,
-            resume: nil,
+            resume: resume,
             attemptID: attemptID
         )
     }
