@@ -1,4 +1,3 @@
-import AgentStudioPrimitives
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -33,14 +32,7 @@ struct IPCBuiltInMethodIndexTests {
     }
 
     private var inputs: IPCBuiltInMethodCatalogInputs {
-        .init(
-            relationships: .init(
-                paneFocus: .appCommand(identifier: "focusPane"), paneClose: .appCommand(identifier: "closePane"),
-                drawerToggle: .appCommand(identifier: "toggleDrawer"),
-                drawerAddPane: .appCommandParameter(field: "content"),
-                bridgeDiffLoad: .appCommand(identifier: "openReview"),
-                bridgeFileViewOpen: .appCommand(identifier: "openFile")
-            ), examples: .init(illustrativeIdentifier: UUIDv7.generate()))
+        IPCBuiltInMethodCatalogTestFixture.makeInputs()
     }
 
     private var expectedStaticMethodNames: [String] {

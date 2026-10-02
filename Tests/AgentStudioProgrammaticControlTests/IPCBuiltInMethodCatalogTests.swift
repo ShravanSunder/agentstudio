@@ -291,38 +291,15 @@ struct IPCBuiltInMethodCatalogTests {
     }
 
     private var relationships: IPCBuiltInMethodRelationshipInputs {
-        .init(
-            paneFocus: .appCommand(identifier: "fixture.pane-focus"),
-            paneClose: .appCommand(identifier: "fixture.pane-close"),
-            drawerToggle: .appCommand(identifier: "fixture.drawer-toggle"),
-            drawerAddPane: .appCommand(identifier: "fixture.drawer-add"),
-            bridgeDiffLoad: .appCommand(identifier: "fixture.bridge-review-open"),
-            bridgeFileViewOpen: .appCommand(identifier: "fixture.bridge-files-open")
-        )
+        IPCBuiltInMethodCatalogTestFixture.relationships
     }
 
     private var fixtureContext: IPCBuiltInMethodExampleContext {
-        .init(
-            runtimeId: UUIDv7.generate(),
-            windowId: UUIDv7.generate(),
-            workspaceId: UUIDv7.generate(),
-            repositoryId: UUIDv7.generate(),
-            worktreeId: UUIDv7.generate(),
-            tabId: UUIDv7.generate(),
-            paneId: UUIDv7.generate(),
-            commandId: UUIDv7.generate(),
-            correlationId: UUIDv7.generate(),
-            subscriptionId: UUIDv7.generate()
-        )
+        IPCBuiltInMethodCatalogTestFixture.makeExampleContext()
     }
 
     private func makeCatalog(waitMaximum: Double) throws -> IPCBuiltInMethodCatalog {
-        try IPCBuiltInMethodCatalog(
-            inputs: .init(
-                relationships: relationships,
-                examples: fixtureContext
-            )
-        )
+        try IPCBuiltInMethodCatalog(inputs: IPCBuiltInMethodCatalogTestFixture.makeInputs())
     }
 
     private func encodedObject(_ value: [String: Any]) throws -> Data {
