@@ -58,7 +58,9 @@ extension PaneContextService {
             let now = wallNow
             try await sqliteAccess.write { database in try PaneContextStorage.purgeRetired(database, now: now()) }
             await refreshDeadline()
-        } catch { /* Retired panes remain refused; the next demand retries the purge. */  }
+        } catch {
+            // Retired panes remain refused; the next demand retries the purge.
+        }
     }
 
     func refreshDeadline() async {
@@ -94,7 +96,9 @@ extension PaneContextService {
                 }
             }
             await deadlineScheduler?.schedule(after: deadline.map { .seconds(max(0, $0.timeIntervalSince(wallNow()))) })
-        } catch { /* A later demand retries the deadline read. */  }
+        } catch {
+            // A later demand retries the deadline read.
+        }
     }
 
     func deadlineReached() async {
@@ -125,7 +129,9 @@ extension PaneContextService {
             }
             for (key, commit) in commits { await acceptSettlement(commit, key: key) }
             await refreshDeadline()
-        } catch { /* The next demand retries; no outcome is published without a commit. */  }
+        } catch {
+            // The next demand retries; no outcome is published without a commit.
+        }
     }
 
     package func sessionEnded(bindingGenerationId: UUID) async {
@@ -177,7 +183,9 @@ extension PaneContextService {
             for (key, commit) in commits { await acceptSettlement(commit, key: key) }
             await agentLineSink(nil, bindingGenerationId)
             await refreshDeadline()
-        } catch { /* Persistent state is unchanged on a failed transaction. */  }
+        } catch {
+            // Persistent state is unchanged on a failed transaction.
+        }
     }
 
     package func stop() async {

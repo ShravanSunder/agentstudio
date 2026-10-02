@@ -33,6 +33,7 @@ package actor PaneContextService: PaneContextDetailReading, PaneContextPersonAct
     let openAskSink: @Sendable (PaneContextOpenAskUpdate) async -> Void
     let agentLineSink: @Sendable (AgentLineWork?, UUID) async -> Void
     let actionRunner: @Sendable (MessageAction) async -> MessageActionResult
+    let presentationLane: PaneContextPublicationLane?
 
     nonisolated let retirementMailbox = PaneContextRetirementMailboxBox()
     nonisolated let retirementWake: AsyncStream<Void>.Continuation
@@ -58,6 +59,7 @@ package actor PaneContextService: PaneContextDetailReading, PaneContextPersonAct
         sessionSummary: @escaping @Sendable (PaneId) async throws -> SessionSummary? = { _ in nil },
         openAskSink: @escaping @Sendable (PaneContextOpenAskUpdate) async -> Void = { _ in },
         agentLineSink: @escaping @Sendable (AgentLineWork?, UUID) async -> Void = { _, _ in },
+        presentationLane: PaneContextPublicationLane? = nil,
         actionRunner: @escaping @Sendable (MessageAction) async -> MessageActionResult = { _ in
             .unavailable(.databaseUnavailable)
         }
@@ -71,6 +73,7 @@ package actor PaneContextService: PaneContextDetailReading, PaneContextPersonAct
         self.openAskSink = openAskSink
         self.agentLineSink = agentLineSink
         self.actionRunner = actionRunner
+        self.presentationLane = presentationLane
         let wake = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         retirementStream = wake.stream
         retirementWake = wake.continuation
@@ -124,8 +127,9 @@ package actor PaneContextService: PaneContextDetailReading, PaneContextPersonAct
             retirementDrain = Task { [weak self, retirementStream] in
                 for await _ in retirementStream {
                     guard !Task.isCancelled, let self else { return }
-                    do { try await self.drainRetirements() } catch
-                    { /* Keep refusing the retired pane; the next demand retries persistence. */  }
+                    do { try await self.drainRetirements() } catch {
+                        // Keep refusing the retired pane; the next demand retries persistence.
+                    }
                 }
             }
         }
